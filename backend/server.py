@@ -1860,6 +1860,198 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             })
             return
 
+        if path.startswith("/api/devices/") and "/cisco-ports" in path:
+            # GET /api/devices/:id/cisco-ports/stats?portId=... or /api/devices/:id/cisco-ports/...
+            parts = path.split("/")
+            dev_id = parts[3]
+            device = next((d for d in data.get("devices", []) if str(d.get("id")) == str(dev_id) or d.get("name") == dev_id), None)
+            if not device:
+                self._send_json(404, {"success": False, "connected": False, "error": "Device not found", "message": "دستگاه مورد نظر یافت نشد"})
+                return
+
+            qs = parse_qs(url.query)
+            port_id = ""
+            for qk in ["portId", "port", "name", "interface"]:
+                if qk in qs and qs[qk]:
+                    port_id = qs[qk][0]
+                    break
+
+            if not port_id and len(parts) > 5:
+                sub_parts = parts[4:]
+                if sub_parts and sub_parts[0] == "cisco-ports":
+                    sub_parts = sub_parts[1:]
+                if sub_parts and sub_parts[-1] == "stats":
+                    sub_parts = sub_parts[:-1]
+                port_id = "/".join(sub_parts)
+
+            port_id = unquote(port_id).strip()
+
+            conn_mode = device.get("connection_mode", "ssh")
+            if conn_mode == "simulator":
+                self._send_json(200, {
+                    "success": True,
+                    "connected": True,
+                    "telemetry_source": "ssh",
+                    "protocol_badge": "CLI / Simulator",
+                    "protocol_badge_fa": "شبیه‌ساز سیسکو",
+                    "device_id": str(device.get("id")),
+                    "device_name": device.get("name", "Cisco Switch"),
+                    "port_id": port_id or "GigabitEthernet0/1",
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "latency_ms": 1.2,
+                    "in_bps": 1250000,
+                    "out_bps": 2500000,
+                    "in_rate_formatted": "1.25 Mbps",
+                    "out_rate_formatted": "2.50 Mbps",
+                    "in_pps": 150,
+                    "out_pps": 280,
+                    "in_bytes": 10485760,
+                    "out_bytes": 20971520,
+                    "in_bytes_formatted": "10.0 MB",
+                    "out_bytes_formatted": "20.0 MB",
+                    "in_packets": 15000,
+                    "out_packets": 28000,
+                    "in_errors": 0,
+                    "out_errors": 0,
+                    "in_discards": 0,
+                    "out_discards": 0,
+                    "crc_errors": 0,
+                    "collisions": 0,
+                    "status": "up",
+                    "line_protocol": "up",
+                    "speed": "1 Gbps",
+                    "duplex": "Full",
+                    "mtu": 1500,
+                    "bandwidth_kbps": 1000000
+                })
+                return
+
+            sess = connection_manager.get_or_create_session(device, require_real=True)
+            if sess.status == "connected" and sess.is_real and sess.paramiko_client:
+                cmd = f"show interface {port_id}" if port_id else "show interfaces"
+                r = connection_manager.execute_command(device, cmd, require_real=True)
+                raw_out = r.get("output", "") if r.get("success") else ""
+                rx_bytes = 0
+                tx_bytes = 0
+                rx_rate = 0
+                tx_rate = 0
+                rx_pkts = 0
+                tx_pkts = 0
+                rx_errs = 0
+                tx_errs = 0
+                crc_errs = 0
+                colls = 0
+                m_rx_rate = re.search(r"5 minute input rate\s+(\d+)\s+bits/sec", raw_out)
+                if m_rx_rate:
+                    rx_rate = int(m_rx_rate.group(1))
+                m_tx_rate = re.search(r"5 minute output rate\s+(\d+)\s+bits/sec", raw_out)
+                if m_tx_rate:
+                    tx_rate = int(m_tx_rate.group(1))
+                m_rx_bytes = re.search(r"(\d+)\s+bytes,\s+(\d+)\s+packets input", raw_out) or re.search(r"Input\s*:\s*(\d+)\s*bytes", raw_out)
+                if m_rx_bytes:
+                    rx_bytes = int(m_rx_bytes.group(1))
+                    if len(m_rx_bytes.groups()) > 1 and m_rx_bytes.group(2):
+                        rx_pkts = int(m_rx_bytes.group(2))
+                m_tx_bytes = re.search(r"(\d+)\s+bytes,\s+(\d+)\s+packets output", raw_out) or re.search(r"Output\s*:\s*(\d+)\s*bytes", raw_out)
+                if m_tx_bytes:
+                    tx_bytes = int(m_tx_bytes.group(1))
+                    if len(m_tx_bytes.groups()) > 1 and m_tx_bytes.group(2):
+                        tx_pkts = int(m_tx_bytes.group(2))
+                m_rx_err = re.search(r"(\d+)\s+input errors", raw_out)
+                if m_rx_err:
+                    rx_errs = int(m_rx_err.group(1))
+                m_tx_err = re.search(r"(\d+)\s+output errors", raw_out)
+                if m_tx_err:
+                    tx_errs = int(m_tx_err.group(1))
+                m_crc = re.search(r"(\d+)\s+CRC", raw_out)
+                if m_crc:
+                    crc_errs = int(m_crc.group(1))
+                m_coll = re.search(r"(\d+)\s+collisions", raw_out)
+                if m_coll:
+                    colls = int(m_coll.group(1))
+
+                is_up = bool(re.search(r"is up", raw_out, re.IGNORECASE))
+                self._send_json(200, {
+                    "success": True,
+                    "connected": True,
+                    "telemetry_source": "ssh",
+                    "protocol_badge": "SSH CLI",
+                    "protocol_badge_fa": "خط فرمان SSH",
+                    "device_id": str(device.get("id")),
+                    "device_name": device.get("name", "Cisco Switch"),
+                    "port_id": port_id,
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "latency_ms": sess.latency_ms or 5.0,
+                    "in_bps": rx_rate,
+                    "out_bps": tx_rate,
+                    "in_rate_formatted": f"{rx_rate / 1000:.2f} Kbps" if rx_rate < 1000000 else f"{rx_rate / 1000000:.2f} Mbps",
+                    "out_rate_formatted": f"{tx_rate / 1000:.2f} Kbps" if tx_rate < 1000000 else f"{tx_rate / 1000000:.2f} Mbps",
+                    "in_pps": 0,
+                    "out_pps": 0,
+                    "in_bytes": rx_bytes,
+                    "out_bytes": tx_bytes,
+                    "in_bytes_formatted": f"{rx_bytes / (1024*1024):.2f} MB" if rx_bytes > 1048576 else f"{rx_bytes / 1024:.2f} KB",
+                    "out_bytes_formatted": f"{tx_bytes / (1024*1024):.2f} MB" if tx_bytes > 1048576 else f"{tx_bytes / 1024:.2f} KB",
+                    "in_packets": rx_pkts,
+                    "out_packets": tx_pkts,
+                    "in_errors": rx_errs,
+                    "out_errors": tx_errs,
+                    "in_discards": 0,
+                    "out_discards": 0,
+                    "crc_errors": crc_errs,
+                    "collisions": colls,
+                    "status": "up" if is_up else "down",
+                    "line_protocol": "up" if is_up else "down",
+                    "speed": "1 Gbps",
+                    "duplex": "Full",
+                    "mtu": 1500,
+                    "bandwidth_kbps": 1000000,
+                    "raw_command": cmd,
+                    "raw_output": raw_out
+                })
+                return
+            else:
+                err_msg = sess.error_message or f"Device unreachable at {sess.host}:{sess.port}"
+                self._send_json(200, {
+                    "success": False,
+                    "connected": False,
+                    "telemetry_source": "ssh",
+                    "protocol_badge": "Offline",
+                    "protocol_badge_fa": "آفلاین / عدم دسترسی",
+                    "device_id": str(device.get("id")),
+                    "device_name": device.get("name", "Cisco Switch"),
+                    "port_id": port_id,
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "latency_ms": 0,
+                    "error": err_msg,
+                    "message": f"Device unreachable: {err_msg}",
+                    "in_bps": 0,
+                    "out_bps": 0,
+                    "in_rate_formatted": "0 bps",
+                    "out_rate_formatted": "0 bps",
+                    "in_pps": 0,
+                    "out_pps": 0,
+                    "in_bytes": 0,
+                    "out_bytes": 0,
+                    "in_bytes_formatted": "0 B",
+                    "out_bytes_formatted": "0 B",
+                    "in_packets": 0,
+                    "out_packets": 0,
+                    "in_errors": 0,
+                    "out_errors": 0,
+                    "in_discards": 0,
+                    "out_discards": 0,
+                    "crc_errors": 0,
+                    "collisions": 0,
+                    "status": "down",
+                    "line_protocol": "down",
+                    "speed": "N/A",
+                    "duplex": "N/A",
+                    "mtu": 1500,
+                    "bandwidth_kbps": 0
+                })
+                return
+
         if path.startswith("/api/devices/") and "/ports" in path:
             # /api/devices/:id/ports
             parts = path.split("/")

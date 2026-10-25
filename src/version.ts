@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.379.0';
+export const APP_VERSION = '1.379.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.379.1',
+    releaseDate: '2026-10-25',
+    type: 'patch',
+    title: 'رفع خطای Endpoint not found در دریافت آمار ترافیک پورت سیسکو با استانداردسازی ارسال شناسه اینترفیس و روتر چندگانه',
+    title_en: 'Fix Endpoint not found error in Cisco Port Statistics via query-parameter interface addressing and unified router handling',
+    changes: [
+      'اصلاح معماری فراخوانی آمار ترافیک پورت سیسکو و انتقال شناسه اینترفیس به Query Parameter جهت جلوگیری قطعی از شکستن مسیر URL به دلیل وجود کاراکترهای اسلش در نام اینترفیس‌های سیسکو (مانند GigabitEthernet0/1 و TenGigabitEthernet1/0/1).',
+      'به‌روزرسانی روت‌های سمت سرور اکسپرس (server/routes.ts) با پشتیبانی همزمان از Query Parameter، پارامتر مسیر و الگوهای Wildcard جهت تضمین تطابق کامل آدرس‌های دیکودشده توسط پراکسی‌ها و Nginx.',
+      'پیاده‌سازی هندلر پشتیبان در هسته پایتون (backend/server.py) برای مسیر /api/devices/:id/cisco-ports جهت جلوگیری کامل از پاسخ خطای 404 Endpoint not found در تمامی حالت‌های مستقیم و پروکسی.',
+      'به‌روزرسانی کامپوننت فرانت‌اند CiscoPortStatisticsModal جهت ارسال پایدار و بدون خطای شناسه‌های پورت با استفاده از پارامترهای استاندارد.'
+    ],
+    changes_en: [
+      'Refactored Cisco port statistics invocation architecture by passing interface identifiers via query parameters to prevent URL path segmentation caused by slashes in Cisco interface naming (e.g. GigabitEthernet0/1 and TenGigabitEthernet1/0/1).',
+      'Updated Express backend routes (server/routes.ts) supporting query parameters, path variables, and wildcard expressions to guarantee proper resolution through Nginx and reverse proxies.',
+      'Implemented fallback route handler in backend/server.py for /api/devices/:id/cisco-ports to completely eliminate 404 Endpoint not found responses across all proxy pathways.',
+      'Updated CiscoPortStatisticsModal frontend component to seamlessly query port telemetry using standardized URL query parameters.'
+    ]
+  },
   {
     version: '1.379.0',
     releaseDate: '2026-10-25',

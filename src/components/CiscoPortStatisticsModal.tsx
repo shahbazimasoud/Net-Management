@@ -133,8 +133,9 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
     else setIsRefreshing(true);
 
     try {
+      const targetPortId = port.port_id || port.name || port.id || '';
       const resp = await fetch(
-        `/api/devices/${encodeURIComponent(deviceId)}/cisco-ports/${encodeURIComponent(port.port_id)}/stats`,
+        `/api/devices/${encodeURIComponent(deviceId)}/cisco-ports/stats?portId=${encodeURIComponent(targetPortId)}`,
         {
           headers: {
             'Accept-Language': isEn ? 'en' : 'fa',

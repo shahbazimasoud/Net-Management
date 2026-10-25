@@ -4461,16 +4461,44 @@ apiRouter.put('/devices/:id/ports/:portId', async (req: Request, res: Response) 
   }
 });
 
-// GET /api/devices/:id/cisco-ports/:portId/stats - Adaptive Dual-Mode Cisco Port Statistics (SNMP with SSH Fallback)
-apiRouter.get('/devices/:id/cisco-ports/:portId/stats', async (req: Request, res: Response) => {
+// GET /api/devices/:id/cisco-ports/stats - Adaptive Dual-Mode Cisco Port Statistics (SNMP with SSH Fallback)
+// Supports clean query parameters (?portId=...), wildcard path segments, and legacy path parameters
+apiRouter.get([
+  '/devices/:id/cisco-ports/stats',
+  '/devices/:id/cisco-ports',
+  '/devices/:id/cisco-ports/:portId/stats',
+  '/devices/:id/cisco-ports/*'
+], async (req: Request, res: Response) => {
   const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
   const devId = req.params.id;
-  const rawPortId = req.params.portId || '';
-  const portId = decodeURIComponent(rawPortId).trim();
+
+  // Extract portId from query parameters, path params, or wildcard
+  let portId = (req.query.portId || req.query.port || req.query.name || req.query.interface || '') as string;
+  if (!portId && req.params.portId) {
+    portId = req.params.portId;
+  }
+  if (!portId && (req.params as any)[0]) {
+    const raw = (req.params as any)[0];
+    portId = raw.replace(/\/stats\/?$/, '').replace(/^stats\/?/, '');
+  }
+  portId = decodeURIComponent(portId).trim();
 
   try {
     const allDevs = await getAllDevices();
-    const device = allDevs.find((d: any) => d.id === devId || d.name === devId);
+    let device = allDevs.find((d: any) => String(d.id) === String(devId) || d.name === devId);
+    if (!device) {
+      try {
+        const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+        if (fs.existsSync(netPath)) {
+          const raw = JSON.parse(fs.readFileSync(netPath, 'utf-8'));
+          const fallbackDev = (raw.devices || []).find((d: any) => String(d.id) === String(devId) || d.name === devId);
+          if (fallbackDev) {
+            device = fallbackDev;
+          }
+        }
+      } catch {}
+    }
+
     if (!device) {
       return res.status(404).json({
         success: false,
