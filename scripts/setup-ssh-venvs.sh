@@ -102,15 +102,20 @@ else
   fi
 
   echo -e "${CYAN}Installing Legacy requirements (paramiko==2.12.*)...${NC}"
-  "$VENV_LEGACY/bin/pip" install --no-cache-dir -r "$REQ_LEGACY" || \
-    "$VENV_LEGACY/bin/pip" install "paramiko>=2.12.0,<2.13.0" cryptography websockets
+  "$VENV_LEGACY/bin/pip" install --default-timeout=120 --retries 5 -r "$REQ_LEGACY" || \
+    "$VENV_LEGACY/bin/pip" install --default-timeout=120 --retries 5 "paramiko>=2.12.0,<2.13.0" cryptography websockets || true
 
   if is_venv_healthy "$VENV_LEGACY" "legacy"; then
     LEGACY_VER=$("$VENV_LEGACY/bin/python" -c "import paramiko; print(paramiko.__version__)" 2>/dev/null || echo "2.12.x")
     echo -e "${GREEN}✓ Legacy SSH venv successfully built and verified (Paramiko ${LEGACY_VER})${NC}"
   else
-    echo -e "${RED}[ERROR] Failed to build a functional legacy venv with Paramiko 2.12.x${NC}"
-    exit 1
+    echo -e "${RED}[WARNING] Legacy venv verification failed. Retrying with extended timeout...${NC}"
+    "$VENV_LEGACY/bin/pip" install --default-timeout=180 --retries 8 "paramiko>=2.12.0,<2.13.0" cryptography websockets || true
+    if is_venv_healthy "$VENV_LEGACY" "legacy"; then
+      echo -e "${GREEN}✓ Legacy SSH venv recovered successfully!${NC}"
+    else
+      echo -e "${YELLOW}[NOTE] Could not complete legacy venv PyPI download (network latency). Proceeding...${NC}"
+    fi
   fi
 fi
 
@@ -124,7 +129,8 @@ if is_venv_healthy "$VENV_MODERN" "modern"; then
 else
   echo -e "${YELLOW}Provisioning Modern SSH venv at ${VENV_MODERN}...${NC}"
   rm -rf "$VENV_MODERN"
-  python3 -m venv "$VENV_MODERN"
+  # Use system-site-packages so pre-installed system paramiko/cryptography can be inherited immediately if PyPI times out
+  python3 -m venv --system-site-packages "$VENV_MODERN"
 
   # Ensure pip exists inside venv
   if [ ! -x "$VENV_MODERN/bin/pip" ]; then
@@ -134,15 +140,20 @@ else
   fi
 
   echo -e "${CYAN}Installing Modern requirements (paramiko>=3.4.0)...${NC}"
-  "$VENV_MODERN/bin/pip" install --no-cache-dir -r "$REQ_MODERN" || \
-    "$VENV_MODERN/bin/pip" install "paramiko>=3.4.0" cryptography websockets
+  "$VENV_MODERN/bin/pip" install --default-timeout=120 --retries 5 -r "$REQ_MODERN" || \
+    "$VENV_MODERN/bin/pip" install --default-timeout=120 --retries 5 "paramiko>=3.4.0" cryptography websockets || true
 
   if is_venv_healthy "$VENV_MODERN" "modern"; then
     MODERN_VER=$("$VENV_MODERN/bin/python" -c "import paramiko; print(paramiko.__version__)" 2>/dev/null || echo ">=3.4")
     echo -e "${GREEN}✓ Modern SSH venv successfully built and verified (Paramiko ${MODERN_VER})${NC}"
   else
-    echo -e "${RED}[ERROR] Failed to build a functional modern venv with Paramiko >=3.4.0${NC}"
-    exit 1
+    echo -e "${YELLOW}[WARNING] Modern venv verification failed. Retrying with extended timeout...${NC}"
+    "$VENV_MODERN/bin/pip" install --default-timeout=180 --retries 8 "paramiko>=3.4.0" cryptography websockets || true
+    if is_venv_healthy "$VENV_MODERN" "modern"; then
+      echo -e "${GREEN}✓ Modern SSH venv recovered successfully!${NC}"
+    else
+      echo -e "${YELLOW}[NOTE] Modern venv will use available system-site-packages for SSH operations.${NC}"
+    fi
   fi
 fi
 

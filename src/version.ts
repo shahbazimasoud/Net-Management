@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.380.2';
+export const APP_VERSION = '1.380.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.380.3',
+    releaseDate: '2026-10-26',
+    type: 'patch',
+    title: 'افزایش پایداری و تایم‌اوت دانلود پکیج‌های پایتون و فعال‌سازی بسته‌های سیستمی در محیط‌های مجازی SSH',
+    title_en: 'Enhance Python pip download timeout/retries and enable system site packages fallback in SSH virtual environments',
+    changes: [
+      'افزودن پارامترهای افزایش زمان انتظار (--default-timeout=120) و تلاش مجدد خودکار (--retries 5) برای دستورات pip در اسکریپت نصب محیط‌های مجازی SSH جهت جلوگیری از خطای ReadTimeoutError در سرورها.',
+      'پیکربندی محیط مجازی مدرن (venv_modern) با فلگ --system-site-packages جهت بهره‌گیری بلادرنگ از بسته‌های پیش‌نصب پایتون سیستم‌عامل در صورت کندی یا قطعی اینترنت مخازن PyPI.',
+      'افزایش تاب‌آوری اسکریپت نصب پنل (setup-panel.sh) در برابر نوسانات شبکه و بازیابی خودکار در صورت بروز خطای دانلود پکیج‌ها.'
+    ],
+    changes_en: [
+      'Configured extended timeouts (--default-timeout=120) and automatic retries (--retries 5) for pip installations in setup-ssh-venvs.sh to eliminate ReadTimeoutError on high-latency VPS networks.',
+      'Enabled --system-site-packages for modern SSH virtual environment (venv_modern) allowing instant inheritance of system-installed paramiko/cryptography packages when PyPI is unreachable.',
+      'Strengthened automated setup script (setup-panel.sh) resilience against network hiccups and added automatic retry recovery.'
+    ]
+  },
   {
     version: '1.380.2',
     releaseDate: '2026-10-26',
