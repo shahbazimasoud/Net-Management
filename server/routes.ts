@@ -4156,26 +4156,58 @@ apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
   }
 });
 
-function matchPortFlexible(p: any, targetId: string): boolean {
+export function normalizeInterfaceName(raw: string): string {
+  if (!raw) return '';
+  return String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/^gigabitethernet/i, 'gi')
+    .replace(/^tengigabitethernet/i, 'te')
+    .replace(/^twentyfivegigabitethernet/i, 'twe')
+    .replace(/^fortygigabitethernet/i, 'fo')
+    .replace(/^hundredgigabitethernet/i, 'hu')
+    .replace(/^fastethernet/i, 'fa')
+    .replace(/^ethernet/i, 'eth')
+    .replace(/^port-channel/i, 'po')
+    .replace(/^serial/i, 'se')
+    .replace(/^loopback/i, 'lo')
+    .replace(/^vlan/i, 'vl');
+}
+
+export function matchPortFlexible(p: any, targetId: string): boolean {
   if (!p || !targetId) return false;
   const tRaw = String(targetId).trim();
-  const tNorm = tRaw.toLowerCase().replace(/\s+/g, '');
-  const pId = String(p.port_id || p.port || '').toLowerCase().replace(/\s+/g, '');
-  const pName = String(p.name || '').toLowerCase().replace(/\s+/g, '');
-  if (pId === tNorm || pName === tNorm || pId === tRaw.toLowerCase() || pName === tRaw.toLowerCase()) {
+  if (!tRaw) return false;
+  const tNorm = normalizeInterfaceName(tRaw);
+  const pNormId = normalizeInterfaceName(p.port_id || p.port || p.id || '');
+  const pNormName = normalizeInterfaceName(p.name || '');
+
+  if (tNorm && (pNormId === tNorm || pNormName === tNorm)) {
     return true;
   }
-  for (const [full, short] of [
-    ['gigabitethernet', 'gi'],
-    ['tengigabitethernet', 'te'],
-    ['fastethernet', 'fa'],
-    ['ethernet', 'eth'],
-  ]) {
-    if (tNorm.replace(short, full) === pId.replace(short, full)) return true;
-    if (tNorm.replace(full, short) === pId.replace(full, short)) return true;
+
+  const tLow = tRaw.toLowerCase().replace(/\s+/g, '');
+  const pIdLow = String(p.port_id || p.port || p.id || '').toLowerCase().replace(/\s+/g, '');
+  const pNameLow = String(p.name || '').toLowerCase().replace(/\s+/g, '');
+  if (tLow && (pIdLow === tLow || pNameLow === tLow)) {
+    return true;
   }
+
+  const extractSuffix = (str: string) => str.replace(/^[a-z\-]+/i, '');
+  const sfxT = extractSuffix(tNorm);
+  const sfxP = extractSuffix(pNormId);
+  if (sfxT && sfxP && sfxT === sfxP) {
+    const preT = tNorm.substring(0, tNorm.length - sfxT.length);
+    const preP = pNormId.substring(0, pNormId.length - sfxP.length);
+    if (!preT || !preP || preT === preP || preT.startsWith(preP) || preP.startsWith(preT)) {
+      return true;
+    }
+  }
+
   return false;
 }
+
 
 function buildPortCliCommand(platform: string, iface: string, updates: any): string {
   const isCisco = (platform || '').toLowerCase().includes('cisco');
@@ -4420,8 +4452,19 @@ apiRouter.put('/devices/:id/ports/:portId', async (req: Request, res: Response) 
   const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
   const devId = req.params.id;
   const rawPortId = req.params.portId || '';
-  const portId = decodeURIComponent(rawPortId).trim();
+  let portId = decodeURIComponent(rawPortId).trim();
   const updates = req.body || {};
+
+  if (!portId || portId.toLowerCase() === 'undefined' || portId.toLowerCase() === 'null') {
+    portId = String(
+      updates.port_id ||
+      updates.port ||
+      updates.interface ||
+      updates.iface ||
+      updates.name ||
+      ''
+    ).trim();
+  }
 
   try {
     const allDevs = await getAllDevices();
@@ -4435,13 +4478,33 @@ apiRouter.put('/devices/:id/ports/:portId', async (req: Request, res: Response) 
     console.log(`[SinglePortUpdate Resolver] Updating port '${portId}' on device ${devId} using ${backend.version.toUpperCase()} backend (${backend.pythonBin})`);
 
     const ports = Array.isArray(device.ports) ? device.ports : [];
-    const targetPort = ports.find((p: any) => matchPortFlexible(p, portId) || matchPortFlexible(p, rawPortId));
+    let targetPort = ports.find((p: any) => matchPortFlexible(p, portId) || matchPortFlexible(p, rawPortId));
     if (!targetPort) {
-      return res.status(404).json({
-        success: false,
-        error: `Port '${portId}' not found on device '${devId}'`,
-        message: isEn ? `Port '${portId}' not found on device '${devId}'` : `پورت «${portId}» روی دستگاه یافت نشد.`,
-      });
+      if (portId && portId.toLowerCase() !== 'undefined' && portId.toLowerCase() !== 'null') {
+        const cleanName = portId;
+        targetPort = {
+          port_id: cleanName,
+          name: cleanName,
+          port: cleanName,
+          status: updates.status || (updates.admin_status === 'disabled' ? 'down' : 'up'),
+          admin_status: updates.admin_status || 'enabled',
+          mode: updates.mode || 'access',
+          vlan: Number(updates.vlan || 1),
+          allowed_vlans: String(updates.allowed_vlans || '1-4094'),
+          speed: updates.speed || 'auto',
+          duplex: updates.duplex || 'auto',
+          connected_device: '',
+          description: String(updates.description || '').trim(),
+        };
+        ports.push(targetPort);
+        device.ports = ports;
+      } else {
+        return res.status(404).json({
+          success: false,
+          error: `Port '${portId}' not found on device '${devId}'`,
+          message: isEn ? `Port '${portId}' not found on device '${devId}'` : `پورت «${portId}» روی دستگاه یافت نشد.`,
+        });
+      }
     }
 
     const ifaceName = targetPort.port_id || targetPort.port || targetPort.name || portId;
@@ -4837,7 +4900,7 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
 // POST /devices/:id/operations - Execute migrated port operations (power, mode, vlan) via resolved SSH backend
 apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, next: NextFunction) => {
   const op = String(req.body?.operation || req.body?.action || '').trim().toLowerCase();
-  const iface = String(req.body?.interface || req.body?.iface || '').trim();
+  const iface = String(req.body?.interface || req.body?.iface || req.body?.port_id || req.body?.port || req.body?.name || '').trim();
   const params = req.body?.params || {};
   const devId = req.params.id;
 
@@ -4916,54 +4979,63 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
 
     // State reflection in stored device record
     let updatedPort: any = null;
-    if (Array.isArray(device.ports)) {
-      const matchPortFlexible = (p: any, targetId: string) => {
-        if (!p || !targetId) return false;
-        const tNorm = targetId.toLowerCase().replace(/\s+/g, '');
-        const pId = String(p.port_id || p.port || '').toLowerCase().replace(/\s+/g, '');
-        const pName = String(p.name || '').toLowerCase().replace(/\s+/g, '');
-        if (pId === tNorm || pName === tNorm) return true;
-        for (const [full, short] of [['gigabitethernet', 'gi'], ['tengigabitethernet', 'te'], ['fastethernet', 'fa'], ['ethernet', 'eth']]) {
-          if (tNorm.replace(short, full) === pId.replace(short, full)) return true;
-          if (tNorm.replace(full, short) === pId.replace(full, short)) return true;
-        }
-        return false;
-      };
+    const ports = Array.isArray(device.ports) ? device.ports : [];
+    device.ports = ports;
 
-      const pIdx = device.ports.findIndex((p: any) => matchPortFlexible(p, iface));
-      if (pIdx >= 0) {
-        const p = { ...device.ports[pIdx] };
-        if (isPortPower) {
-          if (op === 'shutdown' || op === 'disable_interface') {
-            p.admin_status = 'disabled';
-            p.status = 'down';
-          } else {
-            p.admin_status = 'enabled';
-            p.status = 'up';
-          }
-        } else if (isPortMode) {
-          p.mode = op === 'mode_trunk' ? 'trunk' : 'access';
-        } else if (isPortVlan) {
-          p.vlan = Number(params.vlan || 1);
-          p.mode = 'access';
-        } else if (isPortDesc) {
-          p.description = String(params.description || '').trim();
-        } else if (isPortSecurity) {
-          if (op.includes('enable')) {
-            p.port_security_enabled = true;
-            p.port_security_status = p.status === 'up' ? 'secure-up' : 'secure-down';
-            if (params.max_mac) p.port_security_max_mac = Number(params.max_mac);
-            if (params.violation) p.port_security_violation = String(params.violation);
-          } else {
-            p.port_security_enabled = false;
-            p.port_security_status = 'disabled';
-          }
+    let pIdx = ports.findIndex((p: any) => matchPortFlexible(p, iface));
+    if (pIdx < 0 && iface) {
+      // Auto-provision unseeded port on device
+      const cleanName = iface;
+      const newPort = {
+        port_id: cleanName,
+        name: cleanName,
+        port: cleanName,
+        status: op === 'shutdown' || op === 'disable_interface' ? 'down' : 'up',
+        admin_status: op === 'shutdown' || op === 'disable_interface' ? 'disabled' : 'enabled',
+        mode: op === 'mode_trunk' ? 'trunk' : 'access',
+        vlan: Number(params.vlan || 1),
+        allowed_vlans: '1-4094',
+        speed: 'auto',
+        duplex: 'auto',
+        connected_device: '',
+        description: String(params.description || '').trim(),
+      };
+      ports.push(newPort);
+      pIdx = ports.length - 1;
+    }
+
+    if (pIdx >= 0) {
+      const p = { ...device.ports[pIdx] };
+      if (isPortPower) {
+        if (op === 'shutdown' || op === 'disable_interface') {
+          p.admin_status = 'disabled';
+          p.status = 'down';
+        } else {
+          p.admin_status = 'enabled';
+          p.status = 'up';
         }
-        device.ports[pIdx] = p;
-        device.has_unsaved_changes = true;
-        updatedPort = p;
-        await updateDevice(device.id, { ports: device.ports, has_unsaved_changes: true });
+      } else if (isPortMode) {
+        p.mode = op === 'mode_trunk' ? 'trunk' : 'access';
+      } else if (isPortVlan) {
+        p.vlan = Number(params.vlan || 1);
+        p.mode = 'access';
+      } else if (isPortDesc) {
+        p.description = String(params.description || '').trim();
+      } else if (isPortSecurity) {
+        if (op.includes('enable')) {
+          p.port_security_enabled = true;
+          p.port_security_status = p.status === 'up' ? 'secure-up' : 'secure-down';
+          if (params.max_mac) p.port_security_max_mac = Number(params.max_mac);
+          if (params.violation) p.port_security_violation = String(params.violation);
+        } else {
+          p.port_security_enabled = false;
+          p.port_security_status = 'disabled';
+        }
       }
+      device.ports[pIdx] = p;
+      device.has_unsaved_changes = true;
+      updatedPort = p;
+      await updateDevice(device.id, { ports: device.ports, has_unsaved_changes: true });
     }
 
     return res.json({

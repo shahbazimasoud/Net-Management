@@ -70,9 +70,8 @@ export const CiscoCommandConfirmModal: React.FC<CiscoCommandConfirmModalProps> =
   const isRouter = device.type === 'router';
   const isMikrotik = (device.platform || '').toLowerCase().includes('mikrotik');
 
-  // Generate CLI commands based on platform (Cisco vs MikroTik) & device type
   const generateCommand = (): string => {
-    const portId = port.port_id;
+    const portId = (port.port_id || (port as any).port || port.name || (port as any).id || '').trim();
     const devName = device.name || 'Device';
 
     if (isMikrotik) {

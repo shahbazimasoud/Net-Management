@@ -520,7 +520,7 @@ def handle_port_action(args):
 
     device = data.get("device", {}) or {}
     action = str(data.get("action") or data.get("operation") or "").strip().lower()
-    interface = str(data.get("interface") or "").strip()
+    interface = str(data.get("interface") or data.get("iface") or data.get("port_id") or data.get("port") or data.get("name") or "").strip()
     params = data.get("params", {}) or {}
     cli_command = data.get("cli_command") or data.get("command")
 

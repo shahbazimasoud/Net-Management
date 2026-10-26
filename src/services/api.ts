@@ -433,12 +433,21 @@ export async function syncDevicePorts(deviceId: string): Promise<{
 export async function updateSwitchPort(
   deviceId: string,
   portId: string,
-  updates: Partial<SwitchPort>
+  updates: Partial<SwitchPort> & { interface?: string }
 ): Promise<{ port: SwitchPort; message: string; success?: boolean; cli_output?: string }> {
-  const res = await fetch(`${API_BASE}/devices/${deviceId}/ports/${encodeURIComponent(portId)}`, {
+  const cleanId = String(
+    portId ||
+    updates.port_id ||
+    updates.port ||
+    updates.name ||
+    updates.interface ||
+    ''
+  ).trim();
+
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/ports/${encodeURIComponent(cleanId)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(updates),
+    body: JSON.stringify({ ...updates, port_id: cleanId, interface: cleanId }),
   });
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));

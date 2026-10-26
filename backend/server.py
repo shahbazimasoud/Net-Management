@@ -3902,33 +3902,74 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             raw_port_id = after_dev.split("/ports/")[1].strip()
             port_id = unquote(raw_port_id).strip()
 
+            if not port_id or port_id.lower() in ("undefined", "null"):
+                port_id = str(body.get("interface") or body.get("iface") or body.get("port_id") or body.get("port") or body.get("name") or "").strip()
+
             ports = data.get("ports", {}).get(dev_id, [])
             device = next((d for d in data["devices"] if d["id"] == dev_id), None)
+
+            def normalize_iface(raw):
+                if not raw:
+                    return ""
+                s = str(raw).strip().lower().replace(" ", "")
+                for full, short in [
+                    ("twentyfivegigabitethernet", "twe"),
+                    ("hundredgigabitethernet", "hu"),
+                    ("fortygigabitethernet", "fo"),
+                    ("gigabitethernet", "gi"),
+                    ("tengigabitethernet", "te"),
+                    ("fastethernet", "fa"),
+                    ("ethernet", "eth"),
+                    ("port-channel", "po"),
+                    ("serial", "se"),
+                    ("loopback", "lo"),
+                    ("vlan", "vl"),
+                ]:
+                    if s.startswith(full):
+                        s = short + s[len(full):]
+                        break
+                return s
 
             def match_port_flexible(p, target_id):
                 if not p or not target_id:
                     return False
                 t_raw = str(target_id).strip()
-                t_norm = t_raw.lower().replace(" ", "")
-                p_id = str(p.get("port_id", "")).lower().replace(" ", "")
-                p_name = str(p.get("name", "")).lower().replace(" ", "")
-                if p_id == t_norm or p_name == t_norm or p_id == t_raw.lower() or p_name == t_raw.lower():
+                if not t_raw:
+                    return False
+                t_norm = normalize_iface(t_raw)
+                p_norm_id = normalize_iface(p.get("port_id") or p.get("port") or p.get("id") or "")
+                p_norm_name = normalize_iface(p.get("name") or "")
+                if t_norm and (p_norm_id == t_norm or p_norm_name == t_norm):
                     return True
-                for full, short in [("gigabitethernet", "gi"), ("tengigabitethernet", "te"), ("fastethernet", "fa"), ("ethernet", "eth")]:
-                    t_f = t_norm.replace(short, full)
-                    p_f = p_id.replace(short, full)
-                    if t_f == p_f:
-                        return True
-                    t_s = t_norm.replace(full, short)
-                    p_s = p_id.replace(full, short)
-                    if t_s == p_s:
-                        return True
+                t_low = t_raw.lower().replace(" ", "")
+                p_id_low = str(p.get("port_id") or p.get("port") or p.get("id") or "").lower().replace(" ", "")
+                p_name_low = str(p.get("name") or "").lower().replace(" ", "")
+                if t_low and (p_id_low == t_low or p_name_low == t_low):
+                    return True
                 return False
 
             port = next((p for p in ports if match_port_flexible(p, port_id) or match_port_flexible(p, raw_port_id)), None)
             if not port:
-                self._send_json(404, {"error": f"Port '{port_id}' not found on device '{dev_id}'"})
-                return
+                if port_id and port_id.lower() not in ("undefined", "null"):
+                    port = {
+                        "port_id": port_id,
+                        "name": port_id,
+                        "port": port_id,
+                        "status": "down" if body.get("admin_status") == "disabled" else "up",
+                        "admin_status": body.get("admin_status", "enabled"),
+                        "mode": body.get("mode", "access"),
+                        "vlan": int(body.get("vlan", 1)),
+                        "allowed_vlans": str(body.get("allowed_vlans", "1-4094")),
+                        "speed": body.get("speed", "auto"),
+                        "duplex": body.get("duplex", "auto"),
+                        "connected_device": "",
+                        "description": str(body.get("description", "")).strip(),
+                    }
+                    ports.append(port)
+                    data.setdefault("ports", {})[dev_id] = ports
+                else:
+                    self._send_json(404, {"error": f"Port '{port_id}' not found on device '{dev_id}'"})
+                    return
 
             cli_output = ""
             # Update port properties (admin_status, status, mode, vlan, allowed_vlans, speed, description)

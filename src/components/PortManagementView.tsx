@@ -593,6 +593,14 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
         break;
     }
 
+    const targetPortId = (
+      targetPort.port_id ||
+      (targetPort as any).port ||
+      targetPort.name ||
+      (targetPort as any).id ||
+      ''
+    ).trim();
+
     try {
       setIsExecutingConfirmAction(true);
 
@@ -602,11 +610,12 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
         opRes = await executeDeviceOperation(
           currentDevice.id,
           action,
-          targetPort.port_id,
+          targetPortId,
           {
             device_type: currentDevice.type,
             is_router: currentDevice.type === 'router',
             vlan: targetPort.vlan,
+            interface: targetPortId,
           }
         );
       } catch (opErr) {
@@ -615,7 +624,11 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
 
       // 2. Persist state via updateSwitchPort
       try {
-        await updateSwitchPort(currentDevice.id, targetPort.port_id, updates);
+        await updateSwitchPort(currentDevice.id, targetPortId, {
+          ...updates,
+          port_id: targetPortId,
+          interface: targetPortId,
+        });
       } catch (putErr) {
         if (!opRes?.success) {
           throw putErr;
@@ -624,16 +637,19 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
 
       // 3. Update local ports state and selected port view
       setPorts((prev) =>
-        prev.map((p) =>
-          p.port_id === targetPort.port_id || p.name === targetPort.port_id
+        prev.map((p) => {
+          const pid = (p.port_id || (p as any).port || p.name || (p as any).id || '').trim().toLowerCase();
+          const tid = targetPortId.toLowerCase();
+          return pid === tid || p.port_id === targetPort.port_id || p.name === targetPort.name
             ? { ...p, ...updates }
-            : p
-        )
+            : p;
+        })
       );
 
       if (
         selectedPort &&
-        (selectedPort.port_id === targetPort.port_id || selectedPort.name === targetPort.port_id)
+        ((selectedPort.port_id || (selectedPort as any).port || selectedPort.name || '').trim().toLowerCase() === targetPortId.toLowerCase() ||
+          selectedPort.port_id === targetPort.port_id)
       ) {
         setSelectedPort((prev) => (prev ? { ...prev, ...updates } : null));
         if (updates.mode) setEditMode(updates.mode as any);
@@ -656,6 +672,13 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
   const handleConfirmAssignVlan = async (newVlan: number) => {
     if (!vlanAssignModalPort || !currentDevice) return;
     const targetPort = vlanAssignModalPort;
+    const targetPortId = (
+      targetPort.port_id ||
+      (targetPort as any).port ||
+      targetPort.name ||
+      (targetPort as any).id ||
+      ''
+    ).trim();
 
     try {
       setIsAssigningVlan(true);
@@ -665,8 +688,8 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
         opRes = await executeDeviceOperation(
           currentDevice.id,
           'set_vlan',
-          targetPort.port_id,
-          { vlan: newVlan, device_type: currentDevice.type, is_router: currentDevice.type === 'router' }
+          targetPortId,
+          { vlan: newVlan, device_type: currentDevice.type, is_router: currentDevice.type === 'router', interface: targetPortId }
         );
       } catch (opErr) {
         console.warn('executeDeviceOperation set_vlan note:', opErr);
@@ -674,9 +697,11 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
 
       // 2. Persist state via updateSwitchPort
       try {
-        await updateSwitchPort(currentDevice.id, targetPort.port_id, {
+        await updateSwitchPort(currentDevice.id, targetPortId, {
           vlan: newVlan,
           mode: 'access',
+          port_id: targetPortId,
+          interface: targetPortId,
         });
       } catch (putErr) {
         if (!opRes?.success) {
@@ -686,11 +711,13 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
 
       // 3. Update local ports list
       setPorts((prev) =>
-        prev.map((p) =>
-          p.port_id === targetPort.port_id || p.name === targetPort.port_id
+        prev.map((p) => {
+          const pid = (p.port_id || (p as any).port || p.name || (p as any).id || '').trim().toLowerCase();
+          const tid = targetPortId.toLowerCase();
+          return pid === tid || p.port_id === targetPort.port_id || p.name === targetPort.name
             ? { ...p, vlan: newVlan, mode: 'access' }
-            : p
-        )
+            : p;
+        })
       );
 
       if (

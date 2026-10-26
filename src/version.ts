@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.380.1';
+export const APP_VERSION = '1.380.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.380.2',
+    releaseDate: '2026-10-26',
+    type: 'patch',
+    title: 'رفع خطای عدم شناسایی پورت در خاموش/روشن کردن پورت‌های سیسکو با راست‌کلیک و نرمال‌سازی نام اینترفیس‌ها',
+    title_en: 'Resolve "Port not found" error during Cisco port right-click shutdown/no shutdown actions and harden interface name normalization',
+    changes: [
+      'اصلاح خطای بازتولید رشته در تابع تطبیق نام پورت (matchPortFlexible) که پیشوندهای گیگابیت، فست‌اترنت و ۱۰گیگ را به صورت تکراری بسط می‌داد و مانع یافتن پورت می‌شد.',
+      'افزودن مکانیسم نرمال‌سازی استاندارد اینترفیس‌های شبکه (normalizeInterfaceName) جهت نگاشت صحیح اختصارات (gi/fa/te/eth/po) با اسامی کامل سخت‌افزار.',
+      'پشتیبانی خودکار از ثبت و ایجاد پورت در صورت عدم ثبت اولیه در دیتابیس دستگاه (Auto-provisioning) در روت‌های PUT و عملیات‌های پورت سخت‌افزار تا هیچ درخواستی با خطای ۴۰۴ مواجه نشود.',
+      'تثبیت استخراج شناسه پورت در مودال‌های مدیریت پورت (PortInspectorModal و PortManagementView)، منوی راست‌کلیک (CiscoPortContextMenu) و مودال تایید دستور (CiscoCommandConfirmModal) با فالبک‌های امن.'
+    ],
+    changes_en: [
+      'Fixed interface string corruption bug in matchPortFlexible that caused recurring prefix expansion (e.g. gigabitethernetgabitethernet) and failed interface lookup.',
+      'Implemented canonical interface name normalization (normalizeInterfaceName) ensuring seamless resolution between short (gi/fa/te/eth/po) and full hardware port names.',
+      'Added automatic dynamic port auto-provisioning in PUT /devices/:id/ports/:portId and operations endpoints when a port has not been pre-seeded in the database, preventing 404 errors.',
+      'Hardened port ID resolution across PortInspectorModal, PortManagementView, CiscoPortContextMenu, and CiscoCommandConfirmModal with defensive property fallbacks.'
+    ]
+  },
   {
     version: '1.380.1',
     releaseDate: '2026-10-26',

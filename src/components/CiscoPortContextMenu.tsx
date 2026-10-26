@@ -141,27 +141,29 @@ export const CiscoPortContextMenu: React.FC<CiscoPortContextMenuProps> = ({
     setTimeout(() => setCopiedCmd(null), 2200);
   };
 
+  const portId = (port.port_id || (port as any).port || port.name || (port as any).id || '').trim();
+
   const getShutdownCli = () => {
-    return `configure terminal\ninterface ${port.port_id}\n shutdown\nexit`;
+    return `configure terminal\ninterface ${portId}\n shutdown\nexit`;
   };
 
   const getNoShutdownCli = () => {
-    return `configure terminal\ninterface ${port.port_id}\n no shutdown\nexit`;
+    return `configure terminal\ninterface ${portId}\n no shutdown\nexit`;
   };
 
   const getModeCli = () => {
     const targetMode = isTrunk ? 'access' : 'trunk';
-    return `configure terminal\ninterface ${port.port_id}\n switchport mode ${targetMode}\nexit`;
+    return `configure terminal\ninterface ${portId}\n switchport mode ${targetMode}\nexit`;
   };
 
   const getPortSecCli = () => {
     const cmd = isPortSec ? 'no switchport port-security' : 'switchport mode access\n switchport port-security\n switchport port-security violation restrict\n switchport port-security mac-address sticky';
-    return `configure terminal\ninterface ${port.port_id}\n ${cmd}\nexit`;
+    return `configure terminal\ninterface ${portId}\n ${cmd}\nexit`;
   };
 
   const getDescriptionCli = () => {
     const desc = port.description ? port.description : 'Uplink-Interface';
-    return `configure terminal\ninterface ${port.port_id}\n description ${desc}\nexit`;
+    return `configure terminal\ninterface ${portId}\n description ${desc}\nexit`;
   };
 
   return createPortal(
@@ -180,7 +182,7 @@ export const CiscoPortContextMenu: React.FC<CiscoPortContextMenuProps> = ({
           </div>
           <div>
             <div className="font-mono font-bold text-white text-xs flex items-center gap-1.5">
-              <span>{port.port_id}</span>
+              <span>{portId}</span>
               <span
                 className={`w-2 h-2 rounded-full shrink-0 ${
                   isUp ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-rose-500'
