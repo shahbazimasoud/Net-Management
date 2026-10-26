@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.380.3';
+export const APP_VERSION = '1.381.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.381.0',
+    releaseDate: '2026-10-26',
+    type: 'minor',
+    title: 'پیاده‌سازی تولید تفاضلی دستورات (Diff-based Delta Generation) در ویرایش پورت و ارسال انحصاری پارامترهای تغییریافته به تجهیزات شبکه',
+    title_en: 'Implement Diff-based Delta Command Generation for Port Editing and send strictly modified attributes to network devices',
+    changes: [
+      'پیاده‌سازی سیستم ارزیابی تفاضلی (Dirty Check / Delta Detection) در مودال بازرسی پورت (PortInspectorModal)، مدیریت پورت‌ها (PortManagementView) و مدیریت میکروتیک (MikroTikDeviceManageModal) جهت مقایسه مقادیر ویرایش‌شده با وضعیت جاری پورت.',
+      'اصلاح فرآیند تولید دستورات سیسکو و میکروتیک (generateCiscoPortConfigCli و buildPortCliCommand) تا در صورت تغییر یک پارامتر منفرد (مانند Description یا VLAN ID)، تنها دستور مربوط به همان فیلد صادر شود و از تکرار بیهوده دستورات Port Security، Switchport Mode و Shutdown جلوگیری گردد.',
+      'پشتیبانی استاندارد از حذف دیسکریپشن پورت با صدور دستور no description در صورت خالی کردن فیلد توضیحات اینترفیس.',
+      'به‌روزرسانی کارت‌های خلاصه تغییرات در مودال تأیید (CiscoPortConfigConfirmModal) جهت نمایش منحصربه‌فرد پارامترهای تغییریافته.',
+      'افزودن پیام هشدار هوشمند دو زبانه در صورت عدم اعمال تغییر در فرم ویرایش پورت جهت ممانعت از ارسال دستورات زائد و غیرضروری به تجهیزات شبکه.'
+    ],
+    changes_en: [
+      'Implemented diff-based delta detection across PortInspectorModal, PortManagementView, and MikroTikDeviceManageModal to compare submitted form values against original live port properties.',
+      'Refactored Cisco and MikroTik CLI command generation (generateCiscoPortConfigCli and buildPortCliCommand) so changing an isolated field (e.g. Description or VLAN ID) generates only that specific command without re-emitting port-security, switchport mode, or admin status.',
+      'Added proper handling for clearing port description using "no description" when the description input is blanked.',
+      'Updated change summary cards in CiscoPortConfigConfirmModal to exclusively display parameters that were modified by the user.',
+      'Added intuitive bilingual notifications when no changes are made on port edit forms, preventing unnecessary command dispatch to network hardware.'
+    ]
+  },
   {
     version: '1.380.3',
     releaseDate: '2026-10-26',

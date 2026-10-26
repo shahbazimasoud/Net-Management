@@ -354,13 +354,21 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
         })
       );
 
-      // Also persist first selected port to backend API
       if (selectedPort && targetPortIds.includes(selectedPort.port_id)) {
-        await updateSwitchPort(device.id, selectedPort.port_id, {
-          admin_status: updates.admin_status === 'disabled' ? 'disabled' : 'enabled',
-          vlan: updates.vlan ? Number(updates.vlan) : selectedPort.vlan,
-          description: updates.comment !== undefined ? updates.comment : selectedPort.description,
-        });
+        const deltaPayload: Partial<SwitchPort> = {};
+        if (updates.admin_status && updates.admin_status !== 'no_change') {
+          deltaPayload.admin_status = updates.admin_status === 'disabled' ? 'disabled' : 'enabled';
+        }
+        if (updates.vlan !== undefined && updates.vlan !== '') {
+          deltaPayload.vlan = Number(updates.vlan);
+        }
+        if (updates.comment !== undefined) {
+          deltaPayload.description = updates.comment;
+        }
+        if (updates.speed) {
+          deltaPayload.speed = updates.speed;
+        }
+        await updateSwitchPort(device.id, selectedPort.port_id, deltaPayload);
       }
 
       onPortUpdated?.();
@@ -1201,16 +1209,36 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                             return;
                           }
 
+                          const original = selectedPort;
+                          const mikrotikUpdates: MikroTikPortConfigUpdates = {};
+                          if (editAdminStatus !== original.admin_status) {
+                            mikrotikUpdates.admin_status = editAdminStatus;
+                          }
+                          if (Number(editVlan) !== Number(original.vlan)) {
+                            mikrotikUpdates.vlan = editVlan;
+                          }
+                          if ((editComment || '').trim() !== (original.description || '').trim()) {
+                            mikrotikUpdates.comment = editComment;
+                          }
+                          const origAuto = (original.speed || 'auto') === 'auto';
+                          const currAuto = editSpeed === 'auto';
+                          if (currAuto !== origAuto || (!currAuto && editSpeed !== original.speed)) {
+                            mikrotikUpdates.auto_negotiation = currAuto;
+                            if (!currAuto) mikrotikUpdates.speed = editSpeed;
+                          }
+                          const origLoopProtect = (original as any).loop_protect || 'on';
+                          if (editLoopProtect !== origLoopProtect) {
+                            mikrotikUpdates.loop_protect = editLoopProtect;
+                          }
+
+                          if (Object.keys(mikrotikUpdates).length === 0) {
+                            alert(isEn ? 'No configuration changes were detected for this port.' : 'هیچ تغییری در تنظیمات این اینترفیس اعمال نشده است.');
+                            return;
+                          }
+
                           setConfirmModal({
                             targetPortIds: [selectedPort.port_id],
-                            updates: {
-                              admin_status: editAdminStatus,
-                              vlan: editVlan,
-                              comment: editComment,
-                              auto_negotiation: editSpeed === 'auto',
-                              speed: editSpeed !== 'auto' ? editSpeed : undefined,
-                              loop_protect: editLoopProtect,
-                            },
+                            updates: mikrotikUpdates,
                           });
                         }}
                         className={`w-full py-2.5 px-4 rounded-lg text-xs font-bold shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98 ${

@@ -70,10 +70,17 @@ export const generateCiscoPortConfigCli = (
     lines.push(`${devName}(config)# interface ${p}`);
     const prompt = `${devName}(config-if)#`;
 
-    if (updates.description) {
-      lines.push(`${prompt} description ${updates.description}`);
+    // 1. Description change
+    if (updates.description !== undefined) {
+      const desc = updates.description.trim();
+      if (desc) {
+        lines.push(`${prompt} description ${desc}`);
+      } else {
+        lines.push(`${prompt} no description`);
+      }
     }
 
+    // 2. Switchport Mode & VLANs
     if (updates.mode === 'trunk') {
       if (!isRouter) {
         lines.push(`${prompt} switchport trunk encapsulation dot1q`);
@@ -85,15 +92,26 @@ export const generateCiscoPortConfigCli = (
     } else if (updates.mode === 'access') {
       if (!isRouter) {
         lines.push(`${prompt} switchport mode access`);
-        if (updates.vlan) {
+        if (updates.vlan !== undefined && updates.vlan !== '') {
           lines.push(`${prompt} switchport access vlan ${updates.vlan}`);
+        }
+      }
+    } else {
+      // Mode unchanged - only VLAN or Allowed VLANs changed
+      if (!isRouter) {
+        if (updates.vlan !== undefined && updates.vlan !== '') {
+          lines.push(`${prompt} switchport access vlan ${updates.vlan}`);
+        }
+        if (updates.allowed_vlans !== undefined && updates.allowed_vlans !== '') {
+          lines.push(`${prompt} switchport trunk allowed vlan ${updates.allowed_vlans}`);
         }
       }
     }
 
+    // 3. Port Security
     if (updates.port_security_enabled === true || updates.port_security_enabled === 'enabled') {
       if (!isRouter) {
-        if (updates.mode !== 'access') {
+        if (updates.mode !== 'access' && updates.mode !== undefined) {
           lines.push(`${prompt} switchport mode access`);
         }
         lines.push(`${prompt} switchport port-security`);
@@ -113,8 +131,24 @@ export const generateCiscoPortConfigCli = (
       if (!isRouter) {
         lines.push(`${prompt} no switchport port-security`);
       }
+    } else {
+      // Port security master switch unchanged, but sub-settings modified
+      if (!isRouter) {
+        if (updates.port_security_max_mac !== undefined) {
+          lines.push(`${prompt} switchport port-security maximum ${updates.port_security_max_mac}`);
+        }
+        if (updates.port_security_mode === 'sticky') {
+          lines.push(`${prompt} switchport port-security mac-address sticky`);
+        } else if (updates.port_security_mode === 'configured' && updates.port_security_configured_mac) {
+          lines.push(`${prompt} switchport port-security mac-address ${updates.port_security_configured_mac}`);
+        }
+        if (updates.port_security_violation !== undefined) {
+          lines.push(`${prompt} switchport port-security violation ${updates.port_security_violation}`);
+        }
+      }
     }
 
+    // 4. Admin Status (Shutdown / No Shutdown)
     if (updates.admin_status === 'disabled') {
       lines.push(`${prompt} shutdown`);
     } else if (updates.admin_status === 'enabled') {
@@ -127,6 +161,15 @@ export const generateCiscoPortConfigCli = (
     lines.push(`${devName}(config)# interface range ${portIds.join(', ')}`);
     const prompt = `${devName}(config-if-range)#`;
 
+    if (updates.description !== undefined) {
+      const desc = updates.description.trim();
+      if (desc) {
+        lines.push(`${prompt} description ${desc}`);
+      } else {
+        lines.push(`${prompt} no description`);
+      }
+    }
+
     if (updates.mode === 'trunk') {
       if (!isRouter) {
         lines.push(`${prompt} switchport trunk encapsulation dot1q`);
@@ -138,8 +181,17 @@ export const generateCiscoPortConfigCli = (
     } else if (updates.mode === 'access') {
       if (!isRouter) {
         lines.push(`${prompt} switchport mode access`);
-        if (updates.vlan) {
+        if (updates.vlan !== undefined && updates.vlan !== '') {
           lines.push(`${prompt} switchport access vlan ${updates.vlan}`);
+        }
+      }
+    } else {
+      if (!isRouter) {
+        if (updates.vlan !== undefined && updates.vlan !== '') {
+          lines.push(`${prompt} switchport access vlan ${updates.vlan}`);
+        }
+        if (updates.allowed_vlans !== undefined && updates.allowed_vlans !== '') {
+          lines.push(`${prompt} switchport trunk allowed vlan ${updates.allowed_vlans}`);
         }
       }
     }
@@ -265,7 +317,7 @@ export const CiscoPortConfigConfirmModal: React.FC<CiscoPortConfigConfirmModalPr
     });
   }
 
-  if (updates.allowed_vlans) {
+  if (updates.allowed_vlans !== undefined && updates.allowed_vlans !== '') {
     changesSummary.push({
       label: isEn ? 'Trunk Allowed VLANs' : 'ویلن‌های مجاز ترانک (Allowed VLANs)',
       value: updates.allowed_vlans,
@@ -283,13 +335,39 @@ export const CiscoPortConfigConfirmModal: React.FC<CiscoPortConfigConfirmModalPr
       icon: isSecEnabled ? <ShieldCheck className="w-4 h-4 text-emerald-500" /> : <ShieldAlert className="w-4 h-4 text-amber-500" />,
       isHighlight: isSecEnabled
     });
+  } else if (
+    updates.port_security_max_mac !== undefined ||
+    updates.port_security_mode !== undefined ||
+    updates.port_security_configured_mac !== undefined ||
+    updates.port_security_violation !== undefined
+  ) {
+    changesSummary.push({
+      label: isEn ? 'Port Security Settings' : 'تنظیمات امنیت پورت (Port Security)',
+      value: [
+        updates.port_security_max_mac ? `${isEn ? 'Max MAC' : 'سقف مک'}: ${updates.port_security_max_mac}` : '',
+        updates.port_security_mode ? `${isEn ? 'Mode' : 'حالت'}: ${updates.port_security_mode}` : '',
+        updates.port_security_configured_mac ? `${isEn ? 'MAC' : 'مک'}: ${updates.port_security_configured_mac}` : '',
+        updates.port_security_violation ? `${isEn ? 'Violation' : 'واکنش'}: ${updates.port_security_violation}` : '',
+      ].filter(Boolean).join(' | '),
+      icon: <ShieldCheck className="w-4 h-4 text-emerald-500" />,
+      isHighlight: true
+    });
   }
 
-  if (updates.description) {
+  if (updates.description !== undefined) {
+    const descText = updates.description.trim();
     changesSummary.push({
       label: isEn ? 'Port Description' : 'توضیحات اینترفیس (Description)',
-      value: updates.description,
+      value: descText ? descText : (isEn ? 'Cleared / Removed (no description)' : 'حذف دیسکریپشن (no description)'),
       icon: <Sliders className="w-4 h-4 text-slate-500" />
+    });
+  }
+
+  if (updates.connected_device !== undefined) {
+    changesSummary.push({
+      label: isEn ? 'Connected Device' : 'تجهیز متصل (Connected Device)',
+      value: updates.connected_device || (isEn ? 'None' : 'هیچ'),
+      icon: <Layers className="w-4 h-4 text-indigo-400" />
     });
   }
 

@@ -1156,19 +1156,27 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     }
 
     const original = selectedPort;
+    const originalSec = extractPortSecurityState(original);
+
     const hasAdminChange = editAdminStatus !== original.admin_status;
     const hasModeChange = editMode !== original.mode;
-    const hasVlanChange = editVlan !== original.vlan;
-    const hasAllowedVlansChange = editAllowedVlans !== (original.allowed_vlans || '');
-    const hasDescChange = editDesc !== (original.description || '');
+    const hasVlanChange = Number(editVlan) !== Number(original.vlan);
+    const hasAllowedVlansChange = (editAllowedVlans || '').trim() !== (original.allowed_vlans || '').trim();
+    const hasDescChange = (editDesc || '').trim() !== (original.description || '').trim();
+    const hasConnectedChange = (editConnected || '').trim() !== (original.connected_device || '').trim();
+
+    const hasPortSecEnabledChange = editPortSecEnabled !== !!originalSec.enabled;
+    const hasPortSecMaxMacChange = editPortSecEnabled && editPortSecMaxMac !== originalSec.maxMac;
+    const hasPortSecModeChange = editPortSecEnabled && editPortSecMode !== originalSec.mode;
+    const hasPortSecConfiguredMacChange = editPortSecEnabled && (editPortSecConfiguredMac || '').trim() !== (originalSec.configuredMac || '').trim();
+    const hasPortSecViolationChange = editPortSecEnabled && editPortSecViolation !== originalSec.violation;
+
     const hasPortSecChange =
-      editPortSecEnabled !== !!original.port_security_enabled ||
-      (editPortSecEnabled && (
-        editPortSecMode !== (original.port_security_mode || 'sticky') ||
-        editPortSecMaxMac !== (original.port_security_max_mac || 1) ||
-        editPortSecConfiguredMac !== (original.port_security_configured_mac || '') ||
-        editPortSecViolation !== (original.port_security_violation || 'shutdown')
-      ));
+      hasPortSecEnabledChange ||
+      hasPortSecMaxMacChange ||
+      hasPortSecModeChange ||
+      hasPortSecConfiguredMacChange ||
+      hasPortSecViolationChange;
 
     // Pre-flight validation of unauthorized changes
     const unauthorizedChanges: string[] = [];
@@ -1197,20 +1205,63 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
       return;
     }
 
-    const updates: PortConfigUpdates = {
-      admin_status: canPower ? editAdminStatus : original.admin_status,
-      status: canPower ? (editAdminStatus === 'disabled' ? 'down' : 'up') : original.status,
-      mode: canMode ? editMode : original.mode,
-      vlan: canVlan ? editVlan : original.vlan,
-      allowed_vlans: canMode ? editAllowedVlans : original.allowed_vlans,
-      connected_device: editConnected,
-      description: canDescription ? editDesc : original.description,
-      port_security_enabled: canPortSecurity ? editPortSecEnabled : !!original.port_security_enabled,
-      port_security_max_mac: canPortSecurity ? editPortSecMaxMac : original.port_security_max_mac,
-      port_security_mode: canPortSecurity ? editPortSecMode : original.port_security_mode,
-      port_security_configured_mac: canPortSecurity ? editPortSecConfiguredMac : original.port_security_configured_mac,
-      port_security_violation: canPortSecurity ? editPortSecViolation : original.port_security_violation,
-    };
+    // Build diff/delta updates only
+    const updates: PortConfigUpdates = {};
+
+    if (hasAdminChange && canPower) {
+      updates.admin_status = editAdminStatus;
+      updates.status = editAdminStatus === 'disabled' ? 'down' : 'up';
+    }
+
+    if (hasModeChange && canMode) {
+      updates.mode = editMode;
+      if (editMode === 'trunk') {
+        updates.allowed_vlans = editAllowedVlans || '1-4094';
+      } else {
+        updates.vlan = editVlan;
+      }
+    } else {
+      if (editMode === 'access' && hasVlanChange && canVlan) {
+        updates.vlan = editVlan;
+      }
+      if (editMode === 'trunk' && hasAllowedVlansChange && canMode) {
+        updates.allowed_vlans = editAllowedVlans;
+      }
+    }
+
+    if (hasDescChange && canDescription) {
+      updates.description = editDesc;
+    }
+
+    if (hasConnectedChange) {
+      updates.connected_device = editConnected;
+    }
+
+    if (hasPortSecChange && canPortSecurity) {
+      if (hasPortSecEnabledChange) {
+        updates.port_security_enabled = editPortSecEnabled;
+        if (editPortSecEnabled) {
+          updates.port_security_max_mac = editPortSecMaxMac;
+          updates.port_security_mode = editPortSecMode;
+          updates.port_security_configured_mac = editPortSecConfiguredMac;
+          updates.port_security_violation = editPortSecViolation;
+        }
+      } else if (editPortSecEnabled) {
+        if (hasPortSecMaxMacChange) updates.port_security_max_mac = editPortSecMaxMac;
+        if (hasPortSecModeChange) updates.port_security_mode = editPortSecMode;
+        if (hasPortSecConfiguredMacChange) updates.port_security_configured_mac = editPortSecConfiguredMac;
+        if (hasPortSecViolationChange) updates.port_security_violation = editPortSecViolation;
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      alert(
+        isEn
+          ? 'No configuration changes were detected for this port.'
+          : 'هیچ تغییری در تنظیمات این اینترفیس اعمال نشده است.'
+      );
+      return;
+    }
 
     setPortConfigConfirmModal({
       targetPortIds: [selectedPort.port_id],
@@ -1276,20 +1327,43 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
         setBatchPortSec('no_change');
       } else {
         const portId = targetPortIds[0];
-        const res = await updateSwitchPort(device.id, portId, {
-          admin_status: updates.admin_status !== 'no_change' ? updates.admin_status : undefined,
-          status: updates.status,
-          mode: updates.mode !== 'no_change' ? updates.mode : undefined,
-          vlan: Number(updates.vlan) || 1,
-          allowed_vlans: updates.allowed_vlans,
-          connected_device: updates.connected_device,
-          description: updates.description,
-          port_security_enabled: updates.port_security_enabled === true || updates.port_security_enabled === 'enabled',
-          port_security_max_mac: updates.port_security_max_mac,
-          port_security_mode: updates.port_security_mode,
-          port_security_configured_mac: updates.port_security_configured_mac,
-          port_security_violation: updates.port_security_violation,
-        });
+        const singlePayload: Partial<SwitchPort> = {};
+        if (updates.admin_status !== undefined && updates.admin_status !== 'no_change') {
+          singlePayload.admin_status = updates.admin_status;
+          singlePayload.status = updates.status || (updates.admin_status === 'disabled' ? 'down' : 'up');
+        }
+        if (updates.mode !== undefined && updates.mode !== 'no_change') {
+          singlePayload.mode = updates.mode;
+        }
+        if (updates.vlan !== undefined && updates.vlan !== '') {
+          singlePayload.vlan = Number(updates.vlan);
+        }
+        if (updates.allowed_vlans !== undefined) {
+          singlePayload.allowed_vlans = updates.allowed_vlans;
+        }
+        if (updates.connected_device !== undefined) {
+          singlePayload.connected_device = updates.connected_device;
+        }
+        if (updates.description !== undefined) {
+          singlePayload.description = updates.description;
+        }
+        if (updates.port_security_enabled !== undefined && updates.port_security_enabled !== 'no_change') {
+          singlePayload.port_security_enabled = updates.port_security_enabled === true || updates.port_security_enabled === 'enabled';
+        }
+        if (updates.port_security_max_mac !== undefined) {
+          singlePayload.port_security_max_mac = updates.port_security_max_mac;
+        }
+        if (updates.port_security_mode !== undefined) {
+          singlePayload.port_security_mode = updates.port_security_mode;
+        }
+        if (updates.port_security_configured_mac !== undefined) {
+          singlePayload.port_security_configured_mac = updates.port_security_configured_mac;
+        }
+        if (updates.port_security_violation !== undefined) {
+          singlePayload.port_security_violation = updates.port_security_violation;
+        }
+
+        const res = await updateSwitchPort(device.id, portId, singlePayload);
 
         // Update local ports
         setPorts((prev) =>

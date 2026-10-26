@@ -4231,11 +4231,17 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
         lines.push(' switchport mode access');
       }
     }
-    if ('vlan' in updates) {
+    if ('vlan' in updates && updates.vlan !== undefined && updates.vlan !== '') {
       hasCommands = true;
       const vlanId = Number(updates.vlan || 1);
-      lines.push(' switchport mode access');
+      if (updates.mode !== 'trunk') {
+        lines.push(' switchport mode access');
+      }
       lines.push(` switchport access vlan ${vlanId}`);
+    }
+    if ('allowed_vlans' in updates && updates.allowed_vlans) {
+      hasCommands = true;
+      lines.push(` switchport trunk allowed vlan ${String(updates.allowed_vlans).trim()}`);
     }
     if ('description' in updates) {
       hasCommands = true;
@@ -4260,7 +4266,9 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
         const maxMac = Number(updates.port_security_max_mac || 1);
         const violation = String(updates.port_security_violation || 'shutdown').toLowerCase();
         const mode = String(updates.port_security_mode || 'sticky').toLowerCase();
-        lines.push(' switchport mode access');
+        if (updates.mode !== 'trunk') {
+          lines.push(' switchport mode access');
+        }
         lines.push(' switchport port-security');
         lines.push(` switchport port-security maximum ${maxMac}`);
         lines.push(` switchport port-security violation ${violation}`);
@@ -4271,6 +4279,23 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
         }
       } else {
         lines.push(' no switchport port-security');
+      }
+    } else {
+      if ('port_security_max_mac' in updates && updates.port_security_max_mac) {
+        hasCommands = true;
+        lines.push(` switchport port-security maximum ${Number(updates.port_security_max_mac)}`);
+      }
+      if ('port_security_mode' in updates && updates.port_security_mode) {
+        hasCommands = true;
+        if (updates.port_security_mode === 'sticky') {
+          lines.push(' switchport port-security mac-address sticky');
+        } else if (updates.port_security_mode === 'configured' && updates.port_security_configured_mac) {
+          lines.push(` switchport port-security mac-address ${String(updates.port_security_configured_mac).trim()}`);
+        }
+      }
+      if ('port_security_violation' in updates && updates.port_security_violation) {
+        hasCommands = true;
+        lines.push(` switchport port-security violation ${String(updates.port_security_violation).toLowerCase()}`);
       }
     }
     if (!hasCommands) return '';
