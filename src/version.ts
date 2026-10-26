@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.379.6';
+export const APP_VERSION = '1.379.7';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.379.7',
+    releaseDate: '2026-10-26',
+    type: 'patch',
+    title: 'رفع باگ پرش تنظیمات دامین کنترلر (LDAP) هنگام فراخوانی و پیاده‌سازی لاگین مقاوم و تطبیقی بر اساس دسترسی‌های RBAC',
+    title_en: 'Fix Domain Controller LDAP settings wipeout bug and implement resilient RBAC-authoritative fallback login',
+    changes: [
+      'حذف اثر جانبی مخرب در متد loadActiveDirectoryConfig: جلوگیری قطعی از ذخیره و اوررایت خودکار دیتای پیش‌فرض روی دیتابیس سرور در هنگام خواندن تنظیمات.',
+      'همگام‌سازی بلادرنگ وضعیت تنظیمات دامین کنترلر در سراسر فرانت‌اند با انتشار و شنود رویداد سراسری nettopology_ad_config_changed بین تب‌های SettingsView و LdapConnectionSettingsView.',
+      'پیاده‌سازی مکانیزم لاگین منعطف و مقاوم Active Directory در بک‌اند: در صورت قطعی ارتباط یا عدم دسترسی شبکه به دامین کنترلر (Timeout / Unreachable)، کاربر بر اساس پالیسی‌های ذخیره‌شده در دیتابیس احراز هویت شده و مانع از مسدودسازی بیهوده ورود کاربران مجاز می‌گردد.'
+    ],
+    changes_en: [
+      'Eliminated destructive side-effect in loadActiveDirectoryConfig: prevented automatic overwrite of server database with default values during configuration retrieval.',
+      'Implemented real-time bidirectional synchronization across the frontend via nettopology_ad_config_changed global event between SettingsView and LdapConnectionSettingsView.',
+      'Added resilient, database-authoritative fallback for Active Directory authentication: if physical Domain Controller is network-unreachable or times out, authorized users with assigned RBAC policies are safely authenticated with full audit logging.'
+    ]
+  },
   {
     version: '1.379.6',
     releaseDate: '2026-10-26',

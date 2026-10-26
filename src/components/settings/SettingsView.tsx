@@ -130,6 +130,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setPolicies(dbPolicies);
       }
     }).catch(() => {});
+
+    const handleAdConfigChanged = (e: any) => {
+      if (e.detail?.config) {
+        setAdConfig(e.detail.config);
+      } else {
+        syncActiveDirectoryConfigFromDatabase().then((cfg) => {
+          if (cfg) setAdConfig(cfg);
+        }).catch(() => {});
+      }
+    };
+    window.addEventListener('nettopology_ad_config_changed', handleAdConfigChanged);
+    return () => {
+      window.removeEventListener('nettopology_ad_config_changed', handleAdConfigChanged);
+    };
   }, []);
 
   const handleSaveDeviceGroups = (newGroups: DeviceGroup[]) => {

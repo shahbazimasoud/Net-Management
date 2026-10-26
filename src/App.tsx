@@ -145,13 +145,24 @@ export default function App() {
         setDeviceGroups(loadDeviceGroups());
       }
     };
+    const handleAdConfigChanged = (e: any) => {
+      if (e.detail?.config) {
+        setAdConfig(e.detail.config);
+      } else {
+        syncActiveDirectoryConfigFromDatabase().then((cfg) => {
+          if (cfg) setAdConfig(cfg);
+        }).catch(() => {});
+      }
+    };
     window.addEventListener('nettopology_access_policies_changed', handlePoliciesChanged);
     window.addEventListener('nettopology_simulated_role_changed', handleSimRoleChanged);
     window.addEventListener('nettopology_device_groups_changed', handleDeviceGroupsChanged);
+    window.addEventListener('nettopology_ad_config_changed', handleAdConfigChanged);
     return () => {
       window.removeEventListener('nettopology_access_policies_changed', handlePoliciesChanged);
       window.removeEventListener('nettopology_simulated_role_changed', handleSimRoleChanged);
       window.removeEventListener('nettopology_device_groups_changed', handleDeviceGroupsChanged);
+      window.removeEventListener('nettopology_ad_config_changed', handleAdConfigChanged);
     };
   }, []);
 

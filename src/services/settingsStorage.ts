@@ -648,13 +648,16 @@ export function loadActiveDirectoryConfig(): ActiveDirectoryConfig {
   } catch (e) {
     console.error('Failed to parse AD config from localStorage', e);
   }
-  saveActiveDirectoryConfig(DEFAULT_AD_CONFIG);
+  // Pure getter: Never overwrite server database with default config during load
   return DEFAULT_AD_CONFIG;
 }
 
 export function saveActiveDirectoryConfig(config: ActiveDirectoryConfig): void {
   try {
     localStorage.setItem(STORAGE_KEYS.AD_CONFIG, JSON.stringify(config));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('nettopology_ad_config_changed', { detail: { config } }));
+    }
     const token = typeof window !== 'undefined'
       ? localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1')
       : null;
