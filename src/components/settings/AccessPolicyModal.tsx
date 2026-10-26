@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -6,6 +6,8 @@ import {
   Plus,
   Maximize2,
   Minimize2,
+  Check,
+  RefreshCw,
   ShieldCheck,
   Compass,
   Terminal,
@@ -77,6 +79,7 @@ import {
   RESTRICTED_DEVICE_PERMISSIONS,
   isDeviceActionPermitted,
 } from '../../utils/rbac';
+import { fetchActiveDirectoryConfig } from '../../services/api';
 
 export type PolicyModalTab =
   | 'identity'
@@ -174,6 +177,40 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     return liveServers.length > 0 ? liveServers : fetchedServers;
   }, [liveServers, fetchedServers]);
 
+  // Active Directory live objects fetch state & on-demand sync
+  const [adConfigState, setAdConfigState] = useState<ActiveDirectoryConfig | null>(liveAdConfig || null);
+  const [isFetchingAd, setIsFetchingAd] = useState(false);
+
+  useEffect(() => {
+    if (liveAdConfig) {
+      setAdConfigState(liveAdConfig);
+    }
+  }, [liveAdConfig]);
+
+  const handleFetchAd = useCallback(async () => {
+    setIsFetchingAd(true);
+    try {
+      const res = await fetchActiveDirectoryConfig();
+      if (res && res.config) {
+        setAdConfigState(res.config);
+      }
+    } catch (e) {
+      console.error('Failed to fetch AD objects in AccessPolicyModal', e);
+    } finally {
+      setIsFetchingAd(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (!adConfigState || (!adConfigState.syncedGroups?.length && !adConfigState.syncedUsers?.length)) {
+        handleFetchAd();
+      }
+    }
+  }, [isOpen, handleFetchAd]);
+
+  const effectiveAdConfig = adConfigState || liveAdConfig;
+
   // -------------------------------------------------------------
   // Cascading Scope Resolution (Phase 2):
   // Resolves permitted equipment and servers based on draftPolicy.targetScope
@@ -263,6 +300,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     if (isOpen && initialPolicy) {
       setDraftPolicy({
         ...initialPolicy,
+        subjectIds: Array.isArray(initialPolicy.subjectIds) && initialPolicy.subjectIds.length > 0
+          ? initialPolicy.subjectIds
+          : (initialPolicy.subjectId ? [initialPolicy.subjectId] : []),
+        subjectNames: Array.isArray(initialPolicy.subjectNames) && initialPolicy.subjectNames.length > 0
+          ? initialPolicy.subjectNames
+          : (initialPolicy.subjectName ? [initialPolicy.subjectName] : []),
         targetGroupIds: initialPolicy.targetGroupIds || [],
         targetDeviceIds: initialPolicy.targetDeviceIds || [],
         targetServerScope:
@@ -311,13 +354,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       setIsMaximized(false);
       setActiveTab('identity');
       setAdUserSearch('');
-      setIsAdUserOpen(false);
+      setIsAdUserOpen(true);
       setAdGroupSearch('');
-      setIsAdGroupOpen(false);
+      setIsAdGroupOpen(true);
       setLocalUserSearch('');
-      setIsLocalUserOpen(false);
+      setIsLocalUserOpen(true);
       setLocalGroupSearch('');
-      setIsLocalGroupOpen(false);
+      setIsLocalGroupOpen(true);
       setDeviceSearchQuery('');
       setMatrixDeviceSearch('');
       setMatrixDeviceFilter('all');
@@ -329,7 +372,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
 
   // Derived filtered users and groups for subject selection
   const filteredAdUsers = useMemo(() => {
-    const list = liveAdConfig?.syncedUsers || [];
+    const list = effectiveAdConfig?.syncedUsers || [];
     if (!adUserSearch.trim()) return list.slice(0, 50);
     const q = adUserSearch.toLowerCase().trim();
     return list.filter(
@@ -340,20 +383,21 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         u.mail?.toLowerCase().includes(q) ||
         u.department?.toLowerCase().includes(q)
     );
-  }, [liveAdConfig?.syncedUsers, adUserSearch]);
+  }, [effectiveAdConfig?.syncedUsers, adUserSearch]);
 
   const filteredAdGroups = useMemo(() => {
-    const list = liveAdConfig?.syncedGroups || [];
+    const list = effectiveAdConfig?.syncedGroups || [];
     if (!adGroupSearch.trim()) return list.slice(0, 50);
     const q = adGroupSearch.toLowerCase().trim();
     return list.filter(
       (g) =>
-        g.displayName?.toLowerCase().includes(q) ||
-        g.sAMAccountName?.toLowerCase().includes(q) ||
-        g.description?.toLowerCase().includes(q) ||
-        g.dn?.toLowerCase().includes(q)
+        (g.cn && g.cn.toLowerCase().includes(q)) ||
+        (g.displayName && g.displayName.toLowerCase().includes(q)) ||
+        (g.sAMAccountName && g.sAMAccountName.toLowerCase().includes(q)) ||
+        (g.description && g.description.toLowerCase().includes(q)) ||
+        (g.dn && g.dn.toLowerCase().includes(q))
     );
-  }, [liveAdConfig?.syncedGroups, adGroupSearch]);
+  }, [effectiveAdConfig?.syncedGroups, adGroupSearch]);
 
   const filteredLocalUsers = useMemo(() => {
     if (!localUserSearch.trim()) return liveLocalUsers.slice(0, 50);
@@ -390,22 +434,123 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     );
   }, [devices, deviceSearchQuery]);
 
-  // Selected subject object lookups for summary badges
-  const currentSelectedAdUser = useMemo(() => {
-    if (!draftPolicy || draftPolicy.subjectType !== 'ad_user') return null;
-    return (liveAdConfig?.syncedUsers || []).find(
-      (u) =>
-        u.samAccountName === draftPolicy.subjectId ||
-        u.dn === draftPolicy.subjectId
-    );
-  }, [liveAdConfig?.syncedUsers, draftPolicy?.subjectId, draftPolicy?.subjectType]);
+  // Selected subject IDs & Names supporting multi-selection
+  const selectedSubjectIds: string[] = useMemo(() => {
+    if (!draftPolicy) return [];
+    if (Array.isArray(draftPolicy.subjectIds) && draftPolicy.subjectIds.length > 0) {
+      return draftPolicy.subjectIds;
+    }
+    return draftPolicy.subjectId ? [draftPolicy.subjectId] : [];
+  }, [draftPolicy?.subjectIds, draftPolicy?.subjectId]);
 
-  const currentSelectedAdGroup = useMemo(() => {
-    if (!draftPolicy || draftPolicy.subjectType !== 'ad_group') return null;
-    return (liveAdConfig?.syncedGroups || []).find(
-      (g) => g.dn === draftPolicy.subjectId
-    );
-  }, [liveAdConfig?.syncedGroups, draftPolicy?.subjectId, draftPolicy?.subjectType]);
+  const selectedSubjectNames: string[] = useMemo(() => {
+    if (!draftPolicy) return [];
+    if (Array.isArray(draftPolicy.subjectNames) && draftPolicy.subjectNames.length > 0) {
+      return draftPolicy.subjectNames;
+    }
+    return draftPolicy.subjectName ? [draftPolicy.subjectName] : [];
+  }, [draftPolicy?.subjectNames, draftPolicy?.subjectName]);
+
+  const handleToggleSubject = useCallback((id: string, name: string) => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      const currentIds = Array.isArray(prev.subjectIds) && prev.subjectIds.length > 0
+        ? [...prev.subjectIds]
+        : (prev.subjectId ? [prev.subjectId] : []);
+      const currentNames = Array.isArray(prev.subjectNames) && prev.subjectNames.length > 0
+        ? [...prev.subjectNames]
+        : (prev.subjectName ? [prev.subjectName] : []);
+
+      const idx = currentIds.indexOf(id);
+      let nextIds: string[];
+      let nextNames: string[];
+
+      if (idx >= 0) {
+        nextIds = currentIds.filter((item) => item !== id);
+        nextNames = currentNames.filter((_, i) => i !== idx);
+      } else {
+        nextIds = [...currentIds, id];
+        nextNames = [...currentNames, name];
+      }
+
+      return {
+        ...prev,
+        subjectIds: nextIds,
+        subjectNames: nextNames,
+        subjectId: nextIds[0] || '',
+        subjectName: nextNames.join(', ') || '',
+      };
+    });
+  }, []);
+
+  const handleRemoveSubject = useCallback((id: string) => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      const currentIds = Array.isArray(prev.subjectIds) && prev.subjectIds.length > 0
+        ? [...prev.subjectIds]
+        : (prev.subjectId ? [prev.subjectId] : []);
+      const currentNames = Array.isArray(prev.subjectNames) && prev.subjectNames.length > 0
+        ? [...prev.subjectNames]
+        : (prev.subjectName ? [prev.subjectName] : []);
+
+      const idx = currentIds.indexOf(id);
+      if (idx === -1) return prev;
+      const nextIds = currentIds.filter((item) => item !== id);
+      const nextNames = currentNames.filter((_, i) => i !== idx);
+
+      return {
+        ...prev,
+        subjectIds: nextIds,
+        subjectNames: nextNames,
+        subjectId: nextIds[0] || '',
+        subjectName: nextNames.join(', ') || '',
+      };
+    });
+  }, []);
+
+  const handleClearAllSubjects = useCallback(() => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        subjectIds: [],
+        subjectNames: [],
+        subjectId: '',
+        subjectName: '',
+      };
+    });
+  }, []);
+
+  const handleSelectAllVisible = useCallback((items: { id: string; name: string }[]) => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      const currentIds = Array.isArray(prev.subjectIds) && prev.subjectIds.length > 0
+        ? [...prev.subjectIds]
+        : (prev.subjectId ? [prev.subjectId] : []);
+      const currentNames = Array.isArray(prev.subjectNames) && prev.subjectNames.length > 0
+        ? [...prev.subjectNames]
+        : (prev.subjectName ? [prev.subjectName] : []);
+
+      const idToNameMap = new Map<string, string>();
+      currentIds.forEach((id, idx) => {
+        idToNameMap.set(id, currentNames[idx] || id);
+      });
+      items.forEach((item) => {
+        idToNameMap.set(item.id, item.name);
+      });
+
+      const nextIds = Array.from(idToNameMap.keys());
+      const nextNames = Array.from(idToNameMap.values());
+
+      return {
+        ...prev,
+        subjectIds: nextIds,
+        subjectNames: nextNames,
+        subjectId: nextIds[0] || '',
+        subjectName: nextNames.join(', ') || '',
+      };
+    });
+  }, []);
 
   const currentSelectedLocalUser = useMemo(() => {
     if (!draftPolicy || draftPolicy.subjectType !== 'local_user') return null;
@@ -926,7 +1071,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                   </div>
                 </div>
 
-                {/* 1B: Subject Identity Type & Interactive Selector */}
+                {/* 1B: Subject Identity Type & Interactive Multi-Subject Selector */}
                 <div
                   className={`p-4 rounded-xl border ${
                     isLightMode
@@ -934,7 +1079,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                       : 'bg-slate-950/60 border-white/10'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                       <Users className="w-4 h-4 text-cyan-400" />
                       <h4
@@ -946,30 +1091,64 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                           ? 'Subject Identity Assignment (User or Group)'
                           : 'انتساب هویت کاربر یا گروه سازمانی'}
                       </h4>
+                      {selectedSubjectIds.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                          {selectedSubjectIds.length} {isEn ? 'selected' : 'مورد انتخاب‌شده'}
+                        </span>
+                      )}
                     </div>
-                    <FieldInfoTooltip
-                      title={isEn ? 'Subject Assignment' : 'انتساب هویت'}
-                      whatIsIt={
-                        isEn
-                          ? 'The entity (Active Directory account or Local user/role) to which this policy is authoritatively mapped.'
-                          : 'موجودیتی (کاربر/گروه اکتیو دایرکتوری یا کاربر/گروه محلی) که این پالیسی به آن تعلق می‌گیرد.'
-                      }
-                      whyNeeded={
-                        isEn
-                          ? 'Enforces role-based access control based on LDAP domain credentials or local system accounts.'
-                          : 'اعمال کنترل دسترسی مبتنی بر نقش متناسب با اکانت‌های دامین یا حساب‌های کاربری داخلی سیستم.'
-                      }
-                      practicalExample={
-                        isEn
-                          ? 'AD Group: "Domain Admins" or Local User: "operator_ali"'
-                          : 'گروه AD: "NetAdmins" یا کاربر محلی: "operator_ali"'
-                      }
-                      isEn={isEn}
-                      isLightMode={isLightMode}
-                    />
+
+                    <div className="flex items-center gap-2">
+                      {(draftPolicy.subjectType === 'ad_user' || draftPolicy.subjectType === 'ad_group') && (
+                        <button
+                          type="button"
+                          onClick={handleFetchAd}
+                          disabled={isFetchingAd}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition cursor-pointer ${
+                            isLightMode
+                              ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                              : 'bg-slate-900 hover:bg-slate-800 border-white/15 text-slate-200'
+                          }`}
+                          title={isEn ? 'Reload Active Directory live objects' : 'دریافت مجدد آبجکت‌های زنده اکتیو دایرکتوری'}
+                        >
+                          <RefreshCw className={`w-3 h-3 text-cyan-400 ${isFetchingAd ? 'animate-spin' : ''}`} />
+                          <span>
+                            {isEn
+                              ? isFetchingAd
+                                ? 'Fetching AD...'
+                                : 'Fetch AD Objects'
+                              : isFetchingAd
+                              ? 'درحال بارگذاری...'
+                              : 'دریافت آبجکت‌های AD'}
+                          </span>
+                        </button>
+                      )}
+
+                      <FieldInfoTooltip
+                        title={isEn ? 'Subject Assignment' : 'انتساب هویت'}
+                        whatIsIt={
+                          isEn
+                            ? 'The entity or entities (Active Directory accounts or Local users/groups) to which this policy is authoritatively mapped.'
+                            : 'موجودیتی (کاربر/گروه اکتیو دایرکتوری یا کاربر/گروه محلی) که این پالیسی به آن تعلق می‌گیرد.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Enforces role-based access control based on LDAP domain credentials or local system accounts. You can select multiple subjects for a unified policy.'
+                            : 'اعمال کنترل دسترسی مبتنی بر نقش متناسب با اکانت‌های دامین یا حساب‌های کاربری داخلی سیستم. امکان انتخاب چند موجودیت به طور همزمان فراهم است.'
+                        }
+                        practicalExample={
+                          isEn
+                            ? 'AD Groups: "Domain Admins", "Network Operators" or Local Users: "admin", "operator1"'
+                            : 'گروه‌های AD: "Domain Admins", "NetAdmins" یا کاربران محلی: "admin", "operator1"'
+                        }
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-4">
+                  {/* Subject Type Selector Tabs */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
                     {[
                       {
                         type: 'ad_user',
@@ -1008,6 +1187,8 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                               subjectType: item.type as any,
                               subjectId: '',
                               subjectName: '',
+                              subjectIds: [],
+                              subjectNames: [],
                             });
                           }}
                           className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-semibold transition cursor-pointer select-none ${
@@ -1027,392 +1208,525 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                     })}
                   </div>
 
-                  {/* AD User Interactive Picker */}
+                  {/* Active Selected Subjects Badges / Chips */}
+                  {selectedSubjectIds.length > 0 && (
+                    <div
+                      className={`mb-3 p-3 rounded-xl border space-y-2 ${
+                        isLightMode
+                          ? 'bg-cyan-50/70 border-cyan-200'
+                          : 'bg-cyan-950/30 border-cyan-500/30'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <span className={`font-semibold flex items-center gap-1.5 ${isLightMode ? 'text-cyan-950' : 'text-cyan-200'}`}>
+                          <CheckCircle2 className="w-4 h-4 text-cyan-500" />
+                          {isEn
+                            ? `Selected Subjects (${selectedSubjectIds.length}):`
+                            : `موجودیت‌های انتخاب‌شده (${selectedSubjectIds.length}):`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleClearAllSubjects}
+                          className="text-[11px] font-medium text-rose-500 hover:underline cursor-pointer"
+                        >
+                          {isEn ? 'Clear All' : 'حذف همه'}
+                        </button>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-1">
+                        {selectedSubjectIds.map((id, idx) => {
+                          const name = selectedSubjectNames[idx] || id;
+                          return (
+                            <span
+                              key={id}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border shadow-xs ${
+                                isLightMode
+                                  ? 'bg-white border-cyan-300 text-cyan-950'
+                                  : 'bg-slate-900 border-cyan-500/50 text-cyan-100'
+                              }`}
+                            >
+                              <span className="font-semibold">{name}</span>
+                              {name !== id && (
+                                <span className="font-mono text-[10px] opacity-75">
+                                  (@{id.length > 25 ? `${id.slice(0, 22)}...` : id})
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveSubject(id);
+                                }}
+                                className="hover:text-rose-400 p-0.5 rounded transition cursor-pointer"
+                                title={isEn ? 'Remove' : 'حذف'}
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AD Domain Status notice for AD types */}
+                  {(draftPolicy.subjectType === 'ad_user' || draftPolicy.subjectType === 'ad_group') && (
+                    <div
+                      className={`mb-3 p-2.5 rounded-xl border flex items-center justify-between text-[11px] ${
+                        isLightMode
+                          ? 'bg-slate-50 border-slate-200 text-slate-700'
+                          : 'bg-slate-900/60 border-white/10 text-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="font-medium">
+                          {isEn ? 'Active Directory Domain:' : 'دامین اکتیو دایرکتوری:'}
+                        </span>
+                        <span className="font-mono font-bold text-cyan-400">
+                          {effectiveAdConfig?.domain || effectiveAdConfig?.server || (isEn ? 'Configured' : 'پیکربندی‌شده')}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] opacity-80">
+                          {draftPolicy.subjectType === 'ad_user'
+                            ? `${effectiveAdConfig?.syncedUsers?.length || 0} ${isEn ? 'users synced' : 'کاربر همگام‌شده'}`
+                            : `${effectiveAdConfig?.syncedGroups?.length || 0} ${isEn ? 'groups synced' : 'گروه همگام‌شده'}`}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AD User Interactive Multi-Selector */}
                   {draftPolicy.subjectType === 'ad_user' && (
                     <div className="space-y-2">
-                      <div className="relative">
-                        <Search className="w-4 h-4 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-cyan-400 pointer-events-none" />
-                        <input
-                          type="text"
-                          value={adUserSearch}
-                          onChange={(e) => {
-                            setAdUserSearch(e.target.value);
-                            setIsAdUserOpen(true);
-                          }}
-                          onFocus={() => setIsAdUserOpen(true)}
-                          placeholder={
-                            isEn
-                              ? 'Search Active Directory users (Name, samAccountName, department)...'
-                              : 'جستجوی کاربر دامین (بر اساس نام، نام کاربری، دپارتمان یا ایمیل)...'
-                          }
-                          className={`w-full pl-9 pr-9 rtl:pl-9 rtl:pr-9 py-2 rounded-xl text-xs outline-none transition ${
-                            isLightMode
-                              ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-500'
-                              : 'bg-slate-900 border border-white/20 text-white focus:border-cyan-400'
-                          }`}
-                        />
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Search className="w-4 h-4 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-cyan-400 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={adUserSearch}
+                            onChange={(e) => setAdUserSearch(e.target.value)}
+                            placeholder={
+                              isEn
+                                ? 'Search Active Directory users (Name, samAccountName, department)...'
+                                : 'جستجوی کاربر دامین (بر اساس نام، نام کاربری، دپارتمان یا ایمیل)...'
+                            }
+                            className={`w-full pl-9 pr-9 rtl:pl-9 rtl:pr-9 py-2 rounded-xl text-xs outline-none transition ${
+                              isLightMode
+                                ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-500'
+                                : 'bg-slate-900 border border-white/20 text-white focus:border-cyan-400'
+                            }`}
+                          />
+                        </div>
+                        {filteredAdUsers.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSelectAllVisible(
+                                filteredAdUsers.map((u) => ({
+                                  id: u.samAccountName,
+                                  name: u.displayName || u.samAccountName,
+                                }))
+                              )
+                            }
+                            className={`px-3 py-2 rounded-xl text-xs font-semibold border transition shrink-0 cursor-pointer ${
+                              isLightMode
+                                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+                                : 'bg-slate-900 hover:bg-slate-800 border-white/15 text-slate-200'
+                            }`}
+                          >
+                            {isEn ? `Select All (${filteredAdUsers.length})` : `انتخاب همه (${filteredAdUsers.length})`}
+                          </button>
+                        )}
                       </div>
 
-                      {draftPolicy.subjectId && (
-                        <div
-                          className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs ${
-                            isLightMode
-                              ? 'bg-cyan-50/80 border-cyan-200 text-cyan-950'
-                              : 'bg-cyan-950/40 border-cyan-500/30 text-cyan-200'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold">
-                              {currentSelectedAdUser?.displayName ||
-                                draftPolicy.subjectName ||
-                                draftPolicy.subjectId}
-                            </span>
-                            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20">
-                              @{draftPolicy.subjectId}
-                            </span>
-                            {currentSelectedAdUser?.department && (
-                              <span className="text-[10px] text-slate-400">
-                                ({currentSelectedAdUser.department})
-                              </span>
-                            )}
+                      <div
+                        className={`max-h-60 overflow-y-auto rounded-xl border p-1 space-y-1 ${
+                          isLightMode
+                            ? 'bg-white border-slate-200 shadow-inner'
+                            : 'bg-slate-950/80 border-white/15 shadow-inner'
+                        }`}
+                      >
+                        {filteredAdUsers.length === 0 ? (
+                          <div className="p-4 text-center text-xs text-slate-400 space-y-2">
+                            <p>{isEn ? 'No Active Directory users found matching criteria.' : 'کاربر اکتیو دایرکتوری مطابق با جستجو یافت نشد.'}</p>
+                            <button
+                              type="button"
+                              onClick={handleFetchAd}
+                              className="text-cyan-400 hover:underline inline-flex items-center gap-1 font-semibold"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                              {isEn ? 'Click to fetch fresh AD objects' : 'کلیک برای دریافت مجدد آبجکت‌های AD'}
+                            </button>
                           </div>
-                          <span className="text-[10px] font-semibold text-emerald-400 flex items-center gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            {isEn ? 'Selected' : 'انتخاب شد'}
-                          </span>
-                        </div>
-                      )}
-
-                      {isAdUserOpen && (
-                        <div
-                          className={`max-h-48 overflow-y-auto rounded-xl border p-1 space-y-1 ${
-                            isLightMode
-                              ? 'bg-white border-slate-200 shadow-md'
-                              : 'bg-slate-950 border-white/15 shadow-xl'
-                          }`}
-                        >
-                          {filteredAdUsers.length === 0 ? (
-                            <div className="p-3 text-center text-xs text-slate-400">
-                              {isEn ? 'No matching AD users found' : 'کاربری یافت نشد'}
-                            </div>
-                          ) : (
-                            filteredAdUsers.map((u) => (
-                              <button
+                        ) : (
+                          filteredAdUsers.map((u) => {
+                            const isChecked = selectedSubjectIds.includes(u.samAccountName);
+                            return (
+                              <div
                                 key={u.samAccountName || u.dn}
-                                type="button"
-                                onClick={() => {
-                                  setDraftPolicy({
-                                    ...draftPolicy,
-                                    subjectId: u.samAccountName,
-                                    subjectName: u.displayName || u.samAccountName,
-                                  });
-                                  setIsAdUserOpen(false);
-                                }}
-                                className={`w-full flex items-center justify-between p-2 rounded-lg text-xs transition cursor-pointer text-start ${
-                                  draftPolicy.subjectId === u.samAccountName
-                                    ? 'bg-cyan-500/20 text-cyan-300 font-bold'
-                                    : 'hover:bg-white/5 text-slate-300'
+                                onClick={() =>
+                                  handleToggleSubject(
+                                    u.samAccountName,
+                                    u.displayName || u.samAccountName
+                                  )
+                                }
+                                className={`w-full flex items-center justify-between p-2.5 rounded-lg text-xs transition cursor-pointer select-none text-start border ${
+                                  isChecked
+                                    ? isLightMode
+                                      ? 'bg-cyan-50 border-cyan-300 text-cyan-950 font-semibold'
+                                      : 'bg-cyan-500/15 border-cyan-500/40 text-cyan-200 font-semibold'
+                                    : isLightMode
+                                    ? 'hover:bg-slate-100 border-transparent text-slate-700'
+                                    : 'hover:bg-white/5 border-transparent text-slate-300'
                                 }`}
                               >
-                                <div>
-                                  <div className="font-semibold">{u.displayName}</div>
-                                  <div className="text-[10px] font-mono text-slate-400">
-                                    @{u.samAccountName} {u.department ? `• ${u.department}` : ''}
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div
+                                    className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border transition ${
+                                      isChecked
+                                        ? 'bg-cyan-500 border-cyan-500 text-white'
+                                        : isLightMode
+                                        ? 'border-slate-400 bg-white'
+                                        : 'border-white/30 bg-slate-900'
+                                    }`}
+                                  >
+                                    {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="font-semibold truncate">{u.displayName}</div>
+                                    <div className="text-[10px] font-mono opacity-70 truncate">
+                                      @{u.samAccountName} {u.department ? `• ${u.department}` : ''} {u.mail ? `• ${u.mail}` : ''}
+                                    </div>
                                   </div>
                                 </div>
-                                {draftPolicy.subjectId === u.samAccountName && (
-                                  <CheckCircle2 className="w-4 h-4 text-cyan-400" />
-                                )}
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      )}
+                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 shrink-0">
+                                  LDAP User
+                                </span>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
                   )}
 
-                  {/* AD Group Interactive Picker */}
+                  {/* AD Group Interactive Multi-Selector */}
                   {draftPolicy.subjectType === 'ad_group' && (
                     <div className="space-y-2">
-                      <div className="relative">
-                        <Search className="w-4 h-4 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-cyan-400 pointer-events-none" />
-                        <input
-                          type="text"
-                          value={adGroupSearch}
-                          onChange={(e) => {
-                            setAdGroupSearch(e.target.value);
-                            setIsAdGroupOpen(true);
-                          }}
-                          onFocus={() => setIsAdGroupOpen(true)}
-                          placeholder={
-                            isEn
-                              ? 'Search Active Directory security groups...'
-                              : 'جستجوی گروه امنیتی دامین...'
-                          }
-                          className={`w-full pl-9 pr-9 rtl:pl-9 rtl:pr-9 py-2 rounded-xl text-xs outline-none transition ${
-                            isLightMode
-                              ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-500'
-                              : 'bg-slate-900 border border-white/20 text-white focus:border-cyan-400'
-                          }`}
-                        />
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Search className="w-4 h-4 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-cyan-400 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={adGroupSearch}
+                            onChange={(e) => setAdGroupSearch(e.target.value)}
+                            placeholder={
+                              isEn
+                                ? 'Search Active Directory security groups...'
+                                : 'جستجوی گروه امنیتی دامین...'
+                            }
+                            className={`w-full pl-9 pr-9 rtl:pl-9 rtl:pr-9 py-2 rounded-xl text-xs outline-none transition ${
+                              isLightMode
+                                ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-500'
+                                : 'bg-slate-900 border border-white/20 text-white focus:border-cyan-400'
+                            }`}
+                          />
+                        </div>
+                        {filteredAdGroups.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSelectAllVisible(
+                                filteredAdGroups.map((g) => ({
+                                  id: g.dn || g.cn || g.sAMAccountName || g.displayName,
+                                  name: g.cn || g.displayName || g.sAMAccountName || g.dn,
+                                }))
+                              )
+                            }
+                            className={`px-3 py-2 rounded-xl text-xs font-semibold border transition shrink-0 cursor-pointer ${
+                              isLightMode
+                                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+                                : 'bg-slate-900 hover:bg-slate-800 border-white/15 text-slate-200'
+                            }`}
+                          >
+                            {isEn ? `Select All (${filteredAdGroups.length})` : `انتخاب همه (${filteredAdGroups.length})`}
+                          </button>
+                        )}
                       </div>
 
-                      {draftPolicy.subjectId && (
-                        <div
-                          className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs ${
-                            isLightMode
-                              ? 'bg-cyan-50/80 border-cyan-200 text-cyan-950'
-                              : 'bg-cyan-950/40 border-cyan-500/30 text-cyan-200'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <FolderTree className="w-4 h-4 text-cyan-400" />
-                            <span className="font-bold">
-                              {currentSelectedAdGroup?.displayName ||
-                                draftPolicy.subjectName ||
-                                draftPolicy.subjectId}
-                            </span>
+                      <div
+                        className={`max-h-60 overflow-y-auto rounded-xl border p-1 space-y-1 ${
+                          isLightMode
+                            ? 'bg-white border-slate-200 shadow-inner'
+                            : 'bg-slate-950/80 border-white/15 shadow-inner'
+                        }`}
+                      >
+                        {filteredAdGroups.length === 0 ? (
+                          <div className="p-4 text-center text-xs text-slate-400 space-y-2">
+                            <p>{isEn ? 'No Active Directory security groups found.' : 'گروه امنیتی اکتیو دایرکتوری یافت نشد.'}</p>
+                            <button
+                              type="button"
+                              onClick={handleFetchAd}
+                              className="text-cyan-400 hover:underline inline-flex items-center gap-1 font-semibold"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                              {isEn ? 'Click to fetch fresh AD objects' : 'کلیک برای دریافت مجدد آبجکت‌های AD'}
+                            </button>
                           </div>
-                          <span className="text-[10px] font-semibold text-emerald-400 flex items-center gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            {isEn ? 'Selected' : 'انتخاب شد'}
-                          </span>
-                        </div>
-                      )}
-
-                      {isAdGroupOpen && (
-                        <div
-                          className={`max-h-48 overflow-y-auto rounded-xl border p-1 space-y-1 ${
-                            isLightMode
-                              ? 'bg-white border-slate-200 shadow-md'
-                              : 'bg-slate-950 border-white/15 shadow-xl'
-                          }`}
-                        >
-                          {filteredAdGroups.length === 0 ? (
-                            <div className="p-3 text-center text-xs text-slate-400">
-                              {isEn ? 'No matching AD groups found' : 'گروهی یافت نشد'}
-                            </div>
-                          ) : (
-                            filteredAdGroups.map((g) => (
-                              <button
-                                key={g.dn || g.displayName}
-                                type="button"
-                                onClick={() => {
-                                  setDraftPolicy({
-                                    ...draftPolicy,
-                                    subjectId: g.dn,
-                                    subjectName: g.displayName || g.sAMAccountName,
-                                  });
-                                  setIsAdGroupOpen(false);
-                                }}
-                                className={`w-full flex items-center justify-between p-2 rounded-lg text-xs transition cursor-pointer text-start ${
-                                  draftPolicy.subjectId === g.dn
-                                    ? 'bg-cyan-500/20 text-cyan-300 font-bold'
-                                    : 'hover:bg-white/5 text-slate-300'
+                        ) : (
+                          filteredAdGroups.map((g) => {
+                            const groupId = g.dn || g.cn || g.sAMAccountName || g.displayName;
+                            const groupName = g.cn || g.displayName || g.sAMAccountName || g.dn;
+                            const isChecked = selectedSubjectIds.includes(groupId);
+                            return (
+                              <div
+                                key={groupId}
+                                onClick={() => handleToggleSubject(groupId, groupName)}
+                                className={`w-full flex items-center justify-between p-2.5 rounded-lg text-xs transition cursor-pointer select-none text-start border ${
+                                  isChecked
+                                    ? isLightMode
+                                      ? 'bg-cyan-50 border-cyan-300 text-cyan-950 font-semibold'
+                                      : 'bg-cyan-500/15 border-cyan-500/40 text-cyan-200 font-semibold'
+                                    : isLightMode
+                                    ? 'hover:bg-slate-100 border-transparent text-slate-700'
+                                    : 'hover:bg-white/5 border-transparent text-slate-300'
                                 }`}
                               >
-                                <div>
-                                  <div className="font-semibold">{g.displayName}</div>
-                                  <div className="text-[10px] text-slate-400 truncate max-w-md">
-                                    {g.description || g.dn}
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div
+                                    className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border transition ${
+                                      isChecked
+                                        ? 'bg-cyan-500 border-cyan-500 text-white'
+                                        : isLightMode
+                                        ? 'border-slate-400 bg-white'
+                                        : 'border-white/30 bg-slate-900'
+                                    }`}
+                                  >
+                                    {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="font-semibold truncate">{groupName}</div>
+                                    <div className="text-[10px] text-slate-400 truncate max-w-md">
+                                      {g.description || g.dn}
+                                    </div>
                                   </div>
                                 </div>
-                                {draftPolicy.subjectId === g.dn && (
-                                  <CheckCircle2 className="w-4 h-4 text-cyan-400" />
-                                )}
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      )}
+                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 shrink-0">
+                                  {g.memberCount !== undefined ? `${g.memberCount} members` : 'Security Group'}
+                                </span>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
                   )}
 
-                  {/* Local User Picker */}
+                  {/* Local User Interactive Multi-Selector */}
                   {draftPolicy.subjectType === 'local_user' && (
                     <div className="space-y-2">
-                      <div className="relative">
-                        <Search className="w-4 h-4 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-cyan-400 pointer-events-none" />
-                        <input
-                          type="text"
-                          value={localUserSearch}
-                          onChange={(e) => {
-                            setLocalUserSearch(e.target.value);
-                            setIsLocalUserOpen(true);
-                          }}
-                          onFocus={() => setIsLocalUserOpen(true)}
-                          placeholder={
-                            isEn
-                              ? 'Search local database users...'
-                              : 'جستجوی کاربر دیتابیس محلی...'
-                          }
-                          className={`w-full pl-9 pr-9 rtl:pl-9 rtl:pr-9 py-2 rounded-xl text-xs outline-none transition ${
-                            isLightMode
-                              ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-500'
-                              : 'bg-slate-900 border border-white/20 text-white focus:border-cyan-400'
-                          }`}
-                        />
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Search className="w-4 h-4 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-cyan-400 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={localUserSearch}
+                            onChange={(e) => setLocalUserSearch(e.target.value)}
+                            placeholder={
+                              isEn
+                                ? 'Search local database users...'
+                                : 'جستجوی کاربر دیتابیس محلی...'
+                            }
+                            className={`w-full pl-9 pr-9 rtl:pl-9 rtl:pr-9 py-2 rounded-xl text-xs outline-none transition ${
+                              isLightMode
+                                ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-500'
+                                : 'bg-slate-900 border border-white/20 text-white focus:border-cyan-400'
+                            }`}
+                          />
+                        </div>
+                        {filteredLocalUsers.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSelectAllVisible(
+                                filteredLocalUsers.map((u) => ({
+                                  id: u.id || u.username,
+                                  name: u.fullName || u.username,
+                                }))
+                              )
+                            }
+                            className={`px-3 py-2 rounded-xl text-xs font-semibold border transition shrink-0 cursor-pointer ${
+                              isLightMode
+                                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+                                : 'bg-slate-900 hover:bg-slate-800 border-white/15 text-slate-200'
+                            }`}
+                          >
+                            {isEn ? `Select All (${filteredLocalUsers.length})` : `انتخاب همه (${filteredLocalUsers.length})`}
+                          </button>
+                        )}
                       </div>
 
-                      {draftPolicy.subjectId && (
-                        <div
-                          className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs ${
-                            isLightMode
-                              ? 'bg-cyan-50/80 border-cyan-200 text-cyan-950'
-                              : 'bg-cyan-950/40 border-cyan-500/30 text-cyan-200'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <UserCheck className="w-4 h-4 text-cyan-400" />
-                            <span className="font-bold">
-                              {currentSelectedLocalUser?.fullName ||
-                                currentSelectedLocalUser?.username ||
-                                draftPolicy.subjectName ||
-                                draftPolicy.subjectId}
-                            </span>
-                            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20">
-                              @{draftPolicy.subjectId}
-                            </span>
+                      <div
+                        className={`max-h-60 overflow-y-auto rounded-xl border p-1 space-y-1 ${
+                          isLightMode
+                            ? 'bg-white border-slate-200 shadow-inner'
+                            : 'bg-slate-950/80 border-white/15 shadow-inner'
+                        }`}
+                      >
+                        {filteredLocalUsers.length === 0 ? (
+                          <div className="p-3 text-center text-xs text-slate-400">
+                            {isEn ? 'No matching local users found' : 'کاربری یافت نشد'}
                           </div>
-                          <span className="text-[10px] font-semibold text-emerald-400 flex items-center gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            {isEn ? 'Selected' : 'انتخاب شد'}
-                          </span>
-                        </div>
-                      )}
-
-                      {isLocalUserOpen && (
-                        <div
-                          className={`max-h-48 overflow-y-auto rounded-xl border p-1 space-y-1 ${
-                            isLightMode
-                              ? 'bg-white border-slate-200 shadow-md'
-                              : 'bg-slate-950 border-white/15 shadow-xl'
-                          }`}
-                        >
-                          {filteredLocalUsers.map((u) => (
-                            <button
-                              key={u.id}
-                              type="button"
-                              onClick={() => {
-                                setDraftPolicy({
-                                  ...draftPolicy,
-                                  subjectId: u.id,
-                                  subjectName: u.fullName || u.username,
-                                });
-                                setIsLocalUserOpen(false);
-                              }}
-                              className={`w-full flex items-center justify-between p-2 rounded-lg text-xs transition cursor-pointer text-start ${
-                                draftPolicy.subjectId === u.id
-                                  ? 'bg-cyan-500/20 text-cyan-300 font-bold'
-                                  : 'hover:bg-white/5 text-slate-300'
-                              }`}
-                            >
-                              <div>
-                                <div className="font-semibold">
-                                  {u.fullName || u.username}
+                        ) : (
+                          filteredLocalUsers.map((u) => {
+                            const userId = u.id || u.username;
+                            const userName = u.fullName || u.username;
+                            const isChecked = selectedSubjectIds.includes(userId);
+                            return (
+                              <div
+                                key={userId}
+                                onClick={() => handleToggleSubject(userId, userName)}
+                                className={`w-full flex items-center justify-between p-2.5 rounded-lg text-xs transition cursor-pointer select-none text-start border ${
+                                  isChecked
+                                    ? isLightMode
+                                      ? 'bg-cyan-50 border-cyan-300 text-cyan-950 font-semibold'
+                                      : 'bg-cyan-500/15 border-cyan-500/40 text-cyan-200 font-semibold'
+                                    : isLightMode
+                                    ? 'hover:bg-slate-100 border-transparent text-slate-700'
+                                    : 'hover:bg-white/5 border-transparent text-slate-300'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div
+                                    className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border transition ${
+                                      isChecked
+                                        ? 'bg-cyan-500 border-cyan-500 text-white'
+                                        : isLightMode
+                                        ? 'border-slate-400 bg-white'
+                                        : 'border-white/30 bg-slate-900'
+                                    }`}
+                                  >
+                                    {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="font-semibold truncate">{userName}</div>
+                                    <div className="text-[10px] font-mono opacity-70 truncate">
+                                      @{u.username} • {u.role || 'user'} {u.email ? `• ${u.email}` : ''}
+                                    </div>
+                                  </div>
                                 </div>
-                                <div className="text-[10px] font-mono text-slate-400">
-                                  @{u.username} • {u.role}
-                                </div>
+                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 shrink-0">
+                                  Local User
+                                </span>
                               </div>
-                              {draftPolicy.subjectId === u.id && (
-                                <CheckCircle2 className="w-4 h-4 text-cyan-400" />
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
                   )}
 
-                  {/* Local Group Picker */}
+                  {/* Local Group Interactive Multi-Selector */}
                   {draftPolicy.subjectType === 'local_group' && (
                     <div className="space-y-2">
-                      <div className="relative">
-                        <Search className="w-4 h-4 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-cyan-400 pointer-events-none" />
-                        <input
-                          type="text"
-                          value={localGroupSearch}
-                          onChange={(e) => {
-                            setLocalGroupSearch(e.target.value);
-                            setIsLocalGroupOpen(true);
-                          }}
-                          onFocus={() => setIsLocalGroupOpen(true)}
-                          placeholder={
-                            isEn
-                              ? 'Search local user groups / roles...'
-                              : 'جستجوی گروه کاربری محلی...'
-                          }
-                          className={`w-full pl-9 pr-9 rtl:pl-9 rtl:pr-9 py-2 rounded-xl text-xs outline-none transition ${
-                            isLightMode
-                              ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-500'
-                              : 'bg-slate-900 border border-white/20 text-white focus:border-cyan-400'
-                          }`}
-                        />
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Search className="w-4 h-4 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-cyan-400 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={localGroupSearch}
+                            onChange={(e) => setLocalGroupSearch(e.target.value)}
+                            placeholder={
+                              isEn
+                                ? 'Search local user groups / roles...'
+                                : 'جستجوی گروه کاربری محلی...'
+                            }
+                            className={`w-full pl-9 pr-9 rtl:pl-9 rtl:pr-9 py-2 rounded-xl text-xs outline-none transition ${
+                              isLightMode
+                                ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-500'
+                                : 'bg-slate-900 border border-white/20 text-white focus:border-cyan-400'
+                            }`}
+                          />
+                        </div>
+                        {filteredLocalGroups.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSelectAllVisible(
+                                filteredLocalGroups.map((g) => ({
+                                  id: g.id,
+                                  name: g.name,
+                                }))
+                              )
+                            }
+                            className={`px-3 py-2 rounded-xl text-xs font-semibold border transition shrink-0 cursor-pointer ${
+                              isLightMode
+                                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+                                : 'bg-slate-900 hover:bg-slate-800 border-white/15 text-slate-200'
+                            }`}
+                          >
+                            {isEn ? `Select All (${filteredLocalGroups.length})` : `انتخاب همه (${filteredLocalGroups.length})`}
+                          </button>
+                        )}
                       </div>
 
-                      {draftPolicy.subjectId && (
-                        <div
-                          className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs ${
-                            isLightMode
-                              ? 'bg-cyan-50/80 border-cyan-200 text-cyan-950'
-                              : 'bg-cyan-950/40 border-cyan-500/30 text-cyan-200'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Layers className="w-4 h-4 text-cyan-400" />
-                            <span className="font-bold">
-                              {currentSelectedLocalGroup?.name ||
-                                draftPolicy.subjectName ||
-                                draftPolicy.subjectId}
-                            </span>
+                      <div
+                        className={`max-h-60 overflow-y-auto rounded-xl border p-1 space-y-1 ${
+                          isLightMode
+                            ? 'bg-white border-slate-200 shadow-inner'
+                            : 'bg-slate-950/80 border-white/15 shadow-inner'
+                        }`}
+                      >
+                        {filteredLocalGroups.length === 0 ? (
+                          <div className="p-3 text-center text-xs text-slate-400">
+                            {isEn ? 'No matching local groups found' : 'گروهی یافت نشد'}
                           </div>
-                          <span className="text-[10px] font-semibold text-emerald-400 flex items-center gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            {isEn ? 'Selected' : 'انتخاب شد'}
-                          </span>
-                        </div>
-                      )}
-
-                      {isLocalGroupOpen && (
-                        <div
-                          className={`max-h-48 overflow-y-auto rounded-xl border p-1 space-y-1 ${
-                            isLightMode
-                              ? 'bg-white border-slate-200 shadow-md'
-                              : 'bg-slate-950 border-white/15 shadow-xl'
-                          }`}
-                        >
-                          {filteredLocalGroups.map((g) => (
-                            <button
-                              key={g.id}
-                              type="button"
-                              onClick={() => {
-                                setDraftPolicy({
-                                  ...draftPolicy,
-                                  subjectId: g.id,
-                                  subjectName: g.name,
-                                });
-                                setIsLocalGroupOpen(false);
-                              }}
-                              className={`w-full flex items-center justify-between p-2 rounded-lg text-xs transition cursor-pointer text-start ${
-                                draftPolicy.subjectId === g.id
-                                  ? 'bg-cyan-500/20 text-cyan-300 font-bold'
-                                  : 'hover:bg-white/5 text-slate-300'
-                              }`}
-                            >
-                              <div>
-                                <div className="font-semibold">{g.name}</div>
-                                <div className="text-[10px] text-slate-400">
-                                  {g.description || 'Local Group'}
+                        ) : (
+                          filteredLocalGroups.map((g) => {
+                            const isChecked = selectedSubjectIds.includes(g.id);
+                            return (
+                              <div
+                                key={g.id}
+                                onClick={() => handleToggleSubject(g.id, g.name)}
+                                className={`w-full flex items-center justify-between p-2.5 rounded-lg text-xs transition cursor-pointer select-none text-start border ${
+                                  isChecked
+                                    ? isLightMode
+                                      ? 'bg-cyan-50 border-cyan-300 text-cyan-950 font-semibold'
+                                      : 'bg-cyan-500/15 border-cyan-500/40 text-cyan-200 font-semibold'
+                                    : isLightMode
+                                    ? 'hover:bg-slate-100 border-transparent text-slate-700'
+                                    : 'hover:bg-white/5 border-transparent text-slate-300'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div
+                                    className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border transition ${
+                                      isChecked
+                                        ? 'bg-cyan-500 border-cyan-500 text-white'
+                                        : isLightMode
+                                        ? 'border-slate-400 bg-white'
+                                        : 'border-white/30 bg-slate-900'
+                                    }`}
+                                  >
+                                    {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="font-semibold truncate">{g.name}</div>
+                                    <div className="text-[10px] text-slate-400 truncate">
+                                      {g.description || 'Local Group'}
+                                    </div>
+                                  </div>
                                 </div>
+                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 shrink-0">
+                                  Local Group
+                                </span>
                               </div>
-                              {draftPolicy.subjectId === g.id && (
-                                <CheckCircle2 className="w-4 h-4 text-cyan-400" />
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

@@ -1139,17 +1139,23 @@ export function getEffectiveUserPolicy(
   const matchingPolicies: AccessPolicy[] = [];
 
   for (const p of policies) {
+    const policySubjectIds = [p.subjectId, ...(Array.isArray(p.subjectIds) ? p.subjectIds : [])]
+      .filter((s) => s && typeof s === 'string' && s.trim() !== '');
+
     // 1. Direct user match
-    if (
-      (p.subjectType === 'local_user' || p.subjectType === 'ad_user') &&
-      (
-        p.subjectId === userId ||
-        p.subjectId.toLowerCase() === cleanUsername ||
-        cleanUsername.startsWith(p.subjectId.toLowerCase())
-      )
-    ) {
-      matchingPolicies.push(p);
-      continue;
+    if (p.subjectType === 'local_user' || p.subjectType === 'ad_user') {
+      const isDirectMatch = policySubjectIds.some((sId) => {
+        const sSub = sId.toLowerCase();
+        return (
+          sId === userId ||
+          sSub === cleanUsername ||
+          cleanUsername.startsWith(sSub)
+        );
+      });
+      if (isDirectMatch) {
+        matchingPolicies.push(p);
+        continue;
+      }
     }
 
     // 2. Group match
@@ -1157,19 +1163,25 @@ export function getEffectiveUserPolicy(
       const userGroupIds = new Set(user.groupIds || []);
 
       // Check if user object has this group ID
-      if (userGroupIds.has(p.subjectId)) {
+      const hasGroup = policySubjectIds.some((sId) => userGroupIds.has(sId));
+      if (hasGroup) {
         matchingPolicies.push(p);
         continue;
       }
 
       // Check if localGroup members include this user
-      const matchingGroup = localGroups.find((g) => g.id === p.subjectId);
-      if (matchingGroup) {
-        const members = (matchingGroup.memberUserIds || []).map((m) => m.toLowerCase());
+      const matchingGroups = localGroups.filter((g) => policySubjectIds.includes(g.id));
+      let isMember = false;
+      for (const mg of matchingGroups) {
+        const members = (mg.memberUserIds || []).map((m) => m.toLowerCase());
         if (members.includes(userId.toLowerCase()) || members.includes(cleanUsername)) {
-          matchingPolicies.push(p);
-          continue;
+          isMember = true;
+          break;
         }
+      }
+      if (isMember) {
+        matchingPolicies.push(p);
+        continue;
       }
     }
   }

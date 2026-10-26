@@ -19,6 +19,7 @@ import { ReleaseNotesModal } from './components/ReleaseNotesModal';
 import { TopologyDiscoveryModal } from './components/TopologyDiscoveryModal';
 import { BulkDeviceConfigModal } from './components/BulkDeviceConfigModal';
 import { SettingsView } from './components/settings/SettingsView';
+import { ActiveDirectoryTab } from './components/settings/ActiveDirectoryTab';
 import { GeneralSettingsView } from './components/settings/GeneralSettingsView';
 import { PanelServicesView } from './components/settings/PanelServicesView';
 import { LdapConnectionSettingsView } from './components/settings/LdapConnectionSettingsView';
@@ -1266,9 +1267,19 @@ export default function App() {
             <TelegramAlertsSettingsView isLightMode={isLightMode} />
           )}
 
+          {activeTab === 'settings-ad' && isSuperAdmin && (
+            <div className="max-w-7xl mx-auto px-2 sm:px-4 py-3">
+              <ActiveDirectoryTab
+                config={adConfig}
+                onSaveConfig={handleSaveAdConfig}
+                onNavigateToConnectionSettings={() => setActiveTab('settings-ldap')}
+                isLightMode={isLightMode}
+              />
+            </div>
+          )}
+
           {(activeTab === 'settings-groups' ||
             activeTab === 'settings-users' ||
-            activeTab === 'settings-ad' ||
             activeTab === 'settings-rbac' ||
             activeTab === 'settings-backup') && isSuperAdmin && (
             <SettingsView
@@ -1278,8 +1289,6 @@ export default function App() {
               activeSubTab={
                 activeTab === 'settings-users'
                   ? 'users'
-                  : activeTab === 'settings-ad'
-                  ? 'ad'
                   : activeTab === 'settings-rbac'
                   ? 'rbac'
                   : activeTab === 'settings-backup'
@@ -1290,7 +1299,6 @@ export default function App() {
                 const targetMap: Record<string, ActiveTab> = {
                   groups: 'settings-groups',
                   users: 'settings-users',
-                  ad: 'settings-ad',
                   rbac: 'settings-rbac',
                   backup: 'settings-backup',
                   alerts: 'settings-alerts',

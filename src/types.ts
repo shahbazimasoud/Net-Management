@@ -885,6 +885,8 @@ export interface AccessPolicy {
   subjectType: 'local_user' | 'local_group' | 'ad_group' | 'ad_user';
   subjectId: string;
   subjectName: string;
+  subjectIds?: string[];
+  subjectNames?: string[];
   // Target: Which devices does this cover?
   targetScope: 'all' | 'groups' | 'specific';
   targetServerScope?: 'all' | 'specific';

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.379.7';
+export const APP_VERSION = '1.380.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.380.0',
+    releaseDate: '2026-10-26',
+    type: 'minor',
+    title: 'جداسازی مستقل تب اکتیو دایرکتوری، تثبیت پارامترهای اتصال دامین کنترلر، و پشتیبانی کامل از انتخاب چندگانه کاربران و گروه‌ها در پالیسی‌های دسترسی (RBAC)',
+    title_en: 'Independent Active Directory tab routing, Domain Controller LDAP persistence fix, and multi-subject selection support in Access Policy RBAC',
+    changes: [
+      'حذف زیرتب درونی Active Directory & LDAP از صفحه عمومی تنظیمات (SettingsView) و انتقال آن به عنوان یک نمای مستقل، مستقیم و اختصاصی از منوی ناوبری سایدبار (settings-ad).',
+      'تثبیت پایدار و دائمی پارامترهای اتصال دامین کنترلر در سرور، پایگاه داده PostgreSQL و بک‌اند پایتون؛ جلوگیری قطعی از بازگشت مقادیر اتصال LDAP به دیتای پیش‌فرض از طریق محافظت در برابر بازنویسی خودکار در چرخه‌های بازیابی و همگام‌سازی.',
+      'اصلاح و فعال‌سازی دریافت بلادرنگ آبجکت‌های اکتیو دایرکتوری (AD Users و Security Groups) در مودال پالیسی‌های دسترسی (AccessPolicyModal) به همراه دکمه اختصاصی استعلام مجدد از دامین و نمایش وضعیت اتصال.',
+      'تجهیز مودال پالیسی دسترسی به قابلیت انتخاب همزمان چند کاربر یا گروه (Multi-Subject Assignment) برای کاربران و گروه‌های محلی و دامین، با امکان جستجو، انتخاب همه موارد قابل مشاهده، نمایش چیپ‌های انتخاب‌شده و اعمال یکپارچه پالیسی بر تمام موجودیت‌های منتسب.'
+    ],
+    changes_en: [
+      'Removed the nested Active Directory & LDAP subtab from SettingsView and elevated it to a direct, independent dedicated view accessible from the sidebar navigation (settings-ad).',
+      'Fixed Domain Controller LDAP parameters persistence across the server, PostgreSQL database, and Python backend, permanently preventing connection settings from reverting to defaults during recovery or sync cycles.',
+      'Fixed and enabled live Active Directory objects fetching (AD users and security groups) in AccessPolicyModal with a dedicated on-demand fetch button and domain status badge.',
+      'Implemented multi-subject selection support in AccessPolicyModal for both local and Active Directory users/groups, featuring search, select all visible, selected subject chips, and unified policy evaluation across all assigned entities.'
+    ]
+  },
   {
     version: '1.379.7',
     releaseDate: '2026-10-26',

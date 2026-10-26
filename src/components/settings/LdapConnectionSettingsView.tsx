@@ -18,7 +18,7 @@ import {
   Users
 } from 'lucide-react';
 import { ActiveDirectoryConfig, ADTestResult } from '../../types';
-import { testActiveDirectoryConnectionApi, syncActiveDirectoryApi } from '../../services/api';
+import { testActiveDirectoryConnectionApi, syncActiveDirectoryApi, saveActiveDirectoryConfigApi } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
@@ -42,26 +42,49 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
   const { user, effectivePolicy } = useAuth();
   const isSuperAdmin = isUserSuperAdmin(user, effectivePolicy);
   const [formData, setFormData] = useState<ActiveDirectoryConfig>({ ...config });
+  const [isDirty, setIsDirty] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<ADTestResult | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState(false);
 
   useEffect(() => {
-    setFormData({ ...config });
-  }, [config]);
+    // Only update from parent config if user has not typed unsaved edits
+    if (!isDirty && config) {
+      setFormData({ ...config });
+    }
+  }, [config, isDirty]);
 
   const handleInputChange = (field: keyof ActiveDirectoryConfig, value: any) => {
+    setIsDirty(true);
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveConfig(formData);
-    setSaveToast(true);
-    setTimeout(() => setSaveToast(false), 3000);
+    setIsSaving(true);
+    setSyncError(null);
+    try {
+      const res = await saveActiveDirectoryConfigApi(formData);
+      const savedConfig = res?.config || formData;
+      setFormData(savedConfig);
+      setIsDirty(false);
+      onSaveConfig(savedConfig);
+      setSaveToast(true);
+      setTimeout(() => setSaveToast(false), 3000);
+    } catch (err: any) {
+      console.error('Failed to save LDAP connection configuration:', err);
+      // Fallback local save if offline
+      onSaveConfig(formData);
+      setIsDirty(false);
+      setSaveToast(true);
+      setTimeout(() => setSaveToast(false), 3000);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleTestConnection = async () => {

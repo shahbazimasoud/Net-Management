@@ -913,23 +913,104 @@ const DEFAULT_CUSTOM_MAPS: any[] = [];
 
 const DEFAULT_NODE_POSITIONS: Record<string, Record<string, { x: number; y: number }>> = {};
 
-const DEFAULT_AD_CONFIG = {
+const DEFAULT_AD_CONFIG: any = {
+  enabled: true,
   domain: 'corp.internal',
   server: '192.168.1.10',
   port: 389,
+  useSsl: false,
   use_ssl: false,
+  baseDn: 'DC=corp,DC=internal',
   base_dn: 'DC=corp,DC=internal',
-  bind_user: 'CN=ldap_service,OU=ServiceAccounts,DC=corp,DC=internal',
-  bind_password: 'encrypted_service_pass_2026',
+  bindUser: 'svc-netops@corp.internal',
+  bind_user: 'svc-netops@corp.internal',
+  bindPassword: '••••••••••••',
+  bind_password: '••••••••••••',
+  userSearchBase: 'OU=Staff,DC=corp,DC=internal',
+  groupSearchBase: 'OU=SecurityGroups,DC=corp,DC=internal',
+  syncIntervalMinutes: 15,
   sync_interval_min: 15,
+  autoSync: true,
   auto_sync: true,
   role_mappings: {
     'Domain Admins': 'Super Administrator',
     'Network Engineers': 'NOC Analyst',
     'Helpdesk Staff': 'Helpdesk Specialist'
   },
+  lastSyncStatus: 'success',
+  last_sync_status: 'success',
+  lastSyncMessage: 'همگام‌سازی با موفقیت انجام شد (4 گروه امنیتی و 4 کاربر دامین دریافت گردید)',
+  lastSyncTime: '2026-09-09 16:30:00',
   last_sync: new Date().toISOString(),
-  status: 'configured'
+  status: 'configured',
+  syncedGroups: [
+    {
+      dn: 'CN=Helpdesk-Admins,OU=SecurityGroups,DC=corp,DC=internal',
+      cn: 'Helpdesk-Admins',
+      description: 'کارشناسان پشتیبانی و تیم هلپ‌دسک سازمان',
+      memberCount: 8,
+    },
+    {
+      dn: 'CN=NetOps-Engineers,OU=SecurityGroups,DC=corp,DC=internal',
+      cn: 'NetOps-Engineers',
+      description: 'مهندسان ارشد شبکه و زیرساخت ارتباطی',
+      memberCount: 4,
+    },
+    {
+      dn: 'CN=NOC-Monitoring,OU=SecurityGroups,DC=corp,DC=internal',
+      cn: 'NOC-Monitoring',
+      description: 'تیم پایش و مانیتورینگ مرکز عملیات شبکه (فقط مشاهده)',
+      memberCount: 6,
+    },
+    {
+      dn: 'CN=Security-Auditors,OU=SecurityGroups,DC=corp,DC=internal',
+      cn: 'Security-Auditors',
+      description: 'حسابرسان امنیتی و ممیزی پورت سکیوریتی و مک آدرس‌ها',
+      memberCount: 3,
+    },
+  ],
+  syncedUsers: [
+    {
+      dn: 'CN=Masoud Shahbazi,OU=Staff,DC=corp,DC=internal',
+      samAccountName: 'm.shahbazi',
+      displayName: 'مسعود شهبازی (Network Lead)',
+      email: 'm.shahbazi@corp.internal',
+      department: 'زیرساخت و شبکه',
+      title: 'Senior Network Architect',
+      groups: ['NetOps-Engineers'],
+      enabled: true,
+    },
+    {
+      dn: 'CN=Ali Rezaei,OU=Staff,DC=corp,DC=internal',
+      samAccountName: 'a.rezaei',
+      displayName: 'علی رضایی (Helpdesk L1)',
+      email: 'a.rezaei@corp.internal',
+      department: 'پشتیبانی فنی (Helpdesk)',
+      title: 'Helpdesk Specialist',
+      groups: ['Helpdesk-Admins'],
+      enabled: true,
+    },
+    {
+      dn: 'CN=Sara Karimi,OU=Staff,DC=corp,DC=internal',
+      samAccountName: 's.karimi',
+      displayName: 'سارا کریمی (NOC Operator)',
+      email: 's.karimi@corp.internal',
+      department: 'مرکز عملیات شبکه',
+      title: 'NOC Tier-1 Analyst',
+      groups: ['NOC-Monitoring'],
+      enabled: true,
+    },
+    {
+      dn: 'CN=Reza Mohammadi,OU=Staff,DC=corp,DC=internal',
+      samAccountName: 'r.mohammadi',
+      displayName: 'رضا محمدی (Security Auditor)',
+      email: 'r.mohammadi@corp.internal',
+      department: 'امنیت اطلاعات',
+      title: 'Infosec Compliance Officer',
+      groups: ['Security-Auditors'],
+      enabled: true,
+    },
+  ],
 };
 
 export const DEFAULT_SERVER_CATEGORIES: ServerCategory[] = [
@@ -3988,20 +4069,25 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
   const userGroupSet = new Set(combinedGroupList.map((g) => (g || '').toLowerCase()));
 
   for (const p of policies) {
-    // 1. Direct user match by subjectId (supports username, samAccountName, email, DN, or ID)
-    if (
-      (p.subjectType === 'local_user' || p.subjectType === 'ad_user') &&
-      p.subjectId
-    ) {
-      const pSub = p.subjectId.toLowerCase();
-      if (
-        p.subjectId === userId ||
-        pSub === cleanUsername ||
-        pSub === samAccount ||
-        cleanUsername === pSub ||
-        (user.email && pSub === user.email.toLowerCase()) ||
-        (user.dn && pSub === user.dn.toLowerCase())
-      ) {
+    // Collect all candidate subject IDs for this policy (supports multi-selection)
+    const policySubjectIds: string[] = [p.subjectId, ...(Array.isArray(p.subjectIds) ? p.subjectIds : [])]
+      .filter((s) => s && typeof s === 'string' && s.trim() !== '');
+
+    // 1. Direct user match by subjectId / subjectIds (supports username, samAccountName, email, DN, or ID)
+    if (p.subjectType === 'local_user' || p.subjectType === 'ad_user') {
+      const isDirectUserMatch = policySubjectIds.some((sId) => {
+        const sSub = sId.toLowerCase();
+        return (
+          sId === userId ||
+          sSub === cleanUsername ||
+          sSub === samAccount ||
+          cleanUsername === sSub ||
+          (user.email && sSub === user.email.toLowerCase()) ||
+          (user.dn && sSub === user.dn.toLowerCase())
+        );
+      });
+
+      if (isDirectUserMatch) {
         matchingPolicies.push(p);
         continue;
       }
@@ -4009,20 +4095,26 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
 
     // 2. Direct user group match (supports local group IDs and AD group DN / CN)
     if (p.subjectType === 'local_group' || p.subjectType === 'ad_group') {
-      const pSub = (p.subjectId || '').toLowerCase();
       const pSubName = (p.subjectName || '').toLowerCase();
+      const policySubjectNames: string[] = [pSubName, ...(Array.isArray(p.subjectNames) ? p.subjectNames.map((n: string) => (n || '').toLowerCase()) : [])];
 
-      // Check if user has this group by ID, DN, or CN
-      const matchesGroup =
-        (pSub && userGroupSet.has(pSub)) ||
-        (pSubName && userGroupSet.has(pSubName)) ||
-        combinedGroupList.some((g) => {
-          const gLower = (g || '').toLowerCase();
-          return (
-            (pSub && (pSub === gLower || pSub.includes(`cn=${gLower},`) || pSub.endsWith(`cn=${gLower}`))) ||
-            (pSubName && (pSubName === gLower || pSubName.includes(gLower)))
-          );
-        });
+      // Check if user has any of these groups by ID, DN, or CN
+      const matchesGroup = policySubjectIds.some((sId) => {
+        const sSub = sId.toLowerCase();
+        return (
+          userGroupSet.has(sSub) ||
+          policySubjectNames.some((n) => n && userGroupSet.has(n)) ||
+          combinedGroupList.some((g) => {
+            const gLower = (g || '').toLowerCase();
+            return (
+              sSub === gLower ||
+              sSub.includes(`cn=${gLower},`) ||
+              sSub.endsWith(`cn=${gLower}`) ||
+              policySubjectNames.some((n) => n && (n === gLower || n.includes(gLower)))
+            );
+          })
+        );
+      });
 
       if (matchesGroup) {
         matchingPolicies.push(p);
@@ -4030,10 +4122,9 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       }
 
       // Check membership in userGroups
-      const matchingGroup = userGroups.find(
-        (g: any) =>
-          g.id === p.subjectId ||
-          (g.name && g.name.toLowerCase() === (p.subjectName || '').toLowerCase())
+      const matchingGroup = userGroups.find((g: any) =>
+        policySubjectIds.includes(g.id) ||
+        policySubjectNames.some((n) => g.name && g.name.toLowerCase() === n)
       );
       if (matchingGroup) {
         const members: string[] = Array.isArray(matchingGroup.memberUserIds)
@@ -5275,9 +5366,71 @@ export async function saveDeviceGroups(groups: any[]): Promise<void> {
 }
 
 // -------------------------------------------------------------
-// Active Directory Config
+// Active Directory Config & LDAP Persistence Engine
 // -------------------------------------------------------------
+export function normalizeADConfig(cfg: any, existingFallback?: any): any {
+  const base = existingFallback || DEFAULT_AD_CONFIG;
+  if (!cfg || typeof cfg !== 'object') {
+    return { ...base };
+  }
+  const useSsl = Boolean(cfg.useSsl ?? cfg.use_ssl ?? (Number(cfg.port) === 636));
+  const port = Number(cfg.port) || (useSsl ? 636 : 389);
+  const domain = (cfg.domain !== undefined && cfg.domain !== null && String(cfg.domain).trim() !== ''
+    ? String(cfg.domain).trim()
+    : base.domain) || 'corp.internal';
+  const server = (cfg.server !== undefined && cfg.server !== null && String(cfg.server).trim() !== ''
+    ? String(cfg.server).trim()
+    : (cfg.host || base.server)) || '192.168.1.10';
+  const baseDn = (cfg.baseDn || cfg.base_dn || base.baseDn || base.base_dn || 'DC=corp,DC=internal');
+  const bindUser = (cfg.bindUser !== undefined && cfg.bindUser !== null
+    ? String(cfg.bindUser).trim()
+    : (cfg.bind_user !== undefined ? String(cfg.bind_user).trim() : base.bindUser)) || '';
+  let bindPassword = cfg.bindPassword !== undefined
+    ? cfg.bindPassword
+    : (cfg.bind_password !== undefined ? cfg.bind_password : base.bindPassword);
+  if (!bindPassword || bindPassword === '••••••••••••') {
+    bindPassword = base.bindPassword || '••••••••••••';
+  }
+
+  const syncedGroups = Array.isArray(cfg.syncedGroups) && cfg.syncedGroups.length > 0
+    ? cfg.syncedGroups
+    : (Array.isArray(base.syncedGroups) ? base.syncedGroups : []);
+
+  const syncedUsers = Array.isArray(cfg.syncedUsers) && cfg.syncedUsers.length > 0
+    ? cfg.syncedUsers
+    : (Array.isArray(base.syncedUsers) ? base.syncedUsers : []);
+
+  return {
+    ...base,
+    ...cfg,
+    enabled: cfg.enabled !== undefined ? Boolean(cfg.enabled) : true,
+    domain,
+    server,
+    port,
+    useSsl,
+    use_ssl: useSsl,
+    baseDn,
+    base_dn: baseDn,
+    bindUser,
+    bind_user: bindUser,
+    bindPassword,
+    bind_password: bindPassword,
+    userSearchBase: cfg.userSearchBase || cfg.user_search_base || base.userSearchBase || 'OU=Staff,DC=corp,DC=internal',
+    groupSearchBase: cfg.groupSearchBase || cfg.group_search_base || base.groupSearchBase || 'OU=SecurityGroups,DC=corp,DC=internal',
+    syncIntervalMinutes: Number(cfg.syncIntervalMinutes ?? cfg.sync_interval_min) || base.syncIntervalMinutes || 15,
+    sync_interval_min: Number(cfg.syncIntervalMinutes ?? cfg.sync_interval_min) || base.syncIntervalMinutes || 15,
+    autoSync: cfg.autoSync !== undefined ? Boolean(cfg.autoSync) : (cfg.auto_sync !== undefined ? Boolean(cfg.auto_sync) : true),
+    auto_sync: cfg.autoSync !== undefined ? Boolean(cfg.autoSync) : (cfg.auto_sync !== undefined ? Boolean(cfg.auto_sync) : true),
+    lastSyncStatus: cfg.lastSyncStatus || cfg.last_sync_status || base.lastSyncStatus || 'idle',
+    lastSyncMessage: cfg.lastSyncMessage || cfg.last_sync_message || base.lastSyncMessage || '',
+    lastSyncTime: cfg.lastSyncTime || cfg.last_sync_time || cfg.last_sync || base.lastSyncTime || null,
+    syncedGroups,
+    syncedUsers,
+  };
+}
+
 export async function getActiveDirectoryConfig(): Promise<any> {
+  let loadedCfg: any = null;
   if (isPostgresReady && pool) {
     try {
       await pool.query(`
@@ -5290,16 +5443,23 @@ export async function getActiveDirectoryConfig(): Promise<any> {
       const res = await pool.query("SELECT config_data FROM ad_config WHERE id = 'primary' LIMIT 1");
       if (res.rows.length > 0) {
         const raw = res.rows[0].config_data;
-        return typeof raw === 'string' ? JSON.parse(raw) : raw;
+        loadedCfg = typeof raw === 'string' ? JSON.parse(raw) : raw;
       }
     } catch (e: any) {
       console.error('[DB Query Error getActiveDirectoryConfig]', e?.message || e);
     }
   }
-  return loadFallbackStore().ad_config || DEFAULT_AD_CONFIG;
+
+  if (!loadedCfg) {
+    loadedCfg = loadFallbackStore().ad_config;
+  }
+  return normalizeADConfig(loadedCfg);
 }
 
-export async function saveActiveDirectoryConfig(config: any): Promise<void> {
+export async function saveActiveDirectoryConfig(config: any): Promise<any> {
+  const existing = await getActiveDirectoryConfig().catch(() => DEFAULT_AD_CONFIG);
+  const normalized = normalizeADConfig(config, existing);
+
   if (isPostgresReady && pool) {
     try {
       await pool.query(`
@@ -5315,7 +5475,7 @@ export async function saveActiveDirectoryConfig(config: any): Promise<void> {
          ON CONFLICT (id) DO UPDATE SET
            config_data = EXCLUDED.config_data,
            updated_at = CURRENT_TIMESTAMP`,
-        [JSON.stringify(config)]
+        [JSON.stringify(normalized)]
       );
     } catch (e: any) {
       console.error('[DB Query Error saveActiveDirectoryConfig]', e?.message || e);
@@ -5324,7 +5484,7 @@ export async function saveActiveDirectoryConfig(config: any): Promise<void> {
 
   // Also persist to database_store.json
   const store = loadFallbackStore();
-  store.ad_config = config;
+  store.ad_config = normalized;
   saveFallbackStore(store);
 
   // Also persist to network_data.json so Python backend stays in sync
@@ -5333,10 +5493,12 @@ export async function saveActiveDirectoryConfig(config: any): Promise<void> {
     if (fs.existsSync(netDataPath)) {
       const raw = fs.readFileSync(netDataPath, 'utf-8');
       const netData = JSON.parse(raw);
-      netData.active_directory = config;
+      netData.active_directory = normalized;
       fs.writeFileSync(netDataPath, JSON.stringify(netData, null, 2), 'utf-8');
     }
   } catch {}
+
+  return normalized;
 }
 
 // -------------------------------------------------------------

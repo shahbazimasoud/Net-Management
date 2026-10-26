@@ -50,7 +50,7 @@ import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
 import { isUserSuperAdmin } from '../../utils/rbac';
 
-export type SettingsSubTab = 'groups' | 'users' | 'ad' | 'rbac' | 'backup' | 'alerts';
+export type SettingsSubTab = 'groups' | 'users' | 'rbac' | 'backup' | 'alerts';
 
 interface SettingsViewProps {
   devices: Device[];
@@ -205,15 +205,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       badge: `${localUsers.length} ${isEn ? 'Users' : 'کاربر'} • ${localGroups.length} ${isEn ? 'Groups' : 'گروه'}`,
       badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30'
     },
-    ad: {
-      title: isEn ? 'Active Directory & LDAP Integration' : 'یکپارچه‌سازی با اکتیو دایرکتوری (Active Directory & LDAP)',
-      desc: isEn
-        ? 'Connect to Windows Server Domain Controllers to synchronize OUs, security groups, and enterprise users.'
-        : 'اتصال امن به سرور دامین کنترلر جهت همگام‌سازی OUها، گروه‌های امنیتی AD و کاربران سازمانی برای ورود متمرکز.',
-      icon: Server,
-      badge: adConfig.domain || 'corp.local',
-      badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
-    },
     rbac: {
       title: isEn ? 'Granular Multi-Vendor Access Control (RBAC)' : 'کنترل دسترسی و اختیارات چند وندوری (RBAC)',
       desc: isEn
@@ -336,24 +327,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </span>
         </button>
 
-        {/* Sub-menu 3: Active Directory */}
-        <button
-          type="button"
-          onClick={() => handleSwitchTab('ad')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold text-xs transition-all duration-200 shrink-0 cursor-pointer ${
-            activeTab === 'ad'
-              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-lg ring-1 ring-cyan-400/30'
-              : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
-          }`}
-        >
-          <Server className="w-3.5 h-3.5 text-cyan-400" />
-          <span>{isEn ? 'Active Directory & LDAP' : 'اکتیو دایرکتوری (AD)'}</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-            {adConfig.domain}
-          </span>
-        </button>
-
-        {/* Sub-menu 4: Access Control (RBAC) */}
+        {/* Sub-menu 3: Access Control (RBAC) */}
         <button
           type="button"
           onClick={() => handleSwitchTab('rbac')}
@@ -426,14 +400,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           />
         )}
 
-        {activeTab === 'ad' && (
-          <ActiveDirectoryTab
-            config={adConfig}
-            onSaveConfig={handleSaveAdConfig}
-            onNavigateToConnectionSettings={onNavigateToLdapSettings}
-            isLightMode={isLightMode}
-          />
-        )}
 
         {activeTab === 'rbac' && (
           <AccessControlTab

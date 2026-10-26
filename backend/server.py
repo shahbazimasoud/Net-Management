@@ -1130,7 +1130,18 @@ def load_data():
                     data["device_groups"] = get_default_device_groups()
                     settings_updated = True
                 if "active_directory" not in data or not data["active_directory"]:
-                    data["active_directory"] = get_default_ad_config()
+                    # Check database_store.json first before falling back to default
+                    db_store_file = os.path.join(DATA_DIR, "database_store.json")
+                    if os.path.exists(db_store_file):
+                        try:
+                            with open(db_store_file, "r", encoding="utf-8") as f_db:
+                                db_c = json.load(f_db)
+                                if "ad_config" in db_c and db_c["ad_config"]:
+                                    data["active_directory"] = db_c["ad_config"]
+                        except Exception:
+                            pass
+                    if "active_directory" not in data or not data["active_directory"]:
+                        data["active_directory"] = get_default_ad_config()
                     settings_updated = True
                 if "access_policies" not in data or not data["access_policies"]:
                     data["access_policies"] = get_default_access_policies()
@@ -1184,8 +1195,16 @@ def load_data():
                             data["devices"] = db_content["devices"]
                             if "ports" in db_content:
                                 data["ports"] = db_content["ports"]
+                            if "ad_config" in db_content and db_content["ad_config"]:
+                                data["active_directory"] = db_content["ad_config"]
+                            if "access_policies" in db_content and db_content["access_policies"]:
+                                data["access_policies"] = db_content["access_policies"]
+                            if "device_groups" in db_content and db_content["device_groups"]:
+                                data["device_groups"] = db_content["device_groups"]
+                            if "config_templates" in db_content and db_content["config_templates"]:
+                                data["templates"] = db_content["config_templates"]
                             save_data_unsafe(data)
-                            print(f"[Recovery] Restored {len(data['devices'])} devices from database_store.json")
+                            print(f"[Recovery] Restored {len(data['devices'])} devices and all system configs from database_store.json")
                             recovered = True
                             return data
                 except Exception as db_err:
@@ -3603,6 +3622,16 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             if isinstance(ad_config, dict):
                 data["active_directory"] = ad_config
                 save_data(data)
+                try:
+                    db_store_file = os.path.join(DATA_DIR, "database_store.json")
+                    if os.path.exists(db_store_file):
+                        with open(db_store_file, "r", encoding="utf-8") as f_db:
+                            db_content = json.load(f_db)
+                        db_content["ad_config"] = ad_config
+                        with open(db_store_file, "w", encoding="utf-8") as f_db:
+                            json.dump(db_content, f_db, indent=2, ensure_ascii=False)
+                except Exception as e_db:
+                    print(f"Error persisting ad_config to database_store.json: {e_db}")
                 self._send_json(200, {"success": True, "config": data["active_directory"]})
                 return
             self._send_json(400, {"error": "Invalid AD config payload format"})
