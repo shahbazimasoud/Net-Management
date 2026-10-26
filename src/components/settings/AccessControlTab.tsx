@@ -295,11 +295,11 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       ad: finalAd,
       servers: finalServers,
     };
-  }, [localUsers, localGroups, groups, adConfig, liveLocalUsers, liveLocalGroups, liveDeviceGroups, liveAdConfig, liveServers]);
+  }, [localUsers, localGroups, groups, adConfig]);
 
   useEffect(() => {
     refreshDatabaseData();
-  }, [refreshDatabaseData]);
+  }, []);
 
   // Initial template for new policy
   const getBlankPolicy = (groupsPool?: LocalGroup[], devGroupsPool?: DeviceGroup[]): AccessPolicy => {

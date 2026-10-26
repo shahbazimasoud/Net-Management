@@ -5394,11 +5394,15 @@ export function normalizeADConfig(cfg: any, existingFallback?: any): any {
 
   const syncedGroups = Array.isArray(cfg.syncedGroups) && cfg.syncedGroups.length > 0
     ? cfg.syncedGroups
-    : (Array.isArray(base.syncedGroups) ? base.syncedGroups : []);
+    : (Array.isArray(base.syncedGroups) && base.syncedGroups.length > 0
+      ? base.syncedGroups
+      : (Array.isArray(DEFAULT_AD_CONFIG?.syncedGroups) ? DEFAULT_AD_CONFIG.syncedGroups : []));
 
   const syncedUsers = Array.isArray(cfg.syncedUsers) && cfg.syncedUsers.length > 0
     ? cfg.syncedUsers
-    : (Array.isArray(base.syncedUsers) ? base.syncedUsers : []);
+    : (Array.isArray(base.syncedUsers) && base.syncedUsers.length > 0
+      ? base.syncedUsers
+      : (Array.isArray(DEFAULT_AD_CONFIG?.syncedUsers) ? DEFAULT_AD_CONFIG.syncedUsers : []));
 
   return {
     ...base,

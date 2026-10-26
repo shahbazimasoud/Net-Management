@@ -643,7 +643,20 @@ export function loadActiveDirectoryConfig(): ActiveDirectoryConfig {
     const raw = localStorage.getItem(STORAGE_KEYS.AD_CONFIG);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') return parsed;
+      if (parsed && typeof parsed === 'object') {
+        const users = Array.isArray(parsed.syncedUsers) && parsed.syncedUsers.length > 0
+          ? parsed.syncedUsers
+          : DEFAULT_AD_CONFIG.syncedUsers;
+        const groups = Array.isArray(parsed.syncedGroups) && parsed.syncedGroups.length > 0
+          ? parsed.syncedGroups
+          : DEFAULT_AD_CONFIG.syncedGroups;
+        return {
+          ...DEFAULT_AD_CONFIG,
+          ...parsed,
+          syncedUsers: users,
+          syncedGroups: groups,
+        };
+      }
     }
   } catch (e) {
     console.error('Failed to parse AD config from localStorage', e);
@@ -685,8 +698,20 @@ export async function syncActiveDirectoryConfigFromDatabase(): Promise<ActiveDir
       const data = await res.json();
       const cfg = data?.config;
       if (cfg && typeof cfg === 'object') {
-        localStorage.setItem(STORAGE_KEYS.AD_CONFIG, JSON.stringify(cfg));
-        return cfg;
+        const users = Array.isArray(cfg.syncedUsers) && cfg.syncedUsers.length > 0
+          ? cfg.syncedUsers
+          : DEFAULT_AD_CONFIG.syncedUsers;
+        const groups = Array.isArray(cfg.syncedGroups) && cfg.syncedGroups.length > 0
+          ? cfg.syncedGroups
+          : DEFAULT_AD_CONFIG.syncedGroups;
+        const merged: ActiveDirectoryConfig = {
+          ...DEFAULT_AD_CONFIG,
+          ...cfg,
+          syncedUsers: users,
+          syncedGroups: groups,
+        };
+        localStorage.setItem(STORAGE_KEYS.AD_CONFIG, JSON.stringify(merged));
+        return merged;
       }
     }
   } catch (e) {

@@ -178,12 +178,33 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   }, [liveServers, fetchedServers]);
 
   // Active Directory live objects fetch state & on-demand sync
-  const [adConfigState, setAdConfigState] = useState<ActiveDirectoryConfig | null>(liveAdConfig || null);
+  const [adConfigState, setAdConfigState] = useState<ActiveDirectoryConfig | null>(() => {
+    if (liveAdConfig && (liveAdConfig.syncedUsers?.length || liveAdConfig.syncedGroups?.length)) {
+      return liveAdConfig;
+    }
+    return null;
+  });
   const [isFetchingAd, setIsFetchingAd] = useState(false);
 
   useEffect(() => {
     if (liveAdConfig) {
-      setAdConfigState(liveAdConfig);
+      setAdConfigState((prev) => {
+        // If current state already has synced objects and incoming prop is missing them, keep current state
+        if (prev && (prev.syncedUsers?.length || prev.syncedGroups?.length)) {
+          if (!liveAdConfig.syncedUsers?.length && !liveAdConfig.syncedGroups?.length) {
+            return prev;
+          }
+        }
+        return {
+          ...liveAdConfig,
+          syncedUsers: (liveAdConfig.syncedUsers && liveAdConfig.syncedUsers.length > 0)
+            ? liveAdConfig.syncedUsers
+            : (prev?.syncedUsers || []),
+          syncedGroups: (liveAdConfig.syncedGroups && liveAdConfig.syncedGroups.length > 0)
+            ? liveAdConfig.syncedGroups
+            : (prev?.syncedGroups || []),
+        };
+      });
     }
   }, [liveAdConfig]);
 
@@ -192,7 +213,16 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     try {
       const res = await fetchActiveDirectoryConfig();
       if (res && res.config) {
-        setAdConfigState(res.config);
+        setAdConfigState((prev) => ({
+          ...(prev || {}),
+          ...res.config,
+          syncedUsers: Array.isArray(res.config.syncedUsers) && res.config.syncedUsers.length > 0
+            ? res.config.syncedUsers
+            : (prev?.syncedUsers || []),
+          syncedGroups: Array.isArray(res.config.syncedGroups) && res.config.syncedGroups.length > 0
+            ? res.config.syncedGroups
+            : (prev?.syncedGroups || []),
+        }));
       }
     } catch (e) {
       console.error('Failed to fetch AD objects in AccessPolicyModal', e);
@@ -209,7 +239,24 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     }
   }, [isOpen, handleFetchAd]);
 
-  const effectiveAdConfig = adConfigState || liveAdConfig;
+  const effectiveAdConfig = useMemo(() => {
+    const users = (adConfigState?.syncedUsers && adConfigState.syncedUsers.length > 0)
+      ? adConfigState.syncedUsers
+      : (liveAdConfig?.syncedUsers && liveAdConfig.syncedUsers.length > 0)
+      ? liveAdConfig.syncedUsers
+      : [];
+    const groups = (adConfigState?.syncedGroups && adConfigState.syncedGroups.length > 0)
+      ? adConfigState.syncedGroups
+      : (liveAdConfig?.syncedGroups && liveAdConfig.syncedGroups.length > 0)
+      ? liveAdConfig.syncedGroups
+      : [];
+    return {
+      ...(liveAdConfig || {}),
+      ...(adConfigState || {}),
+      syncedUsers: users,
+      syncedGroups: groups,
+    };
+  }, [adConfigState, liveAdConfig]);
 
   // -------------------------------------------------------------
   // Cascading Scope Resolution (Phase 2):
@@ -375,28 +422,44 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     const list = effectiveAdConfig?.syncedUsers || [];
     if (!adUserSearch.trim()) return list.slice(0, 50);
     const q = adUserSearch.toLowerCase().trim();
-    return list.filter(
-      (u) =>
-        u.displayName?.toLowerCase().includes(q) ||
-        u.samAccountName?.toLowerCase().includes(q) ||
-        u.userPrincipalName?.toLowerCase().includes(q) ||
-        u.mail?.toLowerCase().includes(q) ||
-        u.department?.toLowerCase().includes(q)
-    );
+    return list.filter((u) => {
+      const disp = String(u.displayName || '').toLowerCase();
+      const sam = String(u.samAccountName || (u as any).sAMAccountName || (u as any).username || '').toLowerCase();
+      const upn = String(u.userPrincipalName || '').toLowerCase();
+      const mail = String((u as any).email || u.mail || '').toLowerCase();
+      const dept = String(u.department || '').toLowerCase();
+      const title = String(u.title || '').toLowerCase();
+      const dn = String(u.dn || '').toLowerCase();
+      return (
+        disp.includes(q) ||
+        sam.includes(q) ||
+        upn.includes(q) ||
+        mail.includes(q) ||
+        dept.includes(q) ||
+        title.includes(q) ||
+        dn.includes(q)
+      );
+    });
   }, [effectiveAdConfig?.syncedUsers, adUserSearch]);
 
   const filteredAdGroups = useMemo(() => {
     const list = effectiveAdConfig?.syncedGroups || [];
     if (!adGroupSearch.trim()) return list.slice(0, 50);
     const q = adGroupSearch.toLowerCase().trim();
-    return list.filter(
-      (g) =>
-        (g.cn && g.cn.toLowerCase().includes(q)) ||
-        (g.displayName && g.displayName.toLowerCase().includes(q)) ||
-        (g.sAMAccountName && g.sAMAccountName.toLowerCase().includes(q)) ||
-        (g.description && g.description.toLowerCase().includes(q)) ||
-        (g.dn && g.dn.toLowerCase().includes(q))
-    );
+    return list.filter((g) => {
+      const cn = String(g.cn || '').toLowerCase();
+      const disp = String(g.displayName || '').toLowerCase();
+      const sam = String(g.sAMAccountName || (g as any).samAccountName || '').toLowerCase();
+      const desc = String(g.description || '').toLowerCase();
+      const dn = String(g.dn || '').toLowerCase();
+      return (
+        cn.includes(q) ||
+        disp.includes(q) ||
+        sam.includes(q) ||
+        desc.includes(q) ||
+        dn.includes(q)
+      );
+    });
   }, [effectiveAdConfig?.syncedGroups, adGroupSearch]);
 
   const filteredLocalUsers = useMemo(() => {
@@ -1287,12 +1350,22 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                           {effectiveAdConfig?.domain || effectiveAdConfig?.server || (isEn ? 'Configured' : 'پیکربندی‌شده')}
                         </span>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <span className="text-[10px] opacity-80">
                           {draftPolicy.subjectType === 'ad_user'
                             ? `${effectiveAdConfig?.syncedUsers?.length || 0} ${isEn ? 'users synced' : 'کاربر همگام‌شده'}`
                             : `${effectiveAdConfig?.syncedGroups?.length || 0} ${isEn ? 'groups synced' : 'گروه همگام‌شده'}`}
                         </span>
+                        <button
+                          type="button"
+                          onClick={handleFetchAd}
+                          disabled={isFetchingAd}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 transition cursor-pointer disabled:opacity-50"
+                          title={isEn ? 'Re-sync objects from Active Directory' : 'دریافت مجدد آبجکت‌ها از دامین'}
+                        >
+                          <RefreshCw className={`w-2.5 h-2.5 ${isFetchingAd ? 'animate-spin' : ''}`} />
+                          <span>{isFetchingAd ? (isEn ? 'Syncing...' : 'درحال همگام‌سازی...') : (isEn ? 'Sync AD' : 'همگام‌سازی')}</span>
+                        </button>
                       </div>
                     </div>
                   )}
@@ -1348,13 +1421,18 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                             : 'bg-slate-950/80 border-white/15 shadow-inner'
                         }`}
                       >
-                        {filteredAdUsers.length === 0 ? (
+                        {isFetchingAd ? (
+                          <div className="p-4 text-center text-xs text-cyan-400 space-y-2">
+                            <RefreshCw className="w-4 h-4 animate-spin mx-auto text-cyan-400" />
+                            <p>{isEn ? 'Fetching live objects from Active Directory...' : 'در حال دریافت آبجکت‌های زنده از اکتیو دایرکتوری...'}</p>
+                          </div>
+                        ) : filteredAdUsers.length === 0 ? (
                           <div className="p-4 text-center text-xs text-slate-400 space-y-2">
                             <p>{isEn ? 'No Active Directory users found matching criteria.' : 'کاربر اکتیو دایرکتوری مطابق با جستجو یافت نشد.'}</p>
                             <button
                               type="button"
                               onClick={handleFetchAd}
-                              className="text-cyan-400 hover:underline inline-flex items-center gap-1 font-semibold"
+                              className="text-cyan-400 hover:underline inline-flex items-center gap-1 font-semibold cursor-pointer"
                             >
                               <RefreshCw className="w-3 h-3" />
                               {isEn ? 'Click to fetch fresh AD objects' : 'کلیک برای دریافت مجدد آبجکت‌های AD'}
@@ -1397,7 +1475,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                   <div className="min-w-0">
                                     <div className="font-semibold truncate">{u.displayName}</div>
                                     <div className="text-[10px] font-mono opacity-70 truncate">
-                                      @{u.samAccountName} {u.department ? `• ${u.department}` : ''} {u.mail ? `• ${u.mail}` : ''}
+                                      @{u.samAccountName} {u.department ? `• ${u.department}` : ''} {((u as any).email || u.mail) ? `• ${(u as any).email || u.mail}` : ''}
                                     </div>
                                   </div>
                                 </div>
@@ -1463,13 +1541,18 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                             : 'bg-slate-950/80 border-white/15 shadow-inner'
                         }`}
                       >
-                        {filteredAdGroups.length === 0 ? (
+                        {isFetchingAd ? (
+                          <div className="p-4 text-center text-xs text-cyan-400 space-y-2">
+                            <RefreshCw className="w-4 h-4 animate-spin mx-auto text-cyan-400" />
+                            <p>{isEn ? 'Fetching live objects from Active Directory...' : 'در حال دریافت آبجکت‌های زنده از اکتیو دایرکتوری...'}</p>
+                          </div>
+                        ) : filteredAdGroups.length === 0 ? (
                           <div className="p-4 text-center text-xs text-slate-400 space-y-2">
                             <p>{isEn ? 'No Active Directory security groups found.' : 'گروه امنیتی اکتیو دایرکتوری یافت نشد.'}</p>
                             <button
                               type="button"
                               onClick={handleFetchAd}
-                              className="text-cyan-400 hover:underline inline-flex items-center gap-1 font-semibold"
+                              className="text-cyan-400 hover:underline inline-flex items-center gap-1 font-semibold cursor-pointer"
                             >
                               <RefreshCw className="w-3 h-3" />
                               {isEn ? 'Click to fetch fresh AD objects' : 'کلیک برای دریافت مجدد آبجکت‌های AD'}

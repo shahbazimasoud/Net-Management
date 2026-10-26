@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.380.0';
+export const APP_VERSION = '1.380.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.380.1',
+    releaseDate: '2026-10-26',
+    type: 'patch',
+    title: 'رفع قطعی پرش و محو شدن لیست کاربران و گروه‌های اکتیو دایرکتوری در پالیسی‌های دسترسی (RBAC) و تثبیت جستجو',
+    title_en: 'Fix Active Directory users and groups list disappearing/flashing in Access Policy (RBAC) and stabilize search',
+    changes: [
+      'رفع حلقه بازرندر نامتناهی در تب کنترل دسترسی (AccessControlTab) ناشی از وابستگی‌های متغیر در هوک refreshDatabaseData که باعث بازنویسی مکرر استیت مودال و محو شدن لیست آبجکت‌های دریافت شده می‌شد.',
+      'تثبیت و محافظت از آبجکت‌های زنده دریافت‌شده دامین (syncedUsers و syncedGroups) در AccessPolicyModal در برابر بازنویسی با داده‌های ناقص والد یا کش لوکال‌استوریج.',
+      'بهبود و گسترش الگوریتم جستجوی کاربران و گروه‌های دامین کنترلر جهت پشتیبانی کامل از نام کاربری، نام نمایشی، ایمیل (email/mail)، دپارتمان، عنوان شغلی، DN و CN.',
+      'تجهیز مودال به نمایش لایو وضعیت در حال دریافت (isFetchingAd) با اسپینر اختصاصی و دکمه بازخوانی سریع (Sync AD) در هدر دامین برای تجربه کاربری روان و بلادرنگ.'
+    ],
+    changes_en: [
+      'Resolved infinite re-render loop in AccessControlTab caused by mutable state setter values in the refreshDatabaseData dependency array, which was repeatedly wiping out the modal state and causing the fetched AD objects list to flash and disappear.',
+      'Stabilized and safeguarded live Domain Controller objects (syncedUsers and syncedGroups) in AccessPolicyModal against premature resets from parent props or stale localStorage caches.',
+      'Enhanced Active Directory search algorithms across users and groups to thoroughly match samAccountName, displayName, email/mail, department, job title, DN, and CN.',
+      'Added live fetching spinner state indicator and quick on-demand "Sync AD" button in the domain header for an intuitive, smooth administrator experience.'
+    ]
+  },
   {
     version: '1.380.0',
     releaseDate: '2026-10-26',
