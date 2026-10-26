@@ -655,9 +655,14 @@ export function loadActiveDirectoryConfig(): ActiveDirectoryConfig {
 export function saveActiveDirectoryConfig(config: ActiveDirectoryConfig): void {
   try {
     localStorage.setItem(STORAGE_KEYS.AD_CONFIG, JSON.stringify(config));
+    const token = typeof window !== 'undefined'
+      ? localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1')
+      : null;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     fetch('/api/settings/active-directory', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ config }),
     }).catch(() => {});
   } catch (e) {
@@ -667,7 +672,12 @@ export function saveActiveDirectoryConfig(config: ActiveDirectoryConfig): void {
 
 export async function syncActiveDirectoryConfigFromDatabase(): Promise<ActiveDirectoryConfig> {
   try {
-    const res = await fetch('/api/settings/active-directory');
+    const token = typeof window !== 'undefined'
+      ? localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1')
+      : null;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch('/api/settings/active-directory', { headers });
     if (res.ok) {
       const data = await res.json();
       const cfg = data?.config;

@@ -35,7 +35,7 @@ for (const envPath of candidateEnvPaths) {
 }
 dotenv.config();
 
-import { initDatabase, findUserById, findUserByUsername, getEffectivePolicyForUser, getAccessPolicies } from './server/db';
+import { initDatabase, findUserById, findUserByUsername, getEffectivePolicyForUser, getAccessPolicies, getActiveDirectoryConfig, saveActiveDirectoryConfig } from './server/db';
 import { verifyToken } from './server/auth';
 import { apiRouter } from './server/routes';
 import { setupTerminalWebSocket } from './server/terminalWs';
@@ -631,6 +631,14 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
           userDeviceCount = preDatabaseStore.devices.length;
         }
       }
+      // Also snapshot authoritative Active Directory config from database if present
+      try {
+        const activeAd = await getActiveDirectoryConfig();
+        if (activeAd && typeof activeAd === 'object' && activeAd.server && activeAd.server !== '192.168.1.10') {
+          if (!preDatabaseStore) preDatabaseStore = {};
+          preDatabaseStore.ad_config = activeAd;
+        }
+      } catch {}
     } catch (rErr: any) {
       log(`Notice reading existing database_store.json: ${rErr.message}`);
     }
@@ -760,7 +768,9 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
           vlans: preNetworkData.vlans || repoNetworkData.vlans || [],
           templates: preNetworkData.templates || repoNetworkData.templates || [],
           device_groups: preNetworkData.device_groups || repoNetworkData.device_groups || [],
-          active_directory: preNetworkData.active_directory || repoNetworkData.active_directory,
+          active_directory: (preNetworkData.active_directory && preNetworkData.active_directory.server && preNetworkData.active_directory.server !== '192.168.1.10')
+            ? preNetworkData.active_directory
+            : (preDatabaseStore?.ad_config || preNetworkData.active_directory || repoNetworkData.active_directory),
           access_policies: preNetworkData.access_policies || repoNetworkData.access_policies || [],
           local_users: preNetworkData.local_users || repoNetworkData.local_users || [],
           local_groups: preNetworkData.local_groups || repoNetworkData.local_groups || [],
@@ -798,11 +808,20 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
           topology_hierarchy: preDatabaseStore.topology_hierarchy || repoDbStore.topology_hierarchy || [],
           node_positions: preDatabaseStore.node_positions || repoDbStore.node_positions || {},
           device_sticky_notes: preDatabaseStore.device_sticky_notes || repoDbStore.device_sticky_notes || [],
-          audit_logs: preDatabaseStore.audit_logs || repoDbStore.audit_logs || []
+          audit_logs: preDatabaseStore.audit_logs || repoDbStore.audit_logs || [],
+          ad_config: (preDatabaseStore.ad_config && preDatabaseStore.ad_config.server && preDatabaseStore.ad_config.server !== '192.168.1.10')
+            ? preDatabaseStore.ad_config
+            : (preDatabaseStore.ad_config || repoDbStore.ad_config)
         };
 
         fs.writeFileSync(dbStore, JSON.stringify(finalDbStore, null, 2), 'utf-8');
         log(`Safeguarded and restored database store with ${((finalDbStore.devices as any[]) || []).length} synced devices.`);
+
+        if (finalDbStore.ad_config) {
+          try {
+            await saveActiveDirectoryConfig(finalDbStore.ad_config);
+          } catch {}
+        }
       }
 
       // 3. Restore .env

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.379.5';
+export const APP_VERSION = '1.379.6';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.379.6',
+    releaseDate: '2026-10-26',
+    type: 'patch',
+    title: 'تثبیت پایدار و دائمی تنظیمات دامین کنترلر (LDAP/Active Directory) در دیتابیس PostgreSQL و محافظت در برابر بازنویسی هنگام آپدیت',
+    title_en: 'Authoritative PostgreSQL persistence and update pipeline protection for Domain Controller LDAP connection parameters',
+    changes: [
+      'ایجاد رسمی و خودکار جدول ad_config در پایگاه داده PostgreSQL جهت ذخیره‌سازی قطعی و دائمی تنظیمات دامین کنترلر، سرور LDAP، پورت، Base DN و حساب کاربری سرویس.',
+      'محافظت از تنظیمات ال‌دپ در موتور ارتقای سیستم (server.ts): تهیه اسنپ‌شات پیش از اعمال آپدیت گیت و بازیابی و ادغام ایمن آن به همراه حفظ رمز عبور Bind Password جهت جلوگیری از پرش اطلاعات پس از آپدیت‌های نرم‌افزاری.',
+      'همگام‌سازی بلادرنگ تنظیمات بین پایگاه داده PostgreSQL، فایل پشتیبان دیتابیس (database_store.json) و ماژول پایتون (network_data.json).'
+    ],
+    changes_en: [
+      'Formally provisioned and synchronized authoritative PostgreSQL table ad_config for permanent persistence of Domain Controller LDAP connection parameters, port, Base DN, and bind credentials.',
+      'Protected LDAP configuration in the system update engine (server.ts) via pre-update database snapshotting and post-pull merging, safeguarding bind credentials and preventing configuration loss after updates.',
+      'Ensured real-time bidirectional synchronization between PostgreSQL database, persistent fallback store (database_store.json), and backend services (network_data.json).'
+    ]
+  },
   {
     version: '1.379.5',
     releaseDate: '2026-10-25',

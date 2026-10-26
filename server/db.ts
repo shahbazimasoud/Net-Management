@@ -1618,13 +1618,29 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
 
   // 9. Sync Active Directory Config
   try {
-    const adRes = await client.query('SELECT count(*) as count FROM ad_config');
-    if (parseInt(adRes.rows[0]?.count || '0', 10) === 0) {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ad_config (
+        id VARCHAR(64) PRIMARY KEY,
+        config_data JSONB NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    const adRes = await client.query("SELECT config_data FROM ad_config WHERE id = 'primary' LIMIT 1");
+    if (adRes.rows.length === 0) {
       const adToSeed = initialData.ad_config || DEFAULT_AD_CONFIG;
       await client.query(
         `INSERT INTO ad_config (id, config_data) VALUES ('primary', $1) ON CONFLICT (id) DO NOTHING`,
         [JSON.stringify(adToSeed)]
       );
+    } else {
+      // PostgreSQL is authoritative: keep memory and fallback in sync with database
+      try {
+        const rawCfg = adRes.rows[0].config_data;
+        const parsedCfg = typeof rawCfg === 'string' ? JSON.parse(rawCfg) : rawCfg;
+        if (parsedCfg && typeof parsedCfg === 'object') {
+          initialData.ad_config = parsedCfg;
+        }
+      } catch {}
     }
   } catch (err: any) {
     console.warn('[Database Sync Notice] AD Config sync notice:', err.message);
@@ -2216,6 +2232,15 @@ export async function initDatabase(): Promise<void> {
           master_key TEXT NOT NULL,
           legacy_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // 20. Active Directory / LDAP Domain Controller Config
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS ad_config (
+          id VARCHAR(64) PRIMARY KEY,
+          config_data JSONB NOT NULL,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         )
       `);
@@ -5255,25 +5280,35 @@ export async function saveDeviceGroups(groups: any[]): Promise<void> {
 export async function getActiveDirectoryConfig(): Promise<any> {
   if (isPostgresReady && pool) {
     try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS ad_config (
+          id VARCHAR(64) PRIMARY KEY,
+          config_data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
       const res = await pool.query("SELECT config_data FROM ad_config WHERE id = 'primary' LIMIT 1");
       if (res.rows.length > 0) {
         const raw = res.rows[0].config_data;
         return typeof raw === 'string' ? JSON.parse(raw) : raw;
       }
-    } catch (e) {
-      console.error('[DB Query Error]', e);
+    } catch (e: any) {
+      console.error('[DB Query Error getActiveDirectoryConfig]', e?.message || e);
     }
   }
   return loadFallbackStore().ad_config || DEFAULT_AD_CONFIG;
 }
 
 export async function saveActiveDirectoryConfig(config: any): Promise<void> {
-  const store = loadFallbackStore();
-  store.ad_config = config;
-  saveFallbackStore(store);
-
   if (isPostgresReady && pool) {
     try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS ad_config (
+          id VARCHAR(64) PRIMARY KEY,
+          config_data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
       await pool.query(
         `INSERT INTO ad_config (id, config_data, updated_at)
          VALUES ('primary', $1, CURRENT_TIMESTAMP)
@@ -5282,10 +5317,26 @@ export async function saveActiveDirectoryConfig(config: any): Promise<void> {
            updated_at = CURRENT_TIMESTAMP`,
         [JSON.stringify(config)]
       );
-    } catch (e) {
-      console.error('[DB Query Error]', e);
+    } catch (e: any) {
+      console.error('[DB Query Error saveActiveDirectoryConfig]', e?.message || e);
     }
   }
+
+  // Also persist to database_store.json
+  const store = loadFallbackStore();
+  store.ad_config = config;
+  saveFallbackStore(store);
+
+  // Also persist to network_data.json so Python backend stays in sync
+  try {
+    const netDataPath = path.join(process.cwd(), 'backend', 'network_data.json');
+    if (fs.existsSync(netDataPath)) {
+      const raw = fs.readFileSync(netDataPath, 'utf-8');
+      const netData = JSON.parse(raw);
+      netData.active_directory = config;
+      fs.writeFileSync(netDataPath, JSON.stringify(netData, null, 2), 'utf-8');
+    }
+  } catch {}
 }
 
 // -------------------------------------------------------------

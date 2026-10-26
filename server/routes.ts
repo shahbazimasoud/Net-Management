@@ -1670,6 +1670,18 @@ apiRouter.get(['/settings/active-directory', '/active-directory'], async (req: R
 apiRouter.post(['/settings/active-directory', '/active-directory'], async (req: Request, res: Response) => {
   try {
     const configToSave = req.body?.config || req.body;
+    if (configToSave && typeof configToSave === 'object') {
+      try {
+        const existing = await getActiveDirectoryConfig();
+        if (
+          existing &&
+          existing.bindPassword &&
+          (!configToSave.bindPassword || configToSave.bindPassword === '••••••••••••')
+        ) {
+          configToSave.bindPassword = existing.bindPassword;
+        }
+      } catch {}
+    }
     await saveActiveDirectoryConfig(configToSave);
     res.json({ success: true, config: configToSave });
   } catch (err: any) {
