@@ -1390,7 +1390,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                               }`}
                             >
                               <Cable className="w-3.5 h-3.5 text-indigo-400" />
-                              <span>{dev.total_ports || 24} {isEn ? 'Ports' : 'پورت'}</span>
+                              <span>{isEn ? 'Ports' : 'پورت‌ها'}</span>
                             </button>
                           ) : (
                             <span
@@ -1398,7 +1398,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                               title={isEn ? 'Inspect interfaces restricted by access policy' : 'مشاهده وضعیت پورت‌ها توسط پالیسی دسترسی مسدود است'}
                             >
                               <Cable className="w-3.5 h-3.5 text-slate-500" />
-                              <span>{dev.total_ports || 24}</span>
+                              <span>{isEn ? 'Ports' : 'پورت‌ها'}</span>
                             </span>
                           )}
                         </td>

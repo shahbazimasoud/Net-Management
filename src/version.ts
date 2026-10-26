@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.381.0';
+export const APP_VERSION = '1.381.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.381.1',
+    releaseDate: '2026-10-26',
+    type: 'patch',
+    title: 'ساده‌سازی برچسب دکمه پورت‌ها در جدول مدیریت موجودی تجهیزات شبکه و حذف عدد پیش‌فرض',
+    title_en: 'Simplify Ports button label in Network Equipment Inventory table, removing numeric count prefix',
+    changes: [
+      'اصلاح متن دکمه ستون Ports & VLAN در جدول انبار و مدیریت تجهیزات شبکه (DeviceListView) از «24 Ports» به عنوان ساده «Ports» (در حالت انگلیسی) و «پورت‌ها» (در حالت فارسی).',
+      'حذف عدد پیش‌فرض ۲۴ پورت از دکمه تعاملی و حالت غیرفعال (Disabled) جهت یکدست‌سازی رابط کاربری و نمایش عنوان مستقیم بدون پیشوند عددی.'
+    ],
+    changes_en: [
+      'Refined the button text in the Ports & VLAN column within Network Equipment Inventory (DeviceListView) from "24 Ports" to clean "Ports" (English) and "پورت‌ها" (Persian).',
+      'Removed the default numeric prefix (24) from both interactive and disabled states for streamlined UI presentation.'
+    ]
+  },
   {
     version: '1.381.0',
     releaseDate: '2026-10-26',
