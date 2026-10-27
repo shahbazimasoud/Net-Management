@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.381.1';
+export const APP_VERSION = '1.381.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.381.2',
+    releaseDate: '2026-10-27',
+    type: 'patch',
+    title: 'تثبیت نشست ریموت دسکتاپ مرورگر، ایزوله‌سازی از رندرهای دوره‌ای پس‌زمینه و ایمن‌سازی استریم متنی گوآکامولی با StringDecoder',
+    title_en: 'Stabilize in-browser Remote Desktop sessions against periodic background polling re-renders and safeguard Guacamole TCP stream with StringDecoder',
+    changes: [
+      'اصلاح وابستگی‌های هوک useEffect در InBrowserRemoteDesktopModal تا منحصراً به مقادیر اولیه (isOpen، server?.id، isRdp) وابسته باشد و رندرهای ناشی از پولینگ ۱۰ ثانیه‌ای ناوگان و وضعیت‌ها باعث قطع یا بازسازی مکرر نشست نگردد.',
+      'یکپارچه‌سازی و استانداردسازی فرمت activeSessionKeyRef در مودال ریموت دسکتاپ بر پایه جداکننده دو نقطه (:).',
+      'بهبود مدیریت خطا در بسته‌شدن تونل گوآکامولی (tunnel.onstatechange) جهت تفکیک دقیق بین قطعی در حین نشست فعال و عدم پاسخ در فاز هندشیک اولیه.',
+      'تجهیز هندلر دیتای سوکت TCP گوآکامولی (guacdSocket) به StringDecoder یونیکد جهت ممانعت از تکه‌تکه‌شدن کاراکترهای چندبایتی UTF-8 در مرز بسته‌های TCP.'
+    ],
+    changes_en: [
+      'Refactored InBrowserRemoteDesktopModal useEffect dependencies to bind strictly to primitive values (isOpen, server?.id, isRdp), preventing background 10s telemetry polling from resetting active sessions.',
+      'Standardized activeSessionKeyRef formatting across remote desktop modal using a unified colon delimiter.',
+      'Improved tunnel.onstatechange error handling to clearly distinguish between mid-session connection drops and initial handshake failures.',
+      'Hardened guacdSocket TCP stream decoding with Node.js StringDecoder to prevent multibyte UTF-8 boundary slicing.'
+    ]
+  },
   {
     version: '1.381.1',
     releaseDate: '2026-10-26',

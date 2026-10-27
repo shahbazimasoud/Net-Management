@@ -700,12 +700,14 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             clearTimeout(connectTimeoutRef.current);
             connectTimeoutRef.current = null;
           }
+          let wasConnected = false;
           setConnectionStatus((prev) => {
-            if (prev === 'connecting' || prev === 'requesting_token') {
-              return 'error';
-            }
             if (prev === 'connected') {
+              wasConnected = true;
               return 'disconnected';
+            }
+            if (prev === 'connecting' || prev === 'requesting_token' || prev === 'negotiating_rdp') {
+              return 'error';
             }
             return prev;
           });
@@ -714,6 +716,11 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             const curIsEn = isEnRef.current;
             const curServer = serverRef.current;
             const curPort = defaultPortRef.current;
+            if (wasConnected) {
+              return curIsEn
+                ? `Remote desktop tunnel was closed during an active session with ${curServer?.name || curServer?.ip || 'server'}.`
+                : `ارتباط تونل ریموت دسکتاپ در حین نشست فعال با ${curServer?.name || curServer?.ip || 'سرور'} قطع شد.`;
+            }
             return curIsEn
               ? `Guacamole tunnel closed. Host ${curServer?.ip || ''}:${curPort} did not respond or rejected handshake.`
               : `تونل ارتباطی گوآکامولی بسته شد. هاست ${curServer?.ip || ''}:${curPort} پاسخ نداد یا اتصال را رد کرد.`;
@@ -1022,14 +1029,15 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
   // Establish session when modal opens for a server; preserve session across minimize, page switches, and overlapping modals
   useEffect(() => {
-    if (!server) {
+    const targetServerId = server?.id;
+    if (!targetServerId) {
       activeSessionKeyRef.current = null;
       cleanupConnection();
       return;
     }
 
     if (isOpen) {
-      const sessionKey = `${server.id}:${isRdp ? 'rdp' : 'vnc'}`;
+      const sessionKey = `${targetServerId}:${isRdp ? 'rdp' : 'vnc'}`;
       if (activeSessionKeyRef.current !== sessionKey) {
         activeSessionKeyRef.current = sessionKey;
         setActiveDurationSec(0);
@@ -1044,7 +1052,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         }, 50);
       }
     }
-  }, [isOpen, server?.id, isRdp, initiateConnection, cleanupConnection]);
+  }, [isOpen, server?.id, isRdp]);
 
   // Teardown connection ONLY when component truly unmounts
   useEffect(() => {

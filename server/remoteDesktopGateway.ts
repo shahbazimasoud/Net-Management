@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
+import { StringDecoder } from 'string_decoder';
 import { Express, Request, Response } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { verifyToken } from './auth';
@@ -1375,6 +1376,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     const guacdSocket = new net.Socket();
     activeSession.socket = guacdSocket;
 
+    const guacdDecoder = new StringDecoder('utf8');
     let handshakeState: 'SELECT' | 'CONNECTING' | 'READY' = 'SELECT';
     let guacBuffer = '';
     let clientBuffer = '';
@@ -1405,7 +1407,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     });
 
     guacdSocket.on('data', (chunk: Buffer) => {
-      guacBuffer += chunk.toString('utf-8');
+      guacBuffer += guacdDecoder.write(chunk);
 
       while (true) {
         const next = extractNextGuacInstruction(guacBuffer);
