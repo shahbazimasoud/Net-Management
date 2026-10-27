@@ -267,6 +267,9 @@ class CiscoDriver(NetworkDeviceDriver):
                 "duplex": "Full",
                 "connected_device": f"Client-PC-{i}" if p_status == "up" else "Disconnected",
                 "connected_type": "Host" if p_status == "up" else "None",
+                "mac_address": f"000c.2981.{i:02x}01",
+                "connected_mac": f"0050.56a1.{i:02x}fe" if p_status == "up" else "",
+                "learned_macs": [f"0050.56a1.{i:02x}fe"] if p_status == "up" else [],
                 "poe_status": "delivering" if (i % 2 == 1 and p_status == "up") else "off",
                 "poe_power": 12.5 if (i % 2 == 1 and p_status == "up") else 0,
                 "description": f"Port {i} Access",
@@ -276,7 +279,7 @@ class CiscoDriver(NetworkDeviceDriver):
                 "port_security_configured_mac": f"0050.56a1.{i:02x}01" if (i > 2 and i % 2 == 0) else "",
                 "port_security_violation": "shutdown",
                 "port_security_status": ("secure-up" if p_status == "up" else "secure-down") if (i > 2 and i % 2 == 1) else "disabled",
-                "port_security_learned_macs": [f"0050.56a1.{i:02x}fe"] if (i > 2 and i % 2 == 1 and p_status == "up") else []
+                "port_security_learned_macs": [f"0050.56a1.{i:02x}fe"] if (p_status == "up") else []
             })
         return generated
 

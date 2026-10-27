@@ -66,7 +66,15 @@
         "poe_power": 15.4,
         "description": "MikroTik LAN Port 1",
         "port_security_enabled": false,
-        "port": "ether1"
+        "port": "ether1",
+        "mac_address": "00:50:56:F7:D2:01",
+        "connected_mac": "00:50:56:A1:01:01",
+        "learned_macs": [
+          "00:50:56:A1:01:01"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:A1:01:01"
+        ]
       },
       {
         "port_id": "ether2",
@@ -84,7 +92,15 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 2",
         "port_security_enabled": false,
-        "port": "ether2"
+        "port": "ether2",
+        "mac_address": "00:50:56:F7:D2:02",
+        "connected_mac": "00:50:56:A1:01:02",
+        "learned_macs": [
+          "00:50:56:A1:01:02"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:A1:01:02"
+        ]
       },
       {
         "port_id": "ether3",
@@ -102,7 +118,15 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 3",
         "port_security_enabled": false,
-        "port": "ether3"
+        "port": "ether3",
+        "mac_address": "00:50:56:F7:D2:03",
+        "connected_mac": "00:50:56:A1:01:03",
+        "learned_macs": [
+          "00:50:56:A1:01:03"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:A1:01:03"
+        ]
       },
       {
         "port_id": "ether4",
@@ -120,7 +144,10 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 4",
         "port_security_enabled": false,
-        "port": "ether4"
+        "port": "ether4",
+        "mac_address": "00:50:56:F7:D2:04",
+        "learned_macs": [],
+        "port_security_learned_macs": []
       },
       {
         "port_id": "ether5",
@@ -138,7 +165,15 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 5",
         "port_security_enabled": false,
-        "port": "ether5"
+        "port": "ether5",
+        "mac_address": "00:50:56:F7:D2:05",
+        "connected_mac": "00:50:56:A1:01:05",
+        "learned_macs": [
+          "00:50:56:A1:01:05"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:A1:01:05"
+        ]
       },
       {
         "port_id": "ether6",
@@ -156,7 +191,10 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 6",
         "port_security_enabled": false,
-        "port": "ether6"
+        "port": "ether6",
+        "mac_address": "00:50:56:F7:D2:06",
+        "learned_macs": [],
+        "port_security_learned_macs": []
       },
       {
         "port_id": "ether7",
@@ -174,7 +212,15 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 7",
         "port_security_enabled": false,
-        "port": "ether7"
+        "port": "ether7",
+        "mac_address": "00:50:56:F7:D2:07",
+        "connected_mac": "00:50:56:A1:01:07",
+        "learned_macs": [
+          "00:50:56:A1:01:07"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:A1:01:07"
+        ]
       },
       {
         "port_id": "ether8",
@@ -192,7 +238,10 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 8",
         "port_security_enabled": false,
-        "port": "ether8"
+        "port": "ether8",
+        "mac_address": "00:50:56:F7:D2:08",
+        "learned_macs": [],
+        "port_security_learned_macs": []
       },
       {
         "port_id": "ether9",
@@ -210,7 +259,15 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 9",
         "port_security_enabled": false,
-        "port": "ether9"
+        "port": "ether9",
+        "mac_address": "00:50:56:F7:D2:09",
+        "connected_mac": "00:50:56:A1:01:09",
+        "learned_macs": [
+          "00:50:56:A1:01:09"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:A1:01:09"
+        ]
       },
       {
         "port_id": "ether10",
@@ -228,7 +285,10 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 10",
         "port_security_enabled": false,
-        "port": "ether10"
+        "port": "ether10",
+        "mac_address": "00:50:56:F7:D2:0a",
+        "learned_macs": [],
+        "port_security_learned_macs": []
       },
       {
         "port_id": "ether11",
@@ -246,7 +306,15 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 11",
         "port_security_enabled": false,
-        "port": "ether11"
+        "port": "ether11",
+        "mac_address": "00:50:56:F7:D2:0b",
+        "connected_mac": "00:50:56:A1:01:0b",
+        "learned_macs": [
+          "00:50:56:A1:01:0b"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:A1:01:0b"
+        ]
       },
       {
         "port_id": "ether12",
@@ -264,7 +332,10 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 12",
         "port_security_enabled": false,
-        "port": "ether12"
+        "port": "ether12",
+        "mac_address": "00:50:56:F7:D2:0c",
+        "learned_macs": [],
+        "port_security_learned_macs": []
       },
       {
         "port_id": "ether13",
@@ -282,7 +353,15 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 13",
         "port_security_enabled": false,
-        "port": "ether13"
+        "port": "ether13",
+        "mac_address": "00:50:56:F7:D2:0d",
+        "connected_mac": "00:50:56:A1:01:0d",
+        "learned_macs": [
+          "00:50:56:A1:01:0d"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:A1:01:0d"
+        ]
       },
       {
         "port_id": "ether14",
@@ -300,7 +379,10 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 14",
         "port_security_enabled": false,
-        "port": "ether14"
+        "port": "ether14",
+        "mac_address": "00:50:56:F7:D2:0e",
+        "learned_macs": [],
+        "port_security_learned_macs": []
       },
       {
         "port_id": "ether15",
@@ -318,7 +400,15 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 15",
         "port_security_enabled": false,
-        "port": "ether15"
+        "port": "ether15",
+        "mac_address": "00:50:56:F7:D2:0f",
+        "connected_mac": "00:50:56:A1:01:0f",
+        "learned_macs": [
+          "00:50:56:A1:01:0f"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:A1:01:0f"
+        ]
       },
       {
         "port_id": "ether16",
@@ -336,7 +426,10 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 16",
         "port_security_enabled": false,
-        "port": "ether16"
+        "port": "ether16",
+        "mac_address": "00:50:56:F7:D2:10",
+        "learned_macs": [],
+        "port_security_learned_macs": []
       },
       {
         "port_id": "ether17",
@@ -354,7 +447,15 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 17",
         "port_security_enabled": false,
-        "port": "ether17"
+        "port": "ether17",
+        "mac_address": "00:50:56:F7:D2:11",
+        "connected_mac": "00:50:56:A1:01:11",
+        "learned_macs": [
+          "00:50:56:A1:01:11"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:A1:01:11"
+        ]
       },
       {
         "port_id": "ether18",
@@ -372,7 +473,10 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 18",
         "port_security_enabled": false,
-        "port": "ether18"
+        "port": "ether18",
+        "mac_address": "00:50:56:F7:D2:12",
+        "learned_macs": [],
+        "port_security_learned_macs": []
       },
       {
         "port_id": "ether19",
@@ -390,7 +494,15 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 19",
         "port_security_enabled": false,
-        "port": "ether19"
+        "port": "ether19",
+        "mac_address": "00:50:56:F7:D2:13",
+        "connected_mac": "00:50:56:A1:01:13",
+        "learned_macs": [
+          "00:50:56:A1:01:13"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:A1:01:13"
+        ]
       },
       {
         "port_id": "ether20",
@@ -408,7 +520,10 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 20",
         "port_security_enabled": false,
-        "port": "ether20"
+        "port": "ether20",
+        "mac_address": "00:50:56:F7:D2:14",
+        "learned_macs": [],
+        "port_security_learned_macs": []
       },
       {
         "port_id": "ether21",
@@ -426,7 +541,15 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 21",
         "port_security_enabled": false,
-        "port": "ether21"
+        "port": "ether21",
+        "mac_address": "00:50:56:F7:D2:15",
+        "connected_mac": "00:50:56:A1:01:15",
+        "learned_macs": [
+          "00:50:56:A1:01:15"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:A1:01:15"
+        ]
       },
       {
         "port_id": "ether22",
@@ -444,7 +567,10 @@
         "poe_power": 0,
         "description": "MikroTik LAN Port 22",
         "port_security_enabled": false,
-        "port": "ether22"
+        "port": "ether22",
+        "mac_address": "00:50:56:F7:D2:16",
+        "learned_macs": [],
+        "port_security_learned_macs": []
       },
       {
         "port_id": "sfp-sfpplus1",
@@ -462,7 +588,15 @@
         "poe_power": 0,
         "description": "SFP+ 10G Optical Uplink 1",
         "port_security_enabled": false,
-        "port": "sfp-sfpplus1"
+        "port": "sfp-sfpplus1",
+        "mac_address": "00:50:56:F7:D2:17",
+        "connected_mac": "00:50:56:B2:FF:01",
+        "learned_macs": [
+          "00:50:56:B2:FF:01"
+        ],
+        "port_security_learned_macs": [
+          "00:50:56:B2:FF:01"
+        ]
       },
       {
         "port_id": "sfp-sfpplus2",
@@ -480,7 +614,10 @@
         "poe_power": 0,
         "description": "SFP+ 10G Optical Uplink 2",
         "port_security_enabled": false,
-        "port": "sfp-sfpplus2"
+        "port": "sfp-sfpplus2",
+        "mac_address": "00:50:56:F7:D2:18",
+        "learned_macs": [],
+        "port_security_learned_macs": []
       }
     ]
   },

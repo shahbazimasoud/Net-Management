@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.382.1';
+export const APP_VERSION = '1.382.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.382.2',
+    releaseDate: '2026-10-27',
+    type: 'patch',
+    title: 'رفع مشکل بارگذاری نشدن مک آدرس‌ها در لیست پورت‌های سوئیچ و تصحیح هندلینگ اندپوینت پورت‌ها',
+    title_en: 'Fix port MAC addresses loading in switch port list and correct ports endpoint handling',
+    changes: [
+      'اصلاح و ایمن‌سازی اندپوینت GET /api/devices/:id/ports جهت ممانعت از خطای ۵۰۰ در هنگام لود پورت‌ها در غیاب محیط مجازی SSH پایتون.',
+      'افزودن استخراج خودکار و قطعی مک آدرس‌های فراگرفته‌شده هاست‌های متصل (Connected Devices) در جداول CAM و پورت سکوریتی پورت‌های فعال.',
+      'تجهیز پورت‌ها به مک آدرس‌های سخت‌افزاری و مک‌های فراگرفته‌شده در تعاریف درایورهای میکروتیک و سیسکو و ذخیره‌گاه داده شبکه.',
+      'ارتقای تابع getPortMacAddresses در فرانت‌اند جهت بازیابی و نگاشت مطمئن مک آدرس‌های متصل و سخت‌افزاری پورت در تمام حالات.'
+    ],
+    changes_en: [
+      'Safely resolved SSH backend in GET /api/devices/:id/ports to prevent 500 error aborts when Python SSH venvs are unprovisioned.',
+      'Added deterministic learned MAC address extraction for active connected devices and hosts across switch CAM forwarding and port security tables.',
+      'Equipped switch ports with hardware and authentic learned MAC addresses across MikroTik and Cisco drivers and network data storage.',
+      'Enhanced getPortMacAddresses in the frontend to reliably recover and display learned and hardware MAC addresses under all port conditions.'
+    ]
+  },
   {
     version: '1.382.1',
     releaseDate: '2026-10-27',

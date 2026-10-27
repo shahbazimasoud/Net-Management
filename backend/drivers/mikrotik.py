@@ -161,6 +161,8 @@ class MikroTikDriver(NetworkDeviceDriver):
 
         for i in range(1, eth_count + 1):
             p_status = "up" if i <= 3 else ("down" if i % 2 == 0 else "up")
+            hex_id = f"{i:02x}"
+            host_mac = f"00:50:56:a1:01:{hex_id}" if p_status == "up" else ""
             generated.append({
                 "port_id": f"ether{i}",
                 "name": f"ether{i}",
@@ -171,6 +173,10 @@ class MikroTikDriver(NetworkDeviceDriver):
                 "allowed_vlans": "1",
                 "speed": "1 Gbps",
                 "duplex": "Full",
+                "mac_address": f"00:50:56:f7:d2:{hex_id}",
+                "connected_mac": host_mac,
+                "learned_macs": [host_mac] if host_mac else [],
+                "port_security_learned_macs": [host_mac] if host_mac else [],
                 "connected_device": f"LAN-Host-{i}" if p_status == "up" else "Disconnected",
                 "connected_type": "Host" if p_status == "up" else "None",
                 "poe_status": "delivering" if (i == 1 and p_status == "up") else "off",
@@ -181,18 +187,25 @@ class MikroTikDriver(NetworkDeviceDriver):
 
         for s in range(1, sfp_count + 1):
             sfp_id = f"sfp-sfpplus{s}"
+            is_up = (s == 1)
+            hex_sfp = f"{eth_count + s:02x}"
+            uplink_mac = "00:50:56:b2:ff:01" if is_up else ""
             generated.append({
                 "port_id": sfp_id,
                 "name": sfp_id,
-                "status": "up" if s == 1 else "down",
+                "status": "up" if is_up else "down",
                 "admin_status": "enabled",
                 "mode": "access",
                 "vlan": 1,
                 "allowed_vlans": "1-4094",
                 "speed": "10 Gbps",
                 "duplex": "Full",
-                "connected_device": "Fiber Uplink" if s == 1 else "Disconnected",
-                "connected_type": "Switch" if s == 1 else "None",
+                "mac_address": f"00:50:56:f7:d2:{hex_sfp}",
+                "connected_mac": uplink_mac,
+                "learned_macs": [uplink_mac] if uplink_mac else [],
+                "port_security_learned_macs": [uplink_mac] if uplink_mac else [],
+                "connected_device": "Fiber Uplink" if is_up else "Disconnected",
+                "connected_type": "Switch" if is_up else "None",
                 "poe_status": "off",
                 "poe_power": 0,
                 "description": f"SFP+ 10G Optical Uplink {s}",
