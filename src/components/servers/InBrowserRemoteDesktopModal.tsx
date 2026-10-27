@@ -168,6 +168,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const updateDisplayScaleRef = useRef<() => void>(() => {});
   const activeSessionKeyRef = useRef<string | null>(null);
   const isOpenRef = useRef<boolean>(isOpen);
+  const connectionStatusRef = useRef<RdpConnectionStage>('idle');
   const [idleRemainingSec, setIdleRemainingSec] = useState<number>(900); // 15 minutes = 900s
 
   const isRdp = protocol === 'rdp' || server?.os_type === 'windows';
@@ -192,6 +193,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   displayResolutionRef.current = displayResolution;
   customPasswordRef.current = customPassword;
   sessionPasswordRef.current = sessionPassword;
+  connectionStatusRef.current = connectionStatus;
 
   // Trigger temporary visibility for the fading floating circle
   const triggerFloatingActivity = useCallback(() => {
@@ -700,10 +702,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             clearTimeout(connectTimeoutRef.current);
             connectTimeoutRef.current = null;
           }
-          let wasConnected = false;
+          const wasConnected = connectionStatusRef.current === 'connected';
           setConnectionStatus((prev) => {
             if (prev === 'connected') {
-              wasConnected = true;
               return 'disconnected';
             }
             if (prev === 'connecting' || prev === 'requesting_token' || prev === 'negotiating_rdp') {

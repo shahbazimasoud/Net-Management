@@ -143,6 +143,9 @@ function extractNextGuacInstruction(buffer: string): { instruction: string; rema
     const lenStr = buffer.substring(pos, dot);
     const len = parseInt(lenStr, 10);
     if (isNaN(len) || len < 0) {
+      console.error(
+        `[RemoteDesktop] GuacParser invalid length prefix: "${lenStr}" at pos ${pos}. Buffer preview: "${buffer.slice(pos, pos + 60)}"`
+      );
       return null;
     }
     const valStart = dot + 1;
@@ -160,6 +163,9 @@ function extractNextGuacInstruction(buffer: string): { instruction: string; rema
     } else if (terminator === ',') {
       pos = valEnd + 1;
     } else {
+      console.error(
+        `[RemoteDesktop] GuacParser invalid terminator '${terminator}' (expected ',' or ';') at pos ${valEnd} for element '${val.slice(0, 30)}'. Buffer preview: "${buffer.slice(Math.max(0, valStart - 10), valEnd + 30)}"`
+      );
       return null;
     }
   }
@@ -1581,8 +1587,12 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       }
     });
 
-    guacdSocket.on('close', () => {
+    guacdSocket.on('close', (hadError: boolean) => {
       clearInterval(keepaliveInterval);
+      console.log(
+        `[RemoteDesktop] [CLOSE_EVENT_FIRED] guacdSocket 'close' fired for session ${config.id} ` +
+          `(hadError=${hadError}, handshakeState=${handshakeState}, clientWs.readyState=${clientWs.readyState})`
+      );
       const isEstablished = handshakeState === 'READY';
       if (isEstablished) {
         logSessionClosed('SERVER_CLOSED', 'Target remote server closed the connection');
@@ -1612,6 +1622,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       setTimeout(() => {
         try {
           if (clientWs.readyState === WebSocket.OPEN) {
+            console.log(`[RemoteDesktop] [GATEWAY_CLOSING_CLIENT] closing clientWs after guacdSocket close`);
             clientWs.close(1000);
           }
         } catch {}
@@ -1619,8 +1630,17 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       activeSessions.delete(config.id);
     });
 
-    clientWs.on('close', () => {
+    clientWs.on('error', (err: Error) => {
+      console.warn(`[RemoteDesktop] clientWs ERROR for session ${config.id}:`, err.message);
+    });
+
+    clientWs.on('close', (code: number, reason: Buffer) => {
       clearInterval(keepaliveInterval);
+      const reasonStr = reason ? reason.toString('utf-8') : '';
+      console.log(
+        `[RemoteDesktop] [CLOSE_EVENT_FIRED] clientWs 'close' fired for session ${config.id} ` +
+          `(code=${code}, reason="${reasonStr}", guacdSocket.writable=${guacdSocket.writable}, handshakeState=${handshakeState})`
+      );
       try {
         if (guacdSocket.writable) {
           guacdSocket.end();

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.381.2';
+export const APP_VERSION = '1.381.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.381.3',
+    releaseDate: '2026-10-27',
+    type: 'patch',
+    title: 'افزودن لاگ‌های تشخیصی مبدأ بسته‌شدن سوکت ریموت دسکتاپ و اصلاح سنجش همزمان وضعیت نشست فعال با Ref',
+    title_en: 'Add close origin diagnostic logs for remote desktop sockets and fix synchronous active session state check via Ref',
+    changes: [
+      'ثبت دقیق مبدأ رویدادهای بسته‌شدن و خطای سوکت‌های clientWs و guacdSocket در گیتوی با ثبت code و reason جهت شناسایی دقیق جهت قطعی ارتباط.',
+      'افزودن لاگ‌های خطا در تابع extractNextGuacInstruction در صورت مواجهه با طول نامعتبر یا جداکننده نامعتبر در بافر گوآکامولی.',
+      'اصلاح بررسی وضعیت نشست در InBrowserRemoteDesktopModal با پیاده‌سازی connectionStatusRef جهت ارزیابی همگام و دقیق وضعیت اتصال پیشین.'
+    ],
+    changes_en: [
+      'Added granular diagnostic logging for clientWs and guacdSocket close and error events capturing code, reason, and initiator origin.',
+      'Added parser diagnostic error logging in extractNextGuacInstruction for invalid length prefixes or unexpected terminators.',
+      'Implemented connectionStatusRef in InBrowserRemoteDesktopModal for synchronous and reliable active session state evaluation.'
+    ]
+  },
   {
     version: '1.381.2',
     releaseDate: '2026-10-27',
