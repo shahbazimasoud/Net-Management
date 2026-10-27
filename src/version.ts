@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.381.3';
+export const APP_VERSION = '1.381.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.381.4',
+    releaseDate: '2026-10-27',
+    type: 'patch',
+    title: 'بازگردانی چرخه حیات اتصال و هندلینگ وب‌سوکت ریموت دسکتاپ به نسخه پایدار ۱.۲۸۳.۲ با حفظ قابلیت‌های Vault و لاگ‌های Audit',
+    title_en: 'Restore remote desktop connection lifecycle and WebSocket handling to stable v1.283.2 while preserving Vault resolution and Audit logging',
+    changes: [
+      'بازگردانی کامل منطق کامپوننت InBrowserRemoteDesktopModal به پیاده‌سازی پایدار و اثبات‌شده نسخه 1.283.2 (کامیت 90b4dea) شامل مدیریت دقیق استیت‌ها، اتصال Guacamole Client، مانیتور تمام صفحه و استریم کلیپ‌بورد.',
+      'همگام‌سازی چرخه حیات اتصال WebSocket، بافر متنی گوآکامولی، رویدادهای بسته شدن سوکت و پارسر دستورات در server/remoteDesktopGateway.ts با نسخه 1.283.2.',
+      'حفظ کامل قابلیت‌های زیرساختی جدیدتر شامل استخراج امن رمز عبور از ولت (Vault password resolver) و ثبت سیستماتیک لاگ‌های Audit و ServerCommand.'
+    ],
+    changes_en: [
+      'Fully restored InBrowserRemoteDesktopModal connection lifecycle, state machine, full-screen monitor view, and clipboard stream handling to the proven stable implementation of v1.283.2 (commit 90b4dea).',
+      'Restored WebSocket lifecycle, raw Guacamole buffer processing, socket close event handlers, and instruction parser in server/remoteDesktopGateway.ts to match stable v1.283.2.',
+      'Preserved modern infrastructure capabilities including Vault password resolution and systematic Audit/ServerCommand session logging.'
+    ]
+  },
   {
     version: '1.381.3',
     releaseDate: '2026-10-27',

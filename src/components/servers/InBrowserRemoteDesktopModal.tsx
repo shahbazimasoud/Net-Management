@@ -168,7 +168,6 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const updateDisplayScaleRef = useRef<() => void>(() => {});
   const activeSessionKeyRef = useRef<string | null>(null);
   const isOpenRef = useRef<boolean>(isOpen);
-  const connectionStatusRef = useRef<RdpConnectionStage>('idle');
   const [idleRemainingSec, setIdleRemainingSec] = useState<number>(900); // 15 minutes = 900s
 
   const isRdp = protocol === 'rdp' || server?.os_type === 'windows';
@@ -193,7 +192,6 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   displayResolutionRef.current = displayResolution;
   customPasswordRef.current = customPassword;
   sessionPasswordRef.current = sessionPassword;
-  connectionStatusRef.current = connectionStatus;
 
   // Trigger temporary visibility for the fading floating circle
   const triggerFloatingActivity = useCallback(() => {
@@ -702,13 +700,12 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             clearTimeout(connectTimeoutRef.current);
             connectTimeoutRef.current = null;
           }
-          const wasConnected = connectionStatusRef.current === 'connected';
           setConnectionStatus((prev) => {
+            if (prev === 'connecting' || prev === 'requesting_token') {
+              return 'error';
+            }
             if (prev === 'connected') {
               return 'disconnected';
-            }
-            if (prev === 'connecting' || prev === 'requesting_token' || prev === 'negotiating_rdp') {
-              return 'error';
             }
             return prev;
           });
@@ -717,11 +714,6 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             const curIsEn = isEnRef.current;
             const curServer = serverRef.current;
             const curPort = defaultPortRef.current;
-            if (wasConnected) {
-              return curIsEn
-                ? `Remote desktop tunnel was closed during an active session with ${curServer?.name || curServer?.ip || 'server'}.`
-                : `ارتباط تونل ریموت دسکتاپ در حین نشست فعال با ${curServer?.name || curServer?.ip || 'سرور'} قطع شد.`;
-            }
             return curIsEn
               ? `Guacamole tunnel closed. Host ${curServer?.ip || ''}:${curPort} did not respond or rejected handshake.`
               : `تونل ارتباطی گوآکامولی بسته شد. هاست ${curServer?.ip || ''}:${curPort} پاسخ نداد یا اتصال را رد کرد.`;
@@ -1030,15 +1022,14 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
   // Establish session when modal opens for a server; preserve session across minimize, page switches, and overlapping modals
   useEffect(() => {
-    const targetServerId = server?.id;
-    if (!targetServerId) {
+    if (!server) {
       activeSessionKeyRef.current = null;
       cleanupConnection();
       return;
     }
 
     if (isOpen) {
-      const sessionKey = `${targetServerId}:${isRdp ? 'rdp' : 'vnc'}`;
+      const sessionKey = `${server.id}:${isRdp ? 'rdp' : 'vnc'}`;
       if (activeSessionKeyRef.current !== sessionKey) {
         activeSessionKeyRef.current = sessionKey;
         setActiveDurationSec(0);
@@ -1053,7 +1044,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         }, 50);
       }
     }
-  }, [isOpen, server?.id, isRdp]);
+  }, [isOpen, server?.id, isRdp, initiateConnection, cleanupConnection]);
 
   // Teardown connection ONLY when component truly unmounts
   useEffect(() => {
