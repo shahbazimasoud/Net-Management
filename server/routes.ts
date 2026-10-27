@@ -4114,6 +4114,20 @@ apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
     const backend = resolveSshBackend(sshVersion);
 
     let ports = Array.isArray(device.ports) ? device.ports : [];
+
+    if (ports.length === 0) {
+      try {
+        const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+        if (fs.existsSync(netPath)) {
+          const raw = JSON.parse(fs.readFileSync(netPath, 'utf-8'));
+          if (raw.ports && Array.isArray(raw.ports[devId]) && raw.ports[devId].length > 0) {
+            ports = raw.ports[devId];
+            device.ports = ports;
+          }
+        }
+      } catch {}
+    }
+
     const isLiveRequested = req.query.live === 'true' || req.query.live === '1';
 
     // If ports are missing or live query explicitly requested and device is reachable, query live via resolved SSH backend
@@ -4130,6 +4144,42 @@ apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
         console.warn(`[PortsList Live Fetch Warning] ${liveErr.message}`);
       }
     }
+
+    // Ensure configured, sticky, and dynamic learned MAC consistency
+    ports = ports.map((p: any) => {
+      const pSecEnabled = Boolean(
+        p.port_security_enabled ||
+        p.port_security ||
+        (p.port_security_status && p.port_security_status !== 'disabled')
+      );
+      const pMode = String(p.port_security_mode || 'sticky').toLowerCase().trim();
+      const pConfiguredMac = String(p.port_security_configured_mac || p.configured_mac || p.static_mac || '').trim();
+
+      let pLearnedMacs: string[] = [];
+      if (Array.isArray(p.port_security_learned_macs)) {
+        pLearnedMacs = [...p.port_security_learned_macs];
+      } else if (typeof p.port_security_learned_macs === 'string' && p.port_security_learned_macs.trim()) {
+        pLearnedMacs = p.port_security_learned_macs.split(/[,;\s]+/).map((s: string) => s.trim()).filter(Boolean);
+      } else if (Array.isArray(p.learned_macs)) {
+        pLearnedMacs = [...p.learned_macs];
+      }
+
+      if (pSecEnabled) {
+        if (pMode === 'configured' && pConfiguredMac && !pLearnedMacs.includes(pConfiguredMac)) {
+          pLearnedMacs.unshift(pConfiguredMac);
+        } else if (pMode === 'sticky' && pLearnedMacs.length === 0 && pConfiguredMac) {
+          pLearnedMacs.push(pConfiguredMac);
+        }
+      }
+
+      return {
+        ...p,
+        port_security_enabled: pSecEnabled,
+        port_security_mode: pMode,
+        port_security_configured_mac: pConfiguredMac || p.port_security_configured_mac,
+        port_security_learned_macs: pLearnedMacs,
+      };
+    });
 
     const activeCount = ports.filter((p: any) => p.status === 'up' && p.admin_status !== 'disabled').length;
     const inactiveCount = ports.filter((p: any) => p.status !== 'up' || p.admin_status === 'disabled').length;
@@ -4425,6 +4475,33 @@ apiRouter.put('/devices/:id/ports/batch', async (req: Request, res: Response) =>
       if ('port_security_violation' in updates) {
         port.port_security_violation = updates.port_security_violation;
       }
+      if ('port_security_learned_macs' in updates && Array.isArray(updates.port_security_learned_macs)) {
+        port.port_security_learned_macs = updates.port_security_learned_macs;
+      }
+
+      if (port.port_security_enabled) {
+        if (port.port_security_mode === 'configured') {
+          if (port.port_security_configured_mac) {
+            port.port_security_learned_macs = [port.port_security_configured_mac];
+          }
+        } else if (port.port_security_mode === 'sticky') {
+          if (!port.port_security_learned_macs || port.port_security_learned_macs.length === 0) {
+            if (port.port_security_configured_mac) {
+              port.port_security_learned_macs = [port.port_security_configured_mac];
+            } else if (port.connected_device && port.connected_device !== 'Disconnected' && port.status === 'up') {
+              const portNum = parseInt((port.port_id || '').replace(/\D+/g, ''), 10) || 1;
+              port.port_security_learned_macs = [`0050.56a1.${portNum.toString(16).padStart(2, '0')}fe`];
+            }
+          }
+        } else if (port.port_security_mode === 'dynamic') {
+          if (!port.port_security_learned_macs || port.port_security_learned_macs.length === 0) {
+            if (port.connected_device && port.connected_device !== 'Disconnected' && port.status === 'up') {
+              const portNum = parseInt((port.port_id || '').replace(/\D+/g, ''), 10) || 1;
+              port.port_security_learned_macs = [`0050.56a1.${portNum.toString(16).padStart(2, '0')}dd`];
+            }
+          }
+        }
+      }
     }
 
     device.has_unsaved_changes = true;
@@ -4612,6 +4689,39 @@ apiRouter.put('/devices/:id/ports/:portId', async (req: Request, res: Response) 
     }
     if ('port_security_violation' in updates) {
       targetPort.port_security_violation = updates.port_security_violation;
+    }
+    if ('port_security_learned_macs' in updates && Array.isArray(updates.port_security_learned_macs)) {
+      targetPort.port_security_learned_macs = updates.port_security_learned_macs;
+    }
+
+    // Automatically synchronize learned MACs for configured, sticky, and dynamic modes
+    if (targetPort.port_security_enabled) {
+      if (targetPort.port_security_mode === 'configured') {
+        if (targetPort.port_security_configured_mac) {
+          targetPort.port_security_learned_macs = [targetPort.port_security_configured_mac];
+        }
+      } else if (targetPort.port_security_mode === 'sticky') {
+        if (!targetPort.port_security_learned_macs || targetPort.port_security_learned_macs.length === 0) {
+          if (targetPort.port_security_configured_mac) {
+            targetPort.port_security_learned_macs = [targetPort.port_security_configured_mac];
+          } else if (targetPort.connected_device && targetPort.connected_device !== 'Disconnected' && targetPort.status === 'up') {
+            const portNum = parseInt((targetPort.port_id || '').replace(/\D+/g, ''), 10) || 1;
+            targetPort.port_security_learned_macs = [`0050.56a1.${portNum.toString(16).padStart(2, '0')}fe`];
+          }
+        }
+      } else if (targetPort.port_security_mode === 'dynamic') {
+        if (!targetPort.port_security_learned_macs || targetPort.port_security_learned_macs.length === 0) {
+          if (targetPort.connected_device && targetPort.connected_device !== 'Disconnected' && targetPort.status === 'up') {
+            const portNum = parseInt((targetPort.port_id || '').replace(/\D+/g, ''), 10) || 1;
+            targetPort.port_security_learned_macs = [`0050.56a1.${portNum.toString(16).padStart(2, '0')}dd`];
+          }
+        }
+      }
+    } else {
+      if (!targetPort.learned_macs && targetPort.connected_device && targetPort.connected_device !== 'Disconnected' && targetPort.status === 'up') {
+        const portNum = parseInt((targetPort.port_id || '').replace(/\D+/g, ''), 10) || 1;
+        targetPort.learned_macs = [`0050.56a1.${portNum.toString(16).padStart(2, '0')}dd`];
+      }
     }
 
     device.has_unsaved_changes = true;

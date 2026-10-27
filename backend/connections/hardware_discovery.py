@@ -359,7 +359,91 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
                 "speed": "1Gbps" if "Gi" in short_name else "100Mbps",
                 "type": "10/100/1000BaseTX"
             })
-            
+
+    # Helper function to find matching port entry by flexible interface naming
+    def find_matching_port(iface_raw: str):
+        if not iface_raw:
+            return None
+        i_clean = iface_raw.strip().lower()
+        i_canon = i_clean.replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("ethernet", "eth")
+        for p in ports:
+            p_raw = str(p.get("port_id") or p.get("port") or p.get("name") or "").strip().lower()
+            p_canon = p_raw.replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("ethernet", "eth")
+            if p_canon == i_canon or p_raw == i_clean:
+                return p
+        return None
+
+    # Parse Cisco 'show port-security address'
+    # Format:
+    # Vlan   Mac Address       Type                    Ports   Remaining Age
+    # ----   -----------       ----                    -----   -------------
+    #   10   0050.56a1.03fe    SecureSticky            Gi1/0/3      -
+    #   20   0050.56a1.0501    SecureConfigured        Gi1/0/4      -
+    #   30   0050.56a1.07fe    SecureDynamic           Gi1/0/5      -
+    for line in lines:
+        l = line.strip()
+        m_sec = re.match(
+            r'^\s*(\d+)\s+([0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}|[0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2})\s+(SecureSticky|SecureConfigured|SecureDynamic)\s+(\S+)',
+            l,
+            re.IGNORECASE
+        )
+        if m_sec:
+            sec_vlan = int(m_sec.group(1))
+            sec_mac = m_sec.group(2).strip()
+            sec_type = m_sec.group(3).lower()
+            sec_iface = m_sec.group(4).strip()
+            matched_port = find_matching_port(sec_iface)
+            if matched_port is not None:
+                matched_port["port_security_enabled"] = True
+                if not isinstance(matched_port.get("port_security_learned_macs"), list):
+                    matched_port["port_security_learned_macs"] = []
+                if sec_mac not in matched_port["port_security_learned_macs"]:
+                    matched_port["port_security_learned_macs"].append(sec_mac)
+
+                if "sticky" in sec_type:
+                    matched_port["port_security_mode"] = "sticky"
+                    if not matched_port.get("port_security_status"):
+                        matched_port["port_security_status"] = "secure-up" if matched_port.get("status") == "up" else "secure-down"
+                elif "configured" in sec_type:
+                    matched_port["port_security_mode"] = "configured"
+                    matched_port["port_security_configured_mac"] = sec_mac
+                    if not matched_port.get("port_security_status"):
+                        matched_port["port_security_status"] = "secure-up" if matched_port.get("status") == "up" else "secure-down"
+                elif "dynamic" in sec_type:
+                    matched_port["port_security_mode"] = "dynamic"
+                    if not matched_port.get("port_security_status"):
+                        matched_port["port_security_status"] = "secure-up" if matched_port.get("status") == "up" else "secure-down"
+
+    # Parse Cisco 'show mac address-table' or 'show mac-address-table'
+    # Format:
+    # Vlan    Mac Address       Type        Ports
+    # ----    -----------       --------    -----
+    #    1    0050.56a1.01fe    DYNAMIC     Gi1/0/1
+    #   10    0050.56a1.03fe    STATIC      Gi1/0/3
+    for line in lines:
+        l = line.strip()
+        m_cam = re.match(
+            r'^\s*(?:\*\s*)?(\d+)\s+([0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}|[0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2})\s+(DYNAMIC|STATIC)\s+(?:.*?)\s*([A-Za-z0-9\/\.\-]+)\s*$',
+            l,
+            re.IGNORECASE
+        )
+        if m_cam:
+            cam_mac = m_cam.group(2).strip()
+            cam_type = m_cam.group(3).lower()
+            cam_iface = m_cam.group(4).strip()
+            matched_port = find_matching_port(cam_iface)
+            if matched_port is not None:
+                if not isinstance(matched_port.get("learned_macs"), list):
+                    matched_port["learned_macs"] = []
+                if cam_mac not in matched_port["learned_macs"]:
+                    matched_port["learned_macs"].append(cam_mac)
+                if not isinstance(matched_port.get("port_security_learned_macs"), list):
+                    matched_port["port_security_learned_macs"] = []
+                if cam_mac not in matched_port["port_security_learned_macs"]:
+                    matched_port["port_security_learned_macs"].append(cam_mac)
+                if cam_type == "static" and not matched_port.get("port_security_configured_mac"):
+                    matched_port["port_security_configured_mac"] = cam_mac
+
     return ports
 
 

@@ -353,6 +353,9 @@ function loadInitialDevices(): any[] {
       if (Array.isArray(parsed.devices) && parsed.devices.length > 0) {
         return parsed.devices.map((d: any) => ({
           ...d,
+          ports: Array.isArray(d.ports) && d.ports.length > 0
+            ? d.ports
+            : (parsed.ports && Array.isArray(parsed.ports[d.id]) ? parsed.ports[d.id] : []),
           building: (d.building && !d.building.includes('ساختمان مرکزی') && !d.building.includes('Central Bldg') && !d.building.includes('ساختمان مهندسی') && !d.building.includes('Engineering Bldg') && !d.building.includes('ساختمان اداری')) ? d.building : '',
           floor: (d.floor && !d.floor.includes('Floor') && !d.floor.includes('طبقه')) ? d.floor : '',
           unit: (d.unit && !d.unit.includes('اتاق سرور') && !d.unit.includes('Server Room') && !d.unit.includes('IDF')) ? d.unit : '',
@@ -4707,6 +4710,18 @@ export async function getAllDevices(): Promise<any[]> {
   if (Array.isArray(store.devices) && store.devices.length > 0) {
     return store.devices.map((d: any) => ({
       ...d,
+      ports: Array.isArray(d.ports) && d.ports.length > 0
+        ? d.ports
+        : (() => {
+            try {
+              const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+              if (fs.existsSync(netPath)) {
+                const raw = JSON.parse(fs.readFileSync(netPath, 'utf-8'));
+                if (raw.ports && Array.isArray(raw.ports[d.id])) return raw.ports[d.id];
+              }
+            } catch {}
+            return [];
+          })(),
       ssh_password: d.ssh_password || (d.connection && d.connection.password) || '',
       ssh_password_set: Boolean(
         (d.ssh_password && String(d.ssh_password).trim().length > 0) ||

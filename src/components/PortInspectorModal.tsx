@@ -87,14 +87,58 @@ export function extractPortSecurityState(port: SwitchPort | any | null | undefin
     port.configured_mac ||
     port.static_mac ||
     port.port_security_mac ||
+    port.configuredMac ||
+    port.staticMac ||
     ''
   ).trim();
 
-  const learnedMacs: string[] = Array.isArray(port.port_security_learned_macs)
-    ? port.port_security_learned_macs
-    : Array.isArray(port.learned_macs)
-    ? port.learned_macs
-    : [];
+  const learnedMacsSet = new Set<string>();
+  const addLearned = (item: any) => {
+    if (!item) return;
+    if (Array.isArray(item)) {
+      item.forEach(addLearned);
+      return;
+    }
+    if (typeof item === 'object') {
+      const val = item.mac || item.mac_address || item.address;
+      if (val) addLearned(val);
+      return;
+    }
+    if (typeof item === 'string') {
+      item.split(/[,;\r\n]+/).forEach((s) => {
+        const c = s.trim();
+        if (c && c !== '-' && c.toLowerCase() !== 'none') learnedMacsSet.add(c);
+      });
+    }
+  };
+
+  addLearned(port.port_security_learned_macs);
+  addLearned(port.learned_macs);
+  addLearned(port.learnedMacs);
+  addLearned(port.learned_mac);
+  addLearned(port.learnedMac);
+  addLearned(port.sticky_macs);
+  addLearned(port.sticky_mac);
+  addLearned(port.dynamic_macs);
+  addLearned(port.dynamic_mac);
+  addLearned(port.port_security_sticky_mac);
+  addLearned(port.port_security_sticky_macs);
+  addLearned(port.port_security_dynamic_mac);
+  addLearned(port.port_security_dynamic_macs);
+  addLearned(port.cam_macs);
+  addLearned(port.cam_mac);
+
+  // In configured mode, configuredMac is the authoritative MAC
+  if (mode === 'configured' && configuredMac && learnedMacsSet.size === 0) {
+    learnedMacsSet.add(configuredMac);
+  }
+
+  // In sticky mode, if configuredMac is present in running-config, it represents the sticky learned MAC
+  if (mode === 'sticky' && configuredMac && learnedMacsSet.size === 0) {
+    learnedMacsSet.add(configuredMac);
+  }
+
+  const learnedMacs = Array.from(learnedMacsSet);
 
   return {
     enabled: isEnabled,
@@ -118,12 +162,12 @@ export function generateSamplePortSecurityMac(): string {
 
 export interface PortMacEntry {
   mac: string;
-  type: 'learned' | 'configured' | 'hardware';
+  type: 'configured' | 'sticky' | 'dynamic' | 'learned' | 'hardware';
 }
 
 /**
  * Extracts and consolidates all authentic MAC addresses associated with a switch port,
- * including dynamically learned MACs (via CAM or port security), configured static MACs,
+ * including configured static MACs, sticky learned MACs, dynamic CAM learned MACs,
  * and port hardware MACs.
  */
 export function getPortMacAddresses(port: SwitchPort | any): PortMacEntry[] {
@@ -131,37 +175,98 @@ export function getPortMacAddresses(port: SwitchPort | any): PortMacEntry[] {
   const result: PortMacEntry[] = [];
   const seen = new Set<string>();
 
-  const add = (rawMac: any, type: 'learned' | 'configured' | 'hardware') => {
-    if (!rawMac || typeof rawMac !== 'string') return;
-    const clean = rawMac.trim();
-    if (!clean || clean === '-' || clean.toLowerCase() === 'none' || seen.has(clean.toLowerCase())) return;
-    seen.add(clean.toLowerCase());
-    result.push({ mac: clean, type });
+  const add = (rawMac: any, type: 'configured' | 'sticky' | 'dynamic' | 'learned' | 'hardware') => {
+    if (!rawMac) return;
+    if (Array.isArray(rawMac)) {
+      rawMac.forEach((m) => add(m, type));
+      return;
+    }
+    if (typeof rawMac === 'object') {
+      const mVal = rawMac.mac || rawMac.mac_address || rawMac.address || rawMac.macAddress;
+      const mType = rawMac.type || rawMac.mode || type;
+      if (mVal) add(mVal, mType);
+      return;
+    }
+    if (typeof rawMac !== 'string') return;
+    const items = rawMac.split(/[,;\r\n]+/);
+    for (const item of items) {
+      const clean = item.trim();
+      if (!clean || clean === '-' || clean.toLowerCase() === 'none' || seen.has(clean.toLowerCase())) continue;
+      seen.add(clean.toLowerCase());
+      result.push({ mac: clean, type });
+    }
   };
 
-  // 1. Learned MAC addresses on this port (dynamic CAM / port security learned)
-  if (Array.isArray(port.port_security_learned_macs)) {
-    port.port_security_learned_macs.forEach((m: any) => add(m, 'learned'));
-  }
-  if (Array.isArray(port.learned_macs)) {
-    port.learned_macs.forEach((m: any) => add(m, 'learned'));
-  }
-  if (Array.isArray(port.learnedMacs)) {
-    port.learnedMacs.forEach((m: any) => add(m, 'learned'));
-  }
-  if (Array.isArray(port.mac_addresses)) {
-    port.mac_addresses.forEach((m: any) => add(m, 'learned'));
-  }
-  if (Array.isArray(port.macs)) {
-    port.macs.forEach((m: any) => add(m, 'learned'));
+  const sec = extractPortSecurityState(port);
+
+  // 1. If Port Security is in Configured Mode:
+  if (sec.mode === 'configured') {
+    add(sec.configuredMac, 'configured');
+    add(port.port_security_configured_mac, 'configured');
+    add(port.configured_mac, 'configured');
+    add(port.configuredMac, 'configured');
+    add(port.static_mac, 'configured');
+    add(port.port_security_mac, 'configured');
+    if (Array.isArray(port.port_security_learned_macs)) {
+      port.port_security_learned_macs.forEach((m: any) => add(m, 'configured'));
+    }
   }
 
-  // 2. Configured / static MAC on this port
+  // 2. If Port Security is in Sticky Mode:
+  if (sec.mode === 'sticky') {
+    add(port.port_security_sticky_mac, 'sticky');
+    add(port.port_security_sticky_macs, 'sticky');
+    add(port.sticky_mac, 'sticky');
+    add(port.sticky_macs, 'sticky');
+    add(port.stickyMac, 'sticky');
+    add(port.stickyMacs, 'sticky');
+    add(port.port_security_learned_macs, 'sticky');
+    add(sec.learnedMacs, 'sticky');
+    // In Cisco IOS running-config, learned sticky MACs are written as sticky configured MACs
+    add(port.port_security_configured_mac, 'sticky');
+    add(sec.configuredMac, 'sticky');
+  }
+
+  // 3. If Port Security is in Dynamic Mode:
+  if (sec.mode === 'dynamic') {
+    add(port.port_security_dynamic_mac, 'dynamic');
+    add(port.port_security_dynamic_macs, 'dynamic');
+    add(port.dynamic_mac, 'dynamic');
+    add(port.dynamic_macs, 'dynamic');
+    add(port.dynamic_learned_macs, 'dynamic');
+    add(port.port_security_learned_macs, 'dynamic');
+    add(sec.learnedMacs, 'dynamic');
+  }
+
+  // 4. Any learned MAC addresses from CAM forwarding table (show mac address-table)
+  const defaultLearnedType: 'sticky' | 'dynamic' = sec.mode === 'sticky' ? 'sticky' : 'dynamic';
+  add(port.port_security_learned_macs, defaultLearnedType);
+  add(port.learned_macs, defaultLearnedType);
+  add(port.learnedMacs, defaultLearnedType);
+  add(port.learned_mac, defaultLearnedType);
+  add(port.learnedMac, defaultLearnedType);
+  add(port.cam_macs, 'dynamic');
+  add(port.cam_mac, 'dynamic');
+  add(port.cam_table, 'dynamic');
+  add(port.mac_addresses, 'learned');
+  add(port.macs, 'learned');
+
+  // 5. Fallback for configured MACs if not yet added
+  add(sec.configuredMac, 'configured');
   add(port.port_security_configured_mac, 'configured');
   add(port.configured_mac, 'configured');
   add(port.static_mac, 'configured');
+  add(port.port_security_mac, 'configured');
 
-  // 3. Port hardware MAC address (if available)
+  // 6. Connected Device MAC (if active host / client connected)
+  if (port.status === 'up' || port.status === 'connected') {
+    add(port.connected_mac, defaultLearnedType);
+    add(port.host_mac, defaultLearnedType);
+    add(port.client_mac, defaultLearnedType);
+    add(port.device_mac, defaultLearnedType);
+  }
+
+  // 7. Port hardware MAC address (if available)
   add(port.mac_address, 'hardware');
   add(port.mac, 'hardware');
 
@@ -746,6 +851,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           port_security_max_mac: sec.maxMac,
           port_security_violation: sec.violation,
           port_security_configured_mac: sec.configuredMac,
+          port_security_learned_macs: sec.learnedMacs,
           port_security_status: sec.statusText,
         };
       });
@@ -2917,19 +3023,64 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                             const firstEntry = macList[0];
                             const hasMultiple = macList.length > 1;
 
+                            const getBadgeInfo = (entry: PortMacEntry) => {
+                              switch (entry.type) {
+                                case 'sticky':
+                                  return {
+                                    badgeClass: 'text-emerald-300 bg-emerald-950/70 border-emerald-700/60',
+                                    tagClass: 'bg-emerald-500/25 text-emerald-300 border-emerald-500/40',
+                                    tag: isEn ? 'Sticky' : 'استیکی',
+                                    title: isEn
+                                      ? 'Port Security: Sticky learned MAC address dynamically stored in running-config'
+                                      : 'امنیت پورت: مک آدرس استیکی فراگرفته‌شده و ذخیره‌شده در تنظیمات',
+                                  };
+                                case 'configured':
+                                  return {
+                                    badgeClass: 'text-indigo-300 bg-indigo-950/70 border-indigo-700/60',
+                                    tagClass: 'bg-indigo-500/25 text-indigo-300 border-indigo-500/40',
+                                    tag: isEn ? 'Static' : 'تنظیم‌شده',
+                                    title: isEn
+                                      ? 'Port Security: Manually configured static MAC address'
+                                      : 'امنیت پورت: مک آدرس دستی و استاتیک تنظیم‌شده',
+                                  };
+                                case 'dynamic':
+                                  return {
+                                    badgeClass: 'text-cyan-300 bg-cyan-950/70 border-cyan-700/60',
+                                    tagClass: 'bg-cyan-500/25 text-cyan-300 border-cyan-500/40',
+                                    tag: isEn ? 'Dynamic' : 'داینامیک',
+                                    title: isEn
+                                      ? 'CAM Table: Dynamically learned MAC address from incoming packet traffic'
+                                      : 'جدول مک (CAM): مک آدرس داینامیک فراگرفته‌شده از بسته‌های ارسالی کلاینت',
+                                  };
+                                case 'hardware':
+                                  return {
+                                    badgeClass: 'text-slate-300 bg-slate-900/70 border-slate-700/60',
+                                    tagClass: 'bg-slate-700/30 text-slate-300 border-slate-600/40',
+                                    tag: isEn ? 'HW' : 'سخت‌افزار',
+                                    title: isEn ? 'Port Hardware MAC address' : 'مک آدرس سخت‌افزاری پورت',
+                                  };
+                                default:
+                                  return {
+                                    badgeClass: 'text-cyan-300 bg-cyan-950/70 border-cyan-700/60',
+                                    tagClass: 'bg-cyan-500/25 text-cyan-300 border-cyan-500/40',
+                                    tag: isEn ? 'Learned' : 'فراگرفته',
+                                    title: isEn ? 'Learned MAC address' : 'مک آدرس فراگرفته‌شده پورت',
+                                  };
+                              }
+                            };
+
+                            const badgeInfo = getBadgeInfo(firstEntry);
+
                             return (
                               <div className="flex items-center gap-1.5 flex-wrap" dir="ltr">
                                 <span
-                                  className="font-mono text-[11px] text-cyan-300 bg-cyan-950/60 border border-cyan-800/50 px-2 py-0.5 rounded tracking-wide select-all"
-                                  title={
-                                    firstEntry.type === 'learned'
-                                      ? (isEn ? 'Dynamically / Sticky Learned MAC' : 'مک آدرس فراگرفته‌شده (Learned)')
-                                      : firstEntry.type === 'configured'
-                                      ? (isEn ? 'Configured Static MAC' : 'مک آدرس تنظیم‌شده دستی')
-                                      : (isEn ? 'Port Hardware MAC' : 'مک آدرس سخت‌افزاری پورت')
-                                  }
+                                  className={`inline-flex items-center gap-1 font-mono text-[11px] border px-2 py-0.5 rounded tracking-wide select-all ${badgeInfo.badgeClass}`}
+                                  title={badgeInfo.title}
                                 >
-                                  {firstEntry.mac}
+                                  <span className={`text-[9px] font-sans font-semibold uppercase px-1 py-0.2 rounded border ${badgeInfo.tagClass}`}>
+                                    {badgeInfo.tag}
+                                  </span>
+                                  <span>{firstEntry.mac}</span>
                                 </span>
                                 <button
                                   type="button"
@@ -2949,13 +3100,17 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                                     title={macList
                                       .map(
                                         (m, idx) =>
-                                          `${idx + 1}. ${m.mac} (${
-                                            m.type === 'learned'
-                                              ? (isEn ? 'Learned' : 'فراگرفته')
+                                          `${idx + 1}. ${m.mac} [${
+                                            m.type === 'sticky'
+                                              ? (isEn ? 'Sticky' : 'استیکی')
                                               : m.type === 'configured'
-                                              ? (isEn ? 'Configured' : 'تنظیم‌شده')
-                                              : (isEn ? 'Hardware' : 'سخت‌افزار')
-                                          })`
+                                              ? (isEn ? 'Configured Static' : 'دستی/استاتیک')
+                                              : m.type === 'dynamic'
+                                              ? (isEn ? 'Dynamic CAM' : 'داینامیک')
+                                              : m.type === 'hardware'
+                                              ? (isEn ? 'Hardware' : 'سخت‌افزار')
+                                              : (isEn ? 'Learned' : 'فراگرفته')
+                                          }]`
                                       )
                                       .join('\n')}
                                   >

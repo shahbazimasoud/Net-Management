@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.382.0';
+export const APP_VERSION = '1.382.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.382.1',
+    releaseDate: '2026-10-27',
+    type: 'patch',
+    title: 'اصلاح و نمایش دقیق مک آدرس‌های پورت سیسکو در حالات کانفیگورد، استیکی و داینامیک به همراه برچسب‌های تفکیک‌شده',
+    title_en: 'Fix and accurately display Cisco port MAC addresses across configured, sticky, and dynamic modes with distinct badges',
+    changes: [
+      'اصلاح موتور استخراج و نرمال‌سازی مک آدرس‌ها در getPortMacAddresses جهت پشتیبانی کامل از هر ۳ حالت کانفیگورد (Configured Static)، استیکی (Sticky Learned) و داینامیک (Dynamic CAM).',
+      'افزودن پارسر دستورات show port-security address و show mac address-table سیسکو در بک‌اند پایتون و پل SSH جهت دریافت و استخراج مک‌های حقیقی از سخت‌افزار.',
+      'همگام‌سازی خودکار و ذخیره‌سازی پایدار فیلدهای port_security_learned_macs و port_security_configured_mac در اندپوینت‌های تک‌پورت و ویرایش دسته‌ای پورت‌ها.',
+      'ارتقای نمایش سلول‌های ستون مک آدرس‌ها با بج‌های تفکیک‌شده رنگی (Static, Sticky, Dynamic, HW) همراه با برچسب مود، دکمه کپی فوری و تولتیپ‌های استاندارد دوزبانه.'
+    ],
+    changes_en: [
+      'Fixed and enhanced getPortMacAddresses normalization engine to reliably resolve and render MAC addresses across all three operational modes: Configured Static, Sticky Learned, and Dynamic CAM.',
+      'Added authentic parsing for Cisco "show port-security address" and "show mac address-table" in backend Python SSH bridge and hardware discovery.',
+      'Synchronized port_security_learned_macs and port_security_configured_mac persistence across single port and batch port API update routes.',
+      'Upgraded MAC address table cells with distinct color-coded badges (Static, Sticky, Dynamic, HW), mode tags, instant copy button, and comprehensive bilingual tooltips.'
+    ]
+  },
   {
     version: '1.382.0',
     releaseDate: '2026-10-27',

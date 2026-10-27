@@ -175,6 +175,8 @@ def handle_ports_sync(args):
             "terminal length 0",
             "show ip interface brief",
             "show interfaces status",
+            "show port-security address",
+            "show mac address-table",
         ] if is_cisco else [
             "/interface print detail without-paging",
         ]
