@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Minus, Maximize2, Minimize2, Cable, Zap, Shield, ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Edit3, Save, Power, Terminal, AlertTriangle, ArrowRight, Check, Lock, Key, Layers, CheckSquare, Square, FileText, Gauge, Activity, MoreVertical, RefreshCw, Radio } from 'lucide-react';
+import { X, Minus, Maximize2, Minimize2, Cable, Zap, Shield, ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Edit3, Save, Power, Terminal, AlertTriangle, ArrowRight, Check, Copy, Lock, Key, Layers, CheckSquare, Square, FileText, Gauge, Activity, MoreVertical, RefreshCw, Radio } from 'lucide-react';
 import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
 import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, writeMemory, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
 import { NetworkSocketLoader } from './common/NetworkSocketLoader';
@@ -116,6 +116,58 @@ export function generateSamplePortSecurityMac(): string {
   return `0000.0000.0${randHex}`;
 }
 
+export interface PortMacEntry {
+  mac: string;
+  type: 'learned' | 'configured' | 'hardware';
+}
+
+/**
+ * Extracts and consolidates all authentic MAC addresses associated with a switch port,
+ * including dynamically learned MACs (via CAM or port security), configured static MACs,
+ * and port hardware MACs.
+ */
+export function getPortMacAddresses(port: SwitchPort | any): PortMacEntry[] {
+  if (!port) return [];
+  const result: PortMacEntry[] = [];
+  const seen = new Set<string>();
+
+  const add = (rawMac: any, type: 'learned' | 'configured' | 'hardware') => {
+    if (!rawMac || typeof rawMac !== 'string') return;
+    const clean = rawMac.trim();
+    if (!clean || clean === '-' || clean.toLowerCase() === 'none' || seen.has(clean.toLowerCase())) return;
+    seen.add(clean.toLowerCase());
+    result.push({ mac: clean, type });
+  };
+
+  // 1. Learned MAC addresses on this port (dynamic CAM / port security learned)
+  if (Array.isArray(port.port_security_learned_macs)) {
+    port.port_security_learned_macs.forEach((m: any) => add(m, 'learned'));
+  }
+  if (Array.isArray(port.learned_macs)) {
+    port.learned_macs.forEach((m: any) => add(m, 'learned'));
+  }
+  if (Array.isArray(port.learnedMacs)) {
+    port.learnedMacs.forEach((m: any) => add(m, 'learned'));
+  }
+  if (Array.isArray(port.mac_addresses)) {
+    port.mac_addresses.forEach((m: any) => add(m, 'learned'));
+  }
+  if (Array.isArray(port.macs)) {
+    port.macs.forEach((m: any) => add(m, 'learned'));
+  }
+
+  // 2. Configured / static MAC on this port
+  add(port.port_security_configured_mac, 'configured');
+  add(port.configured_mac, 'configured');
+  add(port.static_mac, 'configured');
+
+  // 3. Port hardware MAC address (if available)
+  add(port.mac_address, 'hardware');
+  add(port.mac, 'hardware');
+
+  return result;
+}
+
 interface PortInspectorModalProps {
   device: Device | null;
   isOpen: boolean;
@@ -162,6 +214,17 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   const [filterMode, setFilterMode] = useState<'all' | 'up' | 'down' | 'trunk' | 'access' | 'port-sec'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isMaximized, setIsMaximized] = useState(false);
+  const [copiedMac, setCopiedMac] = useState<string | null>(null);
+
+  const handleCopyMac = (mac: string) => {
+    try {
+      navigator.clipboard.writeText(mac);
+      setCopiedMac(mac);
+      setTimeout(() => {
+        setCopiedMac((prev) => (prev === mac ? null : prev));
+      }, 1800);
+    } catch {}
+  };
 
   // Right-click Cisco Context Menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -1409,13 +1472,15 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     if (filterMode === 'port-sec' && !pSec.enabled) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
+      const portMacs = getPortMacAddresses(p);
       return (
         p.port_id.toLowerCase().includes(q) ||
         p.connected_device.toLowerCase().includes(q) ||
         String(p.vlan).includes(q) ||
         p.mode.toLowerCase().includes(q) ||
         pSec.mode.toLowerCase().includes(q) ||
-        pSec.configuredMac.toLowerCase().includes(q)
+        pSec.configuredMac.toLowerCase().includes(q) ||
+        portMacs.some((entry) => entry.mac.toLowerCase().includes(q))
       );
     }
     return true;
@@ -2699,7 +2764,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
               <div className="flex items-center flex-wrap gap-2 text-xs">
                 <input
                   type="text"
-                  placeholder={isEn ? 'Search port, VLAN, device, sec...' : 'جستجوی پورت، ویلن، تجهیز یا سکیوریتی...'}
+                  placeholder={isEn ? 'Search port, MAC, VLAN, device...' : 'جستجوی پورت، مک، ویلن، تجهیز...'}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/15 text-white placeholder-slate-400 text-xs focus:outline-none focus:border-indigo-400 w-48 font-mono"
@@ -2792,6 +2857,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                       />
                     </th>
                     <th className="px-3 py-2.5">{isEn ? 'Port Name' : 'نام پورت'}</th>
+                    <th className="px-3 py-2.5">{isEn ? 'MAC Addresses' : 'مک آدرس‌ها'}</th>
                     <th className="px-3 py-2.5">{isEn ? 'Status' : 'وضعیت پورت'}</th>
                     <th className="px-3 py-2.5">{isEn ? 'Mode' : 'نوع (Mode)'}</th>
                     <th className="px-3 py-2.5">{isEn ? 'VLAN' : 'ویلن (VLAN)'}</th>
@@ -2834,6 +2900,72 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                           />
                         </td>
                         <td className="px-3 py-2.5 font-bold text-white">{port.port_id}</td>
+                        <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                          {(() => {
+                            const macList = getPortMacAddresses(port);
+                            if (macList.length === 0) {
+                              return (
+                                <span
+                                  className="text-slate-500 text-[11px] font-mono select-none"
+                                  title={isEn ? 'No MAC address learned or configured on this port' : 'هیچ مک آدرسی برای این پورت ثبت یا فراگرفته نشده است'}
+                                >
+                                  -
+                                </span>
+                              );
+                            }
+
+                            const firstEntry = macList[0];
+                            const hasMultiple = macList.length > 1;
+
+                            return (
+                              <div className="flex items-center gap-1.5 flex-wrap" dir="ltr">
+                                <span
+                                  className="font-mono text-[11px] text-cyan-300 bg-cyan-950/60 border border-cyan-800/50 px-2 py-0.5 rounded tracking-wide select-all"
+                                  title={
+                                    firstEntry.type === 'learned'
+                                      ? (isEn ? 'Dynamically / Sticky Learned MAC' : 'مک آدرس فراگرفته‌شده (Learned)')
+                                      : firstEntry.type === 'configured'
+                                      ? (isEn ? 'Configured Static MAC' : 'مک آدرس تنظیم‌شده دستی')
+                                      : (isEn ? 'Port Hardware MAC' : 'مک آدرس سخت‌افزاری پورت')
+                                  }
+                                >
+                                  {firstEntry.mac}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyMac(firstEntry.mac)}
+                                  className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-200 transition cursor-pointer"
+                                  title={copiedMac === firstEntry.mac ? (isEn ? 'Copied!' : 'کپی شد!') : (isEn ? 'Copy MAC' : 'کپی مک آدرس')}
+                                >
+                                  {copiedMac === firstEntry.mac ? (
+                                    <Check className="w-3 h-3 text-emerald-400" />
+                                  ) : (
+                                    <Copy className="w-3 h-3" />
+                                  )}
+                                </button>
+                                {hasMultiple && (
+                                  <span
+                                    className="text-[10px] font-sans font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded cursor-help"
+                                    title={macList
+                                      .map(
+                                        (m, idx) =>
+                                          `${idx + 1}. ${m.mac} (${
+                                            m.type === 'learned'
+                                              ? (isEn ? 'Learned' : 'فراگرفته')
+                                              : m.type === 'configured'
+                                              ? (isEn ? 'Configured' : 'تنظیم‌شده')
+                                              : (isEn ? 'Hardware' : 'سخت‌افزار')
+                                          })`
+                                      )
+                                      .join('\n')}
+                                  >
+                                    +{macList.length - 1} {isEn ? 'more' : 'دیگر'}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </td>
                         <td className="px-3 py-2.5">
                           <span
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-sans font-medium border ${

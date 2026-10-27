@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.381.4';
+export const APP_VERSION = '1.382.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.382.0',
+    releaseDate: '2026-10-27',
+    type: 'minor',
+    title: 'افزودن ستون اختصاصی مک آدرس‌ها به جدول پورت‌های سوئیچ با قابلیت نمایش مک‌های فراگرفته‌شده و کپی سریع',
+    title_en: 'Add dedicated MAC Addresses column to All Switch Ports table with learned MAC display and quick copy',
+    changes: [
+      'افزودن ستون «مک آدرس‌ها» در جدول لیست تمامی پورت‌های سوئیچ (All Switch Ports) بین نام پورت (Port Name) و وضعیت (Status).',
+      'نمایش مک آدرس‌های فراگرفته‌شده پویا (Learned / Sticky MACs)، مک آدرس‌های استاتیک پیکربندی‌شده و مک سخت‌افزاری پورت در قالب بج مونواسپیس مجهز به دکمه کپی فوری.',
+      'پشتیبانی از پورت‌های دارای چند مک آدرس (مانند پورت‌های ترانک و چندهاست) با نمایش نشانگر تعداد مک‌های اضافی و تولتیپ کامل فهرست آن‌ها.',
+      'افزودن قابلیت جستجو و فیلتر پورت‌ها بر اساس مک آدرس در نوار جستجوی جدول.'
+    ],
+    changes_en: [
+      'Added a dedicated "MAC Addresses" column in the "All Switch Ports" table positioned between "Port Name" and "Status".',
+      'Display dynamically learned MACs (Learned / Sticky CAM entries), configured static MACs, and hardware MACs in clean monospace badges with instant clipboard copy.',
+      'Support multi-MAC ports (trunk uplinks and multi-host access ports) with count badges and detailed list tooltips.',
+      'Integrated real-time MAC address filtering into the table search input.'
+    ]
+  },
   {
     version: '1.381.4',
     releaseDate: '2026-10-27',
