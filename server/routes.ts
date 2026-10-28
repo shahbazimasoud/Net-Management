@@ -5233,7 +5233,16 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
   const isPortMode = ['mode_trunk', 'mode_access'].includes(op);
   const isPortVlan = ['set_vlan', 'change_vlan', 'assign_vlan'].includes(op);
   const isPortDesc = ['set_description', 'description'].includes(op);
-  const isPortSecurity = ['port_sec_enable', 'port_sec_disable', 'enable_port_security', 'disable_port_security'].includes(op);
+  const isPortSecurity = [
+    'port_sec_enable',
+    'port_sec_disable',
+    'enable_port_security',
+    'disable_port_security',
+    'port_sec_clear_mac',
+    'port_sec_clear_all_macs',
+    'port_sec_recover_errdisable',
+    'port_sec_update',
+  ].includes(op);
 
   if (!isPortPower && !isPortMode && !isPortVlan && !isPortDesc && !isPortSecurity) {
     // Other operations (e.g. ping) pass through to next middleware
@@ -5341,11 +5350,53 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
       } else if (isPortDesc) {
         p.description = String(params.description || '').trim();
       } else if (isPortSecurity) {
-        if (op.includes('enable')) {
+        if (op === 'port_sec_clear_mac') {
+          const targetMac = String(params.mac || '').toLowerCase().trim();
+          if (targetMac) {
+            const filterMac = (val: any) => {
+              if (Array.isArray(val)) {
+                return val.filter((m: any) => String(typeof m === 'object' ? (m.mac || m.address) : m).toLowerCase().trim() !== targetMac);
+              }
+              if (typeof val === 'string' && val.toLowerCase().trim() === targetMac) {
+                return '';
+              }
+              return val;
+            };
+            p.port_security_learned_macs = filterMac(p.port_security_learned_macs || []);
+            p.learned_macs = filterMac(p.learned_macs || []);
+            p.sticky_macs = filterMac(p.sticky_macs || []);
+            p.dynamic_macs = filterMac(p.dynamic_macs || []);
+            if (String(p.port_security_configured_mac || '').toLowerCase().trim() === targetMac) {
+              p.port_security_configured_mac = '';
+            }
+          }
+        } else if (op === 'port_sec_clear_all_macs') {
+          p.port_security_learned_macs = [];
+          p.learned_macs = [];
+          p.sticky_macs = [];
+          p.dynamic_macs = [];
+          if (p.port_security_mode === 'sticky') {
+            p.port_security_configured_mac = '';
+          }
+        } else if (op === 'port_sec_recover_errdisable') {
+          p.status = 'up';
+          p.admin_status = 'enabled';
+          p.port_security_status = 'secure-up';
+        } else if (op === 'port_sec_update') {
+          p.port_security_enabled = Boolean(params.enabled);
+          p.port_security_status = p.port_security_enabled ? (p.status === 'up' ? 'secure-up' : 'secure-down') : 'disabled';
+          if (params.mode) p.port_security_mode = params.mode;
+          if (params.max_mac) p.port_security_max_mac = Number(params.max_mac);
+          if (params.violation) p.port_security_violation = String(params.violation);
+          if (params.configured_mac !== undefined) p.port_security_configured_mac = String(params.configured_mac).trim();
+          p.mode = 'access';
+        } else if (op.includes('enable')) {
           p.port_security_enabled = true;
           p.port_security_status = p.status === 'up' ? 'secure-up' : 'secure-down';
           if (params.max_mac) p.port_security_max_mac = Number(params.max_mac);
           if (params.violation) p.port_security_violation = String(params.violation);
+          if (params.mode) p.port_security_mode = params.mode;
+          p.mode = 'access';
         } else {
           p.port_security_enabled = false;
           p.port_security_status = 'disabled';

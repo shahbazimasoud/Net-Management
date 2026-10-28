@@ -4,6 +4,7 @@ import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
 import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
 import { CiscoPortContextMenu } from './CiscoPortContextMenu';
 import { CiscoPortStatisticsModal } from './CiscoPortStatisticsModal';
+import { CiscoPortSecurityModal } from './CiscoPortSecurityModal';
 import { CiscoCommandConfirmModal } from './CiscoCommandConfirmModal';
 import { CiscoPortConfigConfirmModal, PortConfigUpdates } from './CiscoPortConfigConfirmModal';
 import { AssignVlanModal } from './AssignVlanModal';
@@ -602,6 +603,9 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
   const [vlanAssignModalPort, setVlanAssignModalPort] = useState<SwitchPort | null>(null);
   const [isAssigningVlan, setIsAssigningVlan] = useState(false);
 
+  // Dedicated Cisco Port Security modal state
+  const [portSecurityModalPort, setPortSecurityModalPort] = useState<SwitchPort | null>(null);
+
   const handleExecuteContextMenuAction = async (action: string, extra?: any) => {
     if (!contextMenu || !currentDevice) return;
     const targetPort = contextMenu.port;
@@ -634,11 +638,10 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
       return;
     }
 
-    // 1. Enable Port Security: Open edit mode directly for user configuration
-    if (action === 'port_sec_enable') {
-      startEdit(targetPort);
-      setEditMode('access');
+    // 1. Configure / Enable Port Security: Open dedicated modal
+    if (action === 'open_port_security' || action === 'port_sec_enable' || action === 'port_sec_disable') {
       setContextMenu(null);
+      setPortSecurityModalPort(targetPort);
       return;
     }
 
@@ -2071,6 +2074,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
           onExecuteAction={handleExecuteContextMenuAction}
           onOpenTerminal={onConnectTerminal ? (portId: string) => onConnectTerminal(currentDevice, portId) : undefined}
           onOpenPortStats={(p) => setActiveStatsPort(p)}
+          onOpenPortSecurity={(p) => setPortSecurityModalPort(p)}
         />
       )}
 
@@ -2153,6 +2157,48 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
           port={activeStatsPort}
           deviceName={currentDevice.name}
           deviceId={currentDevice.id}
+        />
+      )}
+
+      {/* Cisco Dedicated Port Security Configuration and MAC Management Modal */}
+      {portSecurityModalPort && currentDevice && (
+        <CiscoPortSecurityModal
+          isOpen={!!portSecurityModalPort}
+          onClose={() => {
+            setPortSecurityModalPort(null);
+            undockModal(`cisco_port_sec_${currentDevice.id}_${portSecurityModalPort.port_id}`);
+          }}
+          onMinimize={() => {
+            const savedPort = portSecurityModalPort;
+            setPortSecurityModalPort(null);
+            dockModal({
+              id: `cisco_port_sec_${currentDevice.id}_${savedPort.port_id}`,
+              labelEn: `Port Security: ${currentDevice.name} [${savedPort.port_id}]`,
+              labelFa: `پورت سکیوریتی: ${currentDevice.name} [${savedPort.port_id}]`,
+              badge: savedPort.port_id,
+              category: 'config',
+              onRestore: () => setPortSecurityModalPort(savedPort),
+              onClose: () => setPortSecurityModalPort(null),
+            });
+          }}
+          port={portSecurityModalPort}
+          device={currentDevice}
+          onPortUpdated={(updatedPort) => {
+            setPorts((prev) =>
+              prev.map((p) =>
+                (p.port_id || p.port || p.name) === (updatedPort.port_id || updatedPort.port || updatedPort.name)
+                  ? { ...p, ...updatedPort }
+                  : p
+              )
+            );
+            if (
+              selectedPort &&
+              (selectedPort.port_id || selectedPort.port || selectedPort.name) ===
+                (updatedPort.port_id || updatedPort.port || updatedPort.name)
+            ) {
+              setSelectedPort((prev) => (prev ? { ...prev, ...updatedPort } : null));
+            }
+          }}
         />
       )}
     </div>

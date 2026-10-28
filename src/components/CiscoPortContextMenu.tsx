@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Power,
   PowerOff,
+  Shield,
   ShieldCheck,
   ShieldAlert,
   Layers,
@@ -31,9 +32,10 @@ export interface CiscoPortContextMenuProps {
   vlans?: VlanInfo[];
   policy?: AccessPolicy | null;
   onClose: () => void;
-  onExecuteAction: (action: 'shutdown' | 'no_shutdown' | 'mode_trunk' | 'mode_access' | 'port_sec_enable' | 'port_sec_disable' | 'change_vlan' | 'open_assign_vlan' | 'edit_description' | 'port_statistics', extra?: any) => void;
+  onExecuteAction: (action: 'shutdown' | 'no_shutdown' | 'mode_trunk' | 'mode_access' | 'port_sec_enable' | 'port_sec_disable' | 'change_vlan' | 'open_assign_vlan' | 'edit_description' | 'port_statistics' | 'open_port_security', extra?: any) => void;
   onOpenTerminal?: (portId: string) => void;
   onOpenPortStats?: (port: SwitchPort) => void;
+  onOpenPortSecurity?: (port: SwitchPort) => void;
 }
 
 export const CiscoPortContextMenu: React.FC<CiscoPortContextMenuProps> = ({
@@ -48,6 +50,7 @@ export const CiscoPortContextMenu: React.FC<CiscoPortContextMenuProps> = ({
   onExecuteAction,
   onOpenTerminal,
   onOpenPortStats,
+  onOpenPortSecurity,
 }) => {
   const { t, isEn } = useLanguage();
   const { effectivePolicy: authEffectivePolicy } = useAuth();
@@ -376,30 +379,43 @@ export const CiscoPortContextMenu: React.FC<CiscoPortContextMenuProps> = ({
           </div>
         )}
 
-        {/* Action 3: Port Security Toggle (port_security) */}
+        {/* Action 3: Configure Port Security (کانفیگ پورت سکیوریتی) */}
         {canPortSecurity && (
           <div className="group flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/90 transition cursor-pointer">
             <button
               type="button"
               onClick={() => {
-                onExecuteAction(isPortSec ? 'port_sec_disable' : 'port_sec_enable');
+                if (onOpenPortSecurity) {
+                  onOpenPortSecurity(port);
+                } else {
+                  onExecuteAction('open_port_security');
+                }
                 onClose();
               }}
-              className="flex items-center gap-2.5 flex-1 text-left rtl:text-right"
+              className="flex items-center gap-2.5 flex-1 text-left rtl:text-right cursor-pointer"
             >
               {isPortSec ? (
-                <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
               ) : (
-                <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0" />
+                <Shield className="w-4 h-4 text-cyan-400 shrink-0" />
               )}
               <div>
-                <div className="font-bold text-white text-xs">
-                  {isPortSec
-                    ? (isEn ? 'Disable Port Security' : 'غیرفعال‌سازی Port Security')
-                    : (isEn ? 'Enable Port Security' : 'فعال‌سازی Port Security')}
+                <div className="font-bold text-white text-xs flex items-center gap-1.5">
+                  <span>{isEn ? 'Configure Port Security' : 'کانفیگ پورت سکیوریتی'}</span>
+                  <span
+                    className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                      isPortSec
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : 'bg-slate-700/60 text-slate-400 border border-slate-600/40'
+                    }`}
+                  >
+                    {isPortSec ? (isEn ? 'ACTIVE' : 'فعال') : (isEn ? 'OFF' : 'خاموش')}
+                  </span>
                 </div>
                 <div className="text-[10px] font-mono text-slate-400">
-                  {isPortSec ? 'no switchport port-security' : 'switchport port-security'}
+                  {isEn
+                    ? 'MAC Table, Limits, Violation & Clear MACs'
+                    : 'جدول مک‌ها، سقف مجاز، تخلف و پاک‌سازی'}
                 </div>
               </div>
             </button>

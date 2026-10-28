@@ -7,6 +7,7 @@ import { NetworkPortSvg } from './NetworkPortSvg';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { CiscoPortContextMenu } from './CiscoPortContextMenu';
 import { CiscoPortStatisticsModal } from './CiscoPortStatisticsModal';
+import { CiscoPortSecurityModal } from './CiscoPortSecurityModal';
 import { CiscoCommandConfirmModal } from './CiscoCommandConfirmModal';
 import { CiscoPortConfigConfirmModal, PortConfigUpdates } from './CiscoPortConfigConfirmModal';
 import { AssignVlanModal } from './AssignVlanModal';
@@ -366,6 +367,9 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   // Cisco Port Statistics Modal State
   const [activeStatsPort, setActiveStatsPort] = useState<SwitchPort | null>(null);
 
+  // Cisco Dedicated Port Security Modal State
+  const [portSecurityModalPort, setPortSecurityModalPort] = useState<SwitchPort | null>(null);
+
   // Editing state
   const [isEditing, setIsEditing] = useState(false);
   const [editAdminStatus, setEditAdminStatus] = useState<'enabled' | 'disabled'>('enabled');
@@ -464,25 +468,11 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
       return;
     }
 
-    // 1. If user chose "Enable Port Security"
-    // Requirement: "اگر فعال کردن پورت سکوریتی رو انتخاب شد از این منو باید بره تو همین مودال قسمت ویرایش پورت و تیک فعال شدن پورت سکوریتی رو بزنه تا از اینجا طرف خودش کانفیگ کنه"
-    if (action === 'port_sec_enable') {
-      const sec = extractPortSecurityState(targetPort);
-      setSelectedPort(targetPort);
-      setIsEditing(true);
-      setEditPortSecEnabled(true);
-      setEditPortSecMode(sec.mode);
-      setEditPortSecMaxMac(sec.maxMac);
-      setEditPortSecConfiguredMac(sec.configuredMac);
-      setEditPortSecViolation(sec.violation);
-      setEditMode('access');
+    // 1. If user chose "Configure Port Security" / "Enable Port Security"
+    // Open dedicated Port Security modal with learned MAC table, clear MACs, and configuration suite
+    if (action === 'open_port_security' || action === 'port_sec_enable' || action === 'port_sec_disable') {
       setContextMenu(null);
-      setTimeout(() => {
-        const secEl = document.getElementById('port-security-section');
-        if (secEl) {
-          secEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }, 100);
+      setPortSecurityModalPort(targetPort);
       return;
     }
 
@@ -3315,6 +3305,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             onExecuteAction={handleExecuteContextMenuAction}
             onOpenTerminal={canTerminal && onConnectTerminal ? (portId: string) => onConnectTerminal(device, portId) : undefined}
             onOpenPortStats={(p) => setActiveStatsPort(p)}
+            onOpenPortSecurity={(p) => setPortSecurityModalPort(p)}
           />
         )}
 
@@ -3413,6 +3404,48 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             port={activeStatsPort}
             deviceName={device.name}
             deviceId={device.id}
+          />
+        )}
+
+        {/* Cisco Dedicated Port Security Configuration and MAC Management Modal */}
+        {portSecurityModalPort && device && (
+          <CiscoPortSecurityModal
+            isOpen={!!portSecurityModalPort}
+            onClose={() => {
+              setPortSecurityModalPort(null);
+              undockModal(`cisco_port_sec_${device.id}_${portSecurityModalPort.port_id}`);
+            }}
+            onMinimize={() => {
+              const savedPort = portSecurityModalPort;
+              setPortSecurityModalPort(null);
+              dockModal({
+                id: `cisco_port_sec_${device.id}_${savedPort.port_id}`,
+                labelEn: `Port Security: ${device.name} [${savedPort.port_id}]`,
+                labelFa: `پورت سکیوریتی: ${device.name} [${savedPort.port_id}]`,
+                badge: savedPort.port_id,
+                category: 'config',
+                onRestore: () => setPortSecurityModalPort(savedPort),
+                onClose: () => setPortSecurityModalPort(null),
+              });
+            }}
+            port={portSecurityModalPort}
+            device={device}
+            onPortUpdated={(updatedPort) => {
+              setPorts((prevPorts) =>
+                prevPorts.map((p) =>
+                  (p.port_id || p.port || p.name) === (updatedPort.port_id || updatedPort.port || updatedPort.name)
+                    ? { ...p, ...updatedPort }
+                    : p
+                )
+              );
+              if (
+                selectedPort &&
+                (selectedPort.port_id || selectedPort.port || selectedPort.name) ===
+                  (updatedPort.port_id || updatedPort.port || updatedPort.name)
+              ) {
+                setSelectedPort((prev) => (prev ? { ...prev, ...updatedPort } : null));
+              }
+            }}
           />
         )}
       </div>

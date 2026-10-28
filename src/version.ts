@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.383.0';
+export const APP_VERSION = '1.384.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.384.0',
+    releaseDate: '2026-10-28',
+    type: 'minor',
+    title: 'افزودن مودال اختصاصی کانفیگ پورت سکیوریتی سیسکو، مدیریت و پاک‌سازی مک‌آدرس‌های ثبت‌شده و پشتیبانی کامل از داک ابزارها',
+    title_en: 'Add Dedicated Cisco Port Security Configuration Modal, Learned MAC Table Management, MAC Clearing and ToolsDock Minimization',
+    changes: [
+      'تغییر نام گزینه منوی راست‌کلیک پورت گرافیکی از فعال‌سازی به «کانفیگ پورت سکیوریتی» (Configure Port Security) به همراه نشانگر وضعیت فعال یا غیرفعال بودن.',
+      'طراحی و پیاده‌سازی مودال اختصاصی و استاندارد CiscoPortSecurityModal منطبق بر اصول ۵ گانه Universal Modal با دکمه‌های سه‌گانه، حریم فوتر و لایه z-[999990].',
+      'نمایش جدول تفصیلی مک‌آدرس‌های ثبت‌شده، استیکی (Sticky)، استاتیک (Configured) و داینامیک (Dynamic) کشف‌شده روی هر اینترفیس.',
+      'افزودن قابلیت پاک‌سازی مجزای هر مک‌آدرس یا پاک‌سازی دسته‌جمعی تمامی مک‌های ثبت‌شده روی پورت با دستورات رسمی سیسکو (clear port-security dynamic و no switchport port-security mac-address).',
+      'افزودن ابزار بازیابی مستقیم پورت از حالت مسدود و خطای تخلف (Err-Disabled Recovery via shut / no shut).',
+      'پیکربندی کامل پارامترهای پورت سکیوریتی شامل سوئیچ فعال‌سازی، مود یادگیری، سقف مجاز، واکنش به تخلف و پیش‌نمایش بلادرنگ دستورات سیسکو.'
+    ],
+    changes_en: [
+      'Renamed right-click graphical port context menu item to "Configure Port Security" with live status badges.',
+      'Architected dedicated, universal CiscoPortSecurityModal compliant with all 5 Universal Modal standards (3 header buttons, footer clearance, and z-[999990]).',
+      'Added comprehensive registered & learned MAC addresses table displaying Sticky, Configured Static, and Dynamic CAM entries.',
+      'Implemented individual MAC clearing and bulk learned MAC eviction using native Cisco IOS CLI commands (clear port-security dynamic and no switchport port-security mac-address).',
+      'Added instant Err-Disabled port recovery tool (shutdown / no shutdown sequence) with alert banners.',
+      'Provided full Cisco Port Security configuration suite with real-time running-config CLI preview and live hardware commit.'
+    ]
+  },
   {
     version: '1.383.0',
     releaseDate: '2026-10-28',

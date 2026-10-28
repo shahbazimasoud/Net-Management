@@ -74,12 +74,56 @@ class CiscoDriver(NetworkDeviceDriver):
             if is_router:
                 return f"configure terminal\ninterface {interface}.{vlan}\n encapsulation dot1q {vlan}\nexit\nexit"
             return f"configure terminal\ninterface {interface}\n switchport mode access\n switchport access vlan {vlan}\nexit\nexit"
-        elif action == "port_sec_enable":
+        elif action in ("port_sec_enable", "enable_port_security"):
             max_mac = params.get("max_mac", 1)
             violation = params.get("violation", "restrict")
-            return f"configure terminal\ninterface {interface}\n switchport mode access\n switchport port-security\n switchport port-security maximum {max_mac}\n switchport port-security violation {violation}\n switchport port-security mac-address sticky\nexit\nexit"
-        elif action == "port_sec_disable":
+            mode = params.get("mode", "sticky")
+            if mode == "sticky":
+                return f"configure terminal\ninterface {interface}\n switchport mode access\n switchport port-security\n switchport port-security maximum {max_mac}\n switchport port-security violation {violation}\n switchport port-security mac-address sticky\nexit\nexit"
+            elif mode == "configured" and params.get("configured_mac"):
+                mac = params.get("configured_mac")
+                return f"configure terminal\ninterface {interface}\n switchport mode access\n switchport port-security\n switchport port-security maximum {max_mac}\n switchport port-security violation {violation}\n switchport port-security mac-address {mac}\nexit\nexit"
+            else:
+                return f"configure terminal\ninterface {interface}\n switchport mode access\n switchport port-security\n switchport port-security maximum {max_mac}\n switchport port-security violation {violation}\nexit\nexit"
+        elif action in ("port_sec_disable", "disable_port_security"):
             return f"configure terminal\ninterface {interface}\n no switchport port-security\nexit\nexit"
+        elif action == "port_sec_clear_mac":
+            mac = params.get("mac") or ""
+            cmds = ["configure terminal", f"interface {interface}"]
+            if mac:
+                cmds.append(f" no switchport port-security mac-address {mac}")
+            cmds.append("exit")
+            if mac:
+                cmds.append(f"clear port-security dynamic address {mac}")
+            cmds.append("exit")
+            return "\n".join(cmds)
+        elif action == "port_sec_clear_all_macs":
+            return f"clear port-security dynamic interface {interface}\nclear port-security sticky interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n switchport port-security mac-address sticky\nexit\nexit"
+        elif action == "port_sec_recover_errdisable":
+            return f"configure terminal\ninterface {interface}\n shutdown\n no shutdown\nexit\nexit"
+        elif action == "port_sec_update":
+            enabled = params.get("enabled", True)
+            if not enabled:
+                return f"configure terminal\ninterface {interface}\n no switchport port-security\nexit\nexit"
+            max_mac = params.get("max_mac", 1)
+            violation = params.get("violation", "shutdown")
+            mode = params.get("mode", "sticky")
+            cfg_mac = (params.get("configured_mac") or "").strip()
+            cmds = [
+                "configure terminal",
+                f"interface {interface}",
+                " switchport mode access",
+                " switchport port-security",
+                f" switchport port-security maximum {max_mac}",
+                f" switchport port-security violation {violation}",
+            ]
+            if mode == "sticky":
+                cmds.append(" switchport port-security mac-address sticky")
+            elif mode == "configured" and cfg_mac:
+                cmds.append(f" switchport port-security mac-address {cfg_mac}")
+            cmds.append("exit")
+            cmds.append("exit")
+            return "\n".join(cmds)
         elif action == "set_description":
             desc = (params.get("description") or "").strip()
             if desc:
