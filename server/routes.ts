@@ -290,6 +290,8 @@ import {
   createTwoFactorChallenge,
   verifyTwoFactorChallenge,
   resendTwoFactorChallenge,
+  issueTrustedDeviceToken,
+  validateTrustedDeviceToken,
 } from './twoFactorService';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
 import {
@@ -562,6 +564,11 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
     const authType = (req.body?.authType || 'local').toLowerCase(); // 'local' | 'ad'
     let domain = (req.body?.domain || '').trim();
     const rememberMe = Boolean(req.body?.rememberMe);
+    const candidateTrustedDeviceToken = (
+      (req.headers['x-trusted-device-token'] as string) ||
+      (req.body?.trustedDeviceToken as string) ||
+      ''
+    ).trim();
 
     // Auto-extract domain from username if provided in UPN format (user@domain.com) or NetBIOS format (DOMAIN\user)
     if (username.includes('@')) {
@@ -742,6 +749,62 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
 
       // Two-Step Verification (2FA / Two-Factor Authentication) Enforcement
       if (generalSettings.twoFactorEnabled) {
+        const isDeviceTrustEnabled = generalSettings.twoFactorRememberDeviceEnabled !== false;
+        let isDeviceTrusted = false;
+        if (isDeviceTrustEnabled && candidateTrustedDeviceToken) {
+          isDeviceTrusted = await validateTrustedDeviceToken(
+            user.id,
+            candidateTrustedDeviceToken,
+            ip,
+            req.headers['user-agent'] as string
+          );
+        }
+
+        if (isDeviceTrusted) {
+          await addAuditLog({
+            userName: user.username,
+            action: 'Login via 30-Day Trusted Device (2FA Bypassed)',
+            category: 'security',
+            target: 'Auth Gateway',
+            status: 'success',
+            details: `Password validated for user "${user.username}" from IP ${ip}. 2FA verification bypassed via active 30-day trusted device token.`,
+            ipAddress: ip,
+            userAgent: req.headers['user-agent'] as string,
+          });
+
+          const token = generateToken(
+            {
+              userId: user.id,
+              username: user.username,
+              fullName: user.full_name,
+              email: user.email,
+              role: user.role,
+              userType: 'local',
+              policyId: effectivePolicy?.id,
+            },
+            rememberMe
+          );
+
+          await addAuditLog({
+            userName: user.username,
+            action: 'User Login Success',
+            category: 'security',
+            target: 'Auth Gateway',
+            status: 'success',
+            details: `Local user "${user.username}" (${user.role}) logged in successfully from IP ${ip} (Trusted Device). Policy: ${effectivePolicy?.name || 'Default'}`,
+            ipAddress: ip,
+            userAgent: req.headers['user-agent'],
+          });
+
+          return res.json({
+            success: true,
+            token,
+            user,
+            effectivePolicy,
+            trustedDeviceActive: true,
+          });
+        }
+
         const lang = (req.headers['accept-language']?.includes('en') ? 'en' : 'fa') as 'fa' | 'en';
         const challenge = await createTwoFactorChallenge(
           user,
@@ -769,6 +832,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
           challengeToken: challenge.token,
           emailMasked: challenge.emailMasked,
           expiresIn: challenge.expiresInSec,
+          allowRememberDevice: isDeviceTrustEnabled,
           message: 'کد تایید دو مرحله‌ای به آدرس ایمیل شما ارسال شد.',
           message_en: 'A two-step verification code has been sent to your email address.',
         });
@@ -1046,6 +1110,63 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
 
       // Two-Step Verification (2FA) Enforcement for Active Directory
       if (generalSettings.twoFactorEnabled) {
+        const isDeviceTrustEnabled = generalSettings.twoFactorRememberDeviceEnabled !== false;
+        let isDeviceTrusted = false;
+        if (isDeviceTrustEnabled && candidateTrustedDeviceToken) {
+          isDeviceTrusted = await validateTrustedDeviceToken(
+            adUser.id,
+            candidateTrustedDeviceToken,
+            ip,
+            req.headers['user-agent'] as string
+          );
+        }
+
+        if (isDeviceTrusted) {
+          await addAuditLog({
+            userName: adUser.username,
+            action: 'Login via 30-Day Trusted Device (2FA Bypassed - AD)',
+            category: 'security',
+            target: `AD DC (${domain})`,
+            status: 'success',
+            details: `Active Directory credentials validated for "${adUser.username}" from IP ${ip}. 2FA verification bypassed via active 30-day trusted device token.`,
+            ipAddress: ip,
+            userAgent: req.headers['user-agent'] as string,
+          });
+
+          const token = generateToken(
+            {
+              userId: adUser.id,
+              username: adUser.username,
+              fullName: adUser.fullName,
+              email: adUser.email,
+              role: effectivePolicy?.name || adUser.role,
+              userType: 'ad',
+              policyId: effectivePolicy?.id,
+              groups: userGroups,
+            },
+            rememberMe
+          );
+
+          await addAuditLog({
+            userName: adUser.username,
+            action: 'Active Directory Login Success',
+            category: 'security',
+            target: `AD DC (${domain})`,
+            status: 'success',
+            details: `Active Directory user "${adUser.username}" authenticated successfully from IP ${ip} (Trusted Device). Policy: ${effectivePolicy?.name || 'Default Restricted'}`,
+            ipAddress: ip,
+            userAgent: req.headers['user-agent'],
+          });
+
+          return res.json({
+            success: true,
+            token,
+            user: adUser,
+            effectivePolicy,
+            trustedDeviceActive: true,
+          });
+        }
+
         const lang = (req.headers['accept-language']?.includes('en') ? 'en' : 'fa') as 'fa' | 'en';
         const challenge = await createTwoFactorChallenge(
           adUser,
@@ -1073,6 +1194,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
           challengeToken: challenge.token,
           emailMasked: challenge.emailMasked,
           expiresIn: challenge.expiresInSec,
+          allowRememberDevice: isDeviceTrustEnabled,
           message: 'کد تایید دو مرحله‌ای به آدرس ایمیل شما ارسال شد.',
           message_en: 'A two-step verification code has been sent to your email address.',
         });
@@ -1128,7 +1250,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
 apiRouter.post('/auth/verify-2fa', async (req: Request, res: Response) => {
   try {
     const ip = getClientIp(req);
-    const { challengeToken, code } = req.body || {};
+    const { challengeToken, code, trustDevice } = req.body || {};
 
     if (!challengeToken || !code) {
       return res.status(400).json({
@@ -1178,6 +1300,18 @@ apiRouter.post('/auth/verify-2fa', async (req: Request, res: Response) => {
       rememberMe
     );
 
+    // Issue 30-Day Trusted Device token if requested and enabled
+    const generalSettings = await getGeneralSettings();
+    let issuedTrustedDeviceToken: string | undefined;
+    if (generalSettings.twoFactorRememberDeviceEnabled !== false && Boolean(trustDevice)) {
+      issuedTrustedDeviceToken = await issueTrustedDeviceToken(
+        user.id,
+        user.username,
+        ip,
+        req.headers['user-agent'] as string
+      );
+    }
+
     await updateLastLogin(user.id);
 
     await addAuditLog({
@@ -1186,7 +1320,7 @@ apiRouter.post('/auth/verify-2fa', async (req: Request, res: Response) => {
       category: 'security',
       target: 'Auth Gateway',
       status: 'success',
-      details: `User "${user.username}" successfully completed 2-Step Verification from IP ${ip}.`,
+      details: `User "${user.username}" successfully completed 2-Step Verification from IP ${ip}.${issuedTrustedDeviceToken ? ' Device trusted for 30 days.' : ''}`,
       ipAddress: ip,
       userAgent: req.headers['user-agent'] as string,
     });
@@ -1196,6 +1330,8 @@ apiRouter.post('/auth/verify-2fa', async (req: Request, res: Response) => {
       token,
       user,
       effectivePolicy,
+      trustedDeviceToken: issuedTrustedDeviceToken,
+      trustedDeviceExpiresInDays: issuedTrustedDeviceToken ? 30 : undefined,
     });
   } catch (err: any) {
     console.error('[API /auth/verify-2fa error]', err);

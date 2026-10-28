@@ -31,6 +31,7 @@ import {
   ArrowLeft,
   ArrowRight,
   KeyRound,
+  Laptop,
 } from 'lucide-react';
 
 interface LoginPageProps {
@@ -208,6 +209,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [resendCooldown, setResendCooldown] = useState<number>(0);
   const [resending, setResending] = useState(false);
   const [verifying2FA, setVerifying2FA] = useState(false);
+  const [allowRememberDevice, setAllowRememberDevice] = useState<boolean>(true);
+  const [trustDevice, setTrustDevice] = useState<boolean>(true);
   const [emailSentNotice, setEmailSentNotice] = useState<boolean>(true);
   const [emailErrorMessage, setEmailErrorMessage] = useState<string | null>(null);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
@@ -268,11 +271,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setSuccessFeedback(null);
 
     try {
+      const cleanUsername = username.trim().toLowerCase();
+      const userSpecificToken = cleanUsername
+        ? localStorage.getItem(`nettopology_trusted_device_${cleanUsername}`)
+        : null;
+      const globalTrustedToken = localStorage.getItem('nettopology_trusted_device_token');
+      const candidateTrustedDeviceToken = userSpecificToken || globalTrustedToken || '';
+
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept-Language': language,
+          'X-Trusted-Device-Token': candidateTrustedDeviceToken,
         },
         body: JSON.stringify({
           username: username.trim(),
@@ -280,6 +291,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           authType,
           domain: effectiveDomain,
           rememberMe,
+          trustedDeviceToken: candidateTrustedDeviceToken,
         }),
       });
 
@@ -304,6 +316,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           setChallengeToken(data.challengeToken);
           setMaskedEmail(data.emailMasked || '');
           setOtpExpiresIn(data.expiresIn || 300);
+          setAllowRememberDevice(data.allowRememberDevice !== false);
+          setTrustDevice(true);
           setResendCooldown(45);
           setEmailSentNotice(data.emailSent !== false);
           setEmailErrorMessage(data.emailError || null);
@@ -357,6 +371,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setVerifying2FA(true);
     setErrorMsg(null);
     try {
+      const willTrustDevice = Boolean(allowRememberDevice && trustDevice);
       const res = await fetch('/api/auth/verify-2fa', {
         method: 'POST',
         headers: {
@@ -366,11 +381,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         body: JSON.stringify({
           challengeToken,
           code: codeToVerify.trim(),
+          trustDevice: willTrustDevice,
         }),
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
+        if (data.trustedDeviceToken) {
+          try {
+            localStorage.setItem('nettopology_trusted_device_token', data.trustedDeviceToken);
+            const uname = (data.user?.username || username || '').trim().toLowerCase();
+            if (uname) {
+              localStorage.setItem(`nettopology_trusted_device_${uname}`, data.trustedDeviceToken);
+            }
+          } catch (e) {
+            console.warn('[Trusted Device Storage Warning]', e);
+          }
+        } else if (!willTrustDevice) {
+          // If the user deliberately unchecks "Trust this device", revoke local token
+          try {
+            localStorage.removeItem('nettopology_trusted_device_token');
+            const uname = (data.user?.username || username || '').trim().toLowerCase();
+            if (uname) {
+              localStorage.removeItem(`nettopology_trusted_device_${uname}`);
+            }
+          } catch {}
+        }
+
         login(data.token, data.user, rememberMe, data.effectivePolicy);
         if (onLoginSuccess) {
           onLoginSuccess(data.user);
@@ -792,6 +829,54 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   )}
                 </div>
 
+                {/* 30-Day Trusted Device Checkbox Option */}
+                {allowRememberDevice && (
+                  <div
+                    onClick={() => setTrustDevice((prev) => !prev)}
+                    className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer select-none transition-all ${
+                      trustDevice
+                        ? isLight
+                          ? 'bg-indigo-50/90 border-indigo-300 shadow-sm'
+                          : 'bg-indigo-950/40 border-indigo-500/50 shadow-inner'
+                        : isLight
+                        ? 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                        : 'bg-slate-950/40 border-white/10 hover:bg-white/5'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      id="trustDevice30Days"
+                      checked={trustDevice}
+                      onChange={(e) => setTrustDevice(e.target.checked)}
+                      onClick={(e) => e.stopPropagation()}
+                      className={`mt-0.5 rounded h-4 w-4 cursor-pointer transition ${
+                        isLight
+                          ? 'border-slate-300 text-indigo-600 focus:ring-indigo-500'
+                          : 'border-white/20 bg-slate-900 text-cyan-400 focus:ring-cyan-500'
+                      }`}
+                    />
+                    <label
+                      htmlFor="trustDevice30Days"
+                      className="cursor-pointer flex-1 min-w-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs font-bold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                          {isEn ? 'Trust this device for 30 days' : 'این دستگاه را تا ۳۰ روز به خاطر بسپار'}
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 font-bold">
+                          {isEn ? '30-DAY TRUST' : '۳۰ روز'}
+                        </span>
+                      </div>
+                      <p className={`text-[11px] mt-0.5 leading-relaxed ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {isEn
+                          ? "Don't ask for a verification code again on this browser for the next 30 days."
+                          : 'عدم نیاز به دریافت و ورود مجدد کد تایید در این مرورگر به مدت ۳۰ روز.'}
+                      </p>
+                    </label>
+                  </div>
+                )}
+
                 {/* Verify Submit Button */}
                 <button
                   type="submit"
@@ -1124,7 +1209,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 {/* Remember Me Option */}
                 <div className="flex items-center justify-between pt-1">
                   <label
-                    className={`flex items-center gap-2 text-xs cursor-pointer select-none ${
+                    className={`flex items-start gap-2.5 text-xs cursor-pointer select-none ${
                       isLight ? 'text-slate-700' : 'text-slate-300'
                     }`}
                   >
@@ -1132,13 +1217,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       type="checkbox"
                       checked={rememberMe}
                       onChange={(e) => setRememberMe(e.target.checked)}
-                      className={`rounded h-4 w-4 cursor-pointer ${
+                      className={`mt-0.5 rounded h-4 w-4 cursor-pointer ${
                         isLight
                           ? 'border-slate-300 text-indigo-600 focus:ring-indigo-500'
                           : 'border-white/20 bg-slate-950 text-indigo-600 focus:ring-indigo-500'
                       }`}
                     />
-                    <span>{isEn ? 'Remember session on this device' : 'مرا به خاطر بسپار (نشست امن)'}</span>
+                    <div>
+                      <span className="font-semibold block">
+                        {isEn ? 'Keep me signed in on this device' : 'مرا به خاطر بسپار (نشست پایدار)'}
+                      </span>
+                      <span className={`text-[10px] block mt-0.5 leading-normal ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {isEn
+                          ? 'Preserves your active login session across browser restarts.'
+                          : 'حفظ نشست ورود فعال در این مرورگر حتی پس از بستن و بازگشایی مجدد.'}
+                      </span>
+                    </div>
                   </label>
                 </div>
 

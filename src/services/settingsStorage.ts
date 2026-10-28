@@ -740,6 +740,7 @@ export const DEFAULT_PANEL_GENERAL_SETTINGS: PanelGeneralSettings = {
   defaultDeviceProtocol: 'ssh',
   systemDebugLogging: false,
   twoFactorEnabled: false,
+  twoFactorRememberDeviceEnabled: true,
   allowedAuthMethods: 'both',
   loginVisualMode: 'animation',
   loginAnimationType: 'globe',

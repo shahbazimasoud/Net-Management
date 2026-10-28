@@ -21,8 +21,23 @@ export interface TwoFactorChallenge {
   userPayload: any;
 }
 
+export interface TwoFactorTrustedDevice {
+  id: string;
+  tokenHash: string;
+  userId: string;
+  username: string;
+  ip: string;
+  userAgent?: string;
+  expiresAt: number; // ms timestamp (now + 30 days)
+  createdAt: number;
+  lastUsedAt: number;
+}
+
 // In-memory challenge store for instant low-latency lookup
 const challengesMap = new Map<string, TwoFactorChallenge>();
+
+// In-memory trusted devices store for high-performance low-latency lookup
+const trustedDevicesMap = new Map<string, TwoFactorTrustedDevice>();
 
 /**
  * Masks an email address for privacy in client responses (e.g. ad***n@domain.com)
@@ -402,12 +417,185 @@ export async function resendTwoFactorChallenge(
   };
 }
 
-// Automatic background cleaner to purge expired challenges every 2 minutes
+/**
+ * Issues a cryptographically secure 30-day device trust token for a verified user
+ */
+export async function issueTrustedDeviceToken(
+  userId: string,
+  username: string,
+  ip: string,
+  userAgent?: string
+): Promise<string> {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const id = `td_${crypto.randomUUID()}`;
+  const now = Date.now();
+  const validityMs = 30 * 24 * 60 * 60 * 1000; // 30 days
+  const expiresAt = now + validityMs;
+
+  const deviceRecord: TwoFactorTrustedDevice = {
+    id,
+    tokenHash,
+    userId,
+    username,
+    ip,
+    userAgent,
+    expiresAt,
+    createdAt: now,
+    lastUsedAt: now,
+  };
+
+  // 1. Save in memory map
+  trustedDevicesMap.set(tokenHash, deviceRecord);
+
+  // 2. Persist to PostgreSQL if available
+  try {
+    if (isPostgresConnected()) {
+      const pool = getPgPool();
+      if (pool) {
+        await pool.query(
+          `INSERT INTO two_factor_trusted_devices (
+            id, token_hash, user_id, username, ip, user_agent, expires_at, created_at, last_used_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          ON CONFLICT (token_hash) DO UPDATE SET
+            last_used_at = CURRENT_TIMESTAMP,
+            expires_at = EXCLUDED.expires_at`,
+          [
+            id,
+            tokenHash,
+            userId,
+            username,
+            ip,
+            userAgent || null,
+            new Date(expiresAt),
+          ]
+        );
+      }
+    }
+  } catch (dbErr: any) {
+    console.warn('[Two-Factor Trusted Device DB Notice]', dbErr.message);
+  }
+
+  return rawToken;
+}
+
+/**
+ * Validates a submitted device trust token.
+ * If valid and not expired, updates last_used_at and returns true (bypassing 2FA).
+ */
+export async function validateTrustedDeviceToken(
+  userId: string,
+  rawToken: string,
+  ip: string,
+  userAgent?: string
+): Promise<boolean> {
+  if (!userId || !rawToken || typeof rawToken !== 'string') {
+    return false;
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(rawToken.trim()).digest('hex');
+  let device = trustedDevicesMap.get(tokenHash);
+
+  // Fallback to PostgreSQL if not cached in memory
+  if (!device) {
+    try {
+      if (isPostgresConnected()) {
+        const pool = getPgPool();
+        if (pool) {
+          const res = await pool.query(
+            'SELECT * FROM two_factor_trusted_devices WHERE token_hash = $1 LIMIT 1',
+            [tokenHash]
+          );
+          if (res.rows.length > 0) {
+            const row = res.rows[0];
+            device = {
+              id: row.id,
+              tokenHash: row.token_hash,
+              userId: row.user_id,
+              username: row.username,
+              ip: row.ip,
+              userAgent: row.user_agent,
+              expiresAt: new Date(row.expires_at).getTime(),
+              createdAt: new Date(row.created_at).getTime(),
+              lastUsedAt: new Date(row.last_used_at).getTime(),
+            };
+            trustedDevicesMap.set(tokenHash, device);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[Two-Factor Trusted Device DB Query Error]', e.message);
+    }
+  }
+
+  if (!device) {
+    return false;
+  }
+
+  // Ensure user ID matches and token has not expired
+  if (device.userId !== userId || Date.now() > device.expiresAt) {
+    trustedDevicesMap.delete(tokenHash);
+    try {
+      if (isPostgresConnected()) {
+        const pool = getPgPool();
+        if (pool) {
+          await pool.query('DELETE FROM two_factor_trusted_devices WHERE token_hash = $1', [tokenHash]);
+        }
+      }
+    } catch {}
+    return false;
+  }
+
+  // Token is valid! Update last used timestamp and IP
+  device.lastUsedAt = Date.now();
+  device.ip = ip;
+  if (userAgent) device.userAgent = userAgent;
+
+  try {
+    if (isPostgresConnected()) {
+      const pool = getPgPool();
+      if (pool) {
+        await pool.query(
+          'UPDATE two_factor_trusted_devices SET last_used_at = CURRENT_TIMESTAMP, ip = $1 WHERE token_hash = $2',
+          [ip, tokenHash]
+        );
+      }
+    }
+  } catch {}
+
+  return true;
+}
+
+/**
+ * Revokes all trusted devices for a user (e.g. upon password reset or security revocation)
+ */
+export async function revokeTrustedDevicesForUser(userId: string): Promise<void> {
+  for (const [tokenHash, td] of trustedDevicesMap.entries()) {
+    if (td.userId === userId) {
+      trustedDevicesMap.delete(tokenHash);
+    }
+  }
+  try {
+    if (isPostgresConnected()) {
+      const pool = getPgPool();
+      if (pool) {
+        await pool.query('DELETE FROM two_factor_trusted_devices WHERE user_id = $1', [userId]);
+      }
+    }
+  } catch {}
+}
+
+// Automatic background cleaner to purge expired challenges and expired trusted devices
 setInterval(() => {
   const now = Date.now();
   for (const [token, ch] of challengesMap.entries()) {
     if (now > ch.expiresAt) {
       challengesMap.delete(token);
+    }
+  }
+  for (const [tokenHash, td] of trustedDevicesMap.entries()) {
+    if (now > td.expiresAt) {
+      trustedDevicesMap.delete(tokenHash);
     }
   }
 }, 120000).unref();

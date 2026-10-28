@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.382.2';
+export const APP_VERSION = '1.383.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.383.0',
+    releaseDate: '2026-10-28',
+    type: 'minor',
+    title: 'افزودن قابلیت اعتماد ۳۰ روزه به دستگاه برای تایید دو مرحله‌ای (2FA) در تنظیمات پنل و درگاه ورود با هماهنگی کامل نشست امن',
+    title_en: 'Add 30-Day Trusted Device Option for Two-Step Verification (2FA) in Panel Settings and Login Gateway with Seamless Session Harmony',
+    changes: [
+      'افزودن سوئیچ و زیرتنظیم اختصاصی «اعتماد به دستگاه تا ۳۰ روز (عدم نیاز به کد یکبارمصرف در دستگاه‌های معتبر)» در بخش Two-Step Verification تنظیمات عمومی پنل به همراه راهنمای سه‌بخشی استاندارد (FieldInfoTooltip).',
+      'طراحی و پیاده‌سازی ذخیره‌گاه دیتابیسی امن دو مرحله‌ای (two_factor_trusted_devices) در PostgreSQL با استفاده از توکن‌های هش‌شده تصادفی و پاک‌سازی خودکار نشست‌های منقضی.',
+      'افزودن چک‌باکس «این دستگاه را تا ۳۰ روز به خاطر بسپار» در مدال دریافت کد ۶ رقمی ایمیلی بدون تداخل با گزینه نشست پایدار (Keep me signed in) صفحه ورود.',
+      'احراز هویت بدون تاخیر و معافیت از ارسال کد OTP برای کاربران دستگاه‌های تاییدشده در ۳۰ روز پس از تایید اولیه نام کاربری و رمز عبور برای کاربران محلی و اکتیو دایرکتوری.',
+      'تجهیز درگاه احراز هویت به لاگ‌های حسابرسی جامع، هدر اختصاصی X-Trusted-Device-Token و پشتیبانی کامل از تم تیره و روشن و استاندارد چندزبانگی i18n.'
+    ],
+    changes_en: [
+      'Added dedicated "Remember 2FA Verification on Trusted Devices for 30 Days" sub-toggle in Panel General Settings with comprehensive 3-part FieldInfoTooltip.',
+      'Architected secure PostgreSQL-backed trusted device storage (two_factor_trusted_devices) with cryptographically hashed tokens, index acceleration, and automatic expired device eviction.',
+      'Implemented "Trust this device for 30 days" toggle in the 6-digit OTP modal with clear architectural separation from credential persistent session (Keep me signed in).',
+      'Enabled frictionless login and automatic OTP bypass on verified browsers for 30 days while enforcing full password checks for both local and Active Directory users.',
+      'Integrated end-to-end security audit logging, dedicated X-Trusted-Device-Token headers, and strict dark/light theme ergonomics and bilingual i18n compliance.'
+    ]
+  },
   {
     version: '1.382.2',
     releaseDate: '2026-10-27',

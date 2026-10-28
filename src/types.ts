@@ -7466,6 +7466,7 @@ export interface PanelGeneralSettings {
   defaultDeviceProtocol: 'ssh' | 'telnet' | 'https';
   systemDebugLogging: boolean;
   twoFactorEnabled?: boolean;
+  twoFactorRememberDeviceEnabled?: boolean;
   allowedAuthMethods?: 'both' | 'local_only' | 'ad_only';
   loginVisualMode?: 'animation' | 'image';
   loginAnimationType?: 'globe' | 'milky_way' | 'matrix';

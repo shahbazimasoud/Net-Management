@@ -215,6 +215,7 @@ export interface FallbackStore {
   config_templates?: any[];
   system_security_keys?: SystemSecurityKeysRecord[];
   server_command_audit_logs?: any[];
+  two_factor_trusted_devices?: any[];
 }
 
 export interface SystemSecurityKeysRecord {
@@ -2308,6 +2309,24 @@ export async function initDatabase(): Promise<void> {
       `);
       await client.query("CREATE INDEX IF NOT EXISTS idx_two_factor_token ON two_factor_challenges(token)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_two_factor_expires ON two_factor_challenges(expires_at)");
+
+      // 18.1. Two-Factor Authentication 30-Day Trusted Devices
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS two_factor_trusted_devices (
+          id VARCHAR(64) PRIMARY KEY,
+          token_hash VARCHAR(128) NOT NULL UNIQUE,
+          user_id VARCHAR(64) NOT NULL,
+          username VARCHAR(64) NOT NULL,
+          ip VARCHAR(64),
+          user_agent TEXT,
+          expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          last_used_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_two_factor_trusted_token_hash ON two_factor_trusted_devices(token_hash)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_two_factor_trusted_user_id ON two_factor_trusted_devices(user_id)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_two_factor_trusted_expires ON two_factor_trusted_devices(expires_at)");
 
       // 19. Persistent System Security Keychain & Master Encryption Keys
       await client.query(`
@@ -5549,6 +5568,7 @@ export interface PanelGeneralSettings {
   defaultDeviceProtocol: 'ssh' | 'telnet' | 'https';
   systemDebugLogging: boolean;
   twoFactorEnabled?: boolean;
+  twoFactorRememberDeviceEnabled?: boolean;
   allowedAuthMethods?: 'both' | 'local_only' | 'ad_only';
   loginVisualMode?: 'animation' | 'image';
   loginAnimationType?: 'globe' | 'milky_way' | 'matrix';
@@ -5580,6 +5600,7 @@ export const DEFAULT_GENERAL_SETTINGS: PanelGeneralSettings = {
   defaultDeviceProtocol: 'ssh',
   systemDebugLogging: false,
   twoFactorEnabled: false,
+  twoFactorRememberDeviceEnabled: true,
   allowedAuthMethods: 'both',
   loginVisualMode: 'animation',
   loginAnimationType: 'globe',
@@ -5637,6 +5658,7 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
     defaultDeviceProtocol: (settings.defaultDeviceProtocol as any) || current.defaultDeviceProtocol || 'ssh',
     systemDebugLogging: Boolean(settings.systemDebugLogging !== undefined ? settings.systemDebugLogging : current.systemDebugLogging),
     twoFactorEnabled: Boolean(settings.twoFactorEnabled !== undefined ? settings.twoFactorEnabled : (current.twoFactorEnabled || false)),
+    twoFactorRememberDeviceEnabled: Boolean(settings.twoFactorRememberDeviceEnabled !== undefined ? settings.twoFactorRememberDeviceEnabled : (current.twoFactorRememberDeviceEnabled ?? true)),
     allowedAuthMethods: (settings.allowedAuthMethods as any) || current.allowedAuthMethods || 'both',
     loginVisualMode: (settings.loginVisualMode === 'image' || settings.loginVisualMode === 'animation')
       ? settings.loginVisualMode

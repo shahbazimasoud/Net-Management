@@ -2257,6 +2257,75 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                       </div>
                     </div>
                   )}
+
+                  {/* 30-Day Trusted Device Option (Sub-setting of 2FA) */}
+                  {formData.twoFactorEnabled && (
+                    <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all border-s-4 ${
+                      isLightMode
+                        ? (formData.twoFactorRememberDeviceEnabled !== false
+                            ? 'bg-indigo-50/60 border-indigo-200 border-s-indigo-600 shadow-sm'
+                            : 'bg-slate-50 border-slate-200 border-s-slate-300')
+                        : (formData.twoFactorRememberDeviceEnabled !== false
+                            ? 'bg-indigo-950/25 border-indigo-500/30 border-s-indigo-500 shadow-inner'
+                            : 'bg-slate-900/40 border-white/5 border-s-slate-700')
+                    }`}>
+                      <div className="flex items-start gap-3">
+                        <div className={`p-2.5 rounded-xl border mt-0.5 shrink-0 ${
+                          formData.twoFactorRememberDeviceEnabled !== false
+                            ? 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
+                            : 'bg-slate-800/50 border-white/10 text-slate-400'
+                        }`}>
+                          <Laptop className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                              {isEn
+                                ? 'Remember 2FA Verification on Trusted Devices for 30 Days'
+                                : 'اعتماد به دستگاه و به خاطر سپردن تایید دومرحله‌ای تا ۳۰ روز'}
+                            </span>
+                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase border ${
+                              formData.twoFactorRememberDeviceEnabled !== false
+                                ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+                                : 'bg-slate-800 text-slate-400 border-white/10'
+                            }`}>
+                              {formData.twoFactorRememberDeviceEnabled !== false
+                                ? (isEn ? '30-DAY TRUST ACTIVE' : '۳۰ روز فعال')
+                                : (isEn ? 'OTP EVERY LOGIN' : 'کد در هر ورود')}
+                            </span>
+                            <FieldInfoTooltip
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                              title={isEn ? '30-Day Trusted Device Policy' : 'سیاست اعتماد ۳۰ روزه به دستگاه'}
+                              infoWhatEn="Allows users to mark their personal browser as a recognized trusted device during two-step verification, skipping the email OTP prompt on that device for the next 30 days."
+                              infoWhatFa="به کاربران امکان می‌دهد هنگام ورود کد تایید، مرورگر شخصی خود را به عنوان دستگاه معتبر علامت بزنند تا طی ۳۰ روز آینده در این مرورگر نیازی به ورود مجدد کد ایمیلی نباشد."
+                              infoWhyEn="Eliminates authentication fatigue and repetitive email code delays during frequent daily access, while preserving full credential security against attacks from untrusted or external machines."
+                              infoWhyFa="رفع خستگی تایید مکرر و تسریع ورودهای روزمره برای کاربران مجاز، در عین تداوم امنیت کامل حساب کاربری در برابر تلاش‌های ورود از رایانه‌های ناشناس یا خارجی."
+                              infoExampleEn="Industry standard pattern (Google/Microsoft 2FA). Requires valid password on every sign-in, but bypasses the email OTP step on verified devices."
+                              infoExampleFa="الگوی استاندارد جهانی (مشابه گوگل و مایکروسافت)؛ در هر ورود رمز عبور الزامی است، اما مرحله ارسال کد ایمیلی روی دستگاه‌های تاییدشده رد می‌شود."
+                            />
+                          </div>
+                          <p className={`text-[11px] mt-1 leading-relaxed ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                            {isEn
+                              ? 'When active, signing-in users can check "Trust this device for 30 days" in the verification dialog. Future sign-ins from the same recognized browser require only username & password, without sending an email OTP.'
+                              : 'در صورت فعال بودن، کاربران در دیالوگ تایید کد گزینه‌ای تحت عنوان «این دستگاه را تا ۳۰ روز به خاطر بسپار» خواهند دید. ورودهای بعدی از همان مرورگر تنها نیازمند نام کاربری و رمز عبور خواهد بود و کد ایمیلی درخواست نمی‌شود.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0 self-end sm:self-center">
+                        <input
+                          type="checkbox"
+                          checked={formData.twoFactorRememberDeviceEnabled !== false}
+                          onChange={(e) => {
+                            setFormData({ ...formData, twoFactorRememberDeviceEnabled: e.target.checked });
+                          }}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] rtl:after:left-auto rtl:after:right-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+                      </label>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
