@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.395.0';
+export const APP_VERSION = '1.396.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.396.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۲ حاکمیت دسترسی: افزودن کارت‌های کنترلی پیکربندی گروهی و مدیریت صفحات در مودال Access Policy',
+    title_en: 'Phase 2: Access Governance UI Controls for Bulk Device Configuration & Views Management in Access Policy Modal',
+    changes: [
+      'افزودن کارت کنترل دسترسی «پیکربندی گروهی تجهیزات شبکه» (Bulk Device Configuration) به بخش Navigation Menus & Panel Views Access Governance در مودال پالیسی.',
+      'افزودن کارت کنترل دسترسی «مدیریت دسترسی به منوها و صفحات» (Navigation & Views Governance) جهت تفکیک اختیارات ادمین‌ها در ویرایش دسترسی‌های سامانه.',
+      'تجهیز کارت‌های جدید به آیکون‌های متناسب (Sliders و Compass) و کادرهای راهنمای سه‌بخشی استاندارد (این چیست، چرا لازم است، مثال کاربردی).',
+      'یکپارچه‌سازی کامل گزینه‌های جدید با دکمه‌های «انتخاب همه» و «لغو همه» و استیت اولیه پیش‌نویس پالیسی (draftPolicy).'
+    ],
+    changes_en: [
+      'Added "Bulk Device Configuration" permission toggle card into the Navigation Menus & Panel Views Access Governance grid of Access Policy modal.',
+      'Added "Navigation & Views Governance" authority card to govern delegating navigation visibility and tab rights across policies.',
+      'Equipped new permission items with semantic icons (Sliders & Compass) and standard 3-part engineering tooltips (What is it, Why is it needed, Practical Example).',
+      'Seamlessly integrated new permission controls into Select All / Deselect All bulk actions and draftPolicy initial state resolution.'
+    ]
+  },
   {
     version: '1.395.0',
     releaseDate: '2026-10-29',

@@ -161,6 +161,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canAddDevice:
         initialPolicy.canAddDevice ??
         Boolean(initialPolicy.defaultDevicePermissions?.add_device ?? initialPolicy.canManageDevices),
+      canBulkConfigureDevices:
+        initialPolicy.canBulkConfigureDevices ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canManageNavigationGovernance:
+        initialPolicy.canManageNavigationGovernance ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
       defaultServerPermissions: initialPolicy.defaultServerPermissions || {
         terminal: false,
         file_explorer: true,
@@ -815,6 +821,8 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canViewNetworkTools: enabled,
         canViewPhysicalPlacement: enabled,
         canViewSettings: enabled,
+        canBulkConfigureDevices: enabled,
+        canManageNavigationGovernance: enabled,
       };
     });
   };
@@ -2896,8 +2904,37 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         descFa: 'تنظیمات اکتیو دایرکتوری، پالیسی‌ها و بکاپ',
                         icon: Settings,
                       },
+                      {
+                        key: 'canBulkConfigureDevices',
+                        labelEn: 'Bulk Device Configuration',
+                        labelFa: 'پیکربندی گروهی تجهیزات شبکه',
+                        descEn: 'Batch multi-vendor config & CLI automation suite',
+                        descFa: 'ماژول اعمال گروهی دستورات و اتوماسیون روی تجهیزات',
+                        icon: Sliders,
+                        whatIsItEn: 'Controls access to the Bulk Device Configuration modal and multi-device CLI command automation suite.',
+                        whatIsItFa: 'مجوز باز کردن مودال و استفاده از سامانه اتوماسیون و اجرای گروهی دستورات روی تجهیزات شبکه.',
+                        whyNeededEn: 'Batch CLI execution carries high operational risk. Restricting this permission prevents accidental or unauthorized network-wide changes.',
+                        whyNeededFa: 'اجرای دستورات گروهی ریسک بالایی دارد؛ محدود کردن آن مانع از دستکاری‌های ناخواسته یا خرابکاری گسترده در شبکه می‌شود.',
+                        practicalExampleEn: 'Enable only for Senior Network Engineers and Super Administrators',
+                        practicalExampleFa: 'فقط برای مدیران ارشد شبکه و ادمین‌های زیرساخت فعال باشد',
+                      },
+                      {
+                        key: 'canManageNavigationGovernance',
+                        labelEn: 'Navigation & Views Governance',
+                        labelFa: 'مدیریت دسترسی به منوها و صفحات',
+                        descEn: 'Authority to govern & configure panel tabs and view access',
+                        descFa: 'اختیار تعیین و محدودسازی دسترسی به تب‌ها و صفحات پنل',
+                        icon: Compass,
+                        whatIsItEn: 'Allows editing and configuring navigation menu visibility and panel view access rules across policies.',
+                        whatIsItFa: 'اختیار تنظیم و تغییر سطوح دسترسی به منوها و صفحات مختلف سامانه در جدول پالیسی‌ها.',
+                        whyNeededEn: 'Prevents non-superadmin operators from elevating their privileges or unlocking hidden operational menus.',
+                        whyNeededFa: 'جلوگیری از دور زدن محدودیت‌ها یا باز کردن صفحات مسدود توسط کاربران و اپراتورهای سطح پایین.',
+                        practicalExampleEn: 'Strictly restricted to Super Administrator',
+                        practicalExampleFa: 'منحصراً برای سوپرادمین و بالاترین رده مدیریتی فعال گردد',
+                      },
                     ].map((item) => {
                       const isChecked = (draftPolicy as any)[item.key] !== false;
+                      const IconComp = item.icon;
                       return (
                         <label
                           key={item.key}
@@ -2924,29 +2961,32 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                           />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between">
-                              <span
-                                className={`font-bold text-xs ${
-                                  isLightMode ? 'text-slate-900' : 'text-white'
-                                }`}
-                              >
-                                {isEn ? item.labelEn : item.labelFa}
-                              </span>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                {IconComp && <IconComp className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
+                                <span
+                                  className={`font-bold text-xs truncate ${
+                                    isLightMode ? 'text-slate-900' : 'text-white'
+                                  }`}
+                                >
+                                  {isEn ? item.labelEn : item.labelFa}
+                                </span>
+                              </div>
                               <FieldInfoTooltip
                                 title={isEn ? item.labelEn : item.labelFa}
                                 whatIsIt={
                                   isEn
-                                    ? `Grants view access to the ${item.labelEn} view.`
-                                    : `مجوز مشاهده و کار با بخش «${item.labelFa}» در پنل.`
+                                    ? ((item as any).whatIsItEn || `Grants view access to the ${item.labelEn} view.`)
+                                    : ((item as any).whatIsItFa || `مجوز مشاهده و کار با بخش «${item.labelFa}» در پنل.`)
                                 }
                                 whyNeeded={
                                   isEn
-                                    ? 'Prevents unauthorized inspection of network metrics, passwords, or topology.'
-                                    : 'جلوگیری از دسترسی کاربران غیرمجاز به اطلاعات حساس و تلمتری این بخش.'
+                                    ? ((item as any).whyNeededEn || 'Prevents unauthorized inspection of network metrics, passwords, or topology.')
+                                    : ((item as any).whyNeededFa || 'جلوگیری از دسترسی کاربران غیرمجاز به اطلاعات حساس و تلمتری این بخش.')
                                 }
                                 practicalExample={
                                   isEn
-                                    ? 'Disable for guest/viewer accounts'
-                                    : 'برای حساب‌های مهمان یا اپراتور غیرفعال شود'
+                                    ? ((item as any).practicalExampleEn || 'Disable for guest/viewer accounts')
+                                    : ((item as any).practicalExampleFa || 'برای حساب‌های مهمان یا اپراتور غیرفعال شود')
                                 }
                                 isEn={isEn}
                                 isLightMode={isLightMode}
