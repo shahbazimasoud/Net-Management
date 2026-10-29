@@ -138,6 +138,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
     bottom?: number;
     left?: number;
     right?: number;
+    maxHeight?: number;
     device: Device;
   } | null>(null);
 
@@ -456,6 +457,49 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
     };
   }, [menuAnchor]);
 
+  // Dynamic boundary clamping for 3-dots action menu to guarantee no overflow on small viewports
+  useEffect(() => {
+    if (!menuAnchor || !menuDropdownRef.current) return;
+    const el = menuDropdownRef.current;
+    const rect = el.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const topMargin = 12;
+    const bottomMargin = 44; // Rule 7.2: keep footer clear
+
+    let adjustedTop = menuAnchor.top;
+    let adjustedMaxHeight = menuAnchor.maxHeight;
+
+    if (rect.bottom > viewportHeight - bottomMargin) {
+      const overflow = rect.bottom - (viewportHeight - bottomMargin);
+      if (rect.top - overflow >= topMargin) {
+        adjustedTop = rect.top - overflow;
+      } else {
+        adjustedTop = topMargin;
+        adjustedMaxHeight = Math.max(160, viewportHeight - topMargin - bottomMargin);
+      }
+    }
+
+    if (rect.top < topMargin) {
+      adjustedTop = topMargin;
+      adjustedMaxHeight = Math.max(160, viewportHeight - topMargin - bottomMargin);
+    }
+
+    if (
+      (adjustedTop !== undefined && adjustedTop !== menuAnchor.top) ||
+      (adjustedMaxHeight !== undefined && adjustedMaxHeight !== menuAnchor.maxHeight)
+    ) {
+      setMenuAnchor((prev) =>
+        prev
+          ? {
+              ...prev,
+              top: adjustedTop,
+              maxHeight: adjustedMaxHeight,
+            }
+          : null
+      );
+    }
+  }, [menuAnchor?.id]);
+
   const handleToggleActionMenu = (e: React.MouseEvent<HTMLButtonElement>, dev: Device) => {
     e.stopPropagation();
     if (!hasAnyDeviceActionPermitted(effectivePolicy, dev)) {
@@ -467,40 +511,53 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
       return;
     }
     const rect = e.currentTarget.getBoundingClientRect();
-    const menuEstimatedHeight = 330;
-    const menuWidth = 256;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const openUpwards = spaceBelow < menuEstimatedHeight && rect.top > menuEstimatedHeight;
+    const menuWidth = 264; // ~16.5rem
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const topMargin = 12;
+    const bottomMargin = 44; // Rule 7.2: strict clearance above footer bar
+    const estimatedMenuHeight = 440; // Full action menu height with all features
 
-    const pos: {
-      id: string;
-      top?: number;
-      bottom?: number;
-      left?: number;
-      right?: number;
-      device: Device;
-    } = {
+    const spaceBelow = viewportHeight - rect.bottom - bottomMargin;
+    const spaceAbove = rect.top - topMargin;
+
+    let top: number;
+    let maxHeight: number;
+
+    // Prefer opening downwards if ample room or if space below is larger than space above
+    if (spaceBelow >= Math.min(estimatedMenuHeight, 280) || spaceBelow >= spaceAbove) {
+      top = rect.bottom + 6;
+      maxHeight = Math.max(160, viewportHeight - top - bottomMargin);
+    } else {
+      // Open upwards above the button
+      const allowedHeight = Math.max(160, Math.min(estimatedMenuHeight, spaceAbove - 6));
+      top = Math.max(topMargin, rect.top - 6 - allowedHeight);
+      maxHeight = Math.max(160, rect.top - 6 - top);
+    }
+
+    // Determine horizontal placement with boundary clamping
+    let left: number;
+    if (isRtl) {
+      // In RTL: align left edge of menu with left edge of button
+      left = rect.left;
+      if (left + menuWidth > viewportWidth - 12) {
+        left = Math.max(12, viewportWidth - menuWidth - 12);
+      }
+    } else {
+      // In LTR: align right edge of menu with right edge of button
+      left = rect.right - menuWidth;
+      if (left < 12) {
+        left = 12;
+      }
+    }
+
+    setMenuAnchor({
       id: dev.id,
       device: dev,
-    };
-
-    if (openUpwards) {
-      pos.bottom = window.innerHeight - rect.top + 6;
-    } else {
-      pos.top = rect.bottom + 6;
-    }
-
-    if (isRtl) {
-      // In RTL, align left side of dropdown with left side of button, bounded
-      const left = Math.max(12, Math.min(rect.left, window.innerWidth - menuWidth - 12));
-      pos.left = left;
-    } else {
-      // In LTR, align right side of dropdown with right side of button, bounded
-      const right = Math.max(12, Math.min(window.innerWidth - rect.right, window.innerWidth - menuWidth - 12));
-      pos.right = right;
-    }
-
-    setMenuAnchor(pos);
+      top,
+      left,
+      maxHeight,
+    });
   };
 
   const buildings = Array.from(new Set(devices.map((d) => d.building).filter(Boolean)));
@@ -1468,10 +1525,11 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                 bottom: menuAnchor.bottom !== undefined ? `${menuAnchor.bottom}px` : undefined,
                 left: menuAnchor.left !== undefined ? `${menuAnchor.left}px` : undefined,
                 right: menuAnchor.right !== undefined ? `${menuAnchor.right}px` : undefined,
-                maxHeight: 'calc(100vh - 24px)',
+                maxHeight: `${menuAnchor.maxHeight ?? Math.max(160, window.innerHeight - 56)}px`,
+                width: '16.5rem',
                 zIndex: 9999,
               }}
-              className={`w-64 rounded-2xl shadow-2xl p-1.5 border font-sans device-action-dropdown animate-fadeIn overflow-y-auto overscroll-contain custom-scrollbar ${
+              className={`rounded-2xl shadow-2xl p-1.5 border font-sans device-action-dropdown animate-fadeIn overflow-y-auto overscroll-contain custom-scrollbar ${
                 isRtl ? 'text-right' : 'text-left'
               } ${
                 isLightMode
@@ -1482,8 +1540,8 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
               onWheel={(e) => e.stopPropagation()}
             >
               <div
-                className={`px-3 py-2 border-b flex items-center justify-between text-[11px] font-mono ${
-                  isLightMode ? 'border-slate-200' : 'border-white/10'
+                className={`sticky top-0 z-10 px-3 py-2 border-b flex items-center justify-between text-[11px] font-mono backdrop-blur-md rounded-t-xl ${
+                  isLightMode ? 'bg-white/90 border-slate-200' : 'bg-slate-950/90 border-white/10'
                 }`}
               >
                 <span className={`font-bold truncate max-w-[120px] ${isLightMode ? 'text-slate-900' : 'text-white'}`}>

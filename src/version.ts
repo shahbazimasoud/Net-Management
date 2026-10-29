@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.393.0';
+export const APP_VERSION = '1.393.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.393.1',
+    releaseDate: '2026-10-29',
+    type: 'patch',
+    title: 'اصلاح ریسپانسیو و اسکرول منوی ۳ نقطه تجهیزات در نمایشگرهای کوچک',
+    title_en: 'Responsive Overflow & Smooth Scrolling Fix for Equipment 3-Dots Action Menu on Small Screens',
+    changes: [
+      'محاسبه داینامیک بیشینه ارتفاع (maxHeight) برای منوی عملیات ۳ نقطه در جدول دیوایس‌ها بر اساس فضای آزاد بالا و پایین دکمه.',
+      'تعبیه اسکرول‌بار ظریف و روان (custom-scrollbar) برای منوی ۳ نقطه جهت پیمایش کامل کلیه آیتم‌ها در نمایشگرهای کوچک و لپ‌تاپ.',
+      'تثبیت هدر منوی ۳ نقطه (شامل نام و IP تجهیز) با خاصیت چسبنده (sticky top-0) همراه با بلور شیشه‌ای هنگام اسکرول.',
+      'اعمال محدودیت‌های لبه‌ای دقیق و حفظ همیشگی فاصله از کف صفحه و نوار فوتر (bottom-8) طبق قانون ۷.۲.'
+    ],
+    changes_en: [
+      'Implemented dynamic viewport-aware maxHeight calculation for the equipment 3-dots action menu based on available space above and below.',
+      'Enabled smooth internal scrolling (custom-scrollbar) to ensure all action items remain fully accessible and visible on smaller screens and laptops.',
+      'Pinned action menu header displaying device name and IP via sticky top-0 positioning with frosted backdrop-blur during scrolling.',
+      'Enforced strict 4-way viewport boundary clamping and guaranteed footer clearance (bottom-8) per architectural rule 7.2.'
+    ]
+  },
   {
     version: '1.393.0',
     releaseDate: '2026-10-29',
