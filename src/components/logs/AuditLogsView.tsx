@@ -59,11 +59,14 @@ import {
   AuditLogSeverity,
   CommandRiskLevel,
   CommandChannel,
-  AuditReportScheduleConfig
+  AuditReportScheduleConfig,
+  AuditStorageStats,
 } from '../../types';
 import {
   loadPortalAuditLogs,
   loadDeviceCommandLogs,
+  fetchPortalAuditLogs,
+  fetchDeviceCommandLogs,
   loadServerCommandLogs,
   exportPortalLogsAsCsv,
   exportCommandLogsAsCsv,
@@ -78,7 +81,8 @@ import {
   getAuditEmailReportsListApi,
   deleteAuditEmailReportApi,
   toggleAuditEmailReportApi,
-  sendAuditEmailReportByIdNowApi
+  sendAuditEmailReportByIdNowApi,
+  fetchAuditStorageStatsApi,
 } from '../../services/api';
 import { useLanguage } from '../../i18n/LanguageContext';
 
@@ -244,7 +248,15 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [selectedVendor, setSelectedVendor] = useState<string>('all');
-  const [selectedTimeframe, setSelectedTimeframe] = useState<'all' | '1h' | '24h' | '7d'>('all');
+  const [selectedTimeframe, setSelectedTimeframe] = useState<'all' | '1h' | '24h' | '7d' | '30d'>('all');
+  const [selectedUser, setSelectedUser] = useState<string>('all');
+  const [storageStats, setStorageStats] = useState<AuditStorageStats | null>(null);
+
+  // Pagination state
+  const [commandsPage, setCommandsPage] = useState<number>(1);
+  const [commandsPageSize, setCommandsPageSize] = useState<number>(25);
+  const [portalPage, setPortalPage] = useState<number>(1);
+  const [portalPageSize, setPortalPageSize] = useState<number>(25);
 
   // Selected entities in Grouped views
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
@@ -260,27 +272,37 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isConfirmPurgeOpen, setIsConfirmPurgeOpen] = useState(false);
 
-  // Load logs initially and subscribe to live update events
-  const refreshData = () => {
+  // Authoritative live refresh directly from PostgreSQL backend with optimistic cache fallback
+  const refreshData = async () => {
     setIsRefreshing(true);
-    setPortalLogs(loadPortalAuditLogs());
-    setCommandLogs(loadDeviceCommandLogs());
-    loadServerCommandLogs()
-      .then((logs) => setServerLogs(logs))
-      .catch((err) => console.warn('Failed to load server logs:', err));
-    setTimeout(() => setIsRefreshing(false), 400);
+    try {
+      const [pLogs, cLogs, sLogs, statsData] = await Promise.all([
+        fetchPortalAuditLogs(),
+        fetchDeviceCommandLogs(),
+        loadServerCommandLogs(),
+        fetchAuditStorageStatsApi().catch(() => null),
+      ]);
+      setPortalLogs(pLogs);
+      setCommandLogs(cLogs);
+      if (sLogs) setServerLogs(sLogs);
+      if (statsData?.stats) setStorageStats(statsData.stats);
+    } catch (err) {
+      console.warn('[AuditLogsView] Failed to live-refresh audit logs from PostgreSQL:', err);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 300);
+    }
   };
 
   useEffect(() => {
+    // 1. Instant optimistic load from local cache
+    setPortalLogs(loadPortalAuditLogs());
+    setCommandLogs(loadDeviceCommandLogs());
+    // 2. Authoritative live fetch from PostgreSQL database
     refreshData();
     loadReportsList();
 
     const handleUpdate = () => {
-      setPortalLogs(loadPortalAuditLogs());
-      setCommandLogs(loadDeviceCommandLogs());
-      loadServerCommandLogs()
-        .then((logs) => setServerLogs(logs))
-        .catch((err) => console.warn('Failed to live-update server logs:', err));
+      refreshData();
     };
 
     window.addEventListener(AUDIT_LOG_UPDATED_EVENT, handleUpdate);
@@ -294,6 +316,21 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // Derive unique users across all audit streams for filtering
+  const uniqueUsers = useMemo(() => {
+    const userSet = new Set<string>();
+    portalLogs.forEach((p) => {
+      if (p.actor?.username) userSet.add(p.actor.username);
+    });
+    commandLogs.forEach((c) => {
+      if (c.actor?.username) userSet.add(c.actor.username);
+    });
+    serverLogs.forEach((s) => {
+      if (s.actor?.username) userSet.add(s.actor.username);
+    });
+    return Array.from(userSet).sort();
+  }, [portalLogs, commandLogs, serverLogs]);
+
   // Timeframe filter calculation
   const isWithinTimeframe = (timestamp: string): boolean => {
     if (selectedTimeframe === 'all') return true;
@@ -303,13 +340,24 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
     if (selectedTimeframe === '1h') return diff <= 1000 * 60 * 60;
     if (selectedTimeframe === '24h') return diff <= 1000 * 60 * 60 * 24;
     if (selectedTimeframe === '7d') return diff <= 1000 * 60 * 60 * 24 * 7;
+    if (selectedTimeframe === '30d') return diff <= 1000 * 60 * 60 * 24 * 30;
     return true;
   };
+
+  // Reset pagination when any filter changes
+  useEffect(() => {
+    setCommandsPage(1);
+  }, [searchQuery, selectedVendor, selectedSeverity, selectedCategory, selectedTimeframe, selectedUser, commandGroupMode]);
+
+  useEffect(() => {
+    setPortalPage(1);
+  }, [searchQuery, selectedCategory, selectedSeverity, selectedTimeframe, selectedUser]);
 
   // Filtered portal logs
   const filteredPortalLogs = useMemo(() => {
     return portalLogs.filter((log) => {
       if (!isWithinTimeframe(log.timestamp)) return false;
+      if (selectedUser !== 'all' && log.actor.username !== selectedUser) return false;
       if (selectedCategory !== 'all' && log.category !== selectedCategory) return false;
       if (selectedSeverity !== 'all' && log.severity !== selectedSeverity) return false;
 
@@ -328,12 +376,20 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
         (log.target.ip && log.target.ip.includes(q))
       );
     });
-  }, [portalLogs, searchQuery, selectedCategory, selectedSeverity, selectedTimeframe]);
+  }, [portalLogs, searchQuery, selectedCategory, selectedSeverity, selectedTimeframe, selectedUser]);
+
+  // Paginated portal logs
+  const totalPortalPages = Math.max(1, Math.ceil(filteredPortalLogs.length / portalPageSize));
+  const paginatedPortalLogs = useMemo(() => {
+    const start = (portalPage - 1) * portalPageSize;
+    return filteredPortalLogs.slice(start, start + portalPageSize);
+  }, [filteredPortalLogs, portalPage, portalPageSize]);
 
   // Filtered command logs
   const filteredCommandLogs = useMemo(() => {
     return commandLogs.filter((cmd) => {
       if (!isWithinTimeframe(cmd.timestamp)) return false;
+      if (selectedUser !== 'all' && cmd.actor.username !== selectedUser) return false;
       if (selectedVendor !== 'all' && cmd.deviceVendor !== selectedVendor) return false;
       if (selectedSeverity !== 'all' && cmd.riskLevel !== selectedSeverity) return false;
       if (selectedCategory !== 'all' && cmd.channel !== selectedCategory) return false;
@@ -350,7 +406,14 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
         (cmd.notes && cmd.notes.toLowerCase().includes(q))
       );
     });
-  }, [commandLogs, searchQuery, selectedVendor, selectedSeverity, selectedCategory, selectedTimeframe]);
+  }, [commandLogs, searchQuery, selectedVendor, selectedSeverity, selectedCategory, selectedTimeframe, selectedUser]);
+
+  // Paginated command logs
+  const totalCommandPages = Math.max(1, Math.ceil(filteredCommandLogs.length / commandsPageSize));
+  const paginatedCommandLogs = useMemo(() => {
+    const start = (commandsPage - 1) * commandsPageSize;
+    return filteredCommandLogs.slice(start, start + commandsPageSize);
+  }, [filteredCommandLogs, commandsPage, commandsPageSize]);
 
   // KPIs
   const stats = useMemo(() => {
@@ -775,6 +838,115 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
     setWatchSearchQuery('');
   };
 
+  const renderPagination = (
+    currentPage: number,
+    totalPages: number,
+    pageSize: number,
+    totalItems: number,
+    onPageChange: (p: number) => void,
+    onPageSizeChange: (s: number) => void
+  ) => {
+    if (totalItems === 0) return null;
+    const startItem = Math.min((currentPage - 1) * pageSize + 1, totalItems);
+    const endItem = Math.min(currentPage * pageSize, totalItems);
+
+    return (
+      <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t text-xs ${
+        isLightMode
+          ? 'bg-slate-50 border-slate-200 text-slate-600'
+          : 'bg-black/25 border-white/10 text-slate-400'
+      }`}>
+        <div className="flex items-center gap-3">
+          <span>
+            {isEn
+              ? `Showing ${startItem}–${endItem} of ${totalItems} records`
+              : `نمایش ${startItem} تا ${endItem} از مجموع ${totalItems} رکورد`}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] opacity-75">{isEn ? 'Per page:' : 'تعداد در صفحه:'}</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                onPageSizeChange(Number(e.target.value));
+                onPageChange(1);
+              }}
+              className={`py-1 px-2 rounded-lg border text-xs focus:outline-none cursor-pointer ${
+                isLightMode
+                  ? 'bg-white border-slate-300 text-slate-800'
+                  : 'bg-slate-900 border-white/10 text-white'
+              }`}
+            >
+              <option value={15}>15</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onPageChange(1)}
+            disabled={currentPage <= 1}
+            className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+              isLightMode
+                ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
+                : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
+            }`}
+            title={isEn ? 'First page' : 'صفحه نخست'}
+          >
+            «
+          </button>
+          <button
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage <= 1}
+            className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+              isLightMode
+                ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
+                : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
+            }`}
+            title={isEn ? 'Previous page' : 'صفحه قبل'}
+          >
+            ‹
+          </button>
+
+          <span className={`px-3 py-1 rounded-lg font-mono font-bold text-xs ${
+            isLightMode
+              ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+              : 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
+          }`}>
+            {currentPage} / {totalPages}
+          </span>
+
+          <button
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage >= totalPages}
+            className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+              isLightMode
+                ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
+                : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
+            }`}
+            title={isEn ? 'Next page' : 'صفحه بعد'}
+          >
+            ›
+          </button>
+          <button
+            onClick={() => onPageChange(totalPages)}
+            disabled={currentPage >= totalPages}
+            className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+              isLightMode
+                ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
+                : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
+            }`}
+            title={isEn ? 'Last page' : 'صفحه آخر'}
+          >
+            »
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="p-3 sm:p-5 md:p-6 space-y-6 max-w-7xl mx-auto font-sans animate-fadeIn">
       {/* Dynamic Header Banner - Theme Harmonized with spatial-glass */}
@@ -792,6 +964,16 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                 <span>SIEM Active</span>
+              </span>
+
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5" title={isEn ? 'Authoritative persistent PostgreSQL storage' : 'ذخیره‌سازی دائمی و مستقیم در PostgreSQL'}>
+                <Database className="w-3.5 h-3.5 text-indigo-400" />
+                <span>{isEn ? 'PostgreSQL Live' : 'دیتابیس زنده'}</span>
+                {storageStats?.totalSizeFormatted && (
+                  <span className="px-1.5 py-0.2 rounded bg-indigo-500/30 text-white text-[10px] font-mono">
+                    {storageStats.totalSizeFormatted}
+                  </span>
+                )}
               </span>
             </div>
             <p className="text-xs text-slate-300 mt-1 max-w-4xl leading-relaxed">
@@ -1120,6 +1302,18 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
                   </button>
                 )}
               </div>
+
+              {/* User filter */}
+              <select
+                value={selectedUser}
+                onChange={(e) => setSelectedUser(e.target.value)}
+                className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0"
+              >
+                <option value="all" className="bg-slate-900 text-white">{isEn ? 'All Users' : 'همه کاربران'}</option>
+                {uniqueUsers.map((u) => (
+                  <option key={u} value={u} className="bg-slate-900 text-white">{u}</option>
+                ))}
+              </select>
 
               {/* Vendor filter */}
               <select
@@ -1619,7 +1813,7 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
                         </td>
                       </tr>
                     ) : (
-                      filteredCommandLogs.map((cmd) => {
+                      paginatedCommandLogs.map((cmd) => {
                         const isDenied = cmd.status === 'denied';
                         return (
                           <tr key={cmd.id} className="hover:bg-white/[0.03] transition">
@@ -1696,6 +1890,15 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
                   </tbody>
                 </table>
               </div>
+
+              {renderPagination(
+                commandsPage,
+                totalCommandPages,
+                commandsPageSize,
+                filteredCommandLogs.length,
+                setCommandsPage,
+                setCommandsPageSize
+              )}
             </div>
           )}
         </div>
@@ -1746,6 +1949,18 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {/* User filter */}
+              <select
+                value={selectedUser}
+                onChange={(e) => setSelectedUser(e.target.value)}
+                className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+              >
+                <option value="all" className="bg-slate-900 text-white">{isEn ? 'All Users' : 'همه کاربران'}</option>
+                {uniqueUsers.map((u) => (
+                  <option key={u} value={u} className="bg-slate-900 text-white">{u}</option>
+                ))}
+              </select>
+
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
@@ -1810,7 +2025,7 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
                       </td>
                     </tr>
                   ) : (
-                    filteredPortalLogs.map((log) => {
+                    paginatedPortalLogs.map((log) => {
                       const isCritical = log.severity === 'critical';
                       return (
                         <tr key={log.id} className="hover:bg-white/[0.03] transition">
@@ -1871,6 +2086,15 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
                 </tbody>
               </table>
             </div>
+
+            {renderPagination(
+              portalPage,
+              totalPortalPages,
+              portalPageSize,
+              filteredPortalLogs.length,
+              setPortalPage,
+              setPortalPageSize
+            )}
           </div>
         </div>
       )}

@@ -8009,3 +8009,104 @@ export async function testTelegramConfigApi(payload: {
   const data = await res.json();
   return data;
 }
+
+// ==========================================
+// Authoritative Database Audit Logs & Retention APIs (Phase 2 & 3)
+// ==========================================
+
+export async function fetchDeviceCommandLogsApi(options: {
+  deviceId?: string;
+  operatorUsername?: string;
+  riskLevel?: string;
+  channel?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<{ success: boolean; logs: any[]; total: number; limit: number; offset: number }> {
+  const params = new URLSearchParams();
+  if (options.deviceId) params.append('deviceId', options.deviceId);
+  if (options.operatorUsername) params.append('operatorUsername', options.operatorUsername);
+  if (options.riskLevel && options.riskLevel !== 'all') params.append('riskLevel', options.riskLevel);
+  if (options.channel && options.channel !== 'all') params.append('channel', options.channel);
+  if (options.search) params.append('search', options.search);
+  if (options.limit) params.append('limit', String(options.limit));
+  if (options.offset) params.append('offset', String(options.offset));
+
+  const res = await fetchWithRetry(`${API_BASE}/audit-logs/devices?${params.toString()}`);
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function recordDeviceCommandLogApi(log: any): Promise<{ success: boolean; log: any }> {
+  const res = await fetchWithRetry(`${API_BASE}/audit-logs/devices`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(log),
+  });
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function fetchPortalAuditLogsApi(options: {
+  category?: string;
+  severity?: string;
+  status?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<{ success: boolean; logs: any[]; total: number; limit: number; offset: number }> {
+  const params = new URLSearchParams();
+  if (options.category && options.category !== 'all') params.append('category', options.category);
+  if (options.severity && options.severity !== 'all') params.append('severity', options.severity);
+  if (options.status && options.status !== 'all') params.append('status', options.status);
+  if (options.search) params.append('search', options.search);
+  if (options.limit) params.append('limit', String(options.limit));
+  if (options.offset) params.append('offset', String(options.offset));
+
+  const res = await fetchWithRetry(`${API_BASE}/audit-logs/portal?${params.toString()}`);
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function recordPortalAuditLogApi(log: any): Promise<{ success: boolean; log: any }> {
+  const res = await fetchWithRetry(`${API_BASE}/audit-logs/portal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(log),
+  });
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function fetchAuditStorageStatsApi(): Promise<{ success: boolean; stats: any }> {
+  const res = await fetchWithRetry(`${API_BASE}/audit-logs/stats`);
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function fetchLogRetentionConfigApi(): Promise<{ success: boolean; config: any; stats?: any }> {
+  const res = await fetchWithRetry(`${API_BASE}/settings/log-retention`);
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function saveLogRetentionConfigApi(config: any): Promise<{ success: boolean; config: any }> {
+  const res = await fetchWithRetry(`${API_BASE}/settings/log-retention`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  });
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function purgeLogRetentionNowApi(options: { retentionDays?: number; backupBeforePurge?: boolean } = {}): Promise<{ success: boolean; result: any }> {
+  const res = await fetchWithRetry(`${API_BASE}/settings/log-retention/purge-now`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+

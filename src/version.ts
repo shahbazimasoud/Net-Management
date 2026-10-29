@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.400.0';
+export const APP_VERSION = '1.401.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.401.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۳ ممیزی سیستم: انتقال AuditLogger و نمایشگر لاگ‌ها به پایگاه داده PostgreSQL، کش آفلاین و صفحه‌بندی هوشمند',
+    title_en: 'Phase 3: Database-Authoritative AuditLogger, Real-time PostgreSQL Dispatch, Offline Cache & Paginated Audit View',
+    changes: [
+      'بازطراحی کامل سرویس ممیزی سیستم (auditLogger.ts) با ارسال بلادرنگ رویدادها و فرامین به پایگاه داده PostgreSQL سرور از طریق اندپوئینت‌های API.',
+      'تبدیل حافظه محلی مرورگر (localStorage) به لایه کش محافظ آفلاین (Offline Fallback Cache) تا در زمان قطعی موقت ارتباط، هیچ لاگی از دست نرود و پس از برقراری مجدد ارسال گردد.',
+      'تجهیز ویوی ممیزی سیستم (AuditLogsView.tsx) به استعلام داده‌های زنده و اصیل مستقیماً از PostgreSQL به همراه وضعیت برخط اتصال دیتابیس (PostgreSQL Live Telemetry).',
+      'افزودن قابلیت صفحه‌بندی پیشرفته (Pagination) با انتخاب تعداد رکورد در هر صفحه (۱۵، ۲۵، ۵۰، ۱۰۰) و ناوبری صفحات برای جداول فرامین تجهیزات و رویدادهای پورتال.',
+      'افزودن فیلتر پویا بر اساس کاربر و اپراتور اجراکننده (Operator / User Filter) در نوار ابزار جداول لاگ.',
+      'توسعه کلاینت API در src/services/api.ts شامل توابع واکشی و ثبت فرامین، رویدادهای پورتال، آمار تلمتری و تنظیمات نگهداری لاگ‌ها.'
+    ],
+    changes_en: [
+      'Architected database-authoritative audit logging service (auditLogger.ts) dispatching commands and lifecycle events directly to server PostgreSQL backend via REST APIs.',
+      'Relegated localStorage to an offline fallback cache layer, guaranteeing zero telemetry loss during network disruptions and seamless background sync.',
+      'Upgraded AuditLogsView.tsx to retrieve live authoritative audit events directly from PostgreSQL with real-time database connection telemetry and health status badge.',
+      'Implemented comprehensive multi-tier pagination with custom page-size selector (15, 25, 50, 100 rows) and intuitive page navigation controls for device commands and portal events.',
+      'Integrated dynamic operator/user filtering across all log streams allowing targeted inspection of actions per administrator or service account.',
+      'Engineered end-to-end API client functions in src/services/api.ts covering device command logs, portal audit streams, storage metrics, and retention policies.'
+    ]
+  },
   {
     version: '1.400.0',
     releaseDate: '2026-10-29',

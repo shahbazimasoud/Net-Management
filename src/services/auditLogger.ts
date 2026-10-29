@@ -11,6 +11,12 @@ import {
   AuditLogCategory,
   AuditLogSeverity
 } from '../types';
+import {
+  fetchDeviceCommandLogsApi,
+  recordDeviceCommandLogApi,
+  fetchPortalAuditLogsApi,
+  recordPortalAuditLogApi,
+} from './api';
 
 const STORAGE_KEYS = {
   PORTAL_LOGS: 'nettopology_portal_audit_logs_v1',
@@ -227,8 +233,30 @@ const SEED_PORTAL_LOGS: PortalAuditLogEntry[] = [
 ];
 
 // ==========================================
-// Storage & Access API (Zero Mock Data)
+// Storage & Access API (PostgreSQL-Authoritative with Resilient Local Cache)
 // ==========================================
+
+export async function fetchPortalAuditLogs(options: {
+  category?: string;
+  severity?: string;
+  status?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<PortalAuditLogEntry[]> {
+  try {
+    const res = await fetchPortalAuditLogsApi(options);
+    if (res && res.success && Array.isArray(res.logs)) {
+      if (res.logs.length > 0 || (options.category === undefined && options.search === undefined)) {
+        savePortalAuditLogs(res.logs);
+      }
+      return res.logs;
+    }
+  } catch (err) {
+    console.warn('[AuditLogger] Fallback to local storage for portal audit logs:', err);
+  }
+  return loadPortalAuditLogs();
+}
 
 export function loadPortalAuditLogs(): PortalAuditLogEntry[] {
   try {
@@ -267,7 +295,31 @@ export function savePortalAuditLogs(logs: PortalAuditLogEntry[]): void {
 }
 
 /**
- * Loads authentic device command logs only. Purges any legacy mock/seeded data.
+ * Fetches authentic device command logs from PostgreSQL backend with local cache fallback
+ */
+export async function fetchDeviceCommandLogs(options: {
+  deviceId?: string;
+  operatorUsername?: string;
+  riskLevel?: string;
+  channel?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<DeviceCommandLogEntry[]> {
+  try {
+    const res = await fetchDeviceCommandLogsApi(options);
+    if (res && res.success && Array.isArray(res.logs)) {
+      saveDeviceCommandLogs(res.logs);
+      return res.logs;
+    }
+  } catch (err) {
+    console.warn('[AuditLogger] Fallback to local storage for device command logs:', err);
+  }
+  return loadDeviceCommandLogs();
+}
+
+/**
+ * Loads authentic device command logs from local cache. Purges any legacy mock/seeded data.
  */
 export function loadDeviceCommandLogs(): DeviceCommandLogEntry[] {
   try {
@@ -425,6 +477,12 @@ export function logPortalEvent(entry: Omit<PortalAuditLogEntry, 'id' | 'timestam
   };
   const updated = [newLog, ...currentLogs].slice(0, 500); // Cap at 500 entries
   savePortalAuditLogs(updated);
+
+  // Authoritative real-time asynchronous dispatch to PostgreSQL backend
+  recordPortalAuditLogApi(newLog).catch((err) => {
+    console.warn('[AuditLogger] Offline cache active: could not dispatch portal log to PostgreSQL immediately:', err?.message || err);
+  });
+
   return newLog;
 }
 
@@ -638,6 +696,12 @@ export function logDeviceCommand(
 
   const updated = [newLog, ...currentLogs].slice(0, 500); // Cap at 500 commands
   saveDeviceCommandLogs(updated);
+
+  // Authoritative real-time asynchronous dispatch to PostgreSQL backend
+  recordDeviceCommandLogApi(newLog).catch((err) => {
+    console.warn('[AuditLogger] Offline cache active: could not dispatch device command log to PostgreSQL immediately:', err?.message || err);
+  });
+
   return newLog;
 }
 

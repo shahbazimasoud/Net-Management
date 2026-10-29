@@ -47,7 +47,7 @@ interface ServerCommandLogsSectionProps {
   isEn?: boolean;
   isRtl?: boolean;
   serverLogs: ServerCommandAuditLogEntry[];
-  selectedTimeframe: 'all' | '1h' | '24h' | '7d';
+  selectedTimeframe: 'all' | '1h' | '24h' | '7d' | '30d';
   isWithinTimeframe: (iso: string) => boolean;
   formatDateTime: (iso: string) => string;
   formatDateOnly: (iso: string) => string;
