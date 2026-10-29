@@ -34,6 +34,8 @@ import { useModalDock } from '../../context/ModalDockContext';
 import { isDeviceActionPermitted } from '../../utils/rbac';
 import { fetchCiscoConfig, saveCiscoConfigNvram } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { CiscoVtyTab } from './CiscoVtyTab';
+import { CiscoNtpTab } from './CiscoNtpTab';
 
 export type CiscoConfigTabId =
   | 'vty'
@@ -663,119 +665,140 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
           {/* Authentic Loaded Content Shell */}
           {!loading && !error && (
             <div className="space-y-6">
-              {/* Shell placeholder / overview card for the active tab */}
-              <div
-                className={`p-5 rounded-2xl border shadow-sm ${
-                  isLightMode
-                    ? 'bg-white border-slate-200 text-slate-800'
-                    : 'bg-slate-900/60 border-slate-800 text-slate-200'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2.5">
-                    <div
-                      className={`p-2 rounded-lg ${
-                        isLightMode ? 'bg-cyan-50 text-cyan-700' : 'bg-cyan-950/60 text-cyan-400'
-                      }`}
-                    >
-                      <currentTabDef.icon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold">
-                        {isEn ? currentTabDef.labelEn : currentTabDef.labelFa}
-                      </h3>
-                      <p className={`text-xs mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                        {isEn ? `Domain: ${currentTabDef.id.toUpperCase()} • Action: ${currentTabDef.actionKey}` : `سرفصل: ${currentTabDef.id.toUpperCase()} • دسترسی: ${currentTabDef.actionKey}`}
-                      </p>
-                    </div>
-                  </div>
+              {activeTab === 'vty' && (
+                <CiscoVtyTab
+                  device={device}
+                  initialConfig={configState}
+                  isPermitted={isTabPermitted}
+                  isLightMode={isLightMode}
+                  onConfigApplied={loadHardwareConfig}
+                />
+              )}
 
-                  <span
-                    className={`px-2.5 py-1 rounded-full text-xs font-bold font-mono border ${
-                      device.is_online
-                        ? isLightMode
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                          : 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
-                        : isLightMode
-                        ? 'bg-rose-50 text-rose-700 border-rose-300'
-                        : 'bg-rose-950/80 text-rose-300 border-rose-700/60'
-                    }`}
-                  >
-                    {device.is_online ? 'LIVE HARDWARE READY' : 'DEVICE OFFLINE'}
-                  </span>
-                </div>
+              {activeTab === 'ntp' && (
+                <CiscoNtpTab
+                  device={device}
+                  initialConfig={configState}
+                  isPermitted={isTabPermitted}
+                  isLightMode={isLightMode}
+                  onConfigApplied={loadHardwareConfig}
+                />
+              )}
 
-                {/* Tab overview and live hardware properties display */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                  <div
-                    className={`p-3.5 rounded-xl border ${
-                      isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
-                    }`}
-                  >
-                    <div className="font-bold mb-2 flex items-center justify-between text-cyan-500">
-                      <span>{isEn ? 'Hardware Identity' : 'مشخصات سخت‌افزاری'}</span>
-                      <Server className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="space-y-1.5 font-mono text-[11px]">
-                      <div className="flex justify-between">
-                        <span className="opacity-70">{isEn ? 'Hostname:' : 'نام میزبان:'}</span>
-                        <span className="font-bold">{configState?.hostname || device.name || 'Cisco-Switch'}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="opacity-70">{isEn ? 'Management IP:' : 'آی‌پی مدیریتی:'}</span>
-                        <span className="font-bold">{device.ip}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="opacity-70">{isEn ? 'Domain Name:' : 'دامنه شبکه:'}</span>
-                        <span>{configState?.domain_name || 'domain.local'}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div
-                    className={`p-3.5 rounded-xl border ${
-                      isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
-                    }`}
-                  >
-                    <div className="font-bold mb-2 flex items-center justify-between text-cyan-500">
-                      <span>{isEn ? 'Live Probe Status' : 'وضعیت ارتباط با پروب'}</span>
-                      <Activity className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="space-y-1.5 font-mono text-[11px]">
-                      <div className="flex justify-between">
-                        <span className="opacity-70">{isEn ? 'Probe Engine:' : 'موتور پروب:'}</span>
-                        <span>Adaptive SSH (Legacy/Modern)</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="opacity-70">{isEn ? 'Last Probed:' : 'آخرین استعلام:'}</span>
-                        <span>{new Date().toLocaleTimeString()}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="opacity-70">{isEn ? 'Status:' : 'وضعیت:'}</span>
-                        <span className="text-emerald-400 font-bold">{isEn ? 'Synced & Ready' : 'همگام و آماده'}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sub-view instructions for upcoming phases */}
+              {activeTab !== 'vty' && activeTab !== 'ntp' && (
                 <div
-                  className={`mt-4 p-4 rounded-xl border text-xs leading-relaxed ${
+                  className={`p-5 rounded-2xl border shadow-sm ${
                     isLightMode
-                      ? 'bg-cyan-50/60 border-cyan-200 text-cyan-900'
-                      : 'bg-cyan-950/20 border-cyan-500/30 text-cyan-300'
+                      ? 'bg-white border-slate-200 text-slate-800'
+                      : 'bg-slate-900/60 border-slate-800 text-slate-200'
                   }`}
                 >
-                  <p className="font-bold mb-1">
-                    {isEn ? `Tab Module: ${currentTabDef.labelEn}` : `ماژول تب: ${currentTabDef.labelFa}`}
-                  </p>
-                  <p className="opacity-90">
-                    {isEn
-                      ? `Authentic backend engine initialized for ${currentTabDef.id}. Ready for Phase 4-7 full interactive visual controls, CLI delta generator, and one-click deployment.`
-                      : `موتور بک‌اند سیسکو برای بخش ${currentTabDef.id} متصل شده و شل مودال با موفقیت پایه‌گذاری گردید. در فازهای بعدی کنترل‌های بصری، تولید زنده دستورات و پیش‌نمایش کامیت اضافه خواهد شد.`}
-                  </p>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`p-2 rounded-lg ${
+                          isLightMode ? 'bg-cyan-50 text-cyan-700' : 'bg-cyan-950/60 text-cyan-400'
+                        }`}
+                      >
+                        <currentTabDef.icon className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold">
+                          {isEn ? currentTabDef.labelEn : currentTabDef.labelFa}
+                        </h3>
+                        <p className={`text-xs mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? `Domain: ${currentTabDef.id.toUpperCase()} • Action: ${currentTabDef.actionKey}` : `سرفصل: ${currentTabDef.id.toUpperCase()} • دسترسی: ${currentTabDef.actionKey}`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <span
+                      className={`px-2.5 py-1 rounded-full text-xs font-bold font-mono border ${
+                        device.is_online
+                          ? isLightMode
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                            : 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                          : isLightMode
+                          ? 'bg-rose-50 text-rose-700 border-rose-300'
+                          : 'bg-rose-950/80 text-rose-300 border-rose-700/60'
+                      }`}
+                    >
+                      {device.is_online ? 'LIVE HARDWARE READY' : 'DEVICE OFFLINE'}
+                    </span>
+                  </div>
+
+                  {/* Tab overview and live hardware properties display */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div
+                      className={`p-3.5 rounded-xl border ${
+                        isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
+                      }`}
+                    >
+                      <div className="font-bold mb-2 flex items-center justify-between text-cyan-500">
+                        <span>{isEn ? 'Hardware Identity' : 'مشخصات سخت‌افزاری'}</span>
+                        <Server className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="space-y-1.5 font-mono text-[11px]">
+                        <div className="flex justify-between">
+                          <span className="opacity-70">{isEn ? 'Hostname:' : 'نام میزبان:'}</span>
+                          <span className="font-bold">{configState?.hostname || device.name || 'Cisco-Switch'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="opacity-70">{isEn ? 'Management IP:' : 'آی‌پی مدیریتی:'}</span>
+                          <span className="font-bold">{device.ip}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="opacity-70">{isEn ? 'Domain Name:' : 'دامنه شبکه:'}</span>
+                          <span>{configState?.domain_name || 'domain.local'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      className={`p-3.5 rounded-xl border ${
+                        isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
+                      }`}
+                    >
+                      <div className="font-bold mb-2 flex items-center justify-between text-cyan-500">
+                        <span>{isEn ? 'Live Probe Status' : 'وضعیت ارتباط با پروب'}</span>
+                        <Activity className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="space-y-1.5 font-mono text-[11px]">
+                        <div className="flex justify-between">
+                          <span className="opacity-70">{isEn ? 'Probe Engine:' : 'موتور پروب:'}</span>
+                          <span>Adaptive SSH (Legacy/Modern)</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="opacity-70">{isEn ? 'Last Probed:' : 'آخرین استعلام:'}</span>
+                          <span>{new Date().toLocaleTimeString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="opacity-70">{isEn ? 'Status:' : 'وضعیت:'}</span>
+                          <span className="text-emerald-400 font-bold">{isEn ? 'Synced & Ready' : 'همگام و آماده'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sub-view instructions for upcoming phases */}
+                  <div
+                    className={`mt-4 p-4 rounded-xl border text-xs leading-relaxed ${
+                      isLightMode
+                        ? 'bg-cyan-50/60 border-cyan-200 text-cyan-900'
+                        : 'bg-cyan-950/20 border-cyan-500/30 text-cyan-300'
+                    }`}
+                  >
+                    <p className="font-bold mb-1">
+                      {isEn ? `Tab Module: ${currentTabDef.labelEn}` : `ماژول تب: ${currentTabDef.labelFa}`}
+                    </p>
+                    <p className="opacity-90">
+                      {isEn
+                        ? `Authentic backend engine initialized for ${currentTabDef.id}. Ready for Phase 5-7 full interactive visual controls, CLI delta generator, and one-click deployment.`
+                        : `موتور بک‌اند سیسکو برای بخش ${currentTabDef.id} متصل شده است. در فازهای بعدی ۵ تا ۷ کنترل‌های بصری تعاملی، پیش‌نمایش و اعمال دستورات اضافه خواهد شد.`}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>
@@ -789,7 +812,7 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span className="font-mono text-[11px]">
-              {isEn ? `Cisco Config Suite v1.387.0 • ${device.name || device.ip}` : `سوئیت کانفیگ سیسکو نسخه 1.387.0 • ${device.name || device.ip}`}
+              {isEn ? `Cisco Config Suite v1.388.0 • ${device.name || device.ip}` : `سوئیت کانفیگ سیسکو نسخه 1.388.0 • ${device.name || device.ip}`}
             </span>
           </div>
 

@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.387.0';
+export const APP_VERSION = '1.388.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.388.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'فاز ۴: پیاده‌سازی کامل تب‌های پایه مدیریتی سیسکو (SSH و خطوط VTY، سرورهای زمانی NTP و ساعت سخت‌افزاری)',
+    title_en: 'Phase 4: Cisco Base Management Suite (SSH & VTY Lines, NTP Servers & Hardware Clock)',
+    changes: [
+      'توسعه کامپوننت تعاملی CiscoVtyTab.tsx شامل کنترل پروتکل‌های خطوط ورودی (transport input ssh/telnet/none)، تنظیم زمان پایان نشست (exec-timeout)، اندازه کلید رمزنگاری RSA (1024-4096 بیت)، نام دامنه سوئیچ و نسخه پروتکل SSH.',
+      'توسعه کامپوننت تعاملی CiscoNtpTab.tsx شامل مدیریت لیست سرورهای NTP با فلگ ترجیحی prefer، تعیین اینترفیس مبدا (ntp source)، تنظیم منطقه زمانی (clock timezone) و ساعت تابستانی (clock summer-time).',
+      'تولید پیش‌نمایش زنده دستورات استاندارد CLI سیسکو در زمان واقعی با تغییر هر یک از فیلدها.',
+      'پیاده‌سازی پایپ‌لاین اجرای مستقیم و ایمن دستورات بر روی سخت‌افزار سوئیچ با دکمه Apply Configuration to Switch و نمایش خروجی‌های واقعی سوئیچ.',
+      'تجهیز تمام فیلدهای تنظیمی به کادر راهنمای سه‌بخشی FieldInfoTooltip با مرزبندی ۴ جهته و پشتیبانی تم تیره/روشن و زبان دوگانه.'
+    ],
+    changes_en: [
+      'Engineered interactive CiscoVtyTab.tsx component covering inbound line transport protocols (transport input ssh/telnet/none), session idle timeouts (exec-timeout), cryptographic RSA modulus (1024-4096 bits), switch IP domain name, and SSH daemon parameters.',
+      'Engineered interactive CiscoNtpTab.tsx component covering upstream NTP server fleet management with prefer priority flag, NTP source interface pinning, timezone configuration (clock timezone), and DST summer-time automation.',
+      'Built live reactive Cisco IOS CLI syntax preview generators that dynamically construct authentic command blocks as form controls change.',
+      'Implemented transactional hardware deployment pipeline via "Apply Configuration to Switch" with live execution feedback and authentic device outputs.',
+      'Equipped every configuration parameter with 3-part boundary-safe FieldInfoTooltip, full dark/light theme contrast, and strict zero-Persian English localization.'
+    ]
+  },
   {
     version: '1.387.0',
     releaseDate: '2026-10-29',
