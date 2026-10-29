@@ -571,3 +571,68 @@ CREATE TABLE IF NOT EXISTS audit_report_schedule (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_by VARCHAR(128)
 );
+
+-- 21. Device Command Audit Logs (Cisco, MikroTik, Linux Network Devices)
+CREATE TABLE IF NOT EXISTS device_command_audit_logs (
+    id VARCHAR(128) PRIMARY KEY,
+    device_id VARCHAR(64) NOT NULL,
+    device_name VARCHAR(128) NOT NULL,
+    device_ip VARCHAR(64) NOT NULL,
+    device_vendor VARCHAR(64) DEFAULT 'cisco',
+    device_model VARCHAR(128),
+    device_location TEXT,
+    operator_username VARCHAR(128) NOT NULL,
+    operator_role VARCHAR(128) DEFAULT 'Super Administrator',
+    operator_ip VARCHAR(64) DEFAULT '127.0.0.1',
+    channel VARCHAR(64) DEFAULT 'terminal_interactive', -- 'terminal_interactive' | 'template_push' | 'port_context_menu' | 'batch_config' | 'api_script'
+    command TEXT NOT NULL,
+    risk_level VARCHAR(32) DEFAULT 'low', -- 'low' | 'medium' | 'high' | 'critical'
+    status VARCHAR(32) DEFAULT 'success', -- 'success' | 'failed' | 'denied'
+    output_summary TEXT,
+    duration_ms INTEGER DEFAULT 0,
+    notes TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_cmd_audit_timestamp ON device_command_audit_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_device_cmd_audit_device_id ON device_command_audit_logs(device_id);
+CREATE INDEX IF NOT EXISTS idx_device_cmd_audit_operator ON device_command_audit_logs(operator_username);
+CREATE INDEX IF NOT EXISTS idx_device_cmd_audit_risk ON device_command_audit_logs(risk_level);
+
+-- 22. Portal Audit & System Change Event Logs
+CREATE TABLE IF NOT EXISTS portal_audit_logs (
+    id VARCHAR(128) PRIMARY KEY,
+    category VARCHAR(64) NOT NULL,
+    action VARCHAR(128) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    title_en VARCHAR(255) NOT NULL,
+    user_name VARCHAR(128) NOT NULL,
+    user_role VARCHAR(128) DEFAULT 'Super Administrator',
+    client_ip VARCHAR(64) DEFAULT '127.0.0.1',
+    target_type VARCHAR(64),
+    target_id VARCHAR(64),
+    target_name VARCHAR(255),
+    target_location TEXT,
+    target_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    severity VARCHAR(32) DEFAULT 'info', -- 'info' | 'notice' | 'warning' | 'critical'
+    status VARCHAR(32) DEFAULT 'success', -- 'success' | 'failed' | 'denied'
+    details TEXT,
+    details_en TEXT,
+    changes_diff JSONB NOT NULL DEFAULT '[]'::jsonb,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_portal_audit_timestamp ON portal_audit_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_portal_audit_category ON portal_audit_logs(category);
+CREATE INDEX IF NOT EXISTS idx_portal_audit_user ON portal_audit_logs(user_name);
+
+-- 23. Database Log Retention, Automated Purge & Storage Policy Config
+CREATE TABLE IF NOT EXISTS log_retention_config (
+    id VARCHAR(32) PRIMARY KEY DEFAULT 'primary',
+    config_data JSONB NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_by VARCHAR(128)
+);

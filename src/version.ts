@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.398.0';
+export const APP_VERSION = '1.399.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.399.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱ معماری دیتابیس لاگ‌ها: انتقال پایدار وقایع تجهیزات و پورتال به PostgreSQL و زیرساخت پالیسی نگهداری (Database Log Retention & Schema)',
+    title_en: 'Phase 1: Universal PostgreSQL Audit Database Schema, Persistence Layer & Log Retention Storage Engine',
+    changes: [
+      'طراحی و استقرار جداول جدید PostgreSQL در backend/schema.sql برای ثبت وقایع تجهیزات (device_command_audit_logs)، رخدادهای پورتال (portal_audit_logs) و پیکربندی نگهداری (log_retention_config) همراه با ایندکس‌های بهینه زمانی و کاربری.',
+      'توسعه تایپ‌های جامع TypeScript برای پیکربندی نگهداری لاگ‌ها (LogRetentionConfig)، آمار حجم و رکوردهای ذخیره‌سازی (AuditStorageStats)، نتایج پاکسازی خودکار (LogPurgeResult) و پکیج مستقل بکاپ لاگ‌ها (LogBackupPackage).',
+      'پیاده‌سازی توابع اختصاصی پایگاه داده در server/db.ts شامل getDeviceCommandLogs، addDeviceCommandLog، getPortalAuditLogs، addPortalAuditLog، getLogRetentionConfig، saveLogRetentionConfig، getAuditStorageStats و موتور پاکسازی دوره‌ای purgeOldLogs با پشتیبانی دوگانه از PostgreSQL و مخزن فایل محلی.',
+      'محاسبه دقیق حجم بایت‌های اشغال‌شده توسط جداول لاگ‌ها در PostgreSQL با استفاده از pg_total_relation_size و شناسایی بازه زمانی کهن‌ترین و جدیدترین رکوردها.'
+    ],
+    changes_en: [
+      'Engineered and deployed PostgreSQL tables in backend/schema.sql for device command audit trails (device_command_audit_logs), portal system events (portal_audit_logs), and retention config (log_retention_config) with optimized compound indexes.',
+      'Introduced comprehensive TypeScript interfaces for retention policies (LogRetentionConfig), storage telemetry (AuditStorageStats), auto-purge outcomes (LogPurgeResult), and standalone backup packaging (LogBackupPackage).',
+      'Developed authoritative database routines in server/db.ts with full PostgreSQL and file fallback support: getDeviceCommandLogs, addDeviceCommandLog, getPortalAuditLogs, addPortalAuditLog, getLogRetentionConfig, saveLogRetentionConfig, getAuditStorageStats, and purgeOldLogs.',
+      'Implemented byte-accurate storage calculation via pg_total_relation_size and automated discovery of earliest/latest log timestamp ranges.'
+    ]
+  },
   {
     version: '1.398.0',
     releaseDate: '2026-10-29',

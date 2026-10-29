@@ -216,6 +216,9 @@ export interface FallbackStore {
   system_security_keys?: SystemSecurityKeysRecord[];
   server_command_audit_logs?: any[];
   two_factor_trusted_devices?: any[];
+  device_command_audit_logs?: any[];
+  portal_audit_logs?: any[];
+  log_retention_config?: any;
 }
 
 export interface SystemSecurityKeysRecord {
@@ -1257,6 +1260,26 @@ export function loadFallbackStore(): FallbackStore {
 
   if (!Array.isArray(store.system_security_keys)) {
     store.system_security_keys = [];
+  }
+
+  if (!Array.isArray(store.device_command_audit_logs)) {
+    store.device_command_audit_logs = [];
+  }
+
+  if (!Array.isArray(store.portal_audit_logs)) {
+    store.portal_audit_logs = [];
+  }
+
+  if (!store.log_retention_config) {
+    store.log_retention_config = {
+      id: 'primary',
+      retentionDays: 90,
+      autoPurgeEnabled: true,
+      backupBeforePurge: true,
+      purgeScheduleTime: '02:00',
+      lastCleanupTimestamp: null,
+      lastCleanupDeletedCount: 0,
+    };
   }
 
   return store;
@@ -2361,6 +2384,75 @@ export async function initDatabase(): Promise<void> {
           id VARCHAR(64) PRIMARY KEY,
           config_data JSONB NOT NULL,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // 21. Device Command Audit Logs (Cisco, MikroTik, Linux Network Devices)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS device_command_audit_logs (
+          id VARCHAR(128) PRIMARY KEY,
+          device_id VARCHAR(64) NOT NULL,
+          device_name VARCHAR(128) NOT NULL,
+          device_ip VARCHAR(64) NOT NULL,
+          device_vendor VARCHAR(64) DEFAULT 'cisco',
+          device_model VARCHAR(128),
+          device_location TEXT,
+          operator_username VARCHAR(128) NOT NULL,
+          operator_role VARCHAR(128) DEFAULT 'Super Administrator',
+          operator_ip VARCHAR(64) DEFAULT '127.0.0.1',
+          channel VARCHAR(64) DEFAULT 'terminal_interactive',
+          command TEXT NOT NULL,
+          risk_level VARCHAR(32) DEFAULT 'low',
+          status VARCHAR(32) DEFAULT 'success',
+          output_summary TEXT,
+          duration_ms INTEGER DEFAULT 0,
+          notes TEXT,
+          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_device_cmd_audit_timestamp ON device_command_audit_logs(timestamp DESC)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_device_cmd_audit_device_id ON device_command_audit_logs(device_id)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_device_cmd_audit_operator ON device_command_audit_logs(operator_username)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_device_cmd_audit_risk ON device_command_audit_logs(risk_level)");
+
+      // 22. Portal Audit & System Change Event Logs
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS portal_audit_logs (
+          id VARCHAR(128) PRIMARY KEY,
+          category VARCHAR(64) NOT NULL,
+          action VARCHAR(128) NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          title_en VARCHAR(255) NOT NULL,
+          user_name VARCHAR(128) NOT NULL,
+          user_role VARCHAR(128) DEFAULT 'Super Administrator',
+          client_ip VARCHAR(64) DEFAULT '127.0.0.1',
+          target_type VARCHAR(64),
+          target_id VARCHAR(64),
+          target_name VARCHAR(255),
+          target_location TEXT,
+          target_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+          severity VARCHAR(32) DEFAULT 'info',
+          status VARCHAR(32) DEFAULT 'success',
+          details TEXT,
+          details_en TEXT,
+          changes_diff JSONB NOT NULL DEFAULT '[]'::jsonb,
+          timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_portal_audit_timestamp ON portal_audit_logs(timestamp DESC)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_portal_audit_category ON portal_audit_logs(category)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_portal_audit_user ON portal_audit_logs(user_name)");
+
+      // 23. Database Log Retention, Automated Purge & Storage Policy Config
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS log_retention_config (
+          id VARCHAR(32) PRIMARY KEY DEFAULT 'primary',
+          config_data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_by VARCHAR(128)
         )
       `);
     } catch {}
@@ -6607,6 +6699,769 @@ export async function addServerCommandLog(log: any): Promise<any> {
     outputSummaryEn: record.output_summary_en,
     durationMs: record.duration_ms,
     metadata: record.metadata,
+  };
+}
+
+// -------------------------------------------------------------
+// 11.C. Device Command Audit Logs (Cisco, MikroTik, Linux Network Devices)
+// -------------------------------------------------------------
+
+export async function getDeviceCommandLogs(options: {
+  limit?: number;
+  offset?: number;
+  deviceId?: string;
+  operatorUsername?: string;
+  riskLevel?: string;
+  channel?: string;
+  search?: string;
+} = {}): Promise<any[]> {
+  const { limit = 1000, offset = 0, deviceId, operatorUsername, riskLevel, channel, search } = options;
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const conditions: string[] = [];
+      const values: any[] = [];
+      let idx = 1;
+
+      if (deviceId) {
+        conditions.push(`device_id = $${idx++}`);
+        values.push(deviceId);
+      }
+      if (operatorUsername) {
+        conditions.push(`operator_username = $${idx++}`);
+        values.push(operatorUsername);
+      }
+      if (riskLevel && riskLevel !== 'all') {
+        conditions.push(`risk_level = $${idx++}`);
+        values.push(riskLevel);
+      }
+      if (channel && channel !== 'all') {
+        conditions.push(`channel = $${idx++}`);
+        values.push(channel);
+      }
+      if (search) {
+        conditions.push(`(device_name ILIKE $${idx} OR device_ip ILIKE $${idx} OR command ILIKE $${idx} OR output_summary ILIKE $${idx})`);
+        values.push(`%${search}%`);
+        idx++;
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      values.push(limit);
+      const limitParam = `$${idx++}`;
+      values.push(offset);
+      const offsetParam = `$${idx++}`;
+
+      const res = await pool.query(
+        `SELECT * FROM device_command_audit_logs ${whereClause} ORDER BY timestamp DESC LIMIT ${limitParam} OFFSET ${offsetParam}`,
+        values
+      );
+      return res.rows.map((r: any) => ({
+        id: r.id,
+        timestamp: r.timestamp ? new Date(r.timestamp).toISOString() : new Date().toISOString(),
+        actor: {
+          username: r.operator_username,
+          role: r.operator_role || 'Super Administrator',
+          ipAddress: r.operator_ip || '127.0.0.1',
+        },
+        deviceId: r.device_id,
+        deviceName: r.device_name,
+        deviceIp: r.device_ip,
+        deviceVendor: r.device_vendor || 'cisco',
+        deviceModel: r.device_model || undefined,
+        deviceLocation: r.device_location || '',
+        channel: r.channel || 'terminal_interactive',
+        command: r.command,
+        riskLevel: r.risk_level || 'low',
+        status: r.status || 'success',
+        outputSummary: r.output_summary || undefined,
+        durationMs: r.duration_ms || 0,
+        notes: r.notes || undefined,
+        metadata: r.metadata || {},
+      }));
+    } catch (e) {
+      console.error('[DB Query Error in getDeviceCommandLogs]', e);
+    }
+  }
+
+  // Fallback store
+  const store = loadFallbackStore();
+  let logs: any[] = (store.device_command_audit_logs || []).map((r: any) => ({
+    id: r.id,
+    timestamp: r.timestamp || new Date().toISOString(),
+    actor: r.actor || {
+      username: r.operator_username || 'admin',
+      role: r.operator_role || 'Super Administrator',
+      ipAddress: r.operator_ip || '127.0.0.1',
+    },
+    deviceId: r.device_id || r.deviceId || '',
+    deviceName: r.device_name || r.deviceName || '',
+    deviceIp: r.device_ip || r.deviceIp || '',
+    deviceVendor: r.device_vendor || r.deviceVendor || 'cisco',
+    deviceModel: r.device_model || r.deviceModel,
+    deviceLocation: r.device_location || r.deviceLocation || '',
+    channel: r.channel || 'terminal_interactive',
+    command: r.command || '',
+    riskLevel: r.risk_level || r.riskLevel || 'low',
+    status: r.status || 'success',
+    outputSummary: r.output_summary || r.outputSummary,
+    durationMs: r.duration_ms || r.durationMs || 0,
+    notes: r.notes,
+    metadata: r.metadata || {},
+  }));
+
+  if (deviceId) logs = logs.filter((l: any) => l.deviceId === deviceId);
+  if (operatorUsername) logs = logs.filter((l: any) => l.actor?.username === operatorUsername);
+  if (riskLevel && riskLevel !== 'all') logs = logs.filter((l: any) => l.riskLevel === riskLevel);
+  if (channel && channel !== 'all') logs = logs.filter((l: any) => l.channel === channel);
+  if (search) {
+    const q = search.toLowerCase();
+    logs = logs.filter((l: any) =>
+      (l.deviceName || '').toLowerCase().includes(q) ||
+      (l.deviceIp || '').toLowerCase().includes(q) ||
+      (l.command || '').toLowerCase().includes(q)
+    );
+  }
+  return logs.slice(offset, offset + limit);
+}
+
+export async function addDeviceCommandLog(log: any): Promise<any> {
+  const actor = log.actor || {
+    username: log.operator_username || log.operatorUsername || 'admin',
+    role: log.operator_role || log.operatorRole || 'Super Administrator',
+    ipAddress: log.operator_ip || log.operatorIp || '127.0.0.1',
+  };
+
+  const record = {
+    id: log.id || `dev-cmd-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    device_id: log.deviceId || log.device_id || '',
+    device_name: log.deviceName || log.device_name || '',
+    device_ip: log.deviceIp || log.device_ip || '',
+    device_vendor: log.deviceVendor || log.device_vendor || 'cisco',
+    device_model: log.deviceModel || log.device_model || null,
+    device_location: log.deviceLocation || log.device_location || '',
+    operator_username: actor.username,
+    operator_role: actor.role,
+    operator_ip: actor.ipAddress || '127.0.0.1',
+    channel: log.channel || 'terminal_interactive',
+    command: log.command || '',
+    risk_level: log.riskLevel || log.risk_level || 'low',
+    status: log.status || 'success',
+    output_summary: log.outputSummary || log.output_summary || null,
+    duration_ms: Number(log.durationMs || log.duration_ms) || 0,
+    notes: log.notes || null,
+    metadata: typeof log.metadata === 'object' ? log.metadata : {},
+    timestamp: log.timestamp || new Date().toISOString(),
+  };
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.device_command_audit_logs)) {
+    store.device_command_audit_logs = [];
+  }
+  store.device_command_audit_logs.unshift(record);
+  if (store.device_command_audit_logs.length > 5000) {
+    store.device_command_audit_logs = store.device_command_audit_logs.slice(0, 5000);
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO device_command_audit_logs (
+          id, device_id, device_name, device_ip, device_vendor, device_model,
+          device_location, operator_username, operator_role, operator_ip,
+          channel, command, risk_level, status, output_summary, duration_ms,
+          notes, metadata, timestamp
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+        [
+          record.id,
+          record.device_id,
+          record.device_name,
+          record.device_ip,
+          record.device_vendor,
+          record.device_model,
+          record.device_location,
+          record.operator_username,
+          record.operator_role,
+          record.operator_ip,
+          record.channel,
+          record.command,
+          record.risk_level,
+          record.status,
+          record.output_summary,
+          record.duration_ms,
+          record.notes,
+          JSON.stringify(record.metadata),
+          record.timestamp,
+        ]
+      );
+    } catch (e) {
+      console.error('[DB Insert Error in addDeviceCommandLog]', e);
+    }
+  }
+
+  return {
+    id: record.id,
+    timestamp: record.timestamp,
+    actor,
+    deviceId: record.device_id,
+    deviceName: record.device_name,
+    deviceIp: record.device_ip,
+    deviceVendor: record.device_vendor,
+    deviceModel: record.device_model || undefined,
+    deviceLocation: record.device_location,
+    channel: record.channel,
+    command: record.command,
+    riskLevel: record.risk_level,
+    status: record.status,
+    outputSummary: record.output_summary || undefined,
+    durationMs: record.duration_ms,
+    notes: record.notes || undefined,
+  };
+}
+
+export async function clearDeviceCommandLogs(deviceId?: string): Promise<{ deleted: number }> {
+  let count = 0;
+  const store = loadFallbackStore();
+  if (Array.isArray(store.device_command_audit_logs)) {
+    if (deviceId) {
+      const before = store.device_command_audit_logs.length;
+      store.device_command_audit_logs = store.device_command_audit_logs.filter((l: any) => l.device_id !== deviceId && l.deviceId !== deviceId);
+      count = before - store.device_command_audit_logs.length;
+    } else {
+      count = store.device_command_audit_logs.length;
+      store.device_command_audit_logs = [];
+    }
+    saveFallbackStore(store);
+  }
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      if (deviceId) {
+        const res = await pool.query('DELETE FROM device_command_audit_logs WHERE device_id = $1', [deviceId]);
+        count = res.rowCount || count;
+      } else {
+        const res = await pool.query('DELETE FROM device_command_audit_logs');
+        count = res.rowCount || count;
+      }
+    } catch (e) {
+      console.error('[DB Delete Error in clearDeviceCommandLogs]', e);
+    }
+  }
+  return { deleted: count };
+}
+
+// -------------------------------------------------------------
+// 11.D. Portal Audit & System Change Event Logs
+// -------------------------------------------------------------
+
+export async function getPortalAuditLogs(options: {
+  limit?: number;
+  offset?: number;
+  category?: string;
+  severity?: string;
+  status?: string;
+  search?: string;
+} = {}): Promise<any[]> {
+  const { limit = 1000, offset = 0, category, severity, status, search } = options;
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const conditions: string[] = [];
+      const values: any[] = [];
+      let idx = 1;
+
+      if (category && category !== 'all') {
+        conditions.push(`category = $${idx++}`);
+        values.push(category);
+      }
+      if (severity && severity !== 'all') {
+        conditions.push(`severity = $${idx++}`);
+        values.push(severity);
+      }
+      if (status && status !== 'all') {
+        conditions.push(`status = $${idx++}`);
+        values.push(status);
+      }
+      if (search) {
+        conditions.push(`(title ILIKE $${idx} OR title_en ILIKE $${idx} OR details ILIKE $${idx} OR details_en ILIKE $${idx} OR user_name ILIKE $${idx} OR target_name ILIKE $${idx})`);
+        values.push(`%${search}%`);
+        idx++;
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      values.push(limit);
+      const limitParam = `$${idx++}`;
+      values.push(offset);
+      const offsetParam = `$${idx++}`;
+
+      const res = await pool.query(
+        `SELECT * FROM portal_audit_logs ${whereClause} ORDER BY timestamp DESC LIMIT ${limitParam} OFFSET ${offsetParam}`,
+        values
+      );
+      return res.rows.map((r: any) => ({
+        id: r.id,
+        timestamp: r.timestamp ? new Date(r.timestamp).toISOString() : new Date().toISOString(),
+        category: r.category,
+        action: r.action,
+        title: r.title,
+        title_en: r.title_en,
+        actor: {
+          username: r.user_name,
+          role: r.user_role || 'Super Administrator',
+          ipAddress: r.client_ip || '127.0.0.1',
+        },
+        target: {
+          type: r.target_type || 'device',
+          id: r.target_id || undefined,
+          name: r.target_name || '',
+          location: r.target_location || undefined,
+          ...(typeof r.target_data === 'object' ? r.target_data : {}),
+        },
+        severity: r.severity || 'info',
+        status: r.status || 'success',
+        details: r.details || '',
+        details_en: r.details_en || '',
+        changesDiff: Array.isArray(r.changes_diff) ? r.changes_diff : undefined,
+      }));
+    } catch (e) {
+      console.error('[DB Query Error in getPortalAuditLogs]', e);
+    }
+  }
+
+  // Fallback store
+  const store = loadFallbackStore();
+  let logs: any[] = (store.portal_audit_logs || []).map((r: any) => ({
+    id: r.id,
+    timestamp: r.timestamp || new Date().toISOString(),
+    category: r.category,
+    action: r.action,
+    title: r.title,
+    title_en: r.title_en || r.title,
+    actor: r.actor || {
+      username: r.user_name || 'admin',
+      role: r.user_role || 'Super Administrator',
+      ipAddress: r.client_ip || '127.0.0.1',
+    },
+    target: r.target || {
+      type: r.target_type || 'device',
+      id: r.target_id,
+      name: r.target_name || '',
+      location: r.target_location,
+    },
+    severity: r.severity || 'info',
+    status: r.status || 'success',
+    details: r.details || '',
+    details_en: r.details_en || '',
+    changesDiff: r.changes_diff || r.changesDiff,
+  }));
+
+  if (category && category !== 'all') logs = logs.filter((l: any) => l.category === category);
+  if (severity && severity !== 'all') logs = logs.filter((l: any) => l.severity === severity);
+  if (status && status !== 'all') logs = logs.filter((l: any) => l.status === status);
+  if (search) {
+    const q = search.toLowerCase();
+    logs = logs.filter((l: any) =>
+      (l.title || '').toLowerCase().includes(q) ||
+      (l.title_en || '').toLowerCase().includes(q) ||
+      (l.details || '').toLowerCase().includes(q) ||
+      (l.details_en || '').toLowerCase().includes(q)
+    );
+  }
+  return logs.slice(offset, offset + limit);
+}
+
+export async function addPortalAuditLog(log: any): Promise<any> {
+  const actor = log.actor || {
+    username: log.user_name || log.userName || 'admin',
+    role: log.user_role || log.userRole || 'Super Administrator',
+    ipAddress: log.client_ip || log.ipAddress || log.clientIp || '127.0.0.1',
+  };
+
+  const target = log.target || {};
+  const record = {
+    id: log.id || `log-portal-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    category: log.category || 'system_auth',
+    action: log.action || 'EVENT',
+    title: log.title || '',
+    title_en: log.title_en || log.titleEn || log.title || '',
+    user_name: actor.username,
+    user_role: actor.role,
+    client_ip: actor.ipAddress || '127.0.0.1',
+    target_type: target.type || log.target_type || 'device',
+    target_id: target.id || log.target_id || null,
+    target_name: target.name || log.target_name || '',
+    target_location: target.location || log.target_location || null,
+    target_data: typeof target.metadata === 'object' ? target.metadata : (typeof log.target_data === 'object' ? log.target_data : {}),
+    severity: log.severity || 'info',
+    status: log.status || 'success',
+    details: log.details || '',
+    details_en: log.details_en || log.detailsEn || '',
+    changes_diff: Array.isArray(log.changesDiff) ? log.changesDiff : (Array.isArray(log.changes_diff) ? log.changes_diff : []),
+    timestamp: log.timestamp || new Date().toISOString(),
+  };
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.portal_audit_logs)) {
+    store.portal_audit_logs = [];
+  }
+  store.portal_audit_logs.unshift(record);
+  if (store.portal_audit_logs.length > 5000) {
+    store.portal_audit_logs = store.portal_audit_logs.slice(0, 5000);
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO portal_audit_logs (
+          id, category, action, title, title_en, user_name, user_role, client_ip,
+          target_type, target_id, target_name, target_location, target_data,
+          severity, status, details, details_en, changes_diff, timestamp
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+        [
+          record.id,
+          record.category,
+          record.action,
+          record.title,
+          record.title_en,
+          record.user_name,
+          record.user_role,
+          record.client_ip,
+          record.target_type,
+          record.target_id,
+          record.target_name,
+          record.target_location,
+          JSON.stringify(record.target_data),
+          record.severity,
+          record.status,
+          record.details,
+          record.details_en,
+          JSON.stringify(record.changes_diff),
+          record.timestamp,
+        ]
+      );
+    } catch (e) {
+      console.error('[DB Insert Error in addPortalAuditLog]', e);
+    }
+  }
+
+  return {
+    id: record.id,
+    timestamp: record.timestamp,
+    category: record.category,
+    action: record.action,
+    title: record.title,
+    title_en: record.title_en,
+    actor,
+    target: {
+      type: record.target_type,
+      id: record.target_id || undefined,
+      name: record.target_name,
+      location: record.target_location || undefined,
+      metadata: record.target_data,
+    },
+    severity: record.severity,
+    status: record.status,
+    details: record.details,
+    details_en: record.details_en,
+    changesDiff: record.changes_diff,
+  };
+}
+
+export async function clearPortalAuditLogs(): Promise<{ deleted: number }> {
+  let count = 0;
+  const store = loadFallbackStore();
+  if (Array.isArray(store.portal_audit_logs)) {
+    count = store.portal_audit_logs.length;
+    store.portal_audit_logs = [];
+    saveFallbackStore(store);
+  }
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query('DELETE FROM portal_audit_logs');
+      count = res.rowCount || count;
+    } catch (e) {
+      console.error('[DB Delete Error in clearPortalAuditLogs]', e);
+    }
+  }
+  return { deleted: count };
+}
+
+// -------------------------------------------------------------
+// 11.E. Database Log Retention, Purge Policy & Storage Telemetry Engine
+// -------------------------------------------------------------
+
+export const DEFAULT_LOG_RETENTION_CONFIG = {
+  id: 'primary',
+  retentionDays: 90,
+  autoPurgeEnabled: true,
+  backupBeforePurge: true,
+  purgeScheduleTime: '02:00',
+  lastCleanupTimestamp: null as string | null,
+  lastCleanupDeletedCount: 0,
+};
+
+export async function getLogRetentionConfig(): Promise<any> {
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query("SELECT config_data FROM log_retention_config WHERE id = 'primary'");
+      if (res.rows.length > 0 && res.rows[0].config_data) {
+        return {
+          ...DEFAULT_LOG_RETENTION_CONFIG,
+          ...res.rows[0].config_data,
+          id: 'primary',
+        };
+      }
+    } catch (e) {
+      console.error('[DB Query Error in getLogRetentionConfig]', e);
+    }
+  }
+
+  const store = loadFallbackStore();
+  return {
+    ...DEFAULT_LOG_RETENTION_CONFIG,
+    ...(store.log_retention_config || {}),
+    id: 'primary',
+  };
+}
+
+export async function saveLogRetentionConfig(config: any, updatedBy: string = 'admin'): Promise<any> {
+  const current = await getLogRetentionConfig();
+  const merged = {
+    ...current,
+    ...config,
+    id: 'primary',
+    updated_at: new Date().toISOString(),
+    updated_by: updatedBy,
+  };
+
+  const store = loadFallbackStore();
+  store.log_retention_config = merged;
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO log_retention_config (id, config_data, updated_at, updated_by)
+         VALUES ('primary', $1, CURRENT_TIMESTAMP, $2)
+         ON CONFLICT (id) DO UPDATE SET
+           config_data = $1,
+           updated_at = CURRENT_TIMESTAMP,
+           updated_by = $2`,
+        [JSON.stringify(merged), updatedBy]
+      );
+    } catch (e) {
+      console.error('[DB Save Error in saveLogRetentionConfig]', e);
+    }
+  }
+
+  return merged;
+}
+
+export async function getAuditStorageStats(): Promise<any> {
+  let devCount = 0;
+  let srvCount = 0;
+  let portalCount = 0;
+  let secCount = 0;
+  let totalBytes = 0;
+  let oldest: string | null = null;
+  let newest: string | null = null;
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const countsRes = await pool.query(`
+        SELECT
+          (SELECT COUNT(*) FROM device_command_audit_logs) AS dev_count,
+          (SELECT COUNT(*) FROM server_command_audit_logs) AS srv_count,
+          (SELECT COUNT(*) FROM portal_audit_logs) AS portal_count,
+          (SELECT COUNT(*) FROM audit_logs) AS sec_count
+      `);
+      if (countsRes.rows.length > 0) {
+        devCount = parseInt(countsRes.rows[0].dev_count || '0', 10);
+        srvCount = parseInt(countsRes.rows[0].srv_count || '0', 10);
+        portalCount = parseInt(countsRes.rows[0].portal_count || '0', 10);
+        secCount = parseInt(countsRes.rows[0].sec_count || '0', 10);
+      }
+
+      const sizeRes = await pool.query(`
+        SELECT SUM(pg_total_relation_size(c.oid)) AS total_bytes
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relname IN ('device_command_audit_logs', 'server_command_audit_logs', 'portal_audit_logs', 'audit_logs')
+      `);
+      if (sizeRes.rows.length > 0 && sizeRes.rows[0].total_bytes) {
+        totalBytes = parseInt(sizeRes.rows[0].total_bytes, 10);
+      }
+
+      const rangeRes = await pool.query(`
+        SELECT
+          LEAST(
+            (SELECT MIN(timestamp) FROM device_command_audit_logs),
+            (SELECT MIN(timestamp) FROM server_command_audit_logs),
+            (SELECT MIN(timestamp) FROM portal_audit_logs),
+            (SELECT MIN(timestamp) FROM audit_logs)
+          ) AS oldest_ts,
+          GREATEST(
+            (SELECT MAX(timestamp) FROM device_command_audit_logs),
+            (SELECT MAX(timestamp) FROM server_command_audit_logs),
+            (SELECT MAX(timestamp) FROM portal_audit_logs),
+            (SELECT MAX(timestamp) FROM audit_logs)
+          ) AS newest_ts
+      `);
+      if (rangeRes.rows.length > 0) {
+        if (rangeRes.rows[0].oldest_ts) oldest = new Date(rangeRes.rows[0].oldest_ts).toISOString();
+        if (rangeRes.rows[0].newest_ts) newest = new Date(rangeRes.rows[0].newest_ts).toISOString();
+      }
+    } catch (e) {
+      console.error('[DB Query Error in getAuditStorageStats]', e);
+    }
+  } else {
+    const store = loadFallbackStore();
+    devCount = (store.device_command_audit_logs || []).length;
+    srvCount = (store.server_command_audit_logs || []).length;
+    portalCount = (store.portal_audit_logs || []).length;
+    secCount = (store.audit_logs || []).length;
+
+    const jsonStr = JSON.stringify({
+      dev: store.device_command_audit_logs,
+      srv: store.server_command_audit_logs,
+      portal: store.portal_audit_logs,
+      sec: store.audit_logs,
+    });
+    totalBytes = Buffer.byteLength(jsonStr, 'utf-8');
+
+    const allTs = [
+      ...(store.device_command_audit_logs || []).map((x: any) => x.timestamp),
+      ...(store.server_command_audit_logs || []).map((x: any) => x.timestamp),
+      ...(store.portal_audit_logs || []).map((x: any) => x.timestamp),
+      ...(store.audit_logs || []).map((x: any) => x.timestamp),
+    ].filter(Boolean).sort();
+
+    if (allTs.length > 0) {
+      oldest = allTs[0];
+      newest = allTs[allTs.length - 1];
+    }
+  }
+
+  const config = await getLogRetentionConfig();
+  const formatSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  return {
+    totalRecords: devCount + srvCount + portalCount + secCount,
+    deviceCommandLogsCount: devCount,
+    serverCommandLogsCount: srvCount,
+    portalLogsCount: portalCount,
+    securityLogsCount: secCount,
+    totalSizeBytes: totalBytes,
+    totalSizeFormatted: formatSize(totalBytes),
+    oldestLogTimestamp: oldest,
+    newestLogTimestamp: newest,
+    lastCleanupTimestamp: config.lastCleanupTimestamp || null,
+    lastCleanupDeletedCount: config.lastCleanupDeletedCount || 0,
+  };
+}
+
+export async function purgeOldLogs(retentionDays: number): Promise<any> {
+  const startTime = Date.now();
+  if (retentionDays <= 0) {
+    return {
+      success: true,
+      retentionDays: 0,
+      deletedDeviceLogs: 0,
+      deletedServerLogs: 0,
+      deletedPortalLogs: 0,
+      deletedAuditLogs: 0,
+      totalDeleted: 0,
+      cutoffDate: new Date().toISOString(),
+      durationMs: 0,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  const cutoffDate = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const cutoffIso = cutoffDate.toISOString();
+
+  let devDeleted = 0;
+  let srvDeleted = 0;
+  let portalDeleted = 0;
+  let secDeleted = 0;
+
+  const store = loadFallbackStore();
+  if (Array.isArray(store.device_command_audit_logs)) {
+    const b = store.device_command_audit_logs.length;
+    store.device_command_audit_logs = store.device_command_audit_logs.filter((l: any) => new Date(l.timestamp || 0) >= cutoffDate);
+    devDeleted = b - store.device_command_audit_logs.length;
+  }
+  if (Array.isArray(store.server_command_audit_logs)) {
+    const b = store.server_command_audit_logs.length;
+    store.server_command_audit_logs = store.server_command_audit_logs.filter((l: any) => new Date(l.timestamp || 0) >= cutoffDate);
+    srvDeleted = b - store.server_command_audit_logs.length;
+  }
+  if (Array.isArray(store.portal_audit_logs)) {
+    const b = store.portal_audit_logs.length;
+    store.portal_audit_logs = store.portal_audit_logs.filter((l: any) => new Date(l.timestamp || 0) >= cutoffDate);
+    portalDeleted = b - store.portal_audit_logs.length;
+  }
+  if (Array.isArray(store.audit_logs)) {
+    const b = store.audit_logs.length;
+    store.audit_logs = store.audit_logs.filter((l: any) => new Date(l.timestamp || 0) >= cutoffDate);
+    secDeleted = b - store.audit_logs.length;
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const devRes = await pool.query('DELETE FROM device_command_audit_logs WHERE timestamp < $1', [cutoffIso]);
+      devDeleted = devRes.rowCount ?? devDeleted;
+
+      const srvRes = await pool.query('DELETE FROM server_command_audit_logs WHERE timestamp < $1', [cutoffIso]);
+      srvDeleted = srvRes.rowCount ?? srvDeleted;
+
+      const portalRes = await pool.query('DELETE FROM portal_audit_logs WHERE timestamp < $1', [cutoffIso]);
+      portalDeleted = portalRes.rowCount ?? portalDeleted;
+
+      const secRes = await pool.query('DELETE FROM audit_logs WHERE timestamp < $1', [cutoffIso]);
+      secDeleted = secRes.rowCount ?? secDeleted;
+    } catch (e) {
+      console.error('[DB Purge Error in purgeOldLogs]', e);
+    }
+  }
+
+  const total = devDeleted + srvDeleted + portalDeleted + secDeleted;
+  const duration = Date.now() - startTime;
+
+  try {
+    await saveLogRetentionConfig({
+      lastCleanupTimestamp: new Date().toISOString(),
+      lastCleanupDeletedCount: total,
+    }, 'System / Retention Purge Engine');
+  } catch {}
+
+  return {
+    success: true,
+    retentionDays,
+    deletedDeviceLogs: devDeleted,
+    deletedServerLogs: srvDeleted,
+    deletedPortalLogs: portalDeleted,
+    deletedAuditLogs: secDeleted,
+    totalDeleted: total,
+    cutoffDate: cutoffIso,
+    durationMs: duration,
+    timestamp: new Date().toISOString(),
   };
 }
 

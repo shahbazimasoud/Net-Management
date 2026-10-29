@@ -1376,6 +1376,67 @@ export interface AuditReportSendResult {
 }
 
 // -------------------------------------------------------------
+// Database Log Retention, Purge Policy & Storage Telemetry
+// -------------------------------------------------------------
+
+export interface LogRetentionConfig {
+  id?: string; // 'primary'
+  retentionDays: number; // e.g. 30, 60, 90, 180, 365, 0 (0 = unlimited / keep forever)
+  autoPurgeEnabled: boolean;
+  backupBeforePurge: boolean;
+  purgeScheduleTime: string; // e.g. "02:00"
+  lastCleanupTimestamp?: string | null;
+  lastCleanupDeletedCount?: number;
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export interface AuditStorageStats {
+  totalRecords: number;
+  deviceCommandLogsCount: number;
+  serverCommandLogsCount: number;
+  portalLogsCount: number;
+  securityLogsCount: number;
+  totalSizeBytes: number;
+  totalSizeFormatted: string;
+  oldestLogTimestamp?: string | null;
+  newestLogTimestamp?: string | null;
+  lastCleanupTimestamp?: string | null;
+  lastCleanupDeletedCount?: number;
+}
+
+export interface LogPurgeResult {
+  success: boolean;
+  retentionDays: number;
+  deletedDeviceLogs: number;
+  deletedServerLogs: number;
+  deletedPortalLogs: number;
+  deletedAuditLogs: number;
+  totalDeleted: number;
+  cutoffDate: string;
+  durationMs: number;
+  timestamp: string;
+}
+
+export interface LogBackupPackage {
+  version: string;
+  exportedAt: string;
+  exportedBy: string;
+  retentionDaysConfigured: number;
+  summary: {
+    totalRecords: number;
+    deviceCommandsCount: number;
+    serverCommandsCount: number;
+    portalLogsCount: number;
+    securityLogsCount: number;
+  };
+  deviceCommandLogs: DeviceCommandLogEntry[];
+  serverCommandLogs: ServerCommandAuditLogEntry[];
+  portalLogs: PortalAuditLogEntry[];
+  securityLogs: any[];
+}
+
+// -------------------------------------------------------------
 // MikroTik VPN Types & Protocols Suite
 // -------------------------------------------------------------
 

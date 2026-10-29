@@ -3389,7 +3389,64 @@
         "legacy_panel_update_seed_key_october_2026"
       ],
       "created_at": "2026-10-19T13:47:48.714Z",
-      "updated_at": "2026-10-29T21:08:09.724Z"
+      "updated_at": "2026-10-29T21:49:48.177Z"
     }
-  ]
+  ],
+  "device_command_audit_logs": [
+    {
+      "id": "test-cmd-1793310984719",
+      "device_id": "sw-cisco-core-01",
+      "device_name": "Core-Catalyst-9300",
+      "device_ip": "192.168.10.1",
+      "device_vendor": "cisco",
+      "device_model": null,
+      "device_location": "",
+      "operator_username": "admin_audit",
+      "operator_role": "Super Administrator",
+      "operator_ip": "10.0.0.50",
+      "channel": "terminal_interactive",
+      "command": "show ip interface brief",
+      "risk_level": "low",
+      "status": "success",
+      "output_summary": null,
+      "duration_ms": 45,
+      "notes": null,
+      "metadata": {},
+      "timestamp": "2026-10-29T21:56:24.719Z"
+    }
+  ],
+  "portal_audit_logs": [
+    {
+      "id": "test-portal-1793310984869",
+      "category": "security",
+      "action": "retention_policy_updated",
+      "title": "به‌روزرسانی سیاست نگهداری لاگ‌ها",
+      "title_en": "Log retention policy updated",
+      "user_name": "admin_audit",
+      "user_role": "Super Administrator",
+      "client_ip": "10.0.0.50",
+      "target_type": "device",
+      "target_id": null,
+      "target_name": "",
+      "target_location": null,
+      "target_data": {},
+      "severity": "notice",
+      "status": "success",
+      "details": "سیاست نگهداری بر روی ۹۰ روز تنظیم شد",
+      "details_en": "Retention set to 90 days",
+      "changes_diff": [],
+      "timestamp": "2026-10-29T21:56:24.869Z"
+    }
+  ],
+  "log_retention_config": {
+    "id": "primary",
+    "retentionDays": 90,
+    "autoPurgeEnabled": true,
+    "backupBeforePurge": true,
+    "purgeScheduleTime": "03:30",
+    "lastCleanupTimestamp": null,
+    "lastCleanupDeletedCount": 0,
+    "updated_at": "2026-10-29T21:56:24.637Z",
+    "updated_by": "TestRunner"
+  }
 }
