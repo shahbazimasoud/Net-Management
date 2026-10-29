@@ -4447,6 +4447,15 @@ export function matchPortFlexible(p: any, targetId: string): boolean {
 }
 
 
+function formatCiscoMac(mac: string): string {
+  if (!mac) return '';
+  const clean = String(mac).replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+  if (clean.length === 12) {
+    return `${clean.slice(0, 4)}.${clean.slice(4, 8)}.${clean.slice(8, 12)}`;
+  }
+  return String(mac).trim();
+}
+
 function buildPortCliCommand(platform: string, iface: string, updates: any): string {
   const isCisco = (platform || '').toLowerCase().includes('cisco');
   if (isCisco) {
@@ -4504,16 +4513,22 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
         const maxMac = Number(updates.port_security_max_mac || 1);
         const violation = String(updates.port_security_violation || 'shutdown').toLowerCase();
         const mode = String(updates.port_security_mode || 'sticky').toLowerCase();
+        const rawMac = String(updates.port_security_configured_mac || '').trim();
+        const formattedMac = formatCiscoMac(rawMac);
         if (updates.mode !== 'trunk') {
+          lines.push(' switchport');
           lines.push(' switchport mode access');
         }
         lines.push(' switchport port-security');
         lines.push(` switchport port-security maximum ${maxMac}`);
         lines.push(` switchport port-security violation ${violation}`);
-        if (mode === 'configured' && updates.port_security_configured_mac) {
-          lines.push(` switchport port-security mac-address ${String(updates.port_security_configured_mac).trim()}`);
+        if (mode === 'configured' && formattedMac) {
+          lines.push(` switchport port-security mac-address ${formattedMac}`);
         } else if (mode === 'sticky') {
           lines.push(' switchport port-security mac-address sticky');
+          if (formattedMac) {
+            lines.push(` switchport port-security mac-address sticky ${formattedMac}`);
+          }
         }
       } else {
         lines.push(' no switchport port-security');
@@ -4525,10 +4540,15 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
       }
       if ('port_security_mode' in updates && updates.port_security_mode) {
         hasCommands = true;
+        const rawMac = String(updates.port_security_configured_mac || '').trim();
+        const formattedMac = formatCiscoMac(rawMac);
         if (updates.port_security_mode === 'sticky') {
           lines.push(' switchport port-security mac-address sticky');
-        } else if (updates.port_security_mode === 'configured' && updates.port_security_configured_mac) {
-          lines.push(` switchport port-security mac-address ${String(updates.port_security_configured_mac).trim()}`);
+          if (formattedMac) {
+            lines.push(` switchport port-security mac-address sticky ${formattedMac}`);
+          }
+        } else if (updates.port_security_mode === 'configured' && formattedMac) {
+          lines.push(` switchport port-security mac-address ${formattedMac}`);
         }
       }
       if ('port_security_violation' in updates && updates.port_security_violation) {
@@ -4537,8 +4557,8 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
       }
     }
     if (!hasCommands) return '';
-    lines.push('exit');
-    lines.push('exit');
+    lines.push('end');
+    lines.push('write memory');
     return lines.join('\n');
   } else {
     // MikroTik RouterOS
@@ -4598,7 +4618,7 @@ apiRouter.put('/devices/:id/ports/batch', async (req: Request, res: Response) =>
     }
 
     let cliOutput = '';
-    if (cliCommands.length > 0 && (device.ip || device.ssh_host) && device.is_online && backend) {
+    if (cliCommands.length > 0 && (device.ip || device.ssh_host) && backend) {
       const combinedCli = cliCommands.join('\n');
       const result = await executeSshBridgeAction('port-action', {
         device,
@@ -4617,6 +4637,7 @@ apiRouter.put('/devices/:id/ports/batch', async (req: Request, res: Response) =>
           paramiko_version: result?.paramiko_version || backend?.paramikoExpected || 'N/A',
         });
       }
+      device.is_online = true;
       cliOutput = result.output || '';
     }
 
@@ -4810,7 +4831,7 @@ apiRouter.put('/devices/:id/ports/:portId', async (req: Request, res: Response) 
     const ifaceName = targetPort.port_id || targetPort.port || targetPort.name || portId;
     let cliOutput = '';
 
-    if ((device.ip || device.ssh_host) && device.is_online && backend) {
+    if ((device.ip || device.ssh_host) && backend) {
       const cliCommand = buildPortCliCommand(device.platform || '', ifaceName, updates);
       if (cliCommand) {
         const result = await executeSshBridgeAction('port-action', {
@@ -4832,6 +4853,7 @@ apiRouter.put('/devices/:id/ports/:portId', async (req: Request, res: Response) 
             paramiko_version: result?.paramiko_version || backend?.paramikoExpected || 'N/A',
           });
         }
+        device.is_online = true;
         cliOutput = result.output || '';
       }
     }

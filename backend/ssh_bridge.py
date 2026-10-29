@@ -573,41 +573,63 @@ def handle_port_action(args):
                     max_mac = params.get("max_mac", 1)
                     violation = params.get("violation", "restrict")
                     mode = params.get("mode", "sticky")
+                    raw_mac = (params.get("configured_mac") or "").strip()
+                    clean_hex = re.sub(r"[^0-9a-fA-F]", "", raw_mac).lower()
+                    formatted_mac = f"{clean_hex[0:4]}.{clean_hex[4:8]}.{clean_hex[8:12]}" if len(clean_hex) == 12 else raw_mac
+
+                    cmds = [
+                        "configure terminal",
+                        f"interface {interface}",
+                        " switchport",
+                        " switchport mode access",
+                        " switchport port-security",
+                        f" switchport port-security maximum {max_mac}",
+                        f" switchport port-security violation {violation}",
+                    ]
                     if mode == "sticky":
-                        cli_command = f"configure terminal\ninterface {interface}\n switchport mode access\n switchport port-security\n switchport port-security maximum {max_mac}\n switchport port-security violation {violation}\n switchport port-security mac-address sticky\nexit\nexit"
-                    elif mode == "configured" and params.get("configured_mac"):
-                        mac = params.get("configured_mac")
-                        cli_command = f"configure terminal\ninterface {interface}\n switchport mode access\n switchport port-security\n switchport port-security maximum {max_mac}\n switchport port-security violation {violation}\n switchport port-security mac-address {mac}\nexit\nexit"
-                    else:
-                        cli_command = f"configure terminal\ninterface {interface}\n switchport mode access\n switchport port-security\n switchport port-security maximum {max_mac}\n switchport port-security violation {violation}\nexit\nexit"
+                        cmds.append(" switchport port-security mac-address sticky")
+                        if formatted_mac:
+                            cmds.append(f" switchport port-security mac-address sticky {formatted_mac}")
+                    elif mode == "configured" and formatted_mac:
+                        cmds.append(f" switchport port-security mac-address {formatted_mac}")
+                    cmds.append("end")
+                    cmds.append("write memory")
+                    cli_command = "\n".join(cmds)
                 elif action in ("port_sec_disable", "disable_port_security"):
-                    cli_command = f"configure terminal\ninterface {interface}\n no switchport port-security\nexit\nexit"
+                    cli_command = f"configure terminal\ninterface {interface}\n no switchport port-security\nend\nwrite memory"
                 elif action == "port_sec_clear_mac":
-                    mac = params.get("mac") or ""
+                    raw_mac = (params.get("mac") or "").strip()
+                    clean_hex = re.sub(r"[^0-9a-fA-F]", "", raw_mac).lower()
+                    formatted_mac = f"{clean_hex[0:4]}.{clean_hex[4:8]}.{clean_hex[8:12]}" if len(clean_hex) == 12 else raw_mac
                     cmds = ["configure terminal", f"interface {interface}"]
-                    if mac:
-                        cmds.append(f" no switchport port-security mac-address {mac}")
+                    if formatted_mac:
+                        cmds.append(f" no switchport port-security mac-address {formatted_mac}")
                     cmds.append("exit")
-                    if mac:
-                        cmds.append(f"clear port-security dynamic address {mac}")
-                    cmds.append("exit")
+                    if formatted_mac:
+                        cmds.append(f"clear port-security dynamic address {formatted_mac}")
+                    cmds.append("end")
+                    cmds.append("write memory")
                     cli_command = "\n".join(cmds)
                 elif action == "port_sec_clear_all_macs":
-                    cli_command = f"clear port-security dynamic interface {interface}\nclear port-security sticky interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n switchport port-security mac-address sticky\nexit\nexit"
+                    cli_command = f"clear port-security dynamic interface {interface}\nclear port-security sticky interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n switchport port-security mac-address sticky\nend\nwrite memory"
                 elif action == "port_sec_recover_errdisable":
-                    cli_command = f"configure terminal\ninterface {interface}\n shutdown\n no shutdown\nexit\nexit"
+                    cli_command = f"configure terminal\ninterface {interface}\n shutdown\n no shutdown\nend\nwrite memory"
                 elif action == "port_sec_update":
                     enabled = params.get("enabled", True)
                     if not enabled:
-                        cli_command = f"configure terminal\ninterface {interface}\n no switchport port-security\nexit\nexit"
+                        cli_command = f"configure terminal\ninterface {interface}\n no switchport port-security\nend\nwrite memory"
                     else:
                         max_mac = params.get("max_mac", 1)
                         violation = params.get("violation", "shutdown")
                         mode = params.get("mode", "sticky")
-                        cfg_mac = (params.get("configured_mac") or "").strip()
+                        raw_mac = (params.get("configured_mac") or "").strip()
+                        clean_hex = re.sub(r"[^0-9a-fA-F]", "", raw_mac).lower()
+                        formatted_mac = f"{clean_hex[0:4]}.{clean_hex[4:8]}.{clean_hex[8:12]}" if len(clean_hex) == 12 else raw_mac
+
                         cmds = [
                             "configure terminal",
                             f"interface {interface}",
+                            " switchport",
                             " switchport mode access",
                             " switchport port-security",
                             f" switchport port-security maximum {max_mac}",
@@ -615,10 +637,12 @@ def handle_port_action(args):
                         ]
                         if mode == "sticky":
                             cmds.append(" switchport port-security mac-address sticky")
-                        elif mode == "configured" and cfg_mac:
-                            cmds.append(f" switchport port-security mac-address {cfg_mac}")
-                        cmds.append("exit")
-                        cmds.append("exit")
+                            if formatted_mac:
+                                cmds.append(f" switchport port-security mac-address sticky {formatted_mac}")
+                        elif mode == "configured" and formatted_mac:
+                            cmds.append(f" switchport port-security mac-address {formatted_mac}")
+                        cmds.append("end")
+                        cmds.append("write memory")
                         cli_command = "\n".join(cmds)
                 elif action in ("save_config", "write_memory", "write-memory"):
                     cli_command = "write memory"
@@ -685,6 +709,27 @@ def handle_port_action(args):
         if password and any(p_prompt in init_buffer.lower() for p_prompt in ["password:", "passcode:"]):
             channel.send(f"{password}\r\n")
             time.sleep(0.4)
+
+        if "cisco" in platform.lower():
+            # Check if prompt requires elevation to privileged EXEC mode ('Switch>')
+            channel.send("enable\r\n")
+            time.sleep(0.3)
+            en_buf = ""
+            en_dl = time.time() + 1.2
+            while time.time() < en_dl:
+                if channel.recv_ready():
+                    en_buf += channel.recv(4096).decode("utf-8", errors="ignore")
+                else:
+                    time.sleep(0.08)
+            if any(p_prompt in en_buf.lower() for p_prompt in ["password:", "passcode:"]):
+                en_pass = device.get("enable_secret") or device.get("enable_password") or password
+                if en_pass:
+                    channel.send(f"{en_pass}\r\n")
+                    time.sleep(0.4)
+            channel.send("terminal length 0\r\n")
+            time.sleep(0.2)
+            while channel.recv_ready():
+                channel.recv(4096)
 
         if action in ("cisco-resources", "system-resources"):
             raw_outputs = {}

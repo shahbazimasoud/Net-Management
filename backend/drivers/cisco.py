@@ -78,40 +78,14 @@ class CiscoDriver(NetworkDeviceDriver):
             max_mac = params.get("max_mac", 1)
             violation = params.get("violation", "restrict")
             mode = params.get("mode", "sticky")
-            if mode == "sticky":
-                return f"configure terminal\ninterface {interface}\n switchport mode access\n switchport port-security\n switchport port-security maximum {max_mac}\n switchport port-security violation {violation}\n switchport port-security mac-address sticky\nexit\nexit"
-            elif mode == "configured" and params.get("configured_mac"):
-                mac = params.get("configured_mac")
-                return f"configure terminal\ninterface {interface}\n switchport mode access\n switchport port-security\n switchport port-security maximum {max_mac}\n switchport port-security violation {violation}\n switchport port-security mac-address {mac}\nexit\nexit"
-            else:
-                return f"configure terminal\ninterface {interface}\n switchport mode access\n switchport port-security\n switchport port-security maximum {max_mac}\n switchport port-security violation {violation}\nexit\nexit"
-        elif action in ("port_sec_disable", "disable_port_security"):
-            return f"configure terminal\ninterface {interface}\n no switchport port-security\nexit\nexit"
-        elif action == "port_sec_clear_mac":
-            mac = params.get("mac") or ""
-            cmds = ["configure terminal", f"interface {interface}"]
-            if mac:
-                cmds.append(f" no switchport port-security mac-address {mac}")
-            cmds.append("exit")
-            if mac:
-                cmds.append(f"clear port-security dynamic address {mac}")
-            cmds.append("exit")
-            return "\n".join(cmds)
-        elif action == "port_sec_clear_all_macs":
-            return f"clear port-security dynamic interface {interface}\nclear port-security sticky interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n switchport port-security mac-address sticky\nexit\nexit"
-        elif action == "port_sec_recover_errdisable":
-            return f"configure terminal\ninterface {interface}\n shutdown\n no shutdown\nexit\nexit"
-        elif action == "port_sec_update":
-            enabled = params.get("enabled", True)
-            if not enabled:
-                return f"configure terminal\ninterface {interface}\n no switchport port-security\nexit\nexit"
-            max_mac = params.get("max_mac", 1)
-            violation = params.get("violation", "shutdown")
-            mode = params.get("mode", "sticky")
-            cfg_mac = (params.get("configured_mac") or "").strip()
+            raw_mac = (params.get("configured_mac") or "").strip()
+            clean_hex = re.sub(r"[^0-9a-fA-F]", "", raw_mac).lower()
+            formatted_mac = f"{clean_hex[0:4]}.{clean_hex[4:8]}.{clean_hex[8:12]}" if len(clean_hex) == 12 else raw_mac
+
             cmds = [
                 "configure terminal",
                 f"interface {interface}",
+                " switchport",
                 " switchport mode access",
                 " switchport port-security",
                 f" switchport port-security maximum {max_mac}",
@@ -119,10 +93,60 @@ class CiscoDriver(NetworkDeviceDriver):
             ]
             if mode == "sticky":
                 cmds.append(" switchport port-security mac-address sticky")
-            elif mode == "configured" and cfg_mac:
-                cmds.append(f" switchport port-security mac-address {cfg_mac}")
+                if formatted_mac:
+                    cmds.append(f" switchport port-security mac-address sticky {formatted_mac}")
+            elif mode == "configured" and formatted_mac:
+                cmds.append(f" switchport port-security mac-address {formatted_mac}")
+            cmds.append("end")
+            cmds.append("write memory")
+            return "\n".join(cmds)
+        elif action in ("port_sec_disable", "disable_port_security"):
+            return f"configure terminal\ninterface {interface}\n no switchport port-security\nend\nwrite memory"
+        elif action == "port_sec_clear_mac":
+            raw_mac = (params.get("mac") or "").strip()
+            clean_hex = re.sub(r"[^0-9a-fA-F]", "", raw_mac).lower()
+            formatted_mac = f"{clean_hex[0:4]}.{clean_hex[4:8]}.{clean_hex[8:12]}" if len(clean_hex) == 12 else raw_mac
+            cmds = ["configure terminal", f"interface {interface}"]
+            if formatted_mac:
+                cmds.append(f" no switchport port-security mac-address {formatted_mac}")
             cmds.append("exit")
-            cmds.append("exit")
+            if formatted_mac:
+                cmds.append(f"clear port-security dynamic address {formatted_mac}")
+            cmds.append("end")
+            cmds.append("write memory")
+            return "\n".join(cmds)
+        elif action == "port_sec_clear_all_macs":
+            return f"clear port-security dynamic interface {interface}\nclear port-security sticky interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n switchport port-security mac-address sticky\nend\nwrite memory"
+        elif action == "port_sec_recover_errdisable":
+            return f"configure terminal\ninterface {interface}\n shutdown\n no shutdown\nend\nwrite memory"
+        elif action == "port_sec_update":
+            enabled = params.get("enabled", True)
+            if not enabled:
+                return f"configure terminal\ninterface {interface}\n no switchport port-security\nend\nwrite memory"
+            max_mac = params.get("max_mac", 1)
+            violation = params.get("violation", "shutdown")
+            mode = params.get("mode", "sticky")
+            raw_mac = (params.get("configured_mac") or "").strip()
+            clean_hex = re.sub(r"[^0-9a-fA-F]", "", raw_mac).lower()
+            formatted_mac = f"{clean_hex[0:4]}.{clean_hex[4:8]}.{clean_hex[8:12]}" if len(clean_hex) == 12 else raw_mac
+
+            cmds = [
+                "configure terminal",
+                f"interface {interface}",
+                " switchport",
+                " switchport mode access",
+                " switchport port-security",
+                f" switchport port-security maximum {max_mac}",
+                f" switchport port-security violation {violation}",
+            ]
+            if mode == "sticky":
+                cmds.append(" switchport port-security mac-address sticky")
+                if formatted_mac:
+                    cmds.append(f" switchport port-security mac-address sticky {formatted_mac}")
+            elif mode == "configured" and formatted_mac:
+                cmds.append(f" switchport port-security mac-address {formatted_mac}")
+            cmds.append("end")
+            cmds.append("write memory")
             return "\n".join(cmds)
         elif action == "set_description":
             desc = (params.get("description") or "").strip()

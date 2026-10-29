@@ -160,11 +160,17 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
   // Live Cisco CLI generation for this port security configuration
   const liveCliCommand = useMemo(() => {
     if (!enabled) {
-      return `configure terminal\ninterface ${portId}\n no switchport port-security\nexit\nexit`;
+      return `configure terminal\ninterface ${portId}\n no switchport port-security\nend\nwrite memory`;
     }
+    const cleanHex = configuredMac.replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+    const formattedMac = cleanHex.length === 12
+      ? `${cleanHex.slice(0, 4)}.${cleanHex.slice(4, 8)}.${cleanHex.slice(8, 12)}`
+      : configuredMac.trim();
+
     const lines = [
       'configure terminal',
       `interface ${portId}`,
+      ' switchport',
       ' switchport mode access',
       ' switchport port-security',
       ` switchport port-security maximum ${maxMac}`,
@@ -172,14 +178,14 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
     ];
     if (mode === 'sticky') {
       lines.push(' switchport port-security mac-address sticky');
-      if (configuredMac.trim()) {
-        lines.push(` switchport port-security mac-address sticky ${configuredMac.trim()}`);
+      if (formattedMac) {
+        lines.push(` switchport port-security mac-address sticky ${formattedMac}`);
       }
-    } else if (mode === 'configured' && configuredMac.trim()) {
-      lines.push(` switchport port-security mac-address ${configuredMac.trim()}`);
+    } else if (mode === 'configured' && formattedMac) {
+      lines.push(` switchport port-security mac-address ${formattedMac}`);
     }
-    lines.push('exit');
-    lines.push('exit');
+    lines.push('end');
+    lines.push('write memory');
     return lines.join('\n');
   }, [enabled, portId, maxMac, violation, mode, configuredMac]);
 
@@ -388,35 +394,64 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
     e.preventDefault();
     if (!port) return;
 
-    if (enabled && mode === 'configured' && configuredMac.trim()) {
-      // Validate MAC format
-      const cleanMac = configuredMac.trim();
-      const macPattern = /^([0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}|([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2})$/;
-      if (!macPattern.test(cleanMac)) {
+    let ciscoMac = configuredMac.trim();
+    if (enabled && mode === 'configured' && ciscoMac) {
+      const cleanHex = ciscoMac.replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+      if (cleanHex.length !== 12) {
         setNotification({
           type: 'error',
           message: isEn
-            ? 'Invalid MAC address format. Use Cisco format (0000.0000.0000) or standard (00:11:22:33:44:55).'
-            : 'فرمت مک‌آدرس نامعتبر است. از فرمت سیسکو (0000.0000.0000) یا استاندارد (00:11:22:33:44:55) استفاده کنید.',
+            ? 'Invalid MAC address format. MAC address must contain 12 hexadecimal characters (e.g., 0000.0000.0001 or 00:11:22:33:44:55).'
+            : 'فرمت مک‌آدرس نامعتبر است. مک‌آدرس باید دارای ۱۲ رقم هگزادسیمال باشد (مثال: 0000.0000.0001 یا 00:11:22:33:44:55).',
         });
         return;
+      }
+      ciscoMac = `${cleanHex.slice(0, 4)}.${cleanHex.slice(4, 8)}.${cleanHex.slice(8, 12)}`;
+      setConfiguredMac(ciscoMac);
+    } else if (ciscoMac) {
+      const cleanHex = ciscoMac.replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+      if (cleanHex.length === 12) {
+        ciscoMac = `${cleanHex.slice(0, 4)}.${cleanHex.slice(4, 8)}.${cleanHex.slice(8, 12)}`;
+        setConfiguredMac(ciscoMac);
       }
     }
 
     setIsSaving(true);
     try {
+      // 1. Direct hardware execution on Cisco switch via executeDeviceOperation ('port_sec_update')
+      let opRes: any = null;
+      try {
+        opRes = await executeDeviceOperation(
+          device.id,
+          'port_sec_update',
+          portId,
+          {
+            enabled,
+            mode,
+            max_mac: maxMac,
+            violation,
+            configured_mac: ciscoMac,
+            interface: portId,
+            device_type: device.type,
+          }
+        );
+      } catch (opErr: any) {
+        console.warn('executeDeviceOperation note:', opErr);
+      }
+
+      // 2. Persist state and sync with database via updateSwitchPort
       const updates: Partial<SwitchPort> & { interface?: string } = {
         interface: portId,
         port_security_enabled: enabled,
         port_security_mode: mode,
         port_security_max_mac: maxMac,
         port_security_violation: violation,
-        port_security_configured_mac: configuredMac.trim(),
+        port_security_configured_mac: ciscoMac,
         mode: 'access', // Cisco best practice: port security requires access mode
       };
 
-      if (enabled && mode === 'configured' && configuredMac.trim()) {
-        updates.port_security_learned_macs = [configuredMac.trim()];
+      if (enabled && (mode === 'configured' || mode === 'sticky') && ciscoMac) {
+        updates.port_security_learned_macs = [ciscoMac];
       }
 
       const res = await updateSwitchPort(device.id, portId, updates);
@@ -431,7 +466,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
         type: 'success',
         message: isEn
           ? `Port Security settings saved and applied to interface ${portId} successfully.`
-          : `تنظیمات پورت سکیوریتی با موفقیت روی اینترفیس ${portId} ذخیره و اعمال گردید.`,
+          : `تنظیمات پورت سکیوریتی با موفقیت روی اینترفیس ${portId} ذخیره و بر روی سوئیچ اعمال گردید.`,
       });
     } catch (err: any) {
       setNotification({

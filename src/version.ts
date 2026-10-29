@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.384.2';
+export const APP_VERSION = '1.384.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.384.3',
+    releaseDate: '2026-10-29',
+    type: 'patch',
+    title: 'رفع مشکل ارسال نشدن دستورات پورت سکیوریتی به سوئیچ سیسکو و ثبت مک‌آدرس‌های استاتیک در سخت‌افزار',
+    title_en: 'Fix Cisco Port Security Hardware Command Dispatch and Real Static MAC Commitment',
+    changes: [
+      'رفع شرط مانع اجرای SSH در سرور (حذف وابستگی غیرضروری به فلگ موقت پینگ ICMP جهت اتصال و اجرای مستقیم دستورات روی تجهیزات).',
+      'تبدیل و نرمال‌سازی خودکار مک‌آدرس‌های ورودی (شامل فرمت کولون، خط‌تیره یا رشته متصل) به ساختار استاندارد ۴ رقمی نقطه‌دار سیسکو (xxxx.xxxx.xxxx) جهت ممانعت قطعی از خطای Invalid input در CLI سوئیچ.',
+      'افزایش سطح دسترسی خودکار در سشن SSH با ارسال دستور enable برای خروج از مد غیراختصاصی Switch> و ورود به مد مجهز (#) به همراه تنظیم طول ترمینال (terminal length 0).',
+      'ارسال دستورات اختصاصی switchport، switchport mode access، تعریف مک‌آدرس و ذخیره‌سازی دائمی با دستور write memory در حافظه NVRAM سوئیچ.',
+      'یکپارچه‌سازی فرآیند ذخیره در مودال CiscoPortSecurityModal به صورت اجرای مستقیم سخت‌افزاری (executeDeviceOperation) و به‌روزرسانی هم‌زمان پایگاه داده.'
+    ],
+    changes_en: [
+      'Removed restrictive ICMP ping check preventing SSH command dispatch on port updates, ensuring CLI commands execute reliably on target hardware.',
+      'Normalized user-provided MAC addresses into authentic Cisco dotted quad format (xxxx.xxxx.xxxx), completely preventing IOS syntax rejection.',
+      'Added automated privilege EXEC mode elevation (enable) and terminal length 0 for Cisco SSH sessions to ensure configuration commands execute without permission errors.',
+      'Enforced switchport access prerequisite, exact port-security MAC binding, and permanent commit via write memory to switch NVRAM.',
+      'Unified CiscoPortSecurityModal save action to invoke live hardware execution (executeDeviceOperation) alongside authoritative database synchronization.'
+    ]
+  },
   {
     version: '1.384.2',
     releaseDate: '2026-10-29',
