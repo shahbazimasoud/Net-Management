@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.393.1';
+export const APP_VERSION = '1.394.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.394.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'سیستم جامع الگوهای دسترسی تجهیزات (Templates)، شبیه‌سازی دسترسی بین تجهیزات (Clone/Copy) و اعمال گروهی در پالیسی‌ها',
+    title_en: 'Universal Equipment Policy Templates, Device-to-Device Permission Cloning & Batch Management in Access Policies',
+    changes: [
+      'پیاده‌سازی ۵ الگوی دسترسی استاندارد پیش‌فرض سیستم برای تجهیزات (مدیر کامل سخت‌افزار، اپراتور پورت و اینترفیس، ناظر خواندنی NOC، مدیر لایه ۲ و سوئیچینگ VLAN، استثنا و مسدودسازی کامل).',
+      'تعبیه امکان ذخیره‌سازی دسترسی‌های سفارشی هر تجهیز به عنوان «الگوی سفارشی جدید» با نام‌گذاری دلخواه و مدیریت آسان.',
+      'پیاده‌سازی قابلیت کلون و کپی دسترسی‌ها (Copy From Another Device) برای شبیه‌سازی سریع دسترسی یک تجهیز به یک یا چند تجهیز دیگر.',
+      'افزودن نوار ابزار انتخاب چندگانه و عملیات گروهی (Batch Actions) شامل انتخاب همه موارد جاری، انتخاب بر اساس پلتفرم (Cisco/MikroTik)، اعمال هم‌زمان الگو، کپی گروهی و ریست دسترسی‌ها.',
+      'افزودن امکان استثنا کردن صریح و مسدودسازی کامل (Exclude / Lockdown) تک‌تک یا گروهی تجهیزات در ماتریس دسترسی.',
+      'رعایت صددرصدی استانداردهای پنج‌گانه مودال‌ها، حفظ حریم فوتر، ایزولاسیون کامل زبان انگلیسی (عدم وجود متن فارسی) و کنتراست ارگونومیک.'
+    ],
+    changes_en: [
+      'Implemented 5 system standard built-in equipment policy templates (Full Hardware Admin, Port & Interface Operator, Read-Only NOC, Layer 2 & VLAN Admin, Total Lockdown / Exclude).',
+      'Added the ability to save any device’s customized permissions as reusable named Custom Templates with persistent local storage and deletion controls.',
+      'Engineered interactive Device-to-Device permission cloning ("Copy From Another Device") to mirror permissions across individual or batched devices in one click.',
+      'Added a responsive multi-select and batch actions toolbar with platform filters (Select Cisco, Select MikroTik), batch template assignment, batch cloning, and batch reset.',
+      'Added explicit per-device and batch exclusion controls (Exclude / Lockdown) to completely revoke access to designated hardware in the matrix.',
+      'Fully compliant with all 5 universal modal standards, footer clearance (bottom-8), strict bilingual isolation with zero Persian text in English mode, and ergonomic contrast.'
+    ]
+  },
   {
     version: '1.393.1',
     releaseDate: '2026-10-29',

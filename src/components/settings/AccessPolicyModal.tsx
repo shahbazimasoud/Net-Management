@@ -54,6 +54,9 @@ import {
   Edit,
   RotateCcw,
   Filter,
+  Copy,
+  BookmarkPlus,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   AccessPolicy,
@@ -152,6 +155,31 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   // Tab 7 (Equipment Matrix) Search States
   const [matrixDeviceSearch, setMatrixDeviceSearch] = useState('');
   const [matrixDeviceFilter, setMatrixDeviceFilter] = useState<'all' | 'custom_only' | 'default_only'>('all');
+
+  // Tab 7 Batch Multi-Select, Templates, and Cloning States
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<string>>(new Set());
+  const [copyTargetDevId, setCopyTargetDevId] = useState<string | null>(null); // target devId or 'BATCH'
+  const [copySourceSearch, setCopySourceSearch] = useState('');
+  const [saveTemplateDevId, setSaveTemplateDevId] = useState<string | null>(null);
+  const [templateNameInput, setTemplateNameInput] = useState('');
+  const [activePresetMenuDevId, setActivePresetMenuDevId] = useState<string | null>(null);
+  const [isBatchTemplateMenuOpen, setIsBatchTemplateMenuOpen] = useState(false);
+  const [matrixFeedbackToast, setMatrixFeedbackToast] = useState<string | null>(null);
+  const [customTemplates, setCustomTemplates] = useState<
+    Array<{
+      id: string;
+      nameEn: string;
+      nameFa: string;
+      permissions: Partial<Record<NetworkDeviceActionKey, boolean>>;
+    }>
+  >(() => {
+    try {
+      const saved = localStorage.getItem('nettopology_custom_device_policy_templates');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Tab 5 (Server Fleet Actions, Scope & Overrides) States
   const [serverScopeSearch, setServerScopeSearch] = useState('');
@@ -811,9 +839,436 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   );
   const portEquipmentActions = DEVICE_ACTIONS_CATALOG.filter((a) => a.category === 'port');
 
+  // ---------------------------------------------------------------------------
+  // Tab 5 Equipment Policy Templates & Cloning Architecture
+  // ---------------------------------------------------------------------------
+  const builtinDeviceTemplates = useMemo(() => {
+    // 1. Full Hardware Admin (All permissions true)
+    const fullAdmin: Record<string, boolean> = {};
+    DEVICE_ACTIONS_CATALOG.forEach((a) => {
+      fullAdmin[a.key] = true;
+    });
+
+    // 2. Port & Interface Operator (Field / Helpdesk)
+    const portOperator: Record<string, boolean> = {};
+    DEVICE_ACTIONS_CATALOG.forEach((a) => {
+      portOperator[a.key] = false;
+    });
+    // Port actions
+    portOperator['port_power'] = true;
+    portOperator['port_vlan'] = true;
+    portOperator['port_description'] = true;
+    portOperator['port_speed'] = true;
+    portOperator['port_cable_test'] = true;
+    portOperator['port_security'] = true;
+    portOperator['port_bridge'] = true;
+    // Safe general
+    portOperator['web_configs'] = true;
+    portOperator['inspect_ports'] = true;
+    portOperator['ping_keepalive'] = true;
+    portOperator['device_note'] = true;
+    portOperator['mikrotik_toggle_interface'] = true;
+    portOperator['mikrotik_comment'] = true;
+
+    // 3. Read-Only Monitor / NOC Observer
+    const readOnlyNoc: Record<string, boolean> = {};
+    DEVICE_ACTIONS_CATALOG.forEach((a) => {
+      readOnlyNoc[a.key] = false;
+    });
+    readOnlyNoc['inspect_ports'] = true;
+    readOnlyNoc['ping_keepalive'] = true;
+    readOnlyNoc['web_configs'] = true;
+    readOnlyNoc['device_note'] = true;
+    readOnlyNoc['port_cable_test'] = true;
+
+    // 4. Layer 2 & VLAN Administrator
+    const l2VlanAdmin: Record<string, boolean> = {};
+    DEVICE_ACTIONS_CATALOG.forEach((a) => {
+      l2VlanAdmin[a.key] = false;
+    });
+    // All port actions true
+    portEquipmentActions.forEach((a) => {
+      l2VlanAdmin[a.key] = true;
+    });
+    l2VlanAdmin['web_configs'] = true;
+    l2VlanAdmin['inspect_ports'] = true;
+    l2VlanAdmin['ping_keepalive'] = true;
+    l2VlanAdmin['device_note'] = true;
+    // Cisco L2
+    l2VlanAdmin['cisco_config_vlans'] = true;
+    l2VlanAdmin['cisco_config_stp'] = true;
+    l2VlanAdmin['cisco_config_l2_security'] = true;
+    l2VlanAdmin['cisco_config_write_memory'] = true;
+    // MikroTik L2
+    l2VlanAdmin['mikrotik_bridge_vlan'] = true;
+    l2VlanAdmin['mikrotik_toggle_interface'] = true;
+    l2VlanAdmin['mikrotik_comment'] = true;
+
+    // 5. Total Lockdown / Complete Exclusion (Deny All)
+    const lockdownDenyAll: Record<string, boolean> = {};
+    DEVICE_ACTIONS_CATALOG.forEach((a) => {
+      lockdownDenyAll[a.key] = false;
+    });
+
+    return [
+      {
+        id: 'full_admin',
+        nameEn: 'Full Hardware Admin',
+        nameFa: 'دسترسی کامل مدیریت سخت‌افزار',
+        descriptionEn: 'Unrestricted control over all switch/router features, configurations, backups, and ports.',
+        descriptionFa: 'اختیارات کامل روی تمامی قابلیت‌ها، پورت‌ها، ترمینال، کانفیگ‌ها و بکاپ‌های دستگاه.',
+        badgeEn: 'Full Access',
+        badgeFa: 'دسترسی کامل',
+        color: 'emerald',
+        permissions: fullAdmin,
+      },
+      {
+        id: 'port_operator',
+        nameEn: 'Port & Interface Operator',
+        nameFa: 'اپراتور پورت و اینترفیس',
+        descriptionEn: 'Permits interface power, VLAN assignment, description, cable tests, and port security.',
+        descriptionFa: 'مجوز تغییر وضعیت پورت، تخصیص VLAN، عیب‌یابی کابل، تغییر سرعت و برچسب پورت‌ها.',
+        badgeEn: 'Port Specialist',
+        badgeFa: 'تخصصی پورت',
+        color: 'sky',
+        permissions: portOperator,
+      },
+      {
+        id: 'read_only_noc',
+        nameEn: 'Read-Only NOC Observer',
+        nameFa: 'پایشگر خواندنی مرکز عملیات (NOC)',
+        descriptionEn: 'Telemetric ping, interface status, and sticky notes only. Zero write or reload access.',
+        descriptionFa: 'تنها پایش پینگ، وضعیت لحظه‌ای پورت‌ها و یادداشت‌ها بدون هیچ‌گونه امکان تغییر یا نوشتن.',
+        badgeEn: 'Observer',
+        badgeFa: 'ناظر مانیتورینگ',
+        color: 'indigo',
+        permissions: readOnlyNoc,
+      },
+      {
+        id: 'l2_vlan_admin',
+        nameEn: 'Layer 2 & VLAN Administrator',
+        nameFa: 'مدیر لایه ۲ و سوئیچینگ VLAN',
+        descriptionEn: 'Authorized for VLAN database, STP loops, bridge filtering, and switchport security.',
+        descriptionFa: 'اختیار ایجاد VLANها، اینترفیس SVI، پروتکل STP، بریج میکروتیک و امنیت پورت.',
+        badgeEn: 'L2 Switch',
+        badgeFa: 'سوئیچینگ لایه ۲',
+        color: 'amber',
+        permissions: l2VlanAdmin,
+      },
+      {
+        id: 'lockdown_deny_all',
+        nameEn: 'Total Lockdown / Exclude Device',
+        nameFa: 'استثنا و مسدودسازی کامل تجهیز',
+        descriptionEn: 'Explicitly revokes and blocks 100% of capabilities on this target device.',
+        descriptionFa: 'استثنا کردن این تجهیز و مسدودسازی کامل تمامی دسترسی‌ها و عملیات‌ها.',
+        badgeEn: 'Lockdown',
+        badgeFa: 'استثنا و مسدود',
+        color: 'rose',
+        permissions: lockdownDenyAll,
+      },
+    ];
+  }, [portEquipmentActions]);
+
+  const showToast = useCallback((msg: string) => {
+    setMatrixFeedbackToast(msg);
+    setTimeout(() => {
+      setMatrixFeedbackToast((prev) => (prev === msg ? null : prev));
+    }, 4000);
+  }, []);
+
+  const applyTemplateToDevice = useCallback(
+    (devId: string, tmplPerms: Record<string, boolean>, tmplName: string) => {
+      setDraftPolicy((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          perDevicePermissions: {
+            ...(prev.perDevicePermissions || {}),
+            [devId]: { ...tmplPerms },
+          },
+        };
+      });
+      setActivePresetMenuDevId(null);
+      showToast(
+        isEn
+          ? `Template "${tmplName}" applied to device.`
+          : `الگوی "${tmplName}" بر روی تجهیز اعمال شد.`
+      );
+    },
+    [isEn, showToast]
+  );
+
+  const applyTemplateToBatch = useCallback(
+    (tmplPerms: Record<string, boolean>, tmplName: string) => {
+      if (selectedDeviceIds.size === 0) return;
+      setDraftPolicy((prev) => {
+        if (!prev) return prev;
+        const nextPerDev = { ...(prev.perDevicePermissions || {}) };
+        selectedDeviceIds.forEach((id) => {
+          nextPerDev[id] = { ...tmplPerms };
+        });
+        return {
+          ...prev,
+          perDevicePermissions: nextPerDev,
+        };
+      });
+      setIsBatchTemplateMenuOpen(false);
+      showToast(
+        isEn
+          ? `Template "${tmplName}" applied to ${selectedDeviceIds.size} devices.`
+          : `الگوی "${tmplName}" بر روی ${selectedDeviceIds.size} تجهیز اعمال شد.`
+      );
+    },
+    [selectedDeviceIds, isEn, showToast]
+  );
+
+  const handleCopyFromDevice = useCallback(
+    (sourceDevId: string, targetDevIdOrBatch: string) => {
+      if (!draftPolicy) return;
+      const sourceDev = devices.find((d) => d.id === sourceDevId);
+      const sourcePerms =
+        draftPolicy.perDevicePermissions?.[sourceDevId] ||
+        draftPolicy.defaultDevicePermissions ||
+        {};
+
+      if (targetDevIdOrBatch === 'BATCH') {
+        if (selectedDeviceIds.size === 0) return;
+        setDraftPolicy((prev) => {
+          if (!prev) return prev;
+          const nextPerDev = { ...(prev.perDevicePermissions || {}) };
+          selectedDeviceIds.forEach((id) => {
+            nextPerDev[id] = { ...sourcePerms };
+          });
+          return {
+            ...prev,
+            perDevicePermissions: nextPerDev,
+          };
+        });
+        setCopyTargetDevId(null);
+        setCopySourceSearch('');
+        showToast(
+          isEn
+            ? `Permissions copied from "${sourceDev?.name || sourceDevId}" to ${selectedDeviceIds.size} selected devices.`
+            : `دسترسی‌ها از "${sourceDev?.name || sourceDevId}" به ${selectedDeviceIds.size} تجهیز انتخاب شده کپی گردید.`
+        );
+      } else {
+        setDraftPolicy((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            perDevicePermissions: {
+              ...(prev.perDevicePermissions || {}),
+              [targetDevIdOrBatch]: { ...sourcePerms },
+            },
+          };
+        });
+        const targetDev = devices.find((d) => d.id === targetDevIdOrBatch);
+        setCopyTargetDevId(null);
+        setCopySourceSearch('');
+        showToast(
+          isEn
+            ? `Permissions copied from "${sourceDev?.name || sourceDevId}" to "${targetDev?.name || targetDevIdOrBatch}".`
+            : `دسترسی‌ها از "${sourceDev?.name || sourceDevId}" به "${targetDev?.name || targetDevIdOrBatch}" کپی شد.`
+        );
+      }
+    },
+    [draftPolicy, devices, selectedDeviceIds, isEn, showToast]
+  );
+
+  const handleExcludeDevice = useCallback(
+    (devId: string) => {
+      const denyAll: Record<string, boolean> = {};
+      DEVICE_ACTIONS_CATALOG.forEach((a) => {
+        denyAll[a.key] = false;
+      });
+      setDraftPolicy((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          perDevicePermissions: {
+            ...(prev.perDevicePermissions || {}),
+            [devId]: denyAll,
+          },
+        };
+      });
+      showToast(
+        isEn
+          ? 'Device excluded and locked down.'
+          : 'تجهیز استثنا و کلیه دسترسی‌ها مسدود گردید.'
+      );
+    },
+    [isEn, showToast]
+  );
+
+  const handleExcludeBatch = useCallback(() => {
+    if (selectedDeviceIds.size === 0) return;
+    const denyAll: Record<string, boolean> = {};
+    DEVICE_ACTIONS_CATALOG.forEach((a) => {
+      denyAll[a.key] = false;
+    });
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      const nextPerDev = { ...(prev.perDevicePermissions || {}) };
+      selectedDeviceIds.forEach((id) => {
+        nextPerDev[id] = { ...denyAll };
+      });
+      return {
+        ...prev,
+        perDevicePermissions: nextPerDev,
+      };
+    });
+    showToast(
+      isEn
+        ? `${selectedDeviceIds.size} devices excluded and locked down.`
+        : `${selectedDeviceIds.size} تجهیز استثنا و کلیه دسترسی‌ها مسدود گردید.`
+    );
+  }, [selectedDeviceIds, isEn, showToast]);
+
+  const handleResetDevice = useCallback(
+    (devId: string) => {
+      setDraftPolicy((prev) => {
+        if (!prev) return prev;
+        const nextPerDev = { ...(prev.perDevicePermissions || {}) };
+        delete nextPerDev[devId];
+        return {
+          ...prev,
+          perDevicePermissions: nextPerDev,
+        };
+      });
+      showToast(
+        isEn
+          ? 'Device reset to inherit General Policy.'
+          : 'تجهیز ریست شد و به پالیسی عمومی بازگشت.'
+      );
+    },
+    [isEn, showToast]
+  );
+
+  const handleResetBatch = useCallback(() => {
+    if (selectedDeviceIds.size === 0) return;
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      const nextPerDev = { ...(prev.perDevicePermissions || {}) };
+      selectedDeviceIds.forEach((id) => {
+        delete nextPerDev[id];
+      });
+      return {
+        ...prev,
+        perDevicePermissions: nextPerDev,
+      };
+    });
+    showToast(
+      isEn
+        ? `${selectedDeviceIds.size} devices reset to inherit General Policy.`
+        : `${selectedDeviceIds.size} تجهیز ریست شد و به پالیسی عمومی بازگشت.`
+    );
+  }, [selectedDeviceIds, isEn, showToast]);
+
+  const handleSaveCustomTemplate = useCallback(
+    (sourceDevId: string, name: string) => {
+      if (!name.trim() || !draftPolicy) return;
+      const sourcePerms =
+        draftPolicy.perDevicePermissions?.[sourceDevId] ||
+        draftPolicy.defaultDevicePermissions ||
+        {};
+      const newTmpl = {
+        id: `custom_${Date.now()}`,
+        nameEn: name.trim(),
+        nameFa: name.trim(),
+        permissions: { ...sourcePerms },
+      };
+      const updated = [newTmpl, ...customTemplates];
+      setCustomTemplates(updated);
+      try {
+        localStorage.setItem(
+          'nettopology_custom_device_policy_templates',
+          JSON.stringify(updated)
+        );
+      } catch {}
+      setSaveTemplateDevId(null);
+      setTemplateNameInput('');
+      showToast(
+        isEn
+          ? `Template "${name.trim()}" saved successfully.`
+          : `الگوی "${name.trim()}" با موفقیت ذخیره گردید.`
+      );
+    },
+    [draftPolicy, customTemplates, isEn, showToast]
+  );
+
+  const handleDeleteCustomTemplate = useCallback(
+    (tmplId: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      const updated = customTemplates.filter((t) => t.id !== tmplId);
+      setCustomTemplates(updated);
+      try {
+        localStorage.setItem(
+          'nettopology_custom_device_policy_templates',
+          JSON.stringify(updated)
+        );
+      } catch {}
+      showToast(isEn ? 'Custom template deleted.' : 'الگوی سفارشی حذف شد.');
+    },
+    [customTemplates, isEn, showToast]
+  );
+
+  const handleToggleSelectDevice = useCallback((devId: string) => {
+    setSelectedDeviceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(devId)) {
+        next.delete(devId);
+      } else {
+        next.add(devId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectAllVisibleDevices = useCallback(() => {
+    setSelectedDeviceIds((prev) => {
+      const allVisibleSelected =
+        matrixFilteredDevices.length > 0 &&
+        matrixFilteredDevices.every((d) => prev.has(d.id));
+      if (allVisibleSelected) {
+        const next = new Set(prev);
+        matrixFilteredDevices.forEach((d) => next.delete(d.id));
+        return next;
+      } else {
+        const next = new Set(prev);
+        matrixFilteredDevices.forEach((d) => next.add(d.id));
+        return next;
+      }
+    });
+  }, [matrixFilteredDevices]);
+
+  const handleSelectDevicesByPlatform = useCallback(
+    (platformType: 'cisco' | 'mikrotik') => {
+      setSelectedDeviceIds((prev) => {
+        const next = new Set(prev);
+        matrixFilteredDevices.forEach((d) => {
+          const isCisco = Boolean(
+            d.platform?.includes('cisco') ||
+              d.platform === 'cisco_ios' ||
+              d.platform === 'cisco_ios_xe' ||
+              (!d.platform && (d.type === 'switch' || d.type === 'router'))
+          );
+          const isMikrotik = Boolean(
+            d.platform?.includes('mikrotik') ||
+              d.platform === 'mikrotik_routeros'
+          );
+          if (platformType === 'cisco' && isCisco) next.add(d.id);
+          if (platformType === 'mikrotik' && isMikrotik) next.add(d.id);
+        });
+        return next;
+      });
+    },
+    [matrixFilteredDevices]
+  );
+
   return createPortal(
-    <div
-      className="fixed top-0 left-0 right-0 bottom-8 z-[9999] flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur animate-fadeIn overflow-y-auto"
+    <>
+      <div
+        className="fixed top-0 left-0 right-0 bottom-8 z-[9999] flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur animate-fadeIn overflow-y-auto"
       data-modal-backdrop="true"
       dir={isEn ? 'ltr' : 'rtl'}
     >
@@ -3622,6 +4077,296 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                             </div>
                           </div>
 
+                          {/* Batch Multi-Select & Selection Toolbar */}
+                          <div
+                            className={`p-2.5 rounded-xl border flex items-center justify-between flex-wrap gap-2 text-xs transition ${
+                              isLightMode
+                                ? 'bg-slate-100/90 border-slate-200'
+                                : 'bg-slate-900/80 border-white/10'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={handleSelectAllVisibleDevices}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border flex items-center gap-1.5 transition cursor-pointer ${
+                                  matrixFilteredDevices.length > 0 &&
+                                  matrixFilteredDevices.every((d) => selectedDeviceIds.has(d.id))
+                                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                                    : isLightMode
+                                    ? 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                                    : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                                }`}
+                              >
+                                {matrixFilteredDevices.length > 0 &&
+                                matrixFilteredDevices.every((d) => selectedDeviceIds.has(d.id)) ? (
+                                  <CheckSquare className="w-3.5 h-3.5 text-cyan-400" />
+                                ) : (
+                                  <Square className="w-3.5 h-3.5 text-slate-400" />
+                                )}
+                                <span>{isEn ? 'Select All Visible' : 'انتخاب همه موارد جاری'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleSelectDevicesByPlatform('cisco')}
+                                className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition cursor-pointer ${
+                                  isLightMode
+                                    ? 'bg-white text-sky-700 border-sky-300 hover:bg-sky-50'
+                                    : 'bg-sky-500/10 text-sky-300 border-sky-500/20 hover:bg-sky-500/20'
+                                }`}
+                              >
+                                <span>{isEn ? 'Select Cisco' : 'انتخاب سیسکو'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleSelectDevicesByPlatform('mikrotik')}
+                                className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition cursor-pointer ${
+                                  isLightMode
+                                    ? 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50'
+                                    : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/20'
+                                }`}
+                              >
+                                <span>{isEn ? 'Select MikroTik' : 'انتخاب میکروتیک'}</span>
+                              </button>
+
+                              {selectedDeviceIds.size > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedDeviceIds(new Set())}
+                                  className="text-[11px] text-slate-400 hover:text-rose-400 underline cursor-pointer"
+                                >
+                                  {isEn ? 'Clear Selection' : 'لغو انتخاب'}
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                              <span>{isEn ? 'Selected:' : 'انتخاب شده:'}</span>
+                              <span className="font-mono font-bold text-cyan-400">
+                                {selectedDeviceIds.size}
+                              </span>
+                              <span>/</span>
+                              <span className="font-mono">{permittedDevices.length}</span>
+                            </div>
+                          </div>
+
+                          {/* Active Batch Operations Toolbar (Revealed when 1+ devices are selected) */}
+                          {selectedDeviceIds.size > 0 && (
+                            <div
+                              className={`p-3 rounded-xl border flex items-center justify-between flex-wrap gap-2 shadow-lg animate-fadeIn relative z-20 ${
+                                isLightMode
+                                  ? 'bg-indigo-50 border-indigo-200 text-indigo-950'
+                                  : 'bg-indigo-950/40 border-indigo-500/40 text-white'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                                <span className="font-bold text-xs">
+                                  {isEn
+                                    ? `Batch Action on ${selectedDeviceIds.size} Selected Devices:`
+                                    : `عملیات گروهی روی ${selectedDeviceIds.size} تجهیز انتخاب شده:`}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {/* Apply Template Dropdown Button */}
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setIsBatchTemplateMenuOpen((prev) => !prev)
+                                    }
+                                    className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                  >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    <span>
+                                      {isEn ? 'Apply Template...' : 'اعمال الگو به انتخاب‌شده‌ها...'}
+                                    </span>
+                                    <ChevronDown className="w-3 h-3" />
+                                  </button>
+
+                                  {isBatchTemplateMenuOpen && (
+                                    <>
+                                      <div
+                                        className="fixed inset-0 z-40"
+                                        onClick={() => setIsBatchTemplateMenuOpen(false)}
+                                      />
+                                      <div
+                                        className={`absolute right-0 rtl:right-auto rtl:left-0 top-full mt-1.5 w-72 rounded-xl border shadow-2xl p-2 z-50 animate-fadeIn ${
+                                          isLightMode
+                                            ? 'bg-white border-slate-200 text-slate-800'
+                                            : 'bg-slate-900 border-white/15 text-white'
+                                        }`}
+                                      >
+                                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1">
+                                          {isEn ? 'Standard Built-in Templates' : 'الگوهای استاندارد سیستم'}
+                                        </div>
+                                        <div className="space-y-1 mb-2">
+                                          {builtinDeviceTemplates.map((tmpl) => (
+                                            <button
+                                              key={tmpl.id}
+                                              type="button"
+                                              onClick={() =>
+                                                applyTemplateToBatch(
+                                                  tmpl.permissions,
+                                                  isEn ? tmpl.nameEn : tmpl.nameFa
+                                                )
+                                              }
+                                              className={`w-full text-left rtl:text-right p-2 rounded-lg text-xs transition cursor-pointer flex flex-col gap-0.5 ${
+                                                isLightMode
+                                                  ? 'hover:bg-slate-100 text-slate-800'
+                                                  : 'hover:bg-white/10 text-slate-200'
+                                              }`}
+                                            >
+                                              <div className="flex items-center justify-between">
+                                                <span className="font-semibold">
+                                                  {isEn ? tmpl.nameEn : tmpl.nameFa}
+                                                </span>
+                                                <span
+                                                  className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                                                    tmpl.id === 'lockdown_deny_all'
+                                                      ? 'bg-rose-500/20 text-rose-300'
+                                                      : 'bg-cyan-500/20 text-cyan-300'
+                                                  }`}
+                                                >
+                                                  {isEn ? tmpl.badgeEn : tmpl.badgeFa}
+                                                </span>
+                                              </div>
+                                              <span className="text-[10px] text-slate-400 line-clamp-1">
+                                                {isEn
+                                                  ? tmpl.descriptionEn
+                                                  : tmpl.descriptionFa}
+                                              </span>
+                                            </button>
+                                          ))}
+                                        </div>
+
+                                        {customTemplates.length > 0 && (
+                                          <>
+                                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1 border-t border-white/10 pt-1.5">
+                                              {isEn ? 'Custom Saved Templates' : 'الگوهای سفارشی ذخیره‌شده'}
+                                            </div>
+                                            <div className="space-y-1 max-h-40 overflow-y-auto">
+                                              {customTemplates.map((ct) => (
+                                                <div
+                                                  key={ct.id}
+                                                  className={`flex items-center justify-between p-1.5 rounded-lg text-xs transition ${
+                                                    isLightMode
+                                                      ? 'hover:bg-slate-100'
+                                                      : 'hover:bg-white/10'
+                                                  }`}
+                                                >
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      applyTemplateToBatch(
+                                                        ct.permissions as any,
+                                                        isEn ? ct.nameEn : ct.nameFa
+                                                      )
+                                                    }
+                                                    className="flex-1 text-left rtl:text-right cursor-pointer"
+                                                  >
+                                                    <span className="font-semibold">
+                                                      {isEn ? ct.nameEn : ct.nameFa}
+                                                    </span>
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) =>
+                                                      handleDeleteCustomTemplate(ct.id, e)
+                                                    }
+                                                    className="p-1 text-slate-400 hover:text-rose-400 cursor-pointer"
+                                                    title={isEn ? 'Delete template' : 'حذف الگو'}
+                                                  >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                  </button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </>
+                                        )}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+
+                                {/* Copy Permissions From Device Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCopyTargetDevId('BATCH');
+                                    setCopySourceSearch('');
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                >
+                                  <Copy className="w-3.5 h-3.5" />
+                                  <span>
+                                    {isEn ? 'Copy From Device...' : 'کپی دسترسی از تجهیز دیگر...'}
+                                  </span>
+                                </button>
+
+                                {/* Exclude / Deny All Button */}
+                                <button
+                                  type="button"
+                                  onClick={handleExcludeBatch}
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                  title={
+                                    isEn
+                                      ? 'Deny all permissions on selected devices'
+                                      : 'مسدودسازی و قطع کامل دسترسی روی تجهیزات انتخابی'
+                                  }
+                                >
+                                  <ShieldAlert className="w-3.5 h-3.5" />
+                                  <span>
+                                    {isEn ? 'Exclude / Lock Down' : 'استثنا و مسدودسازی'}
+                                  </span>
+                                </button>
+
+                                {/* Reset to Default Button */}
+                                <button
+                                  type="button"
+                                  onClick={handleResetBatch}
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                                  title={
+                                    isEn
+                                      ? 'Reset selected devices to inherit General Policy'
+                                      : 'ریست تنظیمات و بازگشت به پالیسی عمومی'
+                                  }
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  <span>
+                                    {isEn ? 'Reset to Default' : 'ریست به پیش‌فرض'}
+                                  </span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Matrix Feedback Toast Notification */}
+                          {matrixFeedbackToast && (
+                            <div
+                              className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 shadow-md animate-fadeIn ${
+                                isLightMode
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                                  : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                <span className="font-medium">{matrixFeedbackToast}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setMatrixFeedbackToast(null)}
+                                className="text-slate-400 hover:text-white cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+
                           {/* Device List with action toggle buttons */}
                           <div className="space-y-2 max-h-80 overflow-y-auto p-1">
                             {matrixFilteredDevices.length === 0 ? (
@@ -3635,6 +4380,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                 Object.keys(draftPolicy.perDevicePermissions[dev.id]).length > 0
                             );
                             const devPerms = draftPolicy.perDevicePermissions?.[dev.id] || {};
+                            const isSelected = selectedDeviceIds.has(dev.id);
 
                             const isCisco = Boolean(
                               dev.platform?.includes('cisco') ||
@@ -3657,7 +4403,11 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                               <div
                                 key={dev.id}
                                 className={`p-3 rounded-xl border space-y-3 transition ${
-                                  hasCustom
+                                  isSelected
+                                    ? isLightMode
+                                      ? 'bg-indigo-50/90 border-indigo-400 shadow-sm'
+                                      : 'bg-indigo-950/30 border-indigo-500/50'
+                                    : hasCustom
                                     ? isLightMode
                                       ? 'bg-rose-50/70 border-rose-300 text-slate-900'
                                       : 'bg-rose-950/20 border-rose-500/40 text-white'
@@ -3668,6 +4418,22 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                               >
                                 <div className="flex items-center justify-between flex-wrap gap-2">
                                   <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleSelectDevice(dev.id)}
+                                      className="cursor-pointer text-slate-400 hover:text-white transition"
+                                      title={
+                                        isEn
+                                          ? 'Select device for batch operations'
+                                          : 'انتخاب تجهیز برای عملیات گروهی'
+                                      }
+                                    >
+                                      {isSelected ? (
+                                        <CheckSquare className="w-4 h-4 text-cyan-400" />
+                                      ) : (
+                                        <Square className="w-4 h-4 text-slate-500 hover:text-slate-300" />
+                                      )}
+                                    </button>
                                     <HardDrive className="w-4 h-4 text-cyan-400" />
                                     <span className="font-bold text-xs">{dev.name}</span>
                                     <span className="text-[10px] font-mono text-slate-400">
@@ -3688,25 +4454,202 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                     )}
                                   </div>
 
-                                  <div className="flex items-center gap-1.5">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {/* Per-Device Apply Template Dropdown */}
+                                    <div className="relative">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setActivePresetMenuDevId((prev) =>
+                                            prev === dev.id ? null : dev.id
+                                          )
+                                        }
+                                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 flex items-center gap-1 cursor-pointer"
+                                        title={
+                                          isEn
+                                            ? 'Apply permission template to this device'
+                                            : 'اعمال الگوی دسترسی به این تجهیز'
+                                        }
+                                      >
+                                        <Sparkles className="w-3 h-3 text-indigo-400" />
+                                        <span>{isEn ? 'Templates' : 'الگوها'}</span>
+                                        <ChevronDown className="w-2.5 h-2.5" />
+                                      </button>
+
+                                      {activePresetMenuDevId === dev.id && (
+                                        <>
+                                          <div
+                                            className="fixed inset-0 z-40"
+                                            onClick={() => setActivePresetMenuDevId(null)}
+                                          />
+                                          <div
+                                            className={`absolute right-0 rtl:right-auto rtl:left-0 top-full mt-1 w-64 rounded-xl border shadow-2xl p-2 z-50 animate-fadeIn ${
+                                              isLightMode
+                                                ? 'bg-white border-slate-200 text-slate-800'
+                                                : 'bg-slate-900 border-white/15 text-white'
+                                            }`}
+                                          >
+                                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-0.5">
+                                              {isEn ? 'Standard Templates' : 'الگوهای استاندارد'}
+                                            </div>
+                                            <div className="space-y-1 mb-2">
+                                              {builtinDeviceTemplates.map((tmpl) => (
+                                                <button
+                                                  key={tmpl.id}
+                                                  type="button"
+                                                  onClick={() =>
+                                                    applyTemplateToDevice(
+                                                      dev.id,
+                                                      tmpl.permissions,
+                                                      isEn ? tmpl.nameEn : tmpl.nameFa
+                                                    )
+                                                  }
+                                                  className={`w-full text-left rtl:text-right p-1.5 rounded-lg text-[11px] transition cursor-pointer flex flex-col ${
+                                                    isLightMode
+                                                      ? 'hover:bg-slate-100 text-slate-800'
+                                                      : 'hover:bg-white/10 text-slate-200'
+                                                  }`}
+                                                >
+                                                  <div className="flex items-center justify-between">
+                                                    <span className="font-semibold">
+                                                      {isEn ? tmpl.nameEn : tmpl.nameFa}
+                                                    </span>
+                                                    <span
+                                                      className={`text-[8px] px-1 py-0.1 rounded font-mono ${
+                                                        tmpl.id === 'lockdown_deny_all'
+                                                          ? 'bg-rose-500/20 text-rose-300'
+                                                          : 'bg-cyan-500/20 text-cyan-300'
+                                                      }`}
+                                                    >
+                                                      {isEn ? tmpl.badgeEn : tmpl.badgeFa}
+                                                    </span>
+                                                  </div>
+                                                </button>
+                                              ))}
+                                            </div>
+
+                                            {customTemplates.length > 0 && (
+                                              <>
+                                                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-0.5 border-t border-white/10 pt-1">
+                                                  {isEn ? 'Custom Templates' : 'الگوهای سفارشی'}
+                                                </div>
+                                                <div className="space-y-1 max-h-32 overflow-y-auto">
+                                                  {customTemplates.map((ct) => (
+                                                    <div
+                                                      key={ct.id}
+                                                      className={`flex items-center justify-between p-1 rounded-lg text-[11px] transition ${
+                                                        isLightMode
+                                                          ? 'hover:bg-slate-100'
+                                                          : 'hover:bg-white/10'
+                                                      }`}
+                                                    >
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          applyTemplateToDevice(
+                                                            dev.id,
+                                                            ct.permissions as any,
+                                                            isEn ? ct.nameEn : ct.nameFa
+                                                          )
+                                                        }
+                                                        className="flex-1 text-left rtl:text-right cursor-pointer"
+                                                      >
+                                                        <span className="font-semibold">
+                                                          {isEn ? ct.nameEn : ct.nameFa}
+                                                        </span>
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) =>
+                                                          handleDeleteCustomTemplate(ct.id, e)
+                                                        }
+                                                        className="p-1 text-slate-400 hover:text-rose-400 cursor-pointer"
+                                                        title={isEn ? 'Delete' : 'حذف'}
+                                                      >
+                                                        <Trash2 className="w-3 h-3" />
+                                                      </button>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </>
+                                            )}
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+
+                                    {/* Copy From Another Device Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setCopyTargetDevId(dev.id);
+                                        setCopySourceSearch('');
+                                      }}
+                                      className="px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30 flex items-center gap-1 cursor-pointer"
+                                      title={
+                                        isEn
+                                          ? 'Copy permissions from another device to this one'
+                                          : 'کپی کردن دسترسی‌ها از تجهیز دیگر به این تجهیز'
+                                      }
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                      <span>{isEn ? 'Copy From...' : 'کپی از...'}</span>
+                                    </button>
+
+                                    {/* Save as Custom Template Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSaveTemplateDevId(dev.id);
+                                        setTemplateNameInput(
+                                          isEn
+                                            ? `${dev.name} Template`
+                                            : `الگوی ${dev.name}`
+                                        );
+                                      }}
+                                      className="px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30 flex items-center gap-1 cursor-pointer"
+                                      title={
+                                        isEn
+                                          ? 'Save this device’s permissions as a reusable template'
+                                          : 'ذخیره دسترسی‌های این تجهیز به عنوان یک الگوی آماده'
+                                      }
+                                    >
+                                      <BookmarkPlus className="w-3 h-3" />
+                                      <span>{isEn ? 'Save Template' : 'ذخیره الگو'}</span>
+                                    </button>
+
+                                    {/* Exclude / Lock Down Single Device Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleExcludeDevice(dev.id)}
+                                      className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/25 hover:bg-rose-500/25 flex items-center gap-1 cursor-pointer"
+                                      title={
+                                        isEn
+                                          ? 'Exclude and deny all permissions on this device'
+                                          : 'استثنا و قطع کامل کلیه دسترسی‌ها روی این تجهیز'
+                                      }
+                                    >
+                                      <ShieldAlert className="w-3 h-3" />
+                                      <span>{isEn ? 'Exclude' : 'استثنا'}</span>
+                                    </button>
+
+                                    {/* Reset to Default or Status */}
                                     {hasCustom ? (
                                       <button
                                         type="button"
-                                        onClick={() => {
-                                          const next = { ...(draftPolicy.perDevicePermissions || {}) };
-                                          delete next[dev.id];
-                                          setDraftPolicy({
-                                            ...draftPolicy,
-                                            perDevicePermissions: next,
-                                          });
-                                        }}
-                                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 flex items-center gap-1 cursor-pointer"
+                                        onClick={() => handleResetDevice(dev.id)}
+                                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-700/60 text-slate-300 border border-slate-600 hover:bg-slate-700 flex items-center gap-1 cursor-pointer"
+                                        title={
+                                          isEn
+                                            ? 'Remove custom overrides and inherit general policy'
+                                            : 'حذف استثنائات اختصاصی و بازگشت به پالیسی عمومی'
+                                        }
                                       >
                                         <RotateCcw className="w-3 h-3" />
-                                        <span>{isEn ? 'Reset to Default' : 'ریست به پیش‌فرض'}</span>
+                                        <span>{isEn ? 'Reset' : 'ریست'}</span>
                                       </button>
                                     ) : (
-                                      <span className="text-[10px] text-slate-400 font-semibold">
+                                      <span className="text-[10px] text-slate-400 font-semibold px-1.5 py-0.5 rounded bg-white/5 border border-white/5">
                                         {isEn ? 'Inherits General Policy' : 'پیروی از پالیسی عمومی'}
                                       </span>
                                     )}
@@ -4244,7 +5187,335 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           </div>
         </form>
       </div>
-    </div>,
+    </div>
+
+      {/* Sub-Modal 1: Copy Permissions From Device */}
+      {copyTargetDevId !== null && (
+        <div
+          className="fixed top-0 left-0 right-0 bottom-8 z-[999995] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn"
+          dir={isEn ? 'ltr' : 'rtl'}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setCopyTargetDevId(null);
+              setCopySourceSearch('');
+            }
+          }}
+        >
+          <div
+            className={`w-full max-w-lg rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-scaleIn ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-800'
+                : 'bg-slate-900 border-white/15 text-white'
+            }`}
+          >
+            {/* Header */}
+            <div
+              className={`p-4 border-b flex items-center justify-between gap-3 ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-white/10'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center border border-cyan-500/30">
+                  <Copy className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm">
+                    {copyTargetDevId === 'BATCH'
+                      ? isEn
+                        ? `Clone Permissions to ${selectedDeviceIds.size} Selected Devices`
+                        : `کپی و شبیه‌سازی دسترسی‌ها به ${selectedDeviceIds.size} تجهیز انتخاب شده`
+                      : isEn
+                      ? `Clone Permissions to "${devices.find((d) => d.id === copyTargetDevId)?.name || copyTargetDevId}"`
+                      : `کپی و شبیه‌سازی دسترسی‌ها به "${devices.find((d) => d.id === copyTargetDevId)?.name || copyTargetDevId}"`}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {isEn
+                      ? 'Select any device below to mirror its exact permission overrides.'
+                      : 'یک تجهیز مبدأ را انتخاب کنید تا کلیه دسترسی‌های آن کپی و اعمال شود.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCopyTargetDevId(null);
+                  setCopySourceSearch('');
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Search Bar */}
+            <div className="p-3 border-b border-white/10">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={copySourceSearch}
+                  onChange={(e) => setCopySourceSearch(e.target.value)}
+                  placeholder={
+                    isEn
+                      ? 'Search source devices by name, IP, platform...'
+                      : 'جستجوی تجهیز مبدأ بر اساس نام، IP یا پلتفرم...'
+                  }
+                  className={`w-full pl-8 pr-8 py-2 rounded-xl text-xs border transition ${
+                    isLightMode
+                      ? 'bg-slate-50 border-slate-300 text-slate-900 focus:bg-white'
+                      : 'bg-slate-950 border-white/15 text-white focus:border-cyan-500/50'
+                  }`}
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Source Devices List */}
+            <div className="p-3 overflow-y-auto space-y-2 flex-1 max-h-80">
+              {permittedDevices
+                .filter(
+                  (d) =>
+                    (copyTargetDevId === 'BATCH' || d.id !== copyTargetDevId) &&
+                    (!copySourceSearch.trim() ||
+                      d.name?.toLowerCase().includes(copySourceSearch.toLowerCase()) ||
+                      d.ip?.toLowerCase().includes(copySourceSearch.toLowerCase()) ||
+                      d.platform?.toLowerCase().includes(copySourceSearch.toLowerCase()))
+                )
+                .map((srcDev) => {
+                  const hasCustom = Boolean(
+                    draftPolicy?.perDevicePermissions?.[srcDev.id] &&
+                      Object.keys(draftPolicy.perDevicePermissions[srcDev.id]).length > 0
+                  );
+                  const allowedCount = hasCustom
+                    ? Object.values(draftPolicy!.perDevicePermissions![srcDev.id]).filter(Boolean).length
+                    : Object.values(draftPolicy?.defaultDevicePermissions || {}).filter(Boolean).length;
+
+                  return (
+                    <div
+                      key={srcDev.id}
+                      className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 transition ${
+                        isLightMode
+                          ? 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                          : 'bg-slate-950/60 hover:bg-white/5 border-white/10'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <HardDrive className="w-4 h-4 text-cyan-400 shrink-0" />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs truncate">{srcDev.name}</span>
+                            <span className="text-[10px] font-mono text-slate-400">
+                              {srcDev.ip}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                              {srcDev.platform || srcDev.type}
+                            </span>
+                            <span
+                              className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${
+                                hasCustom
+                                  ? 'bg-rose-500/20 text-rose-300'
+                                  : 'bg-emerald-500/20 text-emerald-300'
+                              }`}
+                            >
+                              {hasCustom
+                                ? isEn
+                                  ? `Custom (${allowedCount} allowed)`
+                                  : `دارای استثنا (${allowedCount} مجوز)`
+                                : isEn
+                                ? `Inherits Policy (${allowedCount} allowed)`
+                                : `پیروی از پالیسی (${allowedCount} مجوز)`}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCopyFromDevice(srcDev.id, copyTargetDevId)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer shrink-0"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Copy From This' : 'کپی از این تجهیز'}</span>
+                      </button>
+                    </div>
+                  );
+                })}
+
+              {permittedDevices.filter(
+                (d) =>
+                  (copyTargetDevId === 'BATCH' || d.id !== copyTargetDevId) &&
+                  (!copySourceSearch.trim() ||
+                    d.name?.toLowerCase().includes(copySourceSearch.toLowerCase()) ||
+                    d.ip?.toLowerCase().includes(copySourceSearch.toLowerCase()) ||
+                    d.platform?.toLowerCase().includes(copySourceSearch.toLowerCase()))
+              ).length === 0 && (
+                <div className="p-6 text-center text-xs text-slate-400">
+                  {isEn
+                    ? 'No matching source devices found.'
+                    : 'هیچ تجهیز مبدأ مطابق با جستجو یافت نشد.'}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div
+              className={`p-3 border-t flex items-center justify-end ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-white/10'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setCopyTargetDevId(null);
+                  setCopySourceSearch('');
+                }}
+                className={`px-4 py-1.5 rounded-xl text-xs font-semibold cursor-pointer ${
+                  isLightMode
+                    ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                    : 'bg-white/10 text-slate-300 hover:bg-white/20'
+                }`}
+              >
+                {isEn ? 'Close' : 'بستن'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sub-Modal 2: Save As Custom Template */}
+      {saveTemplateDevId !== null && (
+        <div
+          className="fixed top-0 left-0 right-0 bottom-8 z-[999995] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn"
+          dir={isEn ? 'ltr' : 'rtl'}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setSaveTemplateDevId(null);
+              setTemplateNameInput('');
+            }
+          }}
+        >
+          <div
+            className={`w-full max-w-md rounded-2xl border shadow-2xl overflow-hidden flex flex-col animate-scaleIn ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-800'
+                : 'bg-slate-900 border-white/15 text-white'
+            }`}
+          >
+            {/* Header */}
+            <div
+              className={`p-4 border-b flex items-center justify-between gap-3 ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-white/10'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center border border-purple-500/30">
+                  <BookmarkPlus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm">
+                    {isEn ? 'Save as Reusable Template' : 'ذخیره به عنوان الگوی آماده'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {isEn
+                      ? 'Save this device’s permissions so you can assign them to other devices.'
+                      : 'تنظیمات این تجهیز را ذخیره کنید تا به سادگی به سایر تجهیزات اختصاص دهید.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSaveTemplateDevId(null);
+                  setTemplateNameInput('');
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 space-y-3">
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-slate-400">
+                  {isEn ? 'Template Name' : 'نام الگو'}
+                </label>
+                <input
+                  type="text"
+                  value={templateNameInput}
+                  onChange={(e) => setTemplateNameInput(e.target.value)}
+                  placeholder={
+                    isEn
+                      ? 'e.g., Access Switch Standard, Branch Gateway...'
+                      : 'مثال: استاندارد سوئیچ‌های اکسس، گیت‌وی شعب...'
+                  }
+                  className={`w-full px-3 py-2 rounded-xl text-xs border transition ${
+                    isLightMode
+                      ? 'bg-slate-50 border-slate-300 text-slate-900 focus:bg-white'
+                      : 'bg-slate-950 border-white/15 text-white focus:border-purple-500/50'
+                  }`}
+                  autoFocus
+                />
+              </div>
+
+              <div
+                className={`p-2.5 rounded-xl border text-[11px] space-y-1 ${
+                  isLightMode
+                    ? 'bg-slate-100 border-slate-200 text-slate-600'
+                    : 'bg-slate-950/60 border-white/10 text-slate-400'
+                }`}
+              >
+                <div className="font-semibold text-slate-300">
+                  {isEn ? 'Source Device Snapshot:' : 'مشخصات تجهیز مبدأ:'}
+                </div>
+                <div>
+                  {devices.find((d) => d.id === saveTemplateDevId)?.name} (
+                  {devices.find((d) => d.id === saveTemplateDevId)?.ip})
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div
+              className={`p-3 border-t flex items-center justify-end gap-2 ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-white/10'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setSaveTemplateDevId(null);
+                  setTemplateNameInput('');
+                }}
+                className={`px-4 py-1.5 rounded-xl text-xs font-semibold cursor-pointer ${
+                  isLightMode
+                    ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                    : 'bg-white/10 text-slate-300 hover:bg-white/20'
+                }`}
+              >
+                {isEn ? 'Cancel' : 'انصراف'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleSaveCustomTemplate(saveTemplateDevId, templateNameInput)
+                }
+                disabled={!templateNameInput.trim()}
+                className="px-4 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white flex items-center gap-1.5 transition shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                <BookmarkPlus className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Save Template' : 'ذخیره الگو'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>,
     document.body
   );
 };
