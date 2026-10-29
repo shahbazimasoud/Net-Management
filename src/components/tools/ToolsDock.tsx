@@ -186,7 +186,11 @@ export const ToolsDock: React.FC<ToolsDockProps> = ({
         labelFa: docked.labelFa,
         badge: docked.badge,
         category: docked.category,
-        icon: (docked.id === 'apply-template-modal' || docked.id === 'apply_template') ? FileCode2 : (STANDARD_MODAL_ICONS[docked.id as StandardModalId] || (docked.category === 'terminal' ? Terminal : docked.category === 'device' ? Server : docked.category === 'config' ? FileCode2 : Activity)),
+        icon: (docked.id.startsWith('cisco_config') || docked.id.startsWith('cisco-config'))
+          ? Sliders
+          : (docked.id === 'apply-template-modal' || docked.id === 'apply_template')
+          ? FileCode2
+          : (STANDARD_MODAL_ICONS[docked.id as StandardModalId] || (docked.category === 'terminal' ? Terminal : docked.category === 'device' ? Server : docked.category === 'config' ? FileCode2 : Activity)),
         onRestore: () => restoreModal(docked.id),
         onClose: () => closeModal(docked.id),
       });

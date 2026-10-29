@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.386.0';
+export const APP_VERSION = '1.387.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.387.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'فاز ۳: شل مودال جامع پیکربندی سیسکو، یکپارچه‌سازی با ToolsDock و تریگر منوی سه‌نقطه',
+    title_en: 'Phase 3: Cisco Switch Configuration Modal Shell, ToolsDock Integration & 3-Dots Trigger',
+    changes: [
+      'پیاده‌سازی کامپوننت شل مودال جامع پیکربندی سیسکو در src/components/cisco/CiscoDeviceConfigModal.tsx منطبق بر استانداردهای ۵ گانه معماری مودال‌ها (بستن، تمام‌صفحه، مینیمایز، حریم کف فوتر bottom-8، پورتال ریشه با z-[999990] و تولتیپ سه‌بخشی FieldInfoTooltip).',
+      'تجهیز هدر مودال به استعلام زنده وضعیت سخت‌افزار، نشانگر هویت پلتفرم و مدل، دکمه ذخیره مستقیم در NVRAM (write memory)، و نوار پیمایش ۱۰ سربرگ مهندسی شبکه.',
+      'افزودن گزینه Config Device (پیکربندی تجهیز) در منوی ۳ نقطه کارت‌های تجهیزات سیسکو در DeviceListView.tsx با ارزیابی شرط پلتفرم سوئیچ سیسکو (isCiscoSwitchDevice) و دسترسی RBAC (cisco_config_device).',
+      'اتصال قابلیت مینیمایز مودال پیکربندی به نوار ابزار پایین (ToolsDock.tsx) تحت دسته‌بندی config با آیکون Sliders و بازیابی آنی استیت.'
+    ],
+    changes_en: [
+      'Engineered Cisco switch enterprise configuration modal shell in src/components/cisco/CiscoDeviceConfigModal.tsx complying with universal modal standards (Close, Fullscreen, Minimize, strict footer clearance bottom-8, root portal z-[999990], and 3-part boundary-safe FieldInfoTooltip).',
+      'Equipped modal header with authentic live hardware probe, platform/model telemetry, direct NVRAM commitment button (write memory), and 10 CCIE-grade configuration tabs.',
+      'Integrated "Config Device" trigger into the 3-dots action menu of Cisco switches in DeviceListView.tsx with strict platform detection (isCiscoSwitchDevice) and RBAC evaluation (cisco_config_device).',
+      'Connected modal minimization to ToolsDock.tsx under "config" category with Sliders icon and seamless state restoration.'
+    ]
+  },
   {
     version: '1.386.0',
     releaseDate: '2026-10-29',

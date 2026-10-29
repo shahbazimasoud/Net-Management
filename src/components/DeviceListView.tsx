@@ -32,8 +32,9 @@ import {
   Download,
   Upload,
   Radar,
+  Lock,
 } from 'lucide-react';
-import { Device, DeviceType, CustomTopologyStickyNote } from '../types';
+import { Device, DeviceType, CustomTopologyStickyNote, isCiscoDevice, isCiscoSwitchDevice } from '../types';
 import { useLanguage } from '../i18n';
 import { updateDevice } from '../services/api';
 import { syncDeviceNotesFromDatabase } from '../services/settingsStorage';
@@ -44,6 +45,7 @@ import { CiscoWriteConfirmModal } from './CiscoWriteConfirmModal';
 import { DeviceExportModal } from './DeviceExportModal';
 import { DeviceImportModal } from './DeviceImportModal';
 import { DeviceDiscoveryModal } from './DeviceDiscoveryModal';
+import { CiscoDeviceConfigModal } from './cisco/CiscoDeviceConfigModal';
 import { useAuth } from '../context/AuthContext';
 import { useModalDock } from '../context/ModalDockContext';
 import {
@@ -180,6 +182,8 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
 
   // Network Equipment Discovery Modal State (Multi-port Cisco & Network scan)
   const [isDiscoveryModalOpen, setIsDiscoveryModalOpen] = useState(false);
+  // Cisco Switch Configuration Suite Modal State
+  const [ciscoConfigDevice, setCiscoConfigDevice] = useState<Device | null>(null);
   const { dockModal, undockModal } = useModalDock();
 
   const handleMinimizeDiscovery = useCallback(() => {
@@ -1500,10 +1504,13 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                 const canWriteMemory = isDeviceActionPermitted(effectivePolicy, dev.id, 'write_memory');
                 const canExportDevice = isDeviceActionPermitted(effectivePolicy, dev.id, 'export_devices');
                 const canDeleteDevice = isDeviceActionPermitted(effectivePolicy, dev.id, 'delete_device');
+                const isCiscoSwitch = isCiscoSwitchDevice(dev);
+                const canCiscoConfig = isDeviceActionPermitted(effectivePolicy, dev.id, 'cisco_config_device');
 
                 const hasAnyAvailableAction =
                   (canWebConfigs && Array.isArray(dev.web_configs) && dev.web_configs.length > 0) ||
                   (canTerminal && (dev.type === 'switch' || dev.type === 'router') && Boolean(onConnectTerminal)) ||
+                  (isCiscoSwitch && canCiscoConfig) ||
                   (canApplyTemplate && Boolean(onApplyTemplate)) ||
                   canDeviceNote ||
                   canEditProperties ||
@@ -1578,6 +1585,49 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                           <span className={`text-[10px] font-mono ${isLightMode ? 'text-emerald-600/80' : 'text-emerald-500/80'}`}>CLI Terminal</span>
                         </div>
                       </button>
+                    )}
+
+                    {/* Cisco Switch Configuration Suite Modal */}
+                    {isCiscoSwitch && (
+                      canCiscoConfig ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuAnchor(null);
+                            setCiscoConfigDevice(dev);
+                          }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition ${
+                            isRtl ? 'text-right' : 'text-left'
+                          } group/item cursor-pointer ${
+                            isLightMode
+                              ? 'text-cyan-700 hover:bg-cyan-50 hover:text-cyan-900'
+                              : 'text-cyan-300 hover:bg-cyan-500/15 hover:text-cyan-200'
+                          }`}
+                        >
+                          <Sliders className="w-4 h-4 text-cyan-500 group-hover/item:scale-110 transition shrink-0" />
+                          <div className="flex flex-col">
+                            <span className="font-semibold">{isEn ? 'Config Device' : 'پیکربندی تجهیز'}</span>
+                            <span className={`text-[10px] ${isLightMode ? 'text-cyan-600/80' : 'text-cyan-400/80'}`}>
+                              {isEn ? 'VTY, NTP, SNMP, STP, VTP' : 'تنظیمات VTY، زمان، SNMP و...'}
+                            </span>
+                          </div>
+                        </button>
+                      ) : (
+                        <div
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium opacity-50 cursor-not-allowed ${
+                            isRtl ? 'text-right' : 'text-left'
+                          } ${isLightMode ? 'text-slate-400' : 'text-slate-500'}`}
+                          title={isEn ? 'Cisco device configuration restricted by RBAC policy' : 'پیکربندی تجهیز سیسکو توسط پالیسی دسترسی مسدود است'}
+                        >
+                          <Lock className="w-4 h-4 text-amber-500 shrink-0" />
+                          <div className="flex flex-col">
+                            <span>{isEn ? 'Config Device' : 'پیکربندی تجهیز'}</span>
+                            <span className="text-[10px] text-amber-500 font-mono">
+                              {isEn ? 'Restricted by Policy' : 'مسدود توسط پالیسی'}
+                            </span>
+                          </div>
+                        </div>
+                      )
                     )}
 
                     {/* Apply Template */}
@@ -2134,6 +2184,25 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
         isLightMode={isLightMode}
         isEn={isEn}
       />
+
+      {/* Cisco Switch Enterprise Configuration Suite Modal */}
+      {ciscoConfigDevice && (
+        <CiscoDeviceConfigModal
+          device={ciscoConfigDevice}
+          isOpen={Boolean(ciscoConfigDevice)}
+          onClose={() => {
+            setCiscoConfigDevice(null);
+            undockModal(`cisco-config-${ciscoConfigDevice.id}`);
+          }}
+          onMinimize={() => {
+            setCiscoConfigDevice(null);
+          }}
+          onRestore={() => {
+            setCiscoConfigDevice(ciscoConfigDevice);
+          }}
+          isLightMode={isLightMode}
+        />
+      )}
     </div>
   );
 };

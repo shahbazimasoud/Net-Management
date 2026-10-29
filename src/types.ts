@@ -72,6 +72,37 @@ export function isGenericLinuxDevice(device?: Partial<Device> | null): boolean {
   return device.platform === 'generic_linux';
 }
 
+export function isCiscoDevice(device?: Partial<Device> | null): boolean {
+  if (!device) return false;
+  const p = (device.platform || '').toLowerCase();
+  const m = (device.model || '').toLowerCase();
+  const n = (device.name || '').toLowerCase();
+  const f = (device.firmware || '').toLowerCase();
+  return (
+    p.includes('cisco') ||
+    p.includes('ios') ||
+    m.includes('cisco') ||
+    m.includes('catalyst') ||
+    m.startsWith('ws-c') ||
+    m.startsWith('c9') ||
+    m.startsWith('c29') ||
+    m.startsWith('c35') ||
+    m.startsWith('c36') ||
+    m.startsWith('c37') ||
+    m.startsWith('c38') ||
+    n.includes('cisco') ||
+    f.includes('ios')
+  );
+}
+
+export function isCiscoSwitchDevice(device?: Partial<Device> | null): boolean {
+  if (!device) return false;
+  if (!isCiscoDevice(device)) return false;
+  const t = (device.type || '').toLowerCase();
+  const r = (device.role || '').toLowerCase();
+  return t === 'switch' || r.includes('switch') || !t;
+}
+
 export type SnmpVersion = 'v1' | 'v2c' | 'v3';
 export type SnmpV3SecurityLevel = 'noAuthNoPriv' | 'authNoPriv' | 'authPriv';
 export type SnmpV3AuthProtocol = 'MD5' | 'SHA-1' | 'SHA-224' | 'SHA-256' | 'SHA-384' | 'SHA-512';
