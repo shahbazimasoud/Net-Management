@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.394.1';
+export const APP_VERSION = '1.395.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.395.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱ معماری کنترل دسترسی به پیکربندی گروهی تجهیزات در پایگاه داده و تایپ‌ها',
+    title_en: 'Phase 1: RBAC Data Architecture & PostgreSQL Schema for Bulk Device Configuration Governance',
+    changes: [
+      'افزودن مجوز canBulkConfigureDevices و canManageNavigationGovernance به ساختار AccessPolicy در لایه تایپ‌های سامانه.',
+      'به‌روزرسانی ساختار ذخیره‌سازی، نگاشت داده‌ها و مایگریشن خودکار فیلدهای دسترسی در پایگاه داده PostgreSQL سرور.',
+      'تعریف وضعیت‌های پیش‌فرض مجوز در پالیسی‌های سیستمی Super Administrator (مجاز) در برابر نقش‌های Helpdesk و NOC (مسدودشده).',
+      'پیاده‌سازی توابع ارزیابی بلادرنگ دسترسی isBulkConfigPermitted و isNavigationGovernancePermitted و ادغام در محاسبه پالیسی مؤثر سرور (getEffectivePolicyForUser).'
+    ],
+    changes_en: [
+      'Added canBulkConfigureDevices and canManageNavigationGovernance permission flags to the system-wide AccessPolicy TypeScript interface.',
+      'Upgraded PostgreSQL storage mapping, fallback persistence, and automated runtime schema migrations for new access control attributes.',
+      'Configured default permission baselines separating Super Administrator (authorized) from restricted Helpdesk and NOC operator roles.',
+      'Engineered isBulkConfigPermitted and isNavigationGovernancePermitted validation evaluators, integrated into server-side getEffectivePolicyForUser.'
+    ]
+  },
   {
     version: '1.394.1',
     releaseDate: '2026-10-29',

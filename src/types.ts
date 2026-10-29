@@ -967,6 +967,8 @@ export interface AccessPolicy {
   canViewPhysicalPlacement?: boolean;
   canCheckUpdate?: boolean;
   canPerformUpdate?: boolean;
+  canBulkConfigureDevices?: boolean;
+  canManageNavigationGovernance?: boolean;
 
   // 1. Cisco IOS / IOS-XE Granular Capabilities
   terminalAccess: 'none' | 'view_only' | 'exec' | 'full';

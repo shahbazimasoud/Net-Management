@@ -437,6 +437,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canViewLogs: false,
     canCheckUpdate: false,
     canPerformUpdate: false,
+    canBulkConfigureDevices: false,
+    canManageNavigationGovernance: false,
     // Device & Port Actions
     terminalAccess: 'none',
     canToggleAdminStatus: false,
@@ -499,6 +501,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canViewLogs: true,
     canCheckUpdate: false,
     canPerformUpdate: false,
+    canBulkConfigureDevices: false,
+    canManageNavigationGovernance: false,
     // Device & Port Actions
     terminalAccess: 'view_only',
     canToggleAdminStatus: false,
@@ -561,6 +565,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canViewLogs: true,
     canCheckUpdate: true,
     canPerformUpdate: true,
+    canBulkConfigureDevices: true,
+    canManageNavigationGovernance: true,
     // Device & Port Actions
     terminalAccess: 'full',
     canToggleAdminStatus: true,
@@ -1543,6 +1549,16 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
       }
       if (!pData.perDevicePermissions) {
         pData.perDevicePermissions = {};
+        changed = true;
+      }
+      if (pData.canBulkConfigureDevices === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        pData.canBulkConfigureDevices = isSuper;
+        changed = true;
+      }
+      if (pData.canManageNavigationGovernance === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        pData.canManageNavigationGovernance = isSuper;
         changed = true;
       }
       if (changed) {
@@ -3749,6 +3765,8 @@ export async function getAccessPolicies(): Promise<any[]> {
         const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
         const canCheck = pData.canCheckUpdate !== undefined ? Boolean(pData.canCheckUpdate) : isSuper;
         const canPerform = pData.canPerformUpdate !== undefined ? Boolean(pData.canPerformUpdate) : isSuper;
+        const canBulkConfig = pData.canBulkConfigureDevices !== undefined ? Boolean(pData.canBulkConfigureDevices) : isSuper;
+        const canManageNav = pData.canManageNavigationGovernance !== undefined ? Boolean(pData.canManageNavigationGovernance) : isSuper;
         return {
           id: r.id,
           name: r.name,
@@ -3758,6 +3776,8 @@ export async function getAccessPolicies(): Promise<any[]> {
           ...pData,
           canCheckUpdate: canCheck,
           canPerformUpdate: canPerform,
+          canBulkConfigureDevices: canBulkConfig,
+          canManageNavigationGovernance: canManageNav,
           defaultServerPermissions: defaultPerms,
           perServerPermissions: pData.perServerPermissions || {},
           defaultDevicePermissions: defaultDevicePerms,
@@ -3788,11 +3808,15 @@ export async function getAccessPolicies(): Promise<any[]> {
     const isSuper = p.id === 'policy-super-admin' || (p.priority || 0) >= 100;
     const canCheck = p.canCheckUpdate !== undefined ? Boolean(p.canCheckUpdate) : (pData.canCheckUpdate !== undefined ? Boolean(pData.canCheckUpdate) : isSuper);
     const canPerform = p.canPerformUpdate !== undefined ? Boolean(p.canPerformUpdate) : (pData.canPerformUpdate !== undefined ? Boolean(pData.canPerformUpdate) : isSuper);
+    const canBulkConfig = p.canBulkConfigureDevices !== undefined ? Boolean(p.canBulkConfigureDevices) : (pData.canBulkConfigureDevices !== undefined ? Boolean(pData.canBulkConfigureDevices) : isSuper);
+    const canManageNav = p.canManageNavigationGovernance !== undefined ? Boolean(p.canManageNavigationGovernance) : (pData.canManageNavigationGovernance !== undefined ? Boolean(pData.canManageNavigationGovernance) : isSuper);
     return {
       ...p,
       ...pData,
       canCheckUpdate: canCheck,
       canPerformUpdate: canPerform,
+      canBulkConfigureDevices: canBulkConfig,
+      canManageNavigationGovernance: canManageNav,
       defaultServerPermissions: defaultPerms,
       perServerPermissions: p.perServerPermissions || pData.perServerPermissions || {},
       defaultDevicePermissions: defaultDevicePerms,
@@ -4045,6 +4069,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canViewLogs: false,
       canCheckUpdate: false,
       canPerformUpdate: false,
+      canBulkConfigureDevices: false,
+      canManageNavigationGovernance: false,
       terminalAccess: 'none',
       canToggleAdminStatus: false,
       canChangeVlan: false,
@@ -4303,6 +4329,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canViewLogs: true,
       canCheckUpdate: true,
       canPerformUpdate: true,
+      canBulkConfigureDevices: true,
+      canManageNavigationGovernance: true,
       terminalAccess: 'full',
       canToggleAdminStatus: true,
       canChangeVlan: true,
@@ -4386,6 +4414,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canViewLogs: false,
     canCheckUpdate: false,
     canPerformUpdate: false,
+    canBulkConfigureDevices: false,
+    canManageNavigationGovernance: false,
     terminalAccess: 'none',
     canToggleAdminStatus: false,
     canChangeVlan: false,
@@ -4429,6 +4459,24 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     },
     perDevicePermissions: {},
   });
+}
+
+/**
+ * Universally evaluates whether a user is permitted to use Bulk Device Configuration.
+ */
+export function isBulkConfigPermitted(policy: any | null | undefined): boolean {
+  if (!policy) return false;
+  if (policy.id === 'policy-super-admin' || (policy.priority || 0) >= 100) return true;
+  return Boolean(policy.canBulkConfigureDevices);
+}
+
+/**
+ * Universally evaluates whether a user is permitted to manage Navigation & Views Access Governance.
+ */
+export function isNavigationGovernancePermitted(policy: any | null | undefined): boolean {
+  if (!policy) return false;
+  if (policy.id === 'policy-super-admin' || (policy.priority || 0) >= 100) return true;
+  return Boolean(policy.canManageNavigationGovernance);
 }
 
 /**
