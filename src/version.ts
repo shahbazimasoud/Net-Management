@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.384.4';
+export const APP_VERSION = '1.385.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.385.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'فاز ۱: ثبت معماری دسترسی‌ها و کنترل جامع سطوح امنیتی پیکربندی سوئیچ‌های سیسکو در RBAC',
+    title_en: 'Phase 1: Cisco Switch Enterprise Configuration Suite RBAC & Granular Policy Overrides',
+    changes: [
+      'تعریف دیسکریپتورهای کلان cisco_config_device و ۱۰ اکشن تفکیک‌شده (SSH/VTY، NTP، SNMPv2/v3، Users/Privilege، STP، VTP، Syslog، VLANs/SVI، L2 Security و Write Memory) در کاتالوگ جامع DEVICE_ACTIONS_CATALOG.',
+      'همگام‌سازی انواع تایپ‌اسکریپت NetworkDeviceActionKey و اینترفیس NetworkDeviceActionPermissions در types.ts.',
+      'یکپارچه‌سازی بخش استثنائات تجهیزات شبکه (Equipment Overrides Matrix) در مودال AccessPolicyModal با تفکیک هوشمند پلتفرم سیسکو و دکمه‌های کنترل دسته‌جمعی (Allow/Deny All Cisco Config).',
+      'ثبت منطق ارزیابی و استنتاج سطح دسترسی سیسکو در متدهای اعتبارسنجی سرور (isDeviceActionPermittedServer در server/db.ts) و کلاینت (isDeviceActionPermitted در utils/rbac.ts).'
+    ],
+    changes_en: [
+      'Introduced master cisco_config_device descriptor and 10 granular configuration actions (SSH/VTY, NTP, SNMP, Users & AAA, STP, VTP, Syslog, VLANs & SVI, L2 Security, and Write Memory) into DEVICE_ACTIONS_CATALOG.',
+      'Synchronized TypeScript NetworkDeviceActionKey types and NetworkDeviceActionPermissions interface in src/types.ts.',
+      'Integrated dedicated Cisco IOS Switch Enterprise Configuration subsection into the Equipment Overrides matrix in AccessPolicyModal with bulk toggle controls.',
+      'Enforced authoritative policy evaluation and fallback resolution across both backend (isDeviceActionPermittedServer in server/db.ts) and frontend (isDeviceActionPermitted in utils/rbac.ts).'
+    ]
+  },
   {
     version: '1.384.4',
     releaseDate: '2026-10-29',

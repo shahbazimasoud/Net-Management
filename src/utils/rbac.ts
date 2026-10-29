@@ -556,7 +556,237 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     tooltipExampleEn: 'Granted to Network Engineers when expanding office subnets or assigning static leases.',
     tooltipExampleFa: 'اعطا به مهندسان شبکه هنگام توسعه ساب‌نت‌های اداری یا افزودن رزرو IP سرورها.',
   },
+
+  // -------------------------------------------------------------
+  // Cisco Switch Enterprise Configuration Suite
+  // -------------------------------------------------------------
+  {
+    key: 'cisco_config_device',
+    labelEn: 'Cisco Device Configuration Suite',
+    labelFa: 'مجموعه ابزار پیکربندی سوئیچ سیسکو (Cisco Config)',
+    shortLabelEn: 'Cisco Config',
+    shortLabelFa: 'کانفیگ سیسکو',
+    descriptionEn: 'Master authority to open and interact with the Cisco IOS Device Configuration suite and management tabs.',
+    descriptionFa: 'اختیار کلان جهت بازگشایی و مدیریت پنجره جامع پیکربندی و تنظیمات سوئیچ‌های سیسکو.',
+    category: 'config',
+    platform: 'cisco',
+    danger: true,
+    tooltipWhatEn: 'Master authorization enabling the "Config Device" button in the 3-dot equipment menu for Cisco switches.',
+    tooltipWhatFa: 'اختیار کلان فعال‌سازی دکمه «پیکربندی تجهیز» در منوی سه‌نقطه فهرست تجهیزات برای سوئیچ‌های سیسکو.',
+    tooltipWhyEn: 'Controls overall entry into Cisco hardware provisioning; without this, all Cisco configuration tabs remain inaccessible.',
+    tooltipWhyFa: 'کنترل‌کننده دسترسی اولیه به ماژول تنظیمات؛ بدون این دسترسی هیچ‌کدام از تب‌های کانفیگ سیسکو قابل بازگشایی نخواهند بود.',
+    tooltipExampleEn: 'Grant to Certified Cisco Network Engineers (CCNA/CCNP); deny for Helpdesk and NOC observers.',
+    tooltipExampleFa: 'اعطا به مهندسان شبکه سیسکو و مسدودسازی برای کارشناسان پایش NOC و پشتیبانی سطح یک.',
+  },
+  {
+    key: 'cisco_config_vty_ssh',
+    labelEn: 'Line VTY, SSH & Telnet Governance',
+    labelFa: 'مدیریت خطوط VTY، پروتکل SSH و تل‌نت',
+    shortLabelEn: 'SSH & VTY',
+    shortLabelFa: 'لاین VTY و SSH',
+    descriptionEn: 'Generate RSA encryption keys, enforce SSHv2, set timeouts, and configure line vty transport inputs.',
+    descriptionFa: 'تولید کلیدهای رمزنگاری RSA، الزام نسخه SSHv2، تنظیم تایم‌اوت‌ها و پیکربندی پروتکل‌های ورودی لاین VTY.',
+    category: 'config',
+    platform: 'cisco',
+    danger: true,
+    tooltipWhatEn: 'Configures remote management access lines (line vty 0 15), crypto key generation, and SSH protocol parameters.',
+    tooltipWhatFa: 'پیکربندی لاین‌های دسترسی ریموت، تولید کلید RSA با اندازه ۲۰۴۸/۴۰۹۶ بیت و پروتکل‌های مجاز ورودی.',
+    tooltipWhyEn: 'Disabling Telnet and enforcing SSHv2 with strong modulus eliminates clear-text credential sniffing across the LAN.',
+    tooltipWhyFa: 'حذف پروتکل ناامن تل‌نت و الزام SSHv2 مانع از استراق سمع پسوردهای مدیریتی در بستر شبکه می‌شود.',
+    tooltipExampleEn: 'Used when hardening newly deployed access switches according to CIS Cisco IOS benchmarks.',
+    tooltipExampleFa: 'استفاده در امن‌سازی و ایمن‌سازی سوئیچ‌های لایه اکسس بر اساس استانداردهای CIS.',
+  },
+  {
+    key: 'cisco_config_ntp',
+    labelEn: 'NTP, System Clock & Timezone',
+    labelFa: 'سرویس زمان، سرورهای NTP و منطقه زمانی',
+    shortLabelEn: 'NTP & Clock',
+    shortLabelFa: 'ساعت و NTP',
+    descriptionEn: 'Configure authoritative NTP servers, source-interface, daylight saving rules, and hardware clock synchronization.',
+    descriptionFa: 'تعیین سرورهای معتبر NTP، اینترفیس مبدأ، ساعت تابستانی و همگام‌سازی ساعت سخت‌افزاری سوئیچ.',
+    category: 'management',
+    platform: 'cisco',
+    danger: false,
+    tooltipWhatEn: 'Sets up Network Time Protocol (NTP) synchronization peers and local system timezone offset.',
+    tooltipWhatFa: 'تنظیم سرورهای همگام‌سازی زمان (NTP) و ساعت محلی سیستم‌عامل سیسکو.',
+    tooltipWhyEn: 'Accurate switch clock synchronization is essential for forensic log correlation and certificate validity.',
+    tooltipWhyFa: 'همگام‌بودن دقیق ساعت جهت اعتبارسنجی لاگ‌های امنیتی، سرتیفیکیت‌ها و خطایابی حوادث شبکه الزامی است.',
+    tooltipExampleEn: 'Point switches to internal stratum-1/2 NTP servers (e.g., 10.0.0.123).',
+    tooltipExampleFa: 'تنظیم آدرس سرورهای محلی NTP سازمان با اینترفیس مبدأ Loopback یا Vlan مدیریتی.',
+  },
+  {
+    key: 'cisco_config_snmp',
+    labelEn: 'SNMPv2c / SNMPv3 & Traps Architecture',
+    labelFa: 'پیکربندی SNMPv2/v3، کامیونیتی و ترپ‌ها',
+    shortLabelEn: 'SNMP Suite',
+    shortLabelFa: 'سرویس SNMP',
+    descriptionEn: 'Configure SNMP community strings with ACL filtering, SNMPv3 USM users with Auth/Priv, and Trap receivers.',
+    descriptionFa: 'تعریف رشته‌های Community با محدودسازی ACL، کاربران SNMPv3 با رمزنگاری Auth/Priv و آدرس سرورهای ترپ.',
+    category: 'management',
+    platform: 'cisco',
+    danger: false,
+    tooltipWhatEn: 'Sets up SNMP monitoring strings, secure SNMPv3 users, and asynchronous trap destinations.',
+    tooltipWhatFa: 'تنظیم رشته‌های شناسایی مانیتورینگ، کاربران امن SNMPv3 و آدرس مقاصد هشدارهای Trap.',
+    tooltipWhyEn: 'Enables telemetry polling by Zabbix, PRTG, and SolarWinds while securing the MIB tree from unauthorized reads.',
+    tooltipWhyFa: 'امکان پایش ترافیک و سلامت تجهیز توسط سامانه‌های مانیتورینگ با حفظ محرمانگی اطلاعات در لایه شبکه.',
+    tooltipExampleEn: 'Create SNMPv3 user "noc-mon" with SHA authentication and AES-128 privacy.',
+    tooltipExampleFa: 'ساخت کاربر SNMPv3 با احراز هویت SHA و رمزنگاری داده‌های AES-128.',
+  },
+  {
+    key: 'cisco_config_users',
+    labelEn: 'Local Users, Privilege Levels & Enable Secret',
+    labelFa: 'مدیریت کاربران محلی، سطوح Privilege و رمز Enable',
+    shortLabelEn: 'Users & AAA',
+    shortLabelFa: 'کاربران و AAA',
+    descriptionEn: 'Provision local administrative accounts, assign privilege levels (0-15), set scrypt/sha256 secrets, and update enable secret.',
+    descriptionFa: 'ایجاد و حذف حساب‌های کاربری محلی، تخصیص سطوح دسترسی (۰ تا ۱۵)، الگوریتم‌های هش مدرن و رمز Enable دستگاه.',
+    category: 'danger',
+    platform: 'cisco',
+    danger: true,
+    tooltipWhatEn: 'Creates and manages local IOS username credentials, privilege levels (0 to 15), and the master enable secret.',
+    tooltipWhatFa: 'ساخت و ویرایش اکانت‌های لاگین محلی سیسکو، سطوح اختیارات ۰ تا ۱۵ و کلمه عبور ارتقای دسترسی (Enable).',
+    tooltipWhyEn: 'Critical administrative credentials; misuse or weak passwords grant full root-level control over network hardware.',
+    tooltipWhyFa: 'بالاترین سطح دسترسی؛ استفاده از پسوردهای ضعیف یا دستکاری اشتباه می‌تواند منجر به نفوذ یا قطع دسترسی مدیران شود.',
+    tooltipExampleEn: 'Restricted exclusively to Senior Network Security Administrators.',
+    tooltipExampleFa: 'منحصراً برای مدیران ارشد امنیت زیرساخت و تعیین دسترسی اپراتورهای شبکه.',
+  },
+  {
+    key: 'cisco_config_stp',
+    labelEn: 'Spanning Tree Protocol (STP & Rapid-PVST)',
+    labelFa: 'پروتکل درخت پوشا (STP، Rapid-PVST و جلوگیری از لوپ)',
+    shortLabelEn: 'STP Suite',
+    shortLabelFa: 'پروتکل STP',
+    descriptionEn: 'Configure STP operational mode (PVST+, Rapid-PVST, MST), bridge priorities for Root election, and PortFast/BPDU Guard.',
+    descriptionFa: 'انتخاب مد کاری STP، تنظیم اولویت Bridge Priority برای تعیین سوئیچ روت و فعال‌سازی PortFast و BPDU Guard.',
+    category: 'config',
+    platform: 'cisco',
+    danger: true,
+    tooltipWhatEn: 'Governs Layer 2 Spanning Tree topology calculation, root bridge priority values, and edge port protection.',
+    tooltipWhatFa: 'مدیریت توپولوژی لایه ۲ شبکه، محاسبه درخت پوشا، اولویت سوئیچ روت و مکانیزم‌های محافظت پورت اکسس.',
+    tooltipWhyEn: 'Incorrect bridge priorities or missing BPDU Guard cause catastrophic broadcast storms and spanning-tree reconvergence loops.',
+    tooltipWhyFa: 'تنظیم اشتباه اولویت یا عدم فعال‌سازی BPDU Guard موجب لوپ‌های فاجعه‌بار لایه ۲ و توقف کامل ترافیک می‌شود.',
+    tooltipExampleEn: 'Set Core Switch bridge priority to 4096 (Primary Root) and Distribution Switch to 8192 (Secondary Root).',
+    tooltipExampleFa: 'تنظیم اولویت سوئیچ کور روی ۴۰۹۶ (Root Bridge اصلی) و فعال‌سازی PortFast روی پورت‌های متصل به سیستم‌ها.',
+  },
+  {
+    key: 'cisco_config_vtp',
+    labelEn: 'VLAN Trunking Protocol (VTP Suite)',
+    labelFa: 'پروتکل ترانک و توزیع VLAN (سرویس VTP)',
+    shortLabelEn: 'VTP Suite',
+    shortLabelFa: 'پروتکل VTP',
+    descriptionEn: 'Set VTP operating mode (Server, Client, Transparent, Off), VTP domain, protocol version (1/2/3), and MD5 password.',
+    descriptionFa: 'تنظیم حالت کاری VTP (سرور، کلاینت، ترنسپرنت یا خاموش)، نام دامین، نسخه پروتکل و کلمه عبور اعتبارسنجی.',
+    category: 'danger',
+    platform: 'cisco',
+    danger: true,
+    tooltipWhatEn: 'Configures Cisco VLAN Trunking Protocol (VTP) domain name, operational mode, version, and password.',
+    tooltipWhatFa: 'تنظیم دامین، مد کاری، نسخه و کلمه عبور پروتکل انتشار VLAN سیسکو (VTP).',
+    tooltipWhyEn: 'Extremely high risk: Connecting an unverified switch with higher Configuration Revision can overwrite the entire VLAN database!',
+    tooltipWhyFa: 'ریسک بسیار بالا: اتصال سوئیچ با Revision Number بالاتر می‌تواند کل دیتابیس VLAN شبکه سازمان را در لحظه پاک کند!',
+    tooltipExampleEn: 'Set access switches to VTP Transparent or Off to prevent unintended propagation across trunks.',
+    tooltipExampleFa: 'قرار دادن سوئیچ‌های اکسس در حالت VTP Transparent یا Off جهت جلوگیری از تغییر ناخواسته VLANها.',
+  },
+  {
+    key: 'cisco_config_syslog',
+    labelEn: 'Syslog & Remote Logging Facilities',
+    labelFa: 'سرویس لاگینگ و ارسال رویدادها (Syslog)',
+    shortLabelEn: 'Syslog',
+    shortLabelFa: 'سیسلوگ',
+    descriptionEn: 'Configure remote syslog collector hosts, severity trap thresholds (debugging to emergencies), and log timestamp formats.',
+    descriptionFa: 'تنظیم سرورهای جمع‌آوری لاگ، فیلتر سطوح حساسیت (Severity) و قالب زمان‌بندی پیام‌های ثبت وقایع.',
+    category: 'management',
+    platform: 'cisco',
+    danger: false,
+    tooltipWhatEn: 'Designates remote syslog server destinations and event severity logging thresholds on Cisco IOS.',
+    tooltipWhatFa: 'تعیین آدرس سرورهای دریافت لاگ (Syslog Server) و سطح حساسیت رویدادهای ارسالی.',
+    tooltipWhyEn: 'Maintains centralized audit trails of configuration changes, link flaps, and security policy violations.',
+    tooltipWhyFa: 'تضمین ثبت متمرکز کلیه رخدادها، قطع و وصل پورت‌ها و ورودهای غیرمجاز در سرور امنیتی SIEM/Syslog.',
+    tooltipExampleEn: 'Forward informational and higher events (trap 6) to central SIEM collector (192.168.10.50).',
+    tooltipExampleFa: 'ارسال هشدارهای سطح Warning و بالاتر به سرور مانیتورینگ لاگ سازمان.',
+  },
+  {
+    key: 'cisco_config_vlans',
+    labelEn: 'VLAN Database & Management SVI',
+    labelFa: 'پایگاه داده VLAN و اینترفیس مدیریتی SVI',
+    shortLabelEn: 'VLANs & SVI',
+    shortLabelFa: 'VLAN و SVI',
+    descriptionEn: 'Provision VLAN IDs, assign VLAN names, configure Switch Virtual Interfaces (SVI), and set default gateway.',
+    descriptionFa: 'تعریف شناسه‌های VLAN، نام‌گذاری، تنظیم آدرس IP اینترفیس مجازی سوییچ (SVI) و گیت‌وی پیش‌فرض دستگاه.',
+    category: 'config',
+    platform: 'cisco',
+    danger: true,
+    tooltipWhatEn: 'Creates Layer 2 VLANs, names them, and configures the management Layer 3 SVI (e.g. interface Vlan10).',
+    tooltipWhatFa: 'ساخت VLANهای شبکه، نام‌گذاری، و تنظیم IP/Subnet روی اینترفیس مجازی مدیریتی سوییچ (SVI).',
+    tooltipWhyEn: 'Misconfiguring the management SVI IP address or default gateway cuts off network access to the switch.',
+    tooltipWhyFa: 'تنظیم اشتباه آدرس IP سوییچ یا گیت‌وی پیش‌فرض باعث قطع کامل ارتباط با سوییچ خواهد شد.',
+    tooltipExampleEn: 'Create VLAN 20 (Marketing) and configure interface Vlan20 with 10.20.0.2/24.',
+    tooltipExampleFa: 'ایجاد VLAN 20 به نام Servers و تنظیم IP مدیریتی ۱۰.۲۰.۰.۲ روی اینترفیس Vlan20.',
+  },
+  {
+    key: 'cisco_config_l2_security',
+    labelEn: 'Layer 2 Security (DHCP Snooping & DAI)',
+    labelFa: 'امنیت لایه ۲ (DHCP Snooping و ARP Inspection)',
+    shortLabelEn: 'L2 Security',
+    shortLabelFa: 'امنیت L2',
+    descriptionEn: 'Enforce DHCP Snooping, Dynamic ARP Inspection (DAI), IP Source Guard, and errdisable auto-recovery timers.',
+    descriptionFa: 'فعال‌سازی مقابله با روگ DHCP سرورها، بازرسی داینامیک ARP (DAI) و تایمرهای بازیابی پورت‌های Err-Disabled.',
+    category: 'config',
+    platform: 'cisco',
+    danger: false,
+    tooltipWhatEn: 'Activates DHCP Snooping and Dynamic ARP Inspection to protect access VLANs against spoofing and rogue servers.',
+    tooltipWhatFa: 'فعال‌سازی مکانیزم‌های دفاعی لایه ۲ برای مقابله با جعل آدرس IP/MAC و توزیع IP توسط روترهای غیرمجاز.',
+    tooltipWhyEn: 'Prevents man-in-the-middle attacks, rogue DHCP gateway hijacking, and ARP poisoning across switch ports.',
+    tooltipWhyFa: 'جلوگیری از حملات سرقت ترافیک (MITM)، جعل گیت‌وی توسط روترهای متفرقه و مسموم‌سازی جدول ARP.',
+    tooltipExampleEn: 'Enable DHCP snooping on VLANs 10,20 and trust uplink port GigabitEthernet0/24.',
+    tooltipExampleFa: 'فعال‌سازی DHCP Snooping روی VLANهای کلاینت و تراست کردن پورت آپ‌لینک به روتر اصلی.',
+  },
+  {
+    key: 'cisco_config_write_memory',
+    labelEn: 'Save Configuration to NVRAM & Backup',
+    labelFa: 'ذخیره دائمی کانفیگ در NVRAM و بکاپ',
+    shortLabelEn: 'Save & NVRAM',
+    shortLabelFa: 'ذخیره NVRAM',
+    descriptionEn: 'Commit running configuration to non-volatile memory (write memory / copy run start) and export configuration backups.',
+    descriptionFa: 'ذخیره و تثبیت تغییرات جاری در حافظه دائم سوئیچ (Write Memory) و دریافت فایل پشتیبان متنی کانفیگ.',
+    category: 'management',
+    platform: 'cisco',
+    danger: false,
+    tooltipWhatEn: 'Executes "write memory" or "copy running-config startup-config" to persist active changes across reboots.',
+    tooltipWhatFa: 'اجرای دستور write memory جهت ذخیره‌سازی دائمی تغییرات بر روی حافظه NVRAM سوئیچ.',
+    tooltipWhyEn: 'Without committing to NVRAM, all configuration changes are permanently wiped if the switch loses power.',
+    tooltipWhyFa: 'بدون ذخیره در NVRAM، با قطعی برق یا ریست شدن سوئیچ، کلیه تنظیمات انجام شده از دست خواهد رفت.',
+    tooltipExampleEn: 'Permitted for network operators authorized to finalize maintenance work.',
+    tooltipExampleFa: 'مجاز برای مهندسان پس از اتمام موفقیت‌آمیز مراحل پیکربندی تجهیز.',
+  },
 ];
+
+export const FULL_CISCO_CONFIG_PERMISSIONS: Partial<NetworkDeviceActionPermissions> = {
+  cisco_config_device: true,
+  cisco_config_vty_ssh: true,
+  cisco_config_ntp: true,
+  cisco_config_snmp: true,
+  cisco_config_users: true,
+  cisco_config_stp: true,
+  cisco_config_vtp: true,
+  cisco_config_syslog: true,
+  cisco_config_vlans: true,
+  cisco_config_l2_security: true,
+  cisco_config_write_memory: true,
+};
+
+export const EMPTY_CISCO_CONFIG_PERMISSIONS: Partial<NetworkDeviceActionPermissions> = {
+  cisco_config_device: false,
+  cisco_config_vty_ssh: false,
+  cisco_config_ntp: false,
+  cisco_config_snmp: false,
+  cisco_config_users: false,
+  cisco_config_stp: false,
+  cisco_config_vtp: false,
+  cisco_config_syslog: false,
+  cisco_config_vlans: false,
+  cisco_config_l2_security: false,
+  cisco_config_write_memory: false,
+};
 
 export const FULL_MIKROTIK_PERMISSIONS: Partial<NetworkDeviceActionPermissions> = {
   mikrotik_safe_mode: true,
@@ -659,6 +889,17 @@ export const FULL_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   mikrotik_vpn: true,
   mikrotik_comment: true,
   mikrotik_ip_pool: true,
+  cisco_config_device: true,
+  cisco_config_vty_ssh: true,
+  cisco_config_ntp: true,
+  cisco_config_snmp: true,
+  cisco_config_users: true,
+  cisco_config_stp: true,
+  cisco_config_vtp: true,
+  cisco_config_syslog: true,
+  cisco_config_vlans: true,
+  cisco_config_l2_security: true,
+  cisco_config_write_memory: true,
 };
 
 export const RESTRICTED_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
@@ -682,6 +923,25 @@ export const RESTRICTED_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   port_bridge: false,
   port_speed: false,
   port_cable_test: true,
+  mikrotik_safe_mode: false,
+  mikrotik_firewall: false,
+  mikrotik_backup: false,
+  mikrotik_bridge_vlan: false,
+  mikrotik_toggle_interface: false,
+  mikrotik_vpn: false,
+  mikrotik_comment: false,
+  mikrotik_ip_pool: false,
+  cisco_config_device: false,
+  cisco_config_vty_ssh: false,
+  cisco_config_ntp: false,
+  cisco_config_snmp: false,
+  cisco_config_users: false,
+  cisco_config_stp: false,
+  cisco_config_vtp: false,
+  cisco_config_syslog: false,
+  cisco_config_vlans: false,
+  cisco_config_l2_security: false,
+  cisco_config_write_memory: false,
 };
 
 export const EMPTY_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
@@ -705,6 +965,25 @@ export const EMPTY_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   port_bridge: false,
   port_speed: false,
   port_cable_test: false,
+  mikrotik_safe_mode: false,
+  mikrotik_firewall: false,
+  mikrotik_backup: false,
+  mikrotik_bridge_vlan: false,
+  mikrotik_toggle_interface: false,
+  mikrotik_vpn: false,
+  mikrotik_comment: false,
+  mikrotik_ip_pool: false,
+  cisco_config_device: false,
+  cisco_config_vty_ssh: false,
+  cisco_config_ntp: false,
+  cisco_config_snmp: false,
+  cisco_config_users: false,
+  cisco_config_stp: false,
+  cisco_config_vtp: false,
+  cisco_config_syslog: false,
+  cisco_config_vlans: false,
+  cisco_config_l2_security: false,
+  cisco_config_write_memory: false,
 };
 
 export const SERVER_ACTIONS_CATALOG: ServerActionDescriptor[] = [
@@ -1140,6 +1419,41 @@ export function isDeviceActionPermitted(
   }
   if (action === 'mikrotik_ip_pool') {
     return policy.canMikrotikIpPool !== false;
+  }
+
+  // Fallback mappings for Cisco Switch Enterprise Configuration Suite:
+  if (action === 'cisco_config_device') {
+    return Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin);
+  }
+  if (action === 'cisco_config_vty_ssh') {
+    return Boolean(policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'cisco_config_ntp') {
+    return Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin);
+  }
+  if (action === 'cisco_config_snmp') {
+    return Boolean(policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'cisco_config_users') {
+    return Boolean(policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'cisco_config_stp') {
+    return Boolean(policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'cisco_config_vtp') {
+    return Boolean(policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'cisco_config_syslog') {
+    return Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin);
+  }
+  if (action === 'cisco_config_vlans') {
+    return policy.canChangeVlan !== false && Boolean(policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'cisco_config_l2_security') {
+    return Boolean(policy.canTogglePortSecurity ?? policy.canManageDevices ?? isSuperAdmin);
+  }
+  if (action === 'cisco_config_write_memory') {
+    return Boolean(policy.canWriteMemory || isSuperAdmin);
   }
 
   // Operational telemetry and memos are enabled by default for authorized equipment

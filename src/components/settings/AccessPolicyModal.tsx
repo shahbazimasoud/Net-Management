@@ -806,6 +806,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   const mikrotikCoreActions = DEVICE_ACTIONS_CATALOG.filter(
     (a) => a.platform === 'mikrotik' && a.category !== 'port'
   );
+  const ciscoConfigActions = DEVICE_ACTIONS_CATALOG.filter(
+    (a) => a.platform === 'cisco' && a.category !== 'port'
+  );
   const portEquipmentActions = DEVICE_ACTIONS_CATALOG.filter((a) => a.category === 'port');
 
   return createPortal(
@@ -3938,7 +3941,122 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                   </div>
                                 )}
 
-                                {/* Section 3 (or Section 2 for Cisco): Port Right-Click & Interface Actions */}
+                                {/* Section 3 (Cisco Only): Cisco IOS Switch Enterprise Configuration Suite */}
+                                {isCisco && ciscoConfigActions.length > 0 && (
+                                  <div className="space-y-1.5 pt-1.5 border-t border-white/5">
+                                    <div className="flex items-center justify-between flex-wrap gap-1">
+                                      <div className="text-[10px] font-bold text-sky-300 flex items-center gap-1.5">
+                                        <Sliders className="w-3 h-3 text-sky-400" />
+                                        <span>
+                                          {isEn
+                                            ? 'Cisco IOS Switch Enterprise Configuration Suite'
+                                            : 'مجموعه ابزار و اختیارات پیکربندی سوئیچ سیسکو'}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const current = draftPolicy.perDevicePermissions?.[dev.id] || {
+                                              ...(draftPolicy.defaultDevicePermissions || {}),
+                                            };
+                                            const updated = { ...current };
+                                            ciscoConfigActions.forEach((a) => {
+                                              updated[a.key as NetworkDeviceActionKey] = true;
+                                            });
+                                            setDraftPolicy({
+                                              ...draftPolicy,
+                                              perDevicePermissions: {
+                                                ...(draftPolicy.perDevicePermissions || {}),
+                                                [dev.id]: updated,
+                                              },
+                                            });
+                                          }}
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30 hover:bg-sky-500/30 cursor-pointer"
+                                        >
+                                          {isEn ? 'Allow All Cisco Config' : 'اجازه همه کانفیگ سیسکو'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const current = draftPolicy.perDevicePermissions?.[dev.id] || {
+                                              ...(draftPolicy.defaultDevicePermissions || {}),
+                                            };
+                                            const updated = { ...current };
+                                            ciscoConfigActions.forEach((a) => {
+                                              updated[a.key as NetworkDeviceActionKey] = false;
+                                            });
+                                            setDraftPolicy({
+                                              ...draftPolicy,
+                                              perDevicePermissions: {
+                                                ...(draftPolicy.perDevicePermissions || {}),
+                                                [dev.id]: updated,
+                                              },
+                                            });
+                                          }}
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 cursor-pointer"
+                                        >
+                                          {isEn ? 'Deny All Cisco Config' : 'مسدودسازی کانفیگ سیسکو'}
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
+                                      {ciscoConfigActions.map((action) => {
+                                        const isCustom = typeof devPerms[action.key as NetworkDeviceActionKey] === 'boolean';
+                                        const isAllowed = isCustom
+                                          ? devPerms[action.key as NetworkDeviceActionKey] === true
+                                          : isDeviceActionPermitted(
+                                              { ...draftPolicy, perDevicePermissions: undefined },
+                                              dev.id,
+                                              action.key as NetworkDeviceActionKey
+                                            );
+
+                                        return (
+                                          <button
+                                            key={action.key}
+                                            type="button"
+                                            title={isEn ? (action.descriptionEn || action.labelEn) : (action.descriptionFa || action.labelFa)}
+                                            onClick={() => {
+                                              const current = draftPolicy.perDevicePermissions?.[dev.id] || {
+                                                ...(draftPolicy.defaultDevicePermissions || {}),
+                                              };
+                                              const nextVal = !isAllowed;
+                                              setDraftPolicy({
+                                                ...draftPolicy,
+                                                perDevicePermissions: {
+                                                  ...(draftPolicy.perDevicePermissions || {}),
+                                                  [dev.id]: {
+                                                    ...current,
+                                                    [action.key]: nextVal,
+                                                  },
+                                                },
+                                              });
+                                            }}
+                                            className={`flex items-center justify-between p-1.5 rounded-lg border text-[11px] font-medium transition cursor-pointer select-none ${
+                                              isAllowed
+                                                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                                : 'bg-rose-500/15 border-rose-500/30 text-rose-300 opacity-80'
+                                            }`}
+                                          >
+                                            <span className="truncate">
+                                              {isEn
+                                                ? (action.shortLabelEn || action.key)
+                                                : (action.shortLabelFa || action.key)}
+                                            </span>
+                                            {isAllowed ? (
+                                              <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                                            ) : (
+                                              <X className="w-3 h-3 text-rose-400 shrink-0" />
+                                            )}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Section 4 (or Section 2/3): Port Right-Click & Interface Actions */}
                                 {applicablePortActions.length > 0 && (
                                   <div className="space-y-1.5 pt-1.5 border-t border-white/5">
                                     <div className="flex items-center justify-between flex-wrap gap-1">

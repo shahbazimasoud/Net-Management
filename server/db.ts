@@ -4643,6 +4643,41 @@ export function isDeviceActionPermitted(
     return policy.canMikrotikIpPool !== false;
   }
 
+  // Fallback mappings for Cisco Switch Enterprise Configuration Suite:
+  if (action === 'cisco_config_device') {
+    return Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin);
+  }
+  if (action === 'cisco_config_vty_ssh') {
+    return Boolean(policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'cisco_config_ntp') {
+    return Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin);
+  }
+  if (action === 'cisco_config_snmp') {
+    return Boolean(policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'cisco_config_users') {
+    return Boolean(policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'cisco_config_stp') {
+    return Boolean(policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'cisco_config_vtp') {
+    return Boolean(policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'cisco_config_syslog') {
+    return Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin);
+  }
+  if (action === 'cisco_config_vlans') {
+    return policy.canChangeVlan !== false && Boolean(policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'cisco_config_l2_security') {
+    return Boolean(policy.canTogglePortSecurity ?? policy.canManageDevices ?? isSuperAdmin);
+  }
+  if (action === 'cisco_config_write_memory') {
+    return Boolean(policy.canWriteMemory || isSuperAdmin);
+  }
+
   // Non-destructive actions (web_configs, ping_keepalive, inspect_ports, device_note)
   return true;
 }

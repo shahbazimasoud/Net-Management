@@ -304,6 +304,7 @@ export interface Device {
   ssh_version?: 'legacy' | 'modern' | string;
   tags?: string[];
   port?: number;
+  ports?: any[];
   username?: string;
   password?: string;
   protocol?: 'ssh' | 'telnet';
@@ -838,7 +839,19 @@ export type NetworkDeviceActionKey =
   | 'mikrotik_toggle_interface' // Enable / Disable Interfaces (/interface/set disabled=yes/no)
   | 'mikrotik_vpn'              // MikroTik VPN Suite (WireGuard, L2TP, SSTP, OpenVPN, PPTP)
   | 'mikrotik_comment'          // Modify Interface Comments (/interface/set comment=...)
-  | 'mikrotik_ip_pool';         // Manage IP Pools & DHCP Ranges (/ip/pool & /ip/dhcp-server)
+  | 'mikrotik_ip_pool'          // Manage IP Pools & DHCP Ranges (/ip/pool & /ip/dhcp-server)
+  // Cisco Switch Enterprise Configuration Suite
+  | 'cisco_config_device'       // Master Cisco Device Configuration Suite Modal
+  | 'cisco_config_vty_ssh'      // Line VTY, SSH & Telnet Governance
+  | 'cisco_config_ntp'          // NTP, System Clock & Timezone
+  | 'cisco_config_snmp'         // SNMPv2c / SNMPv3 & Traps Architecture
+  | 'cisco_config_users'        // Local Users, Privilege Levels & Enable Secret
+  | 'cisco_config_stp'          // Spanning Tree Protocol (STP & Rapid-PVST)
+  | 'cisco_config_vtp'          // VLAN Trunking Protocol (VTP Suite)
+  | 'cisco_config_syslog'       // Syslog & Remote Logging Facilities
+  | 'cisco_config_vlans'        // VLAN Database & Management SVI
+  | 'cisco_config_l2_security'  // Layer 2 Security (DHCP Snooping & DAI)
+  | 'cisco_config_write_memory'; // Save Configuration to NVRAM & Backup
 
 export interface NetworkDeviceActionPermissions {
   web_configs?: boolean;
@@ -873,6 +886,18 @@ export interface NetworkDeviceActionPermissions {
   mikrotik_vpn?: boolean;
   mikrotik_comment?: boolean;
   mikrotik_ip_pool?: boolean;
+  // Cisco Switch Enterprise Configuration Suite
+  cisco_config_device?: boolean;
+  cisco_config_vty_ssh?: boolean;
+  cisco_config_ntp?: boolean;
+  cisco_config_snmp?: boolean;
+  cisco_config_users?: boolean;
+  cisco_config_stp?: boolean;
+  cisco_config_vtp?: boolean;
+  cisco_config_syslog?: boolean;
+  cisco_config_vlans?: boolean;
+  cisco_config_l2_security?: boolean;
+  cisco_config_write_memory?: boolean;
 }
 
 export interface AccessPolicy {
