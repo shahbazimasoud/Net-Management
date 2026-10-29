@@ -286,6 +286,7 @@ import {
 import * as net from 'net';
 import { resolveSshBackend, executeSshBridgeAction } from './sshBackendResolver';
 import { fetchCiscoPortStatistics } from './ciscoPortStatsService';
+import { fetchCiscoConfigState, applyCiscoConfigTab } from './ciscoConfigEngine';
 import {
   createTwoFactorChallenge,
   verifyTwoFactorChallenge,
@@ -3816,6 +3817,117 @@ apiRouter.get('/devices/:id/cisco-resources', handleCiscoResourcesRequest);
 apiRouter.post('/devices/:id/cisco-resources', handleCiscoResourcesRequest);
 apiRouter.get('/devices/:id/system-resources', handleCiscoResourcesRequest);
 apiRouter.post('/devices/:id/system-resources', handleCiscoResourcesRequest);
+
+// -------------------------------------------------------------
+// Cisco Device Configuration Suite & Hardware Provisioning API
+// -------------------------------------------------------------
+
+// GET /api/devices/:id/cisco-config
+apiRouter.get('/devices/:id/cisco-config', async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  const devId = req.params.id;
+
+  try {
+    const check = await assertDeviceScopeAccess(req, devId, 'cisco_config_device');
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({
+        success: false,
+        connected: false,
+        error: check.error || 'Access denied by policy',
+        errorFa: check.errorFa || 'دسترسی به تنظیمات این تجهیز سیسکو توسط پالیسی امنیتی مسدود شده است',
+      });
+    }
+
+    const device = check.device;
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        connected: false,
+        error: 'Device not found',
+        message: isEn ? 'Device not found' : 'دستگاه یافت نشد',
+      });
+    }
+
+    const configState = await fetchCiscoConfigState(device);
+    return res.json(configState);
+  } catch (err: any) {
+    console.error('[Cisco Config GET Error]', err);
+    return res.status(500).json({
+      success: false,
+      connected: false,
+      error: err.message,
+      message: err.message,
+    });
+  }
+});
+
+// POST /api/devices/:id/cisco-config/:tab
+apiRouter.post('/devices/:id/cisco-config/:tab', async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  const devId = req.params.id;
+  const tab = String(req.params.tab || '').toLowerCase().trim();
+
+  try {
+    const tabActionMap: Record<string, string> = {
+      vty: 'cisco_config_vty_ssh',
+      ntp: 'cisco_config_ntp',
+      snmp: 'cisco_config_snmp',
+      users: 'cisco_config_users',
+      stp: 'cisco_config_stp',
+      vtp: 'cisco_config_vtp',
+      syslog: 'cisco_config_syslog',
+      vlans: 'cisco_config_vlans',
+      l2_security: 'cisco_config_l2_security',
+      write_memory: 'cisco_config_write_memory',
+      save_nvram: 'cisco_config_write_memory',
+    };
+
+    const targetAction = tabActionMap[tab] || 'cisco_config_device';
+    const check = await assertDeviceScopeAccess(req, devId, targetAction);
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({
+        success: false,
+        error: check.error || `Access to ${tab} configuration is denied`,
+        errorFa: check.errorFa || `دسترسی به بخش «${tab}» توسط پالیسی امنیتی شما مسدود شده است`,
+      });
+    }
+
+    const device = check.device;
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        error: 'Device not found',
+        message: isEn ? 'Device not found' : 'دستگاه یافت نشد',
+      });
+    }
+
+    const context = await resolveRequestContextPolicy(req);
+    const userName = context?.user?.username || 'admin';
+    const clientIp = getClientIp(req);
+
+    const result = await applyCiscoConfigTab(
+      device,
+      tab,
+      req.body || {},
+      userName,
+      clientIp
+    );
+
+    if (result.success) {
+      device.has_unsaved_changes = false;
+      device.is_online = true;
+    }
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error('[Cisco Config POST Error]', err);
+    return res.status(500).json({
+      success: false,
+      error: err.message,
+      message: err.message,
+    });
+  }
+});
 
 /**
  * Dedicated Real-Time SNMP Telemetry Endpoint

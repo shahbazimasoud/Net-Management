@@ -1347,6 +1347,57 @@ export async function fetchDeviceSnmpTelemetry(
   return res.json();
 }
 
+/**
+ * Fetches real-time authentic Cisco IOS switch configuration state
+ * GET /api/devices/:id/cisco-config
+ */
+export async function fetchCiscoConfig(deviceId: string): Promise<any> {
+  const token = localStorage.getItem('auth_token');
+  const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/cisco-config`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to fetch Cisco configuration' }));
+    throw new Error(err.error || err.errorFa || err.message || 'Failed to fetch Cisco configuration');
+  }
+  return res.json();
+}
+
+/**
+ * Deploys updates for a specific Cisco switch configuration tab
+ * POST /api/devices/:id/cisco-config/:tab
+ */
+export async function updateCiscoConfigTab(
+  deviceId: string,
+  tab: string,
+  payload: any
+): Promise<any> {
+  const token = localStorage.getItem('auth_token');
+  const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/cisco-config/${encodeURIComponent(tab)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: `Failed to update Cisco ${tab} configuration` }));
+    throw new Error(err.error || err.errorFa || err.message || `Failed to update Cisco ${tab} configuration`);
+  }
+  return res.json();
+}
+
+/**
+ * Commits active Cisco switch configuration to NVRAM (write memory)
+ * POST /api/devices/:id/cisco-config/write_memory
+ */
+export async function saveCiscoConfigNvram(deviceId: string): Promise<any> {
+  return updateCiscoConfigTab(deviceId, 'write_memory', {});
+}
+
 export interface MikroTikSystemResourcesResponse {
   device_id: string;
   is_live: boolean;

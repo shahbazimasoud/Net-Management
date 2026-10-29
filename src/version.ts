@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.385.0';
+export const APP_VERSION = '1.386.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.386.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'فاز ۲: توسعه موتور اجرای دستورات و اندپوینت‌های بک‌اند پیکربندی سوئیچ‌های سیسکو',
+    title_en: 'Phase 2: Cisco Switch Configuration Engine & Hardware Provisioning Backend Endpoints',
+    changes: [
+      'توسعه ماژول جامع موتور پیکربندی سیسکو در server/ciscoConfigEngine.ts برای خواندن وضعیت سخت‌افزار (Show Commands Parsing) و اعمال کانفیگ زنده (CLI Generator & Push).',
+      'پشتیبانی از پارس ساختاریافته و اجرای زنده ۱۰ سرفصل پیکربندی: خطوط VTY و پروتکل‌های SSH/Telnet، سرورهای NTP و منطقه زمانی، کامیونیتی‌ها و کلاینت‌های SNMP v2c/v3، دیتابیس کاربران محلی و Secret، پروتکل‌های Rapid-PVST/MST/STP و محافظت‌های BPDU/Root Guard، دامنه و مدهای VTP v1/v2/v3، سرورهای Syslog و سطوح Trap، ویلن‌ها و اینترفیس‌های مدیریتی SVI، و ماژول‌های امنیت لایه دو (DHCP Snooping و DAI).',
+      'ایجاد اندپوینت‌های ریموت GET و POST پیکربندی در سرور با آدرس /api/devices/:id/cisco-config و /api/devices/:id/cisco-config/:tab همراه با ارزیابی سخت‌گیرانه دسترسی سروری assertDeviceScopeAccess.',
+      'افزودن متدهای کلاینت fetchCiscoConfig، updateCiscoConfigTab و saveCiscoConfigNvram در src/services/api.ts جهت اتصال مستقیم کلاینت به موتور سیسکو.'
+    ],
+    changes_en: [
+      'Engineered comprehensive Cisco configuration engine in server/ciscoConfigEngine.ts for authentic hardware state inspection and live CLI command generation.',
+      'Implemented structured parsers and execution pipelines across 10 configuration domains: VTY/SSH/Telnet lines, NTP servers and timezone, SNMP v2c/v3 communities and traps, local AAA users and enable secret, Spanning Tree Rapid-PVST/MST with BPDU/Root Guard, VTP domains and pruning, Syslog servers, VLANs & management SVIs, and Layer 2 Security (DHCP Snooping & Dynamic ARP Inspection).',
+      'Exposed secure REST endpoints /api/devices/:id/cisco-config and /api/devices/:id/cisco-config/:tab on the server with authoritative device scope and per-tab RBAC enforcement.',
+      'Added client API methods fetchCiscoConfig, updateCiscoConfigTab, and saveCiscoConfigNvram in src/services/api.ts for direct frontend-to-hardware communication.'
+    ]
+  },
   {
     version: '1.385.0',
     releaseDate: '2026-10-29',
