@@ -4515,9 +4515,13 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
         const mode = String(updates.port_security_mode || 'sticky').toLowerCase();
         const rawMac = String(updates.port_security_configured_mac || '').trim();
         const formattedMac = formatCiscoMac(rawMac);
+        const vlanId = updates.vlan ? Number(updates.vlan) : 0;
         if (updates.mode !== 'trunk') {
           lines.push(' switchport');
           lines.push(' switchport mode access');
+          if (vlanId > 0) {
+            lines.push(` switchport access vlan ${vlanId}`);
+          }
         }
         lines.push(' switchport port-security');
         lines.push(` switchport port-security maximum ${maxMac}`);
@@ -5425,6 +5429,9 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
           if (params.max_mac) p.port_security_max_mac = Number(params.max_mac);
           if (params.violation) p.port_security_violation = String(params.violation);
           if (params.configured_mac !== undefined) p.port_security_configured_mac = String(params.configured_mac).trim();
+          if (params.vlan !== undefined && Number(params.vlan) > 0) {
+            p.vlan = Number(params.vlan);
+          }
           p.mode = 'access';
         } else if (op.includes('enable')) {
           p.port_security_enabled = true;

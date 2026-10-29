@@ -582,10 +582,20 @@ def handle_port_action(args):
                         f"interface {interface}",
                         " switchport",
                         " switchport mode access",
+                    ]
+                    vlan = params.get("vlan")
+                    if vlan:
+                        try:
+                            vlan_num = int(vlan)
+                            if vlan_num > 0:
+                                cmds.append(f" switchport access vlan {vlan_num}")
+                        except (ValueError, TypeError):
+                            pass
+                    cmds.extend([
                         " switchport port-security",
                         f" switchport port-security maximum {max_mac}",
                         f" switchport port-security violation {violation}",
-                    ]
+                    ])
                     if mode == "sticky":
                         cmds.append(" switchport port-security mac-address sticky")
                         if formatted_mac:
@@ -631,10 +641,20 @@ def handle_port_action(args):
                             f"interface {interface}",
                             " switchport",
                             " switchport mode access",
+                        ]
+                        vlan = params.get("vlan")
+                        if vlan:
+                            try:
+                                vlan_num = int(vlan)
+                                if vlan_num > 0:
+                                    cmds.append(f" switchport access vlan {vlan_num}")
+                            except (ValueError, TypeError):
+                                pass
+                        cmds.extend([
                             " switchport port-security",
                             f" switchport port-security maximum {max_mac}",
                             f" switchport port-security violation {violation}",
-                        ]
+                        ])
                         if mode == "sticky":
                             cmds.append(" switchport port-security mac-address sticky")
                             if formatted_mac:

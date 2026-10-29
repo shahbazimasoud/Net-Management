@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.384.3';
+export const APP_VERSION = '1.384.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.384.4',
+    releaseDate: '2026-10-29',
+    type: 'patch',
+    title: 'حفظ و تثبیت ویلن قبلی پورت در زمان فعال‌سازی و ویرایش پورت سکیوریتی سیسکو',
+    title_en: 'Preserve Authentic Port VLAN on Cisco Port Security Activation and Configuration',
+    changes: [
+      'ارسال صریح دستور switchport access vlan به همراه دستورات switchport mode access و پورت سکیوریتی جهت جلوگیری قطعی از بازنشانی شماره ویلن اینترفیس به ۱ روی سوئیچ.',
+      'انتقال و نگهداری شماره ویلن قبلی در تمامی لایه‌های فرانت‌اند (CiscoPortSecurityModal)، روت‌های سرور و درایورهای بک‌اند پایتون.',
+      'همگام‌سازی پیش‌نمایش زنده دستور CLI در مودال پورت سکیوریتی سیسکو جهت نمایش دقیق شماره ویلن پورت.'
+    ],
+    changes_en: [
+      'Explicitly dispatched switchport access vlan alongside switchport mode access and port security to prevent the interface from reverting to default VLAN 1.',
+      'Propagated and preserved authentic port VLAN across CiscoPortSecurityModal, server routes, and backend Python drivers.',
+      'Synchronized live CLI command preview in CiscoPortSecurityModal to accurately reflect the port access VLAN assignment.'
+    ]
+  },
   {
     version: '1.384.3',
     releaseDate: '2026-10-29',

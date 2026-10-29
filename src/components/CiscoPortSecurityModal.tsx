@@ -167,11 +167,14 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
       ? `${cleanHex.slice(0, 4)}.${cleanHex.slice(4, 8)}.${cleanHex.slice(8, 12)}`
       : configuredMac.trim();
 
+    const targetVlan = Number(port?.vlan || 1);
+
     const lines = [
       'configure terminal',
       `interface ${portId}`,
       ' switchport',
       ' switchport mode access',
+      ` switchport access vlan ${targetVlan}`,
       ' switchport port-security',
       ` switchport port-security maximum ${maxMac}`,
       ` switchport port-security violation ${violation}`,
@@ -187,7 +190,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
     lines.push('end');
     lines.push('write memory');
     return lines.join('\n');
-  }, [enabled, portId, maxMac, violation, mode, configuredMac]);
+  }, [enabled, portId, port?.vlan, maxMac, violation, mode, configuredMac]);
 
   // Copy helper
   const handleCopyCli = async () => {
@@ -418,6 +421,8 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
 
     setIsSaving(true);
     try {
+      const targetVlan = Number(port.vlan || 1);
+
       // 1. Direct hardware execution on Cisco switch via executeDeviceOperation ('port_sec_update')
       let opRes: any = null;
       try {
@@ -433,6 +438,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
             configured_mac: ciscoMac,
             interface: portId,
             device_type: device.type,
+            vlan: targetVlan,
           }
         );
       } catch (opErr: any) {
@@ -447,6 +453,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
         port_security_max_mac: maxMac,
         port_security_violation: violation,
         port_security_configured_mac: ciscoMac,
+        vlan: targetVlan,
         mode: 'access', // Cisco best practice: port security requires access mode
       };
 
@@ -456,10 +463,14 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
 
       const res = await updateSwitchPort(device.id, portId, updates);
       if (res && res.port) {
+        const enrichedPort: SwitchPort = {
+          ...res.port,
+          vlan: res.port.vlan || targetVlan,
+        };
         if (onPortUpdated) {
-          onPortUpdated(res.port);
+          onPortUpdated(enrichedPort);
         }
-        setMacEntries(getPortMacAddresses(res.port).filter((e) => e.type !== 'hardware'));
+        setMacEntries(getPortMacAddresses(enrichedPort).filter((e) => e.type !== 'hardware'));
       }
 
       setNotification({
