@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Users,
   Key,
@@ -14,6 +14,14 @@ import {
   UserPlus,
   ShieldCheck,
   UserCheck,
+  Trash2,
+  Plus,
+  Sliders,
+  ShieldAlert,
+  Sparkles,
+  X,
+  BadgeAlert,
+  Undo2,
 } from 'lucide-react';
 import { Device } from '../../types';
 import { useLanguage } from '../../i18n';
@@ -28,6 +36,14 @@ export interface CiscoUsersTabProps {
   onConfigApplied?: () => void;
 }
 
+export interface StagedUser {
+  id: string;
+  username: string;
+  privilege: number;
+  secret: string;
+  secret_type: 'secret' | 'password';
+}
+
 export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
   device,
   initialConfig,
@@ -40,11 +56,19 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
   const existingUsers = Array.isArray(initialConfig?.users) ? initialConfig.users : [];
   const enableSecretConfigured = Boolean(initialConfig?.enable_secret_configured);
 
+  // Staged users to be provisioned on switch
+  const [stagedUsers, setStagedUsers] = useState<StagedUser[]>([]);
+
+  // Existing users marked for removal (no username ...)
+  const [deletedUsers, setDeletedUsers] = useState<string[]>([]);
+
   // New User Form State
   const [username, setUsername] = useState('netadmin');
   const [privilege, setPrivilege] = useState<number>(15);
+  const [secretType, setSecretType] = useState<'secret' | 'password'>('secret');
   const [secretPassword, setSecretPassword] = useState('');
   const [showSecretPassword, setShowSecretPassword] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Enable Secret State
   const [enableSecret, setEnableSecret] = useState('');
@@ -58,31 +82,170 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
     error?: string;
   } | null>(null);
 
+  // Helper description for selected privilege level
+  const privilegeDescription = useMemo(() => {
+    if (privilege === 15) {
+      return {
+        en: 'Level 15 (SuperAdmin / Root): Unrestricted exec authority, configuration terminal mode, system reload, and NVRAM storage.',
+        fa: 'سطح ۱۵ (مدیر ارشد / دسترسی کامل): دسترسی نامحدود به کلیه دستورات اجرایی، مد پیکربندی، ریستارت و ذخیره‌سازی دائمی.',
+        color: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
+      };
+    }
+    if (privilege >= 10) {
+      return {
+        en: `Level ${privilege} (Senior Network Engineer): Elevated operational scope, advanced diagnostics, interface tweaks, and protocol audits.`,
+        fa: `سطح ${privilege} (مهندس ارشد شبکه): اختیارات ارشد عملیاتی، خطایابی پیشرفته، تنظیمات واسط‌ها و بررسی پروتکل‌ها.`,
+        color: 'text-purple-400 bg-purple-500/10 border-purple-500/30',
+      };
+    }
+    if (privilege >= 7) {
+      return {
+        en: `Level ${privilege} (Port & Interface Operator): Interface toggling (shutdown/no shut), speed/duplex, and port statistics monitoring.`,
+        fa: `سطح ${privilege} (اپراتور پورت و اینترفیس): مدیریت روشن/خاموش کردن پورت‌ها، تنظیمات سرعت و پایش آمار ارتباطی.`,
+        color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30',
+      };
+    }
+    if (privilege >= 2) {
+      return {
+        en: `Level ${privilege} (Intermediate Operator): Extended telemetry inspections and non-destructive show commands without write rights.`,
+        fa: `سطح ${privilege} (اپراتور میانی): بررسی دستورات مشاهده‌ای و تلمتری بیشتر بدون مجوز اعمال تغییرات در تنظیمات.`,
+        color: 'text-sky-400 bg-sky-500/10 border-sky-500/30',
+      };
+    }
+    if (privilege === 1) {
+      return {
+        en: 'Level 1 (User Exec / Read-Only): Basic ping, traceroute, and unprivileged show command outputs.',
+        fa: 'سطح ۱ (کاربر عادی / مانیتورینگ): اجرای تست‌های پینگ، تریس‌روت و دستورات پایه‌ای show بدون دسترسی پیکربندی.',
+        color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+      };
+    }
+    return {
+      en: 'Level 0 (Minimal Exec): Initial restricted login shell with bare minimum commands (enable, exit, help).',
+      fa: 'سطح ۰ (حداقلی): دسترسی بسیار محدود صرفاً جهت ورود اولیه، دستور enable و خروج.',
+      color: 'text-slate-400 bg-slate-500/10 border-slate-500/30',
+    };
+  }, [privilege]);
+
   // Live generated CLI commands preview
   const generatedCli = useMemo(() => {
     const lines: string[] = ['configure terminal'];
-    if (username.trim() && secretPassword.trim()) {
-      lines.push(`username ${username.trim()} privilege ${privilege} secret ${secretPassword.trim()}`);
+
+    // 1. Staged users
+    if (stagedUsers.length > 0) {
+      lines.push('! Local AAA User Provisioning (Queue)');
+      for (const u of stagedUsers) {
+        lines.push(`username ${u.username} privilege ${u.privilege} ${u.secret_type} ${u.secret}`);
+      }
     }
+
+    // 2. In-form single user if not yet staged into the list
+    if (username.trim() && secretPassword.trim() && !stagedUsers.some((u) => u.username === username.trim())) {
+      lines.push('! Local AAA User Provisioning (Current Form)');
+      lines.push(`username ${username.trim()} privilege ${privilege} ${secretType} ${secretPassword.trim()}`);
+    }
+
+    // 3. Marked deletions
+    if (deletedUsers.length > 0) {
+      lines.push('! Remove Obsolete Users from Device');
+      for (const du of deletedUsers) {
+        lines.push(`no username ${du}`);
+      }
+    }
+
+    // 4. Enable Secret
     if (enableSecret.trim()) {
+      lines.push('! Global Device Root Privilege Password');
       lines.push(`enable secret ${enableSecret.trim()}`);
     }
+
     lines.push('line con 0');
     lines.push(' login local');
     lines.push('exit');
     lines.push('end');
     return lines.join('\n');
-  }, [username, privilege, secretPassword, enableSecret]);
+  }, [stagedUsers, username, secretPassword, privilege, secretType, deletedUsers, enableSecret]);
+
+  // Handle adding a user to staged list
+  const handleStageUser = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleanUser = username.trim();
+    const cleanPass = secretPassword.trim();
+
+    if (!cleanUser) {
+      setFormError(isEn ? 'Please specify a valid username' : 'لطفاً نام کاربری معتبر وارد کنید');
+      return;
+    }
+
+    if (!cleanPass) {
+      setFormError(isEn ? 'Please enter a password for this user' : 'لطفاً رمز عبور کاربر را وارد کنید');
+      return;
+    }
+
+    if (stagedUsers.some((u) => u.username.toLowerCase() === cleanUser.toLowerCase())) {
+      setFormError(
+        isEn
+          ? `User "${cleanUser}" is already added to the provisioning queue`
+          : `کاربر "${cleanUser}" قبلاً در صف اعمال اضافه شده است`
+      );
+      return;
+    }
+
+    setFormError(null);
+    setStagedUsers((prev) => [
+      ...prev,
+      {
+        id: `${cleanUser}-${Date.now()}`,
+        username: cleanUser,
+        privilege,
+        secret: cleanPass,
+        secret_type: secretType,
+      },
+    ]);
+
+    // Clear form inputs for rapid multi-user addition
+    setUsername('');
+    setSecretPassword('');
+  };
+
+  // Remove a user from staged queue
+  const handleRemoveStagedUser = (id: string) => {
+    setStagedUsers((prev) => prev.filter((u) => u.id !== id));
+  };
+
+  // Toggle deletion marking for discovered users
+  const handleToggleDeleteUser = (uName: string) => {
+    if (deletedUsers.includes(uName)) {
+      setDeletedUsers((prev) => prev.filter((name) => name !== uName));
+    } else {
+      setDeletedUsers((prev) => [...prev, uName]);
+    }
+  };
 
   // Handle Deploy CLI to switch
   const handleApply = async () => {
     if (!isPermitted || isApplying) return;
-    if (!secretPassword.trim() && !enableSecret.trim()) {
+
+    // Collect all users to provision: staged + in-form if valid
+    const finalUsers = [...stagedUsers];
+    if (username.trim() && secretPassword.trim()) {
+      const cleanUser = username.trim();
+      if (!finalUsers.some((u) => u.username.toLowerCase() === cleanUser.toLowerCase())) {
+        finalUsers.push({
+          id: `inline-${Date.now()}`,
+          username: cleanUser,
+          privilege,
+          secret: secretPassword.trim(),
+          secret_type: secretType,
+        });
+      }
+    }
+
+    if (finalUsers.length === 0 && deletedUsers.length === 0 && !enableSecret.trim()) {
       setApplyResult({
         success: false,
         error: isEn
-          ? 'Please enter a user secret password or enable secret to apply.'
-          : 'لطفاً رمز عبور کاربر محلی یا رمز عبور Enable Secret را جهت اعمال وارد کنید.',
+          ? 'Please enter user credentials with privilege level or set enable secret to apply.'
+          : 'لطفاً حداقل یک کاربر با سطح دسترسی مشخص اضافه کنید یا رمز Enable را جهت اعمال وارد نمایید.',
       });
       return;
     }
@@ -91,9 +254,13 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
     setApplyResult(null);
 
     const payload = {
-      username: username.trim() || undefined,
-      privilege: privilege,
-      secret: secretPassword.trim() || undefined,
+      users: finalUsers.map((u) => ({
+        username: u.username,
+        privilege: u.privilege,
+        secret: u.secret,
+        secret_type: u.secret_type,
+      })),
+      delete_users: deletedUsers,
       enable_secret: enableSecret.trim() || undefined,
     };
 
@@ -102,9 +269,16 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
       if (res.success) {
         setApplyResult({
           success: true,
-          output: res.output || (isEn ? 'Local user and enable secret provisioned successfully.' : 'کاربر محلی و رمز عبور Enable با موفقیت در سوئیچ ایجاد و تنظیم گردید.'),
+          output:
+            res.output ||
+            (isEn
+              ? 'Local users and credentials provisioned to switch successfully.'
+              : 'کاربران محلی، سطوح دسترسی و تنظیمات امنیتی با موفقیت روی سخت‌افزار سوئیچ اعمال شدند.'),
         });
+        setStagedUsers([]);
+        setUsername('netadmin');
         setSecretPassword('');
+        setDeletedUsers([]);
         setEnableSecret('');
         if (onConfigApplied) onConfigApplied();
       } else {
@@ -116,7 +290,11 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
     } catch (err: any) {
       setApplyResult({
         success: false,
-        error: err?.message || (isEn ? 'Communication error during user provisioning' : 'خطای ارتباطی هنگام ثبت اطلاعات کاربران'),
+        error:
+          err?.message ||
+          (isEn
+            ? 'Communication error during user provisioning'
+            : 'خطای ارتباطی هنگام ثبت اطلاعات کاربران روی سخت‌افزار'),
       });
     } finally {
       setIsApplying(false);
@@ -127,8 +305,12 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
   const handleReset = () => {
     setUsername('netadmin');
     setPrivilege(15);
+    setSecretType('secret');
     setSecretPassword('');
     setEnableSecret('');
+    setStagedUsers([]);
+    setDeletedUsers([]);
+    setFormError(null);
     setApplyResult(null);
   };
 
@@ -152,8 +334,8 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
             </h4>
             <p className="text-xs opacity-75 mt-0.5">
               {isEn
-                ? 'Provision cryptographic local credentials (algorithm type 5/8/9) and secure root enable secret.'
-                : 'مدیریت حساب‌های محلی سخت‌افزار با الگوریتم‌های هش مدرن و تعیین رمز دسترسی به حالت مدیریت سوئیچ.'}
+                ? 'Provision local accounts with granular privilege levels (0-15) and secure cryptographic hashes on Cisco IOS hardware.'
+                : 'تعریف و مدیریت کاربران سخت‌افزار با سطوح دسترسی دقیق (۰ تا ۱۵) و الگوریتم‌های هش امن در سوئیچ سیسکو.'}
             </p>
           </div>
         </div>
@@ -167,82 +349,178 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>{enableSecretConfigured ? (isEn ? 'Enable Secret Active' : 'رمز Enable فعال') : (isEn ? 'No Secret Set' : 'بدون رمز Enable')}</span>
+            <span>
+              {enableSecretConfigured
+                ? isEn
+                  ? 'Enable Secret Active'
+                  : 'رمز Enable فعال'
+                : isEn
+                ? 'No Secret Set'
+                : 'بدون رمز Enable'}
+            </span>
           </span>
         </div>
       </div>
 
-      {/* Grid: Existing Users & New User Form */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Left Column: Existing Local Users on Hardware */}
+      {/* Grid: Existing Users & User Provisioning Form */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* Left Column (5 Cols): Existing Local Users on Hardware */}
         <div
-          className={`p-5 rounded-2xl border space-y-4 shadow-xs ${
+          className={`lg:col-span-5 p-5 rounded-2xl border space-y-4 shadow-xs flex flex-col justify-between ${
             isLightMode
               ? 'bg-white border-slate-200 text-slate-800'
               : 'bg-slate-900/40 border-slate-800 text-slate-100'
           }`}
         >
-          <div className="flex items-center justify-between border-b pb-2.5">
-            <h5 className="font-bold text-xs uppercase tracking-wider text-cyan-500 flex items-center gap-1.5">
-              <UserCheck className="w-4 h-4" />
-              <span>{isEn ? 'Discovered Local Users on Switch' : 'کاربران محلی موجود روی سخت‌افزار'}</span>
-            </h5>
-            <FieldInfoTooltip
-              title={isEn ? 'Discovered Switch Users' : 'کاربران فعال سوئیچ'}
-              infoWhatEn="Authentic list of local administrative accounts extracted directly from the switch's running-config."
-              infoWhatFa="فهرست کاربران احراز هویت محلی که مستقیماً از فایل پیکربندی فعال سوئیچ استخراج شده‌اند."
-              infoWhyEn="Verifying existing accounts helps eliminate leftover vendor default passwords (e.g. cisco/cisco)."
-              infoWhyFa="بررسی و پالایش کاربران محلی جهت حذف نام‌های کاربری پیش‌فرض و ناامن کارخانه‌ای."
-              infoExampleEn="username admin privilege 15 secret 9 ..."
-              infoExampleFa="username admin privilege 15 secret 9 ..."
-              isEn={isEn}
-              isLightMode={isLightMode}
-            />
+          <div className="space-y-4">
+            <div className="flex items-center justify-between border-b pb-2.5">
+              <h5 className="font-bold text-xs uppercase tracking-wider text-cyan-500 flex items-center gap-1.5">
+                <UserCheck className="w-4 h-4" />
+                <span>{isEn ? 'Discovered Local Users on Switch' : 'کاربران محلی موجود روی سخت‌افزار'}</span>
+              </h5>
+              <FieldInfoTooltip
+                title={isEn ? 'Discovered Switch Users' : 'کاربران فعال سوئیچ'}
+                infoWhatEn="Authentic list of local administrative accounts extracted directly from the switch's running-config."
+                infoWhatFa="فهرست کاربران احراز هویت محلی که مستقیماً از فایل پیکربندی فعال سوئیچ استخراج شده‌اند."
+                infoWhyEn="Allows auditing active credentials, setting appropriate privilege tiers, or removing obsolete accounts."
+                infoWhyFa="امکان بازرسی حساب‌های فعال، تفکیک سطوح دسترسی و حذف حساب‌های منقضی‌شده یا پیش‌فرض."
+                infoExampleEn="username admin privilege 15 secret 9 ..."
+                infoExampleFa="username admin privilege 15 secret 9 ..."
+                isEn={isEn}
+                isLightMode={isLightMode}
+              />
+            </div>
+
+            <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+              {existingUsers.length === 0 ? (
+                <div className="py-8 text-center text-xs opacity-60">
+                  {isEn ? 'No local users discovered in show running-config' : 'هیچ کاربر محلی در فایل پیکربندی سوئیچ شناسایی نشد'}
+                </div>
+              ) : (
+                existingUsers.map((u: any, idx: number) => {
+                  const isMarkedDelete = deletedUsers.includes(u.username);
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-center justify-between p-3 rounded-xl border text-xs transition-all ${
+                        isMarkedDelete
+                          ? isLightMode
+                            ? 'bg-rose-50 border-rose-300 opacity-70 line-through'
+                            : 'bg-rose-950/30 border-rose-800/60 opacity-60 line-through'
+                          : isLightMode
+                          ? 'bg-slate-50 border-slate-200 text-slate-800'
+                          : 'bg-slate-950/60 border-slate-800 text-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 font-mono">
+                        <UserPlus className={`w-4 h-4 ${isMarkedDelete ? 'text-rose-400' : 'text-cyan-400'}`} />
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-sm block">{u.username}</span>
+                            {isMarkedDelete && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] bg-rose-500/20 text-rose-300 font-sans border border-rose-500/30">
+                                {isEn ? 'Marked for Deletion' : 'حذف خواهد شد'}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] opacity-70">
+                            {isEn
+                              ? `Algorithm: ${u.secret_type || 'Encrypted'}`
+                              : `نوع رمز: ${u.secret_type || 'هش‌شده'}`}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[11px] font-bold font-mono border ${
+                            u.privilege === 15
+                              ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                              : u.privilege >= 7
+                              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                              : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                          }`}
+                        >
+                          Priv {u.privilege ?? 1}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleDeleteUser(u.username)}
+                          disabled={!isPermitted}
+                          title={
+                            isMarkedDelete
+                              ? isEn
+                                ? 'Undo removal'
+                                : 'لغو حذف کاربر'
+                              : isEn
+                              ? 'Remove this user from switch'
+                              : 'حذف این کاربر از سوئیچ'
+                          }
+                          className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                            isMarkedDelete
+                              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/30'
+                              : 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
+                          }`}
+                        >
+                          {isMarkedDelete ? <Undo2 className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
 
-          <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
-            {existingUsers.length === 0 ? (
-              <div className="py-8 text-center text-xs opacity-60">
-                {isEn ? 'No local users discovered in show running-config' : 'هیچ کاربر محلی در فایل پیکربندی سوئیچ شناسایی نشد'}
+          {/* Staged Users Queue (if any) */}
+          {stagedUsers.length > 0 && (
+            <div className="pt-3 border-t border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-emerald-400">
+                <span className="flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {isEn ? `Staged Users (${stagedUsers.length})` : `کاربران آماده اعمال (${stagedUsers.length})`}
+                </span>
+                <span className="text-[10px] font-mono text-slate-400">
+                  {isEn ? 'Pending switch push' : 'در صف اعمال'}
+                </span>
               </div>
-            ) : (
-              existingUsers.map((u: any, idx: number) => (
-                <div
-                  key={idx}
-                  className={`flex items-center justify-between p-3 rounded-xl border text-xs ${
-                    isLightMode
-                      ? 'bg-slate-50 border-slate-200 text-slate-800'
-                      : 'bg-slate-950/60 border-slate-800 text-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 font-mono">
-                    <UserPlus className="w-4 h-4 text-cyan-400" />
-                    <div>
-                      <span className="font-bold text-sm block">{u.username}</span>
-                      <span className="text-[10px] opacity-70">
-                        {isEn ? `Algorithm Type: ${u.secret_type || 'Encrypted'}` : `الگوریتم رمزنگاری: ${u.secret_type || 'هش‌شده'}`}
-                      </span>
-                    </div>
-                  </div>
 
-                  <span
-                    className={`px-2 py-0.5 rounded-md text-[11px] font-bold font-mono border ${
-                      u.privilege === 15
-                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                        : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+              <div className="space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar">
+                {stagedUsers.map((su) => (
+                  <div
+                    key={su.id}
+                    className={`flex items-center justify-between p-2 rounded-lg border text-xs font-mono ${
+                      isLightMode
+                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
+                        : 'bg-emerald-950/20 border-emerald-500/30 text-emerald-200'
                     }`}
                   >
-                    Privilege {u.privilege}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs">{su.username}</span>
+                      <span className="text-[10px] opacity-75">
+                        Priv {su.privilege} ({su.secret_type})
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveStagedUser(su.id)}
+                      className="p-1 rounded text-rose-400 hover:text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+                      title={isEn ? 'Remove from queue' : 'حذف از صف اعمال'}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Right Column: Provision / Update User & Enable Secret Form */}
+        {/* Right Column (7 Cols): Add User with Granular Privileges & Form */}
         <div
-          className={`p-5 rounded-2xl border space-y-4 shadow-xs ${
+          className={`lg:col-span-7 p-5 rounded-2xl border space-y-4 shadow-xs ${
             isLightMode
               ? 'bg-white border-slate-200 text-slate-800'
               : 'bg-slate-900/40 border-slate-800 text-slate-100'
@@ -250,64 +528,148 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
         >
           <div className="flex items-center justify-between border-b pb-2.5">
             <h5 className="font-bold text-xs uppercase tracking-wider text-cyan-500 flex items-center gap-1.5">
-              <Key className="w-4 h-4" />
-              <span>{isEn ? 'Provision User & Enable Secret' : 'تعریف کاربر محلی و رمز عبور Enable'}</span>
+              <UserPlus className="w-4 h-4" />
+              <span>{isEn ? 'Add User to Device with Granular Privileges' : 'افزودن کاربر به دیوایس با سطح دسترسی مشخص'}</span>
             </h5>
             <FieldInfoTooltip
-              title={isEn ? 'Privilege Levels & Enable Secret' : 'سطوح دسترسی Privilege و Enable Secret'}
-              infoWhatEn="Privilege 15 grants unrestricted root exec access. Enable secret protects entering 'enable' mode from console/VTY."
-              infoWhatFa="سطح دسترسی ۱۵ بالاترین سطح ادمین است. رمز Enable Secret از ورود به حالت پیکربندی محافظت می‌کند."
-              infoWhyEn="Without an enable secret or privilege 15 user, administrative commands cannot be executed over SSH."
-              infoWhyFa="بدون تعیین رمز Enable یا کاربر با سطح دسترسی ۱۵، اجرای دستورات پیکربندی از طریق SSH امکان‌پذیر نخواهد بود."
-              infoExampleEn="username netadmin privilege 15 secret P@ssw0rd99, enable secret Root#Secret"
-              infoExampleFa="username netadmin privilege 15 secret P@ssw0rd99, enable secret Root#Secret"
+              title={isEn ? 'Add Switch User' : 'تعریف کاربر سوئیچ'}
+              infoWhatEn="Provisions local accounts with granular privilege levels (0 to 15) and cryptographic hashing on the switch."
+              infoWhatFa="تعریف حساب‌های کاربری محلی با سطوح دسترسی تفکیک‌شده (۰ تا ۱۵) و الگوریتم‌های هش امن بر روی سوئیچ."
+              infoWhyEn="Enforces Principle of Least Privilege (PoLP) and ensures out-of-band management access during network isolation."
+              infoWhyFa="پیاده‌سازی اصل حداقل دسترسی و تضمین ورود امن ادمین‌ها و اپراتورها به تجهیز در سناریوهای اضطراری."
+              infoExampleEn="username noc_user privilege 7 secret NOC@Pass2026!"
+              infoExampleFa="username noc_user privilege 7 secret NOC@Pass2026!"
               isEn={isEn}
               isLightMode={isLightMode}
             />
           </div>
 
-          {/* Username Input */}
-          <div>
-            <label className="block text-xs font-semibold mb-1">
-              {isEn ? 'Username (username):' : 'نام کاربری (Username):'}
-            </label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              disabled={!isPermitted}
-              placeholder="e.g. netadmin"
-              className={`w-full px-3 py-2 rounded-xl text-xs border font-mono ${
-                isLightMode
-                  ? 'bg-slate-50 border-slate-300 text-slate-900 focus:bg-white'
-                  : 'bg-slate-950 border-slate-800 text-slate-100 focus:border-cyan-500'
-              }`}
-              dir="ltr"
-            />
+          {/* Form error alert */}
+          {formError && (
+            <div className="p-2.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-rose-300 text-xs flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
+
+          {/* Username Input & Encryption Type */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold">
+                  {isEn ? 'Username (username):' : 'نام کاربری (Username):'}
+                </label>
+              </div>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => {
+                  setUsername(e.target.value);
+                  setFormError(null);
+                }}
+                disabled={!isPermitted}
+                placeholder="e.g. netadmin, noc_operator"
+                className={`w-full px-3 py-2 rounded-xl text-xs border font-mono ${
+                  isLightMode
+                    ? 'bg-slate-50 border-slate-300 text-slate-900 focus:bg-white'
+                    : 'bg-slate-950 border-slate-800 text-slate-100 focus:border-cyan-500'
+                }`}
+                dir="ltr"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold">
+                  {isEn ? 'Encryption Method:' : 'نوع الگوریتم رمز:'}
+                </label>
+                <FieldInfoTooltip
+                  title={isEn ? 'Credential Hashing' : 'رمزنگاری پسورد'}
+                  infoWhatEn="'secret' employs modern one-way cryptographic hashes (SHA-256 / scrypt), whereas 'password' is Cisco reversible Type 7."
+                  infoWhatFa="گزینه 'secret' از الگوریتم‌های هش یک‌طرفه امن (SHA-256) استفاده می‌کند در حالی که 'password' رمز ضعیف نوع ۷ است."
+                  infoWhyEn="Industry security baselines forbid reversible Type 7 passwords in running-config to prevent offline cracking."
+                  infoWhyFa="استانداردهای امنیتی استفاده از پسوردهای معکوس‌پذیر نوع ۷ را در پیکربندی تجهیزات ممنوع می‌دانند."
+                  infoExampleEn="username admin privilege 15 secret StrongP@ssw0rd!"
+                  infoExampleFa="username admin privilege 15 secret StrongP@ssw0rd!"
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSecretType('secret')}
+                  className={`py-2 px-2 text-center rounded-xl border text-xs font-bold transition cursor-pointer ${
+                    secretType === 'secret'
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs'
+                      : 'bg-slate-950/40 text-slate-400 border-slate-800 hover:bg-slate-800'
+                  }`}
+                >
+                  {isEn ? 'secret (Secure Hash)' : 'secret (هش امن)'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSecretType('password')}
+                  className={`py-2 px-2 text-center rounded-xl border text-xs font-bold transition cursor-pointer ${
+                    secretType === 'password'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
+                      : 'bg-slate-950/40 text-slate-400 border-slate-800 hover:bg-slate-800'
+                  }`}
+                >
+                  {isEn ? 'password (Type 7)' : 'password (نوع ۷)'}
+                </button>
+              </div>
+            </div>
           </div>
 
-          {/* Privilege Level Selector */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold">
-                {isEn ? 'Privilege Level (1 - 15):' : 'سطح دسترسی کاربری (Privilege):'}
-              </label>
-              <span className="text-xs font-mono font-bold text-cyan-400">
-                Level {privilege}
-              </span>
+          {/* Privilege Level Selector (0 to 15) */}
+          <div className="space-y-2 p-3.5 rounded-xl border border-slate-800/80 bg-slate-950/40">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                <label className="text-xs font-semibold">
+                  {isEn ? 'Privilege Level Scope (0 - 15):' : 'سطح دسترسی کاربری در سیسکو (Privilege 0 - 15):'}
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-cyan-400 px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30">
+                  Level {privilege}
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={15}
+                  value={privilege}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    if (!isNaN(val)) {
+                      setPrivilege(Math.max(0, Math.min(15, val)));
+                    }
+                  }}
+                  disabled={!isPermitted}
+                  className={`w-14 text-center py-0.5 px-1 rounded-md text-xs font-mono font-bold border ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-900'
+                      : 'bg-slate-900 border-slate-700 text-cyan-300'
+                  }`}
+                />
+              </div>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+
+            {/* Quick Presets */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                { level: 15, label: '15 (SuperAdmin)', labelFa: '۱۵ (دسترسی کامل)' },
-                { level: 7, label: '7 (Operator)', labelFa: '۷ (اپراتور پورت)' },
-                { level: 1, label: '1 (User Monitor)', labelFa: '۱ (فقط مانیتورینگ)' },
+                { level: 15, labelEn: '15 (SuperAdmin)', labelFa: '۱۵ (مدیر ارشد)' },
+                { level: 10, labelEn: '10 (Engineer)', labelFa: '۱۰ (مهندس شبکه)' },
+                { level: 7, labelEn: '7 (Port Admin)', labelFa: '۷ (اپراتور پورت)' },
+                { level: 1, labelEn: '1 (Monitor)', labelFa: '۱ (مشاهده وضعیت)' },
               ].map((p) => (
                 <button
                   key={p.level}
                   type="button"
                   onClick={() => setPrivilege(p.level)}
                   disabled={!isPermitted}
-                  className={`py-2 px-1 text-center rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                  className={`py-1.5 px-1 text-center rounded-lg border text-xs font-bold transition-all cursor-pointer ${
                     privilege === p.level
                       ? isLightMode
                         ? 'bg-cyan-600 text-white border-cyan-600 shadow-xs'
@@ -317,9 +679,30 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
                       : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:bg-slate-800'
                   }`}
                 >
-                  {isEn ? p.label : p.labelFa}
+                  {isEn ? p.labelEn : p.labelFa}
                 </button>
               ))}
+            </div>
+
+            {/* Granular Slider Range */}
+            <div className="pt-1 flex items-center gap-3">
+              <span className="text-[10px] font-mono text-slate-500">0</span>
+              <input
+                type="range"
+                min="0"
+                max="15"
+                step="1"
+                value={privilege}
+                onChange={(e) => setPrivilege(parseInt(e.target.value, 10))}
+                disabled={!isPermitted}
+                className="w-full accent-cyan-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+              />
+              <span className="text-[10px] font-mono text-slate-500">15</span>
+            </div>
+
+            {/* Privilege Level Description Badge */}
+            <div className={`p-2 rounded-lg border text-[11px] leading-relaxed ${privilegeDescription.color}`}>
+              {isEn ? privilegeDescription.en : privilegeDescription.fa}
             </div>
           </div>
 
@@ -332,7 +715,10 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
               <input
                 type={showSecretPassword ? 'text' : 'password'}
                 value={secretPassword}
-                onChange={(e) => setSecretPassword(e.target.value)}
+                onChange={(e) => {
+                  setSecretPassword(e.target.value);
+                  setFormError(null);
+                }}
                 disabled={!isPermitted}
                 placeholder={isEn ? 'Enter strong secret password' : 'رمز عبور قوی وارد نمایید'}
                 className={`w-full px-3 py-2 pr-10 rtl:pl-10 rtl:pr-3 rounded-xl text-xs border font-mono ${
@@ -352,18 +738,49 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
             </div>
           </div>
 
+          {/* Add User to List Button */}
+          <div className="flex justify-end pt-1">
+            <button
+              type="button"
+              onClick={() => handleStageUser()}
+              disabled={!isPermitted}
+              className={`px-4 py-2 rounded-xl text-xs font-bold border flex items-center gap-2 transition cursor-pointer active:scale-95 ${
+                isLightMode
+                  ? 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border-cyan-300'
+                  : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+              }`}
+            >
+              <Plus className="w-4 h-4" />
+              <span>{isEn ? '+ Add User to Device Queue' : '+ افزودن کاربر به لیست اعمال دیوایس'}</span>
+            </button>
+          </div>
+
           {/* Enable Secret Input */}
-          <div className="pt-2 border-t border-slate-800">
-            <label className="block text-xs font-semibold mb-1 flex items-center justify-between">
-              <span>{isEn ? 'Global Switch Enable Secret (enable secret):' : 'رمز عبور حالت مدیریت سوئیچ (enable secret):'}</span>
-            </label>
+          <div className="pt-3 border-t border-slate-800">
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold flex items-center gap-1.5">
+                <Key className="w-3.5 h-3.5 text-amber-400" />
+                <span>{isEn ? 'Global Switch Enable Secret (enable secret):' : 'رمز عبور حالت مدیریت سوئیچ (enable secret):'}</span>
+              </label>
+              <FieldInfoTooltip
+                title={isEn ? 'Switch Enable Secret' : 'رمز عبور Enable'}
+                infoWhatEn="Global cryptographic password protecting the 'enable' privileged exec mode from console or SSH sessions."
+                infoWhatFa="رمز عبور سراسری و رمزنگاری‌شده جهت محافظت از ورود به حالت دسترسی مدیریتی (enable) در خطوط کنسول و SSH."
+                infoWhyEn="Guarantees authorization before allowing engineers to inspect running-configs or execute configuration terminal."
+                infoWhyFa="تضمین احراز هویت تکمیلی قبل از مجاز شدن کاربر برای مشاهده تنظیمات فعال یا ورود به مد پیکربندی."
+                infoExampleEn="enable secret StrongAdmin#Pass99"
+                infoExampleFa="enable secret StrongAdmin#Pass99"
+                isEn={isEn}
+                isLightMode={isLightMode}
+              />
+            </div>
             <div className="relative">
               <input
                 type={showEnableSecret ? 'text' : 'password'}
                 value={enableSecret}
                 onChange={(e) => setEnableSecret(e.target.value)}
                 disabled={!isPermitted}
-                placeholder={isEn ? 'Enter enable secret password' : 'رمز ورود به حالت enable را وارد کنید'}
+                placeholder={isEn ? 'Enter enable secret password (leave blank to keep current)' : 'رمز ورود به حالت enable را وارد کنید (جهت حفظ رمز قبلی خالی بگذارید)'}
                 className={`w-full px-3 py-2 pr-10 rtl:pl-10 rtl:pr-3 rounded-xl text-xs border font-mono ${
                   isLightMode
                     ? 'bg-slate-50 border-slate-300 text-slate-900 focus:bg-white'
@@ -386,9 +803,7 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
       {/* Live Generated Cisco CLI Preview */}
       <div
         className={`p-4 rounded-2xl border shadow-inner ${
-          isLightMode
-            ? 'bg-slate-900 text-slate-100 border-slate-700'
-            : 'bg-black/80 text-emerald-400 border-slate-800'
+          isLightMode ? 'bg-slate-900 text-slate-100 border-slate-700' : 'bg-black/80 text-emerald-400 border-slate-800'
         }`}
       >
         <div className="flex items-center justify-between mb-2">
@@ -396,9 +811,14 @@ export const CiscoUsersTab: React.FC<CiscoUsersTabProps> = ({
             <FileCode2 className="w-4 h-4 text-cyan-400" />
             <span>{isEn ? 'Generated Cisco IOS CLI Commands Preview:' : 'پیش‌نمایش زنده دستورات ارسالی به سوئیچ:'}</span>
           </div>
-          <span className="text-[10px] font-mono text-slate-400">{'conf t -> username -> enable secret -> end'}</span>
+          <span className="text-[10px] font-mono text-slate-400">
+            {'conf t -> username [priv] [secret] -> enable secret -> end'}
+          </span>
         </div>
-        <pre className="text-xs font-mono p-3 rounded-xl bg-slate-950/70 border border-white/10 overflow-x-auto custom-scrollbar leading-relaxed" dir="ltr">
+        <pre
+          className="text-xs font-mono p-3 rounded-xl bg-slate-950/70 border border-white/10 overflow-x-auto custom-scrollbar leading-relaxed"
+          dir="ltr"
+        >
           {generatedCli}
         </pre>
       </div>

@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.392.0';
+export const APP_VERSION = '1.393.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.393.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'ارتقای ماژول کاربران و امنیت AAA: امکان افزودن کاربران محلی با سطوح دسترسی تفکیک‌شده (Privilege 0-15)، صف اعمال چندکاربره و حذف کاربران از تجهیز',
+    title_en: 'Enhanced Users & AAA Security Suite: Granular Privilege Level Assignment (0-15), Multi-User Staging Queue & Switch User Deprovisioning',
+    changes: [
+      'تعبیه امکان تعریف و افزودن مستقیم کاربران جدید به سوئیچ سیسکو با تعیین سطوح دسترسی دقیق (Privilege 0 تا ۱۵) از طریق دکمه‌های پیش‌فرض سریع و اسلایدر/ورودی عددی پیوسته.',
+      'پیاده‌سازی صف اعمال چندکاربره (Staging Queue) جهت تعریف هم‌زمان چند کاربر با سطوح دسترسی متفاوت قبل از ارسال پیکربندی به سخت‌افزار.',
+      'پشتیبانی از انتخاب نوع الگوریتم رمزنگاری هش یک‌طرفه مدرن (Secret) و رمز نوع ۷ (Password).',
+      'افزودن قابلیت حذف کاربران فعال از سوئیچ (علامت‌گذاری جهت ارسال دستور no username <name>).',
+      'به‌روزرسانی موتور پیکربندی بک‌اند (ciscoConfigEngine.ts) جهت پردازش آرایه‌ای از کاربران با سطوح دسترسی مختلف و دستورات حذف.',
+      'همگام‌سازی کامل با الزامات پنج‌گانه استانداردهای مودال‌ها، عدم وجود هرگونه متن فارسی در زبان انگلیسی و کنتراست رنگی ارگونومیک.'
+    ],
+    changes_en: [
+      'Engineered granular Cisco privilege level assignment (0 to 15) with 4 quick presets (SuperAdmin 15, Engineer 10, Port Admin 7, Monitor 1) and continuous numeric/slider selector.',
+      'Implemented multi-user staging queue to configure and review multiple accounts with distinct access tiers before dispatching CLI to switch.',
+      'Added selectable cryptographic hashing method between modern one-way hash (secret) and legacy Type 7 (password).',
+      'Added interactive user deprovisioning to safely stage removal of obsolete accounts with "no username <name>" CLI dispatch.',
+      'Enhanced backend ciscoConfigEngine.ts pipeline to parse and execute batched user provisioning and deprovisioning commands.',
+      'Audited 100% strict bilingual isolation with zero Persian text in English mode and ergonomic dark/light mode contrast.'
+    ]
+  },
   {
     version: '1.392.0',
     releaseDate: '2026-10-29',

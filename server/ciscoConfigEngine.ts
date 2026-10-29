@@ -1025,10 +1025,38 @@ export async function applyCiscoConfigTab(
 
     case 'users': {
       actionLabel = 'Cisco Local User Provisioning';
-      if (payload.username && payload.secret) {
-        const priv = payload.privilege !== undefined ? payload.privilege : 15;
-        commands.push(`username ${payload.username} privilege ${priv} secret ${payload.secret}`);
+      // Support array of users to provision: payload.users or payload.users_to_add
+      const usersList = Array.isArray(payload.users)
+        ? payload.users
+        : (Array.isArray(payload.users_to_add) ? payload.users_to_add : []);
+
+      if (usersList.length > 0) {
+        for (const u of usersList) {
+          if (u.username && (u.secret || u.password)) {
+            const priv = u.privilege !== undefined ? parseInt(String(u.privilege), 10) : 15;
+            const secretType = u.secret_type === 'password' ? 'password' : 'secret';
+            const pass = u.secret || u.password;
+            commands.push(`username ${u.username} privilege ${priv} ${secretType} ${pass}`);
+          }
+        }
+      } else if (payload.username && (payload.secret || payload.password)) {
+        const priv = payload.privilege !== undefined ? parseInt(String(payload.privilege), 10) : 15;
+        const secretType = payload.secret_type === 'password' ? 'password' : 'secret';
+        const pass = payload.secret || payload.password;
+        commands.push(`username ${payload.username} privilege ${priv} ${secretType} ${pass}`);
       }
+
+      // Support removing/deleting users
+      const deleteList = Array.isArray(payload.delete_users)
+        ? payload.delete_users
+        : (Array.isArray(payload.users_to_remove) ? payload.users_to_remove : []);
+      for (const delUser of deleteList) {
+        const uName = typeof delUser === 'string' ? delUser : delUser?.username;
+        if (uName && typeof uName === 'string') {
+          commands.push(`no username ${uName.trim()}`);
+        }
+      }
+
       if (payload.enable_secret) {
         commands.push(`enable secret ${payload.enable_secret}`);
       }
