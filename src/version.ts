@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.389.0';
+export const APP_VERSION = '1.390.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.390.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'فاز ۶: پیاده‌سازی کامل سوئیت سوئیچینگ لایه دو سیسکو (پروتکل‌های STP، VTP، ویلن‌ها و اینترفیس مدیریتی SVI، امنیت لایه دو DHCP Snooping و DAI)',
+    title_en: 'Phase 6: Cisco Layer 2 Switching Suite (STP Protocol, VTP Domain, VLANs & Management SVI, L2 Security Suite)',
+    changes: [
+      'توسعه کامپوننت تعاملی CiscoStpTab.tsx شامل انتخاب مدهای استاندارد Spanning-Tree (Rapid-PVST+، PVST+ و MST)، اولویت پل (Bridge Priority) با گام‌های ۴۰۹۶، مهار حلقه‌های لایه دو، و فعال‌سازی سراسری PortFast، BPDU Guard و BPDU Filter.',
+      'توسعه کامپوننت تعاملی CiscoVtpTab.tsx شامل مدهای کاری VTP (Transparent، Server، Client و Off)، نام دامنه، نسخه‌های ۱ تا ۳، گذرواژه احراز هویت، و هرس کردن خودکار ترافیک (Pruning).',
+      'توسعه کامپوننت تعاملی CiscoVlansTab.tsx شامل ساخت و حذف ویلن‌های لایه دو و پیکربندی اینترفیس مجازی لایه سه سوئیچ (SVI / Interface Vlan) به همراه آی‌پی مدیریتی، ماسک زیرشبکه و Gateway پیش‌فرض.',
+      'توسعه کامپوننت تعاملی CiscoL2SecurityTab.tsx شامل فعال‌سازی سراسری DHCP Snooping، بازه ویلن‌های مجاز، بازرسی پویای بسته‌های ARP (Dynamic ARP Inspection) و بازیابی خودکار پورت‌های غیرفعال‌شده (Errdisable Recovery).',
+      'یکپارچه‌سازی کامل تمام تب‌های لایه دو در CiscoDeviceConfigModal.tsx همراه با تب اختصاصی ذخیره‌سازی دائمی NVRAM و پیش‌نمایش معماری حافظه سیسکو.'
+    ],
+    changes_en: [
+      'Engineered interactive CiscoStpTab.tsx covering Spanning-Tree modes (Rapid-PVST+, PVST+, MST), bridge priority per VLAN with 4096-step quantization, global PortFast edge port default, BPDU Guard loop protection, and BPDU Filter.',
+      'Engineered interactive CiscoVtpTab.tsx managing VTP operating modes (Transparent, Server, Client, Off), domain names, VTP versions 1-3, authentication passwords, and automated trunk pruning.',
+      'Engineered interactive CiscoVlansTab.tsx managing Layer 2 VLAN database creation/deletion and Layer 3 Switch Virtual Interface (SVI / Interface Vlan) with management IP, subnet mask, and default-gateway routing.',
+      'Engineered interactive CiscoL2SecurityTab.tsx covering DHCP Snooping with VLAN range scoping, Dynamic ARP Inspection (DAI) against ARP poisoning, and automatic Errdisable recovery timers.',
+      'Integrated all Layer 2 tabs into CiscoDeviceConfigModal.tsx alongside dedicated NVRAM permanent storage view and Cisco memory hierarchy safeguards.'
+    ]
+  },
   {
     version: '1.389.0',
     releaseDate: '2026-10-29',

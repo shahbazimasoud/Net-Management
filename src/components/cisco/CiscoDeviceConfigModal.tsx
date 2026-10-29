@@ -39,6 +39,10 @@ import { CiscoNtpTab } from './CiscoNtpTab';
 import { CiscoSnmpTab } from './CiscoSnmpTab';
 import { CiscoUsersTab } from './CiscoUsersTab';
 import { CiscoSyslogTab } from './CiscoSyslogTab';
+import { CiscoStpTab } from './CiscoStpTab';
+import { CiscoVtpTab } from './CiscoVtpTab';
+import { CiscoVlansTab } from './CiscoVlansTab';
+import { CiscoL2SecurityTab } from './CiscoL2SecurityTab';
 
 export type CiscoConfigTabId =
   | 'vty'
@@ -718,7 +722,47 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
                 />
               )}
 
-              {activeTab !== 'vty' && activeTab !== 'ntp' && activeTab !== 'snmp' && activeTab !== 'users' && activeTab !== 'syslog' && (
+              {activeTab === 'stp' && (
+                <CiscoStpTab
+                  device={device}
+                  initialConfig={configState}
+                  isPermitted={isTabPermitted}
+                  isLightMode={isLightMode}
+                  onConfigApplied={loadHardwareConfig}
+                />
+              )}
+
+              {activeTab === 'vtp' && (
+                <CiscoVtpTab
+                  device={device}
+                  initialConfig={configState}
+                  isPermitted={isTabPermitted}
+                  isLightMode={isLightMode}
+                  onConfigApplied={loadHardwareConfig}
+                />
+              )}
+
+              {activeTab === 'vlans' && (
+                <CiscoVlansTab
+                  device={device}
+                  initialConfig={configState}
+                  isPermitted={isTabPermitted}
+                  isLightMode={isLightMode}
+                  onConfigApplied={loadHardwareConfig}
+                />
+              )}
+
+              {activeTab === 'l2_security' && (
+                <CiscoL2SecurityTab
+                  device={device}
+                  initialConfig={configState}
+                  isPermitted={isTabPermitted}
+                  isLightMode={isLightMode}
+                  onConfigApplied={loadHardwareConfig}
+                />
+              )}
+
+              {activeTab === 'write_memory' && (
                 <div
                   className={`p-5 rounded-2xl border shadow-sm ${
                     isLightMode
@@ -726,109 +770,154 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
                       : 'bg-slate-900/60 border-slate-800 text-slate-200'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-2.5">
                       <div
                         className={`p-2 rounded-lg ${
-                          isLightMode ? 'bg-cyan-50 text-cyan-700' : 'bg-cyan-950/60 text-cyan-400'
+                          isLightMode ? 'bg-amber-50 text-amber-700' : 'bg-amber-950/60 text-amber-400'
                         }`}
                       >
-                        <currentTabDef.icon className="w-5 h-5" />
+                        <Save className="w-5 h-5" />
                       </div>
                       <div>
                         <h3 className="text-sm font-bold">
-                          {isEn ? currentTabDef.labelEn : currentTabDef.labelFa}
+                          {isEn ? 'NVRAM Save & Startup-Config Persistence' : 'ذخیره‌سازی دائمی پیکربندی در NVRAM (Startup-Config)'}
                         </h3>
                         <p className={`text-xs mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                          {isEn ? `Domain: ${currentTabDef.id.toUpperCase()} • Action: ${currentTabDef.actionKey}` : `سرفصل: ${currentTabDef.id.toUpperCase()} • دسترسی: ${currentTabDef.actionKey}`}
+                          {isEn
+                            ? 'Command: copy running-config startup-config (write memory) • Action: cisco_config_write_memory'
+                            : 'دستور: copy running-config startup-config (write memory) • سطح دسترسی: cisco_config_write_memory'}
                         </p>
                       </div>
                     </div>
 
                     <span
                       className={`px-2.5 py-1 rounded-full text-xs font-bold font-mono border ${
-                        device.is_online
+                        canSaveNvram
                           ? isLightMode
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
                             : 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
                           : isLightMode
-                          ? 'bg-rose-50 text-rose-700 border-rose-300'
-                          : 'bg-rose-950/80 text-rose-300 border-rose-700/60'
+                          ? 'bg-amber-50 text-amber-700 border-amber-300'
+                          : 'bg-amber-950/80 text-amber-300 border-amber-700/60'
                       }`}
                     >
-                      {device.is_online ? 'LIVE HARDWARE READY' : 'DEVICE OFFLINE'}
+                      {canSaveNvram ? (isEn ? 'AUTHORIZED' : 'مجاز') : (isEn ? 'RESTRICTED' : 'محدود')}
                     </span>
                   </div>
 
-                  {/* Tab overview and live hardware properties display */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                    <div
-                      className={`p-3.5 rounded-xl border ${
-                        isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
-                      }`}
-                    >
-                      <div className="font-bold mb-2 flex items-center justify-between text-cyan-500">
-                        <span>{isEn ? 'Hardware Identity' : 'مشخصات سخت‌افزاری'}</span>
-                        <Server className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="space-y-1.5 font-mono text-[11px]">
-                        <div className="flex justify-between">
-                          <span className="opacity-70">{isEn ? 'Hostname:' : 'نام میزبان:'}</span>
-                          <span className="font-bold">{configState?.hostname || device.name || 'Cisco-Switch'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="opacity-70">{isEn ? 'Management IP:' : 'آی‌پی مدیریتی:'}</span>
-                          <span className="font-bold">{device.ip}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="opacity-70">{isEn ? 'Domain Name:' : 'دامنه شبکه:'}</span>
-                          <span>{configState?.domain_name || 'domain.local'}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div
-                      className={`p-3.5 rounded-xl border ${
-                        isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
-                      }`}
-                    >
-                      <div className="font-bold mb-2 flex items-center justify-between text-cyan-500">
-                        <span>{isEn ? 'Live Probe Status' : 'وضعیت ارتباط با پروب'}</span>
-                        <Activity className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="space-y-1.5 font-mono text-[11px]">
-                        <div className="flex justify-between">
-                          <span className="opacity-70">{isEn ? 'Probe Engine:' : 'موتور پروب:'}</span>
-                          <span>Adaptive SSH (Legacy/Modern)</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="opacity-70">{isEn ? 'Last Probed:' : 'آخرین استعلام:'}</span>
-                          <span>{new Date().toLocaleTimeString()}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="opacity-70">{isEn ? 'Status:' : 'وضعیت:'}</span>
-                          <span className="text-emerald-400 font-bold">{isEn ? 'Synced & Ready' : 'همگام و آماده'}</span>
-                        </div>
+                  {/* Warning and Architecture Box */}
+                  <div
+                    className={`p-4 rounded-xl border mb-5 text-xs leading-relaxed ${
+                      isLightMode
+                        ? 'bg-amber-50/80 border-amber-200 text-amber-950'
+                        : 'bg-amber-950/30 border-amber-500/40 text-amber-200'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold mb-1">
+                          {isEn ? 'Cisco IOS Memory Hierarchy Alert' : 'هشدار معماری حافظه سیسکو (RAM در برابر NVRAM)'}
+                        </p>
+                        <p className="opacity-90">
+                          {isEn
+                            ? 'Cisco Catalyst switches maintain two independent configuration states: volatile RAM (running-config) and non-volatile flash memory (startup-config). All changes pushed through any of the tabs (SSH, NTP, SNMP, Users, Syslog, STP, VTP, VLANs, L2 Security) are live in running-config. If the switch reboots or loses power before executing write memory, all changes will be permanently discarded.'
+                            : 'سوئیچ‌های سیسکو دارای دو حافظه مجزا هستند: حافظه موقت RAM (شامل running-config) و حافظه دائمی فلش NVRAM (شامل startup-config). تمامی تغییرات ارسال‌شده از تمام تب‌ها فوراً روی running-config فعالند، اما در صورت ریست یا قطع برق قبل از اجرای write memory، تمام تغییرات پاک خواهند شد.'}
+                        </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Sub-view instructions for upcoming phases */}
+                  {/* NVRAM Commit Action Card */}
                   <div
-                    className={`mt-4 p-4 rounded-xl border text-xs leading-relaxed ${
-                      isLightMode
-                        ? 'bg-cyan-50/60 border-cyan-200 text-cyan-900'
-                        : 'bg-cyan-950/20 border-cyan-500/30 text-cyan-300'
+                    className={`p-5 rounded-xl border ${
+                      isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
                     }`}
                   >
-                    <p className="font-bold mb-1">
-                      {isEn ? `Tab Module: ${currentTabDef.labelEn}` : `ماژول تب: ${currentTabDef.labelFa}`}
-                    </p>
-                    <p className="opacity-90">
-                      {isEn
-                        ? `Authentic backend engine initialized for ${currentTabDef.id}. Ready for Phase 6 (L2 Switching: STP, VTP, VLANs, L2 Security) and Phase 7 (NVRAM Save & Final Audit).`
-                        : `موتور بک‌اند سیسکو برای بخش ${currentTabDef.id} آماده است. در فازهای ۶ (سوئیچینگ لایه دو: STP، VTP، VLANs و امنیت L2) و فاز ۷ (ذخیره NVRAM و حسابرسی نهایی) پیاده‌سازی خواهد شد.`}
-                    </p>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <h4 className="text-xs font-bold flex items-center gap-2">
+                          <Terminal className="w-3.5 h-3.5 text-cyan-500" />
+                          <span>{isEn ? 'Transactional Hardware Commit' : 'تراکنش ذخیره‌سازی روی حافظه سخت‌افزاری'}</span>
+                        </h4>
+                        <p className={`text-[11px] mt-1 font-mono ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                          # copy running-config startup-config (or &quot;write memory&quot;)
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleSaveToNvram}
+                        disabled={isSavingNvram || !canSaveNvram || !device.is_online}
+                        className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm ${
+                          isSavingNvram || !canSaveNvram || !device.is_online
+                            ? 'bg-slate-700/50 text-slate-400 cursor-not-allowed border border-slate-600/30'
+                            : 'bg-emerald-600 hover:bg-emerald-500 text-white hover:shadow-emerald-600/30'
+                        }`}
+                      >
+                        {isSavingNvram ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>{isEn ? 'Building Configuration...' : 'در حال ذخیره‌سازی...'}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-3.5 h-3.5" />
+                            <span>{isEn ? 'Commit to NVRAM' : 'ذخیره دائم در NVRAM'}</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {nvramFeedback && (
+                      <div
+                        className={`mt-4 p-3 rounded-lg border text-xs flex items-center gap-2 animate-in fade-in duration-200 ${
+                          nvramFeedback.success
+                            ? isLightMode
+                              ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                              : 'bg-emerald-950/60 border-emerald-700/60 text-emerald-300'
+                            : isLightMode
+                            ? 'bg-rose-50 border-rose-300 text-rose-800'
+                            : 'bg-rose-950/60 border-rose-700/60 text-rose-300'
+                        }`}
+                      >
+                        {nvramFeedback.success ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+                        )}
+                        <span className="font-mono">{nvramFeedback.message}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Summary of 10 configuration domains */}
+                  <div className="mt-5 grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+                    {[
+                      { name: 'SSH & VTY', tab: 'vty' },
+                      { name: 'NTP Clock', tab: 'ntp' },
+                      { name: 'SNMP Suite', tab: 'snmp' },
+                      { name: 'Users & AAA', tab: 'users' },
+                      { name: 'Syslog', tab: 'syslog' },
+                      { name: 'Spanning-Tree', tab: 'stp' },
+                      { name: 'VTP Domain', tab: 'vtp' },
+                      { name: 'VLANs & SVI', tab: 'vlans' },
+                      { name: 'L2 Security', tab: 'l2_security' },
+                      { name: 'NVRAM Save', tab: 'write_memory' },
+                    ].map((item, idx) => (
+                      <div
+                        key={item.tab}
+                        className={`p-2.5 rounded-lg border text-center font-mono text-[11px] ${
+                          isLightMode
+                            ? 'bg-slate-100 border-slate-200 text-slate-700'
+                            : 'bg-slate-900 border-slate-800 text-slate-300'
+                        }`}
+                      >
+                        <span className="block font-bold opacity-60 text-[9px] mb-0.5">#{idx + 1}</span>
+                        <span>{item.name}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -845,7 +934,7 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span className="font-mono text-[11px]">
-              {isEn ? `Cisco Config Suite v1.389.0 • ${device.name || device.ip}` : `سوئیت کانفیگ سیسکو نسخه 1.389.0 • ${device.name || device.ip}`}
+              {isEn ? `Cisco Config Suite v1.390.0 • ${device.name || device.ip}` : `سوئیت کانفیگ سیسکو نسخه 1.390.0 • ${device.name || device.ip}`}
             </span>
           </div>
 
