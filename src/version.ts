@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.384.1';
+export const APP_VERSION = '1.384.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.384.2',
+    releaseDate: '2026-10-29',
+    type: 'patch',
+    title: 'همگام‌سازی خودکار و زنده پورت‌ها با باز شدن مودال از لیست تجهیزات همراه با لودینگ اختصاصی',
+    title_en: 'Automatic Live Port Synchronization and Loading Overlay on Opening Device Ports Modal',
+    changes: [
+      'اجرای خودکار همگام‌سازی زنده پورت‌ها (Sync Ports) بلافاصله پس از کلیک روی دکمه پورت در صفحه مدیریت تجهیزات شبکه، دقیقاً مشابه رفتار زدن دستی دکمه همگام‌سازی.',
+      'نمایش لایه لودینگ و انیمیشن اختصاصی NetworkSocketLoader با باز شدن مودال جهت آگاهی کاربر از روند برقراری سشن SSH و واکشی اطلاعات پورت‌ها، ویلن‌ها و مک‌آدرس‌ها.',
+      'پیش‌لود هوشمند پورت‌های ذخیره‌شده قبلی در پس‌زمینه برای جلوگیری از پرش و تغییر ناگهانی چیدمان گرافیکی سوئیچ در حین همگام‌سازی با دستگاه.',
+      'اعمال یکپارچه این رفتار در هر دو مودال مدیریت پورت‌های سیسکو (PortInspectorModal) و میکروتیک (MikroTikDeviceManageModal).'
+    ],
+    changes_en: [
+      'Automatically triggered live port telemetry synchronization immediately upon clicking the Ports button from the Network Equipment Inventory page, matching manual sync behavior.',
+      'Displayed the dedicated full-screen NetworkSocketLoader overlay upon modal open to visually inform users of live SSH session negotiation, port states, VLANs, and MAC table parsing.',
+      'Pre-populated cached port topologies in the background to prevent layout shifts while the live hardware sync completes.',
+      'Consistently applied this behavior to both Cisco/Generic switch port management (PortInspectorModal) and MikroTik RouterOS management (MikroTikDeviceManageModal).'
+    ]
+  },
   {
     version: '1.384.1',
     releaseDate: '2026-10-29',

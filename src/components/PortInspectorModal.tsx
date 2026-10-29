@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { X, Minus, Maximize2, Minimize2, Cable, Zap, Shield, ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Edit3, Save, Power, Terminal, AlertTriangle, ArrowRight, Check, Copy, Lock, Key, Layers, CheckSquare, Square, FileText, Gauge, Activity, MoreVertical, RefreshCw, Radio } from 'lucide-react';
 import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
 import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, writeMemory, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
@@ -808,23 +808,15 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     }
   };
 
-  useEffect(() => {
-    if (device?.id && isOpen) {
-      loadPorts();
-    }
-  }, [device?.id, isOpen]);
-
-  const loadPorts = async () => {
+  // Unified live synchronization logic with NetworkSocketLoader overlay
+  const handleSyncPorts = useCallback(async () => {
     if (!device) return;
     try {
-      setLoading(true);
+      setIsSyncing(true);
       setError(null);
-      const res = await fetchDevicePorts(device.id);
-      let rawPorts = res.ports || [];
-      const devPorts = (device as any).ports;
-      if (rawPorts.length === 0 && Array.isArray(devPorts) && devPorts.length > 0) {
-        rawPorts = devPorts;
-      }
+      // Synchronize live ports directly with physical / virtual device via SSH backend
+      const res = await syncDevicePorts(device.id);
+      const rawPorts = res.ports || [];
       const normalizedPorts = rawPorts.map((p: any, idx: number) => {
         const rawStat = String(p.status || '').toLowerCase().trim();
         const rawAdmin = String(p.admin_status || '').toLowerCase().trim();
@@ -846,7 +838,9 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           port_security_status: sec.statusText,
         };
       });
+
       setPorts(normalizedPorts);
+
       if (normalizedPorts.length > 0) {
         setSelectedPort((prev) => {
           if (!prev) return normalizedPorts[0];
@@ -863,15 +857,64 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           );
           return validIds.length > 0 ? validIds : [normalizedPorts[0].port_id];
         });
-      } else {
-        setSelectedPort(null);
-        setSelectedPortIds([]);
+      }
+
+      if (onPortUpdated) {
+        onPortUpdated();
       }
     } catch (err: any) {
+      console.error('[PortInspectorModal] Failed to synchronize device ports:', err);
+      // Graceful fallback to stored ports from database if device is offline or connection fails
+      try {
+        const fallbackRes = await fetchDevicePorts(device.id);
+        const fallbackRaw = fallbackRes.ports || (device as any).ports || [];
+        if (fallbackRaw.length > 0) {
+          const fallbackNorm = fallbackRaw.map((p: any, idx: number) => {
+            const rawStat = String(p.status || '').toLowerCase().trim();
+            const rawAdmin = String(p.admin_status || '').toLowerCase().trim();
+            const isDis = rawAdmin === 'disabled' || rawAdmin === 'shutdown' || rawStat === 'disabled' || rawStat === 'err-disabled' || rawStat === 'administratively down';
+            const isConn = !isDis && (rawStat === 'up' || rawStat === 'connected' || rawStat === 'active' || rawStat === 'running');
+            const sec = extractPortSecurityState(p);
+            return {
+              ...p,
+              port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+              status: isConn ? 'up' : 'down',
+              admin_status: isDis ? 'disabled' : 'enabled',
+              mode: String(p.mode || 'access').toLowerCase().trim() === 'trunk' ? 'trunk' : 'access',
+              port_security_enabled: sec.enabled,
+              port_security_mode: sec.mode,
+              port_security_max_mac: sec.maxMac,
+              port_security_violation: sec.violation,
+              port_security_configured_mac: sec.configuredMac,
+              port_security_learned_macs: sec.learnedMacs,
+              port_security_status: sec.statusText,
+            };
+          });
+          setPorts(fallbackNorm);
+          if (fallbackNorm.length > 0) {
+            setSelectedPort((prev) => prev || fallbackNorm[0]);
+            setSelectedPortIds((prev) => (prev && prev.length > 0 ? prev : [fallbackNorm[0].port_id]));
+          }
+        }
+      } catch {}
+
+      setError(
+        isEn
+          ? `Port synchronization failed: ${err.message || 'Connection failure'}`
+          : `خطا در همگام‌سازی وضعیت پورت‌ها: ${err.message || 'خطا در ارتباط با تجهیز'}`
+      );
+    } finally {
+      setIsSyncing(false);
+      setLoading(false);
+    }
+  }, [device, isEn, onPortUpdated]);
+
+  // When modal is opened, pre-populate stored ports immediately and trigger live sync with loading overlay
+  useEffect(() => {
+    if (device?.id && isOpen) {
       const devPorts = (device as any).ports;
       if (Array.isArray(devPorts) && devPorts.length > 0) {
-        const rawPorts = devPorts;
-        const normalizedPorts = rawPorts.map((p: any, idx: number) => {
+        const preNormalized = devPorts.map((p: any, idx: number) => {
           const rawStat = String(p.status || '').toLowerCase().trim();
           const rawAdmin = String(p.admin_status || '').toLowerCase().trim();
           const isDis = rawAdmin === 'disabled' || rawAdmin === 'shutdown' || rawStat === 'disabled' || rawStat === 'err-disabled' || rawStat === 'administratively down';
@@ -892,18 +935,16 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             port_security_status: sec.statusText,
           };
         });
-        setPorts(normalizedPorts);
-        if (normalizedPorts.length > 0) {
-          setSelectedPort((prev) => prev || normalizedPorts[0]);
-          setSelectedPortIds((prev) => (prev && prev.length > 0 ? prev : [normalizedPorts[0].port_id]));
-        }
-      } else {
-        setError(err.message || (isEn ? 'Failed to load port details' : 'خطا در بارگذاری اطلاعات پورت‌ها'));
+        setPorts(preNormalized);
+        setSelectedPort((prev) => prev || preNormalized[0]);
+        setSelectedPortIds((prev) => (prev && prev.length > 0 ? prev : [preNormalized[0].port_id]));
       }
-    } finally {
       setLoading(false);
+
+      // Automatically trigger identical live sync action with loading overlay
+      handleSyncPorts();
     }
-  };
+  }, [device?.id, isOpen, handleSyncPorts]);
 
   // Live Port Watch (Cisco terminal monitor / MikroTik link event streamer)
   const [isLiveWatchActive, setIsLiveWatchActive] = useState<boolean>(false);
@@ -1063,62 +1104,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     }
   }, [isOpen]);
 
-  const handleSyncPorts = async () => {
-    if (!device) return;
-    try {
-      setIsSyncing(true);
-      setError(null);
-      // Synchronize live ports directly with physical / virtual device via SSH backend
-      const res = await syncDevicePorts(device.id);
-      const rawPorts = res.ports || [];
-      const normalizedPorts = rawPorts.map((p: any, idx: number) => {
-        const rawStat = String(p.status || '').toLowerCase().trim();
-        const rawAdmin = String(p.admin_status || '').toLowerCase().trim();
-        const isDis = rawAdmin === 'disabled' || rawAdmin === 'shutdown' || rawStat === 'disabled' || rawStat === 'err-disabled' || rawStat === 'administratively down';
-        const isConn = !isDis && (rawStat === 'up' || rawStat === 'connected' || rawStat === 'active' || rawStat === 'running');
-        return {
-          ...p,
-          port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
-          status: isConn ? 'up' : 'down',
-          admin_status: isDis ? 'disabled' : 'enabled',
-          mode: String(p.mode || 'access').toLowerCase().trim() === 'trunk' ? 'trunk' : 'access',
-        };
-      });
 
-      setPorts(normalizedPorts);
-
-      if (normalizedPorts.length > 0) {
-        setSelectedPort((prev) => {
-          if (!prev) return normalizedPorts[0];
-          const prevId = prev.port_id || (prev as any).port || prev.name;
-          const matched = normalizedPorts.find(
-            (p) => (p.port_id || (p as any).port || p.name) === prevId
-          );
-          return matched || normalizedPorts[0];
-        });
-        setSelectedPortIds((prev) => {
-          if (!prev || prev.length === 0) return [normalizedPorts[0].port_id];
-          const validIds = prev.filter((id) =>
-            normalizedPorts.some((p) => (p.port_id || (p as any).port || p.name) === id)
-          );
-          return validIds.length > 0 ? validIds : [normalizedPorts[0].port_id];
-        });
-      }
-
-      if (onPortUpdated) {
-        onPortUpdated();
-      }
-    } catch (err: any) {
-      console.error('[PortInspectorModal] Failed to synchronize device ports:', err);
-      setError(
-        isEn
-          ? `Port synchronization failed: ${err.message || 'Connection failure'}`
-          : `خطا در همگام‌سازی وضعیت پورت‌ها: ${err.message || 'خطا در ارتباط با تجهیز'}`
-      );
-    } finally {
-      setIsSyncing(false);
-    }
-  };
 
   const handlePortClick = (e: React.MouseEvent, port: SwitchPort) => {
     setBatchSuccessMessage(null);

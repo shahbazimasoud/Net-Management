@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   X,
   Minus,
@@ -144,125 +144,7 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
   const [editSpeed, setEditSpeed] = useState('auto');
   const [editLoopProtect, setEditLoopProtect] = useState<'on' | 'off'>('on');
 
-  // Load ports
-  useEffect(() => {
-    if (!device || !isOpen) return;
-    setLoading(true);
-
-    fetchDevicePorts(device.id)
-      .then((data) => {
-        if (data && data.ports && data.ports.length > 0) {
-          const rawPorts = data.ports || [];
-          const normalizedPorts = rawPorts.map((p: any, idx: number) => ({
-            ...p,
-            port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
-          }));
-          setPorts(normalizedPorts);
-          setSelectedPort(normalizedPorts[0]);
-        } else {
-          // Generate realistic default MikroTik RouterBOARD ports
-          const defaultPorts: SwitchPort[] = [
-            {
-              port_id: 'ether1',
-              name: 'ether1 (PoE IN)',
-              status: 'up',
-              admin_status: 'enabled',
-              mode: 'access',
-              vlan: 1,
-              allowed_vlans: '1',
-              speed: '1G',
-              duplex: 'full',
-              connected_device: 'WAN Gateway',
-              description: 'WAN / Gateway Uplink',
-            },
-            {
-              port_id: 'ether2',
-              name: 'ether2',
-              status: 'up',
-              admin_status: 'enabled',
-              mode: 'access',
-              vlan: 1,
-              allowed_vlans: '1',
-              speed: '1G',
-              duplex: 'full',
-              connected_device: 'LAN Bridge',
-              description: 'LAN Bridge Port',
-            },
-            {
-              port_id: 'ether3',
-              name: 'ether3',
-              status: 'up',
-              admin_status: 'enabled',
-              mode: 'access',
-              vlan: 10,
-              allowed_vlans: '10',
-              speed: '1G',
-              duplex: 'full',
-              connected_device: 'VoIP PBX',
-              description: 'VoIP Network',
-            },
-            {
-              port_id: 'ether4',
-              name: 'ether4',
-              status: 'down',
-              admin_status: 'enabled',
-              mode: 'access',
-              vlan: 20,
-              allowed_vlans: '20',
-              speed: '1G',
-              duplex: 'full',
-              connected_device: '',
-              description: 'Management & Servers',
-            },
-            {
-              port_id: 'ether5',
-              name: 'ether5',
-              status: 'down',
-              admin_status: 'disabled',
-              mode: 'access',
-              vlan: 1,
-              allowed_vlans: '1',
-              speed: '1G',
-              duplex: 'full',
-              connected_device: '',
-              description: 'Spare / Disabled',
-            },
-            {
-              port_id: 'sfp-sfpplus1',
-              name: 'sfp-sfpplus1 (10G)',
-              status: 'up',
-              admin_status: 'enabled',
-              mode: 'trunk',
-              vlan: 1,
-              allowed_vlans: '1,10,20',
-              speed: '10G',
-              duplex: 'full',
-              connected_device: 'Core Fiber Switch',
-              description: 'Fiber Core Uplink',
-            }
-          ];
-          setPorts(defaultPorts);
-          setSelectedPort(defaultPorts[0]);
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to load MikroTik ports:', err);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [device, isOpen]);
-
-  // Sync edit form when selectedPort changes
-  useEffect(() => {
-    if (!selectedPort) return;
-    setEditAdminStatus(selectedPort.admin_status === 'disabled' ? 'disabled' : 'enabled');
-    setEditVlan(selectedPort.vlan || 1);
-    setEditComment(selectedPort.description || '');
-    setEditSpeed(selectedPort.speed || 'auto');
-  }, [selectedPort]);
-
-  const handleSyncPorts = async () => {
+  const handleSyncPorts = useCallback(async () => {
     if (!device) return;
     try {
       setIsSyncing(true);
@@ -292,8 +174,42 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
       console.error('[MikroTik PortSync] Error syncing ports:', err);
     } finally {
       setIsSyncing(false);
+      setLoading(false);
     }
-  };
+  }, [device, onPortUpdated, onDeviceUpdated]);
+
+  // Load ports and trigger live sync on modal open
+  useEffect(() => {
+    if (!device || !isOpen) return;
+
+    // Immediately pre-populate with stored ports to avoid layout shift while syncing
+    if (device.ports && device.ports.length > 0) {
+      const normalizedPorts = device.ports.map((p: any, idx: number) => ({
+        ...p,
+        port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+        status: p.status === 'up' || p.status === 'connected' ? 'up' : 'down',
+        admin_status: p.admin_status === 'disabled' || p.disabled ? 'disabled' : 'enabled',
+        vlan: Number(p.vlan) || (p.pvid ? Number(p.pvid) : 1),
+        speed: p.speed || 'auto',
+        description: p.description || p.comment || '',
+      }));
+      setPorts(normalizedPorts);
+      setSelectedPort((prev) => prev || normalizedPorts[0]);
+      setLoading(false);
+    }
+
+    // Trigger full live port synchronization with hardware immediately
+    handleSyncPorts();
+  }, [device?.id, isOpen, handleSyncPorts]);
+
+  // Sync edit form when selectedPort changes
+  useEffect(() => {
+    if (!selectedPort) return;
+    setEditAdminStatus(selectedPort.admin_status === 'disabled' ? 'disabled' : 'enabled');
+    setEditVlan(selectedPort.vlan || 1);
+    setEditComment(selectedPort.description || '');
+    setEditSpeed(selectedPort.speed || 'auto');
+  }, [selectedPort]);
 
   if (!isOpen || !device) return null;
 
