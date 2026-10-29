@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.384.0';
+export const APP_VERSION = '1.384.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.384.1',
+    releaseDate: '2026-10-29',
+    type: 'patch',
+    title: 'اصلاح نمایش مک‌آدرس‌های استیکی و استاتیک و تثبیت ویلن‌های پورت‌های سیسکو در همگام‌سازی زنده',
+    title_en: 'Fix Sticky/Static MAC Address Display and Preserve Authentic Port VLANs on Cisco Live Sync',
+    changes: [
+      'اصلاح ریشه‌ای درایور پارس خروجی سیسکو در hardware_discovery.py و جابجایی اولویت دستورات در ssh_bridge.py به طوری که شماره ویلن و وضعیت ترانک/اکسس اینترفیس‌ها در اثر اجرای دستور show ip interface brief نادیده گرفته یا مخدوش نشود.',
+      'تکمیل و به‌روزرسانی خودکار مشخصات سوئیچ‌پورت از خروجی show interfaces status برای پورت‌هایی که پیش‌تر در جدول ثبت شده‌اند، جهت جلوگیری کامل از بازنشانی شماره ویلن به ۱ در زمان زدن دکمه Sync Ports.',
+      'اصلاح مسیر GET /api/devices/:id/ports در server/routes.ts جهت نگاشت و اولویت‌بندی صحیح مک‌آدرس‌های استیکی (Sticky) و استاتیک (Configured) ذخیره‌شده و جلوگیری از ماسک شدن مک کلاینت با مک‌آدرس سخت‌افزاری پورت سوئیچ در لود اولیه.',
+      'ارتقای منطق تابع getPortMacAddresses و سلول نمایش ستون MAC Addresses در PortInspectorModal و CiscoPortSecurityModal به گونه‌ای که مک‌آدرس‌های ثبت‌شده و متصل کلاینت بالاترین اولویت را داشته باشند و مک سخت‌افزاری ASIC سوئیچ جایگزین مک کلاینت نشود.'
+    ],
+    changes_en: [
+      'Fixed root-cause Cisco discovery parser in hardware_discovery.py and re-ordered CLI commands in ssh_bridge.py so switchport VLANs and trunk/access modes are not overwritten by show ip interface brief fallback data.',
+      'Added non-destructive enrichment for existing switch ports when processing show interfaces status, completely preventing VLAN resets to 1 upon clicking Sync Ports.',
+      'Updated GET /api/devices/:id/ports in server/routes.ts to preserve and map authentic sticky and configured static MAC addresses on initial modal load, preventing synthetic switch hardware MACs from masking host MACs.',
+      'Enhanced getPortMacAddresses and table column rendering in PortInspectorModal and CiscoPortSecurityModal to strictly prioritize client/sticky/configured MAC addresses and prevent ASIC hardware port MACs from displaying as host addresses.'
+    ]
+  },
   {
     version: '1.384.0',
     releaseDate: '2026-10-28',

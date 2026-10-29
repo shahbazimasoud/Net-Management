@@ -4294,7 +4294,18 @@ apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
         (p.port_security_status && p.port_security_status !== 'disabled')
       );
       const pMode = String(p.port_security_mode || 'sticky').toLowerCase().trim();
-      const pConfiguredMac = String(p.port_security_configured_mac || p.configured_mac || p.static_mac || '').trim();
+      const pConfiguredMac = String(
+        p.port_security_configured_mac ||
+        p.port_security_sticky_mac ||
+        p.sticky_mac ||
+        p.stickyMac ||
+        p.configured_mac ||
+        p.static_mac ||
+        p.port_security_mac ||
+        p.configuredMac ||
+        p.staticMac ||
+        ''
+      ).trim();
 
       let pLearnedMacs: string[] = [];
       if (Array.isArray(p.port_security_learned_macs)) {
@@ -4305,12 +4316,12 @@ apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
         pLearnedMacs = [...p.learned_macs];
       }
 
-      if (pSecEnabled) {
-        if (pMode === 'configured' && pConfiguredMac && !pLearnedMacs.includes(pConfiguredMac)) {
-          pLearnedMacs.unshift(pConfiguredMac);
-        } else if (pMode === 'sticky' && pLearnedMacs.length === 0 && pConfiguredMac) {
-          pLearnedMacs.push(pConfiguredMac);
-        }
+      // Ensure sticky and configured MACs are always placed in pLearnedMacs
+      if (pConfiguredMac && !pLearnedMacs.includes(pConfiguredMac)) {
+        pLearnedMacs.unshift(pConfiguredMac);
+      }
+      if (p.port_security_sticky_mac && !pLearnedMacs.includes(p.port_security_sticky_mac)) {
+        pLearnedMacs.unshift(p.port_security_sticky_mac);
       }
 
       const isUp = String(p.status || '').toLowerCase().trim() === 'up';
@@ -4319,8 +4330,8 @@ apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
       const hexPort = portNum.toString(16).padStart(2, '0');
       const isCisco = String(device.platform || device.type || '').toLowerCase().includes('cisco');
 
-      // Port hardware MAC address
-      let portHwMac = p.mac_address || p.mac;
+      // Port hardware MAC address (Burned-in ASIC address of the switch port)
+      let portHwMac = p.hardware_mac || p.mac_address || p.mac;
       if (!portHwMac) {
         if (isCisco) {
           portHwMac = `000c.2981.${hexPort}01`;
@@ -4329,27 +4340,30 @@ apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
         }
       }
 
-      // Learned MAC address from connected host or upstream device
+      // Learned / Connected host MAC address
       let hostMac = p.connected_mac || p.host_mac || p.client_mac || '';
-      if (!hostMac && isUp && hasConnectedDevice) {
+      if (!hostMac && pLearnedMacs.length > 0) {
+        hostMac = pLearnedMacs[0];
+      } else if (!hostMac && isUp && hasConnectedDevice) {
         if (isCisco) {
           hostMac = `0050.56a1.${hexPort}fe`;
         } else {
           hostMac = `00:50:56:a1:${hexPort}:fe`;
         }
-      }
-
-      if (hostMac && !pLearnedMacs.includes(hostMac)) {
-        pLearnedMacs.push(hostMac);
+        if (!pLearnedMacs.includes(hostMac)) {
+          pLearnedMacs.push(hostMac);
+        }
       }
 
       return {
         ...p,
+        hardware_mac: portHwMac,
         mac_address: portHwMac,
         connected_mac: hostMac || p.connected_mac,
-        port_security_enabled: pSecEnabled,
+        port_security_enabled: pSecEnabled || Boolean(pConfiguredMac),
         port_security_mode: pMode,
         port_security_configured_mac: pConfiguredMac || p.port_security_configured_mac,
+        port_security_sticky_mac: p.port_security_sticky_mac || (pMode === 'sticky' ? pConfiguredMac : undefined),
         port_security_learned_macs: pLearnedMacs,
         learned_macs: pLearnedMacs,
       };

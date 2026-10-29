@@ -85,6 +85,9 @@ export function extractPortSecurityState(port: SwitchPort | any | null | undefin
 
   const configuredMac = String(
     port.port_security_configured_mac ||
+    port.port_security_sticky_mac ||
+    port.sticky_mac ||
+    port.stickyMac ||
     port.configured_mac ||
     port.static_mac ||
     port.port_security_mac ||
@@ -200,48 +203,33 @@ export function getPortMacAddresses(port: SwitchPort | any): PortMacEntry[] {
 
   const sec = extractPortSecurityState(port);
 
-  // 1. If Port Security is in Configured Mode:
-  if (sec.mode === 'configured') {
-    add(sec.configuredMac, 'configured');
-    add(port.port_security_configured_mac, 'configured');
-    add(port.configured_mac, 'configured');
-    add(port.configuredMac, 'configured');
-    add(port.static_mac, 'configured');
-    add(port.port_security_mac, 'configured');
-    if (Array.isArray(port.port_security_learned_macs)) {
-      port.port_security_learned_macs.forEach((m: any) => add(m, 'configured'));
-    }
-  }
+  // 1. Sticky learned MACs (Cisco SecureSticky) - highest priority
+  add(port.port_security_sticky_mac, 'sticky');
+  add(port.port_security_sticky_macs, 'sticky');
+  add(port.sticky_mac, 'sticky');
+  add(port.sticky_macs, 'sticky');
+  add(port.stickyMac, 'sticky');
+  add(port.stickyMacs, 'sticky');
 
-  // 2. If Port Security is in Sticky Mode:
-  if (sec.mode === 'sticky') {
-    add(port.port_security_sticky_mac, 'sticky');
-    add(port.port_security_sticky_macs, 'sticky');
-    add(port.sticky_mac, 'sticky');
-    add(port.sticky_macs, 'sticky');
-    add(port.stickyMac, 'sticky');
-    add(port.stickyMacs, 'sticky');
-    add(port.port_security_learned_macs, 'sticky');
-    add(sec.learnedMacs, 'sticky');
-    // In Cisco IOS running-config, learned sticky MACs are written as sticky configured MACs
-    add(port.port_security_configured_mac, 'sticky');
-    add(sec.configuredMac, 'sticky');
-  }
+  // 2. Configured static MACs (Cisco SecureConfigured)
+  add(port.port_security_configured_mac, sec.mode === 'sticky' ? 'sticky' : 'configured');
+  add(sec.configuredMac, sec.mode === 'sticky' ? 'sticky' : 'configured');
+  add(port.configured_mac, 'configured');
+  add(port.configuredMac, 'configured');
+  add(port.static_mac, 'configured');
+  add(port.staticMac, 'configured');
+  add(port.port_security_mac, 'configured');
 
-  // 3. If Port Security is in Dynamic Mode:
-  if (sec.mode === 'dynamic') {
-    add(port.port_security_dynamic_mac, 'dynamic');
-    add(port.port_security_dynamic_macs, 'dynamic');
-    add(port.dynamic_mac, 'dynamic');
-    add(port.dynamic_macs, 'dynamic');
-    add(port.dynamic_learned_macs, 'dynamic');
-    add(port.port_security_learned_macs, 'dynamic');
-    add(sec.learnedMacs, 'dynamic');
-  }
+  // 3. Dynamic Port Security MACs (Cisco SecureDynamic)
+  add(port.port_security_dynamic_mac, 'dynamic');
+  add(port.port_security_dynamic_macs, 'dynamic');
+  add(port.dynamic_mac, 'dynamic');
+  add(port.dynamic_macs, 'dynamic');
 
-  // 4. Any learned MAC addresses from CAM forwarding table (show mac address-table)
+  // 4. Any learned MAC addresses from port security or CAM forwarding table (show mac address-table)
   const defaultLearnedType: 'sticky' | 'dynamic' = sec.mode === 'sticky' ? 'sticky' : 'dynamic';
   add(port.port_security_learned_macs, defaultLearnedType);
+  add(sec.learnedMacs, defaultLearnedType);
   add(port.learned_macs, defaultLearnedType);
   add(port.learnedMacs, defaultLearnedType);
   add(port.learned_mac, defaultLearnedType);
@@ -252,14 +240,7 @@ export function getPortMacAddresses(port: SwitchPort | any): PortMacEntry[] {
   add(port.mac_addresses, 'learned');
   add(port.macs, 'learned');
 
-  // 5. Fallback for configured MACs if not yet added
-  add(sec.configuredMac, 'configured');
-  add(port.port_security_configured_mac, 'configured');
-  add(port.configured_mac, 'configured');
-  add(port.static_mac, 'configured');
-  add(port.port_security_mac, 'configured');
-
-  // 6. Connected Device MAC (if active host / client connected)
+  // 5. Connected Device Host MAC (if active host / client connected)
   const isUp = port.status === 'up' || port.status === 'connected';
   if (isUp) {
     add(port.connected_mac, defaultLearnedType);
@@ -269,8 +250,8 @@ export function getPortMacAddresses(port: SwitchPort | any): PortMacEntry[] {
     add(port.connected_device_mac, defaultLearnedType);
   }
 
-  // 7. If port is UP and has a connected device, but no learned MAC was explicitly found,
-  // derive the learned MAC deterministically so that active ports always show the learned MAC!
+  // 6. If port is UP and has a connected device, but no learned MAC was explicitly found,
+  // derive the learned MAC deterministically so that active ports always show the client MAC!
   if (result.length === 0 && isUp && port.connected_device && port.connected_device !== 'Disconnected') {
     const rawId = String(port.port_id || port.name || '1');
     const match = rawId.match(/\d+/g);
@@ -281,20 +262,11 @@ export function getPortMacAddresses(port: SwitchPort | any): PortMacEntry[] {
     add(derivedMac, sec.mode === 'sticky' ? 'sticky' : 'dynamic');
   }
 
-  // 8. Port hardware MAC address (if available)
+  // 7. Port hardware MAC address (Burned-in ASIC address of the switch port)
+  // Kept as type 'hardware', but table display prioritizes authentic client/sticky/configured MACs
+  add(port.hardware_mac, 'hardware');
   add(port.mac_address, 'hardware');
   add(port.mac, 'hardware');
-
-  // 9. If still completely empty, check if port has a hardware MAC or derive from port index
-  if (result.length === 0) {
-    const rawId = String(port.port_id || port.name || '1');
-    const match = rawId.match(/\d+/g);
-    const num = match ? parseInt(match[match.length - 1], 10) : 1;
-    const hex = num.toString(16).padStart(2, '0');
-    const isCisco = rawId.toLowerCase().includes('gi') || rawId.toLowerCase().includes('fa') || rawId.toLowerCase().includes('te') || rawId.toLowerCase().includes('/');
-    const derivedHw = isCisco ? `000c.2981.${hex}01` : `00:0c:29:81:${hex}:01`;
-    add(derivedHw, 'hardware');
-  }
 
   return result;
 }
@@ -3059,7 +3031,11 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                         <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                           {(() => {
                             const macList = getPortMacAddresses(port);
-                            if (macList.length === 0) {
+                            // Separate authentic host/client/sticky/configured MACs from switch port hardware ASIC MAC
+                            const clientMacs = macList.filter((m) => m.type !== 'hardware');
+                            const displayList = clientMacs.length > 0 ? clientMacs : (port.status === 'up' && macList.length > 0 ? macList : []);
+
+                            if (displayList.length === 0) {
                               return (
                                 <span
                                   className="text-slate-500 text-[11px] font-mono select-none"
@@ -3070,8 +3046,8 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                               );
                             }
 
-                            const firstEntry = macList[0];
-                            const hasMultiple = macList.length > 1;
+                            const firstEntry = displayList[0];
+                            const hasMultiple = displayList.length > 1;
 
                             const getBadgeInfo = (entry: PortMacEntry) => {
                               switch (entry.type) {
@@ -3147,7 +3123,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                                 {hasMultiple && (
                                   <span
                                     className="text-[10px] font-sans font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded cursor-help"
-                                    title={macList
+                                    title={displayList
                                       .map(
                                         (m, idx) =>
                                           `${idx + 1}. ${m.mac} [${
@@ -3164,7 +3140,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                                       )
                                       .join('\n')}
                                   >
-                                    +{macList.length - 1} {isEn ? 'more' : 'دیگر'}
+                                    +{displayList.length - 1} {isEn ? 'more' : 'دیگر'}
                                   </span>
                                 )}
                               </div>

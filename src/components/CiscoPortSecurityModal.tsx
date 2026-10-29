@@ -81,8 +81,10 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
   const [violation, setViolation] = useState<'shutdown' | 'restrict' | 'protect'>(initialSec.violation);
   const [configuredMac, setConfiguredMac] = useState<string>(initialSec.configuredMac);
 
-  // Real learned MAC addresses on this port
-  const [macEntries, setMacEntries] = useState<PortMacEntry[]>(() => (port ? getPortMacAddresses(port) : []));
+  // Real learned MAC addresses on this port (excluding switch hardware ASIC MACs)
+  const [macEntries, setMacEntries] = useState<PortMacEntry[]>(() =>
+    port ? getPortMacAddresses(port).filter((e) => e.type !== 'hardware') : []
+  );
 
   // Action / Async states
   const [isSaving, setIsSaving] = useState(false);
@@ -103,7 +105,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
       setMaxMac(sec.maxMac);
       setViolation(sec.violation);
       setConfiguredMac(sec.configuredMac);
-      setMacEntries(getPortMacAddresses(port));
+      setMacEntries(getPortMacAddresses(port).filter((e) => e.type !== 'hardware'));
     }
   }, [port]);
 
@@ -361,7 +363,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           setMaxMac(freshSec.maxMac);
           setViolation(freshSec.violation);
           setConfiguredMac(freshSec.configuredMac);
-          setMacEntries(getPortMacAddresses(freshPort));
+          setMacEntries(getPortMacAddresses(freshPort).filter((e) => e.type !== 'hardware'));
           if (onPortUpdated) {
             onPortUpdated(freshPort);
           }
@@ -422,7 +424,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
         if (onPortUpdated) {
           onPortUpdated(res.port);
         }
-        setMacEntries(getPortMacAddresses(res.port));
+        setMacEntries(getPortMacAddresses(res.port).filter((e) => e.type !== 'hardware'));
       }
 
       setNotification({

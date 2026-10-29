@@ -173,8 +173,8 @@ def handle_ports_sync(args):
         is_cisco = "cisco" in platform.lower()
         commands = [
             "terminal length 0",
-            "show ip interface brief",
             "show interfaces status",
+            "show ip interface brief",
             "show port-security address",
             "show mac address-table",
         ] if is_cisco else [

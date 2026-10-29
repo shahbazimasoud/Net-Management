@@ -278,39 +278,85 @@ def calculate_canonical_port_count(ports: List[Dict[str, Any]], model: str = "")
 
 def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
     """
-    Parses output of Cisco 'show interfaces status'.
-    Format typically:
-    Port      Name               Status       Vlan       Duplex  Speed Type
-    Gi1/0/1   Core-Uplink        connected    trunk      a-full a-1000 10/100/1000BaseTX
-    Gi1/0/2   Finance-PC         notconnect   10           auto   auto 10/100/1000BaseTX
-    Gi1/0/3                      disabled     20           auto   auto 10/100/1000BaseTX
+    Parses output of Cisco 'show interfaces status', 'show ip interface brief',
+    'show port-security address', and 'show mac address-table'.
+    Guarantees authentic switchport VLAN, trunk/access mode, and sticky/configured
+    port-security MAC addresses are preserved accurately regardless of command execution sequence.
     """
     ports = []
     seen_ports = set()
     lines = raw_text.splitlines()
+
+    # Helper function to find matching port entry by flexible interface naming
+    def find_matching_port(iface_raw: str):
+        if not iface_raw:
+            return None
+        i_clean = iface_raw.strip().lower()
+        i_canon = i_clean.replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("fortygigabitethernet", "fo").replace("ethernet", "eth")
+        for p in ports:
+            p_raw = str(p.get("port_id") or p.get("port") or p.get("name") or "").strip().lower()
+            p_canon = p_raw.replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("fortygigabitethernet", "fo").replace("ethernet", "eth")
+            if p_canon == i_canon or p_raw == i_clean:
+                return p
+        return None
+
     for line in lines:
         line_s = line.strip()
         if not line_s or line_s.startswith("Port") or line_s.startswith("--"):
             continue
-            
-        # Match standard switch port lines (Gi1/0/1, Fa0/1, Te1/1/1, etc.)
-        # Match port at start
-        m = re.match(r'^(Gi\d+(?:/\d+)*(?:/\d+)*|Fa\d+(?:/\d+)*|Te\d+(?:/\d+)*(?:/\d+)*|Eth\d+(?:/\d+)*|Fo\d+(?:/\d+)*)\s+(.*?)\s+(connected|notconnect|disabled|err-disabled)\s+(\S+)\s+(\S+)\s+(\S+)(?:\s+(.*))?$', line_s, re.IGNORECASE)
+
+        # Match standard Cisco switch port lines from 'show interfaces status'
+        # Handles short prefixes (Gi1/0/1) as well as full names (GigabitEthernet1/0/1)
+        m = re.match(
+            r'^(Gi(?:gabitEthernet)?\d+(?:/\d+)*|Fa(?:stEthernet)?\d+(?:/\d+)*|Te(?:nGigabitEthernet)?\d+(?:/\d+)*|Eth(?:ernet)?\d+(?:/\d+)*|Fo(?:rtyGigabitEthernet)?\d+(?:/\d+)*)\s+(.*?)\s+(connected|notconnect|disabled|err-disabled)\s+(\S+)\s+(\S+)\s+(\S+)(?:\s+(.*))?$',
+            line_s,
+            re.IGNORECASE
+        )
         if m:
-            port_name = m.group(1)
+            raw_port_name = m.group(1)
+            short_name = raw_port_name
+            short_name = re.sub(r'(?i)GigabitEthernet', 'Gi', short_name)
+            short_name = re.sub(r'(?i)FastEthernet', 'Fa', short_name)
+            short_name = re.sub(r'(?i)TenGigabitEthernet', 'Te', short_name)
+            short_name = re.sub(r'(?i)FortyGigabitEthernet', 'Fo', short_name)
+            short_name = re.sub(r'(?i)Ethernet', 'Eth', short_name)
+            port_name = short_name
+
             desc = m.group(2).strip()
             status_raw = m.group(3).lower()
-            vlan = m.group(4)
+            vlan_raw = m.group(4)
             duplex = m.group(5)
             speed = m.group(6)
             port_type = (m.group(7) or "10/100/1000BaseTX").strip()
-            
+
             is_conn = status_raw in ["connected", "up"]
             is_dis = status_raw in ["disabled", "err-disabled"] or "administratively" in status_raw
             clean_status = "up" if is_conn else "down"
             admin_status = "disabled" if is_dis else "enabled"
-            
-            canon = port_name.lower().replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te")
+
+            vlan_str = str(vlan_raw).lower() if vlan_raw else ""
+            is_trunk = "trunk" in vlan_str or "routed" in vlan_str
+            parsed_vlan = int(vlan_raw) if (vlan_raw and str(vlan_raw).isdigit()) else 1
+
+            existing_port = find_matching_port(port_name)
+            if existing_port is not None:
+                existing_port["port_id"] = port_name
+                existing_port["port"] = port_name
+                existing_port["name"] = port_name
+                if desc:
+                    existing_port["description"] = desc
+                existing_port["status"] = clean_status
+                existing_port["admin_status"] = admin_status
+                existing_port["mode"] = "trunk" if is_trunk else "access"
+                if vlan_raw and str(vlan_raw).isdigit():
+                    existing_port["vlan"] = parsed_vlan
+                existing_port["duplex"] = duplex
+                existing_port["speed"] = speed
+                if port_type:
+                    existing_port["type"] = port_type
+                continue
+
+            canon = port_name.lower().replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("fortygigabitethernet", "fo").replace("ethernet", "eth")
             if canon in seen_ports:
                 continue
             seen_ports.add(canon)
@@ -322,56 +368,55 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
                 "description": desc,
                 "status": clean_status,
                 "admin_status": admin_status,
-                "mode": "trunk" if (vlan and "trunk" in str(vlan).lower()) else "access",
-                "vlan": int(vlan) if (vlan and str(vlan).isdigit()) else 1,
+                "mode": "trunk" if is_trunk else "access",
+                "vlan": parsed_vlan,
                 "duplex": duplex,
                 "speed": speed,
                 "type": port_type
             })
             continue
 
-        # Fallback for 'show ip interface brief' style
-        m_ip = re.match(r'^(GigabitEthernet\S+|FastEthernet\S+|TenGigabitEthernet\S+|Ethernet\S+)\s+(\S+)\s+YES\s+\S+\s+(up|down|administratively down)\s+(up|down)', line_s, re.IGNORECASE)
+        # Secondary match for 'show ip interface brief' style
+        m_ip = re.match(r'^(GigabitEthernet\S+|FastEthernet\S+|TenGigabitEthernet\S+|Ethernet\S+|Gi\S+|Fa\S+|Te\S+|Eth\S+)\s+(\S+)\s+YES\s+\S+\s+(up|down|administratively down)\s+(up|down)', line_s, re.IGNORECASE)
         if m_ip:
             long_name = m_ip.group(1)
-            short_name = re.sub(r'GigabitEthernet', 'Gi', long_name)
-            short_name = re.sub(r'FastEthernet', 'Fa', short_name)
-            short_name = re.sub(r'TenGigabitEthernet', 'Te', short_name)
-            canon = short_name.lower().replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te")
-            if canon in seen_ports:
-                # Already captured with full switchport details from 'show interfaces status'
-                continue
-            seen_ports.add(canon)
+            short_name = long_name
+            short_name = re.sub(r'(?i)GigabitEthernet', 'Gi', short_name)
+            short_name = re.sub(r'(?i)FastEthernet', 'Fa', short_name)
+            short_name = re.sub(r'(?i)TenGigabitEthernet', 'Te', short_name)
+            short_name = re.sub(r'(?i)FortyGigabitEthernet', 'Fo', short_name)
+            short_name = re.sub(r'(?i)Ethernet', 'Eth', short_name)
 
             stat1 = m_ip.group(3).lower()
             stat2 = m_ip.group(4).lower()
-            clean_status = "connected" if (stat1 == "up" and stat2 == "up") else ("disabled" if "admin" in stat1 else "notconnect")
+            clean_status = "up" if (stat1 == "up" and stat2 == "up") else "down"
+            admin_status = "disabled" if "admin" in stat1 else "enabled"
+
+            existing_port = find_matching_port(short_name)
+            if existing_port is not None:
+                existing_port["status"] = clean_status
+                if admin_status == "disabled":
+                    existing_port["admin_status"] = "disabled"
+                continue
+
+            canon = short_name.lower().replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("fortygigabitethernet", "fo").replace("ethernet", "eth")
+            if canon in seen_ports:
+                continue
+            seen_ports.add(canon)
+
             ports.append({
                 "port_id": short_name,
                 "port": short_name,
                 "name": short_name,
                 "description": "",
                 "status": clean_status,
-                "admin_status": "disabled" if "admin" in stat1 else "enabled",
+                "admin_status": admin_status,
                 "mode": "access",
                 "vlan": 1,
                 "duplex": "auto",
-                "speed": "1Gbps" if "Gi" in short_name else "100Mbps",
+                "speed": "1Gbps" if "gi" in short_name.lower() else "100Mbps",
                 "type": "10/100/1000BaseTX"
             })
-
-    # Helper function to find matching port entry by flexible interface naming
-    def find_matching_port(iface_raw: str):
-        if not iface_raw:
-            return None
-        i_clean = iface_raw.strip().lower()
-        i_canon = i_clean.replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("ethernet", "eth")
-        for p in ports:
-            p_raw = str(p.get("port_id") or p.get("port") or p.get("name") or "").strip().lower()
-            p_canon = p_raw.replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("ethernet", "eth")
-            if p_canon == i_canon or p_raw == i_clean:
-                return p
-        return None
 
     # Parse Cisco 'show port-security address'
     # Format:
@@ -399,9 +444,22 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
                     matched_port["port_security_learned_macs"] = []
                 if sec_mac not in matched_port["port_security_learned_macs"]:
                     matched_port["port_security_learned_macs"].append(sec_mac)
+                if not isinstance(matched_port.get("learned_macs"), list):
+                    matched_port["learned_macs"] = []
+                if sec_mac not in matched_port["learned_macs"]:
+                    matched_port["learned_macs"].append(sec_mac)
+
+                # Set connected_mac as the authentic sticky or configured host MAC
+                matched_port["connected_mac"] = sec_mac
+
+                # If port currently has default VLAN 1 or missing VLAN, update to port-security VLAN
+                if (not matched_port.get("vlan") or matched_port.get("vlan") == 1) and sec_vlan > 0:
+                    matched_port["vlan"] = sec_vlan
 
                 if "sticky" in sec_type:
                     matched_port["port_security_mode"] = "sticky"
+                    matched_port["port_security_sticky_mac"] = sec_mac
+                    matched_port["port_security_configured_mac"] = sec_mac
                     if not matched_port.get("port_security_status"):
                         matched_port["port_security_status"] = "secure-up" if matched_port.get("status") == "up" else "secure-down"
                 elif "configured" in sec_type:
@@ -428,6 +486,7 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
             re.IGNORECASE
         )
         if m_cam:
+            cam_vlan = int(m_cam.group(1))
             cam_mac = m_cam.group(2).strip()
             cam_type = m_cam.group(3).lower()
             cam_iface = m_cam.group(4).strip()
@@ -443,6 +502,10 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
                     matched_port["port_security_learned_macs"].append(cam_mac)
                 if cam_type == "static" and not matched_port.get("port_security_configured_mac"):
                     matched_port["port_security_configured_mac"] = cam_mac
+                if not matched_port.get("connected_mac"):
+                    matched_port["connected_mac"] = cam_mac
+                if (not matched_port.get("vlan") or matched_port.get("vlan") == 1) and cam_vlan > 0:
+                    matched_port["vlan"] = cam_vlan
 
     return ports
 
