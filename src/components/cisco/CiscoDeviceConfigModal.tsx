@@ -36,6 +36,9 @@ import { fetchCiscoConfig, saveCiscoConfigNvram } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { CiscoVtyTab } from './CiscoVtyTab';
 import { CiscoNtpTab } from './CiscoNtpTab';
+import { CiscoSnmpTab } from './CiscoSnmpTab';
+import { CiscoUsersTab } from './CiscoUsersTab';
+import { CiscoSyslogTab } from './CiscoSyslogTab';
 
 export type CiscoConfigTabId =
   | 'vty'
@@ -685,7 +688,37 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
                 />
               )}
 
-              {activeTab !== 'vty' && activeTab !== 'ntp' && (
+              {activeTab === 'snmp' && (
+                <CiscoSnmpTab
+                  device={device}
+                  initialConfig={configState}
+                  isPermitted={isTabPermitted}
+                  isLightMode={isLightMode}
+                  onConfigApplied={loadHardwareConfig}
+                />
+              )}
+
+              {activeTab === 'users' && (
+                <CiscoUsersTab
+                  device={device}
+                  initialConfig={configState}
+                  isPermitted={isTabPermitted}
+                  isLightMode={isLightMode}
+                  onConfigApplied={loadHardwareConfig}
+                />
+              )}
+
+              {activeTab === 'syslog' && (
+                <CiscoSyslogTab
+                  device={device}
+                  initialConfig={configState}
+                  isPermitted={isTabPermitted}
+                  isLightMode={isLightMode}
+                  onConfigApplied={loadHardwareConfig}
+                />
+              )}
+
+              {activeTab !== 'vty' && activeTab !== 'ntp' && activeTab !== 'snmp' && activeTab !== 'users' && activeTab !== 'syslog' && (
                 <div
                   className={`p-5 rounded-2xl border shadow-sm ${
                     isLightMode
@@ -793,8 +826,8 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
                     </p>
                     <p className="opacity-90">
                       {isEn
-                        ? `Authentic backend engine initialized for ${currentTabDef.id}. Ready for Phase 5-7 full interactive visual controls, CLI delta generator, and one-click deployment.`
-                        : `موتور بک‌اند سیسکو برای بخش ${currentTabDef.id} متصل شده است. در فازهای بعدی ۵ تا ۷ کنترل‌های بصری تعاملی، پیش‌نمایش و اعمال دستورات اضافه خواهد شد.`}
+                        ? `Authentic backend engine initialized for ${currentTabDef.id}. Ready for Phase 6 (L2 Switching: STP, VTP, VLANs, L2 Security) and Phase 7 (NVRAM Save & Final Audit).`
+                        : `موتور بک‌اند سیسکو برای بخش ${currentTabDef.id} آماده است. در فازهای ۶ (سوئیچینگ لایه دو: STP، VTP، VLANs و امنیت L2) و فاز ۷ (ذخیره NVRAM و حسابرسی نهایی) پیاده‌سازی خواهد شد.`}
                     </p>
                   </div>
                 </div>
@@ -812,7 +845,7 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span className="font-mono text-[11px]">
-              {isEn ? `Cisco Config Suite v1.388.0 • ${device.name || device.ip}` : `سوئیت کانفیگ سیسکو نسخه 1.388.0 • ${device.name || device.ip}`}
+              {isEn ? `Cisco Config Suite v1.389.0 • ${device.name || device.ip}` : `سوئیت کانفیگ سیسکو نسخه 1.389.0 • ${device.name || device.ip}`}
             </span>
           </div>
 

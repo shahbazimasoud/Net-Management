@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.388.0';
+export const APP_VERSION = '1.389.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.389.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'فاز ۵: پیاده‌سازی کامل سوئیت سرویس‌ها و امنیت سیسکو (مانیتورینگ SNMP، کاربران محلی و AAA، ثبت وقایع Syslog)',
+    title_en: 'Phase 5: Cisco Services & Security Suite (SNMP Suite, Local Users & AAA, Syslog Services)',
+    changes: [
+      'توسعه کامپوننت تعاملی CiscoSnmpTab.tsx شامل مدیریت رشته‌های شناسایی (RO/RW Communities) همراه با محدودیت‌های شماره ACL، سرورهای دریافت‌کننده فوری هشدار (Trap Receivers)، و فراداده‌های مکانی سوئیچ (Location، Contact و Chassis ID).',
+      'توسعه کامپوننت تعاملی CiscoUsersTab.tsx شامل نمایش زنده کاربران محلی شناسایی‌شده در سوئیچ، ایجاد کاربر محلی با سطوح دسترسی سلسله‌مراتبی Privilege 1-15 (SuperAdmin، Operator و Monitor) با رمزنگاری Secret، و تنظیم رمز عبور حالت مدیریت سوئیچ (Enable Secret).',
+      'توسعه کامپوننت تعاملی CiscoSyslogTab.tsx شامل مدیریت ناوگان سرورهای لاگ ریموت (logging host)، فیلتر اهمیت هشدارها (Trap Severity Levels 0-7) با مقدار استاندارد warnings، و ظرفیت بافر حافظه رم موقت (8KB تا 64KB).',
+      'تولید خودکار و بلادرنگ پیش‌نمایش دستورات استاندارد CLI سیسکو در هر ۳ تب و پایپ‌لاین اجرای مستقیم بر روی سخت‌افزار با بازخورد تراکنشی شفاف.',
+      'تجهیز تمام گزینه‌های پیکربندی به کادرهای راهنمای سه‌بخشی FieldInfoTooltip، محافظت کامل از افشای پسوردها و انطباق بی‌نقص با زبان فعال و تم تیره/روشن.'
+    ],
+    changes_en: [
+      'Engineered interactive CiscoSnmpTab.tsx covering RO/RW community management with ACL restrictions, asynchronous Trap receivers, and physical MIB-II metadata (Location, Contact, Chassis ID).',
+      'Engineered interactive CiscoUsersTab.tsx displaying authentic discovered switch users, provisioning new users with granular Privilege 1-15 hierarchy (SuperAdmin, Operator, Monitor), and configuring global Enable Secret credentials.',
+      'Engineered interactive CiscoSyslogTab.tsx managing remote syslog daemons (logging host), severity trap level thresholds (0-7 with standard warnings default), and local RAM circular buffer allocation (8KB to 64KB).',
+      'Built live reactive Cisco IOS CLI syntax preview generators across all 3 tabs with transactional hardware deployment and authentic error/success reporting.',
+      'Equipped all configuration controls with 3-part boundary-safe FieldInfoTooltip, zero-leak credential masking, and strict bilingual English/Persian localization.'
+    ]
+  },
   {
     version: '1.388.0',
     releaseDate: '2026-10-29',
