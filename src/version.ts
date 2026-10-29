@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.396.0';
+export const APP_VERSION = '1.397.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.397.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۳ حاکمیت دسترسی: قفل فرانت‌اند، ایمن‌سازی دکمه‌ها و ممانعت از باز شدن مودال پیکربندی گروهی',
+    title_en: 'Phase 3: Frontend RBAC Enforcement, Action Button Locking & Modal Access Protection for Bulk Device Configuration',
+    changes: [
+      'تجهیز دکمه پیکربندی گروهی (btn-bulk-configure) در جدول تجهیزات به وضعیت قفل هوشمند و آیکون Lock همراه با تولتیپ اخطار دسترسی در صورت عدم مجوز.',
+      'مخفی‌سازی دکمه اجرای پیکربندی گروهی در نوار عملیات چندگانه پایین صفحه در صورت فقدان دسترسی کاربر.',
+      'اعمال گارد محافظتی در App.tsx جهت جلوگیری از باز شدن مودال یا بازیابی آن از داک پایین صفحه برای کاربران فاقد دسترسی.',
+      'پیاده‌سازی بنر استاندارد Access Restricted در BulkDeviceConfigModal جهت مسدودسازی کامل هرگونه اقدام به تولید پیش‌نمایش یا اجرای اسکریپت.'
+    ],
+    changes_en: [
+      'Equipped the Bulk Configure button (btn-bulk-configure) in DeviceListView with a smart lock state, Lock icon, and bilingual restriction tooltip when unauthorized.',
+      'Hidden the Launch Bulk Configure button in the floating multi-select action bar when policy forbids bulk device configuration.',
+      'Implemented proactive guards in App.tsx preventing unauthorized users from opening or restoring the modal from the minimized tools dock.',
+      'Added an Access Restricted defense banner inside BulkDeviceConfigModal completely halting preview generation or job execution attempts.'
+    ]
+  },
   {
     version: '1.396.0',
     releaseDate: '2026-10-29',

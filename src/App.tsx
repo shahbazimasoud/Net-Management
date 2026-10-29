@@ -635,7 +635,11 @@ export default function App() {
     if (id === 'add_device') setIsAddModalOpen(true);
     if (id === 'release_notes') setIsReleaseNotesOpen(true);
     if (id === 'topology_discovery') setIsDiscoveryModalOpen(true);
-    if (id === 'bulk_device_config') setIsBulkConfigOpen(true);
+    if (id === 'bulk_device_config') {
+      if (!effectivePolicy || effectivePolicy.canBulkConfigureDevices !== false) {
+        setIsBulkConfigOpen(true);
+      }
+    }
     handleClearAttention();
   };
 
@@ -680,7 +684,11 @@ export default function App() {
     if (modalIds.includes('add_device')) setIsAddModalOpen(true);
     if (modalIds.includes('release_notes')) setIsReleaseNotesOpen(true);
     if (modalIds.includes('topology_discovery')) setIsDiscoveryModalOpen(true);
-    if (modalIds.includes('bulk_device_config')) setIsBulkConfigOpen(true);
+    if (modalIds.includes('bulk_device_config')) {
+      if (!effectivePolicy || effectivePolicy.canBulkConfigureDevices !== false) {
+        setIsBulkConfigOpen(true);
+      }
+    }
     setActiveTools((prev) => prev.map((t) => ({ ...t, isMinimized: false })));
     handleClearAttention();
   }, [minimizedModals, handleClearAttention]);
@@ -1151,6 +1159,9 @@ export default function App() {
               isRefreshing={isRefreshing}
               isLightMode={isLightMode}
               onOpenBulkConfig={(selected) => {
+                if (effectivePolicy && effectivePolicy.canBulkConfigureDevices === false) {
+                  return;
+                }
                 setBulkConfigDevices(selected);
                 setIsBulkConfigOpen(true);
               }}
@@ -1563,24 +1574,26 @@ export default function App() {
       />
 
       {/* Bulk Device Configuration Modal (Cisco & MikroTik Real Execution) */}
-      <BulkDeviceConfigModal
-        isOpen={isBulkConfigOpen && !isModalMinimized('bulk_device_config')}
-        devices={bulkConfigDevices}
-        allDevices={devices}
-        onClose={() => handleCloseStandardModal('bulk_device_config')}
-        onMinimize={() =>
-          handleMinimizeStandardModal({
-            id: 'bulk_device_config',
-            labelEn: `Bulk Config (${bulkConfigDevices.length})`,
-            labelFa: `پیکربندی گروهی (${bulkConfigDevices.length})`,
-            badge: `${bulkConfigDevices.length}`,
-            category: 'config',
-          })
-        }
-        onDeviceUpdated={loadData}
-        isEn={isEn}
-        isLightMode={isLightMode}
-      />
+      {(!effectivePolicy || effectivePolicy.canBulkConfigureDevices !== false) && (
+        <BulkDeviceConfigModal
+          isOpen={isBulkConfigOpen && !isModalMinimized('bulk_device_config')}
+          devices={bulkConfigDevices}
+          allDevices={devices}
+          onClose={() => handleCloseStandardModal('bulk_device_config')}
+          onMinimize={() =>
+            handleMinimizeStandardModal({
+              id: 'bulk_device_config',
+              labelEn: `Bulk Config (${bulkConfigDevices.length})`,
+              labelFa: `پیکربندی گروهی (${bulkConfigDevices.length})`,
+              badge: `${bulkConfigDevices.length}`,
+              category: 'config',
+            })
+          }
+          onDeviceUpdated={loadData}
+          isEn={isEn}
+          isLightMode={isLightMode}
+        />
+      )}
 
       {/* Minimized Tools & Modals Dock (Shows all minimized tool & modal pills at bottom) */}
       <ToolsDock

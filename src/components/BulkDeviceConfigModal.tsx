@@ -43,6 +43,7 @@ import {
   BulkDeviceExecutionResult,
 } from '../types';
 import { useLanguage } from '../i18n';
+import { useAuth } from '../context/AuthContext';
 import { ModalHeaderControls } from './common/ModalHeaderControls';
 import {
   fetchBulkTemplates,
@@ -79,6 +80,13 @@ export const BulkDeviceConfigModal: React.FC<BulkDeviceConfigModalProps> = ({
 }) => {
   const { isEn: contextIsEn, isRtl } = useLanguage();
   const isEn = contextIsEn;
+  const { user, effectivePolicy } = useAuth();
+  const isSuperAdmin = Boolean(
+    user &&
+    ((user.username || '').toLowerCase() === 'admin' ||
+      (user.role || '').toLowerCase().includes('super admin'))
+  );
+  const isPermitted = isSuperAdmin || !effectivePolicy || effectivePolicy.canBulkConfigureDevices !== false;
   const initialSelectedDevices = selectedDevices || devices || [];
 
   // State
@@ -215,6 +223,7 @@ export const BulkDeviceConfigModal: React.FC<BulkDeviceConfigModalProps> = ({
 
   // Generate Preview
   const handleGeneratePreview = async () => {
+    if (!isPermitted) return;
     if (!activeTemplate || effectiveDevices.length === 0) return;
     setPreviewLoading(true);
     setPreviewError(null);
@@ -235,6 +244,7 @@ export const BulkDeviceConfigModal: React.FC<BulkDeviceConfigModalProps> = ({
 
   // Start Execution
   const handleStartExecution = async () => {
+    if (!isPermitted) return;
     if (!activeTemplate || effectiveDevices.length === 0) return;
     setStartingJob(true);
     try {
@@ -342,6 +352,42 @@ export const BulkDeviceConfigModal: React.FC<BulkDeviceConfigModalProps> = ({
   }, [templates, categoryFilter, templateSearch]);
 
   if (!isOpen) return null;
+
+  if (!isPermitted) {
+    return (
+      <div
+        className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200"
+        dir={isRtl ? 'rtl' : 'ltr'}
+      >
+        <div
+          className={`relative w-full max-w-lg p-6 rounded-2xl border shadow-2xl ${
+            isLightMode
+              ? 'bg-white border-slate-300 text-slate-900'
+              : 'bg-slate-900/95 border-amber-500/30 text-slate-100'
+          } flex flex-col items-center text-center`}
+        >
+          <div className="p-3.5 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 mb-4 shadow-lg">
+            <Lock className="w-8 h-8" />
+          </div>
+          <h3 className="text-base font-bold mb-2">
+            {isEn ? 'Access Restricted' : 'دسترسی محدود شده است'}
+          </h3>
+          <p className="text-xs text-slate-400 mb-6 leading-relaxed max-w-md">
+            {isEn
+              ? 'You do not have permission to access Bulk Device Configuration under your active access policy. Please contact your system administrator.'
+              : 'شما بر اساس پالیسی دسترسی فعال خود، مجوز استفاده از بخش پیکربندی گروهی تجهیزات را ندارید. لطفاً با مدیر سیستم تماس بگیرید.'}
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 transition cursor-pointer"
+          >
+            {isEn ? 'Close Window' : 'بستن پنجره'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

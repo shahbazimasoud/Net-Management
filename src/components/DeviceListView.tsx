@@ -118,6 +118,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
       ? Boolean(effectivePolicy.defaultDevicePermissions.add_device)
       : effectivePolicy.canManageDevices !== false
   );
+  const canBulkConfigure = isSuperAdmin || !effectivePolicy || effectivePolicy.canBulkConfigureDevices !== false;
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | DeviceType>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'unsaved'>('all');
@@ -631,33 +632,49 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
 
           <div className="flex items-center gap-2">
             {onOpenBulkConfig && (
-              <button
-                id="btn-bulk-configure"
-                onClick={() => {
-                  const selected = devices.filter((d) => selectedDeviceIds.has(d.id));
-                  if (selected.length > 0) {
-                    onOpenBulkConfig(selected);
+              canBulkConfigure ? (
+                <button
+                  id="btn-bulk-configure"
+                  onClick={() => {
+                    const selected = devices.filter((d) => selectedDeviceIds.has(d.id));
+                    if (selected.length > 0) {
+                      onOpenBulkConfig(selected);
+                    }
+                  }}
+                  disabled={selectedDeviceIds.size === 0}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 cursor-pointer ${
+                    selectedDeviceIds.size > 0
+                      ? 'bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white border-cyan-400/40 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
+                      : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed opacity-60'
+                  }`}
+                  title={isEn ? 'Execute common configuration across selected hardware' : 'پیکربندی همزمان دستورات روی تجهیزات انتخاب شده'}
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>
+                    {isEn
+                      ? selectedDeviceIds.size > 0
+                        ? `Bulk Configure (${selectedDeviceIds.size})`
+                        : 'Bulk Configure'
+                      : selectedDeviceIds.size > 0
+                      ? `پیکربندی گروهی (${selectedDeviceIds.size})`
+                      : 'پیکربندی گروهی'}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  id="btn-bulk-configure-locked"
+                  disabled
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-medium border bg-slate-800/40 text-slate-500 border-slate-700/40 cursor-not-allowed opacity-60 select-none"
+                  title={
+                    isEn
+                      ? 'Bulk device configuration is restricted by your active access policy'
+                      : 'دسترسی به پیکربندی گروهی تجهیزات توسط پالیسی فعال شما مسدود شده است'
                   }
-                }}
-                disabled={selectedDeviceIds.size === 0}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 cursor-pointer ${
-                  selectedDeviceIds.size > 0
-                    ? 'bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white border-cyan-400/40 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
-                    : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed opacity-60'
-                }`}
-                title={isEn ? 'Execute common configuration across selected hardware' : 'پیکربندی همزمان دستورات روی تجهیزات انتخاب شده'}
-              >
-                <Sliders className="w-3.5 h-3.5" />
-                <span>
-                  {isEn
-                    ? selectedDeviceIds.size > 0
-                      ? `Bulk Configure (${selectedDeviceIds.size})`
-                      : 'Bulk Configure'
-                    : selectedDeviceIds.size > 0
-                    ? `پیکربندی گروهی (${selectedDeviceIds.size})`
-                    : 'پیکربندی گروهی'}
-                </span>
-              </button>
+                >
+                  <Lock className="w-3.5 h-3.5 text-amber-500/70" />
+                  <span>{isEn ? 'Bulk Configure (Locked)' : 'پیکربندی گروهی (قفل)'}</span>
+                </button>
+              )
             )}
 
             <button
@@ -1109,7 +1126,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
               </button>
             )}
 
-            {onOpenBulkConfig && (
+            {onOpenBulkConfig && canBulkConfigure && (
               <button
                 type="button"
                 onClick={() => {
