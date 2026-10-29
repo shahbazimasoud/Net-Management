@@ -106,6 +106,7 @@ import {
   updateRemoteServer,
   deleteRemoteServer,
   isServerActionPermitted,
+  isBulkConfigPermitted,
   RemoteServer,
   sanitizeRemoteServerForClient,
   updateRemoteServerTags,
@@ -5988,6 +5989,58 @@ apiRouter.post(['/devices/:id/template', '/devices/:id/apply-template'], async (
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// =========================================================================
+// Authoritative PostgreSQL-backed RBAC Guard for Bulk Device Configuration
+// Endpoints: /api/bulk-config/templates, /api/bulk-config/preview,
+//            /api/bulk-config/jobs, /api/bulk-config/jobs/:id, etc.
+// =========================================================================
+apiRouter.use(['/bulk-config', '/bulk-config/*'], async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { effectivePolicy, isSuperAdmin, user } = await resolveRequestContextPolicy(req);
+
+    // Authoritative RBAC check: Super Administrator or policy with canBulkConfigureDevices === true
+    const isPermitted = isSuperAdmin || (effectivePolicy ? isBulkConfigPermitted(effectivePolicy) : false);
+
+    if (!isPermitted) {
+      const clientIp = getClientIp(req);
+      const userName = user?.username || 'anonymous';
+      const userRole = user?.role || (effectivePolicy ? effectivePolicy.name : 'Unknown');
+
+      try {
+        await addAuditLog({
+          userName,
+          action: 'Bulk Device Config Blocked (RBAC Security Violation)',
+          category: 'security',
+          target: req.originalUrl || req.path || '/api/bulk-config',
+          status: 'warning',
+          details: `Unauthorized attempt to execute or access Bulk Device Configuration endpoint (${req.method} ${req.originalUrl || req.path}) rejected. User "${userName}" (role: ${userRole}) from IP ${clientIp} lacks canBulkConfigureDevices permission under active PostgreSQL RBAC policy.`,
+          ipAddress: clientIp,
+          userAgent: (req.headers['user-agent'] as string) || '',
+        });
+      } catch (auditErr) {
+        console.warn('[Audit log error on rejected bulk config]', auditErr);
+      }
+
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: You do not have permission to execute or access Bulk Device Configuration operations under your RBAC policy.',
+        errorFa: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز دسترسی به عملیات و پیکربندی گروهی تجهیزات (Bulk Device Configuration) را ندارید.',
+        message: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز دسترسی به عملیات و پیکربندی گروهی تجهیزات (Bulk Device Configuration) را ندارید.',
+      });
+    }
+
+    // Authorized operator — pass through to execution pipeline / backend proxy
+    return next();
+  } catch (err: any) {
+    console.error('[Bulk Config RBAC Guard Error]', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error during RBAC authorization evaluation.',
+      errorFa: 'خطای داخلی سرور در حین اعتبارسنجی سطح دسترسی امنیتی.',
+    });
   }
 });
 

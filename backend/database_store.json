@@ -15,7 +15,7 @@
       ],
       "is_builtin": true,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-10-09T08:46:36.996Z"
+      "last_login": "2026-10-29T21:08:11.829Z"
     }
   ],
   "user_groups": [
@@ -1954,6 +1954,114 @@
       "details": "Backup generated successfully in 450ms. File: auto_backup_servers_only_2026-10-28T06-14-10-335Z_job-servers-fleet.json (3.62 KB).",
       "ip_address": "127.0.0.1",
       "user_agent": ""
+    },
+    {
+      "id": "log-1793307573113-ecq9z",
+      "timestamp": "2026-10-29T20:59:33.113Z",
+      "user_name": "cron_daemon",
+      "action": "BACKUP_EXPORT",
+      "category": "disaster_recovery",
+      "target": "Scope: full (Engine: fallback_json)",
+      "status": "success",
+      "details": "Exported full backup. Servers: 0, Devices: 1, Users: 1. Encrypted: false, Sanitized: false",
+      "ip_address": "127.0.0.1",
+      "user_agent": "NetTopology-DR-Engine"
+    },
+    {
+      "id": "log-1793307573490-29anz",
+      "timestamp": "2026-10-29T20:59:33.490Z",
+      "user_name": "cron_daemon",
+      "action": "SCHEDULED_BACKUP_EXECUTE",
+      "category": "disaster_recovery",
+      "target": "Job: Daily Disaster Recovery Snapshot (بکاپ جامع روزانه) (job-daily-dr)",
+      "status": "success",
+      "details": "Backup generated successfully in 685ms. File: auto_backup_full_2026-10-29T20-59-33-190Z_job-daily-dr.json (29.91 KB).",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
+    },
+    {
+      "id": "log-1793307573988-dxw6u",
+      "timestamp": "2026-10-29T20:59:33.988Z",
+      "user_name": "cron_daemon",
+      "action": "BACKUP_EXPORT",
+      "category": "disaster_recovery",
+      "target": "Scope: servers_only (Engine: fallback_json)",
+      "status": "success",
+      "details": "Exported servers_only backup. Servers: 0, Devices: 0, Users: 0. Encrypted: false, Sanitized: false",
+      "ip_address": "127.0.0.1",
+      "user_agent": "NetTopology-DR-Engine"
+    },
+    {
+      "id": "log-1793307574444-y4nog",
+      "timestamp": "2026-10-29T20:59:34.444Z",
+      "user_name": "cron_daemon",
+      "action": "SCHEDULED_BACKUP_EXECUTE",
+      "category": "disaster_recovery",
+      "target": "Job: Server Fleet Configuration Backup (بکاپ ناوگان سرورها) (job-servers-fleet)",
+      "status": "success",
+      "details": "Backup generated successfully in 730ms. File: auto_backup_servers_only_2026-10-29T20-59-34-069Z_job-servers-fleet.json (3.62 KB).",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
+    },
+    {
+      "id": "log-1793308092098-8i4t3",
+      "timestamp": "2026-10-29T21:08:12.098Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: مدیر ارشد زیرساخت شبکه (Super Administrator)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1793308092479-fcqfv",
+      "timestamp": "2026-10-29T21:08:12.479Z",
+      "user_name": "anonymous",
+      "action": "Bulk Device Config Blocked (RBAC Security Violation)",
+      "category": "security",
+      "target": "/api/bulk-config/templates",
+      "status": "warning",
+      "details": "Unauthorized attempt to execute or access Bulk Device Configuration endpoint (GET /api/bulk-config/templates) rejected. User \"anonymous\" (role: Unknown) from IP 127.0.0.1 lacks canBulkConfigureDevices permission under active PostgreSQL RBAC policy.",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1793308093037-bgqyb",
+      "timestamp": "2026-10-29T21:08:13.037Z",
+      "user_name": "admin",
+      "action": "Bulk Device Config Blocked (RBAC Security Violation)",
+      "category": "security",
+      "target": "/api/bulk-config/templates",
+      "status": "warning",
+      "details": "Unauthorized attempt to execute or access Bulk Device Configuration endpoint (GET /api/bulk-config/templates) rejected. User \"admin\" (role: Super Administrator) from IP 127.0.0.1 lacks canBulkConfigureDevices permission under active PostgreSQL RBAC policy.",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1793308093681-dn6x9",
+      "timestamp": "2026-10-29T21:08:13.681Z",
+      "user_name": "admin",
+      "action": "Bulk Device Config Blocked (RBAC Security Violation)",
+      "category": "security",
+      "target": "/api/bulk-config/preview",
+      "status": "warning",
+      "details": "Unauthorized attempt to execute or access Bulk Device Configuration endpoint (POST /api/bulk-config/preview) rejected. User \"admin\" (role: Super Administrator) from IP 127.0.0.1 lacks canBulkConfigureDevices permission under active PostgreSQL RBAC policy.",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1793308094226-4tg3c",
+      "timestamp": "2026-10-29T21:08:14.226Z",
+      "user_name": "admin",
+      "action": "Bulk Device Config Blocked (RBAC Security Violation)",
+      "category": "security",
+      "target": "/api/bulk-config/jobs",
+      "status": "warning",
+      "details": "Unauthorized attempt to execute or access Bulk Device Configuration endpoint (POST /api/bulk-config/jobs) rejected. User \"admin\" (role: Super Administrator) from IP 127.0.0.1 lacks canBulkConfigureDevices permission under active PostgreSQL RBAC policy.",
+      "ip_address": "127.0.0.1",
+      "user_agent": "node-fetch"
     }
   ],
   "ad_config": {
@@ -2250,11 +2358,11 @@
       "retention_days": 30,
       "last_status": "success",
       "created_at": "2026-09-14T00:00:00.000Z",
-      "updated_at": "2026-10-28T06:14:09.820Z",
-      "last_run_at": "2026-10-28T06:14:09.820Z",
-      "next_run_at": "2026-10-28T23:30:00.000Z",
-      "last_result_details": "Backup generated successfully in 411ms. File: auto_backup_full_2026-10-28T06-14-09-753Z_job-daily-dr.json (29.87 KB).",
-      "last_backup_file": "auto_backup_full_2026-10-28T06-14-09-753Z_job-daily-dr.json"
+      "updated_at": "2026-10-29T20:59:33.414Z",
+      "last_run_at": "2026-10-29T20:59:33.413Z",
+      "next_run_at": "2026-10-29T23:30:00.000Z",
+      "last_result_details": "Backup generated successfully in 685ms. File: auto_backup_full_2026-10-29T20-59-33-190Z_job-daily-dr.json (29.91 KB).",
+      "last_backup_file": "auto_backup_full_2026-10-29T20-59-33-190Z_job-daily-dr.json"
     },
     {
       "id": "job-servers-fleet",
@@ -2279,11 +2387,11 @@
       "retention_days": 14,
       "last_status": "success",
       "created_at": "2026-09-14T00:00:00.000Z",
-      "updated_at": "2026-10-28T06:14:10.454Z",
-      "next_run_at": "2026-10-29T00:30:00.000Z",
-      "last_run_at": "2026-10-28T06:14:10.453Z",
-      "last_result_details": "Backup generated successfully in 450ms. File: auto_backup_servers_only_2026-10-28T06-14-10-335Z_job-servers-fleet.json (3.62 KB).",
-      "last_backup_file": "auto_backup_servers_only_2026-10-28T06-14-10-335Z_job-servers-fleet.json"
+      "updated_at": "2026-10-29T20:59:34.366Z",
+      "next_run_at": "2026-10-30T00:30:00.000Z",
+      "last_run_at": "2026-10-29T20:59:34.366Z",
+      "last_result_details": "Backup generated successfully in 730ms. File: auto_backup_servers_only_2026-10-29T20-59-34-069Z_job-servers-fleet.json (3.62 KB).",
+      "last_backup_file": "auto_backup_servers_only_2026-10-29T20-59-34-069Z_job-servers-fleet.json"
     }
   ],
   "audit_email_reports": [
@@ -3281,7 +3389,7 @@
         "legacy_panel_update_seed_key_october_2026"
       ],
       "created_at": "2026-10-19T13:47:48.714Z",
-      "updated_at": "2026-10-28T06:14:03.688Z"
+      "updated_at": "2026-10-29T21:08:09.724Z"
     }
   ]
 }

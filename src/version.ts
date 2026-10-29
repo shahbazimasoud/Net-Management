@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.397.0';
+export const APP_VERSION = '1.398.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.398.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۴ امنیت سرور و ثبت وقایع: اعتبارسنجی بلادرنگ توکن و پالیسی در اندپوئینت‌های پیکربندی گروهی و ثبت لاگ امنیتی (Authoritative Backend RBAC & Audit Logging)',
+    title_en: 'Phase 4: Authoritative Backend RBAC Route Guarding, 403 Forbidden Veto & Security Audit Logging for Bulk Device Configuration',
+    changes: [
+      'مسدودسازی قطعی دسترسی به کلیه اندپوئینت‌های پیکربندی گروهی (/api/bulk-config/*) در سطح سرور برای کاربران فاقد مجوز canBulkConfigureDevices با خطای استاندارد 403 Forbidden.',
+      'ثبت خودکار و بلادرنگ هرگونه اقدام غیرمجاز جهت دریافت قالب‌ها، تولید پیش‌نمایش و اجرای جاب‌ها در جدول لاگ‌های امنیتی سرور (audit_logs) همراه با آدرس IP، نام کاربری، شناسه پالیسی و جزییات درخواست.',
+      'ارتقای سرویس کلاینت bulkConfigService جهت تزریق خودکار هدر استاندارد Authorization: Bearer <token> و هدر شبیه‌سازی نقش (X-Simulated-Role) در تمامی فراخوانی‌های ای‌پی‌آی.',
+      'تدوین و اجرای موفقیت‌آمیز سوئیت تست جامع end-to-end برای ارزیابی گیت‌های امنیتی، تایید وتوی ۴۰۳، ثبت لاگ‌های حسابرسی و دسترسی موفق اپراتورهای مجاز.'
+    ],
+    changes_en: [
+      'Implemented authoritative server-level RBAC route guard intercepting all bulk configuration endpoints (/api/bulk-config/*) and rejecting unauthorized users with standard 403 Forbidden.',
+      'Integrated automated security audit logging recording every rejected attempt to fetch templates, generate previews, or execute jobs into PostgreSQL audit_logs with client IP, username, and URL.',
+      'Enhanced bulkConfigService frontend client to attach Authorization Bearer token and X-Simulated-Role headers across all API calls.',
+      'Developed and passed comprehensive end-to-end integration test suite verifying backend veto, audit trail emission, and access granting for authorized operators.'
+    ]
+  },
   {
     version: '1.397.0',
     releaseDate: '2026-10-29',
