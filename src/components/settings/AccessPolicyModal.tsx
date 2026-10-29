@@ -137,7 +137,78 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
 
   const [activeTab, setActiveTab] = useState<PolicyModalTab>('identity');
   const [isMaximized, setIsMaximized] = useState(false);
-  const [draftPolicy, setDraftPolicy] = useState<AccessPolicy | null>(null);
+  const [draftPolicy, setDraftPolicy] = useState<AccessPolicy | null>(() => {
+    if (!initialPolicy) return null;
+    return {
+      ...initialPolicy,
+      subjectIds: Array.isArray(initialPolicy.subjectIds) && initialPolicy.subjectIds.length > 0
+        ? initialPolicy.subjectIds
+        : (initialPolicy.subjectId ? [initialPolicy.subjectId] : []),
+      subjectNames: Array.isArray(initialPolicy.subjectNames) && initialPolicy.subjectNames.length > 0
+        ? initialPolicy.subjectNames
+        : (initialPolicy.subjectName ? [initialPolicy.subjectName] : []),
+      targetGroupIds: initialPolicy.targetGroupIds || [],
+      targetDeviceIds: initialPolicy.targetDeviceIds || [],
+      targetServerScope:
+        initialPolicy.targetServerScope ||
+        (Array.isArray(initialPolicy.targetServerIds) && initialPolicy.targetServerIds.length > 0
+          ? 'specific'
+          : 'all'),
+      targetServerIds: initialPolicy.targetServerIds || [],
+      canAddServer:
+        initialPolicy.canAddServer ??
+        Boolean(initialPolicy.defaultServerPermissions?.add_server),
+      canAddDevice:
+        initialPolicy.canAddDevice ??
+        Boolean(initialPolicy.defaultDevicePermissions?.add_device ?? initialPolicy.canManageDevices),
+      defaultServerPermissions: initialPolicy.defaultServerPermissions || {
+        terminal: false,
+        file_explorer: true,
+        server_management: false,
+        web_management: false,
+        database_management: false,
+        power_control: false,
+        edit_properties: false,
+        delete_server: false,
+        export_servers: false,
+        import_servers: false,
+        add_server: false,
+      },
+      perServerPermissions: initialPolicy.perServerPermissions || {},
+      defaultDevicePermissions: initialPolicy.defaultDevicePermissions || {
+        terminal: false,
+        config: false,
+        backup: false,
+        inspect_ports: true,
+        port_power: false,
+        port_vlan: false,
+        port_description: false,
+        port_speed: false,
+        port_cable_test: false,
+        port_security: false,
+        port_bridge: false,
+        cisco_config_vlans: false,
+        cisco_config_stp: false,
+        cisco_config_l2_security: false,
+        cisco_config_write_memory: false,
+        mikrotik_bridge_vlan: false,
+        mikrotik_toggle_interface: false,
+        mikrotik_comment: false,
+        web_configs: true,
+        ping_keepalive: true,
+        device_note: true,
+        export_devices: false,
+        import_devices: false,
+        apply_template: false,
+        export_template: false,
+        import_template: false,
+        edit_properties: false,
+        delete_device: false,
+        add_device: false,
+      },
+      perDevicePermissions: initialPolicy.perDevicePermissions || {},
+    };
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -678,9 +749,8 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     });
   }, [permittedDevices, matrixDeviceSearch, matrixDeviceFilter, draftPolicy]);
 
-  if (!isOpen || !draftPolicy) return null;
-
   const handleMinimize = () => {
+    if (!draftPolicy) return;
     if (onMinimize) {
       onMinimize();
       return;
@@ -701,6 +771,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!draftPolicy) return;
     if (!draftPolicy.name.trim()) {
       setErrorMessage(
         isEn
@@ -730,57 +801,65 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
 
   // Helper bulk selectors for tabs
   const setAllNavigationViews = (enabled: boolean) => {
-    setDraftPolicy({
-      ...draftPolicy,
-      canViewDashboard: enabled,
-      canViewTopology: enabled,
-      canViewDevices: enabled,
-      canViewPorts: enabled,
-      canViewDiscovery: enabled,
-      canViewTemplates: enabled,
-      canViewServers: enabled,
-      canViewNetworkTools: enabled,
-      canViewPhysicalPlacement: enabled,
-      canViewSettings: enabled,
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        canViewDashboard: enabled,
+        canViewTopology: enabled,
+        canViewDevices: enabled,
+        canViewPorts: enabled,
+        canViewDiscovery: enabled,
+        canViewTemplates: enabled,
+        canViewServers: enabled,
+        canViewNetworkTools: enabled,
+        canViewPhysicalPlacement: enabled,
+        canViewSettings: enabled,
+      };
     });
   };
 
-
   const setAllServerDefaultPermissions = (enabled: boolean) => {
-    setDraftPolicy({
-      ...draftPolicy,
-      canAddServer: enabled,
-      defaultServerPermissions: {
-        terminal: enabled,
-        file_explorer: enabled,
-        server_management: enabled,
-        web_management: enabled,
-        database_management: enabled,
-        power_control: enabled,
-        edit_properties: enabled,
-        delete_server: enabled,
-        export_servers: enabled,
-        import_servers: enabled,
-        add_server: enabled,
-      },
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        canAddServer: enabled,
+        defaultServerPermissions: {
+          terminal: enabled,
+          file_explorer: enabled,
+          server_management: enabled,
+          web_management: enabled,
+          database_management: enabled,
+          power_control: enabled,
+          edit_properties: enabled,
+          delete_server: enabled,
+          export_servers: enabled,
+          import_servers: enabled,
+          add_server: enabled,
+        },
+      };
     });
   };
 
   const setAllGlobalCapabilities = (enabled: boolean) => {
-    setDraftPolicy({
-      ...draftPolicy,
-      canApplyTemplates: enabled,
-      canExportTemplates: enabled,
-      canImportTemplates: enabled,
-      canManageDevices: enabled,
-      canAddDevice: enabled,
-      canExportBackup: enabled,
-      canImportBackup: enabled,
-      canExportDevices: enabled,
-      canImportDevices: enabled,
-      canExportServers: enabled,
-      canImportServers: enabled,
-      canBatchOperate: enabled,
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        canApplyTemplates: enabled,
+        canExportTemplates: enabled,
+        canImportTemplates: enabled,
+        canManageDevices: enabled,
+        canAddDevice: enabled,
+        canExportBackup: enabled,
+        canImportBackup: enabled,
+        canExportDevices: enabled,
+        canImportDevices: enabled,
+        canExportServers: enabled,
+        canImportServers: enabled,
+        canBatchOperate: enabled,
+      };
     });
   };
 
@@ -1264,6 +1343,8 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     },
     [matrixFilteredDevices]
   );
+
+  if (!isOpen || !draftPolicy) return null;
 
   return createPortal(
     <>

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.394.0';
+export const APP_VERSION = '1.394.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.394.1',
+    releaseDate: '2026-10-29',
+    type: 'patch',
+    title: 'رفع خطای رندرینگ هوک‌های ری‌اکت (Error #310) در ساخت و ویرایش پالیسی دسترسی RBAC',
+    title_en: 'Fix React Hook Render Error #310 in RBAC Access Policy Creation and Editing Modal',
+    changes: [
+      'انتقال شرط بازگشت زودهنگام مودال به بعد از فراخوانی کلیه هوک‌ها و تثبیت توالی اجرای هوک‌های ری‌اکت در کامپوننت AccessPolicyModal.',
+      'مقداردهی اولیه همگام استیت draftPolicy از initialPolicy جهت جلوگیری از تغییر تعداد هوک‌های اجرا شده در رندرهای متوالی.',
+      'رندرینگ مشروط و ایمن کامپوننت AccessPolicyModal در AccessControlTab با بررسی وضعیت باز بودن و وجود پالیسی.',
+      'ایمن‌سازی هندلرها و توابع تغییر وضعیت با استفاده از آپدیترهای تابعی setDraftPolicy((prev) => ...).'
+    ],
+    changes_en: [
+      'Moved modal early-return guard to after all hook declarations, enforcing strict hook call consistency in AccessPolicyModal.',
+      'Synchronously initialized draftPolicy state from initialPolicy to prevent hook call count mismatches across render ticks.',
+      'Conditionally and safely mounted AccessPolicyModal in AccessControlTab only when active and editingPolicy is present.',
+      'Hardened modal event handlers and bulk permissions mutators using safe functional state updaters.'
+    ]
+  },
   {
     version: '1.394.0',
     releaseDate: '2026-10-29',

@@ -1939,48 +1939,50 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       </div>
 
       {/* Modern Tabbed Universal Access Policy Modal */}
-      <AccessPolicyModal
-        isOpen={isPolicyModalOpen}
-        onClose={() => {
-          setIsPolicyModalOpen(false);
-          if (editingPolicy) {
-            undockModal(`access-policy-${editingPolicy.id || 'new'}`);
-          }
-          setEditingPolicy(null);
-        }}
-        onMinimize={() => {
-          if (editingPolicy) {
-            dockModal({
-              id: `access-policy-${editingPolicy.id || 'new'}`,
-              labelEn: isCreating ? 'New Access Policy' : `Policy: ${editingPolicy.name || 'Edit'}`,
-              labelFa: isCreating ? 'تعریف پالیسی دسترسی' : `پالیسی: ${editingPolicy.name || 'ویرایش'}`,
-              badge: 'RBAC',
-              category: 'config',
-              onRestore: () => {
-                setIsPolicyModalOpen(true);
-              },
-              onClose: () => {
-                setIsPolicyModalOpen(false);
-                setEditingPolicy(null);
-              },
-            });
-          }
-          setIsPolicyModalOpen(false);
-        }}
-        isCreating={isCreating}
-        editingPolicy={editingPolicy}
-        onSavePolicy={async (policy) => {
-          handleSavePolicy(undefined, policy);
-          undockModal(`access-policy-${policy.id || 'new'}`);
-        }}
-        isLightMode={isLight}
-        liveLocalUsers={liveLocalUsers}
-        liveLocalGroups={liveLocalGroups}
-        liveAdConfig={liveAdConfig}
-        devices={devices}
-        liveDeviceGroups={liveDeviceGroups}
-        liveServers={liveServers}
-      />
+      {isPolicyModalOpen && editingPolicy && (
+        <AccessPolicyModal
+          isOpen={isPolicyModalOpen}
+          onClose={() => {
+            setIsPolicyModalOpen(false);
+            if (editingPolicy) {
+              undockModal(`access-policy-${editingPolicy.id || 'new'}`);
+            }
+            setEditingPolicy(null);
+          }}
+          onMinimize={() => {
+            if (editingPolicy) {
+              dockModal({
+                id: `access-policy-${editingPolicy.id || 'new'}`,
+                labelEn: isCreating ? 'New Access Policy' : `Policy: ${editingPolicy.name || 'Edit'}`,
+                labelFa: isCreating ? 'تعریف پالیسی دسترسی' : `پالیسی: ${editingPolicy.name || 'ویرایش'}`,
+                badge: 'RBAC',
+                category: 'config',
+                onRestore: () => {
+                  setIsPolicyModalOpen(true);
+                },
+                onClose: () => {
+                  setIsPolicyModalOpen(false);
+                  setEditingPolicy(null);
+                },
+              });
+            }
+            setIsPolicyModalOpen(false);
+          }}
+          isCreating={isCreating}
+          editingPolicy={editingPolicy}
+          onSavePolicy={async (policy) => {
+            handleSavePolicy(undefined, policy);
+            undockModal(`access-policy-${policy.id || 'new'}`);
+          }}
+          isLightMode={isLight}
+          liveLocalUsers={liveLocalUsers}
+          liveLocalGroups={liveLocalGroups}
+          liveAdConfig={liveAdConfig}
+          devices={devices}
+          liveDeviceGroups={liveDeviceGroups}
+          liveServers={liveServers}
+        />
+      )}
     </div>
   );
 };
