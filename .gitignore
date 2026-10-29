@@ -18,3 +18,4 @@ backend/snapshots/
 backend/server_backups/
 bun.lock*
 *.enc.json
+backups/

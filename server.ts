@@ -45,6 +45,7 @@ import { registerCertConverterRoutes } from './server/certConverter';
 import { checkSshBackendsOnStartup } from './server/sshBackendResolver';
 import { startBackupSchedulerDaemon } from './server/backupScheduler';
 import { startAuditReportSchedulerDaemon } from './server/auditReportScheduler';
+import { startLogRetentionDaemon } from './server/logRetentionDaemon';
 import { initServerTime } from './server/serverTimeManager';
 
 const app = express();
@@ -1366,6 +1367,8 @@ async function startServer() {
     startBackupSchedulerDaemon();
     // Start automated audit & command logs report scheduler daemon
     startAuditReportSchedulerDaemon();
+    // Start automated PostgreSQL database log retention and purge daemon
+    startLogRetentionDaemon();
   });
 }
 

@@ -7465,6 +7465,132 @@ export async function purgeOldLogs(retentionDays: number): Promise<any> {
   };
 }
 
+export async function exportAllAuditLogsPackage(): Promise<{
+  packageType: string;
+  version: string;
+  exportedAt: string;
+  stats: any;
+  deviceCommandLogs: any[];
+  serverCommandLogs: any[];
+  portalLogs: any[];
+  securityLogs: any[];
+  retentionConfig: any;
+}> {
+  await ensurePostgresConnection();
+  let devLogs: any[] = [];
+  let srvLogs: any[] = [];
+  let portalLogs: any[] = [];
+  let secLogs: any[] = [];
+
+  if (isPostgresReady && pool) {
+    try {
+      const devRes = await pool.query('SELECT * FROM device_command_audit_logs ORDER BY timestamp DESC');
+      devLogs = devRes.rows.map((r: any) => ({
+        id: r.id,
+        timestamp: r.timestamp ? new Date(r.timestamp).toISOString() : new Date().toISOString(),
+        actor: {
+          username: r.operator_username,
+          role: r.operator_role || 'Super Administrator',
+          ipAddress: r.operator_ip || '127.0.0.1',
+        },
+        deviceId: r.device_id,
+        deviceName: r.device_name,
+        deviceIp: r.device_ip,
+        deviceVendor: r.device_vendor || 'cisco',
+        deviceModel: r.device_model || undefined,
+        deviceLocation: r.device_location || '',
+        channel: r.channel || 'terminal_interactive',
+        command: r.command,
+        riskLevel: r.risk_level || 'low',
+        status: r.status || 'success',
+        outputSummary: r.output_summary || undefined,
+        durationMs: r.duration_ms || 0,
+        notes: r.notes || undefined,
+        metadata: r.metadata || {},
+      }));
+
+      const srvRes = await pool.query('SELECT * FROM server_command_audit_logs ORDER BY timestamp DESC');
+      srvLogs = srvRes.rows.map((r: any) => ({
+        id: r.id,
+        timestamp: r.timestamp ? new Date(r.timestamp).toISOString() : new Date().toISOString(),
+        serverId: r.server_id,
+        serverName: r.server_name,
+        serverHost: r.server_host,
+        operatorUsername: r.operator_username,
+        operatorRole: r.operator_role,
+        operatorIp: r.operator_ip,
+        command: r.command,
+        riskLevel: r.risk_level,
+        status: r.status,
+        channel: r.channel,
+        durationMs: r.duration_ms,
+        outputSummary: r.output_summary,
+      }));
+
+      const portalRes = await pool.query('SELECT * FROM portal_audit_logs ORDER BY timestamp DESC');
+      portalLogs = portalRes.rows.map((r: any) => ({
+        id: r.id,
+        timestamp: r.timestamp ? new Date(r.timestamp).toISOString() : new Date().toISOString(),
+        category: r.category,
+        action: r.action,
+        title: r.title,
+        title_en: r.title_en,
+        actor: {
+          username: r.user_name,
+          role: r.user_role || 'Super Administrator',
+          ipAddress: r.client_ip || '127.0.0.1',
+        },
+        target: {
+          type: r.target_type || 'device',
+          id: r.target_id || undefined,
+          name: r.target_name || '',
+          location: r.target_location || undefined,
+          ...(typeof r.target_data === 'object' ? r.target_data : {}),
+        },
+        severity: r.severity || 'info',
+        status: r.status || 'success',
+        details: r.details || '',
+        details_en: r.details_en || '',
+        changesDiff: Array.isArray(r.changes_diff) ? r.changes_diff : undefined,
+      }));
+
+      const secRes = await pool.query('SELECT * FROM audit_logs ORDER BY timestamp DESC');
+      secLogs = secRes.rows;
+    } catch (e) {
+      console.error('[DB Query Error in exportAllAuditLogsPackage]', e);
+    }
+  }
+
+  const store = loadFallbackStore();
+  if (devLogs.length === 0 && Array.isArray(store.device_command_audit_logs)) {
+    devLogs = store.device_command_audit_logs;
+  }
+  if (srvLogs.length === 0 && Array.isArray(store.server_command_audit_logs)) {
+    srvLogs = store.server_command_audit_logs;
+  }
+  if (portalLogs.length === 0 && Array.isArray(store.portal_audit_logs)) {
+    portalLogs = store.portal_audit_logs;
+  }
+  if (secLogs.length === 0 && Array.isArray(store.audit_logs)) {
+    secLogs = store.audit_logs;
+  }
+
+  const stats = await getAuditStorageStats();
+  const retentionConfig = await getLogRetentionConfig();
+
+  return {
+    packageType: 'NETTOPOLOGY_STANDALONE_AUDIT_LOGS_BACKUP',
+    version: '1.400.0',
+    exportedAt: new Date().toISOString(),
+    stats,
+    deviceCommandLogs: devLogs,
+    serverCommandLogs: srvLogs,
+    portalLogs: portalLogs,
+    securityLogs: secLogs,
+    retentionConfig,
+  };
+}
+
 // -------------------------------------------------------------
 // 12. Device Sticky Notes & Canvas Map Linking
 // -------------------------------------------------------------

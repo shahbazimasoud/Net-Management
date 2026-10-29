@@ -42,6 +42,8 @@ import {
   filterLogsForReport,
   calculateReportSummary,
 } from './auditReportService';
+import { ZipArchive } from 'archiver';
+import { runRetentionPurgeJob } from './logRetentionDaemon';
 import {
   getDbStatus,
   findUserByUsername,
@@ -95,6 +97,15 @@ import {
   updateDevicePlacement,
   getAuditLogs,
   addAuditLog,
+  getDeviceCommandLogs,
+  addDeviceCommandLog,
+  getPortalAuditLogs,
+  addPortalAuditLog,
+  getLogRetentionConfig,
+  saveLogRetentionConfig,
+  getAuditStorageStats,
+  purgeOldLogs,
+  exportAllAuditLogsPackage,
   getServerCommandLogs,
   addServerCommandLog,
   getDeviceStickyNotes,
@@ -2293,6 +2304,267 @@ apiRouter.post('/settings/audit-logs', async (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// Database-Authoritative Audit Logs & Log Retention Endpoints (Phase 2)
+// -------------------------------------------------------------
+
+// GET /api/audit-logs/devices - Query and filter network device command audit logs
+apiRouter.get('/audit-logs/devices', async (req: Request, res: Response) => {
+  try {
+    const limit = parseInt(req.query.limit as string, 10) || 1000;
+    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const deviceId = req.query.deviceId as string | undefined;
+    const operatorUsername = req.query.operatorUsername as string | undefined;
+    const riskLevel = req.query.riskLevel as string | undefined;
+    const channel = req.query.channel as string | undefined;
+    const search = req.query.search as string | undefined;
+
+    const logs = await getDeviceCommandLogs({
+      limit,
+      offset,
+      deviceId,
+      operatorUsername,
+      riskLevel,
+      channel,
+      search,
+    });
+
+    res.json({
+      success: true,
+      logs,
+      total: logs.length,
+      limit,
+      offset,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/audit-logs/devices - Record network device command audit trail
+apiRouter.post('/audit-logs/devices', async (req: Request, res: Response) => {
+  try {
+    let operatorUsername = 'admin';
+    let operatorRole = 'Super Administrator';
+    const authHeader = req.headers.authorization || '';
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const decoded = verifyToken(token);
+      if (decoded?.username) operatorUsername = decoded.username;
+      if (decoded?.role) operatorRole = decoded.role;
+    }
+
+    const payload = req.body || {};
+    const actor = payload.actor || {
+      username: payload.operator_username || payload.operatorUsername || operatorUsername,
+      role: payload.operator_role || payload.operatorRole || operatorRole,
+      ipAddress: payload.operator_ip || payload.operatorIp || getClientIp(req),
+    };
+
+    const savedLog = await addDeviceCommandLog({
+      ...payload,
+      actor,
+    });
+
+    res.json({
+      success: true,
+      log: savedLog,
+      message: 'Device command audit log recorded successfully.',
+      message_fa: 'لاگ فرمان تجهیز با موفقیت در پایگاه داده ثبت شد.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/audit-logs/portal - Query and filter portal system audit logs
+apiRouter.get('/audit-logs/portal', async (req: Request, res: Response) => {
+  try {
+    const limit = parseInt(req.query.limit as string, 10) || 1000;
+    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const category = req.query.category as string | undefined;
+    const severity = req.query.severity as string | undefined;
+    const status = req.query.status as string | undefined;
+    const search = req.query.search as string | undefined;
+
+    const logs = await getPortalAuditLogs({
+      limit,
+      offset,
+      category,
+      severity,
+      status,
+      search,
+    });
+
+    res.json({
+      success: true,
+      logs,
+      total: logs.length,
+      limit,
+      offset,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/audit-logs/portal - Record portal event audit log
+apiRouter.post('/audit-logs/portal', async (req: Request, res: Response) => {
+  try {
+    let operatorUsername = 'admin';
+    let operatorRole = 'Super Administrator';
+    const authHeader = req.headers.authorization || '';
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const decoded = verifyToken(token);
+      if (decoded?.username) operatorUsername = decoded.username;
+      if (decoded?.role) operatorRole = decoded.role;
+    }
+
+    const payload = req.body || {};
+    const actor = payload.actor || {
+      username: payload.user_name || payload.userName || operatorUsername,
+      role: payload.user_role || payload.userRole || operatorRole,
+      ipAddress: payload.client_ip || payload.ipAddress || getClientIp(req),
+    };
+
+    const savedLog = await addPortalAuditLog({
+      ...payload,
+      actor,
+    });
+
+    res.json({
+      success: true,
+      log: savedLog,
+      message: 'Portal audit event recorded successfully.',
+      message_fa: 'رویداد پرتال با موفقیت در پایگاه داده ثبت شد.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/audit-logs/stats - Retrieve byte-accurate storage telemetry & record counts
+apiRouter.get('/audit-logs/stats', async (_req: Request, res: Response) => {
+  try {
+    const stats = await getAuditStorageStats();
+    res.json({
+      success: true,
+      stats,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/settings/log-retention - Retrieve log retention configuration & storage stats
+apiRouter.get('/settings/log-retention', async (_req: Request, res: Response) => {
+  try {
+    const config = await getLogRetentionConfig();
+    const stats = await getAuditStorageStats();
+    res.json({
+      success: true,
+      config,
+      stats,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/settings/log-retention - Update log retention policies
+apiRouter.post('/settings/log-retention', async (req: Request, res: Response) => {
+  try {
+    let updatedBy = 'admin';
+    const authHeader = req.headers.authorization || '';
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const decoded = verifyToken(token);
+      if (decoded?.username) updatedBy = decoded.username;
+    }
+
+    const incoming = req.body?.config || req.body || {};
+    const savedConfig = await saveLogRetentionConfig(incoming, updatedBy);
+
+    res.json({
+      success: true,
+      config: savedConfig,
+      message: 'Log retention configuration updated successfully.',
+      message_fa: 'تنظیمات نگهداری و پاکسازی لاگ‌ها با موفقیت ذخیره شد.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/settings/log-retention/purge-now - Immediate manual purge of expired logs
+apiRouter.post('/settings/log-retention/purge-now', async (req: Request, res: Response) => {
+  try {
+    let operatorUsername = 'admin';
+    let operatorRole = 'Super Administrator';
+    const authHeader = req.headers.authorization || '';
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const decoded = verifyToken(token);
+      if (decoded?.username) operatorUsername = decoded.username;
+      if (decoded?.role) operatorRole = decoded.role;
+    }
+
+    const { retentionDays, backupBeforePurge } = req.body || {};
+    const result = await runRetentionPurgeJob(true, {
+      retentionDays: retentionDays !== undefined ? Number(retentionDays) : undefined,
+      backupBeforePurge: backupBeforePurge !== undefined ? Boolean(backupBeforePurge) : undefined,
+      requestedBy: {
+        username: operatorUsername,
+        role: operatorRole,
+        ip: getClientIp(req),
+      },
+    });
+
+    res.json({
+      success: true,
+      result,
+      message: `Manual log purge completed. Deleted ${result.totalDeleted} records.`,
+      message_fa: `پاکسازی دستی لاگ‌ها با موفقیت انجام شد. ${result.totalDeleted} رکورد حذف شد.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/settings/log-retention/backup - Standalone log database backup export (JSON / Zip)
+apiRouter.get('/settings/log-retention/backup', async (req: Request, res: Response) => {
+  try {
+    const format = (req.query.format as string) || 'json';
+    const pkg = await exportAllAuditLogsPackage();
+    const timestampStr = new Date().toISOString().replace(/[:.]/g, '-');
+
+    if (format === 'zip') {
+      const archive = new ZipArchive({ zlib: { level: 9 } });
+      const filename = `audit-logs-backup-${timestampStr}.zip`;
+      res.attachment(filename);
+      archive.pipe(res);
+
+      archive.append(JSON.stringify(pkg, null, 2), { name: 'full-audit-package.json' });
+      archive.append(JSON.stringify(pkg.deviceCommandLogs, null, 2), { name: 'device-command-audit-logs.json' });
+      archive.append(JSON.stringify(pkg.serverCommandLogs, null, 2), { name: 'server-command-audit-logs.json' });
+      archive.append(JSON.stringify(pkg.portalLogs, null, 2), { name: 'portal-audit-logs.json' });
+      archive.append(JSON.stringify(pkg.securityLogs, null, 2), { name: 'security-audit-logs.json' });
+      archive.append(JSON.stringify(pkg.stats, null, 2), { name: 'audit-storage-stats.json' });
+      archive.append(JSON.stringify(pkg.retentionConfig, null, 2), { name: 'log-retention-config.json' });
+
+      await archive.finalize();
+    } else {
+      const filename = `audit-logs-backup-${timestampStr}.json`;
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(JSON.stringify(pkg, null, 2));
+    }
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

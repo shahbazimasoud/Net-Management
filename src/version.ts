@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.399.0';
+export const APP_VERSION = '1.400.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.400.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۲ بک‌اند لاگ‌ها: اندپوئینت‌های ثبت و استعلام، موتور تلمتری، دیمن دوره‌ای پاکسازی خودکار و بکاپ مستقل (Log Retention Daemon & API Suite)',
+    title_en: 'Phase 2: Authoritative Database Audit Log API Endpoints, Storage Telemetry, Retention Daemon & Standalone Backup Engine',
+    changes: [
+      'پیاده‌سازی کامل اندپوئینت‌های ثبت و بازیابی بلادرنگ فرامین تجهیزات شبکه (GET/POST /api/audit-logs/devices) با پشتیبانی از فیلترهای پیشرفته بر اساس شناسه تجهیز، نام کاربری، ریسک فرمان، کانال ارتباطی و جستجوی متنی.',
+      'پیاده‌سازی اندپوئینت‌های ثبت و واکشی رویدادهای پورتال (GET/POST /api/audit-logs/portal) همراه با جزئیات تغییرات (changesDiff)، دسته‌بندی و سطوح بحرانیت.',
+      'ارائه اندپوئینت موتور تلمتری و آمار لاگ‌ها (GET /api/audit-logs/stats) جهت محاسبه حجم بایت‌های اشغال‌شده در PostgreSQL (MB/KB)، تعداد کل رکوردهای تفکیک‌شده و کهن‌ترین و تازه‌ترین تاریخ لاگ.',
+      'توسعه دیمن زمان‌بندی‌شده سرور (startLogRetentionDaemon) جهت اجرای خودکار پاکسازی لاگ‌های منقضی در ساعت معین با اعتبارسنجی فاصله زمانی و ثبت وقایع حسابرسی.',
+      'پیاده‌سازی سرویس پاکسازی فوری و دستی (POST /api/settings/log-retention/purge-now) با تهیه خودکار نسخه پشتیبان ایمن پیش از حذف.',
+      'ایجاد سیستم دانلود و خروجی‌گیری مستقل و فشرده لاگ‌های دیتابیس (GET /api/settings/log-retention/backup) در دو فرمت JSON و ZIP با استفاده از ZipArchive بدون وابستگی به بکاپ‌های عمومی سرور.'
+    ],
+    changes_en: [
+      'Engineered authoritative endpoints for network device command audit logging and querying (GET/POST /api/audit-logs/devices) with multi-criteria filtering by device ID, username, command risk, channel, and full-text search.',
+      'Developed portal system audit logging endpoints (GET/POST /api/audit-logs/portal) with full support for field-level changesDiff tracking, categories, and severity levels.',
+      'Introduced database log storage telemetry engine (GET /api/audit-logs/stats) delivering byte-accurate PostgreSQL table size (MB/KB), itemized record counts, and earliest/latest timestamp bounds.',
+      'Implemented scheduled background daemon (startLogRetentionDaemon) in server/logRetentionDaemon.ts to perform automated nightly log purge according to configured retention periods.',
+      'Added on-demand manual log purge API (POST /api/settings/log-retention/purge-now) with automatic pre-purge safety archive snapshots.',
+      'Engineered standalone log database export API (GET /api/settings/log-retention/backup) supporting streaming ZIP (via ZipArchive) and structured JSON packages independent of system-wide backups.'
+    ]
+  },
   {
     version: '1.399.0',
     releaseDate: '2026-10-29',
