@@ -846,28 +846,47 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
                         </p>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={handleSaveToNvram}
-                        disabled={isSavingNvram || !canSaveNvram || !device.is_online}
-                        className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm ${
-                          isSavingNvram || !canSaveNvram || !device.is_online
-                            ? 'bg-slate-700/50 text-slate-400 cursor-not-allowed border border-slate-600/30'
-                            : 'bg-emerald-600 hover:bg-emerald-500 text-white hover:shadow-emerald-600/30'
-                        }`}
-                      >
-                        {isSavingNvram ? (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            <span>{isEn ? 'Building Configuration...' : 'در حال ذخیره‌سازی...'}</span>
-                          </>
-                        ) : (
-                          <>
-                            <Save className="w-3.5 h-3.5" />
-                            <span>{isEn ? 'Commit to NVRAM' : 'ذخیره دائم در NVRAM'}</span>
-                          </>
-                        )}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={loadHardwareConfig}
+                          disabled={loading || !device.is_online}
+                          className={`px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer border ${
+                            loading || !device.is_online
+                              ? 'opacity-50 cursor-not-allowed border-slate-700/50'
+                              : isLightMode
+                              ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300 shadow-xs'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                          }`}
+                          title={isEn ? 'Re-probe Switch State' : 'استعلام مجدد وضعیت سخت‌افزار'}
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-cyan-400' : 'text-slate-400'}`} />
+                          <span className="hidden sm:inline">{isEn ? 'Re-probe' : 'استعلام مجدد'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleSaveToNvram}
+                          disabled={isSavingNvram || !canSaveNvram || !device.is_online}
+                          className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm ${
+                            isSavingNvram || !canSaveNvram || !device.is_online
+                              ? 'bg-slate-700/50 text-slate-400 cursor-not-allowed border border-slate-600/30'
+                              : 'bg-emerald-600 hover:bg-emerald-500 text-white hover:shadow-emerald-600/30'
+                          }`}
+                        >
+                          {isSavingNvram ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>{isEn ? 'Building Configuration...' : 'در حال ذخیره‌سازی...'}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-3.5 h-3.5" />
+                              <span>{isEn ? 'Commit to NVRAM' : 'ذخیره دائم در NVRAM'}</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
 
                     {nvramFeedback && (
@@ -892,32 +911,49 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
                     )}
                   </div>
 
-                  {/* Summary of 10 configuration domains */}
-                  <div className="mt-5 grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
-                    {[
-                      { name: 'SSH & VTY', tab: 'vty' },
-                      { name: 'NTP Clock', tab: 'ntp' },
-                      { name: 'SNMP Suite', tab: 'snmp' },
-                      { name: 'Users & AAA', tab: 'users' },
-                      { name: 'Syslog', tab: 'syslog' },
-                      { name: 'Spanning-Tree', tab: 'stp' },
-                      { name: 'VTP Domain', tab: 'vtp' },
-                      { name: 'VLANs & SVI', tab: 'vlans' },
-                      { name: 'L2 Security', tab: 'l2_security' },
-                      { name: 'NVRAM Save', tab: 'write_memory' },
-                    ].map((item, idx) => (
-                      <div
-                        key={item.tab}
-                        className={`p-2.5 rounded-lg border text-center font-mono text-[11px] ${
-                          isLightMode
-                            ? 'bg-slate-100 border-slate-200 text-slate-700'
-                            : 'bg-slate-900 border-slate-800 text-slate-300'
-                        }`}
-                      >
-                        <span className="block font-bold opacity-60 text-[9px] mb-0.5">#{idx + 1}</span>
-                        <span>{item.name}</span>
-                      </div>
-                    ))}
+                  {/* Summary of 10 configuration domains with Quick-Jump */}
+                  <div className="mt-5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`text-[11px] font-bold ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                        {isEn ? 'Configuration Domain Quick Jump' : 'دسترسی سریع به ماژول‌های ده‌گانه پیکربندی'}
+                      </span>
+                      <span className="text-[10px] text-cyan-500 font-mono">10 Modules Synced</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                      {[
+                        { name: 'SSH & VTY', tab: 'vty' },
+                        { name: 'NTP Clock', tab: 'ntp' },
+                        { name: 'SNMP Suite', tab: 'snmp' },
+                        { name: 'Users & AAA', tab: 'users' },
+                        { name: 'Syslog', tab: 'syslog' },
+                        { name: 'Spanning-Tree', tab: 'stp' },
+                        { name: 'VTP Domain', tab: 'vtp' },
+                        { name: 'VLANs & SVI', tab: 'vlans' },
+                        { name: 'L2 Security', tab: 'l2_security' },
+                        { name: 'NVRAM Save', tab: 'write_memory' },
+                      ].map((item, idx) => {
+                        const isCurrent = activeTab === item.tab;
+                        return (
+                          <button
+                            key={item.tab}
+                            type="button"
+                            onClick={() => setActiveTab(item.tab as CiscoConfigTabId)}
+                            className={`p-2.5 rounded-lg border text-center font-mono text-[11px] transition cursor-pointer ${
+                              isCurrent
+                                ? isLightMode
+                                  ? 'bg-cyan-50 border-cyan-400 text-cyan-800 font-bold shadow-xs'
+                                  : 'bg-cyan-950/60 border-cyan-500 text-cyan-300 font-bold shadow-xs'
+                                : isLightMode
+                                ? 'bg-slate-100 hover:bg-slate-200/80 border-slate-200 text-slate-700'
+                                : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
+                            }`}
+                          >
+                            <span className="block font-bold opacity-60 text-[9px] mb-0.5">#{idx + 1}</span>
+                            <span>{item.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               )}
@@ -934,7 +970,7 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
           <div className="flex items-center gap-2">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span className="font-mono text-[11px]">
-              {isEn ? `Cisco Config Suite v1.390.0 • ${device.name || device.ip}` : `سوئیت کانفیگ سیسکو نسخه 1.390.0 • ${device.name || device.ip}`}
+              {isEn ? `Cisco Config Suite v1.391.0 • ${device.name || device.ip}` : `سوئیت کانفیگ سیسکو نسخه 1.391.0 • ${device.name || device.ip}`}
             </span>
           </div>
 

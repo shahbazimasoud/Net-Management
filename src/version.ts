@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.390.0';
+export const APP_VERSION = '1.391.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.391.0',
+    releaseDate: '2026-10-29',
+    type: 'minor',
+    title: 'فاز ۷: تکمیل نهایی و جامع سوئیت پیکربندی سوئیچ‌های سیسکو (همگام‌سازی ۱۰ ماژول، استعلام وضعیت زنده، پرش سریع و تعهد دائمی NVRAM)',
+    title_en: 'Phase 7: Comprehensive Cisco Switch Configuration Suite Finalization (10-Module Sync, Live Hardware Re-probe, Quick-Jump & NVRAM Commit)',
+    changes: [
+      'تکمیل و نهایی‌سازی جامع سوئیت پیکربندی سوئیچ‌های سیسکو شامل ۱۰ ماژول مهندسی (SSH و VTY، زمان و NTP، مانیتورینگ SNMP، کاربران و AAA، ثبت وقایع Syslog، پروتکل STP، دامنه VTP، ویلن‌ها و اینترفیس مدیریتی SVI، امنیت لایه دو DHCP Snooping و DAI، و ذخیره‌سازی NVRAM).',
+      'تجهیز تب NVRAM به کلید اختصاصی استعلام مجدد وضعیت سخت‌افزار (Re-probe Switch State) جهت همگام‌سازی بلادرنگ پیکربندی‌های اعمال‌شده بدون نیاز به بستن مودال.',
+      'پیاده‌سازی کارت‌های ناوبری تعاملی پرش سریع (Quick-Jump Grid) بین تمام ۱۰ ماژول تنظیمی در تب تعهد حافظه.',
+      'تأیید انطباق ۱۰۰٪ با استانداردهای پنج‌گانه مودال‌ها (بستن، مینیمایز به داک، تمام‌صفحه، حفظ حریم فوتر bottom-8، لایه z-[999990] و کادرهای راهنمای سه‌بخشی FieldInfoTooltip).',
+      'بررسی و اعتبارسنجی قطعی عدم وجود متن فارسی در زبان انگلیسی (Zero Persian in English mode) و کنتراست ارگونومیک تم روشن و تیره.'
+    ],
+    changes_en: [
+      'Finalized comprehensive Cisco Switch Configuration Suite across all 10 engineering domains (SSH & VTY Lines, NTP Clock, SNMP Suite, Local Users & AAA, Syslog Services, Spanning-Tree, VTP Domain, VLANs & Management SVI, Layer 2 Security Suite, and NVRAM Storage).',
+      'Equipped the NVRAM management tab with dedicated hardware Re-probe trigger (loadHardwareConfig) to immediately verify applied changes on real switch hardware without reopening modal.',
+      'Implemented interactive Quick-Jump navigation grid across all 10 configuration domains within the persistence tab.',
+      'Strictly verified all 5 universal modal architectural rules (Close, Dock Minimize, Fullscreen toggle, strict footer boundary bottom-8, z-[999990] super-priority, and 3-part boundary-clamped FieldInfoTooltip).',
+      'Audited strict zero-Persian enforcement under English localization and ergonomic contrast across dark and light themes.'
+    ]
+  },
   {
     version: '1.390.0',
     releaseDate: '2026-10-29',
