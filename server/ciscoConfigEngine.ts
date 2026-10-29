@@ -1,5 +1,7 @@
+import net from 'net';
 import { Client, ConnectConfig } from 'ssh2';
-import { resolveDynamicVaultPassword, addAuditLog, getAllDevices } from './db';
+import { resolveDynamicVaultPassword, addAuditLog, getAllDevices, decryptFernetToken } from './db';
+import { decryptServerSecret } from './vaultCrypto';
 import { resolveSshBackend, executeSshBridgeAction } from './sshBackendResolver';
 
 export interface CiscoConfigState {
@@ -97,7 +99,309 @@ export interface CiscoConfigState {
 }
 
 /**
- * Executes a CLI block on a Cisco device using adaptive SSH (broad legacy & modern ciphers).
+ * Resolves and decrypts device credentials in memory for authentic connection establishment.
+ * Strictly adheres to Rule 14 (in-flight server-side decryption only, zero frontend credential leak)
+ * Supports dynamic Vault binding, AES-256-GCM tokens (enc:v1:), legacy Fernet tokens (enc:fernet:),
+ * and hierarchy resolution from device.connection and device.ssh_* properties.
+ */
+export async function resolveDecryptedDeviceCredentials(device: any): Promise<{
+  protocol: 'ssh' | 'telnet';
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  enablePassword: string;
+  sshVersion: 'legacy' | 'modern';
+}> {
+  // 1. Target Protocol determination
+  const rawProto = (
+    device.connection_protocol ||
+    device.connection?.protocol ||
+    (device.ssh_port === 23 || device.port === 23 ? 'telnet' : 'ssh')
+  ).toLowerCase();
+  const protocol: 'ssh' | 'telnet' = rawProto === 'telnet' ? 'telnet' : 'ssh';
+
+  // 2. Target Host / IP determination
+  const host = (
+    device.connection?.host ||
+    device.ssh_host ||
+    device.ip ||
+    ''
+  ).trim();
+
+  // 3. Port determination
+  const defaultPort = protocol === 'telnet' ? 23 : 22;
+  const port = Number(
+    device.connection?.port ||
+    device.ssh_port ||
+    device.port ||
+    defaultPort
+  );
+
+  // 4. Username determination
+  const username = String(
+    device.connection?.username ||
+    device.ssh_username ||
+    device.username ||
+    'admin'
+  ).trim();
+
+  // 5. In-flight password decryption
+  let rawPassword = String(
+    device.connection?.password ||
+    device.ssh_password ||
+    device.password ||
+    ''
+  ).trim();
+
+  if (device.ssh_vault_item_id && (!rawPassword || rawPassword.startsWith('vault:'))) {
+    try {
+      const resolved = await resolveDynamicVaultPassword(device.ssh_vault_item_id);
+      if (resolved) rawPassword = resolved;
+    } catch (e: any) {
+      console.warn(`[CiscoConfigEngine] Dynamic vault resolution warning for ssh password:`, e?.message);
+    }
+  }
+
+  let password = rawPassword;
+  if (rawPassword.startsWith('enc:v1:')) {
+    try {
+      password = decryptServerSecret(rawPassword);
+    } catch (err: any) {
+      console.warn(`[CiscoConfigEngine] AES-256-GCM secret decryption notice:`, err?.message);
+    }
+  } else if (rawPassword.startsWith('enc:fernet:')) {
+    try {
+      const dec = decryptFernetToken(rawPassword);
+      if (dec && !dec.startsWith('enc:fernet:')) {
+        password = dec;
+      }
+    } catch (err: any) {
+      console.warn(`[CiscoConfigEngine] Fernet token decryption notice:`, err?.message);
+    }
+  }
+
+  // 6. In-flight enable password decryption
+  let rawEnablePassword = String(device.enable_password || '').trim();
+  if (device.enable_vault_item_id && (!rawEnablePassword || rawEnablePassword.startsWith('vault:'))) {
+    try {
+      const resolved = await resolveDynamicVaultPassword(device.enable_vault_item_id);
+      if (resolved) rawEnablePassword = resolved;
+    } catch (e: any) {
+      console.warn(`[CiscoConfigEngine] Dynamic vault resolution warning for enable password:`, e?.message);
+    }
+  }
+
+  let enablePassword = rawEnablePassword;
+  if (rawEnablePassword.startsWith('enc:v1:')) {
+    try {
+      enablePassword = decryptServerSecret(rawEnablePassword);
+    } catch (err: any) {
+      console.warn(`[CiscoConfigEngine] AES-256-GCM enable secret decryption notice:`, err?.message);
+    }
+  } else if (rawEnablePassword.startsWith('enc:fernet:')) {
+    try {
+      const dec = decryptFernetToken(rawEnablePassword);
+      if (dec && !dec.startsWith('enc:fernet:')) {
+        enablePassword = dec;
+      }
+    } catch (err: any) {
+      console.warn(`[CiscoConfigEngine] Fernet enable token decryption notice:`, err?.message);
+    }
+  }
+
+  // 7. SSH version profile
+  const rawSshVer = (
+    device.ssh_version ||
+    device.connection?.ssh_version ||
+    (device.platform?.includes('modern') ? 'modern' : 'legacy')
+  ).toLowerCase();
+  const sshVersion: 'legacy' | 'modern' = rawSshVer === 'modern' ? 'modern' : 'legacy';
+
+  return {
+    protocol,
+    host,
+    port,
+    username,
+    password,
+    enablePassword,
+    sshVersion,
+  };
+}
+
+/**
+ * Executes CLI commands over an authentic Telnet connection (port 23 or custom)
+ * Handles Cisco Telnet login challenges (Username:, Password:), privilege enable elevation,
+ * and command batch streaming.
+ */
+export async function executeCiscoTelnet(
+  host: string,
+  port: number,
+  user: string,
+  pass: string,
+  enablePass: string,
+  commands: string[] | string,
+  timeoutMs: number = 30000
+): Promise<{ success: boolean; output: string; error?: string }> {
+  const cliLines = Array.isArray(commands) ? commands : commands.split('\n');
+
+  return new Promise((resolve) => {
+    let accumulatedOutput = '';
+    let isFinished = false;
+    const socket = new net.Socket();
+
+    const finish = (result: { success: boolean; output: string; error?: string }) => {
+      if (!isFinished) {
+        isFinished = true;
+        clearTimeout(timer);
+        try { socket.destroy(); } catch {}
+        resolve(result);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      finish({
+        success: false,
+        output: accumulatedOutput,
+        error: `Telnet connection to ${host}:${port} timed out after ${timeoutMs}ms`,
+      });
+    }, timeoutMs);
+
+    socket.setTimeout(timeoutMs);
+
+    let sentUser = false;
+    let sentPass = false;
+    let sentEnable = false;
+    let sentEnablePass = false;
+    let commandsDispatched = false;
+
+    socket.connect(port, host, () => {
+      // Connected, await Telnet banner or login challenge
+    });
+
+    socket.on('data', (chunk: Buffer) => {
+      // Handle Telnet IAC option negotiation
+      const responseBuf: number[] = [];
+      for (let i = 0; i < chunk.length; i++) {
+        if (chunk[i] === 255 && i + 2 < chunk.length) {
+          const cmd = chunk[i + 1];
+          const opt = chunk[i + 2];
+          if (cmd === 253) {
+            responseBuf.push(255, 252, opt);
+          } else if (cmd === 251) {
+            responseBuf.push(255, 253, opt);
+          }
+          i += 2;
+        }
+      }
+      if (responseBuf.length > 0) {
+        try { socket.write(Buffer.from(responseBuf)); } catch {}
+      }
+
+      const text = chunk.toString('utf-8');
+      accumulatedOutput += text;
+      const lower = accumulatedOutput.toLowerCase();
+
+      // Check authentication failures
+      if (
+        (lower.includes('% login invalid') || lower.includes('% bad passwords') || lower.includes('authentication failed')) &&
+        sentPass
+      ) {
+        finish({
+          success: false,
+          output: accumulatedOutput,
+          error: `Telnet authentication failed for user "${user}" on ${host}:${port}. Please verify credentials in Terminal Protocol & Credentials.`,
+        });
+        return;
+      }
+
+      // Respond to Username / Login prompt
+      if (!sentUser && (lower.includes('username:') || lower.includes('login:'))) {
+        sentUser = true;
+        socket.write(`${user}\r\n`);
+        return;
+      }
+
+      // Respond to Password prompt (initial login)
+      if (!sentPass && lower.includes('password:') && !sentEnable) {
+        sentPass = true;
+        socket.write(`${pass}\r\n`);
+        return;
+      }
+
+      // Check if prompt ends in '>' (Unprivileged mode, enter enable)
+      if (
+        !sentEnable &&
+        (accumulatedOutput.trim().endsWith('>') || />\s*$/.test(accumulatedOutput))
+      ) {
+        sentEnable = true;
+        socket.write('enable\r\n');
+        return;
+      }
+
+      // Respond to enable password challenge
+      if (sentEnable && !sentEnablePass && lower.includes('password:')) {
+        sentEnablePass = true;
+        socket.write(`${enablePass || pass}\r\n`);
+        return;
+      }
+
+      // Enter privileged mode or user mode and dispatch commands
+      const readyForCommands =
+        (accumulatedOutput.includes('#') || accumulatedOutput.includes('>')) &&
+        (sentPass || !pass);
+
+      if (readyForCommands && !commandsDispatched) {
+        commandsDispatched = true;
+        socket.write('terminal length 0\r\n');
+
+        setTimeout(() => {
+          for (const line of cliLines) {
+            if (line.trim()) {
+              socket.write(`${line.trim()}\r\n`);
+            }
+          }
+
+          setTimeout(() => {
+            socket.write('\r\nexit\r\n');
+            setTimeout(() => {
+              finish({
+                success: true,
+                output: accumulatedOutput,
+              });
+            }, 1200);
+          }, 800);
+        }, 400);
+      }
+    });
+
+    socket.on('error', (err) => {
+      finish({
+        success: false,
+        output: accumulatedOutput,
+        error: `Telnet error on ${host}:${port}: ${err.message}`,
+      });
+    });
+
+    socket.on('close', () => {
+      if (commandsDispatched) {
+        finish({
+          success: true,
+          output: accumulatedOutput,
+        });
+      } else {
+        finish({
+          success: false,
+          output: accumulatedOutput,
+          error: `Telnet connection closed prematurely by ${host}:${port}`,
+        });
+      }
+    });
+  });
+}
+
+/**
+ * Executes a CLI block on a Cisco device using adaptive SSH/Telnet with decrypted credentials.
  */
 export async function executeCiscoCliDirect(
   device: any,
@@ -105,29 +409,42 @@ export async function executeCiscoCliDirect(
   timeoutMs: number = 30000
 ): Promise<{ success: boolean; output: string; error?: string }> {
   const cliString = Array.isArray(commands) ? commands.join('\n') : commands;
-  const host = (device.ip || device.ssh_host || '').trim();
-  const port = Number(device.ssh_port || device.port || 22);
-  const username = String(device.ssh_username || device.username || 'admin').trim();
-  let password = String(device.ssh_password || device.password || '');
+  const creds = await resolveDecryptedDeviceCredentials(device);
 
-  if (device.ssh_vault_item_id && (!password || password.startsWith('vault:'))) {
-    const resolved = await resolveDynamicVaultPassword(device.ssh_vault_item_id);
-    if (resolved) password = resolved;
+  if (!creds.host) {
+    return {
+      success: false,
+      output: '',
+      error: 'No target IP address or hostname configured for device',
+    };
   }
 
-  // 1. Try using sshBackendResolver (Paramiko bridge with venv_legacy / venv_modern)
+  // 1. If protocol is Telnet, execute via Telnet socket engine
+  if (creds.protocol === 'telnet') {
+    return executeCiscoTelnet(
+      creds.host,
+      creds.port,
+      creds.username,
+      creds.password,
+      creds.enablePassword,
+      commands,
+      timeoutMs
+    );
+  }
+
+  // 2. SSH Execution: First try Paramiko bridge with decrypted credentials
   try {
-    const sshVersion = device.ssh_version || (device.platform?.includes('modern') ? 'modern' : 'legacy');
-    const backend = resolveSshBackend(sshVersion);
+    const backend = resolveSshBackend(creds.sshVersion);
     const bridgeRes = await executeSshBridgeAction(
       'port-action',
       {
         device: {
           ...device,
-          ssh_host: host,
-          ssh_port: port,
-          ssh_username: username,
-          ssh_password: password,
+          ssh_host: creds.host,
+          ssh_port: creds.port,
+          ssh_username: creds.username,
+          ssh_password: creds.password,
+          enable_password: creds.enablePassword,
         },
         action: 'batch_update',
         cli_command: cliString,
@@ -136,10 +453,10 @@ export async function executeCiscoCliDirect(
       timeoutMs
     );
 
-    if (bridgeRes && bridgeRes.success) {
+    if (bridgeRes && bridgeRes.success && bridgeRes.output) {
       return {
         success: true,
-        output: bridgeRes.output || '',
+        output: bridgeRes.output,
       };
     }
     if (bridgeRes && bridgeRes.error) {
@@ -149,34 +466,45 @@ export async function executeCiscoCliDirect(
     console.warn(`[CiscoConfigEngine Bridge Exception] ${bridgeErr.message}, attempting native ssh2 fallback...`);
   }
 
-  // 2. Native ssh2 client with comprehensive adaptive cipher suite (Rule 12)
+  // 3. Native ssh2 client with comprehensive adaptive cipher suite & keyboard-interactive (Rule 12)
   return new Promise((resolve) => {
     const conn = new Client();
     let accumulatedOutput = '';
     let isFinished = false;
 
-    const timer = setTimeout(() => {
+    const finish = (result: { success: boolean; output: string; error?: string }) => {
       if (!isFinished) {
         isFinished = true;
+        clearTimeout(timer);
         try { conn.end(); } catch {}
-        resolve({
-          success: false,
-          output: accumulatedOutput,
-          error: `Execution timed out after ${timeoutMs}ms`,
-        });
+        resolve(result);
       }
+    };
+
+    const timer = setTimeout(() => {
+      finish({
+        success: false,
+        output: accumulatedOutput,
+        error: `SSH execution to ${creds.host}:${creds.port} timed out after ${timeoutMs}ms`,
+      });
     }, timeoutMs);
 
+    conn.on('keyboard-interactive', (name, instructions, lang, prompts, finishKbd) => {
+      const answers = prompts.map((p) => {
+        if (/user/i.test(p.prompt)) return creds.username;
+        return creds.password;
+      });
+      finishKbd(answers.length > 0 ? answers : [creds.password]);
+    });
+
     conn.on('ready', () => {
-      conn.shell({ term: 'vt100', cols: 200, rows: 80 }, (err, stream) => {
+      conn.shell({ term: 'vt100', cols: 250, rows: 80 }, (err, stream) => {
         if (err) {
-          clearTimeout(timer);
-          if (!isFinished) {
-            isFinished = true;
-            try { conn.end(); } catch {}
-            resolve({ success: false, output: accumulatedOutput, error: err.message });
-          }
-          return;
+          return finish({
+            success: false,
+            output: accumulatedOutput,
+            error: `Failed to open SSH shell: ${err.message}`,
+          });
         }
 
         stream.on('data', (d: Buffer) => {
@@ -184,50 +512,72 @@ export async function executeCiscoCliDirect(
         });
 
         stream.on('close', () => {
-          clearTimeout(timer);
-          if (!isFinished) {
-            isFinished = true;
-            try { conn.end(); } catch {}
-            resolve({ success: true, output: accumulatedOutput });
-          }
+          finish({
+            success: true,
+            output: accumulatedOutput,
+          });
         });
 
-        // Send commands sequence
-        stream.write('terminal length 0\r\n');
+        // Elevated prompt handling & Command streaming
         setTimeout(() => {
-          const lines = cliString.split('\n');
-          for (const line of lines) {
-            stream.write(`${line.trim()}\r\n`);
+          // If switch prompt ends in '>', attempt entering enable mode
+          if (accumulatedOutput.trim().endsWith('>') || />\s*$/.test(accumulatedOutput)) {
+            stream.write('enable\r\n');
+            if (creds.enablePassword) {
+              setTimeout(() => {
+                stream.write(`${creds.enablePassword}\r\n`);
+              }, 300);
+            }
           }
-          stream.write('\r\nexit\r\n');
+
+          setTimeout(() => {
+            stream.write('terminal length 0\r\n');
+            setTimeout(() => {
+              const lines = cliString.split('\n');
+              for (const line of lines) {
+                if (line.trim()) {
+                  stream.write(`${line.trim()}\r\n`);
+                }
+              }
+              stream.write('\r\nexit\r\n');
+            }, 300);
+          }, 400);
         }, 300);
       });
     });
 
     conn.on('error', (err: any) => {
-      clearTimeout(timer);
-      if (!isFinished) {
-        isFinished = true;
-        resolve({ success: false, output: accumulatedOutput, error: err.message });
-      }
+      const errMsg = err?.message || 'SSH connection error';
+      finish({
+        success: false,
+        output: accumulatedOutput,
+        error: errMsg.includes('All configured authentication methods failed')
+          ? `SSH authentication rejected for user "${creds.username}" on ${creds.host}:${creds.port}. Please verify password in Terminal Protocol & Credentials.`
+          : errMsg,
+      });
     });
 
     const sshConfig: ConnectConfig = {
-      host,
-      port,
-      username,
-      password,
-      readyTimeout: 10000,
+      host: creds.host,
+      port: creds.port,
+      username: creds.username,
+      password: creds.password,
+      readyTimeout: 12000,
+      tryKeyboard: true,
       algorithms: {
         kex: [
-          'diffie-hellman-group1-sha1',
-          'diffie-hellman-group14-sha1',
-          'diffie-hellman-group-exchange-sha1',
-          'diffie-hellman-group-exchange-sha256',
+          'curve25519-sha256',
+          'curve25519-sha256@libssh.org',
           'ecdh-sha2-nistp256',
           'ecdh-sha2-nistp384',
           'ecdh-sha2-nistp521',
-          'curve25519-sha256',
+          'diffie-hellman-group1-sha1',
+          'diffie-hellman-group14-sha1',
+          'diffie-hellman-group14-sha256',
+          'diffie-hellman-group16-sha512',
+          'diffie-hellman-group18-sha512',
+          'diffie-hellman-group-exchange-sha1',
+          'diffie-hellman-group-exchange-sha256',
         ],
         cipher: [
           'aes128-cbc',
@@ -239,6 +589,7 @@ export async function executeCiscoCliDirect(
           'aes256-ctr',
           'aes128-gcm@openssh.com',
           'aes256-gcm@openssh.com',
+          'chacha20-poly1305@openssh.com',
         ],
         serverHostKey: [
           'ssh-rsa',
@@ -248,17 +599,26 @@ export async function executeCiscoCliDirect(
           'rsa-sha2-256',
           'rsa-sha2-512',
         ],
+        hmac: [
+          'hmac-sha2-256-etm@openssh.com',
+          'hmac-sha2-512-etm@openssh.com',
+          'hmac-sha2-256',
+          'hmac-sha2-512',
+          'hmac-sha1',
+          'hmac-sha1-96',
+          'hmac-md5',
+        ],
       },
     };
 
     try {
       conn.connect(sshConfig);
     } catch (e: any) {
-      clearTimeout(timer);
-      if (!isFinished) {
-        isFinished = true;
-        resolve({ success: false, output: accumulatedOutput, error: e.message });
-      }
+      finish({
+        success: false,
+        output: accumulatedOutput,
+        error: e?.message || 'Failed to initialize SSH connection',
+      });
     }
   });
 }
@@ -267,7 +627,7 @@ export async function executeCiscoCliDirect(
  * Fetches and parses live configuration state from an authentic Cisco switch over SSH.
  */
 export async function fetchCiscoConfigState(device: any): Promise<CiscoConfigState> {
-  const host = (device.ip || device.ssh_host || '').trim();
+  const host = (device.connection?.host || device.ssh_host || device.ip || '').trim();
   const baseResult: CiscoConfigState = {
     success: false,
     connected: false,
@@ -353,8 +713,8 @@ export async function fetchCiscoConfigState(device: any): Promise<CiscoConfigSta
   };
 
   if (!host) {
-    baseResult.error = 'No IP address or SSH host configured';
-    baseResult.errorFa = 'آدرس IP یا هاست اتصال SSH برای این تجهیز تنظیم نشده است';
+    baseResult.error = 'No IP address or terminal host configured';
+    baseResult.errorFa = 'آدرس IP یا هاست اتصال برای این تجهیز در بخش Terminal Protocol & Credentials تنظیم نشده است';
     return baseResult;
   }
 
@@ -375,8 +735,8 @@ export async function fetchCiscoConfigState(device: any): Promise<CiscoConfigSta
 
   const execRes = await executeCiscoCliDirect(device, commands, 35000);
   if (!execRes.success || !execRes.output) {
-    baseResult.error = execRes.error || 'Failed to connect to Cisco switch via SSH';
-    baseResult.errorFa = `برقراری ارتباط SSH با سوئیچ سیسکو میسر نشد: ${execRes.error || 'تایم‌اوت ارتباط'}`;
+    baseResult.error = execRes.error || 'Failed to connect to Cisco switch';
+    baseResult.errorFa = `برقراری ارتباط با سوئیچ سیسکو میسر نشد: ${execRes.error || 'عدم پاسخگویی سوئیچ'}. لطفاً از صحت آدرس IP، پورت، پروتکل و اطلاعات کاربری (Terminal Protocol & Credentials) در ویرایش تجهیز اطمینان حاصل فرمایید.`;
     return baseResult;
   }
 

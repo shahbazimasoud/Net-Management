@@ -3849,7 +3849,11 @@ apiRouter.get('/devices/:id/cisco-config', async (req: Request, res: Response) =
     }
 
     const configState = await fetchCiscoConfigState(device);
-    return res.json(configState);
+    return res.json({
+      success: configState.success,
+      data: configState,
+      ...configState,
+    });
   } catch (err: any) {
     console.error('[Cisco Config GET Error]', err);
     return res.status(500).json({

@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.391.0';
+export const APP_VERSION = '1.392.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.392.0',
+    releaseDate: '2026-10-29',
+    type: 'patch',
+    title: 'رفع مشکل اتصال و احراز هویت ماژول سیسکو: رمزگشایی در لحظه پسوردها، انطباق با مشخصات اتصال ترمینال، مد Enable و پروتکل Telnet',
+    title_en: 'Fix Cisco Switch Authentication & Telemetry: In-Flight Password Decryption, Terminal Protocol & Credentials Resolution, Enable Mode & Telnet Client',
+    changes: [
+      'پیاده‌سازی رمزگشایی آنی و امن پسوردهای ذخیره‌شده تجهیزات در حافظه سرور (AES-256-GCM enc:v1: و Fernet enc:fernet: به همراه اتصال دینامیک ولت شخصیتی) بر اساس قانون امنیتی Rule 14 و رفع خطای رد احراز هویت (SSH Authentication Rejected).',
+      'پشتیبانی کامل از مشخصات ثبت‌شده در بخش Terminal Protocol & Credentials (پروتکل‌های SSH و Telnet، پورت‌های سفارشی، آدرس هاست و نام کاربری از آبجکت connection).',
+      'افزودن ورود خودکار به حالت مدیریتی سیسکو (Privileged Exec #) از طریق دستور enable و رمز عبور رمزگشایی‌شده enable_password جهت اجرای موفق دستورات بدون محدودیت سطوح دسترسی.',
+      'تعبیه موتور کلاینت اختصاصی و بومی پروتکل Telnet با مدیریت پکت‌های مذاکره گزینه‌های IAC و احراز هویت خودکار برای سوئیچ‌هایی با پروتکل تل‌نت.',
+      'اصلاح استخراج بسته داده‌های دریافتی از سرور در فرانت‌اند (res.data و res) و ارائه پیام‌های شفاف، دقیق و تشخیصی در صورت بروز خطای فیزیکی سخت‌افزار.'
+    ],
+    changes_en: [
+      'Implemented secure in-flight memory decryption for stored device credentials (AES-256-GCM enc:v1: and Fernet enc:fernet: tokens plus dynamic Vault item resolution) per Rule 14, eliminating Cisco SSH authentication rejection.',
+      'Enabled full hierarchical resolution from registered Terminal Protocol & Credentials (SSH and Telnet protocols, custom ports, target host, and credentials from device.connection object).',
+      'Added automated Cisco Privileged Exec (#) elevation via enable command and decrypted enable_password to unblock commands requiring full administrative rights.',
+      'Engineered native Telnet TCP socket engine with full Telnet IAC option negotiation and automated challenge response for switches operating over Telnet.',
+      'Fixed frontend response data envelope extraction (supporting both res.data and root state) with transparent, diagnostic error reporting on hardware connection failures.'
+    ]
+  },
   {
     version: '1.391.0',
     releaseDate: '2026-10-29',

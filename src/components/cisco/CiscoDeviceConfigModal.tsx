@@ -272,10 +272,14 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
     setError(null);
     try {
       const res = await fetchCiscoConfig(device.id);
-      if (res.success && res.data) {
-        setConfigState(res.data);
+      const state = res?.data || res;
+      if (state && state.success) {
+        setConfigState(state);
       } else {
-        setError(res.error || (isEn ? 'Failed to communicate with Cisco switch' : 'برقراری ارتباط با سوئیچ سیسکو با خطا مواجه شد'));
+        const errorMsg = isEn
+          ? (state?.error || res?.error || 'Failed to communicate with Cisco switch')
+          : (state?.errorFa || res?.errorFa || state?.error || res?.error || 'برقراری ارتباط با سوئیچ سیسکو با خطا مواجه شد');
+        setError(errorMsg);
       }
     } catch (err: any) {
       setError(err?.message || (isEn ? 'Hardware communication timeout or unreachable' : 'خطای اتصال به سخت‌افزار یا اتمام زمان مجاز ارتباط'));
