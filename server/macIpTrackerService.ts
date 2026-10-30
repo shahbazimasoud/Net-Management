@@ -46,14 +46,70 @@ export interface CamTableEntry {
   switchName: string;
   switchIp: string;
   switchVendor: string;
+  switchRole?: string;
+  switchModel?: string;
   vlan: string;
   mac: string;
   type: string; // DYNAMIC, STATIC, etc.
   port: string;
   isUplink?: boolean;
+  uplinkReason?: 'cdp_lldp_neighbor' | 'topology_link' | 'port_channel' | 'uplink_naming' | 'none';
   isFinalEdgePort?: boolean;
   peerDeviceName?: string;
   peerDeviceId?: string;
+  peerDeviceIp?: string;
+  peerPort?: string;
+  confidence?: 'high' | 'medium' | 'low';
+}
+
+export interface PathHop {
+  hopNumber: number;
+  switchId: string;
+  switchName: string;
+  switchIp: string;
+  switchRole?: string;
+  switchVendor: string;
+  port: string;
+  vlan: string;
+  isEdge: boolean;
+  isUplink: boolean;
+  peerDeviceName?: string;
+  peerPort?: string;
+  nextHopName?: string;
+}
+
+export interface PathGraphNode {
+  id: string;
+  label: string;
+  sublabel?: string;
+  type: 'core' | 'distribution' | 'access' | 'router' | 'endpoint';
+  ip?: string;
+  mac?: string;
+  port?: string;
+  vlan?: string;
+  isEdge: boolean;
+}
+
+export interface PathGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourcePort: string;
+  targetPort?: string;
+  vlan?: string;
+  isTrunk: boolean;
+}
+
+export interface EdgeCorrelationSummary {
+  finalEdgeFound: boolean;
+  finalSwitchName?: string;
+  finalPort?: string;
+  vlan?: string;
+  uplinksFilteredCount: number;
+  totalSwitchesWithMac: number;
+  confidence: 'high' | 'medium' | 'low';
+  explanationFa: string;
+  explanationEn: string;
 }
 
 export interface MacIpTrackerResult {
@@ -66,15 +122,11 @@ export interface MacIpTrackerResult {
   camEntries: CamTableEntry[];
   arpEntries: ArpTableEntry[];
   finalEdgePort: CamTableEntry | null;
-  pathHops: Array<{
-    hopNumber: number;
-    switchId: string;
-    switchName: string;
-    switchIp: string;
-    port: string;
-    vlan: string;
-    isEdge: boolean;
-  }>;
+  edgeSummary: EdgeCorrelationSummary;
+  pathHops: PathHop[];
+  pathDiagram: string;
+  graphNodes: PathGraphNode[];
+  graphEdges: PathGraphEdge[];
   switchesScannedCount: number;
   switchesActiveCount: number;
   durationMs: number;
@@ -1328,61 +1380,152 @@ function parseMikrotikArpOutput(rawOutput: string, device: any): ArpTableEntry[]
 // Topology Uplink & Edge Port Correlation
 // ============================================================================
 
+interface TopologyConnection {
+  sourceId?: string;
+  sourceIp?: string;
+  sourceName?: string;
+  sourcePort: string;
+  targetId?: string;
+  targetIp?: string;
+  targetName?: string;
+  targetPort?: string;
+  protocol?: string;
+  type?: string;
+}
+
 /**
- * Identifies inter-switch connections to distinguish uplink/trunk ports from client edge access ports.
+ * Loads all known physical & logical topology links from network_data.json,
+ * custom_maps, and cdp_lldp_neighbors.
  */
-function correlateEdgeAndUplinkPorts(
-  camEntries: CamTableEntry[],
-  allDevices: any[]
-): { correlatedEntries: CamTableEntry[]; finalEdgePort: CamTableEntry | null } {
-  if (camEntries.length === 0) {
-    return { correlatedEntries: [], finalEdgePort: null };
+function loadAllTopologyConnections(): TopologyConnection[] {
+  const connections: TopologyConnection[] = [];
+
+  // 1. From network_data.json (links, topology_links, cdp_lldp_neighbors)
+  try {
+    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+    if (fs.existsSync(netPath)) {
+      const raw = JSON.parse(fs.readFileSync(netPath, 'utf-8'));
+      if (Array.isArray(raw.links)) {
+        for (const l of raw.links) {
+          connections.push({
+            sourceId: l.source || l.sourceDeviceId,
+            sourceIp: l.sourceDeviceIp,
+            sourceName: l.sourceDeviceName,
+            sourcePort: l.source_port || l.sourcePort,
+            targetId: l.target || l.targetDeviceId,
+            targetIp: l.targetDeviceIp,
+            targetName: l.targetDeviceName,
+            targetPort: l.target_port || l.targetPort,
+            type: l.type,
+            protocol: l.protocol,
+          });
+        }
+      }
+      if (Array.isArray(raw.topology_links)) {
+        for (const l of raw.topology_links) {
+          connections.push({
+            sourceId: l.source || l.sourceDeviceId,
+            sourceIp: l.sourceDeviceIp,
+            sourceName: l.sourceDeviceName,
+            sourcePort: l.source_port || l.sourcePort,
+            targetId: l.target || l.targetDeviceId,
+            targetIp: l.targetDeviceIp,
+            targetName: l.targetDeviceName,
+            targetPort: l.target_port || l.targetPort,
+            type: l.type,
+            protocol: l.protocol,
+          });
+        }
+      }
+      if (Array.isArray(raw.cdp_lldp_neighbors)) {
+        for (const n of raw.cdp_lldp_neighbors) {
+          connections.push({
+            sourceId: n.sourceDeviceId,
+            sourceIp: n.sourceDeviceIp,
+            sourceName: n.sourceDeviceName,
+            sourcePort: n.localPort,
+            targetId: n.neighborDeviceId,
+            targetIp: n.neighborIp,
+            targetName: n.neighborName,
+            targetPort: n.remotePort,
+            protocol: n.protocol,
+            type: 'cdp_lldp',
+          });
+        }
+      }
+    }
+  } catch {}
+
+  // 2. From database_store.json (custom_maps, topology_links)
+  try {
+    const dbPath = path.join(process.cwd(), 'backend', 'database_store.json');
+    if (fs.existsSync(dbPath)) {
+      const raw = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
+      if (Array.isArray(raw.topology_links)) {
+        for (const l of raw.topology_links) {
+          connections.push({
+            sourceId: l.source || l.sourceDeviceId,
+            sourceIp: l.sourceDeviceIp,
+            sourceName: l.sourceDeviceName,
+            sourcePort: l.source_port || l.sourcePort,
+            targetId: l.target || l.targetDeviceId,
+            targetIp: l.targetDeviceIp,
+            targetName: l.targetDeviceName,
+            targetPort: l.target_port || l.targetPort,
+            type: l.type,
+            protocol: l.protocol,
+          });
+        }
+      }
+      if (Array.isArray(raw.custom_maps)) {
+        for (const m of raw.custom_maps) {
+          if (Array.isArray(m.links)) {
+            for (const l of m.links) {
+              connections.push({
+                sourceId: l.source,
+                sourcePort: l.source_port || l.sourcePort,
+                targetId: l.target,
+                targetPort: l.target_port || l.targetPort,
+                type: l.type,
+                protocol: l.protocol,
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return connections;
+}
+
+/**
+ * Calculates hierarchical tier rank for network switches and routers.
+ * Rank 1: Router / Gateway / Firewall
+ * Rank 2: Core Switch (Spine)
+ * Rank 3: Distribution / Aggregation Switch
+ * Rank 4: Access Switch (Edge / Floor / Workgroup)
+ */
+function getSwitchHierarchyRank(device: any): number {
+  if (!device) return 4;
+  const role = (device.role || '').toLowerCase();
+  const type = (device.type || '').toLowerCase();
+  const name = (device.name || '').toLowerCase();
+  const model = (device.model || '').toLowerCase();
+
+  if (type === 'router' || type === 'firewall' || role.includes('router') || role.includes('firewall') || role.includes('gateway')) {
+    return 1;
   }
-
-  // Load known inter-switch topology links if available
-  const knownLinks = loadTopologyLinks();
-
-  const correlated: CamTableEntry[] = camEntries.map((entry) => {
-    // Check if this switch's port is connected to another switch
-    const isLinkedToSwitch = knownLinks.some((link) => {
-      const isSource =
-        (link.sourceDeviceId === entry.switchId || link.sourceDeviceIp === entry.switchIp) &&
-        isSamePort(link.sourcePort, entry.port);
-      const isTarget =
-        (link.targetDeviceId === entry.switchId || link.targetDeviceIp === entry.switchIp) &&
-        isSamePort(link.targetPort, entry.port);
-
-      return isSource || isTarget;
-    });
-
-    const isUplinkName =
-      /uplink|trunk|po\d+|port-channel/i.test(entry.port) ||
-      /gi1\/0\/2[34]|gi1\/0\/4[78]|te1\/0\/[1-4]|ge-0\/0\/[0-3]|sfp/i.test(entry.port);
-
-    const isUplink = isLinkedToSwitch || isUplinkName;
-
-    return {
-      ...entry,
-      isUplink,
-    };
-  });
-
-  // Pick final edge port: non-uplink port on an access switch, or the deepest switch
-  let finalEdge = correlated.find((e) => !e.isUplink);
-
-  // If all are flagged or multiple, pick the one with standard access port naming
-  if (!finalEdge && correlated.length > 0) {
-    finalEdge = correlated[correlated.length - 1];
+  if (role.includes('core') || name.includes('core') || name.includes('spine') || model.includes('9500') || model.includes('9600') || model.includes('6500') || model.includes('6800')) {
+    return 2;
   }
-
-  if (finalEdge) {
-    finalEdge.isFinalEdgePort = true;
+  if (role.includes('distribution') || role.includes('distro') || role.includes('aggregation') || role.includes('agg') || role.includes('leaf') || name.includes('dist') || model.includes('3850') || model.includes('9300') || model.includes('3750')) {
+    return 3;
   }
-
-  return {
-    correlatedEntries: correlated,
-    finalEdgePort: finalEdge || null,
-  };
+  if (role.includes('access') || role.includes('edge') || role.includes('floor') || role.includes('workgroup') || name.includes('access') || name.includes('acc') || model.includes('2960') || model.includes('9200')) {
+    return 4;
+  }
+  return 3.5;
 }
 
 function isSamePort(a?: string, b?: string): boolean {
@@ -1392,16 +1535,287 @@ function isSamePort(a?: string, b?: string): boolean {
   return cleanA === cleanB || cleanA.endsWith(cleanB) || cleanB.endsWith(cleanA);
 }
 
-function loadTopologyLinks(): any[] {
-  try {
-    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
-    if (fs.existsSync(netPath)) {
-      const raw = JSON.parse(fs.readFileSync(netPath, 'utf-8'));
-      if (Array.isArray(raw.links)) return raw.links;
-      if (Array.isArray(raw.topology_links)) return raw.topology_links;
+/**
+ * Advanced Edge Port Correlator Engine (Phase 2):
+ * Correlates CAM table observations across multiple switches with CDP/LLDP topology links
+ * to eliminate intermediate uplink/trunk ports and isolate the authentic client edge port.
+ */
+export function correlateEdgeAndUplinkPorts(
+  camEntries: CamTableEntry[],
+  allDevices: any[],
+  targetMacStr?: string
+): {
+  correlatedEntries: CamTableEntry[];
+  finalEdgePort: CamTableEntry | null;
+  edgeSummary: EdgeCorrelationSummary;
+  pathHops: PathHop[];
+  pathDiagram: string;
+  graphNodes: PathGraphNode[];
+  graphEdges: PathGraphEdge[];
+} {
+  if (camEntries.length === 0) {
+    return {
+      correlatedEntries: [],
+      finalEdgePort: null,
+      edgeSummary: {
+        finalEdgeFound: false,
+        uplinksFilteredCount: 0,
+        totalSwitchesWithMac: 0,
+        confidence: 'low',
+        explanationFa: 'هیچ رکوردی در جدول CAM سوئیچ‌ها یافت نشد.',
+        explanationEn: 'No records found in switch CAM tables.',
+      },
+      pathHops: [],
+      pathDiagram: 'No path discovered',
+      graphNodes: [],
+      graphEdges: [],
+    };
+  }
+
+  const allConnections = loadAllTopologyConnections();
+  const deviceMapById = new Map<string, any>();
+  const deviceMapByIp = new Map<string, any>();
+
+  for (const d of allDevices) {
+    if (d.id) deviceMapById.set(d.id, d);
+    if (d.ip) deviceMapByIp.set(d.ip, d);
+  }
+
+  // 1. Enrich CAM entries and detect uplinks
+  const correlated: CamTableEntry[] = camEntries.map((entry) => {
+    const dev = deviceMapById.get(entry.switchId) || deviceMapByIp.get(entry.switchIp);
+    const switchRole = dev?.role || 'Access Switch';
+    const switchModel = dev?.model || '';
+
+    // A. Check against topology links & CDP/LLDP connections
+    let isConnectedToOtherSwitch = false;
+    let peerName: string | undefined;
+    let peerId: string | undefined;
+    let peerIp: string | undefined;
+    let peerPort: string | undefined;
+    let uplinkReason: CamTableEntry['uplinkReason'] = 'none';
+
+    for (const conn of allConnections) {
+      const matchSource =
+        (conn.sourceId && conn.sourceId === entry.switchId) ||
+        (conn.sourceIp && conn.sourceIp === entry.switchIp) ||
+        (conn.sourceName && conn.sourceName.toLowerCase() === entry.switchName.toLowerCase());
+
+      const matchTarget =
+        (conn.targetId && conn.targetId === entry.switchId) ||
+        (conn.targetIp && conn.targetIp === entry.switchIp) ||
+        (conn.targetName && conn.targetName.toLowerCase() === entry.switchName.toLowerCase());
+
+      if (matchSource && isSamePort(conn.sourcePort, entry.port)) {
+        isConnectedToOtherSwitch = true;
+        peerId = conn.targetId;
+        peerIp = conn.targetIp;
+        peerName = conn.targetName || (conn.targetId ? deviceMapById.get(conn.targetId)?.name : conn.targetIp);
+        peerPort = conn.targetPort;
+        uplinkReason = conn.protocol === 'cdp_lldp' ? 'cdp_lldp_neighbor' : 'topology_link';
+        break;
+      } else if (matchTarget && isSamePort(conn.targetPort, entry.port)) {
+        isConnectedToOtherSwitch = true;
+        peerId = conn.sourceId;
+        peerIp = conn.sourceIp;
+        peerName = conn.sourceName || (conn.sourceId ? deviceMapById.get(conn.sourceId)?.name : conn.sourceIp);
+        peerPort = conn.sourcePort;
+        uplinkReason = conn.protocol === 'cdp_lldp' ? 'cdp_lldp_neighbor' : 'topology_link';
+        break;
+      }
     }
-  } catch {}
-  return [];
+
+    // B. Check Port-Channel / LAG / Bonding
+    const isPortChannel = /^(po\d+|port-channel\d*|bundle-ether\d*|bonding\d*)/i.test(entry.port);
+    if (!isConnectedToOtherSwitch && isPortChannel) {
+      isConnectedToOtherSwitch = true;
+      uplinkReason = 'port_channel';
+    }
+
+    // C. Check modular uplink port naming if other switches exist
+    const isModularUplinkNaming =
+      /^(te|tengig|tengigabitethernet|fo|fortygig|fortygigabitethernet|hu|hundredgige|twentyfivegige|sfp|uplink|trunk)/i.test(entry.port) ||
+      /(port-channel|bundle-ether|bonding)/i.test(entry.port) ||
+      /gi1\/0\/2[34]|gi1\/0\/4[78]|te1\/0\/[1-4]|ether-combo/i.test(entry.port) ||
+      (camEntries.length > 1 && (switchRole.toLowerCase().includes('core') || switchRole.toLowerCase().includes('spine') || switchRole.toLowerCase().includes('dist')));
+
+    if (!isConnectedToOtherSwitch && isModularUplinkNaming && camEntries.length > 1) {
+      isConnectedToOtherSwitch = true;
+      uplinkReason = 'uplink_naming';
+    }
+
+    return {
+      ...entry,
+      switchRole,
+      switchModel,
+      isUplink: isConnectedToOtherSwitch,
+      uplinkReason,
+      peerDeviceName: peerName,
+      peerDeviceId: peerId,
+      peerDeviceIp: peerIp,
+      peerPort,
+    };
+  });
+
+  // 2. Classify and isolate the authentic final edge port
+  const accessCandidates = correlated.filter((e) => !e.isUplink);
+  let finalEdge: CamTableEntry | null = null;
+  let confidence: 'high' | 'medium' | 'low' = 'high';
+
+  if (accessCandidates.length === 1) {
+    finalEdge = accessCandidates[0];
+    finalEdge.isFinalEdgePort = true;
+    finalEdge.confidence = 'high';
+  } else if (accessCandidates.length > 1) {
+    // Multiple access ports: prioritize lowest tier (e.g. Access Switch > Distro > Core)
+    accessCandidates.sort((a, b) => {
+      const devA = deviceMapById.get(a.switchId) || deviceMapByIp.get(a.switchIp);
+      const devB = deviceMapById.get(b.switchId) || deviceMapByIp.get(b.switchIp);
+      return getSwitchHierarchyRank(devB) - getSwitchHierarchyRank(devA);
+    });
+    finalEdge = accessCandidates[0];
+    finalEdge.isFinalEdgePort = true;
+    finalEdge.confidence = 'high';
+  } else if (correlated.length > 0) {
+    // All seen ports were flagged as uplinks (e.g. connected via unmanaged daisy-chain or unknown downstream hub)
+    // Select the switch with the lowest hierarchy rank
+    const sorted = [...correlated].sort((a, b) => {
+      const devA = deviceMapById.get(a.switchId) || deviceMapByIp.get(a.switchIp);
+      const devB = deviceMapById.get(b.switchId) || deviceMapByIp.get(b.switchIp);
+      return getSwitchHierarchyRank(devB) - getSwitchHierarchyRank(devA);
+    });
+    finalEdge = sorted[0];
+    finalEdge.isFinalEdgePort = true;
+    finalEdge.confidence = 'medium';
+    confidence = 'medium';
+  }
+
+  // 3. Build Hop-by-Hop Sequential Packet Path
+  // Sort distinct switches from Core / Router (Tier 1/2) down to Access Switch (Tier 4)
+  const distinctSwitches = Array.from(new Set(correlated.map((e) => e.switchId)));
+  const switchEntriesMap = new Map<string, CamTableEntry>();
+  for (const e of correlated) {
+    if (!switchEntriesMap.has(e.switchId) || e.isFinalEdgePort) {
+      switchEntriesMap.set(e.switchId, e);
+    }
+  }
+
+  const sortedSwitches = distinctSwitches.map((id) => switchEntriesMap.get(id)!).sort((a, b) => {
+    const devA = deviceMapById.get(a.switchId) || deviceMapByIp.get(a.switchIp);
+    const devB = deviceMapById.get(b.switchId) || deviceMapByIp.get(b.switchIp);
+    return getSwitchHierarchyRank(devA) - getSwitchHierarchyRank(devB);
+  });
+
+  const pathHops: PathHop[] = sortedSwitches.map((entry, index) => {
+    const nextEntry = sortedSwitches[index + 1];
+    return {
+      hopNumber: index + 1,
+      switchId: entry.switchId,
+      switchName: entry.switchName,
+      switchIp: entry.switchIp,
+      switchRole: entry.switchRole,
+      switchVendor: entry.switchVendor,
+      port: entry.port,
+      vlan: entry.vlan,
+      isEdge: Boolean(entry.isFinalEdgePort),
+      isUplink: Boolean(entry.isUplink),
+      peerDeviceName: entry.peerDeviceName,
+      peerPort: entry.peerPort,
+      nextHopName: nextEntry ? nextEntry.switchName : 'Endpoint Device',
+    };
+  });
+
+  // 4. Generate Visual Linear Path Diagram
+  const hopDiagramParts = pathHops.map((h) => `[${h.switchName} (${h.port})]`);
+  const endpointLabel = targetMacStr ? `[Endpoint Device (${targetMacStr})]` : '[Endpoint Device]';
+  hopDiagramParts.push(endpointLabel);
+  const pathDiagram = hopDiagramParts.join(' ──► ');
+
+  // 5. Generate Topology Graph Nodes and Edges for Visual Rendering
+  const graphNodes: PathGraphNode[] = pathHops.map((h) => {
+    const dev = deviceMapById.get(h.switchId) || deviceMapByIp.get(h.switchIp);
+    const rank = getSwitchHierarchyRank(dev);
+    let type: PathGraphNode['type'] = 'access';
+    if (rank <= 1) type = 'router';
+    else if (rank <= 2) type = 'core';
+    else if (rank <= 3) type = 'distribution';
+
+    return {
+      id: h.switchId,
+      label: h.switchName,
+      sublabel: `${h.switchRole || 'Switch'} • ${h.switchIp}`,
+      type,
+      ip: h.switchIp,
+      port: h.port,
+      vlan: h.vlan,
+      isEdge: h.isEdge,
+    };
+  });
+
+  // Add the Endpoint Node
+  graphNodes.push({
+    id: 'endpoint-client',
+    label: targetMacStr || 'Client Device',
+    sublabel: 'Connected Endpoint',
+    type: 'endpoint',
+    mac: targetMacStr,
+    isEdge: true,
+  });
+
+  const graphEdges: PathGraphEdge[] = [];
+  for (let i = 0; i < pathHops.length; i++) {
+    const current = pathHops[i];
+    const next = pathHops[i + 1];
+    if (next) {
+      graphEdges.push({
+        id: `edge-${current.switchId}-${next.switchId}`,
+        source: current.switchId,
+        target: next.switchId,
+        sourcePort: current.port,
+        targetPort: next.port,
+        vlan: current.vlan,
+        isTrunk: true,
+      });
+    } else {
+      // Connect final hop to endpoint
+      graphEdges.push({
+        id: `edge-${current.switchId}-endpoint`,
+        source: current.switchId,
+        target: 'endpoint-client',
+        sourcePort: current.port,
+        vlan: current.vlan,
+        isTrunk: false,
+      });
+    }
+  }
+
+  // 6. Build Edge Summary Breakdown
+  const uplinksFilteredCount = correlated.filter((e) => e.isUplink).length;
+  const edgeSummary: EdgeCorrelationSummary = {
+    finalEdgeFound: Boolean(finalEdge),
+    finalSwitchName: finalEdge?.switchName,
+    finalPort: finalEdge?.port,
+    vlan: finalEdge?.vlan,
+    uplinksFilteredCount,
+    totalSwitchesWithMac: distinctSwitches.length,
+    confidence,
+    explanationFa: finalEdge
+      ? `پورت ${finalEdge.port} روی سوئیچ ${finalEdge.switchName} به عنوان پورت نهایی اکسس کلاینت شناسایی گردید (${uplinksFilteredCount} پورت ترانک و آپلینک میانی فیلتر شدند).`
+      : 'پورت نهایی معتبر کشف نشد.',
+    explanationEn: finalEdge
+      ? `Port ${finalEdge.port} on switch ${finalEdge.switchName} identified as final client edge port (${uplinksFilteredCount} upstream trunk/uplink ports filtered).`
+      : 'No client edge port discovered.',
+  };
+
+  return {
+    correlatedEntries: correlated,
+    finalEdgePort: finalEdge,
+    edgeSummary,
+    pathHops,
+    pathDiagram,
+    graphNodes,
+    graphEdges,
+  };
 }
 
 // ============================================================================
@@ -1553,19 +1967,16 @@ export async function searchMacOrIp(options: SearchOptions): Promise<MacIpTracke
   // Step 3: OUI Vendor Identification
   const vendorInfo = lookupOuiVendor(normalizedMac);
 
-  // Step 4: Edge port and uplink correlation
-  const { correlatedEntries, finalEdgePort } = correlateEdgeAndUplinkPorts(camEntries, allDevices);
-
-  // Build hop-by-hop path sequence
-  const pathHops = correlatedEntries.map((c, index) => ({
-    hopNumber: index + 1,
-    switchId: c.switchId,
-    switchName: c.switchName,
-    switchIp: c.switchIp,
-    port: c.port,
-    vlan: c.vlan,
-    isEdge: Boolean(c.isFinalEdgePort),
-  }));
+  // Step 4: Edge port and uplink correlation (Phase 2 Correlator Engine)
+  const {
+    correlatedEntries,
+    finalEdgePort,
+    edgeSummary,
+    pathHops,
+    pathDiagram,
+    graphNodes,
+    graphEdges,
+  } = correlateEdgeAndUplinkPorts(camEntries, allDevices, normalizedMac ? normalizedMac.standardUpper : undefined);
 
   const durationMs = Date.now() - startTime;
   const isFound = correlatedEntries.length > 0 || arpEntries.length > 0;
@@ -1580,7 +1991,11 @@ export async function searchMacOrIp(options: SearchOptions): Promise<MacIpTracke
     camEntries: correlatedEntries,
     arpEntries,
     finalEdgePort,
+    edgeSummary,
     pathHops,
+    pathDiagram,
+    graphNodes,
+    graphEdges,
     switchesScannedCount: switchesAndRouters.length,
     switchesActiveCount,
     durationMs,

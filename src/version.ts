@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.403.0';
+export const APP_VERSION = '1.404.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.404.0',
+    releaseDate: '2026-10-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۲ ردیاب سراسری مک و آی‌پی: موتور همبستگی توپولوژی، حذف خودکار پورت‌های ترانک و آپلینک، تفکیک پورت نهایی اکسس و ترسیم گراف هاپ‌های شبکه',
+    title_en: 'Phase 2: Edge Port Correlator Engine, Automated Inter-Switch Trunk/Uplink Elimination, Final Client Access Port Isolation & Hop-by-Hop Topology Graph Generator',
+    changes: [
+      'طراحی و پیاده‌سازی موتور پیشرفته همبستگی لبه شبکه (Edge Port Correlator) در ماژول server/macIpTrackerService.ts جهت تفکیک پورت واقعی اتصال کابل کلاینت از پورت‌های ترانک میانی.',
+      'ادغام اطلاعات اتصالات فیزیکی و منطقی از نقشه‌های سیستم، جداول topology_links و بانک همسایگان CDP و LLDP جهت شناسایی دقیق پورت‌های متصل به سوئیچ‌های دیگر.',
+      'الگوریتم چندمعیاره فیلترسازی پورت‌های آپلینک شامل: اعتبارسنجی اتصالات بین‌سوییچی، تحلیل پورت‌چنل‌ها (Port-channel, LAG, Bundle-Ether, Bonding)، تحلیل پورت‌های ماژولار و نقش سوییچ‌ها (Core, Distribution, Access).',
+      'موتور محاسبه مسیر هاپ‌به‌هاپ پکت (Hop-by-Hop Packet Path) با مرتب‌سازی سلسله‌مراتبی از سوییچ روت و هسته شبکه به سمت سوییچ‌های توزیع و اکسس.',
+      'تولید دیاگرام خطی گرافیکی مسیر پکت شبکه (مانند [Core-SW (Gi1/0/24)] ──► [Distro-SW (Po1)] ──► [Access-SW (Fa0/5)] ──► [Endpoint Device]).',
+      'تولید ساختار گره‌ها و یال‌های توپولوژی (graphNodes و graphEdges) جهت رندرینگ بصری مسیر در رابط کاربری.',
+      'ارائه خلاصه ارزیابی و سطح اطمینان همبستگی (edgeSummary) همراه با توضیحات تشریحی دوزبانه و گزارش تعداد پورت‌های ترانک حذف‌شده.'
+    ],
+    changes_en: [
+      'Architected advanced Edge Port Correlator in server/macIpTrackerService.ts to isolate genuine physical client ports and eliminate intermediate transit uplinks.',
+      'Aggregated physical and logical topology link repositories, topology_links tables, and CDP/LLDP neighbor matrices to pinpoint inter-switch connections.',
+      'Engineered multi-criteria uplink elimination evaluating inter-switch connections, port-channel bundles (LAG/Bonding), modular 10G/40G interfaces, and switch hierarchy tiers.',
+      'Built hierarchical hop-by-hop packet path generator traversing from Core/Root infrastructure down to distribution and client-facing access switches.',
+      'Synthesized linear visual text diagrams representing the end-to-end packet journey across switch tiers directly to the endpoint.',
+      'Generated complete topological graph schema (graphNodes and graphEdges) ready for rich interactive visualization in UI components.',
+      'Delivered edge correlation summary analytics (edgeSummary) with confidence scoring, filtered trunk counters, and strict bilingual English and Persian explanations.'
+    ]
+  },
   {
     version: '1.403.0',
     releaseDate: '2026-10-30',
