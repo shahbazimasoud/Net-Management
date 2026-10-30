@@ -11,6 +11,7 @@ import {
   FileCode2,
   BatteryCharging,
   Radar,
+  LocateFixed,
   Maximize2,
   X,
   Layers,
@@ -84,6 +85,7 @@ const TOOL_ICONS: Record<NetworkToolId, React.ComponentType<{ className?: string
   header_analyzer: FileCode2,
   ups_calculator: BatteryCharging,
   host_checker: Radar,
+  mac_ip_tracker: LocateFixed,
 };
 
 const STANDARD_MODAL_ICONS: Record<StandardModalId, React.ComponentType<{ className?: string }>> = {

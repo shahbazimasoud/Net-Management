@@ -8,7 +8,8 @@ export type NetworkToolId =
   | 'cert_lookup'
   | 'header_analyzer'
   | 'ups_calculator'
-  | 'host_checker';
+  | 'host_checker'
+  | 'mac_ip_tracker';
 
 export interface ActiveToolState {
   id: NetworkToolId;

@@ -47,6 +47,13 @@ import { startBackupSchedulerDaemon } from './server/backupScheduler';
 import { startAuditReportSchedulerDaemon } from './server/auditReportScheduler';
 import { startLogRetentionDaemon } from './server/logRetentionDaemon';
 import { initServerTime } from './server/serverTimeManager';
+import {
+  searchMacOrIp,
+  getMacIpTrackerHistory,
+  detectQueryType,
+  normalizeMac,
+  lookupOuiVendor,
+} from './server/macIpTrackerService';
 
 const app = express();
 
@@ -1125,6 +1132,61 @@ app.get('/api/tools/check-host/nodes', async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     return res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// Global MAC & IP Tracker (CAM/ARP & Edge Topology Correlator) API
+// -------------------------------------------------------------
+app.post('/api/tools/mac-ip-tracker/search', async (req: Request, res: Response) => {
+  try {
+    const rawQuery = (req.body?.query || '').trim();
+    if (!rawQuery) {
+      return res.status(400).json({ success: false, error: 'Query (MAC address or IP) is required' });
+    }
+    const operatorUsername = (req as any).user?.username || (req.headers['x-operator-user'] as string) || 'admin';
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1';
+    const forceRefresh = Boolean(req.body?.forceRefresh);
+
+    const result = await searchMacOrIp({
+      query: rawQuery,
+      operatorUsername,
+      clientIp,
+      forceRefresh,
+    });
+
+    return res.json({ success: true, result });
+  } catch (err: any) {
+    console.error('[MacIpTracker API] Search failed:', err);
+    return res.status(500).json({ success: false, error: err.message || 'MAC/IP search failed' });
+  }
+});
+
+app.get('/api/tools/mac-ip-tracker/history', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string || '30', 10)));
+    const history = await getMacIpTrackerHistory(limit);
+    return res.json({ success: true, history });
+  } catch (err: any) {
+    console.error('[MacIpTracker API] History failed:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch search history' });
+  }
+});
+
+app.post('/api/tools/mac-ip-tracker/validate', (req: Request, res: Response) => {
+  try {
+    const rawQuery = (req.body?.query || '').trim();
+    const queryType = detectQueryType(rawQuery);
+    const normalizedMac = queryType === 'mac' ? normalizeMac(rawQuery) : null;
+    const vendor = normalizedMac ? lookupOuiVendor(normalizedMac) : null;
+    return res.json({
+      success: true,
+      queryType,
+      normalizedMac,
+      vendor,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message });
   }
 });
 

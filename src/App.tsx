@@ -42,6 +42,7 @@ import { HeaderAnalyzerModal } from './components/tools/HeaderAnalyzerModal';
 import { UpsCalculatorModal } from './components/tools/UpsCalculatorModal';
 import { HostCheckerModal } from './components/tools/HostCheckerModal';
 import { PasswordVaultModal } from './components/vault/PasswordVaultModal';
+import { MacIpTrackerModal } from './components/tools/MacIpTrackerModal';
 import { updateDocumentFavicon } from './utils/favicon';
 import { Wrench, ChevronUp } from 'lucide-react';
 import { APP_VERSION } from './version';
@@ -570,7 +571,8 @@ export default function App() {
         header_analyzer: { en: 'Header Analyzer', fa: 'تحلیل هدرها', badge: 'HTTP' },
         ups_calculator: { en: 'UPS & Battery Sizing', fa: 'محاسبه‌گر باتری یوپی‌اس', badge: 'Power' },
         host_checker: { en: 'Global Host Checker', fa: 'هاست چکر بین‌المللی', badge: 'Multi-Country' },
-        password_vault: { en: 'Password Vault', fa: 'کیف امن گذرواژه', badge: 'AES-256' }
+        password_vault: { en: 'Password Vault', fa: 'کیف امن گذرواژه', badge: 'AES-256' },
+        mac_ip_tracker: { en: 'MAC & IP Tracker', fa: 'ردیاب مک و آی‌پی', badge: 'CAM/ARP' }
       };
       const meta = labelMap[id];
       return [
@@ -1718,6 +1720,18 @@ export default function App() {
         isEn={isEn}
         isLightMode={isLightMode}
         devices={devices}
+      />
+
+      {/* 11. Global MAC & IP Address Tracker Modal */}
+      <MacIpTrackerModal
+        isOpen={isToolOpen('mac_ip_tracker')}
+        onClose={() => handleCloseTool('mac_ip_tracker')}
+        onMinimize={() => handleMinimizeTool('mac_ip_tracker')}
+        isEn={isEn}
+        isLightMode={isLightMode}
+        allDevices={devices}
+        onOpenTerminal={(dev) => openTerminal(dev)}
+        onOpenPortInspector={(dev) => handleInspectPorts(dev)}
       />
     </div>
   );

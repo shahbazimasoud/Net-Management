@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.404.0';
+export const APP_VERSION = '1.405.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.405.0',
+    releaseDate: '2026-10-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۳ ردیاب سراسری مک و آی‌پی: طراحی و پیاده‌سازی مودال اختصاصی (MacIpTrackerModal) با ۵ شرط الزامی معماری، کارت هیرو پورت نهایی اکسس، گراف هاپ‌های سوئیچ و تب تاریخچه امنیتی در دیتابیس PostgreSQL',
+    title_en: 'Phase 3: Dedicated Global MAC & IP Tracker Modal (MacIpTrackerModal), 5 Architectural Modal Standards, Edge Port Hero Card, Hop-by-Hop Topology Graph & PostgreSQL Search Audit History',
+    changes: [
+      'طراحی و پیاده‌سازی کامل کامپوننت رابط کاربری مودال ردیاب مک و آی‌پی (src/components/tools/MacIpTrackerModal.tsx) منطبق بر استانداردهای تخطی‌ناپذیر سیستم.',
+      'رعایت کامل ۵ شرط الزامی معماری مودال‌ها: دکمه‌های ۳گانه هدر (بستن، مینیمایز با انتقال به ToolsDock، و تمام‌صفحه با استیت isMaximized)، مهار دقیق حریم فوتر تا bottom-8 در تمامی حالات، رندرینگ مستقیم در ریشه با createPortal و لایه z-[999990].',
+      'انطباق ارگونومیک ۱۰۰ درصدی با تم روشن (bg-white) و تم تیره (bg-slate-950) همراه با متون خوانا و بالاترین کنتراست رنگی.',
+      'پشتیبانی جامع و بی‌نقص از دو زبان انگلیسی و فارسی بدون هیچ متن فارسی در حالت انگلیسی و با فارسی روان در حالت زبان فارسی.',
+      'تجهیز ورودی‌ها و گزینه‌ها به کادرهای راهنمای FieldInfoTooltip سه‌گانه («این چیست؟»، «چرا لازم است؟»، «مثال کاربردی») با چرخش هوشمند و جلوگیری قطعی از خروج از لبه‌های مانیتور.',
+      'نوار جستجوی هوشمند با قابلیت پیست سریع از کلیپ‌بورد، تشخیص آنی فرمت‌های مک و آی‌پی، چیپ‌های نمونه پیش‌فرض، پاکسازی سریع، و دکمه استعلام زنده مجدد (Live Force Refresh).',
+      'کارت شاخص وضعیت پورت نهایی اکسس (Edge Port Hero Card) با حاشیه درخشان، مشخصات سوئیچ و پورت فیزیکی، تگ VLAN، نام و نشان سازنده کارت شبکه (OUI)، سطح اطمینان همبستگی و تفکیک آپلینک‌ها.',
+      'دکمه‌های اقدام مستقیم شامل اتصال فوری به ترمینال خط فرمان سوئیچ، باز کردن بازرس جامع پورت (Port Inspector)، و کپی یک‌کلیکه فرامین استعلام CLI.',
+      'ترسیم بصری و دیاگرام خطی زنجیره هاپ‌های سوئیچ (Switch Path Hop-by-Hop) و جدول تفصیلی مشاهدات CAM و ARP.',
+      'تب اختصاصی تاریخچه ممیزی جستجوها (Audit History Tab) با اتصال مستقیم به دیتابیس PostgreSQL جهت بازبینی جستجوهای گذشته و امکان استعلام مجدد با یک کلیک.'
+    ],
+    changes_en: [
+      'Engineered dedicated Global MAC & IP Tracker Modal (src/components/tools/MacIpTrackerModal.tsx) compliant with universal frontend modal architectural standards.',
+      'Enforced all 5 mandatory modal rules: triple header control buttons (Close, Minimize to ToolsDock, and Fullscreen toggle), strict footer boundary clearance (bottom-8 / z-[999990]), and direct document.body portal rendering.',
+      'Implemented 100% theme adaptability across Dark Mode (bg-slate-950) and Light Mode (bg-white) with ergonomic typography and high-contrast styling.',
+      'Guaranteed strict bilingual localization (English / Persian) with zero Persian leakage in English mode and fluent natural Persian in Farsi mode.',
+      'Equipped input fields and operational toggles with boundary-safe 3-part FieldInfoTooltip popovers detailing definition, necessity, and recommended examples.',
+      'Built smart search bar featuring instant clipboard paste, auto-detection badges for MAC/IPv4 formats, quick test presets, and live force SSH polling toggle.',
+      'Designed Edge Port Hero Card highlighting isolated physical client access ports with switch metadata, VLAN tags, OUI vendor badge, and correlation confidence score.',
+      'Added direct operational action triggers: immediate switch CLI terminal launching, Port Inspector modal invocation, and one-click CLI command copying.',
+      'Rendered visual interactive Switch Path Hop-by-Hop pipeline and comprehensive CAM/ARP observation inspection table.',
+      'Integrated PostgreSQL Audit Search History tab retrieving persistent search logs with operator identification, execution latency, and one-click re-trace capabilities.'
+    ]
+  },
   {
     version: '1.404.0',
     releaseDate: '2026-10-30',
