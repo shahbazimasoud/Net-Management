@@ -15,7 +15,7 @@
       ],
       "is_builtin": true,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-10-29T21:08:11.829Z"
+      "last_login": "2026-10-30T14:17:08.098Z"
     }
   ],
   "user_groups": [
@@ -2146,6 +2146,54 @@
       "details": "{\"query\":\"0050.56a1.2234\",\"queryType\":\"mac\",\"normalizedMac\":\"00:50:56:A1:22:34\",\"resolvedIp\":null,\"vendor\":\"VMware Virtual NIC\",\"switchesScanned\":1,\"finalPort\":null,\"durationMs\":1332,\"cached\":false}",
       "ip_address": "127.0.0.1",
       "user_agent": ""
+    },
+    {
+      "id": "log-1793369415584-wqhar",
+      "timestamp": "2026-10-30T14:10:15.584Z",
+      "user_name": "admin",
+      "action": "Failed Login (Invalid Password)",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "warning",
+      "details": "Invalid password supplied for user \"admin\" from IP 127.0.0.1",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1793369497978-9077n",
+      "timestamp": "2026-10-30T14:11:37.978Z",
+      "user_name": "admin",
+      "action": "Failed Login (Invalid Password)",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "warning",
+      "details": "Invalid password supplied for user \"admin\" from IP 127.0.0.1",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1793369614523-7rvjf",
+      "timestamp": "2026-10-30T14:13:34.523Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: مدیر ارشد زیرساخت شبکه (Super Administrator)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1793369828331-ynick",
+      "timestamp": "2026-10-30T14:17:08.331Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: مدیر ارشد زیرساخت شبکه (Super Administrator)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
     }
   ],
   "ad_config": {
@@ -3473,7 +3521,7 @@
         "legacy_panel_update_seed_key_october_2026"
       ],
       "created_at": "2026-10-19T13:47:48.714Z",
-      "updated_at": "2026-10-30T13:59:17.565Z"
+      "updated_at": "2026-10-30T14:16:59.405Z"
     }
   ],
   "device_command_audit_logs": [

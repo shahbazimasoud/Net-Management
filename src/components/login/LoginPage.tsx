@@ -278,34 +278,54 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       const globalTrustedToken = localStorage.getItem('nettopology_trusted_device_token');
       const candidateTrustedDeviceToken = userSpecificToken || globalTrustedToken || '';
 
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept-Language': language,
-          'X-Trusted-Device-Token': candidateTrustedDeviceToken,
-        },
-        body: JSON.stringify({
-          username: username.trim(),
-          password: password.trim(),
-          authType,
-          domain: effectiveDomain,
-          rememberMe,
-          trustedDeviceToken: candidateTrustedDeviceToken,
-        }),
+      // Ensure safe ASCII header or fallback to body payload only
+      const isAsciiToken = Boolean(candidateTrustedDeviceToken && /^[A-Za-z0-9_\-.:+=]+$/.test(candidateTrustedDeviceToken));
+      const reqHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+      if (isAsciiToken) {
+        reqHeaders['X-Trusted-Device-Token'] = candidateTrustedDeviceToken;
+      }
+
+      const loginPayload = JSON.stringify({
+        username: username.trim(),
+        password: password.trim(),
+        authType,
+        domain: effectiveDomain,
+        rememberMe,
+        trustedDeviceToken: candidateTrustedDeviceToken,
       });
 
-      const contentType = res.headers.get('content-type') || '';
+      let res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: reqHeaders,
+        body: loginPayload,
+      });
+
+      let contentType = res.headers.get('content-type') || '';
       let data: any = null;
+
+      // Resilient recovery: if gateway was cold-starting or proxy gave a transient non-JSON response, retry once
+      if (!contentType.includes('application/json')) {
+        await new Promise((r) => setTimeout(r, 600));
+        res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: reqHeaders,
+          body: loginPayload,
+        });
+        contentType = res.headers.get('content-type') || '';
+      }
+
       if (contentType.includes('application/json')) {
         data = await res.json();
       } else {
         const textResponse = await res.text().catch(() => '');
-        console.error('[Login non-JSON response]', res.status, textResponse.slice(0, 150));
+        console.warn('[Login non-JSON response]', res.status, textResponse.slice(0, 150));
         throw new Error(
           isEn
-            ? `Authentication server returned status ${res.status} (${res.statusText || 'Service Gateway Error'}). Please verify backend connection.`
-            : `سرویس احراز هویت وضعیت نامعتبر ${res.status} برگرداند. لطفاً اتصال به سرور پایگاه داده را بررسی فرمایید.`
+            ? `Authentication service is currently warming up (${res.status} ${res.statusText || 'Gateway Handshake'}). Please wait a few seconds and try again.`
+            : `سرویس احراز هویت در حال راه‌اندازی است (${res.status}). لطفاً چند لحظه دیگر مجدداً تلاش فرمایید.`
         );
       }
 

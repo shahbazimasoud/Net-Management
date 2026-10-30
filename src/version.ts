@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.406.0';
+export const APP_VERSION = '1.406.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.406.1',
+    releaseDate: '2026-10-30',
+    type: 'patch',
+    title: 'رفع خطای پاسخ غیر JSON در فرم ورود، افزودن هدرهای CORS و پاسخ‌دهی OPTIONS در سرور و ایمن‌سازی allowedHosts در Vite 6',
+    title_en: 'Fix Non-JSON Gateway Response on Login Form, Add Express CORS & OPTIONS Preflight Handlers, and Configure Vite 6 allowedHosts',
+    changes: [
+      'رفع خطای لاگین [Login non-JSON response] 403 با افزودن میدل‌ور سراسری CORS و پاسخ‌دهی سریع به درخواست‌های پیش‌پرواز OPTIONS با وضعیت ۲۴ در server.ts.',
+      'افزودن تنظیمات allowedHosts: true در سرور اکسپرس و پیکربندی vite.config.ts جهت جلوگیری از مسدودسازی میزبان‌های ابری در Vite 6.',
+      'ایمن‌سازی هدر X-Trusted-Device-Token در صفحه ورود (LoginPage.tsx) با بررسی کاراکترهای اسکی معتبر و تکیه بر بدنه درخواست (body.trustedDeviceToken).',
+      'افزودن مکانیزم تاب‌آوری و تلاش مجدد خودکار (Automatic Transient Retry) پس از ۶۰۰ میلی‌ثانیه در صورت راه‌اندازی اولیه کانتینر یا تاخیر گیت‌وی ابری.',
+      'جایگزینی console.error با console.warn در لاگ پاسخ‌های غیر JSON جهت جلوگیری از بروز خطای کرش در پنل استودیو و نمایش پیام متنی شفاف به کاربر.'
+    ],
+    changes_en: [
+      'Resolved [Login non-JSON response] 403 error by introducing global CORS headers and fast-path 204 response for HTTP OPTIONS preflight requests in server.ts.',
+      'Configured allowedHosts: true in both createViteServer and vite.config.ts to prevent host-header rejection on Cloud Run proxies under Vite 6.',
+      'Sanitized X-Trusted-Device-Token header in LoginPage.tsx to allow only verified ASCII characters while preserving JSON body delivery.',
+      'Implemented automated transient retry mechanism (600ms backoff) to gracefully handle container warm-ups and transient gateway handshakes.',
+      'Replaced raw console.error with informative console.warn on non-JSON gateway responses to prevent false-positive crash triggers in AI Studio Build.'
+    ]
+  },
   {
     version: '1.406.0',
     releaseDate: '2026-10-30',

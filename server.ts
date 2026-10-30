@@ -82,6 +82,17 @@ const PYTHON_WS_PORT = process.env.PYTHON_WS_PORT ? parseInt(process.env.PYTHON_
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
+// CORS & OPTIONS preflight handler for API routes
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Accept-Language, X-Trusted-Device-Token, x-operator-user');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // Child process for Python backend
 let pythonProcess: ChildProcess | null = null;
 let isStartingPython = false;
@@ -1393,6 +1404,7 @@ async function startServer() {
         middlewareMode: true,
         hmr: false,
         watch: process.env.DISABLE_HMR === 'true' ? null : {},
+        allowedHosts: true,
       },
       appType: 'spa',
     });
