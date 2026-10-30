@@ -14,6 +14,7 @@ import {
   BatteryCharging,
   Radar,
   Lock,
+  LocateFixed,
   X
 } from 'lucide-react';
 
@@ -147,6 +148,17 @@ const TOOL_ITEMS: ToolMenuItem[] = [
     badgeEn: 'Multi-Country',
     badgeFa: 'چندکشوری',
     badgeColor: 'bg-teal-500/20 text-teal-300 border-teal-500/30'
+  },
+  {
+    id: 'mac_ip_tracker',
+    icon: LocateFixed,
+    titleEn: 'Global MAC & IP Tracker',
+    titleFa: 'ردیاب سراسری مک و آی‌پی',
+    descEn: 'Trace endpoint to edge switch port, eliminate uplinks & view packet hop graph',
+    descFa: 'ردیابی کلاینت به پورت فیزیکی اکسس سوئیچ، حذف آپلینک‌های ترانک و ترسیم مسیر هاپ‌ها',
+    badgeEn: 'CAM / ARP',
+    badgeFa: 'جدول CAM / ARP',
+    badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
   }
 ];
 

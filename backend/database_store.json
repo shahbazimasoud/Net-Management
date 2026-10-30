@@ -2134,6 +2134,18 @@
       "details": "{\"query\":\"0050.56a1.2234\",\"queryType\":\"mac\",\"normalizedMac\":\"00:50:56:A1:22:34\",\"resolvedIp\":null,\"vendor\":\"VMware Virtual NIC\",\"switchesScanned\":1,\"finalPort\":null,\"durationMs\":1331,\"cached\":false}",
       "ip_address": "127.0.0.1",
       "user_agent": ""
+    },
+    {
+      "id": "log-1793368940675-b6isj",
+      "timestamp": "2026-10-30T14:02:20.675Z",
+      "user_name": "test_admin",
+      "action": "MAC_IP_TRACKER_LOOKUP",
+      "category": "topology_network",
+      "target": "0050.56a1.2234",
+      "status": "not_found",
+      "details": "{\"query\":\"0050.56a1.2234\",\"queryType\":\"mac\",\"normalizedMac\":\"00:50:56:A1:22:34\",\"resolvedIp\":null,\"vendor\":\"VMware Virtual NIC\",\"switchesScanned\":1,\"finalPort\":null,\"durationMs\":1332,\"cached\":false}",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
     }
   ],
   "ad_config": {
@@ -3461,7 +3473,7 @@
         "legacy_panel_update_seed_key_october_2026"
       ],
       "created_at": "2026-10-19T13:47:48.714Z",
-      "updated_at": "2026-10-30T13:43:40.072Z"
+      "updated_at": "2026-10-30T13:59:17.565Z"
     }
   ],
   "device_command_audit_logs": [

@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.405.0';
+export const APP_VERSION = '1.406.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.406.0',
+    releaseDate: '2026-10-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۴ ردیاب سراسری مک و آی‌پی: ادغام کامل در منوی ابزارهای فوتر (NetworkToolsMenu)، هماهنگی با نوار داک، اتصال هندلرهای باز شدن و مینیمایز، اعتبارسنجی جامع و انتشار نسخه جدید',
+    title_en: 'Phase 4: Full Footer Tools Menu (NetworkToolsMenu) Integration, ToolsDock Coordination, Open & Minimize Handlers, Comprehensive Validation & Release',
+    changes: [
+      'ادغام کامل ردیاب سراسری مک و آی‌پی (Global MAC & IP Tracker) در منوی کشویی ابزارهای مهندسی شبکه در نوار فوتر (NetworkToolsMenu.tsx).',
+      'تعریف کارت ابزار اختصاصی با آیکون LocateFixed، عنوان دوزبانه رسمی «ردیاب سراسری مک و آی‌پی / Global MAC & IP Tracker»، توضیحات تشریحی و بج CAM / ARP.',
+      'اتصال مستقیم به نوار داک پایین صفحه (ToolsDock.tsx) جهت پشتیبانی کامل از مینیمایز شدن، حفظ استیت و بازگردانی تب بدون تداخل با سایر ابزارهای شبکه.',
+      'یکپارچه‌سازی در کامپوننت ریشه برنامه (src/App.tsx) با نگاشت دقیق متادیتا، هندلرهای باز شدن و بستن ابزار، و اتصال مستقیم اکشن‌های ترمینال و بازرس پورت (Port Inspector).',
+      'اجرای موفق تست‌های اعتبارسنجی تایپ‌اسکریپت (tsc --noEmit) و بیلد پروداکشن بدون هیچ‌گونه خطا یا هشدار شکسته‌شده.'
+    ],
+    changes_en: [
+      'Fully integrated the Global MAC & IP Tracker into the footer network engineering tools menu (NetworkToolsMenu.tsx).',
+      'Added dedicated tool card with LocateFixed icon, official bilingual title "Global MAC & IP Tracker / ردیاب سراسری مک و آی‌پی", descriptive summary, and CAM / ARP badge.',
+      'Wired active dock presence into ToolsDock.tsx with icon rendering, smooth tab state restoration, and multi-modal minimize management.',
+      'Connected root application handlers in src/App.tsx for modal lifecycle, tool metadata mapping, and direct CLI terminal / Port Inspector actions.',
+      'Executed complete TypeScript validation (tsc --noEmit) and production build pipeline with zero regressions.'
+    ]
+  },
   {
     version: '1.405.0',
     releaseDate: '2026-10-30',
