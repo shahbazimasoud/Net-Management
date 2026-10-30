@@ -2062,6 +2062,54 @@
       "details": "Unauthorized attempt to execute or access Bulk Device Configuration endpoint (POST /api/bulk-config/jobs) rejected. User \"admin\" (role: Super Administrator) from IP 127.0.0.1 lacks canBulkConfigureDevices permission under active PostgreSQL RBAC policy.",
       "ip_address": "127.0.0.1",
       "user_agent": "node-fetch"
+    },
+    {
+      "id": "log-1793352575131-m5mzy",
+      "timestamp": "2026-10-30T09:29:35.131Z",
+      "user_name": "cron_daemon",
+      "action": "BACKUP_EXPORT",
+      "category": "disaster_recovery",
+      "target": "Scope: full (Engine: fallback_json)",
+      "status": "success",
+      "details": "Exported full backup. Servers: 0, Devices: 1, Users: 1. Encrypted: false, Sanitized: false",
+      "ip_address": "127.0.0.1",
+      "user_agent": "NetTopology-DR-Engine"
+    },
+    {
+      "id": "log-1793352575504-w66yq",
+      "timestamp": "2026-10-30T09:29:35.504Z",
+      "user_name": "cron_daemon",
+      "action": "SCHEDULED_BACKUP_EXECUTE",
+      "category": "disaster_recovery",
+      "target": "Job: Daily Disaster Recovery Snapshot (بکاپ جامع روزانه) (job-daily-dr)",
+      "status": "success",
+      "details": "Backup generated successfully in 600ms. File: auto_backup_full_2026-10-30T09-29-35-206Z_job-daily-dr.json (29.91 KB).",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
+    },
+    {
+      "id": "log-1793352575959-bfsd5",
+      "timestamp": "2026-10-30T09:29:35.959Z",
+      "user_name": "cron_daemon",
+      "action": "BACKUP_EXPORT",
+      "category": "disaster_recovery",
+      "target": "Scope: servers_only (Engine: fallback_json)",
+      "status": "success",
+      "details": "Exported servers_only backup. Servers: 0, Devices: 0, Users: 0. Encrypted: false, Sanitized: false",
+      "ip_address": "127.0.0.1",
+      "user_agent": "NetTopology-DR-Engine"
+    },
+    {
+      "id": "log-1793352576402-ep081",
+      "timestamp": "2026-10-30T09:29:36.402Z",
+      "user_name": "cron_daemon",
+      "action": "SCHEDULED_BACKUP_EXECUTE",
+      "category": "disaster_recovery",
+      "target": "Job: Server Fleet Configuration Backup (بکاپ ناوگان سرورها) (job-servers-fleet)",
+      "status": "success",
+      "details": "Backup generated successfully in 674ms. File: auto_backup_servers_only_2026-10-30T09-29-36-033Z_job-servers-fleet.json (3.62 KB).",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
     }
   ],
   "ad_config": {
@@ -2358,11 +2406,11 @@
       "retention_days": 30,
       "last_status": "success",
       "created_at": "2026-09-14T00:00:00.000Z",
-      "updated_at": "2026-10-29T20:59:33.414Z",
-      "last_run_at": "2026-10-29T20:59:33.413Z",
-      "next_run_at": "2026-10-29T23:30:00.000Z",
-      "last_result_details": "Backup generated successfully in 685ms. File: auto_backup_full_2026-10-29T20-59-33-190Z_job-daily-dr.json (29.91 KB).",
-      "last_backup_file": "auto_backup_full_2026-10-29T20-59-33-190Z_job-daily-dr.json"
+      "updated_at": "2026-10-30T09:29:35.430Z",
+      "last_run_at": "2026-10-30T09:29:35.430Z",
+      "next_run_at": "2026-10-30T23:30:00.000Z",
+      "last_result_details": "Backup generated successfully in 600ms. File: auto_backup_full_2026-10-30T09-29-35-206Z_job-daily-dr.json (29.91 KB).",
+      "last_backup_file": "auto_backup_full_2026-10-30T09-29-35-206Z_job-daily-dr.json"
     },
     {
       "id": "job-servers-fleet",
@@ -2387,11 +2435,11 @@
       "retention_days": 14,
       "last_status": "success",
       "created_at": "2026-09-14T00:00:00.000Z",
-      "updated_at": "2026-10-29T20:59:34.366Z",
-      "next_run_at": "2026-10-30T00:30:00.000Z",
-      "last_run_at": "2026-10-29T20:59:34.366Z",
-      "last_result_details": "Backup generated successfully in 730ms. File: auto_backup_servers_only_2026-10-29T20-59-34-069Z_job-servers-fleet.json (3.62 KB).",
-      "last_backup_file": "auto_backup_servers_only_2026-10-29T20-59-34-069Z_job-servers-fleet.json"
+      "updated_at": "2026-10-30T09:29:36.327Z",
+      "next_run_at": "2026-10-31T00:30:00.000Z",
+      "last_run_at": "2026-10-30T09:29:36.327Z",
+      "last_result_details": "Backup generated successfully in 674ms. File: auto_backup_servers_only_2026-10-30T09-29-36-033Z_job-servers-fleet.json (3.62 KB).",
+      "last_backup_file": "auto_backup_servers_only_2026-10-30T09-29-36-033Z_job-servers-fleet.json"
     }
   ],
   "audit_email_reports": [
@@ -3389,7 +3437,7 @@
         "legacy_panel_update_seed_key_october_2026"
       ],
       "created_at": "2026-10-19T13:47:48.714Z",
-      "updated_at": "2026-10-29T23:13:19.349Z"
+      "updated_at": "2026-10-30T09:38:45.448Z"
     }
   ],
   "device_command_audit_logs": [

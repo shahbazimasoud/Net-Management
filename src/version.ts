@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.401.0';
+export const APP_VERSION = '1.402.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.402.0',
+    releaseDate: '2026-10-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۴ ممیزی سیستم: طراحی صفحه اختصاصی تنظیمات نگهداری لاگ‌های دیتابیس، مانیتورینگ حجم ذخیره‌سازی، بکاپ مستقل و پاکسازی دستی دومرحله‌ای',
+    title_en: 'Phase 4: Dedicated Database Log Retention Settings View, Storage Telemetry Monitoring, Standalone Backups & Two-Stage Manual Purge',
+    changes: [
+      'طراحی و پیاده‌سازی صفحه اختصاصی تنظیمات نگهداری لاگ‌ها (LogRetentionSettingsView.tsx) در منوی Settings پنل با تمپلیت ارگونومیک، انطباق کامل با تم‌های تیره و روشن و پشتیبانی صددرصدی دوزبانه.',
+      'افزودن آیتم جدید «نگهداری لاگ‌های دیتابیس» (Database Log Retention) به سایدبار سیستم در زیرمجموعه منوی Settings با آیکون دیتابیس و برچسب اختصاصی DB تحت حفاظت کامل سیاست‌های RBAC.',
+      'تجهیز به ۴ کارت مانیتورینگ بلادرنگ وضعیت ذخیره‌سازی PostgreSQL شامل: حجم فیزیکی اشغال‌شده بر حسب بایت و مگابایت، تفکیک تعداد کل رکوردهای ممیزی، افق زمانی لاگ‌های موجود (قدیمی‌ترین و جدیدترین) و وضعیت دیمن پاکسازی دوره‌ای شبانه.',
+      'فرم تعاملی پیکربندی دوره نگهداری با انتخاب‌های سریع ۳۰، ۶۰، ۹۰ (توصیه‌شده)، ۱۸۰، ۳۶۵ روز یا نامحدود (عدم حذف) به همراه ورودی روزهای سفارشی و سوییچ‌های دیمن خودکار و بکاپ ایمن پیش از پاکسازی.',
+      'طراحی بخش اختصاصی دانلود بکاپ مستقل لاگ‌ها (Standalone Backup) در دو قالب فشرده ZIP و JSON بدون تداخل با بکاپ‌های دیگر سیستم.',
+      'پیاده‌سازی بخش پاکسازی دستی فوری لاگ‌ها (Manual Purge) مجهز به پاپ‌آپ تایید دومرحله‌ای امنیتی، محاسبه تاریخ برش و نمایش گزارش تفکیکی رکوردهای حذف‌شده.',
+      'تجهیز کلیه فیلدها و کارت‌ها به ابزارک راهنمای سه‌بخشی استاندارد FieldInfoTooltip با رندرینگ پورتال و مهار ۴ جهته در ویوپورت.'
+    ],
+    changes_en: [
+      'Architected dedicated Database Log Retention settings interface (LogRetentionSettingsView.tsx) under system Settings with high-contrast light/dark themes and strict bilingual English and Persian localization.',
+      'Added new "Database Log Retention" navigation item to the system Sidebar under the Settings parent accordion with Database icon, DB badge, and authoritative RBAC super-admin protection.',
+      'Equipped with 4 live PostgreSQL storage telemetry cards: physical bytes and formatted disk footprint, granular record counts per category, log event horizon bounds, and nightly housekeeping daemon status.',
+      'Engineered interactive retention lifecycle form offering presets for 30, 60, 90 (Recommended), 180, 365 days, and Unlimited retention, alongside custom day specification and safety backup toggles.',
+      'Introduced standalone compliance backup exporter allowing one-click download of all persistent audit streams in streaming ZIP archive or SIEM-ready JSON package.',
+      'Built immediate manual log purge workflow protected by a two-stage security confirmation dialog, dynamic date cutoff calculation, and comprehensive post-purge breakdown summary.',
+      'Equipped all configuration controls and metrics with standard 3-part boundary-safe FieldInfoTooltip popovers.'
+    ]
+  },
   {
     version: '1.401.0',
     releaseDate: '2026-10-29',

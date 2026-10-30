@@ -25,7 +25,8 @@ import {
   KeyRound,
   ArrowUpCircle,
   Mail,
-  BellRing
+  BellRing,
+  Database
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { AccessPolicy } from '../types';
@@ -52,6 +53,7 @@ export type ActiveTab =
   | 'settings-ad'
   | 'settings-rbac'
   | 'settings-backup'
+  | 'settings-log-retention'
   | 'general-settings'
   | 'settings-services'
   | 'settings-ldap'
@@ -250,6 +252,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_settings_backup',
           icon: Archive,
           badge: 'DR',
+        },
+        {
+          id: 'settings-log-retention',
+          labelKey: 'tab_settings_log_retention',
+          icon: Database,
+          badge: 'DB',
         },
         {
           id: 'settings-services',

@@ -103,7 +103,15 @@ interface WatchLogSession {
   commands: DeviceCommandLogEntry[];
 }
 
-export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode = false }) => {
+export interface AuditLogsViewProps {
+  isLightMode?: boolean;
+  onNavigateToRetentionSettings?: () => void;
+}
+
+export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
+  isLightMode = false,
+  onNavigateToRetentionSettings,
+}) => {
   const { t, isEn, isRtl } = useLanguage();
   const [activeSection, setActiveSection] = useState<ActiveLogSection>('commands');
   const [commandGroupMode, setCommandGroupMode] = useState<CommandGroupMode>('device');
@@ -1006,6 +1014,17 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
               {reportsList.length}
             </span>
           </button>
+
+          {onNavigateToRetentionSettings && (
+            <button
+              onClick={onNavigateToRetentionSettings}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-sky-600/30 via-sky-500/25 to-indigo-500/25 hover:from-sky-600/50 hover:to-indigo-500/50 active:scale-95 text-sky-200 hover:text-white border border-sky-400/40 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+              title={isEn ? 'Configure database log retention & purge policies' : 'تنظیمات نگهداری و پاکسازی خودکار دیتابیس'}
+            >
+              <Database className="w-3.5 h-3.5 text-sky-400" />
+              <span>{isEn ? 'Retention Policies' : 'نگهداری لاگ‌ها'}</span>
+            </button>
+          )}
 
           <button
             onClick={refreshData}

@@ -26,6 +26,7 @@ import { LdapConnectionSettingsView } from './components/settings/LdapConnection
 import { PanelUpdateSettingsView } from './components/settings/PanelUpdateSettingsView';
 import { EmailSettingsView } from './components/settings/EmailSettingsView';
 import { TelegramAlertsSettingsView } from './components/settings/TelegramAlertsSettingsView';
+import { LogRetentionSettingsView } from './components/settings/LogRetentionSettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
 import { RemoteServersView } from './components/servers/RemoteServersView';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
@@ -1202,7 +1203,12 @@ export default function App() {
             <CdpLldpScannerView onNavigateToTopology={() => setActiveTab('schematic')} />
           )}
 
-          {activeTab === 'logs' && <AuditLogsView isLightMode={isLightMode} />}
+          {activeTab === 'logs' && (
+            <AuditLogsView
+              isLightMode={isLightMode}
+              onNavigateToRetentionSettings={() => setActiveTab('settings-log-retention')}
+            />
+          )}
 
           {(activeTab === 'remote-servers' ||
             activeTab === 'remote-linux' ||
@@ -1276,6 +1282,13 @@ export default function App() {
 
           {activeTab === 'settings-alerts' && isSuperAdmin && (
             <TelegramAlertsSettingsView isLightMode={isLightMode} />
+          )}
+
+          {activeTab === 'settings-log-retention' && isSuperAdmin && (
+            <LogRetentionSettingsView
+              isLightMode={isLightMode}
+              onNavigateToLogs={() => setActiveTab('logs')}
+            />
           )}
 
           {activeTab === 'settings-ad' && isSuperAdmin && (
