@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.402.1';
+export const APP_VERSION = '1.403.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.403.0',
+    releaseDate: '2026-10-30',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۱ ردیاب سراسری مک و آی‌پی: معماری بک‌اند، موتور استعلام جداول CAM و ARP، دیتابیس آفلاین OUI، سیستم کشینگ و لاگ‌گیری جامع در PostgreSQL',
+    title_en: 'Phase 1: Global MAC & IP Address Tracker Backend Architecture, Real-Time CAM/ARP Query Engine, Offline OUI Database, TTL Caching & PostgreSQL Audit Logging',
+    changes: [
+      'طراحی و پیاده‌سازی ماژول قدرتمند سمت سرور (server/macIpTrackerService.ts) جهت ردیابی سراسری، بلادرنگ و بدون وابستگی خارجی آدرس‌های MAC و IP در کل سوئیچ‌ها و روترهای شبکه.',
+      'موتور نرم‌ساز هوشمند MAC و IP با پشتیبانی از فرمت‌های سیسکو (0050.56a1.2234)، استاندارد کولون (00:50:56:A1:22:34)، هایفن (00-50-56-A1-22-34) و بدون جداکننده همراه با اعتبارسنجی دقیق IPv4.',
+      'دیتابیس آفلاین جامع شناسایی سازنده کارت شبکه (OUI Vendor Database) بر پایه تحلیل ۲۴ بیت اول مک‌آدرس برای صدها برند سخت‌افزاری معتبر (Cisco, MikroTik, VMware, Intel, Apple, Dell, HP, Huawei, Juniper, Ubiquiti, Fortinet و غیره).',
+      'استعلام خودکار و دوطرفه جدول ARP جهت تبدیل آدرس IP به MAC و برعکس از سوئیچ‌های L3 و روترها با پارس دقیق اینترفیس، VLAN و تایم‌اوت.',
+      'استعلام همزمان جدول CAM (MAC Table) از روی سوییچ‌های سیسکو و میکروتیک با پشتیبانی کامل از الگوهای مدرن و لگاسی پروتکل ssh2 و ثبت لاگ کلیه فرامین در جدول device_command_audit_logs پایگاه داده PostgreSQL.',
+      'مکانیزم کش هوشمند در حافظه با TTL کوتاه (۶۰ ثانیه) جهت پاسخ‌دهی آنی زیر ۳۰ میلی‌ثانیه در درخواست‌های متوالی و قابلیت Live Force Refresh برای دور زدن کش در صورت درخواست کاربر.',
+      'اتصال به جدول audit_logs در دیتابیس PostgreSQL با دسته‌بندی topology_network و اکشن MAC_IP_TRACKER_LOOKUP جهت ممیزی کامل پرتال شامل کاربر، آی‌پی، زمان میلی‌ثانیه‌ای و پورت نهایی کشف‌شده.',
+      'افزودن اندپوئینت‌های اختصاصی POST /api/tools/mac-ip-tracker/search، GET /api/tools/mac-ip-tracker/history و POST /api/tools/mac-ip-tracker/validate در سرور اکسپرس.'
+    ],
+    changes_en: [
+      'Architected high-performance server-side tracker engine (server/macIpTrackerService.ts) for real-time network-wide MAC and IP resolution across switches and routers.',
+      'Implemented comprehensive MAC and IP normalizer supporting Cisco dot (0050.56a1.2234), standard colon (00:50:56:A1:22:34), hyphen, and raw hex representations with strict IPv4 validation.',
+      'Integrated offline IEEE 24-bit OUI vendor lookup database covering major enterprise and virtualization vendors (Cisco, MikroTik, VMware, Intel, Apple, Dell, HP, Huawei, Juniper, Ubiquiti, Fortinet, etc.) with zero internet dependency.',
+      'Engineered bidirectional ARP resolution for IP-to-MAC and MAC-to-IP discovery across Layer-3 switches and routers with interface, VLAN, and age extraction.',
+      'Engineered concurrent CAM (MAC address table) query dispatchers for Cisco IOS/IOS-XE and MikroTik RouterOS with device command audit logging in PostgreSQL device_command_audit_logs.',
+      'Integrated in-memory query caching with a 60-second TTL for sub-30ms subsequent responses and on-demand Live Force Refresh bypassing.',
+      'Recorded authoritative portal audit events in PostgreSQL audit_logs under category topology_network and action MAC_IP_TRACKER_LOOKUP with execution latency and resolved port telemetry.',
+      'Registered dedicated REST API endpoints: POST /api/tools/mac-ip-tracker/search, GET /api/tools/mac-ip-tracker/history, and POST /api/tools/mac-ip-tracker/validate in Express router.'
+    ]
+  },
   {
     version: '1.402.1',
     releaseDate: '2026-10-30',

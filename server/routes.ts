@@ -45,6 +45,13 @@ import {
 import { ZipArchive } from 'archiver';
 import { runRetentionPurgeJob } from './logRetentionDaemon';
 import {
+  searchMacOrIp,
+  getMacIpTrackerHistory,
+  normalizeMac,
+  lookupOuiVendor,
+  detectQueryType,
+} from './macIpTrackerService';
+import {
   getDbStatus,
   findUserByUsername,
   findUserById,
@@ -19083,5 +19090,93 @@ apiRouter.post('/backup/schedules/:id/run-now', async (req: Request, res: Respon
   }
 });
 
+// -------------------------------------------------------------
+// Global MAC & IP Address Tracker (CAM & ARP Network Correlator)
+// -------------------------------------------------------------
 
+function extractTrackerActor(req: Request): { username: string; clientIp: string } {
+  let username = 'admin';
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (token) {
+    try {
+      const decoded = verifyToken(token);
+      if (decoded && decoded.username) {
+        username = decoded.username;
+      }
+    } catch {}
+  }
+  const rawIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+  const clientIp = rawIp.replace(/^.*:/, '') || '127.0.0.1';
+  return { username, clientIp };
+}
 
+// POST /api/tools/mac-ip-tracker/search - Live or cached CAM/ARP network discovery
+apiRouter.post('/tools/mac-ip-tracker/search', async (req: Request, res: Response) => {
+  try {
+    const { query, forceRefresh } = req.body;
+    if (!query || typeof query !== 'string' || query.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'لطفاً یک آدرس MAC یا IP معتبر برای جستجو وارد کنید.',
+        error_en: 'Please provide a valid MAC or IP address to search.',
+      });
+    }
+
+    const { username, clientIp } = extractTrackerActor(req);
+
+    const result = await searchMacOrIp({
+      query: query.trim(),
+      forceRefresh: Boolean(forceRefresh),
+      operatorUsername: username,
+      clientIp,
+    });
+
+    res.json({
+      success: true,
+      result,
+    });
+  } catch (err: any) {
+    console.error('[API /api/tools/mac-ip-tracker/search error]', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'خطا در اجرای فرآیند ردیابی آدرس در شبکه',
+      error_en: err.message || 'Failed to execute MAC/IP tracking query',
+    });
+  }
+});
+
+// GET /api/tools/mac-ip-tracker/history - Retrieve recent searches from PostgreSQL audit_logs
+apiRouter.get('/tools/mac-ip-tracker/history', async (req: Request, res: Response) => {
+  try {
+    const limit = parseInt(req.query.limit as string, 10) || 30;
+    const history = await getMacIpTrackerHistory(limit);
+    res.json({
+      success: true,
+      history,
+    });
+  } catch (err: any) {
+    console.error('[API /api/tools/mac-ip-tracker/history error]', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'خطا در دریافت تاریخچه جستجوهای شبکه',
+      error_en: err.message || 'Failed to fetch search history',
+    });
+  }
+});
+
+// POST /api/tools/mac-ip-tracker/validate - Normalizes MAC/IP input and returns formats & OUI vendor
+apiRouter.post('/tools/mac-ip-tracker/validate', (req: Request, res: Response) => {
+  const { query } = req.body;
+  const queryType = detectQueryType(query);
+  const normalized = queryType === 'mac' ? normalizeMac(query) : null;
+  const vendor = lookupOuiVendor(normalized);
+
+  res.json({
+    success: true,
+    queryType,
+    isValid: queryType !== 'invalid',
+    normalized,
+    vendor,
+  });
+});
