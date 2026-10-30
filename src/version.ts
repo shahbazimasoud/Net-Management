@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.402.0';
+export const APP_VERSION = '1.402.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.402.1',
+    releaseDate: '2026-10-30',
+    type: 'patch',
+    title: 'بهینه‌سازی کارایی ترمینال تعاملی: غیرفعال‌سازی الگوریتم نیگل با TCP_NODELAY، حذف رندرهای غیرضروری با دی‌بانس پیشنهادات هوشمند و لاگ تلمتری RTT',
+    title_en: 'Interactive Terminal Performance Optimization: TCP_NODELAY Sockets, Debounced Intellisense Line Buffers & Diagnostic Keystroke RTT Telemetry',
+    changes: [
+      'تنظیم پرچم setNoDelay(true) بر روی سوکت‌های وب‌سوکت و لایه ارتباطی کلاینت SSH (ssh2) جهت غیرفعال‌سازی الگوریتم Nagle و ارسال آنی پکت‌های تک‌بایتی کیبورد بدون تاخیر بافرینگ.',
+      'بهینه‌سازی موتور Intellisense در ترمینال لینوکس (LinuxTerminalModal.tsx) با انتقال بافر لاین از useState به useRef و اجرای محاسبات پیشنهادات با دی‌بانس ۹۰ میلی‌ثانیه‌ای جهت آزادسازی کامل ترد اصلی مرورگر حین تایپ سریع.',
+      'افزودن لاگ تشخیصی و تلمتری دقیق زمان رفت‌وبرگشت (Keystroke RTT) در کنسول مرورگر برای سنجش میلی‌ثانیه‌ای تاخیر شبکه و تفکیک تاخیر پینگ از تاخیر رندرهای محلی.'
+    ],
+    changes_en: [
+      'Enabled setNoDelay(true) on both incoming WebSocket upgrade sockets and outbound ssh2 client TCP streams, bypassing Nagle buffering for zero-delay keystroke dispatch.',
+      'Optimized Linux terminal intellisense engine (LinuxTerminalModal.tsx) by migrating line buffering from useState to useRef with 90ms debounced candidate lookups, eliminating UI thread jank during fast typing.',
+      'Integrated real-time round-trip time (RTT) diagnostic telemetry in browser DevTools console across all terminal modals to monitor exact network echo latency per keystroke.'
+    ]
+  },
   {
     version: '1.402.0',
     releaseDate: '2026-10-30',

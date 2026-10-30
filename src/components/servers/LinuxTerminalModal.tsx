@@ -956,6 +956,10 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const sendInput = useCallback((paneId: string, data: string) => {
     const ws = wsRefs.current[paneId];
     if (ws && ws.readyState === WebSocket.OPEN) {
+      if (data && data.length === 1 && data.charCodeAt(0) >= 32) {
+        lastKeySentTimeRef.current = performance.now();
+        pendingCharRef.current = data;
+      }
       ws.send(JSON.stringify({ type: 'input', data }));
     }
   }, []);
@@ -978,9 +982,12 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const activePaneIdRef = useRef<string>(activePaneId);
   activePaneIdRef.current = activePaneId;
 
+  // RTT Keystroke Latency Measurement Ref
+  const lastKeySentTimeRef = useRef<number>(0);
+  const pendingCharRef = useRef<string>('');
+
   // Local Line Buffer & Intellisense State for active pane
   const lineBuffersRef = useRef<Record<string, string>>({});
-  const [activeLineBuffer, setActiveLineBuffer] = useState<string>('');
   const [intellisenseIndex, setIntellisenseIndex] = useState<number>(0);
   const [showIntellisensePopup, setShowIntellisensePopup] = useState<boolean>(false);
   const isAlternateBufferRef = useRef<Record<string, boolean>>({});
@@ -988,10 +995,60 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const [cursorCoords, setCursorCoords] = useState<{ cursorX: number; cursorY: number }>({ cursorX: 0, cursorY: 0 });
   const paneContainerRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  // Debounced Intellisense result state: eliminates synchronous re-renders during fast typing
+  const [activeIntellisense, setActiveIntellisense] = useState<IntellisenseResult>({
+    ghostSuggestion: '',
+    completedInput: '',
+    candidates: [],
+    exactMatch: false,
+  });
+  const intellisenseDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  const scheduleIntellisenseUpdate = useCallback(
+    (paneId: string, delayMs = 90) => {
+      if (intellisenseDebounceRef.current) {
+        clearTimeout(intellisenseDebounceRef.current);
+        intellisenseDebounceRef.current = null;
+      }
+      intellisenseDebounceRef.current = setTimeout(() => {
+        if (paneId !== activePaneIdRef.current) return;
+        const buf = lineBuffersRef.current[paneId] || '';
+        const currentPane = panesRef.current.find((p) => p.id === paneId);
+        if (
+          !currentPane ||
+          currentPane.isPasswordPromptActive ||
+          isAlternateBufferRef.current[paneId] ||
+          !buf ||
+          buf.trim().length === 0
+        ) {
+          setActiveIntellisense({ ghostSuggestion: '', completedInput: '', candidates: [], exactMatch: false });
+          setShowIntellisensePopup(false);
+          return;
+        }
+        const srv = resolveValidServer(currentPane.server, server);
+        const homeDir = getServerHomeDir(srv);
+        const currentCwd = currentPane.cwd || homeDir;
+        const result = getIntellisense(buf, currentCwd, homeDir);
+        setActiveIntellisense(result);
+        if (result.candidates && result.candidates.length > 0) {
+          setShowIntellisensePopup(true);
+          setIntellisenseIndex(0);
+        } else {
+          setShowIntellisensePopup(false);
+        }
+      }, delayMs);
+    },
+    [server]
+  );
+
   const resetPaneLineBuffer = useCallback((paneId: string) => {
     lineBuffersRef.current[paneId] = '';
+    if (intellisenseDebounceRef.current) {
+      clearTimeout(intellisenseDebounceRef.current);
+      intellisenseDebounceRef.current = null;
+    }
     if (paneId === activePaneIdRef.current) {
-      setActiveLineBuffer('');
+      setActiveIntellisense({ ghostSuggestion: '', completedInput: '', candidates: [], exactMatch: false });
       setShowIntellisensePopup(false);
       setIntellisenseIndex(0);
     }
@@ -1043,12 +1100,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   );
 
   useEffect(() => {
-    const currentBuf = lineBuffersRef.current[activePaneId] || '';
-    setActiveLineBuffer(currentBuf);
-    if (currentBuf.trim().length === 0 || isAlternateBufferRef.current[activePaneId]) {
-      setShowIntellisensePopup(false);
-    }
-  }, [activePaneId]);
+    scheduleIntellisenseUpdate(activePaneId, 0);
+  }, [activePaneId, scheduleIntellisenseUpdate]);
 
   // Inline password input state when prompt_password_on_connect is active
   const [passwordInputs, setPasswordInputs] = useState<Record<string, string>>({});
@@ -1436,6 +1489,15 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                 return;
               }
               if (msg.type === 'data' && msg.data) {
+                if (lastKeySentTimeRef.current > 0) {
+                  const rtt = Math.round(performance.now() - lastKeySentTimeRef.current);
+                  console.log(
+                    `%c[Linux Terminal RTT]%c Keystroke '${pendingCharRef.current}' echoed by server/PTY in ${rtt}ms`,
+                    'color: #10b981; font-weight: bold; background: #064e3b; padding: 2px 6px; border-radius: 4px;',
+                    'color: inherit; font-weight: normal;'
+                  );
+                  lastKeySentTimeRef.current = 0;
+                }
                 xtermRefs.current[paneId]?.write(msg.data);
                 const raw = msg.data;
                 const osc7Match = raw.match(/\x1b\]7;file:\/\/[^/]+([^\x07\x1b]+)(?:\x07|\x1b\\)/);
@@ -1853,22 +1915,6 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     return list.filter((c) => c.toLowerCase().includes(q));
   }, [activePane?.history, historySearch]);
 
-  const activeIntellisense = useMemo<IntellisenseResult>(() => {
-    if (
-      !activePane ||
-      activePane.isPasswordPromptActive ||
-      isAlternateBuffer[activePane.id] ||
-      !activeLineBuffer ||
-      activeLineBuffer.trim().length === 0
-    ) {
-      return { ghostSuggestion: '', completedInput: '', candidates: [], exactMatch: false };
-    }
-    const srv = resolveValidServer(activePane?.server, server);
-    const homeDir = getServerHomeDir(srv);
-    const currentCwd = activePane.cwd || homeDir;
-    return getIntellisense(activeLineBuffer, currentCwd, homeDir);
-  }, [activePane, activeLineBuffer, server, isAlternateBuffer]);
-
   // Apply selected Intellisense candidate
   const applySuggestion = useCallback(
     (paneId: string, cand: IntellisenseCandidate) => {
@@ -1895,14 +1941,12 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
       const updated = currentBuf + remaining;
       lineBuffersRef.current[paneId] = updated;
-      if (paneId === activePaneIdRef.current) {
-        setActiveLineBuffer(updated);
-      }
+      scheduleIntellisenseUpdate(paneId, 0);
       setShowIntellisensePopup(false);
       setIntellisenseIndex(0);
       xtermRefs.current[paneId]?.focus();
     },
-    [sendInput]
+    [sendInput, scheduleIntellisenseUpdate]
   );
 
   // Handle raw terminal keystrokes from xterm onData
@@ -1944,66 +1988,90 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         }
         lineBuffersRef.current[paneId] = curBuf;
         if (paneId === activePaneIdRef.current) {
-          setActiveLineBuffer(curBuf);
           setShowIntellisensePopup(false);
+          scheduleIntellisenseUpdate(paneId, 90);
         }
         return;
       }
 
-      // 4. Single-keystroke maintenance for Intellisense popup
+      // 4. Single-keystroke maintenance for Intellisense popup (debounced, zero-latency typing)
       let buf = lineBuffersRef.current[paneId] || '';
 
       if (data === '\r' || data === '\n') {
         // Enter: command executed, add to history, clear buffer and hide popup
+        if (intellisenseDebounceRef.current) {
+          clearTimeout(intellisenseDebounceRef.current);
+          intellisenseDebounceRef.current = null;
+        }
         const executed = buf.trim();
         if (executed) {
           addCommandToHistory(paneId, executed);
         }
         buf = '';
+        lineBuffersRef.current[paneId] = '';
         if (paneId === activePaneIdRef.current) {
           setShowIntellisensePopup(false);
           setIntellisenseIndex(0);
+          setActiveIntellisense({ ghostSuggestion: '', completedInput: '', candidates: [], exactMatch: false });
         }
       } else if (data === '\x03' || data === '\x15' || data === '\x1b') {
         // Ctrl+C (\x03), Ctrl+U (\x15), Esc (\x1b): abort line, clear buffer and hide popup
+        if (intellisenseDebounceRef.current) {
+          clearTimeout(intellisenseDebounceRef.current);
+          intellisenseDebounceRef.current = null;
+        }
         buf = '';
+        lineBuffersRef.current[paneId] = '';
         if (paneId === activePaneIdRef.current) {
           setShowIntellisensePopup(false);
           setIntellisenseIndex(0);
+          setActiveIntellisense({ ghostSuggestion: '', completedInput: '', candidates: [], exactMatch: false });
         }
       } else if (data === '\x7f' || data === '\b') {
         // Backspace: delete previous character
         buf = buf.length > 0 ? buf.slice(0, -1) : '';
-        if (buf.trim().length === 0 && paneId === activePaneIdRef.current) {
-          setShowIntellisensePopup(false);
-          setIntellisenseIndex(0);
+        lineBuffersRef.current[paneId] = buf;
+        if (buf.trim().length === 0) {
+          if (intellisenseDebounceRef.current) {
+            clearTimeout(intellisenseDebounceRef.current);
+            intellisenseDebounceRef.current = null;
+          }
+          if (paneId === activePaneIdRef.current) {
+            setShowIntellisensePopup(false);
+            setIntellisenseIndex(0);
+            setActiveIntellisense({ ghostSuggestion: '', completedInput: '', candidates: [], exactMatch: false });
+          }
+        } else {
+          scheduleIntellisenseUpdate(paneId, 90);
         }
       } else if (data === '\t') {
         // Tab: shell takes over autocompletion
+        if (intellisenseDebounceRef.current) {
+          clearTimeout(intellisenseDebounceRef.current);
+          intellisenseDebounceRef.current = null;
+        }
         if (paneId === activePaneIdRef.current) {
           setShowIntellisensePopup(false);
         }
       } else if (data.charCodeAt(0) >= 32) {
-        // Printable character: append to buffer and trigger popup if non-empty
+        // Printable character: append to buffer in ref and schedule debounced Intellisense calculation
         buf = buf + data;
-        if (buf.trim().length > 0 && paneId === activePaneIdRef.current) {
-          setShowIntellisensePopup(true);
-          setIntellisenseIndex(0);
-        }
+        lineBuffersRef.current[paneId] = buf;
+        scheduleIntellisenseUpdate(paneId, 90);
       } else {
         // Other control keys: Ctrl+D, Ctrl+Z, etc.
         buf = '';
+        lineBuffersRef.current[paneId] = '';
+        if (intellisenseDebounceRef.current) {
+          clearTimeout(intellisenseDebounceRef.current);
+          intellisenseDebounceRef.current = null;
+        }
         if (paneId === activePaneIdRef.current) {
           setShowIntellisensePopup(false);
         }
       }
-
-      lineBuffersRef.current[paneId] = buf;
-      if (paneId === activePaneIdRef.current) {
-        setActiveLineBuffer(buf);
-      }
     },
-    [sendInput, resetPaneLineBuffer, addCommandToHistory]
+    [sendInput, resetPaneLineBuffer, addCommandToHistory, scheduleIntellisenseUpdate]
   );
 
   // Custom key handler to intercept Up, Down, Tab, Enter, Esc for Intellisense popup navigation
@@ -2416,7 +2484,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const handleInsertSnippet = (cmd: string) => {
     sendInput(activePaneId, cmd);
     lineBuffersRef.current[activePaneId] = cmd;
-    setActiveLineBuffer(cmd);
+    scheduleIntellisenseUpdate(activePaneId, 0);
     xtermRefs.current[activePaneId]?.focus();
   };
 

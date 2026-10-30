@@ -153,6 +153,10 @@ export function setupTerminalWebSocket(
       url.startsWith('/ws/ssh') ||
       url.startsWith('/ssh')
     ) {
+      // Disable Nagle's algorithm immediately on the underlying HTTP upgrade socket
+      if (socket && typeof (socket as any).setNoDelay === 'function') {
+        (socket as any).setNoDelay(true);
+      }
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit('connection', ws, req);
       });
@@ -160,6 +164,11 @@ export function setupTerminalWebSocket(
   });
 
   wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
+    // Disable Nagle's algorithm on the active client WebSocket socket for instant keystroke streaming
+    const wsSock = (clientWs as any)._socket || req.socket;
+    if (wsSock && typeof wsSock.setNoDelay === 'function') {
+      wsSock.setNoDelay(true);
+    }
     const hostHeader = req.headers.host || '127.0.0.1:3000';
     const parsedUrl = new URL(req.url || '', `http://${hostHeader}`);
 
@@ -804,7 +813,18 @@ export function setupTerminalWebSocket(
         cleanup();
       });
 
+      sshConn.on('connect', () => {
+        const sock = (sshConn as any)._sock;
+        if (sock && typeof sock.setNoDelay === 'function') {
+          sock.setNoDelay(true);
+        }
+      });
+
       sshConn.on('ready', () => {
+        const sock = (sshConn as any)._sock;
+        if (sock && typeof sock.setNoDelay === 'function') {
+          sock.setNoDelay(true);
+        }
         isConnected = true;
         sshConn.shell(
           {
@@ -1011,7 +1031,7 @@ export function setupTerminalWebSocket(
         username,
         password,
         readyTimeout: 15000,
-        keepaliveInterval: 10000,
+        keepaliveInterval: 5000,
         tryKeyboard: true,
         algorithms: {
           kex: [

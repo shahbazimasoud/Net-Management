@@ -261,9 +261,17 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     ''
   ).trim();
 
+  // RTT Keystroke Latency Measurement Ref
+  const lastKeySentTimeRef = useRef<number>(0);
+  const pendingCharRef = useRef<string>('');
+
   // Send raw input keystroke or buffer directly to active WebSocket session
   const sendRawInput = (data: string) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      if (data && data.length === 1 && data.charCodeAt(0) >= 32) {
+        lastKeySentTimeRef.current = performance.now();
+        pendingCharRef.current = data;
+      }
       wsRef.current.send(JSON.stringify({ type: 'input', data }));
     }
   };
@@ -843,6 +851,15 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                 return;
               }
               if (msg.type === 'data' && msg.data) {
+                if (lastKeySentTimeRef.current > 0) {
+                  const rtt = Math.round(performance.now() - lastKeySentTimeRef.current);
+                  console.log(
+                    `%c[Cisco Terminal RTT]%c Keystroke '${pendingCharRef.current}' echoed by device/server in ${rtt}ms`,
+                    'color: #38bdf8; font-weight: bold; background: #0c4a6e; padding: 2px 6px; border-radius: 4px;',
+                    'color: inherit; font-weight: normal;'
+                  );
+                  lastKeySentTimeRef.current = 0;
+                }
                 xtermRef.current?.write(msg.data);
                 parseAndApplyLinkState(msg.data);
                 return;

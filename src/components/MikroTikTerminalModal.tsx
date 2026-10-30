@@ -132,9 +132,17 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
   const xtermRef = useRef<XtermTerminalHandle | null>(null);
   const textDecoderRef = useRef<TextDecoder | null>(null);
 
+  // RTT Keystroke Latency Measurement Ref
+  const lastKeySentTimeRef = useRef<number>(0);
+  const pendingCharRef = useRef<string>('');
+
   // Send raw input keystroke or buffer directly to active WebSocket session
   const sendRawInput = (data: string) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      if (data && data.length === 1 && data.charCodeAt(0) >= 32) {
+        lastKeySentTimeRef.current = performance.now();
+        pendingCharRef.current = data;
+      }
       wsRef.current.send(JSON.stringify({ type: 'input', data }));
     }
   };
@@ -576,6 +584,15 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
               return;
             }
             if (msg.type === 'data' && msg.data) {
+              if (lastKeySentTimeRef.current > 0) {
+                const rtt = Math.round(performance.now() - lastKeySentTimeRef.current);
+                console.log(
+                  `%c[MikroTik Terminal RTT]%c Keystroke '${pendingCharRef.current}' echoed by device/server in ${rtt}ms`,
+                  'color: #f59e0b; font-weight: bold; background: #78350f; padding: 2px 6px; border-radius: 4px;',
+                  'color: inherit; font-weight: normal;'
+                );
+                lastKeySentTimeRef.current = 0;
+              }
               xtermRef.current?.write(msg.data);
               return;
             } else if (msg.type === 'status') {
