@@ -418,6 +418,31 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
                 "type": "10/100/1000BaseTX"
             })
 
+    # Parse Cisco 'show port-security' (interface summary)
+    # Format:
+    # Secure Port  MaxSecureAddr  CurrentAddr  SecurityViolation  Security Action
+    #                 (Count)       (Count)          (Count)
+    # ---------------------------------------------------------------------------
+    #       Gi0/1              1            0                  0         Shutdown
+    for line in lines:
+        l = line.strip()
+        m_ps = re.match(
+            r'^\s*([A-Za-z0-9\/\.\-]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(Shutdown|Restrict|Protect)\b',
+            l,
+            re.IGNORECASE
+        )
+        if m_ps:
+            ps_iface = m_ps.group(1).strip()
+            ps_max = int(m_ps.group(2))
+            ps_violation = m_ps.group(5).lower()
+            matched_port = find_matching_port(ps_iface)
+            if matched_port is not None:
+                matched_port["port_security_enabled"] = True
+                matched_port["port_security_max_mac"] = ps_max
+                matched_port["port_security_violation"] = ps_violation
+                if not matched_port.get("port_security_status"):
+                    matched_port["port_security_status"] = "secure-up" if matched_port.get("status") == "up" else "secure-down"
+
     # Parse Cisco 'show port-security address'
     # Format:
     # Vlan   Mac Address       Type                    Ports   Remaining Age

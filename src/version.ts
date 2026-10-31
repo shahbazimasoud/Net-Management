@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.407.0';
+export const APP_VERSION = '1.407.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.407.1',
+    releaseDate: '2026-10-31',
+    type: 'patch',
+    title: 'اصلاح اساسی اعمال تنظیمات Port Security سیسکو، رفع تداخل دستورات Sticky و Static، حذف تزریق داده‌های فرضی و همگام‌سازی زنده مک‌آدرس‌ها',
+    title_en: 'Comprehensive Fix for Cisco Port Security Application, Sticky/Static CLI Conflict Resolution, Elimination of Simulated MAC Data, and Live Table Synchronization',
+    changes: [
+      'اصلاح توالی دستورات CLI در درایور سیسکو (cisco.py و ssh_bridge.py) و لغو خودکار حالت sticky با دستور no switchport port-security mac-address sticky پیش از اعمال مک‌آدرس‌های ثابت (configured) جهت جلوگیری از خطای رد دستور توسط سوئیچ.',
+      'پشتیبانی از اختصاص مستقیم مک‌آدرس چسبنده با ساختار استاندارد switchport port-security mac-address sticky [MAC] و پاک‌سازی خودکار مک‌آدرس قبلی (previous_mac) جهت ممانعت از پر شدن سقف maximum MAC.',
+      'حذف کامل منطق سنتز و تولید مک‌آدرس‌های ساختگی و فرضی در روت PUT پورت و فرانت‌اند مطابق با قانون قطعی شماره ۸ (ممنوعیت مطلق داده‌های شبیه‌سازی‌شده).',
+      'رفع نشست دوگانه و همزمان SSH در مودال فرانت‌اند و اجرای همگام‌سازی زنده و معتبر (fetchDevicePorts) بلافاصله پس از ذخیره موفق جهت بازخوانی مستقیم دیتای واقعی از حافظه سوئیچ.',
+      'افزودن دستور show port-security به کوئری‌های سینک پورت در پل ارتباطی SSH و پارس جدول خلاصه‌وضعیت اینترفیس‌ها در hardware_discovery.py.'
+    ],
+    changes_en: [
+      'Resolved Cisco CLI command sequencing conflicts in cisco.py and ssh_bridge.py by executing no switchport port-security mac-address sticky prior to setting configured static MACs, preventing switch command rejection.',
+      'Added direct sticky MAC assignment support via standard switchport port-security mac-address sticky [MAC] and automatic unbinding of previously assigned MACs to stay within interface maximum MAC limits.',
+      'Completely removed synthetic and simulated learned MAC generation from PUT /api/devices/:id/ports/:portId and frontend state in strict compliance with Rule #8.',
+      'Eliminated redundant duplicate SSH connections in CiscoPortSecurityModal and introduced authentic post-save live port sync (fetchDevicePorts) to pull authoritative data directly from switch hardware.',
+      'Integrated show port-security into Cisco SSH bridge sync commands and parsed interface security summary in hardware_discovery.py.'
+    ]
+  },
   {
     version: '1.407.0',
     releaseDate: '2026-10-31',

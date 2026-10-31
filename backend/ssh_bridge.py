@@ -175,6 +175,7 @@ def handle_ports_sync(args):
             "terminal length 0",
             "show interfaces status",
             "show ip interface brief",
+            "show port-security",
             "show port-security address",
             "show mac address-table",
         ] if is_cisco else [
@@ -577,6 +578,10 @@ def handle_port_action(args):
                     clean_hex = re.sub(r"[^0-9a-fA-F]", "", raw_mac).lower()
                     formatted_mac = f"{clean_hex[0:4]}.{clean_hex[4:8]}.{clean_hex[8:12]}" if len(clean_hex) == 12 else raw_mac
 
+                    raw_prev_mac = (params.get("previous_mac") or "").strip()
+                    clean_prev = re.sub(r"[^0-9a-fA-F]", "", raw_prev_mac).lower()
+                    formatted_prev_mac = f"{clean_prev[0:4]}.{clean_prev[4:8]}.{clean_prev[8:12]}" if len(clean_prev) == 12 else raw_prev_mac
+
                     cmds = [
                         "configure terminal",
                         f"interface {interface}",
@@ -596,12 +601,20 @@ def handle_port_action(args):
                         f" switchport port-security maximum {max_mac}",
                         f" switchport port-security violation {violation}",
                     ])
+                    if formatted_prev_mac and formatted_prev_mac != formatted_mac:
+                        cmds.append(f" no switchport port-security mac-address {formatted_prev_mac}")
+                        cmds.append(f" no switchport port-security mac-address sticky {formatted_prev_mac}")
+
                     if mode == "sticky":
                         cmds.append(" switchport port-security mac-address sticky")
                         if formatted_mac:
                             cmds.append(f" switchport port-security mac-address sticky {formatted_mac}")
-                    elif mode == "configured" and formatted_mac:
-                        cmds.append(f" switchport port-security mac-address {formatted_mac}")
+                    elif mode == "configured":
+                        cmds.append(" no switchport port-security mac-address sticky")
+                        if formatted_mac:
+                            cmds.append(f" switchport port-security mac-address {formatted_mac}")
+                    elif mode == "dynamic":
+                        cmds.append(" no switchport port-security mac-address sticky")
                     cmds.append("end")
                     cmds.append("write memory")
                     cli_command = "\n".join(cmds)
@@ -614,6 +627,7 @@ def handle_port_action(args):
                     cmds = ["configure terminal", f"interface {interface}"]
                     if formatted_mac:
                         cmds.append(f" no switchport port-security mac-address {formatted_mac}")
+                        cmds.append(f" no switchport port-security mac-address sticky {formatted_mac}")
                     cmds.append("exit")
                     if formatted_mac:
                         cmds.append(f"clear port-security dynamic address {formatted_mac}")
@@ -636,6 +650,10 @@ def handle_port_action(args):
                         clean_hex = re.sub(r"[^0-9a-fA-F]", "", raw_mac).lower()
                         formatted_mac = f"{clean_hex[0:4]}.{clean_hex[4:8]}.{clean_hex[8:12]}" if len(clean_hex) == 12 else raw_mac
 
+                        raw_prev_mac = (params.get("previous_mac") or "").strip()
+                        clean_prev = re.sub(r"[^0-9a-fA-F]", "", raw_prev_mac).lower()
+                        formatted_prev_mac = f"{clean_prev[0:4]}.{clean_prev[4:8]}.{clean_prev[8:12]}" if len(clean_prev) == 12 else raw_prev_mac
+
                         cmds = [
                             "configure terminal",
                             f"interface {interface}",
@@ -655,12 +673,20 @@ def handle_port_action(args):
                             f" switchport port-security maximum {max_mac}",
                             f" switchport port-security violation {violation}",
                         ])
+                        if formatted_prev_mac and formatted_prev_mac != formatted_mac:
+                            cmds.append(f" no switchport port-security mac-address {formatted_prev_mac}")
+                            cmds.append(f" no switchport port-security mac-address sticky {formatted_prev_mac}")
+
                         if mode == "sticky":
                             cmds.append(" switchport port-security mac-address sticky")
                             if formatted_mac:
                                 cmds.append(f" switchport port-security mac-address sticky {formatted_mac}")
-                        elif mode == "configured" and formatted_mac:
-                            cmds.append(f" switchport port-security mac-address {formatted_mac}")
+                        elif mode == "configured":
+                            cmds.append(" no switchport port-security mac-address sticky")
+                            if formatted_mac:
+                                cmds.append(f" switchport port-security mac-address {formatted_mac}")
+                        elif mode == "dynamic":
+                            cmds.append(" no switchport port-security mac-address sticky")
                         cmds.append("end")
                         cmds.append("write memory")
                         cli_command = "\n".join(cmds)

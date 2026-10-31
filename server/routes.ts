@@ -4923,13 +4923,18 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
         lines.push(' switchport port-security');
         lines.push(` switchport port-security maximum ${maxMac}`);
         lines.push(` switchport port-security violation ${violation}`);
-        if (mode === 'configured' && formattedMac) {
-          lines.push(` switchport port-security mac-address ${formattedMac}`);
+        if (mode === 'configured') {
+          lines.push(' no switchport port-security mac-address sticky');
+          if (formattedMac) {
+            lines.push(` switchport port-security mac-address ${formattedMac}`);
+          }
         } else if (mode === 'sticky') {
           lines.push(' switchport port-security mac-address sticky');
           if (formattedMac) {
             lines.push(` switchport port-security mac-address sticky ${formattedMac}`);
           }
+        } else if (mode === 'dynamic') {
+          lines.push(' no switchport port-security mac-address sticky');
         }
       } else {
         lines.push(' no switchport port-security');
@@ -4948,8 +4953,13 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
           if (formattedMac) {
             lines.push(` switchport port-security mac-address sticky ${formattedMac}`);
           }
-        } else if (updates.port_security_mode === 'configured' && formattedMac) {
-          lines.push(` switchport port-security mac-address ${formattedMac}`);
+        } else if (updates.port_security_mode === 'configured') {
+          lines.push(' no switchport port-security mac-address sticky');
+          if (formattedMac) {
+            lines.push(` switchport port-security mac-address ${formattedMac}`);
+          }
+        } else if (updates.port_security_mode === 'dynamic') {
+          lines.push(' no switchport port-security mac-address sticky');
         }
       }
       if ('port_security_violation' in updates && updates.port_security_violation) {
@@ -5314,35 +5324,8 @@ apiRouter.put('/devices/:id/ports/:portId', async (req: Request, res: Response) 
     if ('port_security_learned_macs' in updates && Array.isArray(updates.port_security_learned_macs)) {
       targetPort.port_security_learned_macs = updates.port_security_learned_macs;
     }
-
-    // Automatically synchronize learned MACs for configured, sticky, and dynamic modes
-    if (targetPort.port_security_enabled) {
-      if (targetPort.port_security_mode === 'configured') {
-        if (targetPort.port_security_configured_mac) {
-          targetPort.port_security_learned_macs = [targetPort.port_security_configured_mac];
-        }
-      } else if (targetPort.port_security_mode === 'sticky') {
-        if (!targetPort.port_security_learned_macs || targetPort.port_security_learned_macs.length === 0) {
-          if (targetPort.port_security_configured_mac) {
-            targetPort.port_security_learned_macs = [targetPort.port_security_configured_mac];
-          } else if (targetPort.connected_device && targetPort.connected_device !== 'Disconnected' && targetPort.status === 'up') {
-            const portNum = parseInt((targetPort.port_id || '').replace(/\D+/g, ''), 10) || 1;
-            targetPort.port_security_learned_macs = [`0050.56a1.${portNum.toString(16).padStart(2, '0')}fe`];
-          }
-        }
-      } else if (targetPort.port_security_mode === 'dynamic') {
-        if (!targetPort.port_security_learned_macs || targetPort.port_security_learned_macs.length === 0) {
-          if (targetPort.connected_device && targetPort.connected_device !== 'Disconnected' && targetPort.status === 'up') {
-            const portNum = parseInt((targetPort.port_id || '').replace(/\D+/g, ''), 10) || 1;
-            targetPort.port_security_learned_macs = [`0050.56a1.${portNum.toString(16).padStart(2, '0')}dd`];
-          }
-        }
-      }
-    } else {
-      if (!targetPort.learned_macs && targetPort.connected_device && targetPort.connected_device !== 'Disconnected' && targetPort.status === 'up') {
-        const portNum = parseInt((targetPort.port_id || '').replace(/\D+/g, ''), 10) || 1;
-        targetPort.learned_macs = [`0050.56a1.${portNum.toString(16).padStart(2, '0')}dd`];
-      }
+    if (!targetPort.port_security_enabled) {
+      targetPort.port_security_learned_macs = [];
     }
 
     device.has_unsaved_changes = true;

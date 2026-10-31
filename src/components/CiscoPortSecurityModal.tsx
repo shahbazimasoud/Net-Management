@@ -36,7 +36,7 @@ import {
   getPortMacAddresses,
   PortMacEntry
 } from './PortInspectorModal';
-import { executeDeviceOperation, updateSwitchPort, fetchDevicePorts } from '../services/api';
+import { executeDeviceOperation, fetchDevicePorts } from '../services/api';
 
 export interface CiscoPortSecurityModalProps {
   isOpen: boolean;
@@ -422,56 +422,71 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
     setIsSaving(true);
     try {
       const targetVlan = Number(port.vlan || 1);
+      const prevMac = (port.port_security_configured_mac || (port as any).connected_mac || '').trim();
 
       // 1. Direct hardware execution on Cisco switch via executeDeviceOperation ('port_sec_update')
-      let opRes: any = null;
-      try {
-        opRes = await executeDeviceOperation(
-          device.id,
-          'port_sec_update',
-          portId,
-          {
-            enabled,
-            mode,
-            max_mac: maxMac,
-            violation,
-            configured_mac: ciscoMac,
-            interface: portId,
-            device_type: device.type,
-            vlan: targetVlan,
-          }
-        );
-      } catch (opErr: any) {
-        console.warn('executeDeviceOperation note:', opErr);
+      const opRes = await executeDeviceOperation(
+        device.id,
+        'port_sec_update',
+        portId,
+        {
+          enabled,
+          mode,
+          max_mac: maxMac,
+          violation,
+          configured_mac: ciscoMac,
+          previous_mac: prevMac,
+          interface: portId,
+          device_type: device.type,
+          vlan: targetVlan,
+        }
+      );
+
+      if (!opRes || opRes.success === false) {
+        throw new Error(opRes?.message || (opRes as any)?.error || (isEn ? 'Failed to apply configuration to switch.' : 'خطا در اعمال تنظیمات روی سوئیچ.'));
       }
 
-      // 2. Persist state and sync with database via updateSwitchPort
-      const updates: Partial<SwitchPort> & { interface?: string } = {
-        interface: portId,
+      // Detect any Cisco IOS rejection or syntax error from switch CLI output
+      if (opRes.output && (opRes.output.includes('% Command rejected') || opRes.output.includes('% Invalid input detected') || opRes.output.includes('% Maximum number of secure addresses reached'))) {
+        const errorLine = opRes.output.split('\n').find((l: string) => l.includes('%')) || opRes.output;
+        throw new Error(errorLine.trim());
+      }
+
+      let enrichedPort: SwitchPort = opRes.port || {
+        ...port,
         port_security_enabled: enabled,
         port_security_mode: mode,
         port_security_max_mac: maxMac,
         port_security_violation: violation,
         port_security_configured_mac: ciscoMac,
+        port_security_status: enabled ? (port.status === 'up' ? 'secure-up' : 'secure-down') : 'disabled',
         vlan: targetVlan,
-        mode: 'access', // Cisco best practice: port security requires access mode
+        mode: 'access',
       };
 
-      if (enabled && (mode === 'configured' || mode === 'sticky') && ciscoMac) {
-        updates.port_security_learned_macs = [ciscoMac];
+      // 2. Authentically synchronize with the switch's live port security table
+      try {
+        const syncRes = await fetchDevicePorts(device.id, true);
+        if (syncRes && Array.isArray(syncRes.ports)) {
+          const freshPort = syncRes.ports.find((p) => (p.port_id || p.port || p.name) === portId);
+          if (freshPort) {
+            enrichedPort = freshPort;
+            const freshSec = extractPortSecurityState(freshPort);
+            setEnabled(freshSec.enabled);
+            setMode(freshSec.mode);
+            setMaxMac(freshSec.maxMac);
+            setViolation(freshSec.violation);
+            setConfiguredMac(freshSec.configuredMac);
+          }
+        }
+      } catch (syncErr) {
+        console.warn('Post-save live sync note:', syncErr);
       }
 
-      const res = await updateSwitchPort(device.id, portId, updates);
-      if (res && res.port) {
-        const enrichedPort: SwitchPort = {
-          ...res.port,
-          vlan: res.port.vlan || targetVlan,
-        };
-        if (onPortUpdated) {
-          onPortUpdated(enrichedPort);
-        }
-        setMacEntries(getPortMacAddresses(enrichedPort).filter((e) => e.type !== 'hardware'));
+      if (onPortUpdated) {
+        onPortUpdated(enrichedPort);
       }
+      setMacEntries(getPortMacAddresses(enrichedPort).filter((e) => e.type !== 'hardware'));
 
       setNotification({
         type: 'success',
