@@ -390,31 +390,75 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
 
   // 4. Refresh port & MAC data from device
   const handleRefreshData = async () => {
-    if (!device) return;
+    if (!device || !port) return;
     setIsRefreshing(true);
     try {
-      const res = await fetchDevicePorts(device.id, true);
-      if (res && Array.isArray(res.ports)) {
-        const freshPort = res.ports.find((p) => matchPortFlexible(p, portId));
-        if (freshPort) {
-          const freshSec = extractPortSecurityState(freshPort);
-          setEnabled(freshSec.enabled);
-          setMode(freshSec.mode);
-          setMaxMac(freshSec.maxMac);
-          setViolation(freshSec.violation);
-          setConfiguredMac(freshSec.configuredMac);
-          const freshEntries = getPortMacAddresses(freshPort).filter((e) => e.type !== 'hardware');
-          setMacEntries(freshEntries);
-          if (onPortUpdated) {
-            onPortUpdated(freshPort);
+      console.log(`[PortSecurity Sync] Querying live port security and MACs for interface ${portId}...`);
+      let freshPort: SwitchPort | null = null;
+      let rawOutput: string = '';
+
+      // Primary: Direct hardware query for this specific interface (show port-security address interface, show running-config interface, show mac address-table)
+      try {
+        const queryRes = await executeDeviceOperation(
+          device.id,
+          'port_sec_query',
+          portId,
+          {
+            interface: portId,
+            device_type: device.type,
+          }
+        );
+        rawOutput = queryRes?.output || '';
+        console.log(`[PortSecurity Sync] Raw Device CLI Output for ${portId}:\n`, rawOutput || '(no output received)');
+        if (queryRes && queryRes.port) {
+          freshPort = queryRes.port;
+          console.log(`[PortSecurity Sync] Parsed Port from Direct Query:`, freshPort);
+        }
+      } catch (queryErr) {
+        console.warn('[PortSecurity Sync] Direct interface query fallback to full sync:', queryErr);
+      }
+
+      // Secondary / Fallback: Fetch ports via deep sync
+      try {
+        const res = await fetchDevicePorts(device.id, true);
+        if (res && Array.isArray(res.ports)) {
+          const matched = res.ports.find((p) => matchPortFlexible(p, portId));
+          if (matched) {
+            if (!freshPort) {
+              freshPort = matched;
+            } else {
+              // Merge any additional discovered learned MACs
+              const existingLearned = new Set(freshPort.port_security_learned_macs || []);
+              (matched.port_security_learned_macs || []).forEach((m) => existingLearned.add(m));
+              freshPort.port_security_learned_macs = Array.from(existingLearned);
+            }
           }
         }
+      } catch (fetchErr) {
+        console.warn('[PortSecurity Sync] Full fetch ports note:', fetchErr);
       }
+
+      if (freshPort) {
+        const freshSec = extractPortSecurityState(freshPort);
+        setEnabled(freshSec.enabled);
+        setMode(freshSec.mode);
+        setMaxMac(freshSec.maxMac);
+        setViolation(freshSec.violation);
+        setConfiguredMac(freshSec.configuredMac);
+        const freshEntries = getPortMacAddresses(freshPort).filter((e) => e.type !== 'hardware');
+        console.log(`[PortSecurity Sync] Final populated MAC entries (${freshEntries.length}):`, freshEntries);
+        setMacEntries(freshEntries);
+        if (onPortUpdated) {
+          onPortUpdated(freshPort);
+        }
+      }
+
       setNotification({
         type: 'success',
         message: isEn ? 'Port Security data refreshed successfully.' : 'اطلاعات پورت سکیوریتی با موفقیت به‌روزرسانی شد.',
       });
     } catch (err: any) {
+      console.error('[PortSecurity Sync Error]', err);
       setNotification({
         type: 'error',
         message: err.message || (isEn ? 'Failed to refresh ports.' : 'خطا در بازخوانی اطلاعات.'),

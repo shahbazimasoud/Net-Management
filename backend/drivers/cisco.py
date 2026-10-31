@@ -156,6 +156,17 @@ class CiscoDriver(NetworkDeviceDriver):
             return f"clear port-security dynamic interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n switchport port-security mac-address sticky\nend\nwrite memory"
         elif action == "port_sec_recover_errdisable":
             return f"configure terminal\ninterface {interface}\n shutdown\n no shutdown\nend\nwrite memory"
+        elif action == "port_sec_query":
+            return (
+                f"terminal length 0\n"
+                f"show port-security interface {interface}\n"
+                f"show port-security address interface {interface}\n"
+                f"show running-config interface {interface}\n"
+                f"show mac address-table interface {interface}\n"
+                f"show mac-address-table interface {interface}\n"
+                f"show port-security address\n"
+                f"show interfaces {interface} status"
+            )
         elif action == "port_sec_update":
             enabled = params.get("enabled", True)
             if not enabled:

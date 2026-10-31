@@ -196,7 +196,8 @@ def handle_ports_sync(args):
             "show port-security",
             "show port-security address",
             "show mac address-table",
-            "show running-config | include (interface |switchport port-security|switchport access vlan)",
+            "show mac-address-table",
+            "show running-config | include switchport port-security",
         ] if is_cisco else [
             "/interface print detail without-paging",
             "/interface bridge port print detail without-paging",
@@ -952,6 +953,23 @@ def handle_port_action(args):
         if not executed_any and not full_output:
             full_output = "\n".join(lines)
 
+        parsed_port = None
+        if action == "port_sec_query" and "cisco" in platform.lower():
+            try:
+                from backend.connections.hardware_discovery import parse_cisco_show_interface_status
+                parsed_ports = parse_cisco_show_interface_status(full_output)
+                if parsed_ports:
+                    for p in parsed_ports:
+                        p_id = str(p.get("port_id") or p.get("port") or p.get("name") or "")
+                        if interface.lower() in p_id.lower() or p_id.lower() in interface.lower():
+                            parsed_port = p
+                            break
+                    if not parsed_port and parsed_ports:
+                        parsed_port = parsed_ports[0]
+            except Exception as pe:
+                import sys
+                sys.stderr.write(f"[port_sec_query parse warning] {pe}\n")
+
         print(json.dumps({
             "success": True,
             "connected": True,
@@ -959,6 +977,7 @@ def handle_port_action(args):
             "interface": interface,
             "cli_command": cli_command,
             "output": full_output,
+            "port": parsed_port,
             "paramiko_version": getattr(paramiko, "__version__", "unknown"),
             "ssh_version": ssh_version,
             "is_real": True,

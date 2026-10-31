@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.407.6';
+export const APP_VERSION = '1.407.7';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.407.7',
+    releaseDate: '2026-10-31',
+    type: 'patch',
+    title: 'اصلاح جامع پارسر جدول مک‌آدرس‌های پورت سکیوریتی سیسکو (BUG 1): پشتیبانی از خروجی‌های show port-security address interface، فرمت‌های مختلف بدون ستون پورت، تمام مودهای استیکی، استاتیک و داینامیک، لاگ‌گیری دقیق دیتای خام سوئیچ و حذف داده‌های فیک',
+    title_en: 'Comprehensive Cisco Port Security MAC Parser Fix (BUG 1): Support "show port-security address interface" Layouts, Port-less Columns, SecureSticky/Configured/Dynamic Types, Real Telemetry Logging & Zero Fake Data',
+    changes: [
+      'اصلاح ریشه‌ای و بازنویسی پارسر جدول مک‌آدرس‌های پورت سکیوریتی سیسکو در hardware_discovery.py جهت شناسایی دقیق مک‌های SecureSticky، SecureConfigured و SecureDynamic در خروجی‌های مختلف IOS 12.x و 15.x.',
+      'افزودن پشتیبانی کامل از خروجی‌های show port-security address interface <if> که در آن ستون Ports به دلیل تعیین اینترفیس در دستور حذف شده و تنها ستون Remaining Age چاپ می‌شود (جلوگیری از تشخیص اشتباه Remaining Age به عنوان نام اینترفیس و حذف نشدن مک‌ها).',
+      'افزودن عملیات مستقیم سخت‌افزاری port_sec_query در backend/ssh_bridge.py و backend/drivers/cisco.py جهت استعلام بلافاصله وضعیت پورت، جدول مک و کانفیگ جاری اینترفیس در زمان فشردن دکمه سینک (تازه‌سازی) در مودال.',
+      'پیاده‌سازی لاگ‌گیری ساختاریافته از خروجی خام سوئیچ در برابر دیتای پارس‌شده در بک‌اند و فرانت‌اند جهت عیب‌یابی و پایش بی‌درنگ دیتای واقعی شبکه.',
+      'حذف کامل هرگونه تولید مک‌آدرس تصادفی یا شبیه‌سازی‌شده (Fake MAC Synthesis) در PortInspectorModal و server/routes.ts در انطباق کامل با استاندارد دیتای حقیقی.'
+    ],
+    changes_en: [
+      'Comprehensively refactored Cisco port-security address table parser in hardware_discovery.py supporting all SecureSticky, SecureConfigured, and SecureDynamic MAC variants across Cisco IOS 12.x and 15.x formats.',
+      'Added full support for "show port-security address interface <if>" outputs where the Ports column is omitted by IOS, preventing Remaining Age values from being misidentified as interface names and resolving dropped MAC entries on sync.',
+      'Implemented dedicated direct hardware operation "port_sec_query" in backend/ssh_bridge.py and backend/drivers/cisco.py for instant interface inspection, running-config check, and MAC table parsing upon clicking Sync in the modal.',
+      'Introduced structured logging of raw switch CLI output vs parsed MAC entries across backend and frontend for real telemetry validation.',
+      'Completely removed synthetic fake MAC generation in PortInspectorModal and server/routes.ts in strict adherence to authentic physical data requirements.'
+    ]
+  },
   {
     version: '1.407.6',
     releaseDate: '2026-10-31',

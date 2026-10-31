@@ -453,26 +453,82 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
                 if not matched_port.get("port_security_status"):
                     matched_port["port_security_status"] = "secure-up" if matched_port.get("status") == "up" else "secure-down"
 
-    # Parse Cisco 'show port-security address'
-    # Format:
-    # Vlan   Mac Address       Type                    Ports   Remaining Age
-    # ----   -----------       ----                    -----   -------------
-    #   10   0050.56a1.03fe    SecureSticky            Gi1/0/3      -
-    #   20   0050.56a1.0501    SecureConfigured        Gi1/0/4      -
-    #   30   0050.56a1.07fe    SecureDynamic           Gi1/0/5      -
+    # Parse Cisco 'show port-security address' & 'show port-security address interface <if>'
+    # Handles:
+    # 1) Full table with Ports and Remaining Age:
+    #    Vlan   Mac Address       Type                    Ports   Remaining Age
+    #      10   0050.56a1.03fe    SecureSticky            Gi1/0/3      -
+    #      20   0050.56a1.0501    SecureConfigured        Gi1/0/4      -
+    #      30   0050.56a1.07fe    SecureDynamic           Gi1/0/5      -
+    # 2) Interface-specific output (Ports column omitted):
+    #    Vlan   Mac Address       Type                  Remaining Age
+    #      30   0000.0000.0020    SecureConfigured           -
+    # 3) Hyphenated or simplified type names (Secure-Sticky, Configured, Dynamic)
+    # 4) Differing column orders and multi-page outputs
+    current_command_interface = None
+    parsed_sec_mac_entries = []
+
     for line in lines:
         l = line.strip()
-        m_sec = re.match(
-            r'^\s*(\d+)\s+([0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}|[0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2})\s+(SecureSticky|SecureConfigured|SecureDynamic)\s+(\S+)',
+        if not l or l.startswith("---") or l.startswith("Vlan") or l.startswith("Total") or l.startswith("Max"):
+            continue
+
+        # Detect command header in multi-command streams
+        m_cmd = re.match(
+            r'^(?:[A-Za-z0-9_\-\.\(\)]+[#\>]\s*)?show\s+(?:port-security\s+address|port-security|mac\s+address-table|mac-address-table|running-config)\s+(?:address\s+)?interface\s+([A-Za-z0-9\/\.\-]+)',
             l,
             re.IGNORECASE
         )
-        if m_sec:
-            sec_vlan = int(m_sec.group(1))
-            sec_mac = m_sec.group(2).strip()
-            sec_type = m_sec.group(3).lower()
-            sec_iface = m_sec.group(4).strip()
-            matched_port = find_matching_port(sec_iface)
+        if m_cmd:
+            current_command_interface = find_matching_port(m_cmd.group(1).strip())
+            continue
+
+        # Look for a valid MAC address in standard formats
+        m_mac = re.search(
+            r'\b([0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}|[0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2})\b',
+            l
+        )
+        if not m_mac:
+            continue
+        sec_mac = m_mac.group(1).strip()
+
+        # Check if line contains a port security type
+        m_type = re.search(
+            r'\b(Secure-?Sticky|Sticky|Secure-?Configured|Configured|Secure-?Dynamic|Dynamic)\b',
+            l,
+            re.IGNORECASE
+        )
+        if m_type:
+            raw_t = m_type.group(1).lower()
+            if "sticky" in raw_t:
+                sec_type = "sticky"
+            elif "configured" in raw_t:
+                sec_type = "configured"
+            else:
+                sec_type = "dynamic"
+
+            # Check if an explicit interface token exists on the line
+            m_iface_token = re.search(
+                r'\b(Gi(?:gabitEthernet)?\d+(?:/\d+)*|Fa(?:stEthernet)?\d+(?:/\d+)*|Te(?:nGigabitEthernet)?\d+(?:/\d+)*|Eth(?:ernet)?\d+(?:/\d+)*|Po\d+)\b',
+                l,
+                re.IGNORECASE
+            )
+            matched_port = None
+            if m_iface_token:
+                matched_port = find_matching_port(m_iface_token.group(1).strip())
+
+            # Fall back to command interface context if line omitted Ports column
+            if matched_port is None:
+                matched_port = current_command_interface
+
+            # Fall back to single port context if list contains only 1 port
+            if matched_port is None and len(ports) == 1:
+                matched_port = ports[0]
+
+            # Extract VLAN from line if present
+            m_vlan = re.search(r'^\s*(\d+)\b', l)
+            sec_vlan = int(m_vlan.group(1)) if m_vlan else 0
+
             if matched_port is not None:
                 matched_port["port_security_enabled"] = True
                 if not isinstance(matched_port.get("port_security_learned_macs"), list):
@@ -484,37 +540,40 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
                 if sec_mac not in matched_port["learned_macs"]:
                     matched_port["learned_macs"].append(sec_mac)
 
-                # Set connected_mac as the authentic sticky or configured host MAC
                 matched_port["connected_mac"] = sec_mac
-
-                # If port currently has default VLAN 1 or missing VLAN, update to port-security VLAN
-                if (not matched_port.get("vlan") or matched_port.get("vlan") == 1) and sec_vlan > 0:
+                if sec_vlan > 0 and (not matched_port.get("vlan") or matched_port.get("vlan") == 1):
                     matched_port["vlan"] = sec_vlan
 
-                if "sticky" in sec_type:
+                if sec_type == "sticky":
                     matched_port["port_security_mode"] = "sticky"
                     matched_port["port_security_sticky_mac"] = sec_mac
                     matched_port["port_security_configured_mac"] = sec_mac
                     if not matched_port.get("port_security_status"):
                         matched_port["port_security_status"] = "secure-up" if matched_port.get("status") == "up" else "secure-down"
-                elif "configured" in sec_type:
+                elif sec_type == "configured":
                     matched_port["port_security_mode"] = "configured"
                     matched_port["port_security_configured_mac"] = sec_mac
                     if not matched_port.get("port_security_status"):
                         matched_port["port_security_status"] = "secure-up" if matched_port.get("status") == "up" else "secure-down"
-                elif "dynamic" in sec_type:
-                    matched_port["port_security_mode"] = "dynamic"
+                elif sec_type == "dynamic":
+                    if not matched_port.get("port_security_mode"):
+                        matched_port["port_security_mode"] = "dynamic"
                     if not matched_port.get("port_security_status"):
                         matched_port["port_security_status"] = "secure-up" if matched_port.get("status") == "up" else "secure-down"
 
-    # Parse Cisco 'show mac address-table' or 'show mac-address-table'
-    # Format:
-    # Vlan    Mac Address       Type        Ports
-    # ----    -----------       --------    -----
-    #    1    0050.56a1.01fe    DYNAMIC     Gi1/0/1
-    #   10    0050.56a1.03fe    STATIC      Gi1/0/3
+                parsed_sec_mac_entries.append({
+                    "mac": sec_mac,
+                    "type": sec_type,
+                    "port": matched_port.get("port_id"),
+                    "vlan": sec_vlan or matched_port.get("vlan", 1)
+                })
+
+    # Parse Cisco 'show mac address-table' or 'show mac-address-table' (fallback & dynamic/static verification)
     for line in lines:
         l = line.strip()
+        if not l or l.startswith("---") or l.startswith("Vlan") or l.startswith("Mac Address"):
+            continue
+
         m_cam = re.match(
             r'^\s*(?:\*\s*)?(\d+)\s+([0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}|[0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2})\s+(DYNAMIC|STATIC)\s+(?:.*?)\s*([A-Za-z0-9\/\.\-]+)\s*$',
             l,
@@ -541,6 +600,11 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
                     matched_port["connected_mac"] = cam_mac
                 if (not matched_port.get("vlan") or matched_port.get("vlan") == 1) and cam_vlan > 0:
                     matched_port["vlan"] = cam_vlan
+
+    # Log raw output summary vs parsed results
+    if parsed_sec_mac_entries:
+        import sys
+        sys.stderr.write(f"[PortSecurity Parser] Extracted {len(parsed_sec_mac_entries)} secure MAC entries: {json.dumps(parsed_sec_mac_entries)}\n")
 
     # Parse Cisco running-config interface blocks (e.g. from 'show running-config interface' or full config):
     # interface GigabitEthernet0/20

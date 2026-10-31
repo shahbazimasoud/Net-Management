@@ -251,17 +251,6 @@ export function getPortMacAddresses(port: SwitchPort | any): PortMacEntry[] {
     add(port.connected_device_mac, defaultLearnedType);
   }
 
-  // 6. If port is UP and has a connected device, but no learned MAC was explicitly found,
-  // derive the learned MAC deterministically so that active ports always show the client MAC!
-  if (result.length === 0 && isUp && port.connected_device && port.connected_device !== 'Disconnected') {
-    const rawId = String(port.port_id || port.name || '1');
-    const match = rawId.match(/\d+/g);
-    const num = match ? parseInt(match[match.length - 1], 10) : 1;
-    const hex = num.toString(16).padStart(2, '0');
-    const isCisco = rawId.toLowerCase().includes('gi') || rawId.toLowerCase().includes('fa') || rawId.toLowerCase().includes('te') || rawId.toLowerCase().includes('/');
-    const derivedMac = isCisco ? `0050.56a1.${hex}fe` : `00:50:56:a1:${hex}:fe`;
-    add(derivedMac, sec.mode === 'sticky' ? 'sticky' : 'dynamic');
-  }
 
   // 7. Port hardware MAC address (Burned-in ASIC address of the switch port)
   // Kept as type 'hardware', but table display prioritizes authentic client/sticky/configured MACs

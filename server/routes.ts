@@ -4792,15 +4792,6 @@ apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
       let hostMac = p.connected_mac || p.host_mac || p.client_mac || '';
       if (!hostMac && pLearnedMacs.length > 0) {
         hostMac = pLearnedMacs[0];
-      } else if (!hostMac && isUp && hasConnectedDevice) {
-        if (isCisco) {
-          hostMac = `0050.56a1.${hexPort}fe`;
-        } else {
-          hostMac = `00:50:56:a1:${hexPort}:fe`;
-        }
-        if (!pLearnedMacs.includes(hostMac)) {
-          pLearnedMacs.push(hostMac);
-        }
       }
 
       return {
@@ -5723,6 +5714,7 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
     'port_sec_clear_all_macs',
     'port_sec_recover_errdisable',
     'port_sec_update',
+    'port_sec_query',
   ].includes(op);
 
   if (!isPortPower && !isPortMode && !isPortVlan && !isPortDesc && !isPortSecurity) {
@@ -5863,6 +5855,25 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
           p.status = 'up';
           p.admin_status = 'enabled';
           p.port_security_status = 'secure-up';
+        } else if (op === 'port_sec_query') {
+          console.log(`[PortSecurity Sync] Device ${devId} ${iface} Raw Output:\n`, result?.output || '(empty)');
+          if (result?.port) {
+            const freshSec = result.port;
+            p.port_security_enabled = freshSec.port_security_enabled ?? p.port_security_enabled;
+            p.port_security_mode = freshSec.port_security_mode ?? p.port_security_mode;
+            p.port_security_max_mac = freshSec.port_security_max_mac ?? p.port_security_max_mac;
+            p.port_security_violation = freshSec.port_security_violation ?? p.port_security_violation;
+            p.port_security_configured_mac = freshSec.port_security_configured_mac ?? p.port_security_configured_mac;
+            p.port_security_sticky_mac = freshSec.port_security_sticky_mac ?? p.port_security_sticky_mac;
+            p.port_security_learned_macs = Array.isArray(freshSec.port_security_learned_macs)
+              ? freshSec.port_security_learned_macs
+              : p.port_security_learned_macs;
+            p.learned_macs = Array.isArray(freshSec.learned_macs) ? freshSec.learned_macs : p.learned_macs;
+            p.connected_mac = freshSec.connected_mac ?? p.connected_mac;
+            p.status = freshSec.status ?? p.status;
+            if (freshSec.vlan) p.vlan = freshSec.vlan;
+            console.log(`[PortSecurity Sync] Parsed MACs:`, p.port_security_learned_macs || []);
+          }
         } else if (op === 'port_sec_update') {
           p.port_security_enabled = Boolean(params.enabled);
           p.port_security_status = p.port_security_enabled ? (p.status === 'up' ? 'secure-up' : 'secure-down') : 'disabled';
