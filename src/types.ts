@@ -968,6 +968,7 @@ export interface AccessPolicy {
   canCheckUpdate?: boolean;
   canPerformUpdate?: boolean;
   canBulkConfigureDevices?: boolean;
+  canBulkConfigureServers?: boolean;
   canManageNavigationGovernance?: boolean;
 
   // 1. Cisco IOS / IOS-XE Granular Capabilities

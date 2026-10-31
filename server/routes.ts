@@ -125,6 +125,7 @@ import {
   deleteRemoteServer,
   isServerActionPermitted,
   isBulkConfigPermitted,
+  isBulkServerConfigPermitted,
   RemoteServer,
   sanitizeRemoteServerForClient,
   updateRemoteServerTags,
@@ -17680,6 +17681,58 @@ apiRouter.post('/remote-servers/:id/cron-jobs/run-now', async (req: Request, res
 // ==========================================
 // BULK LINUX SERVER CONFIGURATION ENDPOINTS
 // ==========================================
+
+// =========================================================================
+// Authoritative PostgreSQL-backed RBAC Guard for Bulk Server Configuration
+// Endpoints: /api/bulk-server-config/templates, /api/bulk-server-config/preview,
+//            /api/bulk-server-config/jobs, /api/bulk-server-config/jobs/:id, etc.
+// =========================================================================
+apiRouter.use(['/bulk-server-config', '/bulk-server-config/*'], async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { effectivePolicy, isSuperAdmin, user } = await resolveRequestContextPolicy(req);
+
+    // Authoritative RBAC check: Super Administrator or policy with canBulkConfigureServers === true
+    const isPermitted = isSuperAdmin || (effectivePolicy ? isBulkServerConfigPermitted(effectivePolicy) : false);
+
+    if (!isPermitted) {
+      const clientIp = getClientIp(req);
+      const userName = user?.username || 'anonymous';
+      const userRole = user?.role || (effectivePolicy ? effectivePolicy.name : 'Unknown');
+
+      try {
+        await addAuditLog({
+          userName,
+          action: 'Bulk Server Config Blocked (RBAC Security Violation)',
+          category: 'security',
+          target: req.originalUrl || req.path || '/api/bulk-server-config',
+          status: 'warning',
+          details: `Unauthorized attempt to execute or access Bulk Server Configuration endpoint (${req.method} ${req.originalUrl || req.path}) rejected. User "${userName}" (role: ${userRole}) from IP ${clientIp} lacks canBulkConfigureServers permission under active PostgreSQL RBAC policy.`,
+          ipAddress: clientIp,
+          userAgent: (req.headers['user-agent'] as string) || '',
+        });
+      } catch (auditErr) {
+        console.warn('[Audit log error on rejected bulk server config]', auditErr);
+      }
+
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: You do not have permission to execute or access Bulk Server Configuration operations under your RBAC policy.',
+        errorFa: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز دسترسی به عملیات و پیکربندی گروهی سرورها (Bulk Server Configuration) را ندارید.',
+        message: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز دسترسی به عملیات و پیکربندی گروهی سرورها (Bulk Server Configuration) را ندارید.',
+      });
+    }
+
+    // Authorized operator — pass through to execution pipeline / backend proxy
+    return next();
+  } catch (err: any) {
+    console.error('[Bulk Server Config RBAC Guard Error]', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error during RBAC authorization evaluation.',
+      details: err.message,
+    });
+  }
+});
 
 // GET /api/bulk-server-config/templates - Get all Linux server configuration templates
 apiRouter.get('/bulk-server-config/templates', (_req: Request, res: Response) => {

@@ -164,6 +164,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canBulkConfigureDevices:
         initialPolicy.canBulkConfigureDevices ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canBulkConfigureServers:
+        initialPolicy.canBulkConfigureServers ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
       canManageNavigationGovernance:
         initialPolicy.canManageNavigationGovernance ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
@@ -822,6 +825,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canViewPhysicalPlacement: enabled,
         canViewSettings: enabled,
         canBulkConfigureDevices: enabled,
+        canBulkConfigureServers: enabled,
         canManageNavigationGovernance: enabled,
       };
     });
@@ -2917,6 +2921,20 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         whyNeededFa: 'اجرای دستورات گروهی ریسک بالایی دارد؛ محدود کردن آن مانع از دستکاری‌های ناخواسته یا خرابکاری گسترده در شبکه می‌شود.',
                         practicalExampleEn: 'Enable only for Senior Network Engineers and Super Administrators',
                         practicalExampleFa: 'فقط برای مدیران ارشد شبکه و ادمین‌های زیرساخت فعال باشد',
+                      },
+                      {
+                        key: 'canBulkConfigureServers',
+                        labelEn: 'Bulk Server Configuration',
+                        labelFa: 'پیکربندی گروهی سرورها',
+                        descEn: 'Batch Linux fleet config & multi-server automation suite',
+                        descFa: 'ماژول اعمال گروهی دستورات و اتوماسیون روی سرورهای ناوگان',
+                        icon: Sliders,
+                        whatIsItEn: 'Controls access to the Bulk Server Configuration modal and multi-server automation suite in the Remote Servers & Fleet view.',
+                        whatIsItFa: 'مجوز باز کردن مودال و استفاده از سامانه اتوماسیون و اجرای گروهی دستورات و تمپلیت‌ها روی سرورهای لینوکس ناوگان.',
+                        whyNeededEn: 'Batch server execution carries critical system-wide operational risks. Restricting this permission prevents accidental or unauthorized mass configuration changes across servers.',
+                        whyNeededFa: 'اجرای دستورات گروهی روی سرورها ریسک عملیاتی و سیستمی بالایی دارد؛ محدود کردن آن مانع از دستکاری‌های ناخواسته، قطعی سرویس‌ها یا تغییرات غیرمجاز در کل سرورها می‌شود.',
+                        practicalExampleEn: 'Enable only for Senior DevOps Engineers, Linux System Administrators, and Super Administrators',
+                        practicalExampleFa: 'فقط برای مدیران ارشد سیستم لینوکس، مهندسان ارشد دوآپس و سوپرادمین‌ها فعال باشد',
                       },
                       {
                         key: 'canManageNavigationGovernance',

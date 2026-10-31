@@ -5,8 +5,37 @@ import {
   BulkServerExecutionReport
 } from '../types';
 
+function getAuthToken(): string | null {
+  try {
+    return (
+      sessionStorage.getItem('nettopology_auth_token_v1') ||
+      localStorage.getItem('nettopology_auth_token_v1') ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function getAuthHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = { ...extraHeaders };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  try {
+    const simRole = localStorage.getItem('simulated_role_id');
+    if (simRole && simRole !== 'actual-user') {
+      headers['X-Simulated-Role'] = simRole;
+    }
+  } catch {}
+  return headers;
+}
+
 export async function fetchBulkServerTemplates(): Promise<BulkServerTemplate[]> {
-  const res = await fetch('/api/bulk-server-config/templates');
+  const res = await fetch('/api/bulk-server-config/templates', {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.error || `Failed to fetch templates (${res.status})`);
@@ -22,7 +51,7 @@ export async function generateBulkServerPreview(
 ): Promise<BulkServerPreviewItem[]> {
   const res = await fetch('/api/bulk-server-config/preview', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ templateId, parameters, serverIds })
   });
   if (!res.ok) {
@@ -44,7 +73,7 @@ export async function startBulkServerJob(payload: {
 }): Promise<{ jobId: string }> {
   const res = await fetch('/api/bulk-server-config/jobs', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(payload)
   });
   if (!res.ok) {
@@ -56,7 +85,9 @@ export async function startBulkServerJob(payload: {
 }
 
 export async function fetchBulkServerJobStatus(jobId: string): Promise<BulkServerJobStatus> {
-  const res = await fetch(`/api/bulk-server-config/jobs/${encodeURIComponent(jobId)}`);
+  const res = await fetch(`/api/bulk-server-config/jobs/${encodeURIComponent(jobId)}`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.error || `Failed to fetch job status (${res.status})`);
@@ -67,7 +98,8 @@ export async function fetchBulkServerJobStatus(jobId: string): Promise<BulkServe
 
 export async function cancelBulkServerJob(jobId: string): Promise<boolean> {
   const res = await fetch(`/api/bulk-server-config/jobs/${encodeURIComponent(jobId)}/cancel`, {
-    method: 'POST'
+    method: 'POST',
+    headers: getAuthHeaders(),
   });
   if (!res.ok) {
     return false;
@@ -77,7 +109,9 @@ export async function cancelBulkServerJob(jobId: string): Promise<boolean> {
 }
 
 export async function fetchBulkServerReports(): Promise<BulkServerExecutionReport[]> {
-  const res = await fetch('/api/bulk-server-config/reports');
+  const res = await fetch('/api/bulk-server-config/reports', {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.error || `Failed to fetch execution reports (${res.status})`);
@@ -87,7 +121,9 @@ export async function fetchBulkServerReports(): Promise<BulkServerExecutionRepor
 }
 
 export async function fetchBulkServerReportDetails(reportId: string): Promise<BulkServerExecutionReport | null> {
-  const res = await fetch(`/api/bulk-server-config/reports/${encodeURIComponent(reportId)}`);
+  const res = await fetch(`/api/bulk-server-config/reports/${encodeURIComponent(reportId)}`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) {
     if (res.status === 404) return null;
     const errData = await res.json().catch(() => ({}));
@@ -99,7 +135,8 @@ export async function fetchBulkServerReportDetails(reportId: string): Promise<Bu
 
 export async function deleteBulkServerReport(reportId: string): Promise<boolean> {
   const res = await fetch(`/api/bulk-server-config/reports/${encodeURIComponent(reportId)}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: getAuthHeaders(),
   });
   if (!res.ok) return false;
   const data = await res.json().catch(() => ({}));
@@ -108,7 +145,8 @@ export async function deleteBulkServerReport(reportId: string): Promise<boolean>
 
 export async function clearAllBulkServerReports(): Promise<boolean> {
   const res = await fetch('/api/bulk-server-config/reports', {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: getAuthHeaders(),
   });
   if (!res.ok) return false;
   const data = await res.json().catch(() => ({}));
@@ -118,7 +156,7 @@ export async function clearAllBulkServerReports(): Promise<boolean> {
 export async function saveBulkServerReport(report: Partial<BulkServerExecutionReport>): Promise<boolean> {
   const res = await fetch('/api/bulk-server-config/reports', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(report)
   });
   if (!res.ok) return false;
@@ -129,7 +167,7 @@ export async function saveBulkServerReport(report: Partial<BulkServerExecutionRe
 export async function importBulkServerReports(reports: BulkServerExecutionReport[]): Promise<{ imported: number }> {
   const res = await fetch('/api/bulk-server-config/reports', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(reports)
   });
   if (!res.ok) {
@@ -145,7 +183,9 @@ export async function fetchBulkServerReportsStats(): Promise<{
   totalReports: number;
   isPostgresReady: boolean;
 }> {
-  const res = await fetch('/api/bulk-server-config/reports-stats');
+  const res = await fetch('/api/bulk-server-config/reports-stats', {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) {
     return {
       storageType: 'json_store',
@@ -160,4 +200,3 @@ export async function fetchBulkServerReportsStats(): Promise<{
     isPostgresReady: false,
   };
 }
-

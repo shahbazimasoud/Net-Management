@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.406.1';
+export const APP_VERSION = '1.407.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.407.0',
+    releaseDate: '2026-10-31',
+    type: 'minor',
+    title: 'افزودن دسترسی اختصاصی پیکربندی گروهی سرورها (canBulkConfigureServers) به پالیسی‌ها، کنترل دکمه در ناوگان سرورها و اعمال محافظت بک‌اندی RBAC',
+    title_en: 'Add Granular Bulk Server Configuration Permission (canBulkConfigureServers) to Access Policies, UI Guard on Fleet View, and Server-Side RBAC Enforcement',
+    changes: [
+      'تعریف دسترسی اختصاصی canBulkConfigureServers در اینترفیس AccessPolicy و همگام‌سازی طرح دیتابیس در server/db.ts با مقادیر پیش‌فرض سوپرادمین و ارزیابی معتبر.',
+      'افزودن سوییچ و آیتم پیکربندی گروهی سرورها (Bulk Server Configuration) در تب Navigation & Views مودال Access Policy همراه با توضیحات دوزبانه و تولتیپ اطلاعاتی سه‌بخشی (Info).',
+      'مقیدسازی دکمه Bulk Server Config و کانتینر مودال در صفحه Remote Servers & Automation Fleet به بررسی دسترسی canBulkConfigureServers کاربر جاری.',
+      'پیاده‌سازی محافظ امنیتی بک‌اندی معتبر (Authoritative Server-side RBAC Guard) بر روی کلیه اندپوئینت‌های /api/bulk-server-config/* و بازگرداندن خطای استاندارد 403 Forbidden و لاگ ممیزی در صورت عدم برخورداری از مجوز.',
+      'تجهیز سرویس کلاینت bulkServerConfigService.ts به ارسال هدرهای احراز هویت (Authorization Bearer Token و X-Simulated-Role) برای برقراری ارتباط ایمن با بک‌اند.'
+    ],
+    changes_en: [
+      'Introduced dedicated canBulkConfigureServers permission flag in AccessPolicy interface and synchronized database schema defaults and evaluation in server/db.ts.',
+      'Added Bulk Server Configuration setting card to the Navigation & Views tab in AccessPolicyModal with complete bilingual labels, descriptions, and boundary-safe 3-part Info tooltip.',
+      'Guarded the Bulk Server Config action button, dock minimize handler, and modal rendering in Remote Servers & Automation Fleet view with canBulkConfigureServers policy checks.',
+      'Implemented authoritative server-side PostgreSQL RBAC middleware guard across all /api/bulk-server-config/* endpoints, returning 403 Forbidden and recording security audit logs on unauthorized access attempts.',
+      'Equipped client-side bulkServerConfigService.ts with automatic authorization headers (Bearer token & simulated role) for seamless, secure API communication.'
+    ]
+  },
   {
     version: '1.406.1',
     releaseDate: '2026-10-30',

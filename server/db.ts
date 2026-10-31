@@ -441,6 +441,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canCheckUpdate: false,
     canPerformUpdate: false,
     canBulkConfigureDevices: false,
+    canBulkConfigureServers: false,
     canManageNavigationGovernance: false,
     // Device & Port Actions
     terminalAccess: 'none',
@@ -505,6 +506,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canCheckUpdate: false,
     canPerformUpdate: false,
     canBulkConfigureDevices: false,
+    canBulkConfigureServers: false,
     canManageNavigationGovernance: false,
     // Device & Port Actions
     terminalAccess: 'view_only',
@@ -569,6 +571,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canCheckUpdate: true,
     canPerformUpdate: true,
     canBulkConfigureDevices: true,
+    canBulkConfigureServers: true,
     canManageNavigationGovernance: true,
     // Device & Port Actions
     terminalAccess: 'full',
@@ -1577,6 +1580,11 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
       if (pData.canBulkConfigureDevices === undefined) {
         const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
         pData.canBulkConfigureDevices = isSuper;
+        changed = true;
+      }
+      if (pData.canBulkConfigureServers === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        pData.canBulkConfigureServers = isSuper;
         changed = true;
       }
       if (pData.canManageNavigationGovernance === undefined) {
@@ -3858,6 +3866,7 @@ export async function getAccessPolicies(): Promise<any[]> {
         const canCheck = pData.canCheckUpdate !== undefined ? Boolean(pData.canCheckUpdate) : isSuper;
         const canPerform = pData.canPerformUpdate !== undefined ? Boolean(pData.canPerformUpdate) : isSuper;
         const canBulkConfig = pData.canBulkConfigureDevices !== undefined ? Boolean(pData.canBulkConfigureDevices) : isSuper;
+        const canBulkConfigServers = pData.canBulkConfigureServers !== undefined ? Boolean(pData.canBulkConfigureServers) : isSuper;
         const canManageNav = pData.canManageNavigationGovernance !== undefined ? Boolean(pData.canManageNavigationGovernance) : isSuper;
         return {
           id: r.id,
@@ -3869,6 +3878,7 @@ export async function getAccessPolicies(): Promise<any[]> {
           canCheckUpdate: canCheck,
           canPerformUpdate: canPerform,
           canBulkConfigureDevices: canBulkConfig,
+          canBulkConfigureServers: canBulkConfigServers,
           canManageNavigationGovernance: canManageNav,
           defaultServerPermissions: defaultPerms,
           perServerPermissions: pData.perServerPermissions || {},
@@ -3901,6 +3911,7 @@ export async function getAccessPolicies(): Promise<any[]> {
     const canCheck = p.canCheckUpdate !== undefined ? Boolean(p.canCheckUpdate) : (pData.canCheckUpdate !== undefined ? Boolean(pData.canCheckUpdate) : isSuper);
     const canPerform = p.canPerformUpdate !== undefined ? Boolean(p.canPerformUpdate) : (pData.canPerformUpdate !== undefined ? Boolean(pData.canPerformUpdate) : isSuper);
     const canBulkConfig = p.canBulkConfigureDevices !== undefined ? Boolean(p.canBulkConfigureDevices) : (pData.canBulkConfigureDevices !== undefined ? Boolean(pData.canBulkConfigureDevices) : isSuper);
+    const canBulkConfigServers = p.canBulkConfigureServers !== undefined ? Boolean(p.canBulkConfigureServers) : (pData.canBulkConfigureServers !== undefined ? Boolean(pData.canBulkConfigureServers) : isSuper);
     const canManageNav = p.canManageNavigationGovernance !== undefined ? Boolean(p.canManageNavigationGovernance) : (pData.canManageNavigationGovernance !== undefined ? Boolean(pData.canManageNavigationGovernance) : isSuper);
     return {
       ...p,
@@ -3908,6 +3919,7 @@ export async function getAccessPolicies(): Promise<any[]> {
       canCheckUpdate: canCheck,
       canPerformUpdate: canPerform,
       canBulkConfigureDevices: canBulkConfig,
+      canBulkConfigureServers: canBulkConfigServers,
       canManageNavigationGovernance: canManageNav,
       defaultServerPermissions: defaultPerms,
       perServerPermissions: p.perServerPermissions || pData.perServerPermissions || {},
@@ -4162,6 +4174,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canCheckUpdate: false,
       canPerformUpdate: false,
       canBulkConfigureDevices: false,
+      canBulkConfigureServers: false,
       canManageNavigationGovernance: false,
       terminalAccess: 'none',
       canToggleAdminStatus: false,
@@ -4422,6 +4435,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canCheckUpdate: true,
       canPerformUpdate: true,
       canBulkConfigureDevices: true,
+      canBulkConfigureServers: true,
       canManageNavigationGovernance: true,
       terminalAccess: 'full',
       canToggleAdminStatus: true,
@@ -4507,6 +4521,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canCheckUpdate: false,
     canPerformUpdate: false,
     canBulkConfigureDevices: false,
+    canBulkConfigureServers: false,
     canManageNavigationGovernance: false,
     terminalAccess: 'none',
     canToggleAdminStatus: false,
@@ -4560,6 +4575,15 @@ export function isBulkConfigPermitted(policy: any | null | undefined): boolean {
   if (!policy) return false;
   if (policy.id === 'policy-super-admin' || (policy.priority || 0) >= 100) return true;
   return Boolean(policy.canBulkConfigureDevices);
+}
+
+/**
+ * Universally evaluates whether a user is permitted to use Bulk Server Configuration.
+ */
+export function isBulkServerConfigPermitted(policy: any | null | undefined): boolean {
+  if (!policy) return false;
+  if (policy.id === 'policy-super-admin' || (policy.priority || 0) >= 100) return true;
+  return Boolean(policy.canBulkConfigureServers);
 }
 
 /**

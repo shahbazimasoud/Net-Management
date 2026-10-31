@@ -680,6 +680,16 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     return effectivePolicy.canManageDevices !== false;
   }, [effectivePolicy]);
 
+  // Evaluates whether current user has authorization to run bulk server configuration
+  const canBulkConfigureServers = useMemo(() => {
+    if (!effectivePolicy) return true;
+    if (effectivePolicy.id === 'policy-super-admin' || (effectivePolicy.priority || 0) >= 100) return true;
+    if (effectivePolicy.canBulkConfigureServers !== undefined) {
+      return Boolean(effectivePolicy.canBulkConfigureServers);
+    }
+    return false;
+  }, [effectivePolicy]);
+
   // Filtered servers calculation
   const filteredServers = useMemo(() => {
     return servers.filter((server) => {
@@ -1649,6 +1659,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   };
 
   const handleMinimizeBulkConfig = () => {
+    if (!canBulkConfigureServers) return;
     setIsBulkConfigOpen(false);
     dockModal({
       id: 'bulk_server_config_modal',
@@ -1656,7 +1667,10 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       labelFa: 'پیکربندی گروهی سرورهای لینوکس',
       badge: 'BULK',
       category: 'tools',
-      onRestore: () => setIsBulkConfigOpen(true),
+      onRestore: () => {
+        if (!canBulkConfigureServers) return;
+        setIsBulkConfigOpen(true);
+      },
       onClose: () => {
         setIsBulkConfigOpen(false);
         undockModal('bulk_server_config_modal');
@@ -1782,20 +1796,25 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             </button>
 
             {/* Bulk Server Config Button */}
-            <button
-              id="btn-bulk-server-config"
-              type="button"
-              onClick={() => setIsBulkConfigOpen(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 cursor-pointer ${
-                isLightMode
-                  ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
-                  : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/30 shadow-xs'
-              }`}
-              title={isEn ? 'Bulk configure remote Linux servers' : 'پیکربندی گروهی سرورهای لینوکس'}
-            >
-              <Sliders className="w-3.5 h-3.5 text-cyan-400" />
-              <span>{isEn ? 'Bulk Server Config' : 'پیکربندی گروهی'}</span>
-            </button>
+            {canBulkConfigureServers && (
+              <button
+                id="btn-bulk-server-config"
+                type="button"
+                onClick={() => {
+                  if (!canBulkConfigureServers) return;
+                  setIsBulkConfigOpen(true);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 cursor-pointer ${
+                  isLightMode
+                    ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                    : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/30 shadow-xs'
+                }`}
+                title={isEn ? 'Bulk configure remote Linux servers' : 'پیکربندی گروهی سرورهای لینوکس'}
+              >
+                <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                <span>{isEn ? 'Bulk Server Config' : 'پیکربندی گروهی'}</span>
+              </button>
+            )}
 
             {/* Server Discovery & Subnet Scanner Button */}
             {(!effectivePolicy || effectivePolicy.canManageDevices !== false) && (
@@ -4554,19 +4573,21 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       />
 
       {/* 17. Bulk Linux Server Configuration Modal */}
-      <BulkServerConfigModal
-        isOpen={isBulkConfigOpen}
-        onClose={() => {
-          setIsBulkConfigOpen(false);
-          undockModal('bulk_server_config_modal');
-        }}
-        onMinimize={handleMinimizeBulkConfig}
-        isLightMode={isLightMode}
-        isEn={isEn}
-        allServers={servers}
-        initialSelectedServers={servers.filter((s) => selectedServerIds.has(s.id))}
-        onServersUpdated={loadFleet}
-      />
+      {canBulkConfigureServers && (
+        <BulkServerConfigModal
+          isOpen={isBulkConfigOpen}
+          onClose={() => {
+            setIsBulkConfigOpen(false);
+            undockModal('bulk_server_config_modal');
+          }}
+          onMinimize={handleMinimizeBulkConfig}
+          isLightMode={isLightMode}
+          isEn={isEn}
+          allServers={servers}
+          initialSelectedServers={servers.filter((s) => selectedServerIds.has(s.id))}
+          onServersUpdated={loadFleet}
+        />
+      )}
 
       {/* 18. Server Restart & Shutdown / Power Confirmation & Scheduling Modal */}
       {powerModalConfig && (
