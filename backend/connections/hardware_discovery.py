@@ -532,6 +532,65 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
                 if (not matched_port.get("vlan") or matched_port.get("vlan") == 1) and cam_vlan > 0:
                     matched_port["vlan"] = cam_vlan
 
+    # Parse Cisco 'show vlan brief' or 'show vlan' for authoritative VLAN-to-port mapping
+    # Format:
+    # VLAN Name                             Status    Ports
+    # ---- -------------------------------- --------- -------------------------------
+    # 1    default                          active    Gi1/0/1, Gi1/0/2, Gi1/0/3
+    # 10   VLAN0010                         active    Gi1/0/4, Gi1/0/5
+    # 20   MANAGEMENT                       active    Gi1/0/6, Gi1/0/7
+    current_vlan = None
+    for line in lines:
+        l = line.strip()
+        if not l or l.startswith("----") or l.startswith("VLAN") or "show " in l:
+            continue
+        m_vlan = re.match(r'^(\d+)\s+(\S+)\s+(active|act/unsup|act/lshut|suspended)\s*(.*)', l, re.IGNORECASE)
+        if m_vlan:
+            v_id = int(m_vlan.group(1))
+            current_vlan = v_id
+            port_str = m_vlan.group(4).strip()
+            if port_str:
+                for p_raw in re.split(r'[,;\s]+', port_str):
+                    p_clean = p_raw.strip()
+                    if p_clean and re.match(r'^(Gi|Fa|Te|Eth|Fo|\d+)', p_clean, re.IGNORECASE):
+                        mp = find_matching_port(p_clean)
+                        if mp is not None:
+                            mp["vlan"] = v_id
+                            if mp.get("mode") != "trunk":
+                                mp["mode"] = "access"
+                                mp["allowed_vlans"] = str(v_id)
+        elif current_vlan is not None and (line.startswith("        ") or line.startswith("\t") or line.startswith("    ")):
+            cont_ports = line.strip()
+            if cont_ports and not cont_ports.startswith("----"):
+                for p_raw in re.split(r'[,;\s]+', cont_ports):
+                    p_clean = p_raw.strip()
+                    if p_clean and re.match(r'^(Gi|Fa|Te|Eth|Fo|\d+)', p_clean, re.IGNORECASE):
+                        mp = find_matching_port(p_clean)
+                        if mp is not None:
+                            mp["vlan"] = current_vlan
+                            if mp.get("mode") != "trunk":
+                                mp["mode"] = "access"
+                                mp["allowed_vlans"] = str(current_vlan)
+        elif not line.startswith(" ") and not line.startswith("\t"):
+            current_vlan = None
+
+    # Parse Cisco 'show interfaces trunk'
+    # Format:
+    # Port        Mode             Encapsulation  Status        Native vlan
+    # Gi1/0/24    on               802.1q         trunking      1
+    for line in lines:
+        l = line.strip()
+        m_trk = re.match(r'^([A-Za-z0-9\/\.\-]+)\s+(on|desirable|auto|nonegotiate)\s+(\S+)\s+(trunking)\s+(\d+)', l, re.IGNORECASE)
+        if m_trk:
+            t_port = m_trk.group(1)
+            native_vlan = int(m_trk.group(5))
+            mp = find_matching_port(t_port)
+            if mp is not None:
+                mp["mode"] = "trunk"
+                mp["vlan"] = native_vlan
+                if not mp.get("allowed_vlans") or mp.get("allowed_vlans") == str(native_vlan):
+                    mp["allowed_vlans"] = "1-4094"
+
     return ports
 
 
@@ -743,6 +802,29 @@ def parse_mikrotik_output(raw_text: str) -> Tuple[Dict[str, Any], List[Dict[str,
                     "speed": "10Gbps" if "sfp+" in p.lower() else ("1Gbps" if "ether" in p.lower() else "auto"),
                     "type": "Ethernet SFP" if "sfp" in p.lower() else "Ethernet"
                 })
+
+    # Parse authentic MikroTik bridge port PVIDs and frame-types from /interface bridge port print
+    # Format: 0 H bridge=bridge1 interface=ether1 pvid=50 frame-types=admit-all
+    bridge_port_matches = re.finditer(r'interface="?([a-zA-Z0-9_\-\./]+)"?.*?pvid=(\d+)', clean_text, re.IGNORECASE)
+    for bpm in bridge_port_matches:
+        iface = bpm.group(1).strip()
+        pvid = int(bpm.group(2))
+        for p in ports:
+            if (p.get("port_id") or p.get("name") or "").lower() == iface.lower():
+                p["vlan"] = pvid
+                p["mode"] = "access"
+                p["allowed_vlans"] = str(pvid)
+
+    # Secondary regex for unquoted format: interface=ether1 ... pvid=50
+    bp_matches2 = re.finditer(r'\binterface=([a-zA-Z0-9_\-\./]+)\b.*?\bpvid=(\d+)\b', clean_text, re.IGNORECASE)
+    for bpm in bp_matches2:
+        iface = bpm.group(1).strip()
+        pvid = int(bpm.group(2))
+        for p in ports:
+            if (p.get("port_id") or p.get("name") or "").lower() == iface.lower():
+                p["vlan"] = pvid
+                p["mode"] = "access"
+                p["allowed_vlans"] = str(pvid)
 
     return hw, ports
 

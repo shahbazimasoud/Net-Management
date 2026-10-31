@@ -1253,6 +1253,24 @@ def save_data_unsafe(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
     if "templates" in data and isinstance(data["templates"], list):
         sync_database_store_templates(data["templates"])
+    try:
+        db_store_path = os.path.join(os.path.dirname(DATA_FILE), "database_store.json")
+        if os.path.exists(db_store_path) and "devices" in data:
+            with open(db_store_path, "r", encoding="utf-8") as dsf:
+                store_json = json.load(dsf)
+            if isinstance(store_json, dict) and "devices" in store_json:
+                dev_map = {d["id"]: d for d in data.get("devices", []) if isinstance(d, dict) and d.get("id")}
+                for sdev in store_json.get("devices", []):
+                    if sdev.get("id") in dev_map:
+                        fresh_dev = dev_map[sdev["id"]]
+                        if "ports" in fresh_dev:
+                            sdev["ports"] = fresh_dev["ports"]
+                        if "has_unsaved_changes" in fresh_dev:
+                            sdev["has_unsaved_changes"] = fresh_dev["has_unsaved_changes"]
+                with open(db_store_path, "w", encoding="utf-8") as dsf:
+                    json.dump(store_json, dsf, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 def save_data(data):
     with db_lock:

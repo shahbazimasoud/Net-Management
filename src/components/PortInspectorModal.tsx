@@ -934,7 +934,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     }
   }, [device, isEn, onPortUpdated]);
 
-  // When modal is opened, pre-populate stored ports immediately and trigger live sync with loading overlay
+  // When modal is opened, pre-populate stored ports immediately, fetch fresh authoritative ports from backend, and trigger sync if empty
   useEffect(() => {
     if (device?.id && isOpen) {
       const devPorts = (device as any).ports;
@@ -961,9 +961,52 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           };
         });
         setPorts(preNormalized);
-        setSelectedPort((prev) => prev || preNormalized[0]);
+        setSelectedPort((prev) => {
+          if (!prev) return preNormalized[0];
+          const prevId = (prev.port_id || (prev as any).port || prev.name || '').toLowerCase();
+          const match = preNormalized.find((p: any) => (p.port_id || (p as any).port || p.name || '').toLowerCase() === prevId);
+          return match || preNormalized[0];
+        });
         setSelectedPortIds((prev) => (prev && prev.length > 0 ? prev : [preNormalized[0].port_id]));
       }
+
+      // Authoritative background fetch directly from backend API to ensure no stale props or cache
+      fetchDevicePorts(device.id)
+        .then((res) => {
+          if (res?.ports && Array.isArray(res.ports) && res.ports.length > 0) {
+            const freshNormalized = res.ports.map((p: any, idx: number) => {
+              const rawStat = String(p.status || '').toLowerCase().trim();
+              const rawAdmin = String(p.admin_status || '').toLowerCase().trim();
+              const isDis = rawAdmin === 'disabled' || rawAdmin === 'shutdown' || rawStat === 'disabled' || rawStat === 'err-disabled' || rawStat === 'administratively down';
+              const isConn = !isDis && (rawStat === 'up' || rawStat === 'connected' || rawStat === 'active' || rawStat === 'running');
+              const sec = extractPortSecurityState(p);
+              return {
+                ...p,
+                port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+                status: isConn ? 'up' : 'down',
+                admin_status: isDis ? 'disabled' : 'enabled',
+                mode: String(p.mode || 'access').toLowerCase().trim() === 'trunk' ? 'trunk' : 'access',
+                port_security_enabled: sec.enabled,
+                port_security_mode: sec.mode,
+                port_security_max_mac: sec.maxMac,
+                port_security_violation: sec.violation,
+                port_security_configured_mac: sec.configuredMac,
+                port_security_learned_macs: sec.learnedMacs,
+                port_security_status: sec.statusText,
+              };
+            });
+            setPorts(freshNormalized);
+            setSelectedPort((prev) => {
+              if (!prev) return freshNormalized[0];
+              const prevId = (prev.port_id || (prev as any).port || prev.name || '').toLowerCase();
+              const match = freshNormalized.find((p: any) => (p.port_id || (p as any).port || p.name || '').toLowerCase() === prevId);
+              return match || freshNormalized[0];
+            });
+            (device as any).ports = freshNormalized;
+          }
+        })
+        .catch(() => {});
+
       setLoading(false);
 
       // If ports are already present, display immediately without blocking overlay; only sync live if no ports are saved or when user clicks sync button

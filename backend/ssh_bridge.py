@@ -186,13 +186,16 @@ def handle_ports_sync(args):
             device.get("include_mac_table") or 
             device.get("deep_sync")
         )
-        # Fast path: show interfaces status provides 95%+ of port details (state, VLAN, speed, duplex, name) instantly
+        # Fast path: show interfaces status and show vlan brief provide 95%+ of port details (state, VLAN, speed, duplex, name, trunk) instantly
         commands = [
             "terminal length 0",
             "show interfaces status",
+            "show vlan brief",
+            "show interfaces trunk",
             "show ip interface brief",
         ] if is_cisco else [
             "/interface print detail without-paging",
+            "/interface bridge port print detail without-paging",
         ]
         # Only dump heavy MAC address tables and port-security addresses on-demand
         if is_cisco and include_mac_details:

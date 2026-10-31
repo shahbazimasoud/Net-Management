@@ -5175,10 +5175,16 @@ apiRouter.put('/devices/:id/ports/batch', async (req: Request, res: Response) =>
 });
 
 // PUT /api/devices/:id/ports/:portId - Direct single port configuration update via resolved SSH backend (Port modal)
-apiRouter.put('/devices/:id/ports/:portId', async (req: Request, res: Response) => {
+apiRouter.put([
+  '/devices/:id/ports/:portId',
+  '/devices/:id/ports/*'
+], async (req: Request, res: Response) => {
   const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
   const devId = req.params.id;
-  const rawPortId = req.params.portId || '';
+  let rawPortId = req.params.portId || '';
+  if (!rawPortId && (req.params as any)[0]) {
+    rawPortId = (req.params as any)[0];
+  }
   let portId = decodeURIComponent(rawPortId).trim();
   const updates = req.body || {};
 

@@ -57,7 +57,8 @@ import {
   pingDevice,
   runCdpLldpScan,
   resetDemoData,
-  writeMemory
+  writeMemory,
+  fetchDevicePorts
 } from './services/api';
 import {
   logDeviceAddition,
@@ -761,6 +762,15 @@ export default function App() {
       return;
     }
     setPortInspectorDevice(dev);
+    // Fetch fresh authoritative device ports in background to eliminate stale memory props
+    fetchDevicePorts(dev.id).then((res) => {
+      if (res?.ports && Array.isArray(res.ports)) {
+        setPortInspectorDevice((prev) => (prev && prev.id === dev.id ? { ...prev, ports: res.ports } : prev));
+        setDevices((prevDevs) =>
+          prevDevs.map((d) => (d.id === dev.id ? { ...d, ports: res.ports } : d))
+        );
+      }
+    }).catch(() => {});
   }, [isModalMinimized, portInspectorDevice, isEn, triggerDockAttention]);
 
   const openTerminal = useCallback((dev: Device | null, initialPort?: string) => {

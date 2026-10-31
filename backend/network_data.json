@@ -53,8 +53,8 @@
           "status": "up",
           "admin_status": "enabled",
           "mode": "access",
-          "vlan": 50,
-          "allowed_vlans": "50",
+          "vlan": 99,
+          "allowed_vlans": "99",
           "speed": "1 Gbps",
           "duplex": "Full",
           "connected_device": "LAN-Host-1",
@@ -613,6 +613,21 @@
           "mac_address": "00:50:56:F7:D2:18",
           "learned_macs": [],
           "port_security_learned_macs": []
+        },
+        {
+          "port_id": "Gi1/0/1",
+          "name": "Gi1/0/1",
+          "port": "Gi1/0/1",
+          "status": "up",
+          "admin_status": "enabled",
+          "mode": "access",
+          "vlan": 25,
+          "allowed_vlans": "25",
+          "speed": "auto",
+          "duplex": "auto",
+          "connected_device": "",
+          "description": "",
+          "port_security_learned_macs": []
         }
       ],
       "ssh_password_set": false,
@@ -638,8 +653,8 @@
         "status": "up",
         "admin_status": "enabled",
         "mode": "access",
-        "vlan": 50,
-        "allowed_vlans": "50",
+        "vlan": 99,
+        "allowed_vlans": "99",
         "speed": "1 Gbps",
         "duplex": "Full",
         "connected_device": "LAN-Host-1",
@@ -1197,6 +1212,21 @@
         "port": "sfp-sfpplus2",
         "mac_address": "00:50:56:F7:D2:18",
         "learned_macs": [],
+        "port_security_learned_macs": []
+      },
+      {
+        "port_id": "Gi1/0/1",
+        "name": "Gi1/0/1",
+        "port": "Gi1/0/1",
+        "status": "up",
+        "admin_status": "enabled",
+        "mode": "access",
+        "vlan": 25,
+        "allowed_vlans": "25",
+        "speed": "auto",
+        "duplex": "auto",
+        "connected_device": "",
+        "description": "",
         "port_security_learned_macs": []
       }
     ]

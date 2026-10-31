@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.407.3';
+export const APP_VERSION = '1.407.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.407.4',
+    releaseDate: '2026-10-31',
+    type: 'patch',
+    title: 'اصلاح کامل همگام‌سازی زنده VLAN و ترانک در سینک سخت‌افزاری سیسکو و میکروتیک، رفع مشکل وایلدکارت نام پورت‌ها و بارگذاری فوری دیتابیس در بازگشایی مودال',
+    title_en: 'Comprehensive Live VLAN & Trunk Sync for Cisco and MikroTik, Wildcard Port Routing Fix, and Authoritative In-Flight Port Loading on Modal Open',
+    changes: [
+      'تجهیز موتور سینک سخت‌افزاری پورت‌ها (ssh_bridge.py و hardware_discovery.py) به دستورات و پارسر اختصاصی show vlan brief و show interfaces trunk برای سیسکو و /interface bridge port print detail برای میکروتیک جهت استخراج و ثبت قطعی شماره VLAN واقعی و مود ترانک به جای فالبک به ویلن ۱.',
+      'اصلاح روت‌های ویرایش پورت در Express (server/routes.ts) و پشتیبانی کامل از وایلدکارت و اسلش در نام پورت‌ها (مانند Gi1/0/1 و FastEthernet0/1) جهت جلوگیری از انحراف درخواست‌ها و عدم ذخیره تنظیمات.',
+      'همگام‌سازی دوطرفه خودکار پایگاه داده‌های backend/network_data.json و backend/database_store.json در هر دو موتور پایتون و نودجی‌اس.',
+      'افزودن استعلام بلادرنگ پورت‌های دستگاه در زمان باز شدن مودال بازرس پورت (PortInspectorModal) و مدیریت رویداد در App.tsx تا جدیدترین داده‌های ذخیره‌شده پورت‌ها بدون تاخیر یا اطلاعات مانده در حافظه فوراً نمایش داده شوند.'
+    ],
+    changes_en: [
+      'Equipped the hardware port sync engine (ssh_bridge.py and hardware_discovery.py) with dedicated commands and parsers for show vlan brief & show interfaces trunk on Cisco and /interface bridge port print detail on MikroTik, ensuring authentic live VLAN numbers and trunk modes are recorded instead of defaulting to VLAN 1.',
+      'Enhanced Express port update routes in server/routes.ts with multi-segment wildcard support (e.g., Gi1/0/1, FastEthernet0/1) to ensure port updates with slashes are consistently handled and persisted.',
+      'Implemented bi-directional synchronization between backend/network_data.json and backend/database_store.json across both Python and Node.js backend engines.',
+      'Added in-flight background query on modal mount in PortInspectorModal and updated handleInspectPorts in App.tsx to ensure fresh authoritative ports are rendered immediately without stale props or memory caching.'
+    ]
+  },
   {
     version: '1.407.3',
     releaseDate: '2026-10-31',
