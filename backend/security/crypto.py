@@ -7,6 +7,7 @@ import os
 import sys
 import base64
 import json
+import hashlib
 from typing import Optional, Any
 
 # Ensure cryptography is available
@@ -65,7 +66,6 @@ def get_or_create_encryption_key() -> bytes:
     if not candidate_secret:
         candidate_secret = "nettopology_vault_master_key_2026_aes256gcm_safe"
 
-    import hashlib
     seed_hash = hashlib.sha256(candidate_secret.encode("utf-8")).digest()
     new_key = base64.urlsafe_b64encode(seed_hash)
 
@@ -180,7 +180,6 @@ def decrypt_credential(cipher_text: Optional[str]) -> str:
             "nettopology_vault_master_key_2026_aes256gcm_safe",
             "nettopology_super_secret_jwt_key_2026_cisco_ops",
         ]
-        import hashlib
         for seed in candidate_seeds:
             if not seed:
                 continue

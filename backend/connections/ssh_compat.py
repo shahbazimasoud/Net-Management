@@ -725,7 +725,6 @@ def connect_mikrotik_ssh(
     """
     ensure_paramiko_compatibility()
     import paramiko
-    import inspect
 
     last_error = None
     user_to_try = username or "admin"

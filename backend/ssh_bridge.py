@@ -967,7 +967,6 @@ def handle_port_action(args):
                     if not parsed_port and parsed_ports:
                         parsed_port = parsed_ports[0]
             except Exception as pe:
-                import sys
                 sys.stderr.write(f"[port_sec_query parse warning] {pe}\n")
 
         print(json.dumps({

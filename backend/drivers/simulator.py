@@ -3,6 +3,7 @@ Simulator Driver
 Provides in-memory CLI interpretation and emulation for test/demo devices
 completely segregated from live hardware SSH connections.
 """
+import re
 from typing import Dict, Any, List, Optional
 from backend.drivers.base import NetworkDeviceDriver
 from backend.drivers.cisco import CiscoDriver
@@ -139,7 +140,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                     elif "enabled=no" in cmd_lower:
                         state["l2tp_server"]["enabled"] = False
                     if "default-profile=" in cmd_lower:
-                        import re
                         m = re.search(r'default-profile="?([^"\s\n]+)"?', cmd)
                         if m:
                             state["l2tp_server"]["default_profile"] = m.group(1)
@@ -152,7 +152,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                         "output": f"          enabled: {en_str}\n              mtu: 1450\n              mru: 1450\n  default-profile: {srv['default_profile']}\n        use-ipsec: {srv['use_ipsec']}\n     ipsec-secret: ********"
                     }
                 elif "client add" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\s]+)"?', cmd)
                     name = m_name.group(1) if m_name else "l2tp-out1"
                     m_conn = re.search(r'connect-to=([^\s]+)', cmd)
@@ -178,7 +177,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                 dev_id = device.get("id", "dev")
                 state = _get_mk_state(dev_id)
                 if "add" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\s]+)"?', cmd)
                     name = m_name.group(1) if m_name else "gre-tunnel1"
                     m_remote = re.search(r'remote-address=([^\s]+)', cmd)
@@ -197,7 +195,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                     }
                     return {"success": True, "output": ""}
                 elif "remove" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\]\s]+)"?', cmd)
                     if m_name and m_name.group(1) in state["gre_tunnels"]:
                         del state["gre_tunnels"][m_name.group(1)]
@@ -231,7 +228,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                 dev_id = device.get("id", "dev")
                 state = _get_mk_state(dev_id)
                 if "add" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\s]+)"?', cmd)
                     uname = m_name.group(1) if m_name else "vpnuser"
                     state["ppp_secrets"][uname] = {"name": uname, "service": "l2tp"}
@@ -258,7 +254,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                 dev_id = device.get("id", "dev")
                 state = _get_mk_state(dev_id)
                 if "add" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\s]+)"?', cmd)
                     name = m_name.group(1) if m_name else "sstp-out1"
                     m_conn = re.search(r'connect-to="?([^"\s]+)"?', cmd)
@@ -266,7 +261,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                     state["sstp_clients"][name] = {"name": name, "connect_to": conn, "running": True, "disabled": False}
                     return {"success": True, "output": ""}
                 elif "remove" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\]\s]+)"?', cmd)
                     if m_name and m_name.group(1) in state["sstp_clients"]:
                         del state["sstp_clients"][m_name.group(1)]
@@ -293,7 +287,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                 dev_id = device.get("id", "dev")
                 state = _get_mk_state(dev_id)
                 if "add" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\s]+)"?', cmd)
                     name = m_name.group(1) if m_name else "pptp-out1"
                     m_conn = re.search(r'connect-to="?([^"\s]+)"?', cmd)
@@ -301,7 +294,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                     state["pptp_clients"][name] = {"name": name, "connect_to": conn, "running": True, "disabled": False}
                     return {"success": True, "output": ""}
                 elif "remove" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\]\s]+)"?', cmd)
                     if m_name and m_name.group(1) in state["pptp_clients"]:
                         del state["pptp_clients"][m_name.group(1)]
@@ -317,7 +309,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                 dev_id = device.get("id", "dev")
                 state = _get_mk_state(dev_id)
                 if "peers add" in cmd_lower:
-                    import re
                     m_if = re.search(r'interface="?([^"\s]+)"?', cmd)
                     m_pub = re.search(r'public-key="?([^"\s]+)"?', cmd)
                     m_al = re.search(r'allowed-address="?([^"\s]+)"?', cmd)
@@ -329,7 +320,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                     })
                     return {"success": True, "output": ""}
                 elif "peers remove" in cmd_lower:
-                    import re
                     m_if = re.search(r'interface="?([^"\]\s]+)"?', cmd)
                     if m_if and m_if.group(1) in state["wireguard_peers"]:
                         del state["wireguard_peers"][m_if.group(1)]
@@ -337,7 +327,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                 elif "peers print" in cmd_lower:
                     if "count-only" in cmd_lower:
                         return {"success": True, "output": "1"}
-                    import re
                     m_if = re.search(r'interface="?([^"\s]+)"?', cmd)
                     iface = m_if.group(1) if m_if else ""
                     peers = state["wireguard_peers"].get(iface, [{"public_key": "vPzF8xQ+DemoPublicKey=", "allowed_address": "10.200.0.2/32"}])
@@ -346,7 +335,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                         blocks.append(f' {idx} interface="{iface or "wg0"}" public-key="{p["public_key"]}" allowed-address={p["allowed_address"]}')
                     return {"success": True, "output": "\n".join(blocks)}
                 elif "add" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\s]+)"?', cmd)
                     wname = m_name.group(1) if m_name else "wg0"
                     m_port = re.search(r'listen-port=(\d+)', cmd)
@@ -360,7 +348,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                     }
                     return {"success": True, "output": ""}
                 elif "remove" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\]\s]+)"?', cmd)
                     if m_name and m_name.group(1) in state["wireguard_interfaces"]:
                         del state["wireguard_interfaces"][m_name.group(1)]
@@ -387,7 +374,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                 dev_id = device.get("id", "dev")
                 state = _get_mk_state(dev_id)
                 if "add" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\s]+)"?', cmd)
                     name = m_name.group(1) if m_name else "ovpn-out1"
                     m_conn = re.search(r'connect-to="?([^"\s]+)"?', cmd)
@@ -395,7 +381,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                     state["ovpn_clients"][name] = {"name": name, "connect_to": conn, "running": True, "disabled": False}
                     return {"success": True, "output": ""}
                 elif "remove" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\]\s]+)"?', cmd)
                     if m_name and m_name.group(1) in state["ovpn_clients"]:
                         del state["ovpn_clients"][m_name.group(1)]
@@ -411,7 +396,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                 dev_id = device.get("id", "dev")
                 state = _get_mk_state(dev_id)
                 if "add" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\s]+)"?', cmd)
                     name = m_name.group(1) if m_name else "eoip-tunnel1"
                     m_remote = re.search(r'remote-address=([^\s]+)', cmd)
@@ -425,7 +409,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                     }
                     return {"success": True, "output": ""}
                 elif "remove" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\]\s]+)"?', cmd)
                     if m_name and m_name.group(1) in state["eoip_tunnels"]:
                         del state["eoip_tunnels"][m_name.group(1)]
@@ -441,14 +424,12 @@ class SimulatorDriver(NetworkDeviceDriver):
                 dev_id = device.get("id", "dev")
                 state = _get_mk_state(dev_id)
                 if "vteps add" in cmd_lower:
-                    import re
                     m_if = re.search(r'interface="?([^"\s]+)"?', cmd)
                     m_rip = re.search(r'remote-ip=([^\s]+)', cmd)
                     iface = m_if.group(1) if m_if else "vxlan100"
                     state["vxlan_vteps"].setdefault(iface, []).append(m_rip.group(1) if m_rip else "198.51.100.2")
                     return {"success": True, "output": ""}
                 elif "vteps remove" in cmd_lower:
-                    import re
                     m_if = re.search(r'interface="?([^"\]\s]+)"?', cmd)
                     if m_if and m_if.group(1) in state["vxlan_vteps"]:
                         del state["vxlan_vteps"][m_if.group(1)]
@@ -458,7 +439,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                         return {"success": True, "output": "1"}
                     return {"success": True, "output": " 0 interface=vxlan100 remote-ip=198.51.100.2 port=4789"}
                 elif "add" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\s]+)"?', cmd)
                     vname = m_name.group(1) if m_name else "vxlan100"
                     m_vni = re.search(r'vni=(\d+)', cmd)
@@ -471,7 +451,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                     }
                     return {"success": True, "output": ""}
                 elif "remove" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\]\s]+)"?', cmd)
                     if m_name and m_name.group(1) in state["vxlan_interfaces"]:
                         del state["vxlan_interfaces"][m_name.group(1)]
@@ -500,7 +479,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                 dev_id = device.get("id", "dev")
                 state = _get_mk_state(dev_id)
                 if "peer add" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\s]+)"?', cmd)
                     pname = m_name.group(1) if m_name else "ipsec-site1"
                     m_addr = re.search(r'address=([^\s]+)', cmd)
@@ -508,7 +486,6 @@ class SimulatorDriver(NetworkDeviceDriver):
                     state["ipsec_peers"][pname] = {"name": pname, "address": addr}
                     return {"success": True, "output": ""}
                 elif "peer remove" in cmd_lower:
-                    import re
                     m_name = re.search(r'name="?([^"\]\s]+)"?', cmd)
                     if m_name and m_name.group(1) in state["ipsec_peers"]:
                         del state["ipsec_peers"][m_name.group(1)]

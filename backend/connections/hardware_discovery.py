@@ -5,6 +5,8 @@ runs show commands (show version, show running-config, show inventory, show inte
 extracts Device Identifiers & Hardware Specs, calculates Power Supply Units (PSU & Watts),
 and parses Switch Ports & Telemetry into structured data.
 """
+import sys
+import json
 import re
 import socket
 import time
@@ -310,6 +312,44 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
                     return p
         return None
 
+    def ensure_or_find_port(iface_raw: str):
+        existing = find_matching_port(iface_raw)
+        if existing is not None:
+            return existing
+        if not iface_raw:
+            return None
+        i_clean = iface_raw.strip()
+        short_name = i_clean
+        short_name = re.sub(r'(?i)GigabitEthernet', 'Gi', short_name)
+        short_name = re.sub(r'(?i)FastEthernet', 'Fa', short_name)
+        short_name = re.sub(r'(?i)TenGigabitEthernet', 'Te', short_name)
+        short_name = re.sub(r'(?i)FortyGigabitEthernet', 'Fo', short_name)
+        short_name = re.sub(r'(?i)Ethernet', 'Eth', short_name)
+        port_name = short_name
+
+        p_new = {
+            "port_id": port_name,
+            "port": port_name,
+            "name": port_name,
+            "description": "",
+            "status": "up",
+            "vlan": 1,
+            "mode": "access",
+            "duplex": "auto",
+            "speed": "auto",
+            "type": "copper",
+            "allowed_vlans": "1",
+            "learned_macs": [],
+            "port_security_learned_macs": [],
+            "port_security_enabled": True,
+            "port_security_mode": "sticky",
+            "port_security_status": "secure-up",
+            "port_security_max_mac": 1,
+            "port_security_violation": "shutdown",
+        }
+        ports.append(p_new)
+        return p_new
+
     for line in lines:
         line_s = line.strip()
         if not line_s or line_s.startswith("Port") or line_s.startswith("--"):
@@ -480,7 +520,7 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
             re.IGNORECASE
         )
         if m_cmd:
-            current_command_interface = find_matching_port(m_cmd.group(1).strip())
+            current_command_interface = ensure_or_find_port(m_cmd.group(1).strip())
             continue
 
         # Look for a valid MAC address in standard formats
@@ -515,7 +555,7 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
             )
             matched_port = None
             if m_iface_token:
-                matched_port = find_matching_port(m_iface_token.group(1).strip())
+                matched_port = ensure_or_find_port(m_iface_token.group(1).strip())
 
             # Fall back to command interface context if line omitted Ports column
             if matched_port is None:
@@ -603,7 +643,6 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
 
     # Log raw output summary vs parsed results
     if parsed_sec_mac_entries:
-        import sys
         sys.stderr.write(f"[PortSecurity Parser] Extracted {len(parsed_sec_mac_entries)} secure MAC entries: {json.dumps(parsed_sec_mac_entries)}\n")
 
     # Parse Cisco running-config interface blocks (e.g. from 'show running-config interface' or full config):
@@ -622,7 +661,7 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
         l = line.strip()
         m_iface = re.match(r'^(?:interface|\*interface)\s+([A-Za-z0-9\/\.\-]+)', l, re.IGNORECASE)
         if m_iface:
-            curr_iface_port = find_matching_port(m_iface.group(1))
+            curr_iface_port = ensure_or_find_port(m_iface.group(1))
             continue
         if curr_iface_port is not None:
             # Check if left the interface block

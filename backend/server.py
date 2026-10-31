@@ -9,6 +9,9 @@ import random
 import uuid
 import subprocess
 import re
+import shutil
+import urllib.parse
+import asyncio
 import concurrent.futures
 from typing import Dict, Any, List, Optional
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -3765,7 +3768,6 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
 
             # Create server-side safety snapshot file before touching anything
             try:
-                import shutil
                 bak_filename = f"{DATA_FILE}.bak.{int(time.time())}"
                 if os.path.exists(DATA_FILE):
                     shutil.copyfile(DATA_FILE, bak_filename)
@@ -4214,7 +4216,6 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 })
                 return
 
-            import urllib.parse
             parsed_q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             q_type = parsed_q.get("vpn_type", [None])[0] or parsed_q.get("type", [None])[0]
 
@@ -4306,7 +4307,6 @@ def start_websocket_server(ws_port: int):
     connections directly to real network device SSH and Telnet sessions.
     """
     try:
-        import asyncio
         import websockets
     except ImportError:
         print(f"[Python WS Server] Note: 'websockets' library not installed in this environment; HTTP REST API terminal will be used.")

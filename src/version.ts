@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.407.7';
+export const APP_VERSION = '1.407.8';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.407.8',
+    releaseDate: '2026-10-31',
+    type: 'patch',
+    title: 'اصلاح ریشه‌ای خطای UnboundLocalError در handle_port_action و حذف ایمپورت‌های محلی تداخل‌زا در سراسر بک‌اند (رفع خطای حذف مک یادگرفته‌شده و ثبت مک کانفیگ‌شده)',
+    title_en: 'Root-Cause Fix for UnboundLocalError in handle_port_action & Elimination of Function-Level Module Shadowing Across Backend (Fix Delete Learned MAC & Save Configured MAC)',
+    changes: [
+      'حذف کامل ایمپورت محلی import sys در درون هندلر خطای port_sec_query در backend/ssh_bridge.py که باعث سایه‌اندازی (Shadowing) متغیر ماژول sys و بروز خطای UnboundLocalError در خط ۵۴۱ (sys.stdin.read) هنگام حذف مک یادگرفته‌شده و ذخیره مک کانفیگ‌شده می‌شد.',
+      'اسکن کامل و جامع کلیه فایل‌های پایتون backend/ جهت پاک‌سازی ایمپورت‌های محلی در سطح تابع (sys, json, os, re, time, hashlib, shutil, urllib.parse, asyncio, inspect) و یکپارچه‌سازی در سطح ماژول جهت جلوگیری از هرگونه بازتعریف یا برخورد نام متغیرها.',
+      'افزودن و پیاده‌سازی متد کمکی ensure_or_find_port در hardware_discovery.py برای ساخت و تکمیل داینامیک شیء پورت در صورت استعلام اختصاصی show port-security address interface <if> و همگام‌سازی لحظه‌ای بدون از دست رفتن مک‌های امنیتی.'
+    ],
+    changes_en: [
+      'Removed function-level import sys inside port_sec_query error handler in backend/ssh_bridge.py which shadowed global sys and caused UnboundLocalError at line 541 (sys.stdin.read) during learned MAC deletion and configured MAC assignment.',
+      'Comprehensive audit and cleanup across all backend/ Python files to eliminate function-level standard module imports (sys, json, os, re, time, hashlib, shutil, urllib.parse, asyncio, inspect) and establish strict top-level imports.',
+      'Added ensure_or_find_port helper in hardware_discovery.py to dynamically instantiate and populate port structures for single interface queries like "show port-security address interface <if>" without losing security attributes.'
+    ]
+  },
   {
     version: '1.407.7',
     releaseDate: '2026-10-31',
