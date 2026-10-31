@@ -5162,8 +5162,8 @@ apiRouter.put('/devices/:id/ports/batch', async (req: Request, res: Response) =>
       ports: device.ports,
       cli_output: cliOutput,
       isReal: true,
-      ssh_version: backend.version,
-      paramiko_version: backend.paramikoExpected,
+      ssh_version: backend?.version || sshVersion,
+      paramiko_version: backend?.paramikoExpected || 'N/A',
     });
   } catch (err: any) {
     return res.status(500).json({
@@ -5359,8 +5359,8 @@ apiRouter.put('/devices/:id/ports/:portId', async (req: Request, res: Response) 
       message: isEn ? `Port ${portId} updated successfully.` : `پورت ${portId} با موفقیت به‌روزرسانی شد.`,
       cli_output: cliOutput,
       isReal: true,
-      ssh_version: backend.version,
-      paramiko_version: backend.paramikoExpected,
+      ssh_version: backend?.version || sshVersion,
+      paramiko_version: backend?.paramikoExpected || 'N/A',
     });
   } catch (err: any) {
     return res.status(500).json({

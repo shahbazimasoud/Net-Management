@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.407.2';
+export const APP_VERSION = '1.407.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.407.3',
+    releaseDate: '2026-10-31',
+    type: 'patch',
+    title: 'رفع خطای عدم ذخیره ویلن پورت، تثبیت پایدار شماره VLAN در پایگاه داده و همگام‌سازی خودکار در پیش‌نمایش پورت‌سکیوریتی',
+    title_en: 'Fix Port VLAN Persistence Failure, Authoritative Database VLAN Synchronization, and Automatic Live Port Security CLI Reflection',
+    changes: [
+      'رفع خطای سرور (HTTP 500 TypeError) در روت PUT /api/devices/:id/ports/:portId ناشی از دسترسی مستقیم به مشخصات بک‌اند ناموجود.',
+      'اصلاح ذخیره‌سازی داده‌های پورت در سرور (server/db.ts) و به‌روزرسانی همزمان نگاشت متمرکز پورت‌ها در پایگاه داده جهت جلوگیری از بازگشت شماره VLAN به ۱ هنگام بازگشایی مجدد مودال.',
+      'همگام‌سازی پیوسته و بلادرنگ استیت پورت‌های دستگاه در کامپوننت‌های App.tsx و PortInspectorModal.tsx به گونه‌ای که با تغییر ویلن، تغییرات در حافظه و وضعیت مودال بلافاصله منعکس شوند.',
+      'به‌روزرسانی خودکار پیش‌نمایش زنده دستورات سیسکو در مودال پورت‌سکیوریتی (CiscoPortSecurityModal) بر اساس جدیدترین ویلن تعیین‌شده پورت (switchport access vlan <VLAN>).'
+    ],
+    changes_en: [
+      'Resolved server 500 TypeError in PUT /api/devices/:id/ports/:portId caused by unprotected backend object property access when SSH resolver fallback occurred.',
+      'Fixed port configuration persistence in server/db.ts by updating both device-level ports and root-level netData.ports, preventing ports from reverting back to VLAN 1 upon modal reopen.',
+      'Synchronized device port state in App.tsx and PortInspectorModal.tsx so in-memory port references and opened inspector instances reflect newly assigned VLANs immediately without stale cache delays.',
+      'Updated CiscoPortSecurityModal to automatically derive and reflect the latest assigned VLAN in the Live Cisco IOS Running-Config Preview (switchport access vlan <VLAN>).'
+    ]
+  },
   {
     version: '1.407.2',
     releaseDate: '2026-10-31',

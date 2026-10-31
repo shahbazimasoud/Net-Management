@@ -444,7 +444,12 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     // Open dedicated Port Security modal with learned MAC table, clear MACs, and configuration suite
     if (action === 'open_port_security' || action === 'port_sec_enable' || action === 'port_sec_disable') {
       setContextMenu(null);
-      setPortSecurityModalPort(targetPort);
+      const latestPort = ports.find((p) => {
+        const pid = (p.port_id || (p as any).port || p.name || (p as any).id || '').trim().toLowerCase();
+        const tid = (targetPort.port_id || (targetPort as any).port || targetPort.name || (targetPort as any).id || '').trim().toLowerCase();
+        return pid === tid;
+      }) || targetPort;
+      setPortSecurityModalPort(latestPort);
       return;
     }
 
@@ -681,6 +686,18 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
         })
       );
 
+      // Mutate device.ports so immediate re-open before loadData() retains the updated VLAN
+      if (Array.isArray(device.ports)) {
+        const pIdx = device.ports.findIndex((p: any) => {
+          const pid = (p.port_id || p.port || p.name || p.id || '').trim().toLowerCase();
+          const tid = targetPortId.toLowerCase();
+          return pid === tid || p.port_id === targetPort.port_id || p.name === targetPort.name;
+        });
+        if (pIdx >= 0) {
+          device.ports[pIdx] = { ...device.ports[pIdx], vlan: newVlan, mode: 'access' };
+        }
+      }
+
       if (
         selectedPort &&
         ((selectedPort.port_id || (selectedPort as any).port || selectedPort.name || '').trim().toLowerCase() === targetPortId.toLowerCase() ||
@@ -689,6 +706,14 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
         setSelectedPort((prev) => (prev ? { ...prev, vlan: newVlan, mode: 'access' } : null));
         setEditVlan(newVlan);
         setEditMode('access');
+      }
+
+      // If portSecurityModalPort is currently set for this port, synchronize its VLAN as well
+      if (portSecurityModalPort) {
+        const smPid = (portSecurityModalPort.port_id || (portSecurityModalPort as any).port || portSecurityModalPort.name || '').trim().toLowerCase();
+        if (smPid === targetPortId.toLowerCase() || portSecurityModalPort.port_id === targetPort.port_id) {
+          setPortSecurityModalPort((prev) => (prev ? { ...prev, vlan: newVlan, mode: 'access' } : null));
+        }
       }
 
       device.has_unsaved_changes = true;
@@ -1486,6 +1511,9 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
         // Update local ports
         const updatedPortMap = new Map(res.ports.map((p) => [p.port_id, p]));
         setPorts((prev) => prev.map((p) => updatedPortMap.get(p.port_id) || p));
+        if (Array.isArray(device.ports)) {
+          device.ports = device.ports.map((p: any) => updatedPortMap.get(p.port_id) || p);
+        }
 
         if (selectedPort && updatedPortMap.has(selectedPort.port_id)) {
           setSelectedPort(updatedPortMap.get(selectedPort.port_id)!);
@@ -1548,7 +1576,16 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
         setPorts((prev) =>
           prev.map((p) => (p.port_id === portId ? res.port : p))
         );
+        if (Array.isArray(device.ports)) {
+          const pIdx = device.ports.findIndex((p: any) => p.port_id === portId);
+          if (pIdx >= 0) {
+            device.ports[pIdx] = res.port;
+          }
+        }
         setSelectedPort(res.port);
+        if (portSecurityModalPort && (portSecurityModalPort.port_id === portId || (portSecurityModalPort as any).name === portId)) {
+          setPortSecurityModalPort(res.port);
+        }
         setIsEditing(false);
         device.has_unsaved_changes = true;
       }
@@ -3269,7 +3306,10 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             onExecuteAction={handleExecuteContextMenuAction}
             onOpenTerminal={canTerminal && onConnectTerminal ? (portId: string) => onConnectTerminal(device, portId) : undefined}
             onOpenPortStats={(p) => setActiveStatsPort(p)}
-            onOpenPortSecurity={(p) => setPortSecurityModalPort(p)}
+            onOpenPortSecurity={(p) => {
+              const latest = ports.find((x) => (x.port_id || x.name) === (p.port_id || p.name)) || p;
+              setPortSecurityModalPort(latest);
+            }}
           />
         )}
 

@@ -5300,6 +5300,7 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
     snmp_v3_context: updates.snmp_v3_context !== undefined ? updates.snmp_v3_context.trim() : (existing.snmp_v3_context || ''),
     snmp_timeout: updates.snmp_timeout !== undefined ? Number(updates.snmp_timeout) : (Number(existing.snmp_timeout) || 5000),
     snmp_retries: updates.snmp_retries !== undefined ? Number(updates.snmp_retries) : (Number(existing.snmp_retries) || 1),
+    ports: Array.isArray(updates.ports) ? updates.ports : (existing.ports || []),
   };
 
   const store = loadFallbackStore();
@@ -5349,8 +5350,14 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
         } else {
           netData.devices.push(updated);
         }
-        fs.writeFileSync(netPath, JSON.stringify(netData, null, 2), 'utf-8');
       }
+      if (Array.isArray(updated.ports) && updated.ports.length > 0) {
+        if (!netData.ports || typeof netData.ports !== 'object') {
+          netData.ports = {};
+        }
+        netData.ports[existing.id] = updated.ports;
+      }
+      fs.writeFileSync(netPath, JSON.stringify(netData, null, 2), 'utf-8');
     }
   } catch (err) {
     console.warn('[DB updateDevice network_data.json sync notice]', err);

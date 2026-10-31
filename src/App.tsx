@@ -875,6 +875,11 @@ export default function App() {
       ]);
       setDevices(devRes.devices);
       setTopology(topoRes);
+      setPortInspectorDevice((prev) => {
+        if (!prev) return null;
+        const fresh = devRes.devices?.find((d: Device) => d.id === prev.id);
+        return fresh ? { ...prev, ...fresh } : prev;
+      });
     } catch (err) {
       console.warn('[Initial Load] Backend starting up, retrying initial data fetch in 800ms...', err);
       try {
@@ -885,6 +890,11 @@ export default function App() {
         ]);
         setDevices(devRes.devices);
         setTopology(topoRes);
+        setPortInspectorDevice((prev) => {
+          if (!prev) return null;
+          const fresh = devRes.devices?.find((d: Device) => d.id === prev.id);
+          return fresh ? { ...prev, ...fresh } : prev;
+        });
       } catch (retryErr) {
         console.warn('Initial data load retry deferred to background polling:', retryErr);
       }
