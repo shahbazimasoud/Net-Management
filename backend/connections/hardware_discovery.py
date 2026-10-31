@@ -292,12 +292,22 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
         if not iface_raw:
             return None
         i_clean = iface_raw.strip().lower()
-        i_canon = i_clean.replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("fortygigabitethernet", "fo").replace("ethernet", "eth")
+        i_canon = i_clean.replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("fortygigabitethernet", "fo").replace("ethernet", "eth").replace("port-channel", "po")
         for p in ports:
             p_raw = str(p.get("port_id") or p.get("port") or p.get("name") or "").strip().lower()
-            p_canon = p_raw.replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("fortygigabitethernet", "fo").replace("ethernet", "eth")
+            p_canon = p_raw.replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("fortygigabitethernet", "fo").replace("ethernet", "eth").replace("port-channel", "po")
             if p_canon == i_canon or p_raw == i_clean:
                 return p
+
+        # Check numeric suffix match (e.g. '0/20' or '20' matching 'Gi0/20')
+        m_sfx = re.search(r'(\d+(?:/\d+)*)$', i_canon)
+        if m_sfx:
+            target_sfx = m_sfx.group(1)
+            for p in ports:
+                p_canon = str(p.get("port_id") or p.get("port") or p.get("name") or "").strip().lower().replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te").replace("fortygigabitethernet", "fo").replace("ethernet", "eth")
+                p_m_sfx = re.search(r'(\d+(?:/\d+)*)$', p_canon)
+                if p_m_sfx and (p_m_sfx.group(1) == target_sfx or p_m_sfx.group(1).endswith(f"/{target_sfx}") or target_sfx.endswith(f"/{p_m_sfx.group(1)}")):
+                    return p
         return None
 
     for line in lines:
@@ -531,6 +541,112 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
                     matched_port["connected_mac"] = cam_mac
                 if (not matched_port.get("vlan") or matched_port.get("vlan") == 1) and cam_vlan > 0:
                     matched_port["vlan"] = cam_vlan
+
+    # Parse Cisco running-config interface blocks (e.g. from 'show running-config interface' or full config):
+    # interface GigabitEthernet0/20
+    #  description delavar23
+    #  switchport access vlan 30
+    #  switchport mode access
+    #  switchport port-security
+    #  switchport port-security maximum 2
+    #  switchport port-security violation restrict
+    #  switchport port-security mac-address 0000.0000.0020
+    #  switchport port-security mac-address sticky
+    #  switchport port-security mac-address sticky 0000.0000.0021
+    curr_iface_port = None
+    for line in lines:
+        l = line.strip()
+        m_iface = re.match(r'^(?:interface|\*interface)\s+([A-Za-z0-9\/\.\-]+)', l, re.IGNORECASE)
+        if m_iface:
+            curr_iface_port = find_matching_port(m_iface.group(1))
+            continue
+        if curr_iface_port is not None:
+            # Check if left the interface block
+            if l.startswith("interface ") or l == "!" or l.startswith("end") or l.startswith("exit"):
+                curr_iface_port = None
+                continue
+
+            # description
+            m_desc = re.match(r'^description\s+(.*)', l, re.IGNORECASE)
+            if m_desc and not curr_iface_port.get("description"):
+                curr_iface_port["description"] = m_desc.group(1).strip()
+                continue
+
+            # switchport access vlan
+            m_avlan = re.match(r'^switchport\s+access\s+vlan\s+(\d+)', l, re.IGNORECASE)
+            if m_avlan:
+                v_num = int(m_avlan.group(1))
+                curr_iface_port["vlan"] = v_num
+                if curr_iface_port.get("mode") != "trunk":
+                    curr_iface_port["mode"] = "access"
+                    curr_iface_port["allowed_vlans"] = str(v_num)
+                continue
+
+            # switchport mode
+            if re.match(r'^switchport\s+mode\s+access', l, re.IGNORECASE):
+                curr_iface_port["mode"] = "access"
+            elif re.match(r'^switchport\s+mode\s+trunk', l, re.IGNORECASE):
+                curr_iface_port["mode"] = "trunk"
+
+            # switchport port-security maximum
+            m_pmax = re.match(r'^switchport\s+port-security\s+maximum\s+(\d+)', l, re.IGNORECASE)
+            if m_pmax:
+                curr_iface_port["port_security_enabled"] = True
+                curr_iface_port["port_security_max_mac"] = int(m_pmax.group(1))
+                continue
+
+            # switchport port-security violation
+            m_pviol = re.match(r'^switchport\s+port-security\s+violation\s+(shutdown|restrict|protect)', l, re.IGNORECASE)
+            if m_pviol:
+                curr_iface_port["port_security_enabled"] = True
+                curr_iface_port["port_security_violation"] = m_pviol.group(1).lower()
+                continue
+
+            # switchport port-security mac-address sticky [MAC]
+            m_sticky_mac = re.match(r'^switchport\s+port-security\s+mac-address\s+sticky(?:\s+([0-9a-fA-F\.\:\-]+))?', l, re.IGNORECASE)
+            if m_sticky_mac:
+                curr_iface_port["port_security_enabled"] = True
+                curr_iface_port["port_security_mode"] = "sticky"
+                smac = m_sticky_mac.group(1)
+                if smac:
+                    smac_clean = smac.strip()
+                    curr_iface_port["port_security_sticky_mac"] = smac_clean
+                    curr_iface_port["port_security_configured_mac"] = smac_clean
+                    if not isinstance(curr_iface_port.get("port_security_learned_macs"), list):
+                        curr_iface_port["port_security_learned_macs"] = []
+                    if smac_clean not in curr_iface_port["port_security_learned_macs"]:
+                        curr_iface_port["port_security_learned_macs"].append(smac_clean)
+                    if not isinstance(curr_iface_port.get("learned_macs"), list):
+                        curr_iface_port["learned_macs"] = []
+                    if smac_clean not in curr_iface_port["learned_macs"]:
+                        curr_iface_port["learned_macs"].append(smac_clean)
+                    curr_iface_port["connected_mac"] = smac_clean
+                continue
+
+            # switchport port-security mac-address [MAC]
+            m_cfg_mac = re.match(r'^switchport\s+port-security\s+mac-address\s+([0-9a-fA-F\.\:\-]+)', l, re.IGNORECASE)
+            if m_cfg_mac:
+                curr_iface_port["port_security_enabled"] = True
+                cmac = m_cfg_mac.group(1).strip()
+                curr_iface_port["port_security_mode"] = "configured"
+                curr_iface_port["port_security_configured_mac"] = cmac
+                if not isinstance(curr_iface_port.get("port_security_learned_macs"), list):
+                    curr_iface_port["port_security_learned_macs"] = []
+                if cmac not in curr_iface_port["port_security_learned_macs"]:
+                    curr_iface_port["port_security_learned_macs"].append(cmac)
+                if not isinstance(curr_iface_port.get("learned_macs"), list):
+                    curr_iface_port["learned_macs"] = []
+                if cmac not in curr_iface_port["learned_macs"]:
+                    curr_iface_port["learned_macs"].append(cmac)
+                curr_iface_port["connected_mac"] = cmac
+                continue
+
+            # switchport port-security (standalone toggle enable)
+            if re.match(r'^switchport\s+port-security\b', l, re.IGNORECASE):
+                curr_iface_port["port_security_enabled"] = True
+                if not curr_iface_port.get("port_security_status"):
+                    curr_iface_port["port_security_status"] = "secure-up" if curr_iface_port.get("status") == "up" else "secure-down"
+                continue
 
     # Parse Cisco 'show vlan brief' or 'show vlan' for authoritative VLAN-to-port mapping
     # Format:

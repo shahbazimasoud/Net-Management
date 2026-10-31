@@ -145,7 +145,34 @@ class CiscoDriver(NetworkDeviceDriver):
         elif action == "port_sec_update":
             enabled = params.get("enabled", True)
             if not enabled:
-                return f"configure terminal\ninterface {interface}\n no switchport port-security\nend\nwrite memory"
+                cmds = [
+                    f"clear port-security dynamic interface {interface}",
+                    f"clear port-security sticky interface {interface}",
+                    "configure terminal",
+                    f"interface {interface}",
+                    " no switchport port-security mac-address sticky",
+                ]
+                all_macs = set()
+                for k in ("configured_mac", "previous_mac", "mac"):
+                    v = (params.get(k) or "").strip()
+                    if v:
+                        all_macs.add(v)
+                if isinstance(params.get("mac_list"), list):
+                    for m in params["mac_list"]:
+                        if m and isinstance(m, str):
+                            all_macs.add(m.strip())
+                for m in all_macs:
+                    clean = re.sub(r"[^0-9a-fA-F]", "", m).lower()
+                    fmt = f"{clean[0:4]}.{clean[4:8]}.{clean[8:12]}" if len(clean) == 12 else m
+                    if fmt:
+                        cmds.append(f" no switchport port-security mac-address {fmt}")
+                        cmds.append(f" no switchport port-security mac-address sticky {fmt}")
+                cmds.extend([
+                    " no switchport port-security",
+                    "end",
+                    "write memory"
+                ])
+                return "\n".join(cmds)
             max_mac = params.get("max_mac", 1)
             violation = params.get("violation", "shutdown")
             mode = params.get("mode", "sticky")

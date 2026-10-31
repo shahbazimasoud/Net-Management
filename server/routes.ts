@@ -4595,19 +4595,69 @@ apiRouter.post('/devices/:id/ports/sync', async (req: Request, res: Response) =>
     const backend = resolveSshBackend(sshVersion);
     console.log(`[PortSync Resolver] Synchronizing ports for device ${devId} using ${backend.version.toUpperCase()} backend (${backend.pythonBin})`);
 
-    const result = await executeSshBridgeAction('ports-sync', device, backend.version, 25000);
+    const syncPayload = { ...device, include_mac_details: true, include_mac_table: true, deep_sync: true };
+    const result = await executeSshBridgeAction('ports-sync', syncPayload, backend.version, 25000);
     if (result && result.success && Array.isArray(result.ports)) {
-      device.ports = result.ports;
+      // Enrich ports with port security and learned MAC consistency
+      const enrichedPorts = result.ports.map((p: any) => {
+        const pSecEnabled = Boolean(
+          p.port_security_enabled ||
+          p.port_security ||
+          (p.port_security_status && p.port_security_status !== 'disabled')
+        );
+        const pMode = String(p.port_security_mode || 'sticky').toLowerCase().trim();
+        const pConfiguredMac = String(
+          p.port_security_configured_mac ||
+          p.port_security_sticky_mac ||
+          p.sticky_mac ||
+          p.stickyMac ||
+          p.configured_mac ||
+          p.static_mac ||
+          p.port_security_mac ||
+          p.configuredMac ||
+          p.staticMac ||
+          ''
+        ).trim();
+
+        let pLearnedMacs: string[] = [];
+        if (Array.isArray(p.port_security_learned_macs)) {
+          pLearnedMacs = [...p.port_security_learned_macs];
+        } else if (typeof p.port_security_learned_macs === 'string' && p.port_security_learned_macs.trim()) {
+          pLearnedMacs = p.port_security_learned_macs.split(/[,;\s]+/).map((s: string) => s.trim()).filter(Boolean);
+        } else if (Array.isArray(p.learned_macs)) {
+          pLearnedMacs = [...p.learned_macs];
+        }
+
+        if (pConfiguredMac && !pLearnedMacs.includes(pConfiguredMac)) {
+          pLearnedMacs.unshift(pConfiguredMac);
+        }
+        if (p.port_security_sticky_mac && !pLearnedMacs.includes(p.port_security_sticky_mac)) {
+          pLearnedMacs.unshift(p.port_security_sticky_mac);
+        }
+
+        return {
+          ...p,
+          connected_mac: pConfiguredMac || p.connected_mac || (pLearnedMacs.length > 0 ? pLearnedMacs[0] : ''),
+          port_security_enabled: pSecEnabled || Boolean(pConfiguredMac),
+          port_security_mode: pMode,
+          port_security_configured_mac: pConfiguredMac || p.port_security_configured_mac,
+          port_security_sticky_mac: p.port_security_sticky_mac || (pMode === 'sticky' ? pConfiguredMac : undefined),
+          port_security_learned_macs: pLearnedMacs,
+          learned_macs: pLearnedMacs,
+        };
+      });
+
+      device.ports = enrichedPorts;
       try {
-        await updateDevice(device.id, { ports: result.ports });
+        await updateDevice(device.id, { ports: enrichedPorts });
       } catch (dbErr: any) {
         console.warn(`[PortSync DB Persist Warning] Could not persist ports to database: ${dbErr.message}`);
       }
       return res.json({
         success: true,
         device,
-        ports: result.ports,
-        total_ports: result.ports.length,
+        ports: enrichedPorts,
+        total_ports: enrichedPorts.length,
         is_live: true,
         paramiko_version: result.paramiko_version,
         ssh_version: backend.version,
@@ -4672,7 +4722,8 @@ apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
     if (isLiveRequested && device.is_online && backend) {
       try {
         console.log(`[PortsList Resolver] Fetching ports live for device ${devId} using ${backend.version.toUpperCase()} backend`);
-        const result = await executeSshBridgeAction('ports-sync', device, backend.version, 25000);
+        const syncPayload = { ...device, include_mac_details: true, include_mac_table: true, deep_sync: true };
+        const result = await executeSshBridgeAction('ports-sync', syncPayload, backend.version, 25000);
         if (result && result.success && Array.isArray(result.ports)) {
           ports = result.ports;
           device.ports = ports;
@@ -4906,12 +4957,12 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
     }
     if ('port_security_enabled' in updates) {
       hasCommands = true;
+      const rawMac = String(updates.port_security_configured_mac || '').trim();
+      const formattedMac = formatCiscoMac(rawMac);
       if (updates.port_security_enabled) {
         const maxMac = Number(updates.port_security_max_mac || 1);
         const violation = String(updates.port_security_violation || 'shutdown').toLowerCase();
         const mode = String(updates.port_security_mode || 'sticky').toLowerCase();
-        const rawMac = String(updates.port_security_configured_mac || '').trim();
-        const formattedMac = formatCiscoMac(rawMac);
         const vlanId = updates.vlan ? Number(updates.vlan) : 0;
         if (updates.mode !== 'trunk') {
           lines.push(' switchport');
@@ -4937,6 +4988,11 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
           lines.push(' no switchport port-security mac-address sticky');
         }
       } else {
+        lines.push(' no switchport port-security mac-address sticky');
+        if (formattedMac) {
+          lines.push(` no switchport port-security mac-address ${formattedMac}`);
+          lines.push(` no switchport port-security mac-address sticky ${formattedMac}`);
+        }
         lines.push(' no switchport port-security');
       }
     } else {

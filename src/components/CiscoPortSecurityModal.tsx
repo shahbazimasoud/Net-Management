@@ -37,6 +37,7 @@ import {
   PortMacEntry
 } from './PortInspectorModal';
 import { executeDeviceOperation, fetchDevicePorts } from '../services/api';
+import { matchPortFlexible } from '../utils/portUtils';
 
 export interface CiscoPortSecurityModalProps {
   isOpen: boolean;
@@ -160,7 +161,39 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
   // Live Cisco CLI generation for this port security configuration
   const liveCliCommand = useMemo(() => {
     if (!enabled) {
-      return `configure terminal\ninterface ${portId}\n no switchport port-security\nend\nwrite memory`;
+      const allKnownMacs = new Set<string>();
+      if (configuredMac.trim()) allKnownMacs.add(configuredMac.trim());
+      macEntries.forEach((e) => {
+        if (e.mac) allKnownMacs.add(e.mac);
+      });
+      if (port?.port_security_configured_mac) allKnownMacs.add(port.port_security_configured_mac);
+      if (Array.isArray(port?.port_security_learned_macs)) {
+        port?.port_security_learned_macs.forEach((m) => {
+          if (m) allKnownMacs.add(m);
+        });
+      }
+
+      const lines = [
+        `clear port-security dynamic interface ${portId}`,
+        `clear port-security sticky interface ${portId}`,
+        'configure terminal',
+        `interface ${portId}`,
+        ' no switchport port-security mac-address sticky',
+      ];
+
+      allKnownMacs.forEach((m) => {
+        const cleanHex = m.replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+        const fmt = cleanHex.length === 12
+          ? `${cleanHex.slice(0, 4)}.${cleanHex.slice(4, 8)}.${cleanHex.slice(8, 12)}`
+          : m;
+        lines.push(` no switchport port-security mac-address ${fmt}`);
+        lines.push(` no switchport port-security mac-address sticky ${fmt}`);
+      });
+
+      lines.push(' no switchport port-security');
+      lines.push('end');
+      lines.push('write memory');
+      return lines.join('\n');
     }
     const cleanHex = configuredMac.replace(/[^0-9a-fA-F]/g, '').toLowerCase();
     const formattedMac = cleanHex.length === 12
@@ -364,7 +397,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
     try {
       const res = await fetchDevicePorts(device.id, true);
       if (res && Array.isArray(res.ports)) {
-        const freshPort = res.ports.find((p) => (p.port_id || p.port || p.name) === portId);
+        const freshPort = res.ports.find((p) => matchPortFlexible(p, portId));
         if (freshPort) {
           const freshSec = extractPortSecurityState(freshPort);
           setEnabled(freshSec.enabled);
@@ -372,7 +405,8 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           setMaxMac(freshSec.maxMac);
           setViolation(freshSec.violation);
           setConfiguredMac(freshSec.configuredMac);
-          setMacEntries(getPortMacAddresses(freshPort).filter((e) => e.type !== 'hardware'));
+          const freshEntries = getPortMacAddresses(freshPort).filter((e) => e.type !== 'hardware');
+          setMacEntries(freshEntries);
           if (onPortUpdated) {
             onPortUpdated(freshPort);
           }
@@ -424,6 +458,19 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
       const targetVlan = Number(port.vlan || 1);
       const prevMac = (port.port_security_configured_mac || (port as any).connected_mac || '').trim();
 
+      const allKnownMacs = new Set<string>();
+      if (ciscoMac) allKnownMacs.add(ciscoMac);
+      if (prevMac) allKnownMacs.add(prevMac);
+      macEntries.forEach((e) => {
+        if (e.mac) allKnownMacs.add(e.mac);
+      });
+      if (port.port_security_configured_mac) allKnownMacs.add(port.port_security_configured_mac);
+      if (Array.isArray(port.port_security_learned_macs)) {
+        port.port_security_learned_macs.forEach((m) => {
+          if (m) allKnownMacs.add(m);
+        });
+      }
+
       // 1. Direct hardware execution on Cisco switch via executeDeviceOperation ('port_sec_update')
       const opRes = await executeDeviceOperation(
         device.id,
@@ -436,6 +483,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           violation,
           configured_mac: ciscoMac,
           previous_mac: prevMac,
+          mac_list: Array.from(allKnownMacs),
           interface: portId,
           device_type: device.type,
           vlan: targetVlan,
@@ -458,7 +506,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
         port_security_mode: mode,
         port_security_max_mac: maxMac,
         port_security_violation: violation,
-        port_security_configured_mac: ciscoMac,
+        port_security_configured_mac: enabled ? ciscoMac : '',
         port_security_status: enabled ? (port.status === 'up' ? 'secure-up' : 'secure-down') : 'disabled',
         vlan: targetVlan,
         mode: 'access',
@@ -468,7 +516,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
       try {
         const syncRes = await fetchDevicePorts(device.id, true);
         if (syncRes && Array.isArray(syncRes.ports)) {
-          const freshPort = syncRes.ports.find((p) => (p.port_id || p.port || p.name) === portId);
+          const freshPort = syncRes.ports.find((p) => matchPortFlexible(p, portId));
           if (freshPort) {
             enrichedPort = freshPort;
             const freshSec = extractPortSecurityState(freshPort);

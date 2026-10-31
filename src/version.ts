@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.407.4';
+export const APP_VERSION = '1.407.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.407.5',
+    releaseDate: '2026-10-31',
+    type: 'patch',
+    title: 'اصلاح توالی دستورات غیرفعال‌سازی پورت سکیوریتی سیسکو، پاک‌سازی خودکار مک‌های استاتیک و استیکی قبل از no switchport port-security و همگام‌سازی بی‌درنگ مک‌آدرس‌ها با دستورات زنده',
+    title_en: 'Fix Cisco Port Security Deactivation Sequencing, Automatic Static/Sticky MAC Unbinding, and Live Port Security MAC Table Synchronization',
+    changes: [
+      'اصلاح رفتار غیرفعال‌سازی پورت سکیوریتی روی سوئیچ‌های سیسکو با استخراج خودکار و حذف پیش‌دستانه مک‌آدرس‌های ثابت و استیکی (no switchport port-security mac-address) و پاک‌سازی جداول داینامیک/استیکی پیش از ارسال دستور no switchport port-security جهت جلوگیری از رد دستور توسط سوئیچ و فعال ماندن ناخواسته آن.',
+      'به‌روزرسانی پیش‌نمایش زنده CLI در CiscoPortSecurityModal جهت نمایش دقیق دستورات پاک‌سازی مک و جدول استیکی در کنار no switchport port-security.',
+      'رفع مشکل عدم نمایش مک‌آدرس‌ها پس از فشردن دکمه سینک (تازه‌سازی) با ارسال حتمی و همیشگی دستورات show port-security، show port-security address، show mac address-table و استعلام running-config اینترفیس در موتور همگام‌سازی SSH.',
+      'افزودن پارسر اختصاصی بلوک‌های اینترفیس در running-config سیسکو به ماژول سخت‌افزاری hardware_discovery.py جهت شناسایی و ثبت قطعی مک‌آدرس‌های استاتیک (switchport port-security mac-address) حتی در صورت خالی بودن جدول داینامیک CAM.',
+      'بهبود الگوریتم تطبیق نام پورت‌ها (matchPortFlexible) جهت شناسایی صحیح اینترفیس‌ها در حالات مختلف اختصاری و نام کامل (مانند Gi0/20 و GigabitEthernet0/20) و به‌روزرسانی بدون وقفه جدول مک‌ها در مودال.'
+    ],
+    changes_en: [
+      'Resolved Cisco Port Security deactivation rejection by preemptively clearing dynamic/sticky tables and negating configured static/sticky MACs (no switchport port-security mac-address) before executing no switchport port-security, preventing switch command rejection.',
+      'Updated Live Cisco IOS Running-Config Preview in CiscoPortSecurityModal to faithfully reflect the comprehensive MAC unbinding and table clearing sequence alongside no switchport port-security.',
+      'Fixed empty MAC list on Sync/Refresh by ensuring show port-security, show port-security address, show mac address-table, and interface running-config queries are always executed in the SSH bridge.',
+      'Added dedicated running-config interface block parser to hardware_discovery.py to reliably discover and bind static secure MACs (switchport port-security mac-address) even prior to active frame transmission.',
+      'Enhanced interface matching algorithm (matchPortFlexible) to seamlessly resolve between short and canonical port names (e.g., Gi0/20 vs GigabitEthernet0/20), guaranteeing immediate table population in the modal.'
+    ]
+  },
   {
     version: '1.407.4',
     releaseDate: '2026-10-31',

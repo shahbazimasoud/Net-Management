@@ -18,6 +18,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useModalDock } from '../context/ModalDockContext';
 import { useAuth } from '../context/AuthContext';
 import { isDeviceActionPermitted } from '../utils/rbac';
+import { matchPortFlexible } from '../utils/portUtils';
 
 export interface ResolvedPortSecurity {
   enabled: boolean;
@@ -870,15 +871,13 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
         setSelectedPort((prev) => {
           if (!prev) return normalizedPorts[0];
           const prevId = prev.port_id || (prev as any).port || prev.name;
-          const matched = normalizedPorts.find(
-            (p) => (p.port_id || (p as any).port || p.name) === prevId
-          );
+          const matched = normalizedPorts.find((p) => matchPortFlexible(p, prevId));
           return matched || normalizedPorts[0];
         });
         setSelectedPortIds((prev) => {
           if (!prev || prev.length === 0) return [normalizedPorts[0].port_id];
           const validIds = prev.filter((id) =>
-            normalizedPorts.some((p) => (p.port_id || (p as any).port || p.name) === id)
+            normalizedPorts.some((p) => matchPortFlexible(p, id))
           );
           return validIds.length > 0 ? validIds : [normalizedPorts[0].port_id];
         });

@@ -193,17 +193,14 @@ def handle_ports_sync(args):
             "show vlan brief",
             "show interfaces trunk",
             "show ip interface brief",
+            "show port-security",
+            "show port-security address",
+            "show mac address-table",
+            "show running-config | include (interface |switchport port-security|switchport access vlan)",
         ] if is_cisco else [
             "/interface print detail without-paging",
             "/interface bridge port print detail without-paging",
         ]
-        # Only dump heavy MAC address tables and port-security addresses on-demand
-        if is_cisco and include_mac_details:
-            commands.extend([
-                "show port-security",
-                "show port-security address",
-                "show mac address-table",
-            ])
 
         full_output = ""
         for cmd in commands:
@@ -672,7 +669,34 @@ def handle_port_action(args):
                 elif action == "port_sec_update":
                     enabled = params.get("enabled", True)
                     if not enabled:
-                        cli_command = f"configure terminal\ninterface {interface}\n no switchport port-security\nend\nwrite memory"
+                        cmds = [
+                            f"clear port-security dynamic interface {interface}",
+                            f"clear port-security sticky interface {interface}",
+                            "configure terminal",
+                            f"interface {interface}",
+                            " no switchport port-security mac-address sticky",
+                        ]
+                        all_p_macs = set()
+                        for k in ("configured_mac", "previous_mac", "mac"):
+                            v = (params.get(k) or "").strip()
+                            if v:
+                                all_p_macs.add(v)
+                        if isinstance(params.get("mac_list"), list):
+                            for m in params["mac_list"]:
+                                if m and isinstance(m, str):
+                                    all_p_macs.add(m.strip())
+                        for m in all_p_macs:
+                            clean = re.sub(r"[^0-9a-fA-F]", "", m).lower()
+                            fmt = f"{clean[0:4]}.{clean[4:8]}.{clean[8:12]}" if len(clean) == 12 else m
+                            if fmt:
+                                cmds.append(f" no switchport port-security mac-address {fmt}")
+                                cmds.append(f" no switchport port-security mac-address sticky {fmt}")
+                        cmds.extend([
+                            " no switchport port-security",
+                            "end",
+                            "write memory"
+                        ])
+                        cli_command = "\n".join(cmds)
                     else:
                         max_mac = params.get("max_mac", 1)
                         violation = params.get("violation", "shutdown")
@@ -848,6 +872,67 @@ def handle_port_action(args):
             parsed["is_real"] = True
             print(json.dumps(parsed))
             return
+
+        if "cisco" in platform.lower() and action in ("port_sec_update", "port_sec_disable") and not params.get("enabled", True):
+            try:
+                # Query the live interface running configuration to discover any configured/sticky secure MACs on the switch
+                channel.send(f"show running-config interface {interface}\n")
+                time.sleep(0.3)
+                rc_buf = ""
+                rc_dl = time.time() + 2.0
+                while time.time() < rc_dl:
+                    if channel.recv_ready():
+                        rc_buf += channel.recv(4096).decode("utf-8", errors="ignore")
+                        if any(rc_buf.rstrip().endswith(p) for p in ["#", ">"]):
+                            break
+                    else:
+                        time.sleep(0.05)
+
+                mac_negations = []
+                for rcl in rc_buf.splitlines():
+                    rcl_s = rcl.strip()
+                    if re.match(r"^switchport\s+port-security\s+mac-address", rcl_s, re.I):
+                        mac_negations.append(f" no {rcl_s}")
+
+                effective_lines = [
+                    f"clear port-security dynamic interface {interface}",
+                    f"clear port-security sticky interface {interface}",
+                    "configure terminal",
+                    f"interface {interface}",
+                    " no switchport port-security mac-address sticky",
+                ]
+                for neg in mac_negations:
+                    if neg not in effective_lines:
+                        effective_lines.append(neg)
+
+                all_p_macs = set()
+                for k in ("configured_mac", "previous_mac", "mac"):
+                    v = (params.get(k) or "").strip()
+                    if v:
+                        all_p_macs.add(v)
+                if isinstance(params.get("mac_list"), list):
+                    for m in params["mac_list"]:
+                        if m and isinstance(m, str):
+                            all_p_macs.add(m.strip())
+                for m in all_p_macs:
+                    clean = re.sub(r"[^0-9a-fA-F]", "", m).lower()
+                    fmt = f"{clean[0:4]}.{clean[4:8]}.{clean[8:12]}" if len(clean) == 12 else m
+                    if fmt:
+                        cmd1 = f" no switchport port-security mac-address {fmt}"
+                        cmd2 = f" no switchport port-security mac-address sticky {fmt}"
+                        if cmd1 not in effective_lines:
+                            effective_lines.append(cmd1)
+                        if cmd2 not in effective_lines:
+                            effective_lines.append(cmd2)
+
+                effective_lines.extend([
+                    " no switchport port-security",
+                    "end",
+                    "write memory"
+                ])
+                cli_command = "\n".join(effective_lines)
+            except Exception:
+                pass
 
         # Send command lines
         full_output = ""
