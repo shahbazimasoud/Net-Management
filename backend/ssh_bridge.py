@@ -181,12 +181,32 @@ def handle_ports_sync(args):
                     time.sleep(0.02)
 
         is_cisco = "cisco" in platform.lower()
+        if is_cisco:
+            # Check if prompt requires elevation to privileged EXEC mode ('Switch>')
+            channel.send("enable\r\n")
+            time.sleep(0.25)
+            en_buf = ""
+            en_dl = time.time() + 1.2
+            while time.time() < en_dl:
+                if channel.recv_ready():
+                    en_buf += channel.recv(4096).decode("utf-8", errors="ignore")
+                else:
+                    time.sleep(0.05)
+            if any(p_prompt in en_buf.lower() for p_prompt in ["password:", "passcode:"]):
+                en_pass = device.get("enable_secret") or device.get("enable_password") or password
+                if en_pass:
+                    channel.send(f"{en_pass}\r\n")
+                    time.sleep(0.35)
+            channel.send("terminal length 0\r\n")
+            time.sleep(0.2)
+            while channel.recv_ready():
+                channel.recv(4096)
+
         include_mac_details = bool(
             device.get("include_mac_details") or 
             device.get("include_mac_table") or 
             device.get("deep_sync")
         )
-        # Fast path: show interfaces status and show vlan brief provide 95%+ of port details (state, VLAN, speed, duplex, name, trunk) instantly
         commands = [
             "terminal length 0",
             "show interfaces status",
@@ -197,7 +217,9 @@ def handle_ports_sync(args):
             "show port-security address",
             "show mac address-table",
             "show mac-address-table",
-            "show running-config | include switchport port-security",
+            "show mac address-table dynamic",
+            "show mac-address-table dynamic",
+            "show running-config | include ^interface |switchport port-security",
         ] if is_cisco else [
             "/interface print detail without-paging",
             "/interface bridge port print detail without-paging",
@@ -205,14 +227,17 @@ def handle_ports_sync(args):
 
         full_output = ""
         for cmd in commands:
-            channel.send(f"{cmd}\n")
-            deadline = time.time() + 4.0
+            channel.send(f"{cmd}\r\n")
+            time.sleep(0.2)
+            cmd_output = ""
+            deadline = time.time() + 4.5
             cmd_received = False
             last_recv_time = time.time()
             while time.time() < deadline:
                 if channel.recv_ready():
                     chunk = channel.recv(8192).decode("utf-8", errors="ignore")
                     if chunk:
+                        cmd_output += chunk
                         full_output += chunk
                         cmd_received = True
                         last_recv_time = time.time()
@@ -223,12 +248,13 @@ def handle_ports_sync(args):
                             stripped.endswith(">") or 
                             stripped.endswith("] >") or 
                             stripped.endswith("] #")
-                        ) and len(full_output) > len(cmd):
+                        ) and len(cmd_output) > len(cmd):
                             break
                 else:
-                    if cmd_received and (time.time() - last_recv_time > 0.15):
+                    # Give real hardware CAM / security tables at least 450ms idle window
+                    if cmd_received and (time.time() - last_recv_time > 0.45):
                         break
-                    time.sleep(0.02)
+                    time.sleep(0.03)
 
         p_client.close()
 

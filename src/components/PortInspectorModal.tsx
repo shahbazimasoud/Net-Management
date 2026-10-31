@@ -838,19 +838,37 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
         const isDis = rawAdmin === 'disabled' || rawAdmin === 'shutdown' || rawStat === 'disabled' || rawStat === 'err-disabled' || rawStat === 'administratively down';
         const isConn = !isDis && (rawStat === 'up' || rawStat === 'connected' || rawStat === 'active' || rawStat === 'running');
         const sec = extractPortSecurityState(p);
+
+        // Find existing port in current React state or device.ports to preserve learned MACs across repeated syncs
+        const existingPort = ports.find((ep) => matchPortFlexible(ep, p.port_id || p.port || p.name))
+          || (Array.isArray(device.ports) ? device.ports.find((ep: any) => matchPortFlexible(ep, p.port_id || p.port || p.name)) : null);
+        const existingSec = existingPort ? extractPortSecurityState(existingPort) : null;
+
+        const mergedLearnedMacs = Array.from(new Set([
+          ...(sec.learnedMacs || []),
+          ...(existingSec?.learnedMacs || []),
+          ...(Array.isArray(p.learned_macs) ? p.learned_macs : []),
+          ...(Array.isArray(existingPort?.learned_macs) ? existingPort.learned_macs : []),
+        ])).filter(Boolean);
+
+        const configuredMac = sec.configuredMac || existingSec?.configuredMac || p.port_security_configured_mac || existingPort?.port_security_configured_mac || '';
+        const connectedMac = configuredMac || p.connected_mac || existingPort?.connected_mac || (mergedLearnedMacs.length > 0 ? mergedLearnedMacs[0] : '');
+
         return {
           ...p,
           port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
           status: isConn ? 'up' : 'down',
           admin_status: isDis ? 'disabled' : 'enabled',
           mode: String(p.mode || 'access').toLowerCase().trim() === 'trunk' ? 'trunk' : 'access',
-          port_security_enabled: sec.enabled,
-          port_security_mode: sec.mode,
-          port_security_max_mac: sec.maxMac,
-          port_security_violation: sec.violation,
-          port_security_configured_mac: sec.configuredMac,
-          port_security_learned_macs: sec.learnedMacs,
-          port_security_status: sec.statusText,
+          connected_mac: connectedMac,
+          port_security_enabled: sec.enabled || existingSec?.enabled || Boolean(configuredMac),
+          port_security_mode: sec.mode || existingSec?.mode || 'sticky',
+          port_security_max_mac: sec.maxMac || existingSec?.maxMac || 1,
+          port_security_violation: sec.violation || existingSec?.violation || 'restrict',
+          port_security_configured_mac: configuredMac,
+          port_security_learned_macs: mergedLearnedMacs,
+          learned_macs: mergedLearnedMacs,
+          port_security_status: sec.statusText || existingSec?.statusText || 'disabled',
         };
       });
 

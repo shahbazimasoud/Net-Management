@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.407.8';
+export const APP_VERSION = '1.407.9';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.407.9',
+    releaseDate: '2026-10-31',
+    type: 'patch',
+    title: 'اصلاح ریشه‌ای پاک شدن مک‌آدرس‌های یادگرفته‌شده در دفعات دوم و بعدی کلیک روی دکمه سینک پورت‌ها (حفظ پایدار مک‌های کشف‌شده، اصلاح بافر خروجی دستورات، افزایش تایم‌اوت خواندن CAM و فعال‌سازی مود Privileged در بک‌اند)',
+    title_en: 'Root-Cause Fix for Learned MAC Addresses Disappearing on Subsequent "Sync Ports" Clicks (Preserve Learned MAC State, Per-Command Output Buffer Tracking, Extended CAM Read Timeout & Privileged Enable Mode)',
+    changes: [
+      'اصلاح ساختار خواندن خروجی در handle_ports_sync در backend/ssh_bridge.py: تفکیک بافر خوانده‌شده هر دستور (cmd_output) از بافر کل (full_output) جهت جلوگیری از خاتمه زودهنگام حلقه بافر قبل از ارسال کامل جدول مک توسط سوئیچ سخت‌افزاری.',
+      'افزایش پنجره زمانی مکث تبادل داده (Idle Timeout) از ۰.۱۵ ثانیه به ۰.۴۵ ثانیه برای پاسخ‌دهی جداول سخت‌افزاری CAM و Port-Security سیسکو که جهت کوئری سخت‌افزار نیازمند زمان پردازش هستند.',
+      'افزودن ارتقای دسترسی به مود پرویلیج سیسکو (enable) در آغاز هماهنگ‌سازی پورت‌ها در SSH Bridge و تصحیح دستور فیلتر کانفیگ به show running-config | include ^interface |switchport port-security به همراه افزودن دستورات show mac address-table dynamic.',
+      'اصلاح منطق همگام‌سازی در مسیر API سرور (/devices/:id/ports/sync) و کامپوننت‌های PortInspectorModal و PortManagementView: ادغام ایمن و عدم بازنویسی مخرب مک‌آدرس‌های ثبت‌شده قبلی پورت در صورتی که در کوئری لحظه‌ای جدول موقتاً خالی باشد، و حفظ مداوم ستون مک‌آدرس‌ها.'
+    ],
+    changes_en: [
+      'Fixed command output reader in backend/ssh_bridge.py (handle_ports_sync) by tracking per-command buffer (cmd_output) instead of cumulative output, preventing premature break before physical switch finishes streaming MAC tables.',
+      'Increased hardware response idle timeout from 0.15s to 0.45s to allow physical Cisco switch ASICs sufficient time to query CAM and Port-Security hardware tables.',
+      'Added privileged EXEC mode elevation (enable) at the beginning of port synchronization in SSH Bridge, and fixed config filter to include interface headers ("show running-config | include ^interface |switchport port-security") along with dynamic MAC table queries.',
+      'Enhanced synchronization logic in server/routes.ts, PortInspectorModal, and PortManagementView to merge and preserve previously learned and configured MACs non-destructively, preventing the MAC address column from clearing on repeated syncs.'
+    ]
+  },
   {
     version: '1.407.8',
     releaseDate: '2026-10-31',

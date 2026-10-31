@@ -4599,14 +4599,35 @@ apiRouter.post('/devices/:id/ports/sync', async (req: Request, res: Response) =>
     const result = await executeSshBridgeAction('ports-sync', syncPayload, backend.version, 25000);
     if (result && result.success && Array.isArray(result.ports)) {
       // Enrich ports with port security and learned MAC consistency
+      const existingPorts = Array.isArray(device.ports) ? device.ports : [];
+      const matchPortFlexible = (p1: any, p2Name: string) => {
+        if (!p1 || !p2Name) return false;
+        const n1 = String(p1.port_id || p1.port || p1.name || '').toLowerCase().trim();
+        const n2 = String(p2Name || '').toLowerCase().trim();
+        if (n1 === n2) return true;
+        const norm = (s: string) => s.replace(/^gigabitethernet/i, 'gi')
+                                     .replace(/^fastethernet/i, 'fa')
+                                     .replace(/^tengigabitethernet/i, 'te')
+                                     .replace(/^ethernet/i, 'eth');
+        return norm(n1) === norm(n2);
+      };
+
       const enrichedPorts = result.ports.map((p: any) => {
+        const targetId = String(p.port_id || p.port || p.name || '').trim();
+        const existingPort = existingPorts.find((ep: any) => matchPortFlexible(ep, targetId));
+
         const pSecEnabled = Boolean(
           p.port_security_enabled ||
           p.port_security ||
-          (p.port_security_status && p.port_security_status !== 'disabled')
+          (p.port_security_status && p.port_security_status !== 'disabled') ||
+          (existingPort && (existingPort.port_security_enabled || (existingPort.port_security_status && existingPort.port_security_status !== 'disabled')))
         );
-        const pMode = String(p.port_security_mode || 'sticky').toLowerCase().trim();
-        const pConfiguredMac = String(
+        const pMode = String(
+          p.port_security_mode ||
+          existingPort?.port_security_mode ||
+          'sticky'
+        ).toLowerCase().trim();
+        let pConfiguredMac = String(
           p.port_security_configured_mac ||
           p.port_security_sticky_mac ||
           p.sticky_mac ||
@@ -4616,6 +4637,10 @@ apiRouter.post('/devices/:id/ports/sync', async (req: Request, res: Response) =>
           p.port_security_mac ||
           p.configuredMac ||
           p.staticMac ||
+          existingPort?.port_security_configured_mac ||
+          existingPort?.port_security_sticky_mac ||
+          existingPort?.configured_mac ||
+          existingPort?.static_mac ||
           ''
         ).trim();
 
@@ -4628,6 +4653,22 @@ apiRouter.post('/devices/:id/ports/sync', async (req: Request, res: Response) =>
           pLearnedMacs = [...p.learned_macs];
         }
 
+        // Merge previous learned MACs from existingPort to prevent wipeout on repeated sync
+        if (existingPort) {
+          const prevLearned = Array.isArray(existingPort.port_security_learned_macs)
+            ? existingPort.port_security_learned_macs
+            : (Array.isArray(existingPort.learned_macs)
+                ? existingPort.learned_macs
+                : (typeof existingPort.port_security_learned_macs === 'string'
+                    ? existingPort.port_security_learned_macs.split(/[,;\s]+/).map((s: string) => s.trim()).filter(Boolean)
+                    : []));
+          for (const m of prevLearned) {
+            if (m && typeof m === 'string' && !pLearnedMacs.includes(m)) {
+              pLearnedMacs.push(m);
+            }
+          }
+        }
+
         if (pConfiguredMac && !pLearnedMacs.includes(pConfiguredMac)) {
           pLearnedMacs.unshift(pConfiguredMac);
         }
@@ -4635,13 +4676,15 @@ apiRouter.post('/devices/:id/ports/sync', async (req: Request, res: Response) =>
           pLearnedMacs.unshift(p.port_security_sticky_mac);
         }
 
+        const effectiveConnectedMac = pConfiguredMac || p.connected_mac || existingPort?.connected_mac || (pLearnedMacs.length > 0 ? pLearnedMacs[0] : '');
+
         return {
           ...p,
-          connected_mac: pConfiguredMac || p.connected_mac || (pLearnedMacs.length > 0 ? pLearnedMacs[0] : ''),
+          connected_mac: effectiveConnectedMac,
           port_security_enabled: pSecEnabled || Boolean(pConfiguredMac),
           port_security_mode: pMode,
           port_security_configured_mac: pConfiguredMac || p.port_security_configured_mac,
-          port_security_sticky_mac: p.port_security_sticky_mac || (pMode === 'sticky' ? pConfiguredMac : undefined),
+          port_security_sticky_mac: p.port_security_sticky_mac || existingPort?.port_security_sticky_mac || (pMode === 'sticky' ? pConfiguredMac : undefined),
           port_security_learned_macs: pLearnedMacs,
           learned_macs: pLearnedMacs,
         };

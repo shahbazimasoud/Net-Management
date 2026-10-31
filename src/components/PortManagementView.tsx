@@ -237,17 +237,48 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
       setPortLoadError(null);
       const res = await syncDevicePorts(selectedDeviceId);
       const rawPorts = res.ports || [];
+      const matchPortFlexible = (p1: any, p2Name: string) => {
+        if (!p1 || !p2Name) return false;
+        const n1 = String(p1.port_id || p1.port || p1.name || '').toLowerCase().trim();
+        const n2 = String(p2Name || '').toLowerCase().trim();
+        if (n1 === n2) return true;
+        const norm = (s: string) => s.replace(/^gigabitethernet/i, 'gi')
+                                     .replace(/^fastethernet/i, 'fa')
+                                     .replace(/^tengigabitethernet/i, 'te')
+                                     .replace(/^ethernet/i, 'eth');
+        return norm(n1) === norm(n2);
+      };
+
       const normalizedPorts = rawPorts.map((p: any, idx: number) => {
         const rawStat = String(p.status || '').toLowerCase().trim();
         const rawAdmin = String(p.admin_status || '').toLowerCase().trim();
         const isDis = rawAdmin === 'disabled' || rawAdmin === 'shutdown' || rawStat === 'disabled' || rawStat === 'err-disabled' || rawStat === 'administratively down';
         const isConn = !isDis && (rawStat === 'up' || rawStat === 'connected' || rawStat === 'active' || rawStat === 'running');
+
+        const existingPort = ports.find((ep) => matchPortFlexible(ep, p.port_id || p.port || p.name))
+          || (currentDevice && Array.isArray((currentDevice as any).ports) ? (currentDevice as any).ports.find((ep: any) => matchPortFlexible(ep, p.port_id || p.port || p.name)) : null);
+
+        const pLearned: string[] = Array.isArray(p.port_security_learned_macs)
+          ? p.port_security_learned_macs
+          : (Array.isArray(p.learned_macs) ? p.learned_macs : []);
+        const prevLearned: string[] = existingPort && Array.isArray(existingPort.port_security_learned_macs)
+          ? existingPort.port_security_learned_macs
+          : (existingPort && Array.isArray(existingPort.learned_macs) ? existingPort.learned_macs : []);
+        const mergedMacs = Array.from(new Set([...pLearned, ...prevLearned])).filter(Boolean);
+
+        const configuredMac = p.port_security_configured_mac || p.configured_mac || existingPort?.port_security_configured_mac || existingPort?.configured_mac || '';
+        const connectedMac = configuredMac || p.connected_mac || existingPort?.connected_mac || (mergedMacs.length > 0 ? mergedMacs[0] : '');
+
         return {
           ...p,
           port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
           status: isConn ? 'up' : 'down',
           admin_status: isDis ? 'disabled' : 'enabled',
           mode: String(p.mode || 'access').toLowerCase().trim() === 'trunk' ? 'trunk' : 'access',
+          connected_mac: connectedMac,
+          port_security_configured_mac: configuredMac,
+          port_security_learned_macs: mergedMacs,
+          learned_macs: mergedMacs,
         };
       });
       setPorts(normalizedPorts);

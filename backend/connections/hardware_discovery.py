@@ -619,12 +619,18 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
             l,
             re.IGNORECASE
         )
+        if not m_cam:
+            m_cam = re.search(
+                r'(?:^\s*(?:\*\s*)?(\d+)\s+)?([0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}|[0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2}[:-][0-9a-fA-F]{2})\s+(DYNAMIC|STATIC)\b.*?\b(Gi[A-Za-z0-9\/\.\-]+|Fa[A-Za-z0-9\/\.\-]+|Te[A-Za-z0-9\/\.\-]+|Eth[A-Za-z0-9\/\.\-]+|Po\d+)',
+                l,
+                re.IGNORECASE
+            )
         if m_cam:
-            cam_vlan = int(m_cam.group(1))
+            cam_vlan = int(m_cam.group(1)) if m_cam.group(1) else 0
             cam_mac = m_cam.group(2).strip()
-            cam_type = m_cam.group(3).lower()
+            cam_type = (m_cam.group(3) or "dynamic").lower()
             cam_iface = m_cam.group(4).strip()
-            matched_port = find_matching_port(cam_iface)
+            matched_port = ensure_or_find_port(cam_iface)
             if matched_port is not None:
                 if not isinstance(matched_port.get("learned_macs"), list):
                     matched_port["learned_macs"] = []
