@@ -4991,7 +4991,6 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
         lines.push(' no switchport port-security mac-address sticky');
         if (formattedMac) {
           lines.push(` no switchport port-security mac-address ${formattedMac}`);
-          lines.push(` no switchport port-security mac-address sticky ${formattedMac}`);
         }
         lines.push(' no switchport port-security');
       }

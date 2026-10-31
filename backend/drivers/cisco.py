@@ -107,7 +107,6 @@ class CiscoDriver(NetworkDeviceDriver):
             ])
             if formatted_prev_mac and formatted_prev_mac != formatted_mac:
                 cmds.append(f" no switchport port-security mac-address {formatted_prev_mac}")
-                cmds.append(f" no switchport port-security mac-address sticky {formatted_prev_mac}")
 
             if mode == "sticky":
                 cmds.append(" switchport port-security mac-address sticky")
@@ -123,7 +122,23 @@ class CiscoDriver(NetworkDeviceDriver):
             cmds.append("write memory")
             return "\n".join(cmds)
         elif action in ("port_sec_disable", "disable_port_security"):
-            return f"configure terminal\ninterface {interface}\n no switchport port-security\nend\nwrite memory"
+            raw_mac = (params.get("configured_mac") or params.get("mac") or params.get("previous_mac") or "").strip()
+            clean_hex = re.sub(r"[^0-9a-fA-F]", "", raw_mac).lower()
+            formatted_mac = f"{clean_hex[0:4]}.{clean_hex[4:8]}.{clean_hex[8:12]}" if len(clean_hex) == 12 else raw_mac
+            cmds = [
+                f"clear port-security dynamic interface {interface}",
+                "configure terminal",
+                f"interface {interface}",
+                " no switchport port-security mac-address sticky",
+            ]
+            if formatted_mac:
+                cmds.append(f" no switchport port-security mac-address {formatted_mac}")
+            cmds.extend([
+                " no switchport port-security",
+                "end",
+                "write memory"
+            ])
+            return "\n".join(cmds)
         elif action == "port_sec_clear_mac":
             raw_mac = (params.get("mac") or "").strip()
             clean_hex = re.sub(r"[^0-9a-fA-F]", "", raw_mac).lower()
@@ -131,7 +146,6 @@ class CiscoDriver(NetworkDeviceDriver):
             cmds = ["configure terminal", f"interface {interface}"]
             if formatted_mac:
                 cmds.append(f" no switchport port-security mac-address {formatted_mac}")
-                cmds.append(f" no switchport port-security mac-address sticky {formatted_mac}")
             cmds.append("exit")
             if formatted_mac:
                 cmds.append(f"clear port-security dynamic address {formatted_mac}")
@@ -139,7 +153,7 @@ class CiscoDriver(NetworkDeviceDriver):
             cmds.append("write memory")
             return "\n".join(cmds)
         elif action == "port_sec_clear_all_macs":
-            return f"clear port-security dynamic interface {interface}\nclear port-security sticky interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n switchport port-security mac-address sticky\nend\nwrite memory"
+            return f"clear port-security dynamic interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n switchport port-security mac-address sticky\nend\nwrite memory"
         elif action == "port_sec_recover_errdisable":
             return f"configure terminal\ninterface {interface}\n shutdown\n no shutdown\nend\nwrite memory"
         elif action == "port_sec_update":
@@ -147,7 +161,6 @@ class CiscoDriver(NetworkDeviceDriver):
             if not enabled:
                 cmds = [
                     f"clear port-security dynamic interface {interface}",
-                    f"clear port-security sticky interface {interface}",
                     "configure terminal",
                     f"interface {interface}",
                     " no switchport port-security mac-address sticky",
@@ -166,7 +179,6 @@ class CiscoDriver(NetworkDeviceDriver):
                     fmt = f"{clean[0:4]}.{clean[4:8]}.{clean[8:12]}" if len(clean) == 12 else m
                     if fmt:
                         cmds.append(f" no switchport port-security mac-address {fmt}")
-                        cmds.append(f" no switchport port-security mac-address sticky {fmt}")
                 cmds.extend([
                     " no switchport port-security",
                     "end",
@@ -205,7 +217,6 @@ class CiscoDriver(NetworkDeviceDriver):
             ])
             if formatted_prev_mac and formatted_prev_mac != formatted_mac:
                 cmds.append(f" no switchport port-security mac-address {formatted_prev_mac}")
-                cmds.append(f" no switchport port-security mac-address sticky {formatted_prev_mac}")
 
             if mode == "sticky":
                 cmds.append(" switchport port-security mac-address sticky")

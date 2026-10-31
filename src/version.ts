@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.407.5';
+export const APP_VERSION = '1.407.6';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.407.6',
+    releaseDate: '2026-10-31',
+    type: 'patch',
+    title: 'اصلاح خطای نحوی Invalid input detected at marker در سیسکو IOS، حذف دستورات نامعتبر clear sticky و تصحیح حذف مک‌آدرس‌های استیکی بدون پارامترهای نامعتبر در پیش‌نمایش، درایور و SSH Bridge',
+    title_en: 'Fix Cisco IOS "Invalid input detected at marker" Syntax Error, Eliminate Invalid "clear sticky" Command, and Correct Sticky MAC Negation Syntax Across Drivers and UI',
+    changes: [
+      'حذف دستور غیرمعتبر clear port-security sticky interface که در سوئیچ‌های سیسکو IOS وجود ندارد و باعث بروز خطای Invalid input detected at marker می‌شد (سیسکو فقط از clear port-security dynamic پشتیبانی می‌کند).',
+      'اصلاح دستور لغو مک‌آدرس‌های امنیتی در مودال پورت سکیوریتی، server/routes.ts، cisco.py و ssh_bridge.py به صورت no switchport port-security mac-address <mac> و حذف پسوند نامعتبر sticky <mac> در دستورات no.',
+      'به‌روزرسانی هماهنگ پیش‌نمایش زنده Running-Config در CiscoPortSecurityModal جهت تولید دستورات صددرصد معتبر و استاندارد سیسکو IOS هنگام غیرفعال‌سازی یا اعمال تغییرات پورت سکیوریتی.'
+    ],
+    changes_en: [
+      'Eliminated invalid "clear port-security sticky interface" command not supported by Cisco IOS, which triggered "% Invalid input detected at ^ marker" (Cisco IOS port-security clearing only supports dynamic entries).',
+      'Fixed secure MAC negation syntax across CiscoPortSecurityModal, server/routes.ts, cisco.py, and ssh_bridge.py to strictly use "no switchport port-security mac-address <mac>", removing the invalid "sticky <mac>" negation suffix.',
+      'Synchronized Live Cisco IOS Running-Config Preview in CiscoPortSecurityModal to generate 100% compliant Cisco IOS commands when disabling or updating port security.'
+    ]
+  },
   {
     version: '1.407.5',
     releaseDate: '2026-10-31',

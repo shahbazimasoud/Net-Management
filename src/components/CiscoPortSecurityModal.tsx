@@ -175,7 +175,6 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
 
       const lines = [
         `clear port-security dynamic interface ${portId}`,
-        `clear port-security sticky interface ${portId}`,
         'configure terminal',
         `interface ${portId}`,
         ' no switchport port-security mac-address sticky',
@@ -187,7 +186,6 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           ? `${cleanHex.slice(0, 4)}.${cleanHex.slice(4, 8)}.${cleanHex.slice(8, 12)}`
           : m;
         lines.push(` no switchport port-security mac-address ${fmt}`);
-        lines.push(` no switchport port-security mac-address sticky ${fmt}`);
       });
 
       lines.push(' no switchport port-security');
