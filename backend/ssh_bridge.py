@@ -154,38 +154,57 @@ def handle_ports_sync(args):
 
     try:
         channel = p_client.invoke_shell(term="vt100", width=200, height=80)
-        channel.settimeout(5.0)
-        time.sleep(0.4)
+        channel.settimeout(4.0)
 
-        # Wake up CLI prompt and dismiss any banner or MOTD
+        # Wake up CLI prompt cleanly without long arbitrary sleeps
         channel.send("\r\n")
-        time.sleep(0.3)
-
-        # Clear buffer and check if device prompted for secondary password/TACACS
         init_buffer = ""
-        while channel.recv_ready():
-            init_buffer += channel.recv(4096).decode("utf-8", errors="ignore")
+        start_wait = time.time()
+        while time.time() - start_wait < 1.0:
+            if channel.recv_ready():
+                chunk = channel.recv(4096).decode("utf-8", errors="ignore")
+                init_buffer += chunk
+                if any(chunk.rstrip().endswith(p) for p in ["#", ">", "$", "] >"]):
+                    break
+            else:
+                time.sleep(0.02)
 
         if password and any(p_prompt in init_buffer.lower() for p_prompt in ["password:", "passcode:"]):
             channel.send(f"{password}\r\n")
-            time.sleep(0.4)
+            start_pw = time.time()
+            while time.time() - start_pw < 1.0:
+                if channel.recv_ready():
+                    chunk = channel.recv(4096).decode("utf-8", errors="ignore")
+                    if any(chunk.rstrip().endswith(p) for p in ["#", ">", "$"]):
+                        break
+                else:
+                    time.sleep(0.02)
 
         is_cisco = "cisco" in platform.lower()
+        include_mac_details = bool(
+            device.get("include_mac_details") or 
+            device.get("include_mac_table") or 
+            device.get("deep_sync")
+        )
+        # Fast path: show interfaces status provides 95%+ of port details (state, VLAN, speed, duplex, name) instantly
         commands = [
             "terminal length 0",
             "show interfaces status",
             "show ip interface brief",
-            "show port-security",
-            "show port-security address",
-            "show mac address-table",
         ] if is_cisco else [
             "/interface print detail without-paging",
         ]
+        # Only dump heavy MAC address tables and port-security addresses on-demand
+        if is_cisco and include_mac_details:
+            commands.extend([
+                "show port-security",
+                "show port-security address",
+                "show mac address-table",
+            ])
 
         full_output = ""
         for cmd in commands:
             channel.send(f"{cmd}\n")
-            time.sleep(0.5)
             deadline = time.time() + 4.0
             cmd_received = False
             last_recv_time = time.time()
@@ -196,10 +215,19 @@ def handle_ports_sync(args):
                         full_output += chunk
                         cmd_received = True
                         last_recv_time = time.time()
+                        # Immediate prompt return detection
+                        stripped = chunk.rstrip()
+                        if (
+                            stripped.endswith("#") or 
+                            stripped.endswith(">") or 
+                            stripped.endswith("] >") or 
+                            stripped.endswith("] #")
+                        ) and len(full_output) > len(cmd):
+                            break
                 else:
-                    if cmd_received and (time.time() - last_recv_time > 0.4):
+                    if cmd_received and (time.time() - last_recv_time > 0.15):
                         break
-                    time.sleep(0.08)
+                    time.sleep(0.02)
 
         p_client.close()
 

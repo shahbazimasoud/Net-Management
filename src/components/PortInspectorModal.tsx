@@ -941,8 +941,10 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
       }
       setLoading(false);
 
-      // Automatically trigger identical live sync action with loading overlay
-      handleSyncPorts();
+      // If ports are already present, display immediately without blocking overlay; only sync live if no ports are saved or when user clicks sync button
+      if (!Array.isArray(devPorts) || devPorts.length === 0) {
+        handleSyncPorts();
+      }
     }
   }, [device?.id, isOpen, handleSyncPorts]);
 

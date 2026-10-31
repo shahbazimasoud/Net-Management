@@ -4668,8 +4668,8 @@ apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
 
     const isLiveRequested = req.query.live === 'true' || req.query.live === '1';
 
-    // If ports are missing or live query explicitly requested and device is reachable, query live via resolved SSH backend
-    if ((ports.length === 0 || isLiveRequested) && device.is_online && backend) {
+    // Query live via resolved SSH backend ONLY when live query is explicitly requested
+    if (isLiveRequested && device.is_online && backend) {
       try {
         console.log(`[PortsList Resolver] Fetching ports live for device ${devId} using ${backend.version.toUpperCase()} backend`);
         const result = await executeSshBridgeAction('ports-sync', device, backend.version, 25000);

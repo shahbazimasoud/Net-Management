@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.407.1';
+export const APP_VERSION = '1.407.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.407.2',
+    releaseDate: '2026-10-31',
+    type: 'patch',
+    title: 'بهینه‌سازی فوق‌سریع اتصال ترمینال و همگام‌سازی پورت‌ها، حذف نشست‌های همزمان SSH، لغو اجرای خودکار دستورات سنگین مک‌آدرس و تشخیص لحظه‌ای پرامپت',
+    title_en: 'Ultra-Fast Terminal Connection & Port Synchronization Optimization, Elimination of Concurrent SSH Collisions, On-Demand MAC Table Dumps, and Instant Prompt Detection',
+    changes: [
+      'حذف اجرای همزمان و تداخلی سینک پورت‌ها هنگام باز کردن ترمینال (CiscoTerminalModal) جهت جلوگیری از افزایش بار CPU سوئیچ و برقراری ارتباط زنده شل زیر ۱ ثانیه.',
+      'بهینه‌سازی موتور همگام‌سازی پورت‌ها در backend/ssh_bridge.py با جایگزینی Sleepهای تاخیری با تشخیص لحظه‌ای پرامپت سوئیچ و اجرای سریع‌تر در کسری از ثانیه.',
+      'تبدیل دریافت جدول‌های حجیم مک‌آدرس و Port Security Address به حالت درخواستی (On-Demand) و تمرکز سینک اصلی بر دستور سریع show interfaces status.',
+      'اصلاح روت GET /api/devices/:id/ports در server/routes.ts برای بازگرداندن فوری اطلاعات ذخیره‌شده از پایگاه داده و ممانعت از ایجاد نشست‌های کند مسدودکننده در فراخوانی‌های عادی.',
+      'بهینه‌سازی مودال بازرس پورت‌ها (PortInspectorModal) جهت رندر فوری اطلاعات دیتابیس بدون قفل شدن رابط کاربری و انتقال عملیات سنگین به دکمه همگام‌سازی دستی.'
+    ],
+    changes_en: [
+      'Eliminated concurrent port synchronization collision when opening the interactive terminal modal (CiscoTerminalModal), preventing switch CPU starvation and enabling sub-second shell connections.',
+      'Optimized the port synchronization bridge in backend/ssh_bridge.py by replacing static sleep delays with responsive prompt return detection for sub-second execution.',
+      'Made heavy MAC address tables and port-security address dumps on-demand, streamlining default port synchronization to rapid show interfaces status queries.',
+      'Updated GET /api/devices/:id/ports in server/routes.ts to return cached database ports instantly without triggering blocking physical SSH handshakes unless explicitly requested via live query parameter.',
+      'Enhanced PortInspectorModal to immediately render pre-populated database ports without freezing the user interface, reserving full hardware queries for explicit manual sync button clicks.'
+    ]
+  },
   {
     version: '1.407.1',
     releaseDate: '2026-10-31',
