@@ -261,20 +261,173 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     ''
   ).trim();
 
-  // RTT Keystroke Latency Measurement Ref
-  const lastKeySentTimeRef = useRef<number>(0);
-  const pendingCharRef = useRef<string>('');
+  // --------------------------------------------------------------------------
+  // 0ms Local Predictive Echo & Instant Backspace Reconciliation Engine
+  // --------------------------------------------------------------------------
+  interface PredictedKeystrokeItem {
+    type: 'char' | 'bs';
+    char?: string;
+    timestamp: number;
+  }
+  const predictionQueueRef = useRef<PredictedKeystrokeItem[]>([]);
+  const currentLineLenRef = useRef<number>(0);
+  const isExpectingPasswordRef = useRef<boolean>(false);
 
-  // Send raw input keystroke or buffer directly to active WebSocket session
-  const sendRawInput = (data: string) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      if (data && data.length === 1 && data.charCodeAt(0) >= 32) {
-        lastKeySentTimeRef.current = performance.now();
-        pendingCharRef.current = data;
+  const clearPredictions = useCallback(() => {
+    predictionQueueRef.current = [];
+    currentLineLenRef.current = 0;
+  }, []);
+
+  // Send raw input with instant 0ms local predictive echo and backspace erase
+  const sendRawInput = useCallback((data: string) => {
+    if (!data) return;
+
+    // 1. Password security guard (Rule 14 Zero-Leak): suppress local echo when password is typed
+    if (isExpectingPasswordRef.current) {
+      if (data.includes('\r') || data.includes('\n')) {
+        isExpectingPasswordRef.current = false;
+        clearPredictions();
       }
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'input', data }));
+      }
+      return;
+    }
+
+    // 2. Control characters: Enter, Ctrl+C, Ctrl+U, Tab, Escape sequences
+    if (data === '\r' || data === '\n' || data === '\r\n') {
+      clearPredictions();
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'input', data }));
+      }
+      return;
+    }
+
+    if (data === '\x03' || data === '\x15') {
+      clearPredictions();
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'input', data }));
+      }
+      return;
+    }
+
+    if (data === '\t' || data.startsWith('\x1b')) {
+      // Hardware autocomplete or cursor escape sequence: drain predictions and forward to remote device
+      predictionQueueRef.current = [];
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'input', data }));
+      }
+      return;
+    }
+
+    // 3. Backspace handling: '\x7f' (DEL) or '\b' (BS)
+    if (data === '\x7f' || data === '\b') {
+      if (currentLineLenRef.current > 0) {
+        // Immediate 0ms local erasure on screen: cursor back, space over char, cursor back
+        currentLineLenRef.current--;
+        xtermRef.current?.write('\b \b');
+        predictionQueueRef.current.push({
+          type: 'bs',
+          timestamp: performance.now(),
+        });
+      }
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'input', data }));
+      }
+      return;
+    }
+
+    // 4. Standard printable characters (single key or fast chunk)
+    let isAllPrintable = true;
+    for (let i = 0; i < data.length; i++) {
+      if (data.charCodeAt(i) < 32) {
+        isAllPrintable = false;
+        break;
+      }
+    }
+
+    if (isAllPrintable) {
+      // Immediate 0ms local write to xterm
+      xtermRef.current?.write(data);
+      for (let i = 0; i < data.length; i++) {
+        currentLineLenRef.current++;
+        predictionQueueRef.current.push({
+          type: 'char',
+          char: data[i],
+          timestamp: performance.now(),
+        });
+      }
+    } else {
+      predictionQueueRef.current = [];
+    }
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'input', data }));
     }
-  };
+  }, [clearPredictions]);
+
+  // Reconciles incoming remote device echo against predicted queue without duplicate rendering
+  const reconcileIncomingText = useCallback((rawChunk: string): string => {
+    if (!rawChunk) return rawChunk;
+
+    // Detect password prompt transitions in incoming device stream
+    if (/(?:password|passphrase|رمز عبور|passwd|\[sudo\] password for [^:]+):\s*$/i.test(rawChunk.trim())) {
+      isExpectingPasswordRef.current = true;
+      clearPredictions();
+      return rawChunk;
+    }
+
+    // Line breaks indicate command execution or line advancement: reset prediction queue
+    if (rawChunk.includes('\n') || rawChunk.includes('\r')) {
+      clearPredictions();
+      return rawChunk;
+    }
+
+    if (predictionQueueRef.current.length === 0) {
+      return rawChunk;
+    }
+
+    // Expire stale predictions older than 3.5 seconds
+    const now = performance.now();
+    while (predictionQueueRef.current.length > 0 && now - predictionQueueRef.current[0].timestamp > 3500) {
+      predictionQueueRef.current.shift();
+    }
+
+    let remaining = rawChunk;
+
+    while (remaining.length > 0 && predictionQueueRef.current.length > 0) {
+      const pred = predictionQueueRef.current[0];
+
+      if (pred.type === 'char' && pred.char) {
+        if (remaining.startsWith(pred.char)) {
+          remaining = remaining.slice(pred.char.length);
+          predictionQueueRef.current.shift();
+        } else {
+          // Stream diverged (switch prompt, error, or completion): flush queue
+          predictionQueueRef.current = [];
+          break;
+        }
+      } else if (pred.type === 'bs') {
+        if (remaining.startsWith('\b \b') || remaining.startsWith('\x08 \x08')) {
+          remaining = remaining.slice(3);
+          predictionQueueRef.current.shift();
+        } else if (remaining.startsWith('\x08\x1b[K')) {
+          remaining = remaining.slice(4);
+          predictionQueueRef.current.shift();
+        } else if (remaining.startsWith('\b') || remaining.startsWith('\x08') || remaining.startsWith('\x7f')) {
+          remaining = remaining.slice(1);
+          predictionQueueRef.current.shift();
+        } else {
+          predictionQueueRef.current = [];
+          break;
+        }
+      } else {
+        predictionQueueRef.current.shift();
+      }
+    }
+
+    return remaining;
+  }, [clearPredictions]);
 
   // Send terminal resize events (cols, rows) directly from xterm.js fit addon
   const sendResizeDimensions = useCallback((cols: number, rows: number) => {
@@ -851,17 +1004,11 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                 return;
               }
               if (msg.type === 'data' && msg.data) {
-                if (lastKeySentTimeRef.current > 0) {
-                  const rtt = Math.round(performance.now() - lastKeySentTimeRef.current);
-                  console.log(
-                    `%c[Cisco Terminal RTT]%c Keystroke '${pendingCharRef.current}' echoed by device/server in ${rtt}ms`,
-                    'color: #38bdf8; font-weight: bold; background: #0c4a6e; padding: 2px 6px; border-radius: 4px;',
-                    'color: inherit; font-weight: normal;'
-                  );
-                  lastKeySentTimeRef.current = 0;
+                const reconciled = reconcileIncomingText(msg.data);
+                if (reconciled) {
+                  xtermRef.current?.write(reconciled);
+                  parseAndApplyLinkState(reconciled);
                 }
-                xtermRef.current?.write(msg.data);
-                parseAndApplyLinkState(msg.data);
                 return;
               } else if (msg.type === 'status') {
                 if (msg.status === 'connected') {
@@ -904,8 +1051,11 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           }
 
           if (text) {
-            xtermRef.current?.write(text);
-            parseAndApplyLinkState(text);
+            const reconciled = reconcileIncomingText(text);
+            if (reconciled) {
+              xtermRef.current?.write(reconciled);
+              parseAndApplyLinkState(reconciled);
+            }
           }
         };
 
@@ -1182,6 +1332,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
         }
       }
 
+      clearPredictions();
       wsRef.current.send(JSON.stringify({ type: 'input', data: trimmed + '\r' }));
       if (
         cmdLower.startsWith('sh ') ||

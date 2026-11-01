@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.407.9';
+export const APP_VERSION = '1.408.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.408.0',
+    releaseDate: '2026-11-01',
+    type: 'minor',
+    title: 'پیاده‌سازی موتور اکوی پیش‌بینانه بلادرنگ محلی (0ms Local Predictive Echo) و پاک‌سازی آنی کلید Backspace در کنسول ترمینال سیسکو و میکروتیک',
+    title_en: 'Implementation of 0ms Local Predictive Echo & Instant Backspace Reconciliation Engine for Cisco and MikroTik Interactive Terminal Consoles',
+    changes: [
+      'پیاده‌سازی موتور پیش‌بینی بلادرنگ با تاخیر صفر (0ms Local Predictive Echo) در کنسول تعاملی ترمینال سیسکو (CiscoTerminalModal) و میکروتیک (MikroTikTerminalModal) جهت نمایش آنی کاراکترهای تایپ‌شده روی مانیتور همزمان با ارسال امن به کانال SSH سوئیچ.',
+      'تجهیز ترمینال به مکانیزم پاک‌سازی بلادرنگ کلید Backspace (توالی \\b \\b با تاخیر 0ms) به همراه بافر سنجش طول خط ورودی برای ممانعت قطعی از پاک شدن پرامپت سوئیچ هنگام زدن بک‌اسپیس در ابتدای خط.',
+      'پیاده‌سازی الگوریتم تطبیق و پالایش اکوی برگشتی (Reconciliation Engine) برای جذب خودکار کاراکترهای اکوشده از تجهیز بدون بروز تکرار کاراکترها (Double Echo) و پشتیبانی هوشمند از انواع فرمت‌های پاسخ بک‌اسپیس سخت‌افزار.',
+      'رعایت کامل قانون عدم نشت اطلاعات (Zero-Leak Security): غیرفعال‌سازی هوشمند اکوی پیش‌بینانه در زمان وارد کردن پسوردها و توکن‌های امنیتی جهت حفاظت از گذرواژه‌ها.'
+    ],
+    changes_en: [
+      'Implemented 0ms Local Predictive Echo engine in CiscoTerminalModal and MikroTikTerminalModal, delivering instant local keystroke rendering without awaiting remote round-trip latency.',
+      'Added zero-latency Backspace local erasure (\\b \\b) with active line-length clamping to prevent accidental erasure of switch CLI prompts when pressing backspace at column 0.',
+      'Engineered real-time remote echo reconciliation engine to seamlessly absorb returned device echoes without double-rendering characters or desynchronizing CLI buffers.',
+      'Enforced strict Zero-Leak credential security: automatic suppression of local predictive echo during password challenges and secret input.'
+    ]
+  },
   {
     version: '1.407.9',
     releaseDate: '2026-10-31',
