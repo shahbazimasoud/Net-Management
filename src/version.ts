@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.408.0';
+export const APP_VERSION = '1.408.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.408.1',
+    releaseDate: '2026-11-01',
+    type: 'patch',
+    title: 'اصلاح ریشه‌ای پرش زبان و انیمیشن در بارگذاری اولیه پنل با گیت هماهنگ‌سازی تنظیمات ظاهری (حفظ لودینگ تا استعلام پیش‌فرض‌های Appearance & Themes، پیش‌واکشی در index.html و حذف کامل فلیکر لاگین)',
+    title_en: 'Root-Cause Fix for Initial Load Language & Animation Flicker with Settings Gate (Hold Socket Loader until Appearance & Themes Defaults Resolve, HTML Pre-fetch & Zero Login FOUC)',
+    changes: [
+      'پیاده‌سازی گیت هماهنگ‌سازی تنظیمات اولیه در App.tsx (isInitialSettingsResolved) جهت نگه‌داشتن پایدار لودینگ تا زمان استعلام قطعی زبان، تم و جلوه لاگین از لوکال‌استوریج یا پایگاه داده سرور.',
+      'تجهیز صفحه اول (index.html) به اسکریپت پیش‌واکشی بلادرنگ (window.__INITIAL_SETTINGS_PROMISE__) برای ارسال همزمان درخواست استعلام تنظیمات قبل از شروع کامپایل و رندر ری‌اکت.',
+      'رفع کامل تغییر ناگهانی زبان از فارسی به انگلیسی و پرش انیمیشن‌های سه‌بعدی به تصویر در صفحه لاگین: ارسال مقادیر تاییدشده اولیه مستقیماً به کامپوننت LoginPage و جلوگیری از اجرای رندرهای مقدماتی با مقادیر هاردکدشده.',
+      'حفظ کامل اولویت انتخاب کاربر: تقدم همیشگی تنظیمات شخصی ذخیره‌شده کاربر در لوکال‌استوریج بر پیش‌فرض‌های سیستم و اعمال پیش‌فرض‌های ادمین در صورت خالی بودن حافظه مرورگر.'
+    ],
+    changes_en: [
+      'Implemented initial settings resolution gate in App.tsx (isInitialSettingsResolved) to maintain the loading screen until language, theme, and login visual choices are authoritatively resolved from localStorage or server database.',
+      'Added early pre-fetch script in index.html (window.__INITIAL_SETTINGS_PROMISE__) to pipeline /api/settings/general requests in parallel with React bundle initialization.',
+      'Completely eliminated language flips (Persian to English) and 3D animation jumping (Globe to Matrix/Image) on initial visit by injecting pre-resolved settings directly into LoginPage.',
+      'Preserved strict user-choice precedence: user-customized preferences in localStorage are always respected, while Admin defaults from Appearance & Themes are cleanly applied for fresh sessions.'
+    ]
+  },
   {
     version: '1.408.0',
     releaseDate: '2026-11-01',

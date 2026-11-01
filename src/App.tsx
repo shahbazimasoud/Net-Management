@@ -426,12 +426,51 @@ export default function App() {
     }
   }, [changeTheme, setLanguage]);
 
-  useEffect(() => {
-    syncGeneralSettingsFromDatabase().then((settings) => {
-      if (settings) {
-        applyGlobalSettings(settings);
+  // Gate initial screen rendering until client either has valid localStorage settings
+  // or fetches the authoritative Appearance & Themes defaults from the database (prevents FOUC/flicker)
+  const [isInitialSettingsResolved, setIsInitialSettingsResolved] = useState<boolean>(() => {
+    try {
+      const cached = localStorage.getItem('nettopology_general_settings_v1');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === 'object') {
+          return true;
+        }
       }
-    }).catch(() => {});
+    } catch {}
+    return false;
+  });
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    // Safety timeout: unblock after 2.5 seconds max so page never hangs if network fails
+    const timeoutId = setTimeout(() => {
+      if (!isCancelled) {
+        setIsInitialSettingsResolved(true);
+      }
+    }, 2500);
+
+    syncGeneralSettingsFromDatabase()
+      .then((settings) => {
+        if (!isCancelled && settings) {
+          applyGlobalSettings(settings);
+        }
+      })
+      .catch((err) => {
+        console.warn('Initial general settings sync notice:', err);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          clearTimeout(timeoutId);
+          setIsInitialSettingsResolved(true);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [applyGlobalSettings]);
 
   // Listen for real-time global settings changes broadcast across the panel
@@ -1078,7 +1117,7 @@ export default function App() {
   const onlineCount = authorizedDevices.filter((d) => d.is_online).length;
   const offlineCount = authorizedDevices.filter((d) => !d.is_online).length;
 
-  if (isAuthLoading) {
+  if (isAuthLoading || !isInitialSettingsResolved) {
     return (
       <div className="h-screen w-screen bg-[#060911] flex flex-col items-center justify-center text-slate-300 font-sans select-none overflow-hidden">
         <NetworkSocketLoader
@@ -1091,7 +1130,13 @@ export default function App() {
   }
 
   if (!isAuthenticated) {
-    return <LoginPage currentTheme={panelTheme} onThemeChange={changeTheme} />;
+    return (
+      <LoginPage
+        currentTheme={panelTheme}
+        onThemeChange={changeTheme}
+        initialSettings={generalSettings}
+      />
+    );
   }
 
   const isLightMode = panelTheme === 'light';

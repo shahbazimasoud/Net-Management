@@ -38,6 +38,7 @@ interface LoginPageProps {
   onLoginSuccess?: (user: AuthUser) => void;
   currentTheme?: GlobeThemeType;
   onThemeChange?: (theme: GlobeThemeType) => void;
+  initialSettings?: PanelGeneralSettings;
 }
 
 const THEME_OPTIONS: { id: GlobeThemeType; name: string; nameFa: string; color: string; isLight?: boolean }[] = [
@@ -54,10 +55,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onLoginSuccess,
   currentTheme: propTheme,
   onThemeChange,
+  initialSettings: propSettings,
 }) => {
   const { isEn, language, setLanguage, isRtl } = useLanguage();
   const { login } = useAuth();
-  const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
+  const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => propSettings || loadGeneralSettings());
+
+  useEffect(() => {
+    if (propSettings) {
+      setGeneralSettings(propSettings);
+    }
+  }, [propSettings]);
 
   // Local or propagated theme state (respect user preference if customized, fallback to system default)
   const [theme, setTheme] = useState<GlobeThemeType>(() => {
@@ -65,9 +73,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     const userCustomized = localStorage.getItem('user_customized_theme') === 'true';
     const saved = localStorage.getItem('panel_theme') as GlobeThemeType;
     if (userCustomized && saved) return saved;
-    const initialSettings = loadGeneralSettings();
+    const initialSettings = propSettings || loadGeneralSettings();
     return (initialSettings?.defaultTheme as GlobeThemeType) || saved || 'obsidian';
   });
+
+  useEffect(() => {
+    if (propTheme && propTheme !== theme) {
+      setTheme(propTheme);
+    }
+  }, [propTheme, theme]);
 
   const [showThemePicker, setShowThemePicker] = useState(false);
 
@@ -177,7 +191,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const allowedAuth = generalSettings?.allowedAuthMethods || 'both';
 
   const [authType, setAuthType] = useState<'local' | 'ad'>(() => {
-    const initial = loadGeneralSettings();
+    const initial = propSettings || loadGeneralSettings();
     return initial?.allowedAuthMethods === 'ad_only' ? 'ad' : 'local';
   });
   const [username, setUsername] = useState('');

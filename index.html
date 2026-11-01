@@ -313,7 +313,48 @@
     <script>
       (function() {
         try {
-          var lang = localStorage.getItem('app_language') || localStorage.getItem('nettopology_lang') || 'en';
+          var userCustomized = localStorage.getItem('user_customized_language') === 'true';
+          var savedLang = localStorage.getItem('app_language');
+          var rawSettings = localStorage.getItem('nettopology_general_settings_v1');
+          var lang = '';
+
+          // 1. Check user's explicitly customized language in localStorage first
+          if (userCustomized && (savedLang === 'fa' || savedLang === 'en')) {
+            lang = savedLang;
+          } else if (rawSettings) {
+            // 2. Check cached admin settings from Appearance & Themes
+            try {
+              var parsed = JSON.parse(rawSettings);
+              if (parsed && (parsed.defaultLanguage === 'fa' || parsed.defaultLanguage === 'en')) {
+                lang = parsed.defaultLanguage;
+              }
+            } catch (e) {}
+          } else if (savedLang === 'fa' || savedLang === 'en') {
+            lang = savedLang;
+          }
+
+          // 3. If settings not cached in localStorage, start early background pre-fetch immediately
+          if (!rawSettings) {
+            window.__INITIAL_SETTINGS_PROMISE__ = fetch('/api/settings/general')
+              .then(function(res) { return res.ok ? res.json() : null; })
+              .then(function(data) {
+                if (data && data.settings) {
+                  try {
+                    localStorage.setItem('nettopology_general_settings_v1', JSON.stringify(data.settings));
+                    if (!userCustomized && data.settings.defaultLanguage) {
+                      localStorage.setItem('app_language', data.settings.defaultLanguage);
+                    }
+                  } catch (e) {}
+                  return data.settings;
+                }
+                return null;
+              })
+              .catch(function() { return null; });
+          }
+
+          // Default fallback language if neither user nor cached admin setting exists
+          if (!lang) lang = 'en';
+
           var isFa = (lang === 'fa');
           var loaderEl = document.getElementById('initial-loader');
           var titleEl = document.getElementById('init-loader-title-text');

@@ -926,6 +926,22 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
 }
 
 export async function syncGeneralSettingsFromDatabase(): Promise<PanelGeneralSettings> {
+  // If index.html already started fetching initial settings, reuse the promise to eliminate latency
+  if (typeof window !== 'undefined' && (window as any).__INITIAL_SETTINGS_PROMISE__) {
+    try {
+      const earlySettings = await (window as any).__INITIAL_SETTINGS_PROMISE__;
+      (window as any).__INITIAL_SETTINGS_PROMISE__ = null;
+      if (earlySettings) {
+        inMemoryGeneralSettings = earlySettings;
+        saveGeneralSettingsToLocalStorageSafely(earlySettings);
+        window.dispatchEvent(
+          new CustomEvent('nettopology_general_settings_changed', { detail: { settings: earlySettings } })
+        );
+        return earlySettings;
+      }
+    } catch {}
+  }
+
   try {
     const res = await fetch('/api/settings/general', {
       headers: getAuthHeaders(),
