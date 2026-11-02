@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { X, Minus, Maximize2, Minimize2, Cable, Zap, Shield, ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Edit3, Save, Power, Terminal, AlertTriangle, ArrowRight, Check, Copy, Lock, Key, Layers, CheckSquare, Square, FileText, Gauge, Activity, MoreVertical, RefreshCw, Radio, Columns } from 'lucide-react';
 import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
-import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, writeMemory, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
+import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, writeMemory, batchUpdateSwitchPorts, executeDeviceOperation, openDeviceSessionApi, closeDeviceSessionApi } from '../services/api';
 import { NetworkSocketLoader } from './common/NetworkSocketLoader';
 import { NetworkPortSvg } from './NetworkPortSvg';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
@@ -309,6 +309,40 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [selectedPort, setSelectedPort] = useState<SwitchPort | null>(null);
   const [activeTab, setActiveTab] = useState<'ports' | 'logs' | 'resources'>('ports');
+  const [persistentSessionStatus, setPersistentSessionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
+
+  // Maintain authoritative persistent SSH session across all sub-modals (Port Security, VLAN, Write, Logs)
+  useEffect(() => {
+    if (!isOpen || !device?.id) return;
+
+    let isMounted = true;
+    setPersistentSessionStatus('connecting');
+
+    openDeviceSessionApi(device.id)
+      .then((res) => {
+        if (!isMounted) return;
+        setPersistentSessionStatus('connected');
+        console.log(`[PortInspectorModal] Persistent session established for ${device.name}:`, res.sessionId);
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        setPersistentSessionStatus('error');
+        console.warn(`[PortInspectorModal] Persistent session notice:`, err.message);
+      });
+
+    const handleBeforeUnload = () => {
+      try {
+        navigator.sendBeacon?.(`/api/devices/${device.id}/session/close`);
+      } catch {}
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      closeDeviceSessionApi(device.id, 'Port modal closed').catch(() => {});
+    };
+  }, [isOpen, device?.id]);
 
   const onPortUpdatedRef = useRef(onPortUpdated);
   onPortUpdatedRef.current = onPortUpdated;
@@ -1994,28 +2028,43 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             <span className="text-slate-500">{isEn ? 'Architecture:' : 'معماری:'}</span>
             <span className="text-cyan-300 font-bold">{device.model || 'Cisco Switch'}</span>
             <span className="text-slate-600">•</span>
-            <span className="text-emerald-400 font-bold">{isEn ? 'Health: OK' : 'سلامت: نرمال'}</span>
+            {persistentSessionStatus === 'connected' ? (
+              <span className="text-emerald-400 font-bold flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20" title={isEn ? 'Persistent SSH session active for all modals' : 'سشن پایدار SSH برای تمام مودال‌ها فعال است'}>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>{isEn ? 'SSH: Active' : 'سشن: متصل'}</span>
+              </span>
+            ) : persistentSessionStatus === 'connecting' ? (
+              <span className="text-amber-400 font-bold flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                <span>{isEn ? 'SSH: Connecting...' : 'سشن: در حال اتصال...'}</span>
+              </span>
+            ) : (
+              <span className="text-emerald-400 font-bold">{isEn ? 'Health: OK' : 'سلامت: نرمال'}</span>
+            )}
           </div>
         </div>
 
         {/* Content Body */}
         <div className={`p-5 overflow-y-auto space-y-4 flex-1 ${activeTab === 'logs' ? 'flex flex-col min-h-[580px] p-3' : ''}`}>
-          {activeTab === 'resources' ? (
+          {/* Syslog Live Terminal Tab (Kept mounted to preserve state & prevent redundant SSH calls) */}
+          <div className={activeTab === 'logs' ? 'flex-1 flex flex-col min-h-[550px] h-[640px]' : 'hidden'}>
+            <DeviceTerminalLogsTab
+              device={device}
+              isEn={isEn}
+              onConnectTerminal={canTerminal ? onConnectTerminal : undefined}
+            />
+          </div>
+
+          {activeTab === 'resources' && (
             <CiscoSystemResourcesTab
               device={device}
               ports={ports}
               isEn={isEn}
               onConnectTerminal={canTerminal ? onConnectTerminal : undefined}
             />
-          ) : activeTab === 'logs' ? (
-            <div className="flex-1 flex flex-col min-h-[550px] h-[640px]">
-              <DeviceTerminalLogsTab
-                device={device}
-                isEn={isEn}
-                onConnectTerminal={canTerminal ? onConnectTerminal : undefined}
-              />
-            </div>
-          ) : (
+          )}
+
+          {activeTab === 'ports' && (
             <>
           {/* Switch Faceplate (Visual Rack Interface) */}
           <div className="bg-slate-900 border border-slate-800 rounded-lg p-3.5 shadow-inner">

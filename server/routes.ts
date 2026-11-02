@@ -308,6 +308,7 @@ import { resolveSshBackend, executeSshBridgeAction } from './sshBackendResolver'
 import { fetchCiscoPortStatistics } from './ciscoPortStatsService';
 import { fetchCiscoConfigState, applyCiscoConfigTab } from './ciscoConfigEngine';
 import { fetchDeviceSyslogBuffer, clearDeviceSyslogBuffer } from './deviceLogService';
+import { deviceSessionPool } from './deviceSessionPool';
 import {
   createTwoFactorChallenge,
   verifyTwoFactorChallenge,
@@ -3797,6 +3798,53 @@ apiRouter.post('/devices/:id/logs/clear', async (req: Request, res: Response) =>
   }
 });
 
+// POST /devices/:id/session/open - Establish persistent SSH session for the device (called when Port Modal opens)
+apiRouter.post('/devices/:id/session/open', async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  const devId = req.params.id;
+  try {
+    const allDevs = await getAllDevices();
+    const device = allDevs.find((d: any) => d.id === devId || d.name === devId);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Device not found', message: isEn ? 'Device not found' : 'دستگاه یافت نشد' });
+    }
+
+    const sessionResult = await deviceSessionPool.openDeviceSession(device);
+    return res.json(sessionResult);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || (isEn ? 'Failed to establish persistent session' : 'خطا در برقراری سشن پایدار'),
+    });
+  }
+});
+
+// POST /devices/:id/session/close - Close persistent SSH session for the device (called when Port Modal closes)
+apiRouter.post('/devices/:id/session/close', async (req: Request, res: Response) => {
+  const devId = req.params.id;
+  try {
+    const closed = await deviceSessionPool.closeDeviceSession(devId, req.body?.reason || 'User closed port modal');
+    return res.json({ success: true, closed });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /devices/:id/session/status - Check if persistent session is active
+apiRouter.get('/devices/:id/session/status', async (req: Request, res: Response) => {
+  const devId = req.params.id;
+  const active = deviceSessionPool.hasActiveSession(devId);
+  const session = deviceSessionPool.getSession(devId);
+  return res.json({
+    success: true,
+    active,
+    sessionId: session?.sessionId || null,
+    status: session?.status || 'disconnected',
+    createdAt: session?.createdAt || null,
+    lastActive: session?.lastActive || null,
+  });
+});
+
 // PUT /devices/:id - Edit device properties
 apiRouter.put('/devices/:id', async (req: Request, res: Response) => {
   try {
@@ -3926,7 +3974,22 @@ apiRouter.post('/devices/:id/write-memory', async (req: Request, res: Response) 
     console.log(`[WriteMemory Resolver] Saving configuration for device ${devId} using ${backend.version.toUpperCase()} backend (${backend.pythonBin})`);
 
     let cliOutput = '';
-    if (device.ip || device.ssh_host) {
+    if (deviceSessionPool.hasActiveSession(devId)) {
+      console.log(`[WriteMemory] Saving config on active persistent SSH session for ${devId}`);
+      const isMikroTik = String(device.platform || '').toLowerCase().includes('mikrotik');
+      const writeCmd = isMikroTik ? '/system backup save name=autobackup\n' : 'write memory\n';
+      const poolResult = await deviceSessionPool.executeCommandOnSession(devId, writeCmd, 25000);
+      if (!poolResult.success) {
+        return res.status(400).json({
+          success: false,
+          error: poolResult.error || 'Failed to save configuration via persistent session',
+          message: poolResult.error || 'Failed to save configuration via persistent session',
+          cli_command: writeCmd.trim(),
+          output: poolResult.output || '',
+        });
+      }
+      cliOutput = poolResult.output || '';
+    } else if (device.ip || device.ssh_host) {
       const result = await executeSshBridgeAction('port-action', {
         device,
         action: 'save_config',
@@ -5175,7 +5238,22 @@ apiRouter.put('/devices/:id/ports/batch', async (req: Request, res: Response) =>
     }
 
     let cliOutput = '';
-    if (cliCommands.length > 0 && (device.ip || device.ssh_host) && backend) {
+    if (cliCommands.length > 0 && deviceSessionPool.hasActiveSession(devId)) {
+      const combinedCli = cliCommands.join('\n');
+      console.log(`[BatchPortsUpdate] Executing ${cliCommands.length} commands on active persistent session for ${devId}`);
+      const poolResult = await deviceSessionPool.executeCommandOnSession(devId, combinedCli, 35000);
+      if (!poolResult.success) {
+        return res.status(400).json({
+          success: false,
+          error: poolResult.error || 'Batch update failed on device',
+          message: poolResult.error || 'Batch update failed on device',
+          cli_command: combinedCli,
+          output: poolResult.output || '',
+        });
+      }
+      device.is_online = true;
+      cliOutput = poolResult.output || '';
+    } else if (cliCommands.length > 0 && (device.ip || device.ssh_host) && backend) {
       const combinedCli = cliCommands.join('\n');
       const result = await executeSshBridgeAction('port-action', {
         device,
@@ -5394,7 +5472,24 @@ apiRouter.put([
     const ifaceName = targetPort.port_id || targetPort.port || targetPort.name || portId;
     let cliOutput = '';
 
-    if ((device.ip || device.ssh_host) && backend) {
+    if (deviceSessionPool.hasActiveSession(devId)) {
+      const cliCommand = buildPortCliCommand(device.platform || '', ifaceName, updates);
+      if (cliCommand) {
+        console.log(`[SinglePortUpdate] Executing CLI command on active persistent session for ${devId}`);
+        const poolResult = await deviceSessionPool.executeCommandOnSession(devId, cliCommand, 25000);
+        if (!poolResult.success) {
+          return res.status(400).json({
+            success: false,
+            error: poolResult.error || 'Port configuration failed on device',
+            message: poolResult.error || 'Port configuration failed on device',
+            cli_command: cliCommand,
+            output: poolResult.output || '',
+          });
+        }
+        device.is_online = true;
+        cliOutput = poolResult.output || '';
+      }
+    } else if ((device.ip || device.ssh_host) && backend) {
       const cliCommand = buildPortCliCommand(device.platform || '', ifaceName, updates);
       if (cliCommand) {
         const result = await executeSshBridgeAction('port-action', {

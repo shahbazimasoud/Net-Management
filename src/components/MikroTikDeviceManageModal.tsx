@@ -32,7 +32,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Device, SwitchPort } from '../types';
-import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, batchUpdateSwitchPorts } from '../services/api';
+import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, batchUpdateSwitchPorts, openDeviceSessionApi, closeDeviceSessionApi } from '../services/api';
 import { NetworkSocketLoader } from './common/NetworkSocketLoader';
 import { MikroTikPortSvg } from './MikroTikPortSvg';
 import { MikroTikPortContextMenu } from './MikroTikPortContextMenu';
@@ -118,6 +118,41 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
   const canMikrotikIpPool = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_ip_pool'));
 
   const [activeTab, setActiveTab] = useState<'ports' | 'logs' | 'bridge' | 'vpn' | 'resources' | 'export'>('ports');
+  const [persistentSessionStatus, setPersistentSessionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
+
+  // Maintain authoritative persistent SSH session across all sub-modals (Port configs, Bridge, VPN, Logs)
+  useEffect(() => {
+    if (!isOpen || !device?.id) return;
+
+    let isMounted = true;
+    setPersistentSessionStatus('connecting');
+
+    openDeviceSessionApi(device.id)
+      .then((res) => {
+        if (!isMounted) return;
+        setPersistentSessionStatus('connected');
+        console.log(`[MikroTikModal] Persistent session established for ${device.name}:`, res.sessionId);
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        setPersistentSessionStatus('error');
+        console.warn(`[MikroTikModal] Persistent session notice:`, err.message);
+      });
+
+    const handleBeforeUnload = () => {
+      try {
+        navigator.sendBeacon?.(`/api/devices/${device.id}/session/close`);
+      } catch {}
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      closeDeviceSessionApi(device.id, 'MikroTik modal closed').catch(() => {});
+    };
+  }, [isOpen, device?.id]);
+
   const [ports, setPorts] = useState<SwitchPort[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -700,8 +735,22 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
               isLightMode ? 'text-cyan-700' : 'text-cyan-400'
             }`}
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>RouterBOARD CCR/CRS</span>
+            {persistentSessionStatus === 'connected' ? (
+              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20" title={isEn ? 'Persistent SSH session active for all modals' : 'سشن پایدار SSH برای تمام مودال‌ها فعال است'}>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>RouterOS SSH: Active</span>
+              </span>
+            ) : persistentSessionStatus === 'connecting' ? (
+              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                <span>Connecting...</span>
+              </span>
+            ) : (
+              <>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>RouterBOARD CCR/CRS</span>
+              </>
+            )}
           </div>
         </div>
 
@@ -1397,8 +1446,8 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
             )
           )}
 
-          {activeTab === 'logs' && device && (
-            <div className="flex-1 flex flex-col min-h-[550px] h-[640px]">
+          {device && (
+            <div className={activeTab === 'logs' ? 'flex-1 flex flex-col min-h-[550px] h-[640px]' : 'hidden'}>
               <DeviceTerminalLogsTab
                 device={device}
                 isEn={isEn}

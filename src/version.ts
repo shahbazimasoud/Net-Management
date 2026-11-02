@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.410.0';
+export const APP_VERSION = '1.411.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.411.0',
+    releaseDate: '2026-11-02',
+    type: 'minor',
+    title: 'معماری سشن پایدار SSH (Persistent Device SSH Session Pool) در طول چرخه حیات مودال پورت و تمامی زیرمودال‌ها',
+    title_en: 'Persistent SSH Session Pool Architecture Across Port Modal Lifecycle and All Sub-Modals',
+    changes: [
+      'طراحی و پیاده‌سازی سرویس `deviceSessionPool` در بک‌اند جهت ایجاد، مدیریت و نگهداری سشن فعال و پایدار SSH به محض باز شدن مودال پورت برای هر تجهیز.',
+      'اشتراک‌گذاری خودکار سشن باز برای تمامی عملیات‌ها و زیرمودال‌ها (تغییر VLAN، پورت‌سکوریتی، تغییر وضعیت پورت، توضیحات، Write Memory و خواندن لاگ‌ها) بدون قطع و وصل مجدد SSH.',
+      'حفظ کامپوننت تب لاگ به صورت سوار (Keep Mounted) با استایل شرطی جهت جلوگیری از تکرار درخواست‌های SSH هنگام سوئیچ بین تب‌های پورت و لاگ.',
+      'بستن تمیز سشن پایدار SSH به همراه ارسال دستور exit به محض بسته شدن مودال پورت یا بستن پنجره مرورگر (`beforeunload / beacon`).',
+      'افزودن نشانگر زنده وضعیت سشن پایدار در هدر مودال پورت با بج اختصاصی `SSH: Active`.'
+    ],
+    changes_en: [
+      'Engineered backend `deviceSessionPool` service to establish, maintain, and pool persistent SSH sessions upon opening the Port modal for any target device.',
+      'Automatically shared the active persistent session across all sub-modals and operations (VLAN assignments, Port Security, port power toggles, descriptions, Write Memory, and log reads) with zero SSH reconnect overhead.',
+      'Preserved the Logs terminal component mounted state via conditional styling to eliminate redundant SSH reconnects when switching between tabs.',
+      'Cleanly terminates the persistent session with an exit handshake upon Port modal closure or browser window unload (`beforeunload / sendBeacon`).',
+      'Added a real-time persistent SSH session indicator badge (`SSH: Active`) in the Port modal header.'
+    ]
+  },
   {
     version: '1.410.0',
     releaseDate: '2026-11-02',

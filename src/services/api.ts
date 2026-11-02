@@ -477,6 +477,63 @@ export async function clearDeviceLogs(deviceId: string): Promise<{ success: bool
   throw new Error(data.error || data.message || 'Failed to clear device logs');
 }
 
+export interface DeviceSessionResponse {
+  success: boolean;
+  sessionId?: string;
+  deviceId?: string;
+  deviceName?: string;
+  status?: string;
+  banner?: string;
+  isExisting?: boolean;
+  error?: string;
+}
+
+export async function openDeviceSessionApi(deviceId: string): Promise<DeviceSessionResponse> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/session/open`, {
+    method: 'POST',
+    headers,
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (res.ok && data.success) {
+    return data;
+  }
+  throw new Error(data.error || 'Failed to establish persistent session');
+}
+
+export async function closeDeviceSessionApi(deviceId: string, reason?: string): Promise<{ success: boolean; closed: boolean }> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  try {
+    const res = await fetch(`${API_BASE}/devices/${deviceId}/session/close`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ reason: reason || 'Port modal closed' }),
+    });
+    return await res.json().catch(() => ({ success: true, closed: true }));
+  } catch {
+    return { success: false, closed: false };
+  }
+}
+
+export async function checkDeviceSessionStatusApi(deviceId: string): Promise<{ success: boolean; active: boolean; sessionId?: string; status?: string }> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/session/status`, {
+    method: 'GET',
+    headers,
+  });
+  return await res.json().catch(() => ({ success: false, active: false }));
+}
+
 export async function updateSwitchPort(
   deviceId: string,
   portId: string,

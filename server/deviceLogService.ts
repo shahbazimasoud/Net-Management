@@ -2,6 +2,7 @@ import { Client, ConnectConfig } from 'ssh2';
 import { StringDecoder } from 'string_decoder';
 import { resolveDynamicVaultPassword, getDeviceById } from './db';
 import { decryptServerSecret } from './vaultCrypto';
+import { deviceSessionPool } from './deviceSessionPool';
 
 export interface DeviceSyslogResult {
   success: boolean;
@@ -68,6 +69,29 @@ export async function fetchDeviceSyslogBuffer(
     command = '/log print without-paging\n';
   } else if (isLinux) {
     command = 'journalctl -n 150 --no-pager 2>/dev/null || dmesg -T 2>/dev/null | tail -n 150\n';
+  }
+
+  // 1. Fast Path: Check if an active persistent SSH session exists in the pool (e.g. from open Port Modal)
+  if (deviceSessionPool.hasActiveSession(deviceId)) {
+    console.log(`[DeviceLogService] Re-using active persistent SSH session for device ${deviceId} logs (No reconnect)`);
+    try {
+      const poolLogs = await deviceSessionPool.fetchLogsOnSession(deviceId, limit);
+      if (poolLogs && Array.isArray(poolLogs) && poolLogs.length > 0) {
+        return {
+          success: true,
+          deviceId,
+          deviceName,
+          deviceIp: host,
+          platform,
+          commandExecuted: isMikroTik ? '/log print without-paging' : 'show logging',
+          logs: poolLogs.slice(-limit),
+          rawOutput: poolLogs.join('\n'),
+          totalLines: poolLogs.length,
+        };
+      }
+    } catch (poolErr: any) {
+      console.warn(`[DeviceLogService] Error fetching logs on pool session for ${deviceId}: ${poolErr.message}. Falling back.`);
+    }
   }
 
   // Resolve password securely from vault or encrypted database field (Rule 14)
