@@ -14,6 +14,7 @@ import { AssignVlanModal } from './AssignVlanModal';
 import { PortDescriptionModal } from './PortDescriptionModal';
 import { CiscoWriteConfirmModal, WriteChangeItem } from './CiscoWriteConfirmModal';
 import { CiscoSystemResourcesTab } from './CiscoSystemResourcesTab';
+import { DeviceTerminalLogsTab } from './ports/DeviceTerminalLogsTab';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useModalDock } from '../context/ModalDockContext';
 import { useAuth } from '../context/AuthContext';
@@ -307,7 +308,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedPort, setSelectedPort] = useState<SwitchPort | null>(null);
-  const [activeTab, setActiveTab] = useState<'ports' | 'resources'>('ports');
+  const [activeTab, setActiveTab] = useState<'ports' | 'logs' | 'resources'>('ports');
 
   const onPortUpdatedRef = useRef(onPortUpdated);
   onPortUpdatedRef.current = onPortUpdated;
@@ -1946,6 +1947,24 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
               </span>
             </button>
 
+            {/* Logs (Syslog Live Terminal) Tab */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('logs')}
+              className={`px-4 py-2.5 border-b-2 flex items-center gap-2 transition-colors cursor-pointer font-medium ${
+                activeTab === 'logs'
+                  ? 'border-amber-500 text-amber-400 font-bold bg-amber-950/20'
+                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              }`}
+            >
+              <Terminal className="w-4 h-4 text-amber-400" />
+              <span>{isEn ? 'Logs' : 'لاگ‌ها (Logs)'}</span>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                <span>LIVE</span>
+              </span>
+            </button>
+
             <button
               type="button"
               onClick={() => setActiveTab('resources')}
@@ -1980,7 +1999,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-5 overflow-y-auto space-y-4 flex-1">
+        <div className={`p-5 overflow-y-auto space-y-4 flex-1 ${activeTab === 'logs' ? 'flex flex-col min-h-[580px] p-3' : ''}`}>
           {activeTab === 'resources' ? (
             <CiscoSystemResourcesTab
               device={device}
@@ -1988,6 +2007,14 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
               isEn={isEn}
               onConnectTerminal={canTerminal ? onConnectTerminal : undefined}
             />
+          ) : activeTab === 'logs' ? (
+            <div className="flex-1 flex flex-col min-h-[550px] h-[640px]">
+              <DeviceTerminalLogsTab
+                device={device}
+                isEn={isEn}
+                onConnectTerminal={canTerminal ? onConnectTerminal : undefined}
+              />
+            </div>
           ) : (
             <>
           {/* Switch Faceplate (Visual Rack Interface) */}

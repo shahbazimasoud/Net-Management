@@ -363,6 +363,14 @@ export function setupPortMonitorWebSocket(server: http.Server, projectRoot: stri
                 const trimmed = line.trim();
                 if (!trimmed) continue;
 
+                // Broadcast live syslog line to connected read-only terminal listeners
+                sendClient({
+                  type: 'DEVICE_LOG_STREAM',
+                  deviceId: device.id,
+                  line: trimmed,
+                  timestamp: new Date().toISOString(),
+                });
+
                 // 1. Cisco Syslog Link State Event:
                 // %LINK-3-UPDOWN: Interface GigabitEthernet0/1, changed state to down
                 // %LINEPROTO-5-UPDOWN: Line protocol on Interface GigabitEthernet0/1, changed state to down

@@ -430,6 +430,53 @@ export async function syncDevicePorts(deviceId: string): Promise<{
   throw new Error(errData.message || errData.error || 'Port synchronization failed');
 }
 
+export interface DeviceLogsResponse {
+  success: boolean;
+  deviceId: string;
+  deviceName: string;
+  deviceIp: string;
+  platform?: string;
+  commandExecuted?: string;
+  logs: string[];
+  rawOutput?: string;
+  totalLines?: number;
+  error?: string;
+}
+
+export async function fetchDeviceLogs(deviceId: string, lines: number = 150): Promise<DeviceLogsResponse> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/logs?lines=${lines}`, {
+    method: 'GET',
+    headers,
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (res.ok && data.success) {
+    return data;
+  }
+  throw new Error(data.error || data.message || 'Failed to fetch device logs');
+}
+
+export async function clearDeviceLogs(deviceId: string): Promise<{ success: boolean; message: string }> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/logs/clear`, {
+    method: 'POST',
+    headers,
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (res.ok && data.success) {
+    return data;
+  }
+  throw new Error(data.error || data.message || 'Failed to clear device logs');
+}
+
 export async function updateSwitchPort(
   deviceId: string,
   portId: string,

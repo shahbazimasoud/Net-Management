@@ -307,6 +307,7 @@ import * as net from 'net';
 import { resolveSshBackend, executeSshBridgeAction } from './sshBackendResolver';
 import { fetchCiscoPortStatistics } from './ciscoPortStatsService';
 import { fetchCiscoConfigState, applyCiscoConfigTab } from './ciscoConfigEngine';
+import { fetchDeviceSyslogBuffer, clearDeviceSyslogBuffer } from './deviceLogService';
 import {
   createTwoFactorChallenge,
   verifyTwoFactorChallenge,
@@ -3746,6 +3747,53 @@ apiRouter.get('/devices/:id', async (req: Request, res: Response) => {
     return res.json({ device: d });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /devices/:id/logs - Retrieve device console / syslog buffer live over SSH
+apiRouter.get('/devices/:id/logs', async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  try {
+    const check = await assertDeviceScopeAccess(req, req.params.id, 'terminal');
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({
+        success: false,
+        error: check.error,
+        errorFa: check.errorFa,
+      });
+    }
+
+    const limit = Math.min(500, Math.max(10, parseInt(String(req.query.lines || req.query.limit || 150), 10)));
+    const result = await fetchDeviceSyslogBuffer(check.device, limit);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || (isEn ? 'Failed to retrieve device logs' : 'خطا در دریافت لاگ‌های تجهیز'),
+    });
+  }
+});
+
+// POST /devices/:id/logs/clear - Clear syslog buffer on device (where supported)
+apiRouter.post('/devices/:id/logs/clear', async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  try {
+    const check = await assertDeviceScopeAccess(req, req.params.id, 'terminal');
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({
+        success: false,
+        error: check.error,
+        errorFa: check.errorFa,
+      });
+    }
+
+    const result = await clearDeviceSyslogBuffer(check.device);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || (isEn ? 'Failed to clear device logs' : 'خطا در پاک‌سازی بافر لاگ‌های تجهیز'),
+    });
   }
 });
 

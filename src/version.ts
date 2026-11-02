@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.409.1';
+export const APP_VERSION = '1.410.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.410.0',
+    releaseDate: '2026-11-02',
+    type: 'minor',
+    title: 'افزودن تب اختصاصی لاگ‌های بلادرنگ ترمینال رید-اونلی (Read-Only Terminal Live Logs) در مودال مدیریت پورت‌ها',
+    title_en: 'Add Dedicated Read-Only Terminal Live Syslog Tab to Device Port Inspector',
+    changes: [
+      'افزودن تب اختصاصی لاگ (Logs) مابین تب «Port & Faceplate» و «System Resources» در مودال بازرسی پورت‌های تجهیزات با رابط کاربری ترمینال رید-اونلی مشکی VT100.',
+      'پیاده‌سازی سرویس بک‌اند `deviceLogService` جهت استخراج بافر واقعی لاگ‌های سیستمی تجهیز از طریق SSH استاندارد (`show logging` سیسکو و `/log print` میکروتیک) بدون هیچ‌گونه داده شبیه‌سازی یا ساختگی.',
+      'استریم زنده و آنی خطوط لاگ تجهیز روی وب‌سوکت با هایلایت سینتکس تخصصی سیسکو/میکروتیک (%LINK-3-UPDOWN, %LINEPROTO-5, %PM-4-ERR_DISABLE, وضعیت‌های پورت و آدرس‌های IP).',
+      'تجهیز نوار ابزار ترمینال به فیلترهای آنی بر اساس سطح اهمیت (All, Error/Crit, Warning, Notice, Info, Debug)، فیلتر فسیلیتی، جستجوی زنده متن، قفل اسکرول خودکار (Auto-scroll Pin)، توقف/ادامه استریم (Pause/Resume)، دانلود فایل لاگ (.log) و کپی دسته‌جمعی.'
+    ],
+    changes_en: [
+      'Integrated a dedicated "Logs" tab between "Port & Faceplate" and "System Resources" inside the Port Inspector modal, styled as a read-only VT100 dark terminal.',
+      'Engineered backend service `deviceLogService` fetching authentic syslog buffers directly from live hardware via native SSH (`show logging` on Cisco and `/log print` on MikroTik) with zero mock or simulated data.',
+      'Real-time WebSocket streaming of live device log events with Cisco/RouterOS syntax highlighting (%LINK-3-UPDOWN, %LINEPROTO-5, %PM-4-ERR_DISABLE, port states, and IP addresses).',
+      'Equipped terminal toolbar with instant severity filtering (All, Error/Crit, Warning, Notice, Info, Debug), facility filter, live substring search, auto-scroll pin lock, pause/resume live stream, copy all, and one-click .log file download.'
+    ]
+  },
   {
     version: '1.409.1',
     releaseDate: '2026-11-02',

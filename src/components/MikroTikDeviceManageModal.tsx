@@ -43,6 +43,7 @@ import {
 import { MikroTikVPNSuite } from './vpn/MikroTikVPNSuite';
 import { WinBoxLauncherModal } from './terminal/WinBoxLauncherModal';
 import { MikroTikSystemResourcesTab } from './MikroTikSystemResourcesTab';
+import { DeviceTerminalLogsTab } from './ports/DeviceTerminalLogsTab';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { isDeviceActionPermitted } from '../utils/rbac';
@@ -116,7 +117,7 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
   const canMikrotikVpn = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_vpn'));
   const canMikrotikIpPool = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_ip_pool'));
 
-  const [activeTab, setActiveTab] = useState<'ports' | 'bridge' | 'vpn' | 'resources' | 'export'>('ports');
+  const [activeTab, setActiveTab] = useState<'ports' | 'logs' | 'bridge' | 'vpn' | 'resources' | 'export'>('ports');
   const [ports, setPorts] = useState<SwitchPort[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -606,6 +607,26 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                 }`}
               >
                 {ports.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('logs')}
+              className={`px-4 py-3 border-b-2 flex items-center gap-2 transition-colors cursor-pointer ${
+                activeTab === 'logs'
+                  ? isLightMode
+                    ? 'border-amber-600 text-amber-700 font-bold bg-white'
+                    : 'border-amber-400 text-amber-400 font-bold bg-amber-950/20'
+                  : isLightMode
+                  ? 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Terminal className="w-4 h-4 text-amber-500" />
+              <span>{isEn ? 'Logs' : 'لاگ‌ها (Logs)'}</span>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                <span>LIVE</span>
               </span>
             </button>
             <button
@@ -1374,6 +1395,17 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                 isEn={isEn}
               />
             )
+          )}
+
+          {activeTab === 'logs' && device && (
+            <div className="flex-1 flex flex-col min-h-[550px] h-[640px]">
+              <DeviceTerminalLogsTab
+                device={device}
+                isEn={isEn}
+                isLightMode={isLightMode}
+                onConnectTerminal={canTerminal ? onConnectTerminal : undefined}
+              />
+            </div>
           )}
 
           {activeTab === 'resources' && (
