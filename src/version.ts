@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.408.1';
+export const APP_VERSION = '1.408.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.408.2',
+    releaseDate: '2026-11-01',
+    type: 'patch',
+    title: 'اصلاح ریشه‌ای حلقه بی‌نهایت درخواست‌های تنظیمات و استعلام تجهیزات در صفحه ورود، جلوگیری از نشت داده‌های شبکه به کاربران لاگین‌نکرده و تثبیت کامل زبان',
+    title_en: 'Root-Cause Resolution of Settings & Devices Infinite Loop on Login, Elimination of Unauthenticated Device Leaks, and Strict Language Stability',
+    changes: [
+      'مسدودسازی کامل فراخوانی استعلام تجهیزات و توپولوژی قبل از ورود کاربر (if (!isAuthenticated) return;) در App.tsx و حذف کامل ارسال درخواست‌های /api/devices و /api/topology در صفحه لاگین.',
+      'تجهیز اندپوینت‌های /api/devices و /api/topology در لایه بک‌اند به گارد احراز هویت توکن کاربری و بازگرداندن پاسخ 401 Unauthorized برای جلوگیری از نشت اطلاعات تجهیزات به افراد لاگین‌نکرده.',
+      'شکستن چرخه باطل و حلقه بی‌نهایت رندر ری‌اکت در App.tsx با پایدارسازی تابع applyGlobalSettings توسط useRef و useCallback و اجرای درخواست تنظیمات عمومی دقیقاً یک‌بار در شروع بارگذاری (useEffect(..., [])).',
+      'حذف درخواست‌های موازی و تکراری استعلام تنظیمات عمومی در کامپوننت LoginPage و جلوگیری از صدور ایونت‌های تکراری nettopology_general_settings_changed در صورت عدم تغییر محتوا.',
+      'تثبیت و هماهنگ‌سازی ۱۰۰٪ زبان با کش کردن تابع setLanguage با useCallback، یکسان‌سازی فالبک پیش‌فرض سیستم در index.html و LanguageContext به fa و افزودن گارد تطابق زبان در applyGlobalSettings.'
+    ],
+    changes_en: [
+      'Completely blocked unauthenticated device and topology polling before login in App.tsx (if (!isAuthenticated) return;), eliminating all /api/devices and /api/topology requests on the login screen.',
+      'Secured backend endpoints /api/devices and /api/topology with strict Bearer token authentication guards, returning 401 Unauthorized to protect internal network infrastructure from unauthenticated access.',
+      'Broke the infinite re-render loop in App.tsx by stabilizing applyGlobalSettings with useRef and useCallback, and restricting general settings database sync to strictly once on mount (useEffect(..., [])).',
+      'Eliminated duplicate parallel /api/settings/general requests in LoginPage and suppressed redundant nettopology_general_settings_changed events when settings are unchanged.',
+      'Stabilized language switching by wrapping setLanguage in useCallback, unifying the default fallback language across index.html and LanguageContext to fa, and enforcing equality guards before language state updates.'
+    ]
+  },
   {
     version: '1.408.1',
     releaseDate: '2026-11-01',

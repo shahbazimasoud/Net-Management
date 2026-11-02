@@ -407,6 +407,7 @@ export default function App() {
   }, [generalSettings, changeTheme]);
 
   // Apply settings to entire panel (Super Admin default configuration for new sessions)
+  // Apply settings to entire panel (Super Admin default configuration for new sessions)
   const applyGlobalSettings = useCallback((settings: PanelGeneralSettings) => {
     setGeneralSettings(settings);
     if (settings.panelTitle && typeof document !== 'undefined') {
@@ -422,9 +423,14 @@ export default function App() {
     // Only apply default language if user has NOT explicitly chosen a personal language preference
     const userHasCustomLanguage = localStorage.getItem('user_customized_language') === 'true';
     if (!userHasCustomLanguage && settings.defaultLanguage && (settings.defaultLanguage === 'fa' || settings.defaultLanguage === 'en')) {
-      setLanguage(settings.defaultLanguage, false);
+      if (settings.defaultLanguage !== language) {
+        setLanguage(settings.defaultLanguage, false);
+      }
     }
-  }, [changeTheme, setLanguage]);
+  }, [changeTheme, setLanguage, language]);
+
+  const applyGlobalSettingsRef = useRef(applyGlobalSettings);
+  applyGlobalSettingsRef.current = applyGlobalSettings;
 
   // Gate initial screen rendering until client either has valid localStorage settings
   // or fetches the authoritative Appearance & Themes defaults from the database (prevents FOUC/flicker)
@@ -454,7 +460,7 @@ export default function App() {
     syncGeneralSettingsFromDatabase()
       .then((settings) => {
         if (!isCancelled && settings) {
-          applyGlobalSettings(settings);
+          applyGlobalSettingsRef.current(settings);
         }
       })
       .catch((err) => {
@@ -471,7 +477,7 @@ export default function App() {
       isCancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [applyGlobalSettings]);
+  }, []);
 
   // Listen for real-time global settings changes broadcast across the panel
   useEffect(() => {
@@ -479,14 +485,14 @@ export default function App() {
       const detail = (e as CustomEvent)?.detail;
       const updated = detail?.settings as PanelGeneralSettings | undefined;
       if (updated) {
-        applyGlobalSettings(updated);
+        applyGlobalSettingsRef.current(updated);
       }
     };
     window.addEventListener('nettopology_general_settings_changed', handleSettingsChanged);
     return () => {
       window.removeEventListener('nettopology_general_settings_changed', handleSettingsChanged);
     };
-  }, [applyGlobalSettings]);
+  }, []);
 
   // Continuously sync document title to active panel title
   useEffect(() => {
@@ -499,7 +505,7 @@ export default function App() {
   useEffect(() => {
     const handleFocus = () => {
       syncGeneralSettingsFromDatabase().then((settings) => {
-        if (settings) applyGlobalSettings(settings);
+        if (settings) applyGlobalSettingsRef.current(settings);
       }).catch(() => {});
     };
 
@@ -508,7 +514,7 @@ export default function App() {
       if (e.key === 'nettopology_general_settings_v1' && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
-          if (parsed) applyGlobalSettings(parsed);
+          if (parsed) applyGlobalSettingsRef.current(parsed);
         } catch {}
       }
     };
@@ -516,7 +522,7 @@ export default function App() {
     // Periodic synchronization from PostgreSQL database (propagates Super Admin changes to all clients)
     const pollTimer = setInterval(() => {
       syncGeneralSettingsFromDatabase().then((settings) => {
-        if (settings) applyGlobalSettings(settings);
+        if (settings) applyGlobalSettingsRef.current(settings);
       }).catch(() => {});
     }, 20000);
 
@@ -527,7 +533,7 @@ export default function App() {
       window.removeEventListener('storage', handleStorage);
       clearInterval(pollTimer);
     };
-  }, [applyGlobalSettings]);
+  }, []);
 
   // Session Inactivity Auto-Logout across entire panel
   useEffect(() => {
@@ -917,6 +923,7 @@ export default function App() {
 
   // Initial load
   const loadData = useCallback(async () => {
+    if (!isAuthenticated) return;
     try {
       const [devRes, topoRes] = await Promise.all([
         fetchDevices(),
@@ -933,6 +940,7 @@ export default function App() {
       console.warn('[Initial Load] Backend starting up, retrying initial data fetch in 800ms...', err);
       try {
         await new Promise((resolve) => setTimeout(resolve, 800));
+        if (!isAuthenticated) return;
         const [devRes, topoRes] = await Promise.all([
           fetchDevices(),
           fetchTopology(),
@@ -950,23 +958,27 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (isAuthenticated) {
+      loadData();
+    }
+  }, [isAuthenticated, loadData]);
 
   // Periodic reachability polling dynamically driven by general settings
   useEffect(() => {
+    if (!isAuthenticated) return;
     const intervalSec = generalSettings.telemetryRefreshIntervalSec || 10;
     const intervalMs = Math.max(5, intervalSec) * 1000;
     const timer = setInterval(() => {
       refreshStatusesQuietly();
     }, intervalMs);
     return () => clearInterval(timer);
-  }, [generalSettings.telemetryRefreshIntervalSec]);
+  }, [isAuthenticated, generalSettings.telemetryRefreshIntervalSec]);
 
   const refreshStatusesQuietly = async () => {
+    if (!isAuthenticated) return;
     try {
       const devRes = await fetchDevices();
       setDevices(devRes.devices);

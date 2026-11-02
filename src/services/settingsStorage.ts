@@ -925,18 +925,43 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
   return finalSettings;
 }
 
+export function areSettingsEqual(a: PanelGeneralSettings | null | undefined, b: PanelGeneralSettings | null | undefined): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    a.defaultTheme === b.defaultTheme &&
+    a.defaultLanguage === b.defaultLanguage &&
+    a.panelTitle === b.panelTitle &&
+    a.panelSubtitle === b.panelSubtitle &&
+    a.faviconEmoji === b.faviconEmoji &&
+    a.customFaviconDataUrl === b.customFaviconDataUrl &&
+    a.loginVisualMode === b.loginVisualMode &&
+    a.loginAnimationType === b.loginAnimationType &&
+    a.loginImageMode === b.loginImageMode &&
+    a.loginSelectedImageId === b.loginSelectedImageId &&
+    a.allowedAuthMethods === b.allowedAuthMethods &&
+    a.sessionInactivityTimeoutMin === b.sessionInactivityTimeoutMin &&
+    a.telemetryRefreshIntervalSec === b.telemetryRefreshIntervalSec
+  );
+}
+
 export async function syncGeneralSettingsFromDatabase(): Promise<PanelGeneralSettings> {
+  const previousSettings = inMemoryGeneralSettings || loadGeneralSettings();
+
   // If index.html already started fetching initial settings, reuse the promise to eliminate latency
   if (typeof window !== 'undefined' && (window as any).__INITIAL_SETTINGS_PROMISE__) {
     try {
       const earlySettings = await (window as any).__INITIAL_SETTINGS_PROMISE__;
       (window as any).__INITIAL_SETTINGS_PROMISE__ = null;
       if (earlySettings) {
+        const isChanged = !areSettingsEqual(previousSettings, earlySettings);
         inMemoryGeneralSettings = earlySettings;
         saveGeneralSettingsToLocalStorageSafely(earlySettings);
-        window.dispatchEvent(
-          new CustomEvent('nettopology_general_settings_changed', { detail: { settings: earlySettings } })
-        );
+        if (isChanged && typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('nettopology_general_settings_changed', { detail: { settings: earlySettings } })
+          );
+        }
         return earlySettings;
       }
     } catch {}
@@ -949,9 +974,10 @@ export async function syncGeneralSettingsFromDatabase(): Promise<PanelGeneralSet
     if (res.ok) {
       const data = await res.json();
       if (data?.settings) {
+        const isChanged = !areSettingsEqual(previousSettings, data.settings);
         inMemoryGeneralSettings = data.settings;
         saveGeneralSettingsToLocalStorageSafely(data.settings);
-        if (typeof window !== 'undefined') {
+        if (isChanged && typeof window !== 'undefined') {
           window.dispatchEvent(
             new CustomEvent('nettopology_general_settings_changed', { detail: { settings: data.settings } })
           );

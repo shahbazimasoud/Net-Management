@@ -5,7 +5,7 @@ import { NetworkGlobe3D, GlobeThemeType } from './NetworkGlobe3D';
 import { MilkyWayGalaxy3D } from './MilkyWayGalaxy3D';
 import { MatrixRain3D } from './MatrixRain3D';
 import { APP_VERSION } from '../../version';
-import { loadGeneralSettings, syncGeneralSettingsFromDatabase, STORAGE_KEYS } from '../../services/settingsStorage';
+import { loadGeneralSettings, STORAGE_KEYS } from '../../services/settingsStorage';
 import { PanelGeneralSettings } from '../../types';
 import {
   ShieldCheck,
@@ -122,20 +122,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   useEffect(() => {
     // Initial sync of theme on mount
     handleSelectTheme(theme, false);
-    syncGeneralSettingsFromDatabase().then((synced) => {
-      if (synced) {
-        setGeneralSettings(synced);
-        const userHasCustomTheme = localStorage.getItem('user_customized_theme') === 'true';
-        if (synced.defaultTheme && !userHasCustomTheme) {
-          handleSelectTheme(synced.defaultTheme as GlobeThemeType, false);
-        }
-        if (synced.allowedAuthMethods === 'ad_only') {
-          setAuthType('ad');
-        } else if (synced.allowedAuthMethods === 'local_only') {
-          setAuthType('local');
-        }
-      }
-    }).catch(() => {});
 
     const handleSettingsChange = (e: Event) => {
       const customEvt = e as CustomEvent<{ settings?: PanelGeneralSettings }>;

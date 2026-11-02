@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { translations, TranslationKey, Language } from './translations';
 
 interface LanguageContextType {
@@ -31,7 +31,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
       if (saved === 'fa' || saved === 'en') return saved;
     } catch (e) {}
-    return 'en'; // Default language is English as required
+    return 'fa'; // Default fallback language aligns with system default (fa)
   });
 
   const [isCustomizedByUser, setIsCustomizedByUser] = useState<boolean>(() => {
@@ -42,8 +42,11 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   });
 
-  const setLanguage = (lang: Language, isUserAction: boolean = true) => {
-    setLanguageState(lang);
+  const setLanguage = useCallback((lang: Language, isUserAction: boolean = true) => {
+    setLanguageState((prev) => {
+      if (prev === lang) return prev;
+      return lang;
+    });
     try {
       localStorage.setItem('app_language', lang);
       if (isUserAction) {
@@ -51,24 +54,24 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setIsCustomizedByUser(true);
       }
     } catch (e) {}
-  };
+  }, []);
 
-  const resetToDefaultLanguage = () => {
+  const resetToDefaultLanguage = useCallback(() => {
     try {
       localStorage.removeItem('user_customized_language');
       setIsCustomizedByUser(false);
       const rawSettings = localStorage.getItem('nettopology_general_settings_v1');
-      let fallbackLang: Language = 'en';
+      let fallbackLang: Language = 'fa';
       if (rawSettings) {
         const parsed = JSON.parse(rawSettings);
         if (parsed?.defaultLanguage === 'fa' || parsed?.defaultLanguage === 'en') {
           fallbackLang = parsed.defaultLanguage;
         }
       }
-      setLanguageState(fallbackLang);
+      setLanguageState((prev) => (prev === fallbackLang ? prev : fallbackLang));
       localStorage.setItem('app_language', fallbackLang);
     } catch (e) {}
-  };
+  }, []);
 
   // Listen for system-wide settings updates broadcast by Super Admin
   useEffect(() => {
@@ -80,7 +83,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // If current user explicitly chose their own language, NEVER override it!
         const userCustomized = localStorage.getItem('user_customized_language') === 'true';
         if (!userCustomized) {
-          setLanguageState(newLang);
+          setLanguageState((prev) => (prev === newLang ? prev : newLang));
           try {
             localStorage.setItem('app_language', newLang);
           } catch (err) {}
@@ -102,7 +105,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     document.documentElement.dir = isRtl ? 'rtl' : 'ltr';
   }, [language, isRtl]);
 
-  const t = (key: TranslationKey, params?: Record<string, string | number>): string => {
+  const t = useCallback((key: TranslationKey, params?: Record<string, string | number>): string => {
     const dict = translations[language] || translations.en;
     let text: string = (dict as any)[key] || (translations.en as any)[key] || key;
 
@@ -113,21 +116,21 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     return text;
-  };
+  }, [language]);
+
+  const contextValue = useMemo(() => ({
+    language,
+    setLanguage,
+    resetToDefaultLanguage,
+    t,
+    isRtl,
+    isEn,
+    isFa,
+    isCustomizedByUser,
+  }), [language, setLanguage, resetToDefaultLanguage, t, isRtl, isEn, isFa, isCustomizedByUser]);
 
   return (
-    <LanguageContext.Provider
-      value={{
-        language,
-        setLanguage,
-        resetToDefaultLanguage,
-        t,
-        isRtl,
-        isEn,
-        isFa,
-        isCustomizedByUser,
-      }}
-    >
+    <LanguageContext.Provider value={contextValue}>
       {children}
     </LanguageContext.Provider>
   );

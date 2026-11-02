@@ -3203,7 +3203,10 @@ async function assertDeviceScopeAccess(
 
 apiRouter.get('/devices', async (req: Request, res: Response) => {
   try {
-    const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
+    const { user, effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized: Authentication required to access devices' });
+    }
     let allDevices = await getAllDevices();
 
     if (!isSuperAdmin && effectivePolicy && allowedDeviceIds !== null) {
@@ -6424,7 +6427,10 @@ apiRouter.use(['/bulk-config', '/bulk-config/*'], async (req: Request, res: Resp
 
 apiRouter.get('/topology', async (req: Request, res: Response) => {
   try {
-    const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
+    const { user, effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized: Authentication required to access topology' });
+    }
     const topology = getRawTopologyData();
     try {
       const dbDevices = await getAllDevices();
