@@ -501,15 +501,8 @@ export default function App() {
     }
   }, [generalSettings?.panelTitle]);
 
-  // Re-sync general settings when window regains focus to synchronize multi-user/multi-session changes
+  // Cross-tab synchronization via local storage event (zero network overhead, active across all states)
   useEffect(() => {
-    const handleFocus = () => {
-      syncGeneralSettingsFromDatabase().then((settings) => {
-        if (settings) applyGlobalSettingsRef.current(settings);
-      }).catch(() => {});
-    };
-
-    // Cross-tab synchronization via storage event
     const handleStorage = (e: StorageEvent) => {
       if (e.key === 'nettopology_general_settings_v1' && e.newValue) {
         try {
@@ -518,22 +511,35 @@ export default function App() {
         } catch {}
       }
     };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
-    // Periodic synchronization from PostgreSQL database (propagates Super Admin changes to all clients)
+  // Periodic and focus-based general settings re-sync from PostgreSQL database
+  // Strictly gated to authenticated sessions: NEVER runs on LoginPage to eliminate repetitive network calls
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const handleFocus = () => {
+      syncGeneralSettingsFromDatabase().then((settings) => {
+        if (settings) applyGlobalSettingsRef.current(settings);
+      }).catch(() => {});
+    };
+
+    // Periodic synchronization from PostgreSQL database (propagates Super Admin changes to active sessions)
+    // Relaxed to 5 minutes (300,000ms) for authenticated session background sync to eliminate aggressive traffic
     const pollTimer = setInterval(() => {
       syncGeneralSettingsFromDatabase().then((settings) => {
         if (settings) applyGlobalSettingsRef.current(settings);
       }).catch(() => {});
-    }, 20000);
+    }, 300000);
 
     window.addEventListener('focus', handleFocus);
-    window.addEventListener('storage', handleStorage);
     return () => {
       window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('storage', handleStorage);
       clearInterval(pollTimer);
     };
-  }, []);
+  }, [isAuthenticated]);
 
   // Session Inactivity Auto-Logout across entire panel
   useEffect(() => {

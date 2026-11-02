@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.408.2';
+export const APP_VERSION = '1.408.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.408.3',
+    releaseDate: '2026-11-02',
+    type: 'patch',
+    title: 'رفع ریشه‌ای تکرار مکرر درخواست‌های استعلام تنظیمات (general) در صفحه لاگین، بهینه‌سازی ترافیک با ETag 304 و تنفس ۵ دقیقه‌ای سنک پس‌زمینه',
+    title_en: 'Root-Cause Elimination of Repetitive General Settings Polling on Login Page, ETag 304 Traffic Optimization, and 5-Minute Background Interval',
+    changes: [
+      'مسدودسازی کامل تایمر دوره‌ای استعلام تنظیمات عمومی در صفحه لاگین: مقید نمودن تایمر پس‌زمینه و هندلر فوکوس پنجره به نشست‌های فعال و احرازهویت‌شده (if (!isAuthenticated) return;) در App.tsx.',
+      'افزایش فاصله زمانی سنک دوره‌ای تنظیمات از ۲۰ ثانیه بسیار تهاجمی به ۵ دقیقه (۳۰۰٬۰۰۰ میلی‌ثانیه) در نشست‌های لاگین‌شده برای جلوگیری از اشغال بی‌مورد پهنای باند و منابع سرور.',
+      'تجهیز اندپوینت بک‌اند /api/settings/general به هدر ETag بر مبنای updatedAt و پاسخ فوری 304 Not Modified با بدنه صفر بایت هنگام عدم تغییر تنظیمات جهت جلوگیری از ارسال مکرر تصاویر حجیم (مانند پس‌زمینه‌های ۳٫۵ مگابایتی).',
+      'پیاده‌سازی مکانیزم عدم تکرار موازی (In-flight Request Deduplication) و تراتل ۱۰ ثانیه‌ای در تابع syncGeneralSettingsFromDatabase جهت ادغام فراخوانی‌های همزمان.'
+    ],
+    changes_en: [
+      'Completely eliminated periodic general settings polling on the login page by gating background timer and window focus handlers strictly to active authenticated sessions (if (!isAuthenticated) return;) in App.tsx.',
+      'Relaxed the periodic background settings sync interval from an aggressive 20 seconds to 5 minutes (300,000ms) for authenticated sessions to eliminate bandwidth waste and unnecessary server load.',
+      'Enhanced backend endpoint /api/settings/general with updatedAt-based ETag validation and instant 304 Not Modified empty-body responses to prevent repeatedly transferring large payloads (e.g. 3.5MB wallpaper images).',
+      'Implemented in-flight request deduplication and a 10-second throttle window in syncGeneralSettingsFromDatabase to coalesce simultaneous calls into a single lightweight execution.'
+    ]
+  },
   {
     version: '1.408.2',
     releaseDate: '2026-11-01',

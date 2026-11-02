@@ -1943,9 +1943,15 @@ apiRouter.post(['/settings/active-directory', '/active-directory'], async (req: 
 });
 
 // General Panel Settings Endpoints
-apiRouter.get(['/settings/general', '/system/general-settings'], async (_req: Request, res: Response) => {
+apiRouter.get(['/settings/general', '/system/general-settings'], async (req: Request, res: Response) => {
   try {
     const settings = await getGeneralSettings();
+    const versionTag = `"${settings.updatedAt || 'initial'}"`;
+    if (req.headers['if-none-match'] === versionTag) {
+      return res.status(304).end();
+    }
+    res.setHeader('ETag', versionTag);
+    res.setHeader('Cache-Control', 'private, no-cache');
     res.json({ success: true, settings });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

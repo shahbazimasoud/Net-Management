@@ -946,8 +946,22 @@ export function areSettingsEqual(a: PanelGeneralSettings | null | undefined, b: 
   );
 }
 
+let inFlightSyncPromise: Promise<PanelGeneralSettings> | null = null;
+let lastSyncTimestamp = 0;
+
 export async function syncGeneralSettingsFromDatabase(): Promise<PanelGeneralSettings> {
   const previousSettings = inMemoryGeneralSettings || loadGeneralSettings();
+
+  // If a sync request is already in-flight, return the existing promise to eliminate parallel duplicate calls
+  if (inFlightSyncPromise) {
+    return inFlightSyncPromise;
+  }
+
+  // Throttle rapid calls within 10 seconds to prevent unnecessary network chatter
+  const now = Date.now();
+  if (now - lastSyncTimestamp < 10000 && inMemoryGeneralSettings) {
+    return inMemoryGeneralSettings;
+  }
 
   // If index.html already started fetching initial settings, reuse the promise to eliminate latency
   if (typeof window !== 'undefined' && (window as any).__INITIAL_SETTINGS_PROMISE__) {
@@ -955,6 +969,7 @@ export async function syncGeneralSettingsFromDatabase(): Promise<PanelGeneralSet
       const earlySettings = await (window as any).__INITIAL_SETTINGS_PROMISE__;
       (window as any).__INITIAL_SETTINGS_PROMISE__ = null;
       if (earlySettings) {
+        lastSyncTimestamp = Date.now();
         const isChanged = !areSettingsEqual(previousSettings, earlySettings);
         inMemoryGeneralSettings = earlySettings;
         saveGeneralSettingsToLocalStorageSafely(earlySettings);
@@ -968,28 +983,45 @@ export async function syncGeneralSettingsFromDatabase(): Promise<PanelGeneralSet
     } catch {}
   }
 
-  try {
-    const res = await fetch('/api/settings/general', {
-      headers: getAuthHeaders(),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.settings) {
-        const isChanged = !areSettingsEqual(previousSettings, data.settings);
-        inMemoryGeneralSettings = data.settings;
-        saveGeneralSettingsToLocalStorageSafely(data.settings);
-        if (isChanged && typeof window !== 'undefined') {
-          window.dispatchEvent(
-            new CustomEvent('nettopology_general_settings_changed', { detail: { settings: data.settings } })
-          );
-        }
-        return data.settings;
+  inFlightSyncPromise = (async () => {
+    try {
+      const headers = new Headers(getAuthHeaders());
+      if (previousSettings?.updatedAt) {
+        headers.set('If-None-Match', `"${previousSettings.updatedAt}"`);
       }
+
+      const res = await fetch('/api/settings/general', { headers });
+
+      lastSyncTimestamp = Date.now();
+
+      // If server returned 304 Not Modified, cached settings are still 100% current
+      if (res.status === 304) {
+        return previousSettings;
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.settings) {
+          const isChanged = !areSettingsEqual(previousSettings, data.settings);
+          inMemoryGeneralSettings = data.settings;
+          saveGeneralSettingsToLocalStorageSafely(data.settings);
+          if (isChanged && typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('nettopology_general_settings_changed', { detail: { settings: data.settings } })
+            );
+          }
+          return data.settings;
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch general settings from database, using cached:', err);
+    } finally {
+      inFlightSyncPromise = null;
     }
-  } catch (err) {
-    console.warn('Failed to fetch general settings from database, using cached:', err);
-  }
-  return loadGeneralSettings();
+    return inMemoryGeneralSettings || loadGeneralSettings();
+  })();
+
+  return inFlightSyncPromise;
 }
 
 let inMemoryPolicies: AccessPolicy[] = [];
