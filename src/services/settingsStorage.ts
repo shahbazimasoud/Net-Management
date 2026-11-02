@@ -933,8 +933,9 @@ export function areSettingsEqual(a: PanelGeneralSettings | null | undefined, b: 
     a.defaultLanguage === b.defaultLanguage &&
     a.panelTitle === b.panelTitle &&
     a.panelSubtitle === b.panelSubtitle &&
-    a.faviconEmoji === b.faviconEmoji &&
-    a.customFaviconDataUrl === b.customFaviconDataUrl &&
+    a.faviconType === b.faviconType &&
+    a.faviconCustomUrl === b.faviconCustomUrl &&
+    a.faviconPreset === b.faviconPreset &&
     a.loginVisualMode === b.loginVisualMode &&
     a.loginAnimationType === b.loginAnimationType &&
     a.loginImageMode === b.loginImageMode &&

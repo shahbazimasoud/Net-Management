@@ -90,7 +90,7 @@ import { AccessPolicy, LocalGroup, DeviceGroup, ActiveDirectoryConfig, PanelGene
 import { isDeviceActionPermitted, isUserSuperAdmin, isTemplateApplyPermitted } from './utils/rbac';
 
 export default function App() {
-  const { t, isRtl, isEn, setLanguage } = useLanguage();
+  const { t, isRtl, isEn, language, setLanguage } = useLanguage();
   const { isAuthenticated, isLoading: isAuthLoading, user, effectivePolicy: authEffectivePolicy, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [devices, setDevices] = useState<Device[]>([]);
