@@ -308,6 +308,10 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [selectedPort, setSelectedPort] = useState<SwitchPort | null>(null);
   const [activeTab, setActiveTab] = useState<'ports' | 'resources'>('ports');
+
+  const onPortUpdatedRef = useRef(onPortUpdated);
+  onPortUpdatedRef.current = onPortUpdated;
+  const initialSyncedDeviceRef = useRef<string | null>(null);
   const [filterMode, setFilterMode] = useState<'all' | 'up' | 'down' | 'trunk' | 'access' | 'port-sec'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isMaximized, setIsMaximized] = useState(false);
@@ -894,8 +898,8 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
         });
       }
 
-      if (onPortUpdated) {
-        onPortUpdated();
+      if (onPortUpdatedRef.current) {
+        onPortUpdatedRef.current();
       }
     } catch (err: any) {
       console.error('[PortInspectorModal] Failed to synchronize device ports:', err);
@@ -942,7 +946,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
       setIsSyncing(false);
       setLoading(false);
     }
-  }, [device, isEn, onPortUpdated]);
+  }, [device?.id, isEn]);
 
   // When modal is opened, pre-populate stored ports immediately, fetch fresh authoritative ports from backend, and trigger sync if empty
   useEffect(() => {
@@ -1020,7 +1024,8 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
       setLoading(false);
 
       // If ports are already present, display immediately without blocking overlay; only sync live if no ports are saved or when user clicks sync button
-      if (!Array.isArray(devPorts) || devPorts.length === 0) {
+      if ((!Array.isArray(devPorts) || devPorts.length === 0) && initialSyncedDeviceRef.current !== device.id) {
+        initialSyncedDeviceRef.current = device.id;
         handleSyncPorts();
       }
     }

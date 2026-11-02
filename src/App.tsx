@@ -599,12 +599,29 @@ export default function App() {
   const portInspectorDevice = activePortDevices[0] || null;
   const setPortInspectorDevice = useCallback((dev: Device | null | ((prev: Device | null) => Device | null)) => {
     setActivePortDevices((prevList) => {
+      if (dev === null) {
+        return [];
+      }
       if (typeof dev === 'function') {
         const current = prevList[0] || null;
         const next = dev(current);
-        return next ? [next] : [];
+        if (!next) {
+          if (prevList.length <= 1) return [];
+          const nextList = [...prevList];
+          nextList[0] = null;
+          return nextList;
+        }
+        if (prevList.length <= 1) return [next];
+        const nextList = [...prevList];
+        nextList[0] = next;
+        return nextList;
       }
-      return dev ? [dev] : [];
+      if (prevList.length <= 1) {
+        return [dev];
+      }
+      const nextList = [...prevList];
+      nextList[0] = dev;
+      return nextList;
     });
   }, []);
   const [activeTerminals, setActiveTerminals] = useState<(Device | null)[]>([]);
@@ -966,11 +983,25 @@ export default function App() {
       ]);
       setDevices(devRes.devices);
       setTopology(topoRes);
-      setPortInspectorDevice((prev) => {
-        if (!prev) return null;
-        const fresh = devRes.devices?.find((d: Device) => d.id === prev.id);
-        return fresh ? { ...prev, ...fresh } : prev;
-      });
+      // Synchronize all open port inspector panes with fresh telemetry without collapsing split panes
+      if (devRes?.devices && Array.isArray(devRes.devices)) {
+        setActivePortDevices((prevList) => {
+          if (!prevList || prevList.length === 0) return prevList;
+          return prevList.map((d) => {
+            if (!d) return null;
+            const fresh = devRes.devices.find((item: Device) => item.id === d.id);
+            return fresh ? { ...d, ...fresh } : d;
+          });
+        });
+        setActiveTerminals((prevList) => {
+          if (!prevList || prevList.length === 0) return prevList;
+          return prevList.map((d) => {
+            if (!d) return null;
+            const fresh = devRes.devices.find((item: Device) => item.id === d.id);
+            return fresh ? { ...d, ...fresh } : d;
+          });
+        });
+      }
     } catch (err) {
       console.warn('[Initial Load] Backend starting up, retrying initial data fetch in 800ms...', err);
       try {
@@ -982,11 +1013,24 @@ export default function App() {
         ]);
         setDevices(devRes.devices);
         setTopology(topoRes);
-        setPortInspectorDevice((prev) => {
-          if (!prev) return null;
-          const fresh = devRes.devices?.find((d: Device) => d.id === prev.id);
-          return fresh ? { ...prev, ...fresh } : prev;
-        });
+        if (devRes?.devices && Array.isArray(devRes.devices)) {
+          setActivePortDevices((prevList) => {
+            if (!prevList || prevList.length === 0) return prevList;
+            return prevList.map((d) => {
+              if (!d) return null;
+              const fresh = devRes.devices.find((item: Device) => item.id === d.id);
+              return fresh ? { ...d, ...fresh } : d;
+            });
+          });
+          setActiveTerminals((prevList) => {
+            if (!prevList || prevList.length === 0) return prevList;
+            return prevList.map((d) => {
+              if (!d) return null;
+              const fresh = devRes.devices.find((item: Device) => item.id === d.id);
+              return fresh ? { ...d, ...fresh } : d;
+            });
+          });
+        }
       } catch (retryErr) {
         console.warn('Initial data load retry deferred to background polling:', retryErr);
       }
@@ -1017,6 +1061,24 @@ export default function App() {
     try {
       const devRes = await fetchDevices();
       setDevices(devRes.devices);
+      if (devRes?.devices && Array.isArray(devRes.devices)) {
+        setActivePortDevices((prevList) => {
+          if (!prevList || prevList.length === 0) return prevList;
+          return prevList.map((d) => {
+            if (!d) return null;
+            const fresh = devRes.devices.find((item: Device) => item.id === d.id);
+            return fresh ? { ...d, ...fresh } : d;
+          });
+        });
+        setActiveTerminals((prevList) => {
+          if (!prevList || prevList.length === 0) return prevList;
+          return prevList.map((d) => {
+            if (!d) return null;
+            const fresh = devRes.devices.find((item: Device) => item.id === d.id);
+            return fresh ? { ...d, ...fresh } : d;
+          });
+        });
+      }
     } catch (e) {
       // Quiet fail on periodic ping
     }

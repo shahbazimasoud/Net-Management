@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.409.0';
+export const APP_VERSION = '1.409.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.409.1',
+    releaseDate: '2026-11-02',
+    type: 'patch',
+    title: 'رفع مشکل همگام‌سازی کامل فایل‌های کامپوننت و جلوگیری از بسته شدن ناگهانی پنل‌های اسپلیت پورت',
+    title_en: 'Fix Component File Synchronization and Prevent Auto-Closing of Split Port Panes',
+    changes: [
+      'همگام‌سازی و بازیابی کامل تمامی کامپوننت‌های پنل (Navbar, Sidebar, DashboardView, DeviceListView و ماژول‌های وابسته) از ریپازیتوری.',
+      'رفع باگ بسته شدن ناگهانی پنل‌های اسپلیت پورت (MultiPortWorkspace) در اثر بازنویسی آرایه activePortDevices در توابع loadData و refreshStatusesQuietly.',
+      'پایدارسازی توابع سنکرون سخت‌افزاری پورت‌ها در هر دو مودال سیسکو و میکروتیک با استفاده از useRef و گارد شناسه دستگاه جهت جلوگیری از چرخه‌های مکرر و ناخواسته.'
+    ],
+    changes_en: [
+      'Fully synchronized and restored all application components (Navbar, Sidebar, DashboardView, DeviceListView, and dependent modules) from the repository.',
+      'Resolved the premature auto-closing defect of split port panes in MultiPortWorkspace by properly preserving all active slots across loadData and refreshStatusesQuietly.',
+      'Stabilized hardware port synchronization hooks in both Cisco and MikroTik device modals using useRef and device ID guards to prevent recursive re-sync triggers.'
+    ]
+  },
   {
     version: '1.409.0',
     releaseDate: '2026-11-02',

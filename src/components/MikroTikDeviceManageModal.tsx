@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X,
   Minus,
@@ -149,11 +149,18 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
   const [editSpeed, setEditSpeed] = useState('auto');
   const [editLoopProtect, setEditLoopProtect] = useState<'on' | 'off'>('on');
 
+  const onPortUpdatedRef = useRef(onPortUpdated);
+  onPortUpdatedRef.current = onPortUpdated;
+  const onDeviceUpdatedRef = useRef(onDeviceUpdated);
+  onDeviceUpdatedRef.current = onDeviceUpdated;
+  const hasInitialSyncedRef = useRef<string | null>(null);
+
+  const deviceId = device?.id;
   const handleSyncPorts = useCallback(async () => {
-    if (!device) return;
+    if (!deviceId) return;
     try {
       setIsSyncing(true);
-      const data = await syncDevicePorts(device.id);
+      const data = await syncDevicePorts(deviceId);
       if (data && data.ports && data.ports.length > 0) {
         const rawPorts = data.ports || [];
         const normalizedPorts = rawPorts.map((p: any, idx: number) => ({
@@ -173,17 +180,17 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
           });
         }
       }
-      if (onPortUpdated) onPortUpdated();
-      if (onDeviceUpdated) onDeviceUpdated();
+      if (onPortUpdatedRef.current) onPortUpdatedRef.current();
+      if (onDeviceUpdatedRef.current) onDeviceUpdatedRef.current();
     } catch (err: any) {
       console.error('[MikroTik PortSync] Error syncing ports:', err);
     } finally {
       setIsSyncing(false);
       setLoading(false);
     }
-  }, [device, onPortUpdated, onDeviceUpdated]);
+  }, [deviceId]);
 
-  // Load ports and trigger live sync on modal open
+  // Load ports and trigger live sync on modal open (once per device id)
   useEffect(() => {
     if (!device || !isOpen) return;
 
@@ -203,8 +210,11 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
       setLoading(false);
     }
 
-    // Trigger full live port synchronization with hardware immediately
-    handleSyncPorts();
+    // Trigger full live port synchronization once when opened for this device
+    if (hasInitialSyncedRef.current !== device.id) {
+      hasInitialSyncedRef.current = device.id;
+      handleSyncPorts();
+    }
   }, [device?.id, isOpen, handleSyncPorts]);
 
   // Sync edit form when selectedPort changes
