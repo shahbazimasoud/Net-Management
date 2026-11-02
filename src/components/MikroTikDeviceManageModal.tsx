@@ -4,6 +4,7 @@ import {
   Minus,
   Maximize2,
   Minimize2,
+  Columns,
   Cpu,
   Server,
   Layers,
@@ -56,6 +57,8 @@ export interface MikroTikDeviceManageModalProps {
   onDeviceUpdated?: () => void;
   isLightMode?: boolean;
   userRole?: string;
+  onSplitScreen?: () => void;
+  isEmbedded?: boolean;
 }
 
 export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps> = ({
@@ -68,6 +71,8 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
   onDeviceUpdated,
   isLightMode = false,
   userRole = 'Super Admin',
+  onSplitScreen,
+  isEmbedded = false,
 }) => {
   const { t, isEn } = useLanguage();
   const { effectivePolicy } = useAuth();
@@ -312,23 +317,20 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
     return true;
   });
 
-  return (
+  const innerContent = (
     <div
-      className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs animate-in fade-in duration-200 ${
-        isMaximized ? 'p-0' : 'p-2 sm:p-4'
+      className={`relative flex flex-col overflow-hidden transition-all duration-200 ${
+        isEmbedded
+          ? 'w-full h-full max-w-none rounded-none border-none max-h-full'
+          : isMaximized
+          ? 'w-full h-full max-w-none rounded-none border-none max-h-full'
+          : 'w-full max-w-5xl rounded-2xl border shadow-2xl max-h-[94vh]'
+      } ${
+        isLightMode
+          ? 'bg-slate-50 border-cyan-500/40 shadow-cyan-900/20 text-slate-800'
+          : 'bg-slate-950 border-cyan-500/30 shadow-cyan-950/60 text-slate-100'
       }`}
     >
-      <div
-        className={`relative flex flex-col overflow-hidden transition-all duration-200 ${
-          isMaximized
-            ? 'w-full h-full max-w-none rounded-none border-none max-h-full'
-            : 'w-full max-w-5xl rounded-2xl border shadow-2xl max-h-[94vh]'
-        } ${
-          isLightMode
-            ? 'bg-slate-50 border-cyan-500/40 shadow-cyan-900/20 text-slate-800'
-            : 'bg-slate-950 border-cyan-500/30 shadow-cyan-950/60 text-slate-100'
-        }`}
-      >
         {/* Live Port Synchronization Overlay with NetworkSocketLoader */}
         {isSyncing && (
           <div
@@ -490,31 +492,50 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
               </span>
             </button>
 
+            {/* Split Screen Button */}
+            {onSplitScreen && (
+              <button
+                type="button"
+                onClick={onSplitScreen}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-400 hover:text-slate-800 hover:bg-slate-100'
+                    : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800'
+                }`}
+                title={isEn ? 'Split Screen / Compare with another device' : 'اسپلیت و مقایسه پورت‌ها با دیوایس دیگر'}
+                aria-label={isEn ? 'Split Screen' : 'اسپلیت پورت‌ها'}
+              >
+                <Columns className="w-4 h-4" />
+              </button>
+            )}
+
             {/* Fullscreen / Exit Fullscreen Toggle */}
-            <button
-              type="button"
-              onClick={() => setIsMaximized(!isMaximized)}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                isLightMode
-                  ? 'text-slate-400 hover:text-slate-800 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800'
-              }`}
-              title={
-                isMaximized
-                  ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام صفحه')
-                  : (isEn ? 'Fullscreen' : 'تمام صفحه')
-              }
-              aria-label={
-                isMaximized
-                  ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام صفحه')
-                  : (isEn ? 'Fullscreen' : 'تمام صفحه')
-              }
-            >
-              {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </button>
+            {!isEmbedded && (
+              <button
+                type="button"
+                onClick={() => setIsMaximized(!isMaximized)}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-400 hover:text-slate-800 hover:bg-slate-100'
+                    : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800'
+                }`}
+                title={
+                  isMaximized
+                    ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام صفحه')
+                    : (isEn ? 'Fullscreen' : 'تمام صفحه')
+                }
+                aria-label={
+                  isMaximized
+                    ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام صفحه')
+                    : (isEn ? 'Fullscreen' : 'تمام صفحه')
+                }
+              >
+                {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </button>
+            )}
 
             {/* Minimize Button */}
-            {onMinimize && (
+            {!isEmbedded && onMinimize && (
               <button
                 type="button"
                 onClick={onMinimize}
@@ -531,17 +552,19 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
             )}
 
             {/* Close Button */}
-            <button
-              type="button"
-              onClick={onClose}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                isLightMode
-                  ? 'text-slate-400 hover:text-slate-800 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              <X className="w-5 h-5" />
-            </button>
+            {!isEmbedded && (
+              <button
+                type="button"
+                onClick={onClose}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-400 hover:text-slate-800 hover:bg-slate-100'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -1569,6 +1592,19 @@ ${ports.map((p) => `add bridge=bridge1 interface=${p.port_id} pvid=${p.vlan || 1
           />
         )}
       </div>
+  );
+
+  if (isEmbedded) {
+    return innerContent;
+  }
+
+  return (
+    <div
+      className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs animate-in fade-in duration-200 ${
+        isMaximized ? 'p-0' : 'p-2 sm:p-4'
+      }`}
+    >
+      {innerContent}
     </div>
   );
 };

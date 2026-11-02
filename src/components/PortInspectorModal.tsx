@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { X, Minus, Maximize2, Minimize2, Cable, Zap, Shield, ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Edit3, Save, Power, Terminal, AlertTriangle, ArrowRight, Check, Copy, Lock, Key, Layers, CheckSquare, Square, FileText, Gauge, Activity, MoreVertical, RefreshCw, Radio } from 'lucide-react';
+import { X, Minus, Maximize2, Minimize2, Cable, Zap, Shield, ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Edit3, Save, Power, Terminal, AlertTriangle, ArrowRight, Check, Copy, Lock, Key, Layers, CheckSquare, Square, FileText, Gauge, Activity, MoreVertical, RefreshCw, Radio, Columns } from 'lucide-react';
 import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
 import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, writeMemory, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
 import { NetworkSocketLoader } from './common/NetworkSocketLoader';
@@ -269,6 +269,8 @@ interface PortInspectorModalProps {
   onPortUpdated?: () => void;
   onConnectTerminal?: (device: Device, initialPort?: string) => void;
   onWriteMemory?: (deviceId: string) => void;
+  onSplitScreen?: () => void;
+  isEmbedded?: boolean;
 }
 
 export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
@@ -279,6 +281,8 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   onPortUpdated,
   onConnectTerminal,
   onWriteMemory,
+  onSplitScreen,
+  isEmbedded = false,
 }) => {
   const { t, isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
@@ -1693,23 +1697,19 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   const trunkCount = ports.filter((p) => p.mode === 'trunk').length;
   const portSecCount = ports.filter((p) => extractPortSecurityState(p).enabled).length;
 
-  return (
-    <div
-      className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center modal-backdrop-blur overflow-y-auto ${
-        isMaximized ? 'p-0' : 'p-2 sm:p-4'
+  const innerContent = (
+    <div 
+      dir={isEn ? 'ltr' : 'rtl'}
+      className={`port-inspector-modal relative spatial-glass border border-white/15 overflow-hidden flex flex-col transition-all duration-200 text-slate-100 ${
+        isEn ? 'text-left' : 'text-right'
+      } ${
+        isEmbedded
+          ? 'w-full h-full max-w-none rounded-none border-none max-h-full'
+          : isMaximized
+          ? 'w-full h-full max-w-none rounded-none border-none max-h-full my-0'
+          : 'w-full max-w-5xl rounded-2xl my-auto max-h-[92vh] sm:max-h-[88vh] shadow-2xl'
       }`}
-      data-modal-backdrop="true"
     >
-      <div 
-        dir={isEn ? 'ltr' : 'rtl'}
-        className={`port-inspector-modal relative spatial-glass border border-white/15 shadow-2xl overflow-hidden flex flex-col transition-all duration-200 text-slate-100 ${
-          isEn ? 'text-left' : 'text-right'
-        } ${
-          isMaximized
-            ? 'w-full h-full max-w-none rounded-none border-none max-h-full my-0'
-            : 'w-full max-w-5xl rounded-2xl my-auto max-h-[92vh] sm:max-h-[88vh]'
-        }`}
-      >
         {/* Live Port Synchronization Overlay with NetworkSocketLoader */}
         {isSyncing && (
           <div
@@ -1865,26 +1865,41 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
               />
             </div>
 
-            {/* Fullscreen / Exit Fullscreen Toggle */}
-            <button
-              type="button"
-              onClick={() => setIsMaximized(!isMaximized)}
-              className="text-slate-400 hover:text-cyan-300 p-1.5 rounded-lg hover:bg-white/10 transition cursor-pointer"
-              title={
-                isMaximized
-                  ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام صفحه')
-                  : (isEn ? 'Fullscreen' : 'تمام صفحه')
-              }
-              aria-label={
-                isMaximized
-                  ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام صفحه')
-                  : (isEn ? 'Fullscreen' : 'تمام صفحه')
-              }
-            >
-              {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </button>
+            {/* Split Screen Button */}
+            {onSplitScreen && (
+              <button
+                type="button"
+                onClick={onSplitScreen}
+                className="text-slate-400 hover:text-cyan-300 p-1.5 rounded-lg hover:bg-white/10 transition cursor-pointer"
+                title={isEn ? 'Split Screen / Compare with another device' : 'اسپلیت و مقایسه پورت‌ها با دیوایس دیگر'}
+                aria-label={isEn ? 'Split Screen' : 'اسپلیت پورت‌ها'}
+              >
+                <Columns className="w-4 h-4" />
+              </button>
+            )}
 
-            {onMinimize && (
+            {/* Fullscreen / Exit Fullscreen Toggle */}
+            {!isEmbedded && (
+              <button
+                type="button"
+                onClick={() => setIsMaximized(!isMaximized)}
+                className="text-slate-400 hover:text-cyan-300 p-1.5 rounded-lg hover:bg-white/10 transition cursor-pointer"
+                title={
+                  isMaximized
+                    ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام صفحه')
+                    : (isEn ? 'Fullscreen' : 'تمام صفحه')
+                }
+                aria-label={
+                  isMaximized
+                    ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام صفحه')
+                    : (isEn ? 'Fullscreen' : 'تمام صفحه')
+                }
+              >
+                {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </button>
+            )}
+
+            {!isEmbedded && onMinimize && (
               <button
                 type="button"
                 onClick={onMinimize}
@@ -1896,12 +1911,14 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
               </button>
             )}
 
-            <button
-              onClick={onClose}
-              className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            {!isEmbedded && (
+              <button
+                onClick={onClose}
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -3502,6 +3519,20 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           />
         )}
       </div>
+  );
+
+  if (isEmbedded) {
+    return innerContent;
+  }
+
+  return (
+    <div
+      className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center modal-backdrop-blur overflow-y-auto ${
+        isMaximized ? 'p-0' : 'p-2 sm:p-4'
+      }`}
+      data-modal-backdrop="true"
+    >
+      {innerContent}
     </div>
   );
 };

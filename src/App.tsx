@@ -14,6 +14,7 @@ import { CiscoTerminalModal } from './components/CiscoTerminalModal';
 import { MikroTikTerminalModal } from './components/MikroTikTerminalModal';
 import { MikroTikDeviceManageModal } from './components/MikroTikDeviceManageModal';
 import { MultiTerminalWorkspace } from './components/terminal/MultiTerminalWorkspace';
+import { MultiPortWorkspace } from './components/ports/MultiPortWorkspace';
 import { ApplyTemplateModal } from './components/ApplyTemplateModal';
 import { ReleaseNotesModal } from './components/ReleaseNotesModal';
 import { TopologyDiscoveryModal } from './components/TopologyDiscoveryModal';
@@ -594,7 +595,18 @@ export default function App() {
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
-  const [portInspectorDevice, setPortInspectorDevice] = useState<Device | null>(null);
+  const [activePortDevices, setActivePortDevices] = useState<(Device | null)[]>([]);
+  const portInspectorDevice = activePortDevices[0] || null;
+  const setPortInspectorDevice = useCallback((dev: Device | null | ((prev: Device | null) => Device | null)) => {
+    setActivePortDevices((prevList) => {
+      if (typeof dev === 'function') {
+        const current = prevList[0] || null;
+        const next = dev(current);
+        return next ? [next] : [];
+      }
+      return dev ? [dev] : [];
+    });
+  }, []);
   const [activeTerminals, setActiveTerminals] = useState<(Device | null)[]>([]);
   const [applyTemplateDevice, setApplyTemplateDevice] = useState<Device | null>(null);
   const [applyPreselectedTemplateId, setApplyPreselectedTemplateId] = useState<string | undefined>(undefined);
@@ -804,7 +816,8 @@ export default function App() {
 
   const handleInspectPorts = useCallback((dev: Device) => {
     if (isModalMinimized('port_inspector')) {
-      const currentName = portInspectorDevice ? portInspectorDevice.name : (isEn ? 'Device' : 'تجهیز');
+      const firstDev = activePortDevices.find((d) => d !== null);
+      const currentName = firstDev ? firstDev.name : (isEn ? 'Device' : 'تجهیز');
       triggerDockAttention(
         'port_inspector',
         `Port Inspector for ${currentName} is already minimized in the dock. Click to restore or close it.`,
@@ -812,17 +825,33 @@ export default function App() {
       );
       return;
     }
-    setPortInspectorDevice(dev);
+    setActivePortDevices((prev) => {
+      if (prev.length === 0) return [dev];
+      const emptyIdx = prev.indexOf(null);
+      if (emptyIdx !== -1) {
+        const next = [...prev];
+        next[emptyIdx] = dev;
+        return next;
+      }
+      if (prev.length === 1 && prev[0]?.id === dev.id) return prev;
+      const alreadyPresent = prev.some((d) => d?.id === dev.id);
+      if (!alreadyPresent && prev.length < 4) {
+        return [...prev, dev];
+      }
+      return [dev];
+    });
     // Fetch fresh authoritative device ports in background to eliminate stale memory props
     fetchDevicePorts(dev.id).then((res) => {
       if (res?.ports && Array.isArray(res.ports)) {
-        setPortInspectorDevice((prev) => (prev && prev.id === dev.id ? { ...prev, ports: res.ports } : prev));
+        setActivePortDevices((prevList) =>
+          prevList.map((d) => (d && d.id === dev.id ? { ...d, ports: res.ports } : d))
+        );
         setDevices((prevDevs) =>
           prevDevs.map((d) => (d.id === dev.id ? { ...d, ports: res.ports } : d))
         );
       }
     }).catch(() => {});
-  }, [isModalMinimized, portInspectorDevice, isEn, triggerDockAttention]);
+  }, [isModalMinimized, activePortDevices, isEn, triggerDockAttention]);
 
   const openTerminal = useCallback((dev: Device | null, initialPort?: string) => {
     if (!dev) {
@@ -1567,49 +1596,27 @@ export default function App() {
         }}
       />
 
-      {/* Port Inspector Modal (Cisco & Generic devices) */}
-      <PortInspectorModal
-        device={portInspectorDevice}
-        isOpen={!!portInspectorDevice && !isMikroTikDevice(portInspectorDevice) && !isModalMinimized('port_inspector')}
+      {/* Multi-Port Workspace & Split Port Inspector (Cisco, Generic & MikroTik) */}
+      <MultiPortWorkspace
+        activePortDevices={activePortDevices}
+        isOpen={activePortDevices.length > 0 && !isModalMinimized('port_inspector')}
         onClose={() => handleCloseStandardModal('port_inspector')}
-        onMinimize={() =>
+        onMinimize={() => {
+          const firstDev = activePortDevices.find((d) => d !== null);
+          const devName = firstDev ? firstDev.name : 'Device';
           handleMinimizeStandardModal({
             id: 'port_inspector',
-            labelEn: portInspectorDevice ? `Ports (${portInspectorDevice.name})` : 'Port Inspector',
-            labelFa: portInspectorDevice ? `پورت‌های ${portInspectorDevice.name}` : 'مدیریت پورت‌ها',
-            badge: portInspectorDevice?.ip || 'Ports',
+            labelEn: activePortDevices.length > 1 ? `Ports (${activePortDevices.length} panes)` : `Ports (${devName})`,
+            labelFa: activePortDevices.length > 1 ? `پورت‌ها (${activePortDevices.length} پنل)` : `پورت‌های ${devName}`,
+            badge: firstDev?.ip || 'Ports',
             category: 'device',
-          })
-        }
+          });
+        }}
+        onDevicesChange={setActivePortDevices}
+        allDevices={topology?.devices || devices}
         onPortUpdated={loadData}
-        onConnectTerminal={
-          portInspectorDevice && isDeviceActionPermitted(authEffectivePolicy, portInspectorDevice.id, 'terminal')
-            ? (dev, initPort) => openTerminal(dev, initPort)
-            : undefined
-        }
+        onConnectTerminal={(dev, initPort) => openTerminal(dev, initPort)}
         onWriteMemory={handleWriteMemory}
-      />
-
-      {/* MikroTik Device & Port Inspector Modal */}
-      <MikroTikDeviceManageModal
-        device={portInspectorDevice}
-        isOpen={!!portInspectorDevice && isMikroTikDevice(portInspectorDevice) && !isModalMinimized('port_inspector')}
-        onClose={() => handleCloseStandardModal('port_inspector')}
-        onMinimize={() =>
-          handleMinimizeStandardModal({
-            id: 'port_inspector',
-            labelEn: portInspectorDevice ? `RouterOS (${portInspectorDevice.name})` : 'RouterOS Port Inspector',
-            labelFa: portInspectorDevice ? `میکروتیک (${portInspectorDevice.name})` : 'مدیریت روتربورد',
-            badge: 'RouterOS',
-            category: 'device',
-          })
-        }
-        onPortUpdated={loadData}
-        onConnectTerminal={
-          portInspectorDevice && isDeviceActionPermitted(authEffectivePolicy, portInspectorDevice.id, 'terminal')
-            ? (dev, initPort) => openTerminal(dev, initPort)
-            : undefined
-        }
         onDeviceUpdated={loadData}
         isLightMode={isLightMode}
       />

@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.408.3';
+export const APP_VERSION = '1.409.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.409.0',
+    releaseDate: '2026-11-02',
+    type: 'minor',
+    title: 'توسعه میز کار اسپلیت و مقایسه همزمان پورت‌های تجهیزات (Multi-Port Inspector Workspace) با قابلیت درگ‌اند‌دراپ، سوآپ و انتخاب سریع دستگاه',
+    title_en: 'Multi-Port Inspector Workspace & Split-Screen View for Real-Time Port Comparison, Drag-and-Drop Reordering, and Multi-Device Management',
+    changes: [
+      'طراحی و پیاده‌سازی ماژول مهندسی MultiPortWorkspace برای باز کردن، مقایسه و مدیریت همزمان پورت‌های چند دستگاه (سیسکو، جنریک و میکروتیک) در کنار یکدیگر تا سقف ۴ پنل همزمان.',
+      'تجهیز مودال‌های PortInspectorModal و MikroTikDeviceManageModal به دکمه اختصاصی Split Screen در هدر با انتقال نرم و بدون اختلال از نمای تکی به حالت چند پنجره‌ای.',
+      'طراحی کامپوننت PortDeviceSelector جهت جستجو، دسته‌بندی و انتخاب سریع تجهیز جدید برای هر اسلات اسپلیت با نمایش مشخصات مدل، IP، وضعیت آنلاین و تعداد پورت‌ها.',
+      'پشتیبانی از جابجایی پنجره‌ها با درگ‌اند‌دراپ (Drag & Drop)، دکمه جابجایی سریع موقعیت پنجره‌ها (Swap Panes)، همگام‌سازی همزمان تمام پورت‌ها (Sync All Ports) و تغییر چینش بین ستونی و گرید ۲x۲.',
+      'رعایت ۱۰۰٪ استانداردهای معماری مودال‌ها: حفظ مرز بالایی فوتر (bottom-8)، پشتیبانی از مینیمایز به نوار داک (ToolsDock)، تمام‌صفحه و انطباق کامل با تم‌های تیره و روشن در هر دو زبان فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Engineered and integrated the MultiPortWorkspace module enabling real-time side-by-side inspection, comparison, and configuration of multiple device ports (Cisco, generic, and MikroTik) up to 4 simultaneous panes.',
+      'Equipped PortInspectorModal and MikroTikDeviceManageModal headers with a dedicated Split Screen action button (Columns) for seamless transition from single-modal to multi-pane split workspace.',
+      'Built PortDeviceSelector component providing instant search, category filters (Switches, Routers, Cisco, MikroTik), online status badges, and port counts to populate empty split slots.',
+      'Added HTML5 drag-and-drop pane reordering, quick Swap Panes toggle, multi-device parallel port synchronization (Sync All Ports), and responsive Column vs 2x2 Grid layout switching.',
+      'Strict adherence to universal modal specifications: strict bottom-8 footer clearance, universal minimize to ToolsDock, fullscreen maximize/restore, and complete dark/light theme adaptability in both English and Persian.'
+    ]
+  },
   {
     version: '1.408.3',
     releaseDate: '2026-11-02',
