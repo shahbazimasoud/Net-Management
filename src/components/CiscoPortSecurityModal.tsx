@@ -36,7 +36,7 @@ import {
   getPortMacAddresses,
   PortMacEntry
 } from './PortInspectorModal';
-import { executeDeviceOperation, fetchDevicePorts } from '../services/api';
+import { executeDeviceOperation, fetchDevicePorts, openDeviceSessionApi } from '../services/api';
 import { matchPortFlexible } from '../utils/portUtils';
 
 export interface CiscoPortSecurityModalProps {
@@ -109,6 +109,16 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
       setMacEntries(getPortMacAddresses(port).filter((e) => e.type !== 'hardware'));
     }
   }, [port]);
+
+  // Ensure persistent device SSH session in pool is open and warm
+  useEffect(() => {
+    if (isOpen && device && (device.ip || (device as any).ssh_host)) {
+      openDeviceSessionApi(device.id).catch((err) => {
+        console.warn('[CiscoPortSecurityModal] Session pool readiness notice:', err);
+      });
+    }
+  }, [isOpen, device]);
+
 
   const portId = port?.port_id || (port as any)?.port || (port as any)?.name || 'Port';
   const modalDockId = `cisco_port_sec_${device.id}_${portId}`;

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.411.0';
+export const APP_VERSION = '1.412.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.412.0',
+    releaseDate: '2026-11-02',
+    type: 'minor',
+    title: 'استفاده انحصاری مودال پورت سکیوریتی و تمامی عملیات‌های پورت از استخر سشن پایدار SSH بدون برقراری سشن جدید',
+    title_en: 'Exclusive Routing of Port Security Actions and Port Operations Through Persistent Device SSH Session Pool',
+    changes: [
+      'اتصال کامل مسیر `/devices/:id/operations` به `deviceSessionPool` تا تمامی عملیات‌های پورت‌سکیوریتی (حذف مک‌آدرس، پاک‌سازی کامل مک‌ها، بازیابی Err-Disable و ذخیره/اعمال تنظیمات) مستقیماً روی سشن فعال موجود در استخر اجرا شوند.',
+      'توسعه ماژول کمکی `ciscoPortOperationHelper` جهت تولید دستورات استاندارد سیسکو و پارس آنی خروجی‌های پورت‌سکیوریتی و وضعیت اینترفیس از سشن پایدار بدون نیاز به اجرای مجدد پل پایتون.',
+      'به‌روزرسانی سینک زنده پورت‌ها (`/devices/:id/ports/sync` و `GET /devices/:id/ports?live=true`) برای بازخوانی اینترفیس‌ها از روی سشن پایدار فعال.',
+      'حذف کامل هرگونه سشن مجدد SSH هنگام باز کردن مودال پورت‌سکیوریتی یا کلیک بر روی دکمه ذخیره و حذف مک‌آدرس.'
+    ],
+    changes_en: [
+      'Connected `/devices/:id/operations` to `deviceSessionPool` so all port security actions (clearing individual MAC, clearing all MACs, err-disable recovery, and applying/saving config) execute directly on the active pooled session.',
+      'Created `ciscoPortOperationHelper` to generate 100% compliant Cisco IOS commands and parse live hardware port security responses on the persistent session with zero python bridge overhead.',
+      'Updated live port sync (`/devices/:id/ports/sync` and `GET /devices/:id/ports?live=true`) to pull interfaces over the existing pooled session when active.',
+      'Completely eliminated duplicate SSH session creation when opening Port Security modal or deleting MACs and clicking Save.'
+    ]
+  },
   {
     version: '1.411.0',
     releaseDate: '2026-11-02',

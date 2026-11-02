@@ -309,6 +309,7 @@ import { fetchCiscoPortStatistics } from './ciscoPortStatsService';
 import { fetchCiscoConfigState, applyCiscoConfigTab } from './ciscoConfigEngine';
 import { fetchDeviceSyslogBuffer, clearDeviceSyslogBuffer } from './deviceLogService';
 import { deviceSessionPool } from './deviceSessionPool';
+import { generatePortOperationCli, parseCiscoPortSecurityOutput } from './ciscoPortOperationHelper';
 import {
   createTwoFactorChallenge,
   verifyTwoFactorChallenge,
@@ -316,7 +317,7 @@ import {
   issueTrustedDeviceToken,
   validateTrustedDeviceToken,
 } from './twoFactorService';
-import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
+import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole, parseShowInterfacesStatus } from './sshDiscovery';
 import {
   startDiscoveryJob,
   getDiscoveryJobStatus,
@@ -4713,10 +4714,32 @@ apiRouter.post('/devices/:id/ports/sync', async (req: Request, res: Response) =>
 
     const sshVersion = device.ssh_version || device.sshVersion || (device.platform?.includes('modern') ? 'modern' : 'legacy');
     const backend = resolveSshBackend(sshVersion);
-    console.log(`[PortSync Resolver] Synchronizing ports for device ${devId} using ${backend.version.toUpperCase()} backend (${backend.pythonBin})`);
 
-    const syncPayload = { ...device, include_mac_details: true, include_mac_table: true, deep_sync: true };
-    const result = await executeSshBridgeAction('ports-sync', syncPayload, backend.version, 25000);
+    let result: any = null;
+    if (deviceSessionPool.hasActiveSession(devId)) {
+      console.log(`[PortSync SessionPool] Synchronizing ports for device ${devId} via active persistent session pool!`);
+      const isCisco = (device.platform || '').toLowerCase().includes('cisco');
+      const syncCmd = isCisco
+        ? 'terminal length 0\nshow interfaces status\nshow vlan brief\nshow interfaces trunk\nshow ip interface brief\nshow port-security\nshow port-security address\nshow mac address-table dynamic\n'
+        : '/interface print detail\n/interface bridge port print detail\n';
+      const poolExec = await deviceSessionPool.executeCommandOnSession(devId, syncCmd, 25000);
+      if (poolExec.success && poolExec.output) {
+        const parsedPorts = parseShowInterfacesStatus(poolExec.output);
+        if (parsedPorts && parsedPorts.length > 0) {
+          result = {
+            success: true,
+            is_live: true,
+            ports: parsedPorts,
+          };
+        }
+      }
+    }
+
+    if (!result) {
+      console.log(`[PortSync Resolver] Synchronizing ports for device ${devId} using ${backend.version.toUpperCase()} backend (${backend.pythonBin})`);
+      const syncPayload = { ...device, include_mac_details: true, include_mac_table: true, deep_sync: true };
+      result = await executeSshBridgeAction('ports-sync', syncPayload, backend.version, 25000);
+    }
     if (result && result.success && Array.isArray(result.ports)) {
       // Enrich ports with port security and learned MAC consistency
       const existingPorts = Array.isArray(device.ports) ? device.ports : [];
@@ -4881,12 +4904,31 @@ apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
 
     const isLiveRequested = req.query.live === 'true' || req.query.live === '1';
 
-    // Query live via resolved SSH backend ONLY when live query is explicitly requested
-    if (isLiveRequested && device.is_online && backend) {
+    // Query live via resolved SSH backend or active persistent session pool ONLY when live query is explicitly requested
+    if (isLiveRequested && device.is_online) {
       try {
-        console.log(`[PortsList Resolver] Fetching ports live for device ${devId} using ${backend.version.toUpperCase()} backend`);
-        const syncPayload = { ...device, include_mac_details: true, include_mac_table: true, deep_sync: true };
-        const result = await executeSshBridgeAction('ports-sync', syncPayload, backend.version, 25000);
+        let result: any = null;
+        if (deviceSessionPool.hasActiveSession(devId)) {
+          console.log(`[PortsList SessionPool] Fetching ports live for device ${devId} via active persistent session pool!`);
+          const isCisco = (device.platform || '').toLowerCase().includes('cisco');
+          const syncCmd = isCisco
+            ? 'terminal length 0\nshow interfaces status\nshow vlan brief\nshow interfaces trunk\nshow ip interface brief\nshow port-security\nshow port-security address\nshow mac address-table dynamic\n'
+            : '/interface print detail\n/interface bridge port print detail\n';
+          const poolExec = await deviceSessionPool.executeCommandOnSession(devId, syncCmd, 25000);
+          if (poolExec.success && poolExec.output) {
+            const parsedPorts = parseShowInterfacesStatus(poolExec.output);
+            if (parsedPorts && parsedPorts.length > 0) {
+              result = { success: true, ports: parsedPorts };
+            }
+          }
+        }
+
+        if (!result && backend) {
+          console.log(`[PortsList Resolver] Fetching ports live for device ${devId} using ${backend.version.toUpperCase()} backend`);
+          const syncPayload = { ...device, include_mac_details: true, include_mac_table: true, deep_sync: true };
+          result = await executeSshBridgeAction('ports-sync', syncPayload, backend.version, 25000);
+        }
+
         if (result && result.success && Array.isArray(result.ports)) {
           ports = result.ports;
           device.ports = ports;
@@ -5947,17 +5989,59 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
     // Read saved ssh_version strictly from stored device record (by device id), NOT from request body or default
     const sshVersion = device.ssh_version || device.sshVersion || (device.platform?.includes('modern') ? 'modern' : 'legacy');
     const backend = resolveSshBackend(sshVersion);
-    console.log(`[PortOperation Resolver] Executing '${op}' on interface '${iface}' for device ${devId} using ${backend.version.toUpperCase()} backend (${backend.pythonBin})`);
 
+    let result: any = null;
+    let durationMs = 0;
     const startT = Date.now();
-    const result = await executeSshBridgeAction('port-action', {
-      device,
-      action: op,
-      interface: iface,
-      params,
-    }, backend.version, 25000);
 
-    const durationMs = Date.now() - startT;
+    // Check if an active interactive persistent SSH session already exists in the pool (e.g. from Port Inspector modal)
+    if (deviceSessionPool.hasActiveSession(devId)) {
+      console.log(`[PortOperation SessionPool] Executing '${op}' on interface '${iface}' for device ${devId} via persistent active session pool!`);
+      const cliCommand = generatePortOperationCli(device.platform || '', op, iface, params);
+      const poolExec = await deviceSessionPool.executeCommandOnSession(devId, cliCommand, 25000);
+      durationMs = Date.now() - startT;
+
+      if (!poolExec.success) {
+        return res.status(400).json({
+          success: false,
+          error: poolExec.error || 'Operation failed on persistent session',
+          message: poolExec.error || 'Operation failed on persistent session',
+          cli_command: cliCommand,
+          output: poolExec.output || '',
+          durationMs,
+          isReal: true,
+          ssh_version: 'session_pool',
+        });
+      }
+
+      let parsedPort = null;
+      if (op === 'port_sec_query') {
+        parsedPort = parseCiscoPortSecurityOutput(iface, poolExec.output || '');
+      }
+
+      result = {
+        success: true,
+        connected: true,
+        action: op,
+        interface: iface,
+        cli_command: cliCommand,
+        output: poolExec.output || '',
+        port: parsedPort,
+        durationMs,
+        isReal: true,
+        is_live: true,
+        ssh_version: 'session_pool',
+      };
+    } else {
+      console.log(`[PortOperation Resolver] Executing '${op}' on interface '${iface}' for device ${devId} using ${backend.version.toUpperCase()} backend (${backend.pythonBin})`);
+      result = await executeSshBridgeAction('port-action', {
+        device,
+        action: op,
+        interface: iface,
+        params,
+      }, backend.version, 25000);
+      durationMs = Date.now() - startT;
+    }
 
     if (!result || result.success === false) {
       return res.status(400).json({
@@ -5968,7 +6052,7 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
         output: result?.output || '',
         durationMs,
         isReal: true,
-        ssh_version: backend.version,
+        ssh_version: result?.ssh_version || backend.version,
         paramiko_version: result?.paramiko_version || backend.paramikoExpected,
       });
     }
