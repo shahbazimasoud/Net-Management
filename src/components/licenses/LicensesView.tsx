@@ -375,6 +375,8 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
     let expiring = 0;
     let expired = 0;
     let totalAnnualCost = 0;
+    let totalCostIrr = 0;
+    let totalCostUsd = 0;
 
     licenses.forEach((lic) => {
       const days = getDaysRemaining(lic.endDate);
@@ -388,6 +390,11 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
 
       if (lic.cost) {
         totalAnnualCost += lic.cost;
+        if (lic.currency === 'IRR') {
+          totalCostIrr += lic.cost;
+        } else if (lic.currency === 'USD') {
+          totalCostUsd += lic.cost;
+        }
       }
     });
 
@@ -397,8 +404,99 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
       expiring,
       expired,
       totalAnnualCost,
+      totalCostIrr,
+      totalCostUsd,
     };
   }, [licenses]);
+
+  // Formatted cost display to ensure numbers fit cleanly without overflow
+  const formattedCostDisplay = useMemo(() => {
+    const { totalAnnualCost, totalCostIrr, totalCostUsd } = summaryMetrics;
+    if (totalAnnualCost === 0) {
+      return { value: '0', unit: '$ / IRR', subText: null };
+    }
+
+    if (totalCostIrr > 0 && totalCostUsd === 0) {
+      if (totalCostIrr >= 1_000_000_000) {
+        return {
+          value: (totalCostIrr / 1_000_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 }),
+          unit: 'B IRR',
+          subText: isEn ? 'Billion Rials' : 'میلیارد ریال',
+        };
+      }
+      if (totalCostIrr >= 1_000_000) {
+        return {
+          value: (totalCostIrr / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 1 }),
+          unit: 'M IRR',
+          subText: isEn ? 'Million Rials' : 'میلیون ریال',
+        };
+      }
+      return {
+        value: totalCostIrr.toLocaleString(),
+        unit: 'IRR',
+        subText: null,
+      };
+    }
+
+    if (totalCostUsd > 0 && totalCostIrr === 0) {
+      if (totalCostUsd >= 1_000_000) {
+        return {
+          value: `$${(totalCostUsd / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+          unit: 'M',
+          subText: isEn ? 'Million USD' : 'میلیون دلار',
+        };
+      }
+      if (totalCostUsd >= 100_000) {
+        return {
+          value: `$${(totalCostUsd / 1_000).toLocaleString(undefined, { maximumFractionDigits: 1 })}`,
+          unit: 'K',
+          subText: isEn ? 'Thousand USD' : 'هزار دلار',
+        };
+      }
+      return {
+        value: `$${totalCostUsd.toLocaleString()}`,
+        unit: 'USD',
+        subText: null,
+      };
+    }
+
+    if (totalCostIrr > 0 && totalCostUsd > 0) {
+      const irrPart =
+        totalCostIrr >= 1_000_000
+          ? `${(totalCostIrr / 1_000_000).toFixed(1)}M IRR`
+          : `${totalCostIrr.toLocaleString()} IRR`;
+      const usdPart =
+        totalCostUsd >= 1_000
+          ? `$${(totalCostUsd / 1_000).toFixed(0)}K`
+          : `$${totalCostUsd}`;
+      return {
+        value: irrPart,
+        unit: `+ ${usdPart}`,
+        subText: isEn ? 'Multi-currency portfolio' : 'مجموع سبد ارزی و ریالی',
+      };
+    }
+
+    // Generic fallback
+    if (totalAnnualCost >= 1_000_000_000) {
+      return {
+        value: (totalAnnualCost / 1_000_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 }),
+        unit: 'B',
+        subText: null,
+      };
+    }
+    if (totalAnnualCost >= 1_000_000) {
+      return {
+        value: (totalAnnualCost / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 1 }),
+        unit: 'M',
+        subText: null,
+      };
+    }
+    return {
+      value: totalAnnualCost.toLocaleString(),
+      unit: '$ / IRR',
+      subText: null,
+    };
+  }, [summaryMetrics, isEn]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6" dir={isEn ? 'ltr' : 'rtl'}>
@@ -607,14 +705,14 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
 
         {/* Total Cost Investment */}
         <div
-          className={`p-4 rounded-2xl border transition-all ${
+          className={`p-4 rounded-2xl border transition-all min-w-0 overflow-hidden flex flex-col justify-between ${
             isLightMode ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'
           }`}
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-sky-400 font-medium flex items-center gap-1.5">
-              <DollarSign className="w-3.5 h-3.5 text-sky-400" />
-              {isEn ? 'Recorded Cost' : 'ارزش سرمایه‌گذاری'}
+          <div className="flex items-center justify-between mb-2 min-w-0 gap-1">
+            <span className="text-xs text-sky-400 font-medium flex items-center gap-1.5 truncate">
+              <DollarSign className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <span className="truncate">{isEn ? 'Recorded Cost' : 'ارزش سرمایه‌گذاری'}</span>
             </span>
             <FieldInfoTooltip
               title={isEn ? 'Total License Cost' : 'مجموع هزینه‌های لایسنس'}
@@ -628,11 +726,23 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
               isEn={isEn}
             />
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-sky-400">
-              {summaryMetrics.totalAnnualCost.toLocaleString()}
-            </span>
-            <span className="text-[10px] text-slate-400">$ / IRR</span>
+          <div className="min-w-0 overflow-hidden">
+            <div
+              className="flex items-baseline gap-1.5 flex-wrap min-w-0"
+              title={`${summaryMetrics.totalAnnualCost.toLocaleString()} (${summaryMetrics.totalCostIrr > 0 ? `${summaryMetrics.totalCostIrr.toLocaleString()} IRR` : ''} ${summaryMetrics.totalCostUsd > 0 ? `$${summaryMetrics.totalCostUsd.toLocaleString()}` : ''})`}
+            >
+              <span className="text-lg sm:text-xl font-black text-sky-400 tracking-tight font-mono truncate max-w-full">
+                {formattedCostDisplay.value}
+              </span>
+              <span className="text-[10px] text-slate-400 font-medium shrink-0">
+                {formattedCostDisplay.unit}
+              </span>
+            </div>
+            {formattedCostDisplay.subText && (
+              <p className="text-[10px] text-slate-400/80 font-mono truncate mt-0.5" title={formattedCostDisplay.subText}>
+                {formattedCostDisplay.subText}
+              </p>
+            )}
           </div>
         </div>
       </div>
