@@ -30,6 +30,8 @@ import { TelegramAlertsSettingsView } from './components/settings/TelegramAlerts
 import { LogRetentionSettingsView } from './components/settings/LogRetentionSettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
 import { RemoteServersView } from './components/servers/RemoteServersView';
+import { LicensesView } from './components/licenses/LicensesView';
+import { ContractsView } from './components/licenses/ContractsView';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
 import { ToolsDock, StandardModalId, MinimizedStandardModal } from './components/tools/ToolsDock';
 import { NetworkToolId, ActiveToolState } from './components/tools/types';
@@ -266,6 +268,8 @@ export default function App() {
         'schematic',
         'devices',
         'remote-servers',
+        'licenses',
+        'contracts',
         'ports',
         'scanner',
         'templates',
@@ -1411,6 +1415,26 @@ export default function App() {
               isLightMode={isLightMode}
               isEn={isEn}
               effectivePolicy={effectivePolicy}
+            />
+          )}
+
+          {activeTab === 'licenses' && (
+            <LicensesView
+              devices={authorizedDevices}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              effectivePolicy={effectivePolicy}
+              onOpenTerminal={openTerminal}
+            />
+          )}
+
+          {activeTab === 'contracts' && (
+            <ContractsView
+              devices={authorizedDevices}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              effectivePolicy={effectivePolicy}
+              onNavigateToLicenses={() => setActiveTab('licenses')}
             />
           )}
 

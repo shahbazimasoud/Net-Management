@@ -98,6 +98,8 @@ export const translations = {
     parent_monitor_tag: 'MONITOR',
     parent_system_title: 'System & Security',
     parent_system_tag: 'SECURITY',
+    parent_contracts_licenses_title: 'Contracts & Licenses',
+    parent_contracts_licenses_tag: 'LICENSES',
     parent_settings_title: 'Settings',
     parent_settings_tag: 'SETTINGS',
 
@@ -126,6 +128,8 @@ export const translations = {
     tab_settings_log_retention: 'Database Log Retention',
     tab_settings_email: 'Outgoing Mail & SMTP',
     tab_settings_alerts: 'Incident Alerting & Telegram',
+    tab_licenses: 'Licenses Management',
+    tab_contracts: 'Contracts & SLA',
     tab_logs: 'Audit & Command Logs',
 
     // Footer
@@ -792,6 +796,8 @@ export const translations = {
     parent_monitor_tag: 'MONITOR',
     parent_system_title: 'سیستم و امنیت',
     parent_system_tag: 'SECURITY',
+    parent_contracts_licenses_title: 'مدیریت قرارداد و لایسنس',
+    parent_contracts_licenses_tag: 'LICENSES',
     parent_settings_title: 'تنظیمات (Settings)',
     parent_settings_tag: 'SETTINGS',
 
@@ -820,6 +826,8 @@ export const translations = {
     tab_settings_log_retention: 'نگهداری لاگ‌های دیتابیس',
     tab_settings_email: 'تنظیمات ارسال ایمیل (SMTP)',
     tab_settings_alerts: 'اعلان‌ها و هشدارهای تلگرام',
+    tab_licenses: 'مدیریت لایسنس‌ها',
+    tab_contracts: 'مدیریت قراردادها',
     tab_logs: 'لاگ',
 
     // Footer

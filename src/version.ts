@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.414.0';
+export const APP_VERSION = '1.415.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.415.0',
+    releaseDate: '2026-11-05',
+    type: 'minor',
+    title: 'فاز ۳ مدیریت قراردادها و لایسنس‌ها: رابط کاربری جامع مدیریت لایسنس‌ها، مودال استاندارد یونیورسال، فیلترها و پیوست چندگانه',
+    title_en: 'Phase 3 Contracts & Licenses: Full Licenses Management UI, Universal-Compliant License Modal, Multi-Recipient Alerts & File Attachments',
+    changes: [
+      'پیاده‌سازی بخش سایدبار با سرگروه جدید «مدیریت قرارداد و لایسنس» (Contracts & Licenses) و دو زیرمنوی اختصاصی «مدیریت لایسنس‌ها» و «مدیریت قراردادها».',
+      'توسعه نمای اصلی مدیریت لایسنس‌ها (`LicensesView`) با ۵ کارت شاخص آماری (کل، معتبر، در آستانه انقضا، منقضی‌شده و کل سرمایه‌گذاری) مجهز به راهنماهای سه‌بخشی FieldInfoTooltip.',
+      'طراحی جدول جامع لایسنس‌ها با جستجوی چندفیلدی، فیلتر بر اساس سازنده، نوع دارایی و وضعیت، شمارش معکوس روزهای باقیمانده، کپی آسان کلید و دکمه تست آنی ارسال ایمیل.',
+      'طراحی مودال استاندارد ثبت و ویرایش لایسنس (`LicenseModal`) کاملاً منطبق بر قوانین پنج‌گانه استانداردهای مودال (دکمه‌های سه‌گانه Close، Minimize به ToolsDock، Fullscreen با حریم bottom-8 و رندر مستقیم پورتال).',
+      'امکان اتصال لایسنس به سوئیچ‌ها و سرورهای ثبت‌شده شبکه جهت یکپارچگی اطلاعات تجهیزات با لایسنس‌های سازمانی.',
+      'مدیریت تگ‌های چندگانه گیرندگان ایمیل هشدار با اعتبارسنجی آنی و تعریف نقاط عطف زمانی دلخواه (مانند ۶۰، ۳۰، ۲۰، ۱۰، روز انقضا یا هر روز سفارشی).',
+      'سیستم بارگذاری و دانلود مستقیم چندگانه فایل‌های پیوست (پروفرم، سرتیفیکیت دیجیتال، فایل لایسنس و قراردادها) با ذخیره‌سازی امن در سرور.',
+      'رعایت صددرصدی قانون ۴ در مورد ممنوعیت متن فارسی در حالت انگلیسی و انطباق کامل تم‌های روشن و تیره.'
+    ],
+    changes_en: [
+      'Integrated dedicated Sidebar parent group "Contracts & Licenses" with two sub-items: "Licenses Management" and "Contracts & SLA".',
+      'Developed comprehensive `LicensesView` featuring 5 KPI metric cards (Total, Valid, Expiring Soon, Expired, Total Cost) equipped with 3-part FieldInfoTooltips.',
+      'Engineered responsive license data table with real-time multi-field search, vendor/type/status filtering, live countdown timer badges, key copy helper, and instant test email trigger.',
+      'Built universal-compliant `LicenseModal` strictly adhering to 5 modal specifications (Close, Minimize to ToolsDock, Fullscreen with bottom-8 footer clearance, and React Portal rendering).',
+      'Added equipment linking selector allowing licenses to attach directly to active switches, routers, and servers from the network inventory.',
+      'Implemented dynamic multi-recipient email tags manager and custom alert milestone days editor (e.g. 60, 30, 20, 10, expiry day, or custom integers).',
+      'Integrated multi-file attachment uploader and downloader for vendor invoices, digital licenses, and contracts stored securely on backend.',
+      'Strict adherence to Rule 4 (zero Persian text in English mode) and universal light/dark theme contrast.'
+    ]
+  },
   {
     version: '1.414.0',
     releaseDate: '2026-11-05',

@@ -26,7 +26,8 @@ import {
   ArrowUpCircle,
   Mail,
   BellRing,
-  Database
+  Database,
+  FileCheck
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { AccessPolicy } from '../types';
@@ -47,6 +48,8 @@ export type ActiveTab =
   | 'ports'
   | 'scanner'
   | 'logs'
+  | 'licenses'
+  | 'contracts'
   | 'settings'
   | 'settings-groups'
   | 'settings-users'
@@ -81,7 +84,7 @@ interface NavItem {
 }
 
 interface NavParentGroup {
-  id: 'infra' | 'servers' | 'monitor' | 'system' | 'settings';
+  id: 'infra' | 'servers' | 'monitor' | 'contracts_licenses' | 'system' | 'settings';
   titleKey: string;
   tagKey: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -198,6 +201,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_logs',
           icon: ScrollText,
           badge: 'Live',
+        },
+      ],
+    },
+    {
+      id: 'contracts_licenses',
+      titleKey: 'parent_contracts_licenses_title',
+      tagKey: 'parent_contracts_licenses_tag',
+      icon: FileCheck,
+      colorClass: 'text-violet-400 border-violet-500/30 bg-violet-500/10',
+      items: [
+        {
+          id: 'licenses',
+          labelKey: 'tab_licenses',
+          icon: KeyRound,
+          badge: 'Lic',
+        },
+        {
+          id: 'contracts',
+          labelKey: 'tab_contracts',
+          icon: ScrollText,
+          badge: 'SLA',
         },
       ],
     },
