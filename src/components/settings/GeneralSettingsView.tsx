@@ -1700,26 +1700,26 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className={`text-xs font-semibold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                    <span>{isEn ? 'Telemetry Refresh Rate' : 'دوره تازه‌سازی تلمتری زنده پورت‌ها'}</span>
+                    <span>{isEn ? 'Telemetry Refresh Rate' : 'دوره تازه‌سازی خودکار تجهیزات و پورت‌ها'}</span>
                     <FieldInfoTooltip
                       isEn={isEn}
                       isLightMode={isLightMode}
-                      title={isEn ? 'Telemetry Refresh' : 'تازه‌سازی تلمتری'}
-                      infoWhatEn="Defines how frequently the panel automatically refreshes backend link and node telemetry."
-                      infoWhatFa="بازه زمانی اجرای خودکار پایش ترافیک، همسایگی و وضعیت پورت‌ها."
-                      infoWhyEn="Balances real-time monitoring visibility against network and CPU overhead."
-                      infoWhyFa="تنظیم توازن میان دقت مانیتورینگ بلادرنگ و مصرف پردازنده و ترافیک شبکه."
-                      infoExampleEn="10 seconds (standard) or 30 seconds"
-                      infoExampleFa="۱۰ ثانیه (استاندارد) یا ۳۰ ثانیه"
+                      title={isEn ? 'Telemetry Refresh' : 'تازه‌سازی خودکار تجهیزات'}
+                      infoWhatEn="Defines how frequently the panel automatically refreshes device and port telemetry. Set to Off to only refresh on demand."
+                      infoWhatFa="بازه زمانی اجرای خودکار دریافت و پایش وضعیت تجهیزات و پورت‌ها. با انتخاب «غیرفعال»، داده‌ها تنها به صورت دستی یا هنگام ورود به پنل بارگذاری می‌شوند."
+                      infoWhyEn="Turning off periodic background polling eliminates unnecessary GET /api/devices requests and network churn."
+                      infoWhyFa="غیرفعال کردن آن مانع از ارسال مکرر درخواست‌های پس‌زمینه به سرور شده و ترافیک شبکه را به صفر می‌رساند."
+                      infoExampleEn="Off (Manual - Recommended) or 30s"
+                      infoExampleFa="غیرفعال (دستی - پیشنهادی) یا ۳۰ ثانیه"
                     />
                   </label>
                   <span className="text-[10px] text-slate-500 font-mono">
-                    {formData.telemetryRefreshIntervalSec}s
+                    {Number(formData.telemetryRefreshIntervalSec || 0) === 0 ? (isEn ? 'Off (Manual)' : 'غیرفعال (دستی)') : `${formData.telemetryRefreshIntervalSec}s`}
                   </span>
                 </div>
                 <div className="grid grid-cols-4 gap-2">
-                  {[5, 10, 30, 60].map((sec) => {
-                    const isSelected = formData.telemetryRefreshIntervalSec === sec;
+                  {[0, 15, 30, 60].map((sec) => {
+                    const isSelected = Number(formData.telemetryRefreshIntervalSec || 0) === sec;
                     return (
                       <button
                         key={sec}
@@ -1733,7 +1733,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                             : 'bg-slate-900 border-white/5 text-slate-400 hover:text-white'
                         }`}
                       >
-                        {sec}s
+                        {sec === 0 ? (isEn ? 'Off' : 'غیرفعال') : `${sec}s`}
                       </button>
                     );
                   })}

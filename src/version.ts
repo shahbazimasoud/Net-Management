@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.412.0';
+export const APP_VERSION = '1.412.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.412.1',
+    releaseDate: '2026-11-05',
+    type: 'patch',
+    title: 'توقف درخواست‌های مکرر پس‌زمینه GET /api/devices و پیش‌فرض‌سازی پایش تلمتری روی حالت دستی (Off)',
+    title_en: 'Eliminated Unnecessary Background GET /api/devices Polling and Defaulted Telemetry Rate to Manual (Off)',
+    changes: [
+      'اصلاح منطق بررسی دوره پایش تلمتری در کامپوننت ریشه (`App.tsx`) و جلوگیری کامل از اجرای `setInterval` هنگامی که دوره تازه‌سازی روی ۰ (غیرفعال/دستی) تنظیم شده است.',
+      'افزودن گارد مهار همزمانی (`isPollingRef`) و بررسی عدم فعالیت تب مرورگر (`document.hidden`) برای جلوگیری از درخواست‌های همپوشان یا هدررفت منابع در پس‌زمینه.',
+      'تغییر مقدار پیش‌فرض دوره تازه‌سازی تلمتری (`telemetryRefreshIntervalSec`) در تنظیمات عمومی از ۱۰ ثانیه به ۰ (دستی) و مهاجرت مقادیر پیش‌فرض قدیمی ذخیره‌شده.',
+      'به‌روزرسانی انتخابگر بازه تازه‌سازی در تنظیمات با گزینه شفاف «غیرفعال (دستی) / Off (Manual)» به همراه گزینه‌های ۱۵، ۳۰ و ۶۰ ثانیه‌ای.'
+    ],
+    changes_en: [
+      'Fixed telemetry polling evaluation in `App.tsx` to completely bypass `setInterval` when refresh rate is set to 0 (Manual/Off).',
+      'Added concurrency guard (`isPollingRef`) and tab visibility check (`document.hidden`) to prevent overlapping fetches and background network churn.',
+      'Changed default `telemetryRefreshIntervalSec` in general settings from 10s to 0 (Manual) and seamlessly migrated legacy unconfigured defaults.',
+      'Updated the interval selector in General Settings with a clear "Off (Manual)" option alongside 15s, 30s, and 60s intervals with complete bilingual tooltips.'
+    ]
+  },
   {
     version: '1.412.0',
     releaseDate: '2026-11-02',

@@ -735,7 +735,7 @@ export const DEFAULT_PANEL_GENERAL_SETTINGS: PanelGeneralSettings = {
   faviconPreset: 'network',
   defaultTheme: 'obsidian',
   defaultLanguage: 'fa',
-  telemetryRefreshIntervalSec: 10,
+  telemetryRefreshIntervalSec: 0,
   sessionInactivityTimeoutMin: 60,
   defaultDeviceProtocol: 'ssh',
   systemDebugLogging: false,
@@ -837,6 +837,11 @@ export function loadGeneralSettings(): PanelGeneralSettings {
     } catch (err) {
       console.error('Error loading general settings from localStorage', err);
     }
+  }
+
+  // Prevent legacy unconfigured defaults (5s, 10s) from automatically polling GET /api/devices in the background
+  if (settings.telemetryRefreshIntervalSec === 10 || settings.telemetryRefreshIntervalSec === 5) {
+    settings.telemetryRefreshIntervalSec = 0;
   }
 
   // Synchronously overlay persistent dedicated login visual keys so frame 0 has exact user choice

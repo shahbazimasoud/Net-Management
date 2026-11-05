@@ -1045,20 +1045,26 @@ export default function App() {
     }
   }, [isAuthenticated, loadData]);
 
-  // Periodic reachability polling dynamically driven by general settings
+  // Periodic reachability polling dynamically driven by general settings (disabled when 0 / Off)
+  const isPollingRef = useRef(false);
   useEffect(() => {
     if (!isAuthenticated) return;
-    const intervalSec = generalSettings.telemetryRefreshIntervalSec || 10;
-    const intervalMs = Math.max(5, intervalSec) * 1000;
+    const intervalSec = Number(generalSettings?.telemetryRefreshIntervalSec ?? 0);
+    if (!intervalSec || intervalSec <= 0) return; // Completely disabled when 0 or not configured
+
+    const intervalMs = Math.max(10, intervalSec) * 1000;
     const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       refreshStatusesQuietly();
     }, intervalMs);
     return () => clearInterval(timer);
-  }, [isAuthenticated, generalSettings.telemetryRefreshIntervalSec]);
+  }, [isAuthenticated, generalSettings?.telemetryRefreshIntervalSec]);
 
   const refreshStatusesQuietly = async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || isPollingRef.current) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
     try {
+      isPollingRef.current = true;
       const devRes = await fetchDevices();
       setDevices(devRes.devices);
       if (devRes?.devices && Array.isArray(devRes.devices)) {
@@ -1081,6 +1087,8 @@ export default function App() {
       }
     } catch (e) {
       // Quiet fail on periodic ping
+    } finally {
+      isPollingRef.current = false;
     }
   };
 
