@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.416.2';
+export const APP_VERSION = '1.417.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.417.0',
+    releaseDate: '2026-11-05',
+    type: 'minor',
+    title: 'سیستم تمدید هوشمند قراردادها و لایسنس‌ها با زنجیره سوابق تاریخی، مودال اختصاصی نمایش تاریخچه و حفظ کامل مدارک و تعهدات مالی گذشته',
+    title_en: 'Smart Renewal System for Contracts & Licenses: Version Chain Tracking, Dedicated Renewal History Modal, and Historical Document Preservation',
+    changes: [
+      'پیاده‌سازی اکشن اختصاصی «تمدید هوشمند (Renew)» در جدول لایسنس‌ها و قراردادها جهت ایجاد دوره جدید با یک کلیک بدون مخدوش شدن اطلاعات دوره قبل.',
+      'تنظیم خودکار تاریخ شروع دوره جدید بر اساس یک روز پس از اتمام دوره قبلی و پیشنهاد خودکار تاریخ سررسید یک‌ساله.',
+      'پیش‌پر شدن خودکار کلیه اطلاعات پایه شامل مشخصات تجهیز، تامین‌کننده، رابط‌ها، ایمیل‌های هشدار و شرایط عمومی.',
+      'تغییر خودکار وضعیت رکورد قبلی به «تمدید شده (Renewed)» و بایگانی امن آن در سوابق تاریخی.',
+      'طراحی مودال استاندارد یونیورسال «سوابق تمدید و زنجیره تاریخی» (`RenewalHistoryModal`) جهت نمایش خط زمانی (Timeline) قیمت‌ها، تاریخ‌ها، دوره‌ها و فایل‌های پیوست گذشته با دکمه‌های پیش‌نمایش و دانلود مستقیم.',
+      'افزودن بج شماره دوره تمدید (Cycle Number) و وضعیت تمدیدشده در جدول اصلی لایسنس‌ها و قراردادها.',
+      'توسعه اندپوینت‌های سرور `/api/licenses/:id/renew`، `/api/contracts/:id/renew`، `/api/licenses/:id/history` و `/api/contracts/:id/history` همراه با لاگ‌گیری امنیتی حسابرسی (Rule 16).',
+      'رعایت صددرصدی قانون ۴ در مورد ممنوعیت متن فارسی در حالت انگلیسی و انطباق کامل تم‌های تیره و روشن.'
+    ],
+    changes_en: [
+      'Engineered dedicated "Smart Renewal" action for contracts and licenses, spawning the next operational cycle with one click while preserving past cycles.',
+      'Automated next cycle start date calculation (1 day after previous expiry) with smart default 1-year duration calculation.',
+      'Auto-prefilling of equipment links, vendor details, contacts, alert emails, and general terms into the renewal form.',
+      'Automated status transition of preceding records to "Renewed" and safe archival in the audit trail.',
+      'Built universal-compliant `RenewalHistoryModal` rendering a full chronological timeline of price changes, validities, cycles, and attached signed documents with native preview and download.',
+      'Added cycle generation badges and renewed status badges across both Licenses and Contracts data tables.',
+      'Developed backend REST endpoints `/api/licenses/:id/renew`, `/api/contracts/:id/renew`, `/api/licenses/:id/history`, and `/api/contracts/:id/history` with mandatory audit logging (Rule 16).',
+      'Strict adherence to Rule 4 (zero Persian text in English mode) and universal light/dark theme contrast.'
+    ]
+  },
   {
     version: '1.416.2',
     releaseDate: '2026-11-05',

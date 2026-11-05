@@ -25,7 +25,10 @@ import {
   ChevronDown,
   BellRing,
   Sparkles,
-  Info
+  Info,
+  RotateCw,
+  History,
+  Eye
 } from 'lucide-react';
 import {
   LicenseItem,
@@ -41,6 +44,7 @@ import {
   runLicenseContractCronNowApi
 } from '../../services/api';
 import { LicenseModal } from './LicenseModal';
+import { RenewalHistoryModal } from './RenewalHistoryModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 interface LicensesViewProps {
@@ -62,7 +66,10 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRunningCron, setIsRunningCron] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'create' | 'edit' | 'renew'>('create');
   const [editingLicense, setEditingLicense] = useState<LicenseItem | null>(null);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [historyLicense, setHistoryLicense] = useState<LicenseItem | null>(null);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [testingLicenseId, setTestingLicenseId] = useState<string | null>(null);
 
@@ -389,6 +396,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
               type="button"
               onClick={() => {
                 setEditingLicense(null);
+                setModalMode('create');
                 setIsModalOpen(true);
               }}
               className="px-4 py-2 text-xs sm:text-sm font-bold rounded-xl bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-600/30 transition-all cursor-pointer flex items-center gap-2"
@@ -722,8 +730,18 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
                     >
                       {/* Title & Key */}
                       <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-200 flex items-center gap-1.5">
+                        <div className="font-bold text-slate-200 flex items-center gap-1.5 flex-wrap">
                           <span>{lic.title}</span>
+                          {lic.renewalCycle && lic.renewalCycle > 1 && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                              {isEn ? `Cycle ${lic.renewalCycle}` : `دوره ${lic.renewalCycle}`}
+                            </span>
+                          )}
+                          {lic.status === 'renewed' && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                              {isEn ? 'Renewed' : 'تمدید شده'}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1.5 mt-1">
                           <code className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800/70 text-slate-300 max-w-[170px] truncate">
@@ -778,7 +796,12 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
                       {/* Validity & Expiry Countdown */}
                       <td className="py-3.5 px-3">
                         <div className="flex items-center gap-1.5">
-                          {isExpired ? (
+                          {lic.status === 'renewed' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+                              <RotateCw className="w-3 h-3" />
+                              {isEn ? 'Renewed' : 'تمدید شده'}
+                            </span>
+                          ) : isExpired ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/10 border border-rose-500/30 text-rose-400">
                               <XCircle className="w-3 h-3" />
                               {isEn ? 'Expired' : 'منقضی شده'}
@@ -862,12 +885,42 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
                             )}
                           </button>
 
+                          {/* Renew Button */}
+                          {canManage && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingLicense(lic);
+                                setModalMode('renew');
+                                setIsModalOpen(true);
+                              }}
+                              className="p-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 transition-colors cursor-pointer"
+                              title={isEn ? 'Renew License (Start Next Cycle)' : 'تمدید لایسنس (ایجاد دوره بعدی با حفظ سابقه)'}
+                            >
+                              <RotateCw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* History Chain Button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHistoryLicense(lic);
+                              setIsHistoryModalOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 transition-colors cursor-pointer"
+                            title={isEn ? 'View Renewal & Audit History Chain' : 'مشاهده سوابق و زنجیره تمدیدها'}
+                          >
+                            <History className="w-3.5 h-3.5" />
+                          </button>
+
                           {/* Edit button */}
                           {canManage && (
                             <button
                               type="button"
                               onClick={() => {
                                 setEditingLicense(lic);
+                                setModalMode('edit');
                                 setIsModalOpen(true);
                               }}
                               className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-cyan-300 transition-colors cursor-pointer"
@@ -899,7 +952,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
         )}
       </div>
 
-      {/* License Registration / Editing Modal */}
+      {/* License Registration / Editing / Renewal Modal */}
       <LicenseModal
         isOpen={isModalOpen}
         onClose={() => {
@@ -907,26 +960,40 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
           setEditingLicense(null);
         }}
         license={editingLicense}
+        mode={modalMode}
         devices={devices}
         isLightMode={isLightMode}
         isEn={isEn}
         onSaved={(savedLicense) => {
-          setLicenses((prev) => {
-            const index = prev.findIndex((item) => item.id === savedLicense.id);
-            if (index >= 0) {
-              const updated = [...prev];
-              updated[index] = savedLicense;
-              return updated;
-            }
-            return [savedLicense, ...prev];
-          });
+          loadLicenses(true);
           showToast(
             isEn
-              ? `License "${savedLicense.title}" saved successfully.`
-              : `لایسنس «${savedLicense.title}» با موفقیت ذخیره شد.`,
+              ? modalMode === 'renew'
+                ? `License renewed successfully: ${savedLicense.title}`
+                : editingLicense
+                ? `License "${savedLicense.title}" updated successfully.`
+                : `License "${savedLicense.title}" registered successfully.`
+              : modalMode === 'renew'
+              ? `تمدید لایسنس با موفقیت انجام شد: ${savedLicense.title}`
+              : editingLicense
+              ? `لایسنس «${savedLicense.title}» با موفقیت ویرایش شد.`
+              : `لایسنس «${savedLicense.title}» با موفقیت ثبت شد.`,
             'success'
           );
         }}
+      />
+
+      {/* Renewal & Version History Chain Modal */}
+      <RenewalHistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => {
+          setIsHistoryModalOpen(false);
+          setHistoryLicense(null);
+        }}
+        type="license"
+        item={historyLicense}
+        isLightMode={isLightMode}
+        isEn={isEn}
       />
     </div>
   );

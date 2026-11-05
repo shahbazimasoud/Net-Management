@@ -23,7 +23,8 @@ import {
   Paperclip,
   CheckCircle2,
   ShieldCheck,
-  Tag
+  Tag,
+  RotateCw
 } from 'lucide-react';
 import {
   LicenseItem,
@@ -32,7 +33,7 @@ import {
   AttachmentFile,
   Device
 } from '../../types';
-import { createLicenseApi, updateLicenseApi, uploadContractAttachmentApi } from '../../services/api';
+import { createLicenseApi, updateLicenseApi, renewLicenseApi, uploadContractAttachmentApi } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
 
@@ -40,6 +41,7 @@ interface LicenseModalProps {
   isOpen: boolean;
   onClose: () => void;
   license?: LicenseItem | null;
+  mode?: 'create' | 'edit' | 'renew';
   devices: Device[];
   isLightMode?: boolean;
   isEn?: boolean;
@@ -50,6 +52,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   isOpen,
   onClose,
   license,
+  mode = 'edit',
   devices,
   isLightMode = false,
   isEn = true,
@@ -87,7 +90,55 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
 
   // Sync state when editing an existing license or opening a new one
   useEffect(() => {
-    if (license) {
+    if (mode === 'renew' && license) {
+      const nextCycle = (license.renewalCycle || 1) + 1;
+      setTitle(
+        isEn
+          ? `${license.title} (Cycle ${nextCycle})`
+          : `${license.title} (دوره تمدید ${nextCycle})`
+      );
+      setLicenseKey(license.licenseKey || '');
+      setDeviceType(license.deviceType || 'switch');
+      setVendor(license.vendor || 'Cisco');
+      setConnectedDeviceId(license.connectedDeviceId || '');
+      setOwnerName(license.ownerName || '');
+      setOwnerEmail(license.ownerEmail || '');
+      setDepartment(license.department || '');
+      // Calculate start date = 1 day after previous end date
+      let nextStart = '';
+      try {
+        const d = new Date(license.endDate);
+        if (!isNaN(d.getTime())) {
+          d.setDate(d.getDate() + 1);
+          nextStart = d.toISOString().split('T')[0];
+        }
+      } catch {}
+      if (!nextStart) nextStart = new Date().toISOString().split('T')[0];
+      setStartDate(nextStart);
+
+      // Default end date = 1 year later
+      let nextEnd = '';
+      try {
+        const d = new Date(nextStart);
+        d.setFullYear(d.getFullYear() + 1);
+        nextEnd = d.toISOString().split('T')[0];
+      } catch {
+        nextEnd = nextStart;
+      }
+      setEndDate(nextEnd);
+
+      setCost(license.cost || 0);
+      setCurrency((license.currency as any) || 'USD');
+      setPaymentMethod((license.paymentMethod as any) || 'annual');
+      setAlertDays(license.alertDays?.length ? license.alertDays : [30, 15, 7, 0]);
+      setNotifyEmails(license.notifyEmails || []);
+      setAttachments([]); // New fresh documents for this renewal cycle
+      setNotes(
+        isEn
+          ? `Renewed from preceding cycle (${license.startDate} to ${license.endDate})`
+          : `تمدید شده از لایسنس دوره قبل (${license.startDate} الی ${license.endDate})`
+      );
+    } else if (license) {
       setTitle(license.title || '');
       setLicenseKey(license.licenseKey || '');
       setDeviceType(license.deviceType || 'switch');
@@ -130,7 +181,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
     }
     setErrorMessage(null);
     setIsMinimized(false);
-  }, [license, isOpen]);
+  }, [license, isOpen, mode, isEn]);
 
   // Universal minimization handler into ToolsDock
   const handleMinimize = () => {
@@ -302,7 +353,10 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
     };
 
     try {
-      if (license?.id) {
+      if (mode === 'renew' && license?.id) {
+        const res = await renewLicenseApi(license.id, licensePayload);
+        onSaved(res.license);
+      } else if (license?.id && mode !== 'renew') {
         const res = await updateLicenseApi(license.id, licensePayload);
         onSaved(res.license);
       } else {
@@ -325,8 +379,8 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
     <div
       className={
         isMaximized
-          ? 'fixed top-0 left-0 right-0 bottom-8 z-[9999] p-0 flex flex-col'
-          : 'fixed top-0 left-0 right-0 bottom-8 z-[9999] p-2 sm:p-4 bg-black/80 backdrop-blur-sm flex items-center justify-center'
+          ? 'fixed top-0 left-0 right-0 bottom-8 z-[999990] p-0 flex flex-col'
+          : 'fixed top-0 left-0 right-0 bottom-8 z-[999990] p-2 sm:p-4 bg-black/80 backdrop-blur-sm flex items-center justify-center'
       }
       dir={isEn ? 'ltr' : 'rtl'}
     >
@@ -353,7 +407,11 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold flex items-center gap-2">
-                {license
+                {mode === 'renew'
+                  ? isEn
+                    ? `Renew License: ${license?.title || ''}`
+                    : `تمدید لایسنس: ${license?.title || ''}`
+                  : license
                   ? isEn
                     ? `Edit License: ${license.title}`
                     : `ویرایش لایسنس: ${license.title}`
@@ -362,7 +420,11 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                   : 'ثبت و تعریف لایسنس جدید نرم‌افزار / سخت‌افزار'}
               </h2>
               <p className="text-xs text-slate-400">
-                {isEn
+                {mode === 'renew'
+                  ? isEn
+                    ? 'Creates the next license cycle, linking it to the historical chain'
+                    : 'ایجاد دوره بعدی لایسنس و اتصال به زنجیره سوابق تاریخی'
+                  : isEn
                   ? 'Manage vendor licenses, expiry alerts, costs, and documentation'
                   : 'مدیریت لایسنس‌های سازمانی، هشدارهای انقضا، هزینه‌ها و مستندات پیوست'}
               </p>
@@ -418,6 +480,30 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
             <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {mode === 'renew' && license && (
+            <div
+              className={`p-4 rounded-xl border flex items-center gap-3 ${
+                isLightMode ? 'bg-cyan-50 border-cyan-300 text-cyan-900' : 'bg-cyan-950/40 border-cyan-800 text-cyan-200'
+              }`}
+            >
+              <div className="p-2 rounded-lg bg-cyan-500/20 text-cyan-400 shrink-0">
+                <RotateCw className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-semibold">
+                  {isEn
+                    ? `Renewal Cycle ${(license.renewalCycle || 1) + 1} for ${license.title}`
+                    : `دوره تمدید ${(license.renewalCycle || 1) + 1} برای ${license.title}`}
+                </h4>
+                <p className="text-xs opacity-85 mt-0.5">
+                  {isEn
+                    ? `The preceding cycle (${license.startDate} to ${license.endDate}) will be marked as 'Renewed' in audit history, while this new cycle becomes active.`
+                    : `دوره قبلی (${license.startDate} تا ${license.endDate}) با وضعیت «تمدیدشده» در سوابق نگهداری می‌شود و این دوره جدید فعال خواهد شد.`}
+                </p>
+              </div>
             </div>
           )}
 

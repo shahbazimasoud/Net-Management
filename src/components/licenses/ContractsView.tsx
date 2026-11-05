@@ -30,7 +30,9 @@ import {
   Phone,
   Tag,
   Layers,
-  ArrowRight
+  ArrowRight,
+  RotateCw,
+  History
 } from 'lucide-react';
 import {
   ContractItem,
@@ -48,6 +50,7 @@ import {
 } from '../../services/api';
 import { ContractModal } from './ContractModal';
 import { AttachmentPreviewModal } from './AttachmentPreviewModal';
+import { RenewalHistoryModal } from './RenewalHistoryModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 interface ContractsViewProps {
@@ -70,7 +73,10 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRunningCron, setIsRunningCron] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'create' | 'edit' | 'renew'>('create');
   const [editingContract, setEditingContract] = useState<ContractItem | null>(null);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [historyContract, setHistoryContract] = useState<ContractItem | null>(null);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [testingContractId, setTestingContractId] = useState<string | null>(null);
 
@@ -397,6 +403,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
               type="button"
               onClick={() => {
                 setEditingContract(null);
+                setModalMode('create');
                 setIsModalOpen(true);
               }}
               className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
@@ -722,8 +729,18 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                       {/* Contract / Scope */}
                       <td className="px-4 py-3.5">
                         <div className="space-y-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-slate-100">{contract.title}</span>
+                            {contract.renewalCycle && contract.renewalCycle > 1 && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                {isEn ? `Cycle ${contract.renewalCycle}` : `دوره ${contract.renewalCycle}`}
+                              </span>
+                            )}
+                            {contract.status === 'renewed' && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                                {isEn ? 'Renewed' : 'تمدید شده'}
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
                             <span>{contract.contractNumber}</span>
@@ -782,7 +799,12 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                             {contract.startDate} → {contract.endDate}
                           </div>
                           <div>
-                            {isExpired ? (
+                            {contract.status === 'renewed' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                                <RotateCw className="w-3 h-3" />
+                                <span>{isEn ? 'RENEWED' : 'تمدید شده'}</span>
+                              </span>
+                            ) : isExpired ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
                                 <XCircle className="w-3 h-3" />
                                 <span>{isEn ? 'EXPIRED' : 'منقضی شده'}</span>
@@ -866,12 +888,42 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                             <Send className={`w-3.5 h-3.5 ${testingContractId === contract.id ? 'animate-spin' : ''}`} />
                           </button>
 
+                          {/* Renew Button */}
+                          {canManage && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingContract(contract);
+                                setModalMode('renew');
+                                setIsModalOpen(true);
+                              }}
+                              className="p-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 transition-colors cursor-pointer"
+                              title={isEn ? 'Renew Contract (Start Next Cycle)' : 'تمدید قرارداد (ایجاد دوره بعدی با حفظ سابقه)'}
+                            >
+                              <RotateCw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* History Chain Button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHistoryContract(contract);
+                              setIsHistoryModalOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 transition-colors cursor-pointer"
+                            title={isEn ? 'View Renewal & Audit History Chain' : 'مشاهده سوابق و زنجیره تمدیدها'}
+                          >
+                            <History className="w-3.5 h-3.5" />
+                          </button>
+
                           {/* Edit Button */}
                           {canManage && (
                             <button
                               type="button"
                               onClick={() => {
                                 setEditingContract(contract);
+                                setModalMode('edit');
                                 setIsModalOpen(true);
                               }}
                               className="p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 transition-colors cursor-pointer"
@@ -903,7 +955,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
         )}
       </div>
 
-      {/* Contract Add/Edit Modal */}
+      {/* Contract Add/Edit/Renew Modal */}
       <ContractModal
         isOpen={isModalOpen}
         onClose={() => {
@@ -911,15 +963,20 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
           setEditingContract(null);
         }}
         contract={editingContract}
+        mode={modalMode}
         isLightMode={isLightMode}
         isEn={isEn}
         onSaved={() => {
           loadContracts(true);
           showToast(
             isEn
-              ? editingContract
+              ? modalMode === 'renew'
+                ? 'Contract renewed successfully.'
+                : editingContract
                 ? 'Contract updated successfully.'
                 : 'New contract registered successfully.'
+              : modalMode === 'renew'
+              ? 'تمدید قرارداد با موفقیت انجام شد.'
               : editingContract
               ? 'اطلاعات قرارداد با موفقیت به‌روزرسانی شد.'
               : 'قرارداد جدید با موفقیت ثبت گردید.',
@@ -938,6 +995,20 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
         file={previewFile}
         isLightMode={isLightMode}
         isEn={isEn}
+      />
+
+      {/* Renewal & Version History Chain Modal */}
+      <RenewalHistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => {
+          setIsHistoryModalOpen(false);
+          setHistoryContract(null);
+        }}
+        type="contract"
+        item={historyContract}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        onPreviewAttachment={handlePreviewAttachment}
       />
 
       {/* Delete Confirmation Modal */}

@@ -8323,6 +8323,60 @@ export async function deleteContractApi(id: string): Promise<{ success: boolean;
   return json;
 }
 
+export async function renewLicenseApi(
+  id: string,
+  data: Partial<LicenseItem>
+): Promise<{ success: boolean; license: LicenseItem; previousLicense: LicenseItem }> {
+  const res = await fetchWithRetry(`${API_BASE}/licenses/${encodeURIComponent(id)}/renew`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to renew license (${res.status})`);
+  }
+  return json;
+}
+
+export async function fetchLicenseHistoryApi(
+  id: string
+): Promise<{ success: boolean; history: LicenseItem[]; currentId: string; chainLength: number }> {
+  const res = await fetchWithRetry(`${API_BASE}/licenses/${encodeURIComponent(id)}/history`);
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to fetch license history (${res.status})`);
+  }
+  return json;
+}
+
+export async function renewContractApi(
+  id: string,
+  data: Partial<ContractItem>
+): Promise<{ success: boolean; contract: ContractItem; previousContract: ContractItem }> {
+  const res = await fetchWithRetry(`${API_BASE}/contracts/${encodeURIComponent(id)}/renew`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to renew contract (${res.status})`);
+  }
+  return json;
+}
+
+export async function fetchContractHistoryApi(
+  id: string
+): Promise<{ success: boolean; history: ContractItem[]; currentId: string; chainLength: number }> {
+  const res = await fetchWithRetry(`${API_BASE}/contracts/${encodeURIComponent(id)}/history`);
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to fetch contract history (${res.status})`);
+  }
+  return json;
+}
+
 export async function uploadContractAttachmentApi(payload: {
   fileName: string;
   fileType: string;

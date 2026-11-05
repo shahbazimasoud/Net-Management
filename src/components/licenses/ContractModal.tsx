@@ -25,7 +25,8 @@ import {
   ShieldCheck,
   Tag,
   Eye,
-  FileCheck
+  FileCheck,
+  RotateCw
 } from 'lucide-react';
 import {
   ContractItem,
@@ -33,7 +34,7 @@ import {
   ContractStatus,
   AttachmentFile
 } from '../../types';
-import { createContractApi, updateContractApi, uploadContractAttachmentApi } from '../../services/api';
+import { createContractApi, updateContractApi, renewContractApi, uploadContractAttachmentApi } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
 import { AttachmentPreviewModal } from './AttachmentPreviewModal';
@@ -42,6 +43,7 @@ interface ContractModalProps {
   isOpen: boolean;
   onClose: () => void;
   contract?: ContractItem | null;
+  mode?: 'create' | 'edit' | 'renew';
   isLightMode?: boolean;
   isEn?: boolean;
   onSaved: (contract: ContractItem) => void;
@@ -51,6 +53,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   isOpen,
   onClose,
   contract,
+  mode = 'edit',
   isLightMode = false,
   isEn = true,
   onSaved,
@@ -91,7 +94,57 @@ export const ContractModal: React.FC<ContractModalProps> = ({
 
   // Sync state when editing an existing contract or opening a new one
   useEffect(() => {
-    if (contract) {
+    if (mode === 'renew' && contract) {
+      const nextCycle = (contract.renewalCycle || 1) + 1;
+      const baseNum = contract.contractNumber.replace(/-R\d*$/, '');
+      setContractNumber(`${baseNum}-R${nextCycle}`);
+      setTitle(
+        isEn
+          ? `${contract.title} (Renewal Cycle ${nextCycle})`
+          : `${contract.title} (تمدید دوره ${nextCycle})`
+      );
+      setVendorName(contract.vendorName || '');
+      setVendorContact(contract.vendorContact || '');
+      setContractType(contract.contractType || 'sla_support');
+      setOwnerName(contract.ownerName || '');
+      setOwnerEmail(contract.ownerEmail || '');
+      setDepartment(contract.department || '');
+
+      // Calculate start date = 1 day after previous end date
+      let nextStart = '';
+      try {
+        const d = new Date(contract.endDate);
+        if (!isNaN(d.getTime())) {
+          d.setDate(d.getDate() + 1);
+          nextStart = d.toISOString().split('T')[0];
+        }
+      } catch {}
+      if (!nextStart) nextStart = new Date().toISOString().split('T')[0];
+      setStartDate(nextStart);
+
+      // Default end date = 1 year later
+      let nextEnd = '';
+      try {
+        const d = new Date(nextStart);
+        d.setFullYear(d.getFullYear() + 1);
+        nextEnd = d.toISOString().split('T')[0];
+      } catch {
+        nextEnd = nextStart;
+      }
+      setEndDate(nextEnd);
+
+      setTotalCost(contract.totalCost || 0);
+      setCurrency((contract.currency as any) || 'IRR');
+      setPaymentTerms(contract.paymentTerms || '');
+      setAlertDays(contract.alertDays?.length ? contract.alertDays : [60, 45, 30, 15, 5, 0]);
+      setNotifyEmails(contract.notifyEmails || []);
+      setAttachments([]); // Fresh attachments for this renewal
+      setNotes(
+        isEn
+          ? `Renewed from contract #${contract.contractNumber} (${contract.startDate} to ${contract.endDate})`
+          : `تمدید شده از قرارداد قبلی شماره ${contract.contractNumber} (${contract.startDate} تا ${contract.endDate})`
+      );
+    } else if (contract) {
       setContractNumber(contract.contractNumber || '');
       setTitle(contract.title || '');
       setVendorName(contract.vendorName || '');
@@ -125,7 +178,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
       setContractType('sla_support');
       setOwnerName('');
       setOwnerEmail('');
-      setDepartment('مدیریت فناوری اطلاعات');
+      setDepartment(isEn ? 'IT Management' : 'مدیریت فناوری اطلاعات');
       setStartDate(todayStr);
       setEndDate(nextYearStr);
       setTotalCost(0);
@@ -138,7 +191,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     }
     setErrorMessage(null);
     setIsMinimized(false);
-  }, [contract, isOpen, isEn]);
+  }, [contract, isOpen, mode, isEn]);
 
   // Universal minimization handler into ToolsDock
   const handleMinimize = () => {
@@ -330,7 +383,10 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     };
 
     try {
-      if (contract?.id) {
+      if (mode === 'renew' && contract?.id) {
+        const res = await renewContractApi(contract.id, payload);
+        onSaved(res.contract);
+      } else if (contract?.id && mode !== 'renew') {
         const res = await updateContractApi(contract.id, payload);
         onSaved(res.contract);
       } else {
@@ -353,8 +409,8 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     <div
       className={
         isMaximized
-          ? 'fixed top-0 left-0 right-0 bottom-8 z-[9999] p-0 flex flex-col'
-          : 'fixed top-0 left-0 right-0 bottom-8 z-[9999] p-2 sm:p-4 bg-black/80 backdrop-blur-sm flex items-center justify-center'
+          ? 'fixed top-0 left-0 right-0 bottom-8 z-[999990] p-0 flex flex-col'
+          : 'fixed top-0 left-0 right-0 bottom-8 z-[999990] p-2 sm:p-4 bg-black/80 backdrop-blur-sm flex items-center justify-center'
       }
       dir={isEn ? 'ltr' : 'rtl'}
     >
@@ -381,7 +437,11 @@ export const ContractModal: React.FC<ContractModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold flex items-center gap-2">
-                {contract
+                {mode === 'renew'
+                  ? isEn
+                    ? `Renew Contract: ${contract?.title || ''}`
+                    : `تمدید قرارداد: ${contract?.title || ''}`
+                  : contract
                   ? isEn
                     ? `Edit Contract: ${contract.title}`
                     : `ویرایش قرارداد: ${contract.title}`
@@ -390,7 +450,11 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                   : 'ثبت و تعریف قرارداد جدید پشتیبانی، گارانتی و SLA'}
               </h2>
               <p className="text-xs text-slate-400">
-                {isEn
+                {mode === 'renew'
+                  ? isEn
+                    ? 'Creates the next renewal cycle, linking it to the historical chain'
+                    : 'ایجاد دوره بعدی قرارداد و ثبت ارتباط در زنجیره سوابق تاریخی'
+                  : isEn
                   ? 'Manage vendor agreements, ISP bandwidth SLAs, payments, attachments & alerts'
                   : 'مدیریت قراردادهای پیمانکاران، پهنای باند اینترنت، گارانتی، پیوست‌ها و هشدارهای تمدید'}
               </p>
@@ -446,6 +510,30 @@ export const ContractModal: React.FC<ContractModalProps> = ({
             <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {mode === 'renew' && contract && (
+            <div
+              className={`p-4 rounded-xl border flex items-center gap-3 ${
+                isLightMode ? 'bg-cyan-50 border-cyan-300 text-cyan-900' : 'bg-cyan-950/40 border-cyan-800 text-cyan-200'
+              }`}
+            >
+              <div className="p-2 rounded-lg bg-cyan-500/20 text-cyan-400 shrink-0">
+                <RotateCw className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-semibold">
+                  {isEn
+                    ? `Renewal Cycle ${(contract.renewalCycle || 1) + 1} for Contract #${contract.contractNumber}`
+                    : `تمدید دوره ${(contract.renewalCycle || 1) + 1} برای قرارداد شماره ${contract.contractNumber}`}
+                </h4>
+                <p className="text-xs opacity-85 mt-0.5">
+                  {isEn
+                    ? `The previous contract record (${contract.startDate} to ${contract.endDate}) will be preserved with 'Renewed' status in audit history, while this new cycle becomes active.`
+                    : `رکورد قرارداد قبلی (${contract.startDate} تا ${contract.endDate}) با وضعیت «تمدیدشده» در تاریخچه محفوظ مانده و این دوره جدید فعال خواهد شد.`}
+                </p>
+              </div>
             </div>
           )}
 

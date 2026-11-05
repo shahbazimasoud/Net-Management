@@ -7753,10 +7753,13 @@ export interface LicenseItem {
   createdAt: string;
   updatedAt: string;
   lastNotifiedDate?: string;
+  renewedFromId?: string;
+  renewalChainId?: string;
+  renewalCycle?: number;
 }
 
 export type ContractType = 'sla_support' | 'hardware_warranty' | 'internet_isp' | 'datacenter_colocation' | 'software_maintenance' | 'hardware_purchase' | 'consulting' | 'other';
-export type ContractStatus = 'active' | 'expiring_soon' | 'expired' | 'in_renewal' | 'terminated';
+export type ContractStatus = 'active' | 'expiring_soon' | 'expired' | 'renewed' | 'in_renewal' | 'terminated';
 
 export interface ContractItem {
   id: string;
@@ -7781,6 +7784,9 @@ export interface ContractItem {
   createdAt: string;
   updatedAt: string;
   lastNotifiedDate?: string;
+  renewedFromId?: string;
+  renewalChainId?: string;
+  renewalCycle?: number;
 }
 
 

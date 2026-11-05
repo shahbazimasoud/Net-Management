@@ -79,6 +79,7 @@ export function computeLicenseStatus(startDate: string, endDate: string, current
 
 export function computeContractStatus(startDate: string, endDate: string, currentStatus?: ContractStatus): ContractStatus {
   if (currentStatus === 'terminated') return 'terminated';
+  if (currentStatus === 'renewed') return 'renewed';
   if (currentStatus === 'in_renewal') return 'in_renewal';
   const now = new Date();
   const end = new Date(endDate);
@@ -464,6 +465,159 @@ licenseContractRouter.delete('/licenses/:id', async (req: Request, res: Response
   res.json({ success: true, message: `License ${target.title} deleted successfully.` });
 });
 
+// POST /api/licenses/:id/renew
+licenseContractRouter.post('/licenses/:id/renew', async (req: Request, res: Response) => {
+  const auth = await authenticateRequest(req);
+  if (!auth.authenticated) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+
+  const isSuperAdmin = auth.user?.role?.toLowerCase().includes('admin') || auth.policy?.id === 'policy-super-admin';
+  if (!isSuperAdmin && auth.policy?.canManageLicenses === false) {
+    return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to renew licenses (canManageLicenses).' });
+  }
+
+  const { id } = req.params;
+  const body = req.body;
+  const store = readStore();
+  const licenses: LicenseItem[] = Array.isArray(store.licenses) ? store.licenses : [];
+
+  const oldIndex = licenses.findIndex((l) => l.id === id);
+  if (oldIndex === -1) {
+    return res.status(404).json({ success: false, error: `License with ID ${id} not found.` });
+  }
+
+  const oldLicense = licenses[oldIndex];
+
+  // Calculate default next start date (1 day after old end date)
+  let calculatedStartDate = body.startDate;
+  if (!calculatedStartDate) {
+    try {
+      const oldEnd = new Date(oldLicense.endDate);
+      if (!isNaN(oldEnd.getTime())) {
+        oldEnd.setDate(oldEnd.getDate() + 1);
+        calculatedStartDate = oldEnd.toISOString().split('T')[0];
+      }
+    } catch {}
+  }
+  if (!calculatedStartDate) {
+    calculatedStartDate = new Date().toISOString().split('T')[0];
+  }
+
+  // Calculate default next end date (1 year after calculated start date)
+  let calculatedEndDate = body.endDate;
+  if (!calculatedEndDate) {
+    try {
+      const st = new Date(calculatedStartDate);
+      st.setFullYear(st.getFullYear() + 1);
+      calculatedEndDate = st.toISOString().split('T')[0];
+    } catch {
+      calculatedEndDate = calculatedStartDate;
+    }
+  }
+
+  const rootChainId = oldLicense.renewalChainId || oldLicense.id;
+  const nextCycle = (oldLicense.renewalCycle || 1) + 1;
+
+  const newLicense: LicenseItem = {
+    id: `lic-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    title: body.title || `${oldLicense.title} (تمدید دوره ${nextCycle})`,
+    licenseKey: body.licenseKey || oldLicense.licenseKey || '',
+    deviceType: body.deviceType || oldLicense.deviceType,
+    vendor: body.vendor || oldLicense.vendor,
+    connectedDeviceId: body.connectedDeviceId !== undefined ? body.connectedDeviceId : oldLicense.connectedDeviceId,
+    connectedDeviceName: body.connectedDeviceName !== undefined ? body.connectedDeviceName : oldLicense.connectedDeviceName,
+    connectedServerId: body.connectedServerId !== undefined ? body.connectedServerId : oldLicense.connectedServerId,
+    connectedServerName: body.connectedServerName !== undefined ? body.connectedServerName : oldLicense.connectedServerName,
+    ownerName: body.ownerName || oldLicense.ownerName,
+    ownerEmail: body.ownerEmail !== undefined ? body.ownerEmail : oldLicense.ownerEmail,
+    department: body.department !== undefined ? body.department : oldLicense.department,
+    startDate: calculatedStartDate,
+    endDate: calculatedEndDate,
+    status: computeLicenseStatus(calculatedStartDate, calculatedEndDate, 'active'),
+    cost: body.cost !== undefined ? Number(body.cost) : oldLicense.cost,
+    currency: body.currency || oldLicense.currency || 'IRR',
+    paymentMethod: body.paymentMethod || oldLicense.paymentMethod,
+    notifyEmails: Array.isArray(body.notifyEmails) ? body.notifyEmails : oldLicense.notifyEmails || [],
+    alertDays: Array.isArray(body.alertDays) ? body.alertDays : oldLicense.alertDays || [60, 30, 15, 7, 0],
+    attachments: Array.isArray(body.attachments) ? body.attachments : [],
+    notes: body.notes || `تمدید شده از لایسنس دوره قبل (${oldLicense.startDate} الی ${oldLicense.endDate})`,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    renewedFromId: oldLicense.id,
+    renewalChainId: rootChainId,
+    renewalCycle: nextCycle,
+  };
+
+  // Update old license status to 'renewed'
+  oldLicense.status = 'renewed';
+  oldLicense.renewalChainId = rootChainId;
+  oldLicense.renewalCycle = oldLicense.renewalCycle || 1;
+  oldLicense.updatedAt = new Date().toISOString();
+  licenses[oldIndex] = oldLicense;
+
+  // Insert new license at the beginning
+  licenses.unshift(newLicense);
+  store.licenses = licenses;
+  writeStore(store);
+
+  // Mandatory Audit Logging (Rule 16)
+  await addPortalAuditLog({
+    category: 'licenses',
+    action: 'LICENSE_RENEWAL',
+    title: `تمدید لایسنس: ${newLicense.title}`,
+    title_en: `Renewed license: ${newLicense.title}`,
+    user_name: auth.user?.username,
+    user_role: auth.user?.role,
+    client_ip: req.ip || (req.headers['x-forwarded-for'] as string) || '127.0.0.1',
+    target_type: 'license',
+    target_id: newLicense.id,
+    target_name: newLicense.title,
+    severity: 'info',
+    status: 'success',
+    details: `تمدید موفقیت‌آمیز لایسنس ${oldLicense.title} به دوره جدید (${newLicense.startDate} تا ${newLicense.endDate}). وضعیت رکورد قبلی به تمدیدشده تغییر یافت.`,
+    details_en: `Successfully renewed license ${oldLicense.title} for cycle ${newLicense.startDate} to ${newLicense.endDate}. Previous record marked as renewed.`,
+  });
+
+  res.status(201).json({ success: true, license: newLicense, previousLicense: oldLicense });
+});
+
+// GET /api/licenses/:id/history
+licenseContractRouter.get('/licenses/:id/history', async (req: Request, res: Response) => {
+  const auth = await authenticateRequest(req);
+  if (!auth.authenticated) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+
+  const { id } = req.params;
+  const store = readStore();
+  const licenses: LicenseItem[] = Array.isArray(store.licenses) ? store.licenses : [];
+
+  const target = licenses.find((l) => l.id === id);
+  if (!target) {
+    return res.status(404).json({ success: false, error: `License with ID ${id} not found.` });
+  }
+
+  // Find all items connected to this chain
+  const chainId = target.renewalChainId || target.id;
+  const chainItems = licenses.filter((l) => {
+    if (l.id === target.id) return true;
+    if (l.renewalChainId && l.renewalChainId === chainId) return true;
+    if (l.renewedFromId === target.id || target.renewedFromId === l.id) return true;
+    return false;
+  });
+
+  // Sort chronological by startDate ascending
+  chainItems.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+  res.json({
+    success: true,
+    currentId: id,
+    history: chainItems,
+    chainLength: chainItems.length,
+  });
+});
+
 // ==============================================================================
 // 2. Contracts Endpoints
 // ==============================================================================
@@ -678,6 +832,150 @@ licenseContractRouter.delete('/contracts/:id', async (req: Request, res: Respons
   });
 
   res.json({ success: true, message: `Contract ${target.title} deleted successfully.` });
+});
+
+// POST /api/contracts/:id/renew
+licenseContractRouter.post('/contracts/:id/renew', async (req: Request, res: Response) => {
+  const auth = await authenticateRequest(req);
+  if (!auth.authenticated) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+
+  const isSuperAdmin = auth.user?.role?.toLowerCase().includes('admin') || auth.policy?.id === 'policy-super-admin';
+  if (!isSuperAdmin && auth.policy?.canManageContracts === false) {
+    return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to renew contracts (canManageContracts).' });
+  }
+
+  const { id } = req.params;
+  const body = req.body;
+  const store = readStore();
+  const contracts: ContractItem[] = Array.isArray(store.contracts) ? store.contracts : [];
+
+  const oldIndex = contracts.findIndex((c) => c.id === id);
+  if (oldIndex === -1) {
+    return res.status(404).json({ success: false, error: `Contract with ID ${id} not found.` });
+  }
+
+  const oldContract = contracts[oldIndex];
+
+  let calculatedStartDate = body.startDate;
+  if (!calculatedStartDate) {
+    try {
+      const oldEnd = new Date(oldContract.endDate);
+      if (!isNaN(oldEnd.getTime())) {
+        oldEnd.setDate(oldEnd.getDate() + 1);
+        calculatedStartDate = oldEnd.toISOString().split('T')[0];
+      }
+    } catch {}
+  }
+  if (!calculatedStartDate) {
+    calculatedStartDate = new Date().toISOString().split('T')[0];
+  }
+
+  let calculatedEndDate = body.endDate;
+  if (!calculatedEndDate) {
+    try {
+      const st = new Date(calculatedStartDate);
+      st.setFullYear(st.getFullYear() + 1);
+      calculatedEndDate = st.toISOString().split('T')[0];
+    } catch {
+      calculatedEndDate = calculatedStartDate;
+    }
+  }
+
+  const rootChainId = oldContract.renewalChainId || oldContract.id;
+  const nextCycle = (oldContract.renewalCycle || 1) + 1;
+
+  const newContract: ContractItem = {
+    id: `cnt-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    contractNumber: body.contractNumber || `${oldContract.contractNumber}-R${nextCycle}`,
+    title: body.title || `${oldContract.title} (تمدید دوره ${nextCycle})`,
+    vendorName: body.vendorName || oldContract.vendorName,
+    vendorContact: body.vendorContact !== undefined ? body.vendorContact : oldContract.vendorContact,
+    contractType: body.contractType || oldContract.contractType,
+    ownerName: body.ownerName || oldContract.ownerName,
+    ownerEmail: body.ownerEmail !== undefined ? body.ownerEmail : oldContract.ownerEmail,
+    department: body.department !== undefined ? body.department : oldContract.department,
+    startDate: calculatedStartDate,
+    endDate: calculatedEndDate,
+    status: computeContractStatus(calculatedStartDate, calculatedEndDate, 'active'),
+    totalCost: body.totalCost !== undefined ? Number(body.totalCost) : oldContract.totalCost,
+    currency: body.currency || oldContract.currency || 'IRR',
+    paymentTerms: body.paymentTerms || oldContract.paymentTerms,
+    notifyEmails: Array.isArray(body.notifyEmails) ? body.notifyEmails : oldContract.notifyEmails || [],
+    alertDays: Array.isArray(body.alertDays) ? body.alertDays : oldContract.alertDays || [60, 30, 15, 0],
+    attachments: Array.isArray(body.attachments) ? body.attachments : [],
+    notes: body.notes || `تمدید شده از قرارداد قبلی شماره ${oldContract.contractNumber} (${oldContract.startDate} تا ${oldContract.endDate})`,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    renewedFromId: oldContract.id,
+    renewalChainId: rootChainId,
+    renewalCycle: nextCycle,
+  };
+
+  oldContract.status = 'renewed';
+  oldContract.renewalChainId = rootChainId;
+  oldContract.renewalCycle = oldContract.renewalCycle || 1;
+  oldContract.updatedAt = new Date().toISOString();
+  contracts[oldIndex] = oldContract;
+
+  contracts.unshift(newContract);
+  store.contracts = contracts;
+  writeStore(store);
+
+  // Mandatory Audit Logging (Rule 16)
+  await addPortalAuditLog({
+    category: 'contracts',
+    action: 'CONTRACT_RENEWAL',
+    title: `تمدید قرارداد: ${newContract.title}`,
+    title_en: `Renewed contract: ${newContract.title}`,
+    user_name: auth.user?.username,
+    user_role: auth.user?.role,
+    client_ip: req.ip || (req.headers['x-forwarded-for'] as string) || '127.0.0.1',
+    target_type: 'contract',
+    target_id: newContract.id,
+    target_name: newContract.title,
+    severity: 'info',
+    status: 'success',
+    details: `تمدید قرارداد شماره ${oldContract.contractNumber} با شماره جدید ${newContract.contractNumber} به ارزش ${newContract.totalCost || 0} ${newContract.currency}`,
+    details_en: `Renewed contract #${oldContract.contractNumber} to new #${newContract.contractNumber} with value ${newContract.totalCost || 0} ${newContract.currency}`,
+  });
+
+  res.status(201).json({ success: true, contract: newContract, previousContract: oldContract });
+});
+
+// GET /api/contracts/:id/history
+licenseContractRouter.get('/contracts/:id/history', async (req: Request, res: Response) => {
+  const auth = await authenticateRequest(req);
+  if (!auth.authenticated) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+
+  const { id } = req.params;
+  const store = readStore();
+  const contracts: ContractItem[] = Array.isArray(store.contracts) ? store.contracts : [];
+
+  const target = contracts.find((c) => c.id === id);
+  if (!target) {
+    return res.status(404).json({ success: false, error: `Contract with ID ${id} not found.` });
+  }
+
+  const chainId = target.renewalChainId || target.id;
+  const chainItems = contracts.filter((c) => {
+    if (c.id === target.id) return true;
+    if (c.renewalChainId && c.renewalChainId === chainId) return true;
+    if (c.renewedFromId === target.id || target.renewedFromId === c.id) return true;
+    return false;
+  });
+
+  chainItems.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+  res.json({
+    success: true,
+    currentId: id,
+    history: chainItems,
+    chainLength: chainItems.length,
+  });
 });
 
 // ==============================================================================
