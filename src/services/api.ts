@@ -8340,3 +8340,39 @@ export async function uploadContractAttachmentApi(payload: {
   return json;
 }
 
+export async function testLicenseContractAlertApi(payload: {
+  type: 'license' | 'contract';
+  id: string;
+  targetEmail?: string;
+}): Promise<{ success: boolean; message: string; messageId?: string }> {
+  const res = await fetchWithRetry(`${API_BASE}/licenses-contracts/test-alert`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to send test alert (${res.status})`);
+  }
+  return json;
+}
+
+export async function runLicenseContractCronNowApi(): Promise<{
+  success: boolean;
+  checkedLicenses: number;
+  checkedContracts: number;
+  alertsSent: number;
+  errors: string[];
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/licenses-contracts/run-cron-now`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to execute license/contract cron (${res.status})`);
+  }
+  return json;
+}
+
+

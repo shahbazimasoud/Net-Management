@@ -42,7 +42,7 @@ import { setupTerminalWebSocket } from './server/terminalWs';
 import { setupPortMonitorWebSocket } from './server/portMonitorWs';
 import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdServiceRunning } from './server/remoteDesktopGateway';
 import { registerCertConverterRoutes } from './server/certConverter';
-import { licenseContractRouter } from './server/licenseContractService';
+import { licenseContractRouter, startLicenseContractCronDaemon } from './server/licenseContractService';
 import { checkSshBackendsOnStartup } from './server/sshBackendResolver';
 import { startBackupSchedulerDaemon } from './server/backupScheduler';
 import { startAuditReportSchedulerDaemon } from './server/auditReportScheduler';
@@ -1447,6 +1447,8 @@ async function startServer() {
     startAuditReportSchedulerDaemon();
     // Start automated PostgreSQL database log retention and purge daemon
     startLogRetentionDaemon();
+    // Start automated licenses and contracts expiry email alerting daemon
+    startLicenseContractCronDaemon();
   });
 }
 

@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { verifyToken, UserSessionPayload } from './auth';
-import { findUserById, findUserByUsername, getEffectivePolicyForUser, addPortalAuditLog } from './db';
+import { findUserById, findUserByUsername, getEffectivePolicyForUser, addPortalAuditLog, getEmailConfig, getGeneralSettings } from './db';
+import { createMailTransport } from './emailService';
 import { LicenseItem, ContractItem, AttachmentFile, LicenseStatus, ContractStatus } from '../src/types';
 
 const projectRoot = path.resolve(__dirname, '..');
@@ -753,3 +754,517 @@ licenseContractRouter.get('/licenses-contracts/download/:id', async (req: Reques
     res.status(500).json({ success: false, error: 'Failed to download attachment file.' });
   }
 });
+
+// ==============================================================================
+// 4. Automated Email Alerting Engine & HTML Template Generator
+// ==============================================================================
+
+/**
+ * Formats a clean, high-impact enterprise HTML notification email for expiring licenses and contracts
+ */
+export function generateLicenseContractAlertHtml(options: {
+  type: 'license' | 'contract';
+  title: string;
+  vendor: string;
+  itemCode?: string; // license key or contract number
+  categoryLabel: string;
+  ownerName: string;
+  department?: string;
+  endDate: string;
+  daysRemaining: number;
+  costFormatted?: string;
+  panelTitle: string;
+  notes?: string;
+  isTest?: boolean;
+}): { subject: string; html: string; text: string } {
+  const {
+    type,
+    title,
+    vendor,
+    itemCode,
+    categoryLabel,
+    ownerName,
+    department,
+    endDate,
+    daysRemaining,
+    costFormatted,
+    panelTitle,
+    notes,
+    isTest,
+  } = options;
+
+  const isExpired = daysRemaining < 0;
+  const isExpiringToday = daysRemaining === 0;
+  const typeLabelFa = type === 'license' ? 'لایسنس' : 'قرارداد';
+  const typeLabelEn = type === 'license' ? 'License' : 'Contract';
+
+  let statusBadgeFa = isExpired
+    ? 'منقضی شده است'
+    : isExpiringToday
+    ? 'سررسید امروز'
+    : `${daysRemaining} روز تا سررسید`;
+  let statusBadgeEn = isExpired
+    ? 'EXPIRED'
+    : isExpiringToday
+    ? 'EXPIRES TODAY'
+    : `${daysRemaining} DAYS REMAINING`;
+  let badgeColor = isExpired ? '#ef4444' : isExpiringToday ? '#f97316' : '#eab308';
+
+  const testPrefix = isTest ? '[TEST ALERT] ' : '';
+  const subject = `${testPrefix}[${panelTitle}] هشدار سررسید ${typeLabelFa}: ${title} (${statusBadgeFa})`;
+
+  const text = `
+=== ${panelTitle} - هشدار سررسید ${typeLabelFa} ===
+وضعیت: ${statusBadgeFa} (${statusBadgeEn})
+عنوان: ${title}
+طرف قرارداد / شرکت: ${vendor}
+کد / شماره شناسایی: ${itemCode || '-'}
+نوع و دسته‌بندی: ${categoryLabel}
+مالک سازمانی: ${ownerName} ${department ? `(${department})` : ''}
+تاریخ پایان و سررسید: ${endDate}
+روزهای باقیمانده: ${daysRemaining} روز
+${costFormatted ? `مبلغ و هزینه: ${costFormatted}\n` : ''}
+${notes ? `توضیحات: ${notes}\n` : ''}
+اقدام لازم: لطفاً جهت پیشگیری از اختلال در عملکرد سرویس و جلوگیری از جریمه‌های تاخیر، نسبت به پیگیری فرآیند تمدید اقدام فرمایید.
+  `.trim();
+
+  const html = `
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #0b0f19; font-family: Tahoma, 'Segoe UI', Arial, sans-serif; color: #e2e8f0; }
+    .container { max-width: 650px; margin: 30px auto; background-color: #111827; border-radius: 16px; border: 1px solid #1f2937; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); }
+    .header { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); padding: 24px; border-bottom: 2px solid #312e81; text-align: right; }
+    .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: bold; background-color: ${badgeColor}; color: #ffffff; text-align: center; }
+    .content { padding: 24px; }
+    .card { background-color: #1f2937; border-radius: 12px; padding: 18px; margin-bottom: 20px; border: 1px solid #374151; }
+    .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2d3748; font-size: 13px; }
+    .row:last-child { border-bottom: none; }
+    .label { color: #94a3b8; font-weight: 500; }
+    .value { color: #f8fafc; font-weight: bold; text-align: left; direction: ltr; }
+    .value-rtl { color: #f8fafc; font-weight: bold; text-align: right; }
+    .urgent-banner { background-color: rgba(${isExpired ? '239, 68, 68, 0.15' : '234, 179, 8, 0.15'}); border-right: 4px solid ${badgeColor}; padding: 14px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; line-height: 1.6; color: #cbd5e1; }
+    .footer { background-color: #0f172a; padding: 16px 24px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #1f2937; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span class="badge">${statusBadgeFa}</span>
+        <span style="font-size: 13px; color: #94a3b8; font-family: monospace;">${typeLabelEn.toUpperCase()} ALERT</span>
+      </div>
+      <h2 style="margin: 12px 0 4px 0; font-size: 20px; color: #ffffff;">${title}</h2>
+      <div style="font-size: 12px; color: #a5b4fc;">${panelTitle} • سیستم نظارت و مدیریت هوشمند قراردادها و لایسنس‌ها</div>
+    </div>
+    <div class="content">
+      <div class="urgent-banner">
+        <strong>${isExpired ? 'توجه فوری:' : 'یادآوری دوره‌ای:'}</strong>
+        ${isExpired 
+          ? `مدت اعتبار این ${typeLabelFa} به پایان رسیده است. جهت جلوگیری از قطع لایسنس، اختلال در پشتیبانی سخت‌افزاری و دریافت آپدیت‌ها، فوراً نسبت به تمدید اقدام نمایید.`
+          : `تنها <strong>${daysRemaining} روز</strong> تا سررسید انقضای این ${typeLabelFa} باقی مانده است. لطفاً هماهنگی‌های لازم با بخش بازرگانی و شرکت پشتیبان را در دستور کار قرار دهید.`}
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <span class="label">عنوان ${typeLabelFa}:</span>
+          <span class="value-rtl">${title}</span>
+        </div>
+        <div class="row">
+          <span class="label">شرکت تامین‌کننده / برند:</span>
+          <span class="value-rtl">${vendor}</span>
+        </div>
+        ${itemCode ? `
+        <div class="row">
+          <span class="label">${type === 'license' ? 'کلید لایسنس (License Key):' : 'شماره قرارداد:'}</span>
+          <span class="value">${itemCode}</span>
+        </div>` : ''}
+        <div class="row">
+          <span class="label">نوع و دسته‌بندی:</span>
+          <span class="value-rtl">${categoryLabel}</span>
+        </div>
+        <div class="row">
+          <span class="label">مالک سازمانی:</span>
+          <span class="value-rtl">${ownerName} ${department ? `(${department})` : ''}</span>
+        </div>
+        <div class="row">
+          <span class="label">تاریخ سررسید انقضا:</span>
+          <span class="value">${endDate}</span>
+        </div>
+        <div class="row">
+          <span class="label">روزهای باقیمانده:</span>
+          <span class="value" style="color: ${badgeColor}; font-size: 14px;">${daysRemaining} روز</span>
+        </div>
+        ${costFormatted ? `
+        <div class="row">
+          <span class="label">مبلغ قرارداد / هزینه:</span>
+          <span class="value-rtl">${costFormatted}</span>
+        </div>` : ''}
+      </div>
+
+      ${notes ? `
+      <div style="font-size: 12px; color: #94a3b8; background-color: #1e293b; padding: 12px; border-radius: 8px; margin-bottom: 20px;">
+        <strong style="color: #cbd5e1;">یادداشت‌ها:</strong> ${notes}
+      </div>` : ''}
+
+      <div style="text-align: center; margin-top: 24px;">
+        <div style="font-size: 12px; color: #64748b;">این ایمیل به صورت خودکار توسط موتور زمان‌بندی سامانه NetTopology برای اعضای لیست اطلاع‌رسانی ارسال شده است.</div>
+      </div>
+    </div>
+    <div class="footer">
+      <div>${panelTitle} • Infrastructure & Network Operations Center (NOC)</div>
+      <div style="margin-top: 4px;">تاریخ ارسال گزارش: ${new Date().toLocaleString('fa-IR')}</div>
+    </div>
+  </div>
+</body>
+</html>
+  `.trim();
+
+  return { subject, html, text };
+}
+
+/**
+ * Sends an email alert for a license or contract to its notification list or test address
+ */
+export async function sendLicenseOrContractEmailAlert(
+  item: LicenseItem | ContractItem,
+  type: 'license' | 'contract',
+  options?: { targetEmail?: string; isTest?: boolean }
+): Promise<{ success: boolean; sentCount: number; messageId?: string; error?: string }> {
+  try {
+    const emailConfig = await getEmailConfig();
+    const generalSettings = await getGeneralSettings();
+    const panelTitle = (generalSettings?.panelTitle && generalSettings.panelTitle.trim()) || 'NetTopology Pro';
+
+    if (!emailConfig || !emailConfig.smtp_host || !emailConfig.smtp_host.trim()) {
+      console.warn(`[License/Contract Alert] SMTP host not configured in Email Settings.`);
+      return { success: false, sentCount: 0, error: 'SMTP outgoing mail server is not configured in settings.' };
+    }
+
+    const recipients = options?.targetEmail
+      ? [options.targetEmail.trim()]
+      : Array.isArray(item.notifyEmails) && item.notifyEmails.length > 0
+      ? item.notifyEmails.map((e) => e.trim()).filter(Boolean)
+      : [];
+
+    if (recipients.length === 0) {
+      return { success: false, sentCount: 0, error: 'No recipient emails configured for this item.' };
+    }
+
+    const now = new Date();
+    const end = new Date(item.endDate);
+    const diffTime = end.getTime() - now.getTime();
+    const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    const fromAddr = (emailConfig.from_email && emailConfig.from_email.trim()) || emailConfig.smtp_user.trim();
+    const fromName = (emailConfig.from_name && emailConfig.from_name.trim()) || `${panelTitle} Licenses & Contracts`;
+    const from = fromName ? `"${fromName}" <${fromAddr}>` : fromAddr;
+
+    const categoryLabel = type === 'license'
+      ? (item as LicenseItem).deviceType || 'Network Device'
+      : (item as ContractItem).contractType || 'SLA Support';
+
+    const itemCode = type === 'license'
+      ? (item as LicenseItem).licenseKey
+      : (item as ContractItem).contractNumber;
+
+    const vendor = type === 'license'
+      ? (item as LicenseItem).vendor
+      : (item as ContractItem).vendorName;
+
+    const rawCost = type === 'license' ? (item as LicenseItem).cost : (item as ContractItem).totalCost;
+    const costFormatted = rawCost
+      ? `${Number(rawCost).toLocaleString()} ${item.currency || 'IRR'}`
+      : undefined;
+
+    const emailContent = generateLicenseContractAlertHtml({
+      type,
+      title: item.title,
+      vendor: vendor || 'Unknown Vendor',
+      itemCode,
+      categoryLabel,
+      ownerName: item.ownerName || 'Admin',
+      department: item.department,
+      endDate: item.endDate,
+      daysRemaining,
+      costFormatted,
+      panelTitle,
+      notes: item.notes,
+      isTest: options?.isTest,
+    });
+
+    const transporter = createMailTransport(emailConfig);
+    const sendResult = await transporter.sendMail({
+      from,
+      to: recipients.join(', '),
+      subject: emailContent.subject,
+      text: emailContent.text,
+      html: emailContent.html,
+    });
+
+    // Update item lastNotifiedDate in database_store.json
+    try {
+      const store = readStore();
+      const list = type === 'license' ? store.licenses : store.contracts;
+      if (Array.isArray(list)) {
+        const target = list.find((x: any) => x.id === item.id);
+        if (target) {
+          target.lastNotifiedDate = new Date().toISOString().split('T')[0];
+          target.updatedAt = new Date().toISOString();
+          writeStore(store);
+        }
+      }
+    } catch (dbErr) {
+      console.warn('Failed to update lastNotifiedDate:', dbErr);
+    }
+
+    return {
+      success: true,
+      sentCount: recipients.length,
+      messageId: sendResult.messageId,
+    };
+  } catch (err: any) {
+    console.error(`[License/Contract Alert Error] Failed to send email alert for ${item.title}:`, err);
+    return { success: false, sentCount: 0, error: err.message || 'Failed to send alert email' };
+  }
+}
+
+/**
+ * Scans all licenses and contracts and dispatches email alerts
+ * to configured recipients when matching alert days or expired
+ */
+export async function checkAndSendLicenseContractAlerts(): Promise<{
+  checkedLicenses: number;
+  checkedContracts: number;
+  alertsSent: number;
+  errors: string[];
+}> {
+  const store = readStore();
+  const licenses: LicenseItem[] = Array.isArray(store.licenses) ? store.licenses : [];
+  const contracts: ContractItem[] = Array.isArray(store.contracts) ? store.contracts : [];
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  let alertsSent = 0;
+  const errors: string[] = [];
+
+  // 1. Check Licenses
+  for (const lic of licenses) {
+    try {
+      if (!Array.isArray(lic.notifyEmails) || lic.notifyEmails.length === 0) continue;
+
+      const end = new Date(lic.endDate);
+      if (isNaN(end.getTime())) continue;
+
+      const now = new Date();
+      const diffTime = end.getTime() - now.getTime();
+      const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      const alertDays = Array.isArray(lic.alertDays) && lic.alertDays.length > 0 ? lic.alertDays : [30, 15, 7, 0];
+
+      // Check if daysRemaining is one of the milestone alert days
+      const isMilestone = alertDays.includes(daysRemaining);
+      // Or if expired (<= 0) and hasn't been notified today
+      const isExpiredNotice = daysRemaining <= 0 && lic.lastNotifiedDate !== todayStr;
+
+      if ((isMilestone || isExpiredNotice) && lic.lastNotifiedDate !== todayStr) {
+        console.log(`[License Alert Triggered] '${lic.title}' has ${daysRemaining} days remaining. Sending alert to ${lic.notifyEmails.join(', ')}...`);
+        const result = await sendLicenseOrContractEmailAlert(lic, 'license');
+        if (result.success) {
+          alertsSent++;
+          await addPortalAuditLog({
+            category: 'licenses',
+            action: 'LICENSE_EXPIRY_ALERT_SENT',
+            title: `ارسال هشدار انقضای لایسنس: ${lic.title}`,
+            title_en: `Dispatched license expiry alert: ${lic.title}`,
+            user_name: 'cron_daemon',
+            user_role: 'System Scheduler',
+            client_ip: '127.0.0.1',
+            target_type: 'license',
+            target_id: lic.id,
+            target_name: lic.title,
+            severity: daysRemaining <= 0 ? 'warn' : 'info',
+            status: 'success',
+            details: `ارسال ایمیل هشدار سررسید لایسنس (${daysRemaining} روز باقی مانده) به: ${lic.notifyEmails.join(', ')}`,
+            details_en: `Sent expiry notice (${daysRemaining} days remaining) to: ${lic.notifyEmails.join(', ')}`,
+          });
+        } else if (result.error) {
+          errors.push(`License ${lic.title}: ${result.error}`);
+        }
+      }
+    } catch (err: any) {
+      errors.push(`Error checking license ${lic.title}: ${err.message}`);
+    }
+  }
+
+  // 2. Check Contracts
+  for (const cnt of contracts) {
+    try {
+      if (!Array.isArray(cnt.notifyEmails) || cnt.notifyEmails.length === 0) continue;
+
+      const end = new Date(cnt.endDate);
+      if (isNaN(end.getTime())) continue;
+
+      const now = new Date();
+      const diffTime = end.getTime() - now.getTime();
+      const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      const alertDays = Array.isArray(cnt.alertDays) && cnt.alertDays.length > 0 ? cnt.alertDays : [45, 30, 15, 0];
+
+      const isMilestone = alertDays.includes(daysRemaining);
+      const isExpiredNotice = daysRemaining <= 0 && cnt.lastNotifiedDate !== todayStr;
+
+      if ((isMilestone || isExpiredNotice) && cnt.lastNotifiedDate !== todayStr) {
+        console.log(`[Contract Alert Triggered] '${cnt.title}' has ${daysRemaining} days remaining. Sending alert to ${cnt.notifyEmails.join(', ')}...`);
+        const result = await sendLicenseOrContractEmailAlert(cnt, 'contract');
+        if (result.success) {
+          alertsSent++;
+          await addPortalAuditLog({
+            category: 'contracts',
+            action: 'CONTRACT_EXPIRY_ALERT_SENT',
+            title: `ارسال هشدار سررسید قرارداد: ${cnt.title}`,
+            title_en: `Dispatched contract expiry alert: ${cnt.title}`,
+            user_name: 'cron_daemon',
+            user_role: 'System Scheduler',
+            client_ip: '127.0.0.1',
+            target_type: 'contract',
+            target_id: cnt.id,
+            target_name: cnt.title,
+            severity: daysRemaining <= 0 ? 'warn' : 'info',
+            status: 'success',
+            details: `ارسال ایمیل هشدار سررسید قرارداد #${cnt.contractNumber} (${daysRemaining} روز باقی مانده) به: ${cnt.notifyEmails.join(', ')}`,
+            details_en: `Sent expiry notice for contract #${cnt.contractNumber} (${daysRemaining} days remaining) to: ${cnt.notifyEmails.join(', ')}`,
+          });
+        } else if (result.error) {
+          errors.push(`Contract ${cnt.title}: ${result.error}`);
+        }
+      }
+    } catch (err: any) {
+      errors.push(`Error checking contract ${cnt.title}: ${err.message}`);
+    }
+  }
+
+  return {
+    checkedLicenses: licenses.length,
+    checkedContracts: contracts.length,
+    alertsSent,
+    errors,
+  };
+}
+
+/**
+ * Initializes and starts the background recurring cron daemon
+ */
+export function startLicenseContractCronDaemon(): void {
+  console.log('[License/Contract Scheduler] 🕒 Initializing background alert daemon...');
+
+  // Run initial scan 15 seconds after server startup
+  setTimeout(async () => {
+    try {
+      console.log('[License/Contract Scheduler] Running initial startup check for expiring licenses and contracts...');
+      const res = await checkAndSendLicenseContractAlerts();
+      console.log(`[License/Contract Scheduler] Startup check completed. Checked ${res.checkedLicenses} licenses, ${res.checkedContracts} contracts. Sent ${res.alertsSent} alerts.`);
+    } catch (err: any) {
+      console.error('[License/Contract Scheduler Error] Initial scan failed:', err.message);
+    }
+  }, 15000);
+
+  // Run recurring scan every 1 hour (3600000 ms)
+  setInterval(async () => {
+    try {
+      const res = await checkAndSendLicenseContractAlerts();
+      if (res.alertsSent > 0) {
+        console.log(`[License/Contract Scheduler] Hourly scan completed. Sent ${res.alertsSent} alerts.`);
+      }
+    } catch (err: any) {
+      console.error('[License/Contract Scheduler Error] Hourly scan failed:', err.message);
+    }
+  }, 60 * 60 * 1000);
+}
+
+// POST /api/licenses-contracts/test-alert
+licenseContractRouter.post('/licenses-contracts/test-alert', async (req: Request, res: Response) => {
+  const auth = await authenticateRequest(req);
+  if (!auth.authenticated) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+
+  const { type, id, targetEmail } = req.body;
+  if (!type || !id) {
+    return res.status(400).json({ success: false, error: 'Type (license|contract) and id are required.' });
+  }
+
+  const store = readStore();
+  const list = type === 'license' ? store.licenses : store.contracts;
+  const item = Array.isArray(list) ? list.find((x: any) => x.id === id) : null;
+
+  if (!item) {
+    return res.status(404).json({ success: false, error: `${type === 'license' ? 'License' : 'Contract'} with ID ${id} not found.` });
+  }
+
+  const result = await sendLicenseOrContractEmailAlert(item, type, { targetEmail, isTest: true });
+
+  if (result.success) {
+    await addPortalAuditLog({
+      category: type === 'license' ? 'licenses' : 'contracts',
+      action: 'TEST_ALERT_EMAIL_SENT',
+      title: `ارسال تستی ایمیل هشدار: ${item.title}`,
+      title_en: `Sent test alert email: ${item.title}`,
+      user_name: auth.user?.username,
+      user_role: auth.user?.role,
+      client_ip: req.ip || (req.headers['x-forwarded-for'] as string) || '127.0.0.1',
+      target_type: type,
+      target_id: item.id,
+      target_name: item.title,
+      severity: 'info',
+      status: 'success',
+      details: `ارسال موفق ایمیل تستی به آدرس: ${targetEmail || (item.notifyEmails || []).join(', ')}`,
+      details_en: `Successfully sent test alert email to: ${targetEmail || (item.notifyEmails || []).join(', ')}`,
+    });
+
+    res.json({
+      success: true,
+      message: `Test email sent successfully to ${targetEmail || (item.notifyEmails || []).join(', ')}`,
+      messageId: result.messageId,
+    });
+  } else {
+    res.status(500).json({
+      success: false,
+      error: result.error || 'Failed to send test email.',
+    });
+  }
+});
+
+// POST /api/licenses-contracts/run-cron-now
+licenseContractRouter.post('/licenses-contracts/run-cron-now', async (req: Request, res: Response) => {
+  const auth = await authenticateRequest(req);
+  if (!auth.authenticated) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+
+  const result = await checkAndSendLicenseContractAlerts();
+
+  await addPortalAuditLog({
+    category: 'system',
+    action: 'MANUAL_CRON_TRIGGERED',
+    title: 'اجرای دستی بررسی انقضای لایسنس‌ها و قراردادها',
+    title_en: 'Manually triggered licenses and contracts expiry check',
+    user_name: auth.user?.username,
+    user_role: auth.user?.role,
+    client_ip: req.ip || (req.headers['x-forwarded-for'] as string) || '127.0.0.1',
+    target_type: 'cron',
+    severity: 'info',
+    status: 'success',
+    details: `بررسی ${result.checkedLicenses} لایسنس و ${result.checkedContracts} قرارداد انجام شد. ارسال ${result.alertsSent} ایمیل هشدار.`,
+    details_en: `Checked ${result.checkedLicenses} licenses and ${result.checkedContracts} contracts. Sent ${result.alertsSent} alerts.`,
+  });
+
+  res.json({
+    success: true,
+    ...result,
+  });
+});
+

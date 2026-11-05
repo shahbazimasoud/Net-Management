@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.413.0';
+export const APP_VERSION = '1.414.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.414.0',
+    releaseDate: '2026-11-05',
+    type: 'minor',
+    title: 'فاز ۲ مدیریت قراردادها و لایسنس‌ها: موتور خودکار زمان‌بندی و ارسال ایمیل هشدار انقضا، قالب شرکتی HTML و سرویس کران‌جاب',
+    title_en: 'Phase 2 Contracts & Licenses: Automated Expiry Alerting Daemon, Enterprise HTML Templates, and Multi-Recipient Cron Engine',
+    changes: [
+      'توسعه موتور زمان‌بندی پس‌زمینه (`startLicenseContractCronDaemon`) با اجرای دوره‌ای ساعتی و اسکن خودکار کلیه لایسنس‌ها و قراردادها جهت تطابق با روزهای سفارشی هشدار (`alertDays`).',
+      'طراحی قالب ایمیل شرکتی واکنش‌گرا و مدرن HTML با استایل تیره و نشانگرهای رنگی وضعیت (قرمز منقضی‌شده، زرد نزدیک سررسید، روزشمار دقیق انقضا، مشخصات تجهیز و مالک).',
+      'پشتیبانی از ارسال همزمان به چندین آدرس ایمیل (`notifyEmails`) با استفاده از درگاه سازمانی SMTP و اتصال به تنظیمات ایمیل سرور.',
+      'توسعه اندپوینت تست آنی ارسال هشدار (`POST /api/licenses-contracts/test-alert`) جهت بررسی قالب و ارسال بدون انتظار برای زمان‌بندی.',
+      'توسعه اندپوینت اجرای دستی کران‌جاب (`POST /api/licenses-contracts/run-cron-now`) با خروجی آماری تعداد لایسنس‌ها و قراردادهای بررسی‌شده و هشدارهای ارسال‌شده.',
+      'ثبت کامل کلیه هشدارهای ارسالی و تست‌ها در سیستم لاگ‌گیری حسابرسی سرور (`portal_audit_logs`) مطابق قانون ۱۶.'
+    ],
+    changes_en: [
+      'Engineered background cron daemon (`startLicenseContractCronDaemon`) running hourly scans to evaluate all licenses and contracts against custom alert milestones (`alertDays`).',
+      'Designed responsive enterprise HTML email templates featuring dynamic status badges (expired red, expiring-soon yellow, countdown counter, equipment details, and ownership info).',
+      'Implemented multi-recipient dispatch (`notifyEmails`) leveraging the existing robust enterprise SMTP transport.',
+      'Developed instant test alert endpoint (`POST /api/licenses-contracts/test-alert`) for live verification of email delivery and layout.',
+      'Added manual cron trigger endpoint (`POST /api/licenses-contracts/run-cron-now`) with comprehensive dispatch statistics.',
+      'Enforced Rule 16 day-one audit logging for all automated and manual alert notifications in `portal_audit_logs`.'
+    ]
+  },
   {
     version: '1.413.0',
     releaseDate: '2026-11-05',
