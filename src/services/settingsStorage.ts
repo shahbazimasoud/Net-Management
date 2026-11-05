@@ -263,6 +263,13 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canBatchOperate: false,             // Cannot execute mass bulk edits
     canExportBackup: false,             // Cannot export backup
     canImportBackup: false,             // Cannot import backup
+    // Licenses & Contracts RBAC
+    canViewLicenses: true,
+    canManageLicenses: false,
+    canDeleteLicenses: false,
+    canViewContracts: false,
+    canManageContracts: false,
+    canDeleteContracts: false,
   },
   {
     id: 'policy-noc-observer',
@@ -315,6 +322,13 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canBatchOperate: false,
     canExportBackup: false,
     canImportBackup: false,
+    // Licenses & Contracts RBAC
+    canViewLicenses: true,
+    canManageLicenses: false,
+    canDeleteLicenses: false,
+    canViewContracts: true,
+    canManageContracts: false,
+    canDeleteContracts: false,
   },
   {
     id: 'policy-super-admin',
@@ -371,6 +385,13 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canImportDevices: true,
     canExportServers: true,
     canImportServers: true,
+    // Licenses & Contracts RBAC
+    canViewLicenses: true,
+    canManageLicenses: true,
+    canDeleteLicenses: true,
+    canViewContracts: true,
+    canManageContracts: true,
+    canDeleteContracts: true,
   },
 ];
 
@@ -1405,6 +1426,11 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
       return Boolean(policy?.canViewScanner);
     case 'logs':
       return policy?.canViewLogs !== undefined ? Boolean(policy?.canViewLogs) : false;
+    case 'licenses-contracts':
+    case 'licenses':
+      return policy?.canViewLicenses !== undefined ? Boolean(policy?.canViewLicenses) : true;
+    case 'contracts':
+      return policy?.canViewContracts !== undefined ? Boolean(policy?.canViewContracts) : true;
     case 'settings':
     case 'general-settings':
     case 'settings-services':

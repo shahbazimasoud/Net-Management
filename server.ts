@@ -42,6 +42,7 @@ import { setupTerminalWebSocket } from './server/terminalWs';
 import { setupPortMonitorWebSocket } from './server/portMonitorWs';
 import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdServiceRunning } from './server/remoteDesktopGateway';
 import { registerCertConverterRoutes } from './server/certConverter';
+import { licenseContractRouter } from './server/licenseContractService';
 import { checkSshBackendsOnStartup } from './server/sshBackendResolver';
 import { startBackupSchedulerDaemon } from './server/backupScheduler';
 import { startAuditReportSchedulerDaemon } from './server/auditReportScheduler';
@@ -1206,6 +1207,9 @@ registerRemoteDesktopRoutes(app, projectRoot);
 
 // Mount SSL / TLS Certificate Converter & Formatter routes
 registerCertConverterRoutes(app);
+
+// Mount Licenses & Contracts Management routes
+app.use('/api', licenseContractRouter);
 
 // Mount PostgreSQL & Authentication API router
 app.use('/api', apiRouter);

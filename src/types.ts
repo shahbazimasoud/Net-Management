@@ -1021,6 +1021,14 @@ export interface AccessPolicy {
   defaultDevicePermissions?: NetworkDeviceActionPermissions;
   perDevicePermissions?: Record<string /* deviceId */, NetworkDeviceActionPermissions>;
 
+  // 8. Licenses & Contracts Management (Granular Multi-Vendor RBAC)
+  canViewLicenses?: boolean;
+  canManageLicenses?: boolean;
+  canDeleteLicenses?: boolean;
+  canViewContracts?: boolean;
+  canManageContracts?: boolean;
+  canDeleteContracts?: boolean;
+
   permissions?: any;
 }
 
@@ -7699,6 +7707,80 @@ export interface TelegramTestResult {
   error_fa?: string;
   statusCode?: number;
   details?: any;
+}
+
+// ==============================================================================
+// Licenses and Contracts Management Types
+// ==============================================================================
+
+export type LicenseDeviceType = 'switch' | 'router' | 'firewall' | 'server' | 'access_point' | 'software' | 'cloud' | 'other';
+export type LicenseStatus = 'active' | 'expiring_soon' | 'expired' | 'renewed' | 'suspended';
+
+export interface AttachmentFile {
+  id: string;
+  fileName: string;
+  fileSize: number; // in bytes
+  fileType: string; // mime type
+  uploadDate: string; // ISO string
+  storagePath?: string;
+  downloadUrl?: string;
+  dataBase64?: string; // fallback if stored inline
+}
+
+export interface LicenseItem {
+  id: string;
+  title: string;
+  licenseKey?: string;
+  deviceType: LicenseDeviceType;
+  vendor: string; // Cisco, MikroTik, Fortinet, VMware, Microsoft, RedHat, etc.
+  connectedDeviceId?: string; // Linked directly to device in panel
+  connectedDeviceName?: string;
+  connectedServerId?: string; // Or linked to a remote server
+  connectedServerName?: string;
+  ownerName: string; // Person in charge
+  ownerEmail?: string;
+  department?: string; // e.g. IT Infrastructure, Security, NOC
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  status: LicenseStatus;
+  cost?: number; // Cost paid
+  currency: 'IRR' | 'USD' | 'EUR' | 'AED' | string;
+  paymentMethod?: string; // Annual, One-time, Subscription
+  notifyEmails: string[]; // List of recipient emails for alerts
+  alertDays: number[]; // e.g. [60, 30, 20, 10, 5, 0] days before expiry
+  attachments: AttachmentFile[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastNotifiedDate?: string;
+}
+
+export type ContractType = 'sla_support' | 'hardware_warranty' | 'internet_isp' | 'datacenter_colocation' | 'software_maintenance' | 'hardware_purchase' | 'consulting' | 'other';
+export type ContractStatus = 'active' | 'expiring_soon' | 'expired' | 'in_renewal' | 'terminated';
+
+export interface ContractItem {
+  id: string;
+  contractNumber: string;
+  title: string;
+  vendorName: string; // Supplier / Provider company
+  vendorContact?: string; // Contact phone / email of account manager
+  contractType: ContractType;
+  ownerName: string; // Internal manager
+  ownerEmail?: string;
+  department?: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  status: ContractStatus;
+  totalCost?: number;
+  currency: 'IRR' | 'USD' | 'EUR' | 'AED' | string;
+  paymentTerms?: string; // Monthly, Quarterly, Annual, Milestone-based
+  notifyEmails: string[];
+  alertDays: number[];
+  attachments: AttachmentFile[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastNotifiedDate?: string;
 }
 
 

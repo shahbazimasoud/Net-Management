@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.412.2';
+export const APP_VERSION = '1.413.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.413.0',
+    releaseDate: '2026-11-05',
+    type: 'minor',
+    title: 'فاز ۱ مدیریت قراردادها و لایسنس‌ها: مدل داده، APIهای سرور، ذخیره‌سازی، آپلود امن فایل و اتصال جامع به RBAC و حسابرسی',
+    title_en: 'Phase 1 Contracts & Licenses: Data Models, Server REST APIs, Persistence, Secure Attachment Storage, and Day-One RBAC & Audit Binding',
+    changes: [
+      'پیاده‌سازی مدل‌های جامع تایپ‌اسکریپت برای مدیریت لایسنس‌ها (`LicenseItem`) و قراردادها (`ContractItem`) شامل نوع دیوایس، کلید مجوز، شرکت تامین‌کننده، تاریخ‌ها، مالک، دپارتمان، مبالغ، ماتریس ایمیل‌های هشدار و زمان‌بندی روزهای یادآوری سفارشی.',
+      'توسعه سرویس بک‌اند `licenseContractService.ts` و رجیستر اندپوینت‌های کامل CRUD برای لایسنس‌ها و قراردادها به همراه محاسبه پویای وضعیت (فعال، نزدیک انقضا، منقضی، در حال تمدید).',
+      'ایجاد سیستم امن آپلود و دانلود پیوست‌های قرارداد و فاکتورها در مسیر `backend/uploads/contracts/` با استریم مستقیم و کدگذاری ایمن نام فایل‌ها.',
+      'انطباق ۱۰۰٪ با قانون ۱۶: اتصال تمامی اندپوینت‌ها و تب‌ها به پرمیشن‌های چندفروشنده‌ای RBAC (`canViewLicenses`, `canManageLicenses`, `canDeleteLicenses`, `canViewContracts`, `canManageContracts`, `canDeleteContracts`).',
+      'ثبت خودکار و بدون استثنای تمامی رخدادهای ایجاد، ویرایش، حذف و آپلود پیوست در سیستم لاگ‌گیری حسابرسی پورتال (`portal_audit_logs`) همراه با انتساب دقیق کاربر و IP.',
+      'توسعه و اکسپورت توابع کلاینت در سرویس فرانت‌اند `src/services/api.ts` با تزریق خودکار توکن احراز هویت.'
+    ],
+    changes_en: [
+      'Implemented comprehensive TypeScript interfaces for licenses (`LicenseItem`) and contracts (`ContractItem`) supporting device association, license key, vendor, validity dates, ownership, costs, email alert matrices, and custom alert milestones.',
+      'Developed backend service `licenseContractService.ts` and mounted full RESTful CRUD endpoints with dynamic status computation (active, expiring_soon, expired, in_renewal).',
+      'Engineered secure file attachment upload and streaming download engine under `backend/uploads/contracts/`.',
+      'Achieved 100% compliance with Rule 16 by registering granular RBAC permissions (`canViewLicenses`, `canManageLicenses`, `canDeleteLicenses`, `canViewContracts`, `canManageContracts`, `canDeleteContracts`) across policies and access checks.',
+      'Integrated day-one audit trail logging for all mutations, deletions, and file uploads into `portal_audit_logs` with full user and IP attribution.',
+      'Exported resilient client API methods in `src/services/api.ts` with transparent authentication Bearer token injection.'
+    ]
+  },
   {
     version: '1.412.2',
     releaseDate: '2026-11-05',

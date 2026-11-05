@@ -180,6 +180,9 @@ import {
   ServerTimeInfo,
   TelegramAlertConfig,
   TelegramTestResult,
+  LicenseItem,
+  ContractItem,
+  AttachmentFile,
 } from '../types';
 
 const API_BASE = '/api';
@@ -8212,5 +8215,128 @@ export async function purgeLogRetentionNowApi(options: { retentionDays?: number;
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
   return await res.json();
+}
+
+// ==============================================================================
+// Licenses and Contracts API Client
+// ==============================================================================
+
+export async function fetchLicensesApi(): Promise<{
+  success: boolean;
+  licenses: LicenseItem[];
+  total: number;
+  summary: { total: number; active: number; expiring_soon: number; expired: number; renewed: number };
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/licenses`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(err.error || `Failed to fetch licenses (${res.status})`);
+  }
+  return await res.json();
+}
+
+export async function createLicenseApi(data: Partial<LicenseItem>): Promise<{ success: boolean; license: LicenseItem }> {
+  const res = await fetchWithRetry(`${API_BASE}/licenses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to create license (${res.status})`);
+  }
+  return json;
+}
+
+export async function updateLicenseApi(id: string, data: Partial<LicenseItem>): Promise<{ success: boolean; license: LicenseItem }> {
+  const res = await fetchWithRetry(`${API_BASE}/licenses/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to update license (${res.status})`);
+  }
+  return json;
+}
+
+export async function deleteLicenseApi(id: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetchWithRetry(`${API_BASE}/licenses/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to delete license (${res.status})`);
+  }
+  return json;
+}
+
+export async function fetchContractsApi(): Promise<{
+  success: boolean;
+  contracts: ContractItem[];
+  total: number;
+  summary: { total: number; active: number; expiring_soon: number; expired: number; in_renewal: number };
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/contracts`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(err.error || `Failed to fetch contracts (${res.status})`);
+  }
+  return await res.json();
+}
+
+export async function createContractApi(data: Partial<ContractItem>): Promise<{ success: boolean; contract: ContractItem }> {
+  const res = await fetchWithRetry(`${API_BASE}/contracts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to create contract (${res.status})`);
+  }
+  return json;
+}
+
+export async function updateContractApi(id: string, data: Partial<ContractItem>): Promise<{ success: boolean; contract: ContractItem }> {
+  const res = await fetchWithRetry(`${API_BASE}/contracts/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to update contract (${res.status})`);
+  }
+  return json;
+}
+
+export async function deleteContractApi(id: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetchWithRetry(`${API_BASE}/contracts/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to delete contract (${res.status})`);
+  }
+  return json;
+}
+
+export async function uploadContractAttachmentApi(payload: {
+  fileName: string;
+  fileType: string;
+  dataBase64: string;
+}): Promise<{ success: boolean; attachment: AttachmentFile }> {
+  const res = await fetchWithRetry(`${API_BASE}/licenses-contracts/upload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to upload attachment (${res.status})`);
+  }
+  return json;
 }
 
