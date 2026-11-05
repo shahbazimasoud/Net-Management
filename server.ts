@@ -64,7 +64,16 @@ const getPort = (): number => {
     const val = parseInt(process.argv[portArgIndex + 1], 10);
     if (!isNaN(val)) return val;
   }
-  return process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  if (process.env.APP_PORT) {
+    const val = parseInt(process.env.APP_PORT, 10);
+    if (!isNaN(val)) return val;
+  }
+  // In AI Studio / Cloud Run, outer PORT is 8080 for NGINX proxy which routes to 3000.
+  // The Node application must listen on port 3000.
+  if (process.env.PORT && process.env.PORT !== '8080') {
+    return parseInt(process.env.PORT, 10);
+  }
+  return 3000;
 };
 
 const getHost = (): string => {

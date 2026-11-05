@@ -175,6 +175,7 @@ export const LEGACY_PYTHON_BIN = getVenvDirForMode('legacy').pythonBin || path.r
 export const MODERN_PYTHON_BIN = getVenvDirForMode('modern').pythonBin || path.resolve(projectRoot, 'backend', 'venv_modern', 'bin', 'python');
 
 let isAutoProvisioning = false;
+const autoProvisionAttempted: Record<string, boolean> = {};
 
 /**
  * Single Authoritative Backend Resolver:
@@ -192,8 +193,9 @@ export function resolveSshBackend(sshVersion?: string | null): SshBackendResolut
   // Verify whether pythonBin exists and Paramiko is functional
   let verifyResult = pythonBin ? verifyParamikoInPython(pythonBin, version) : { ok: false, error: 'No python binary' };
 
-  // If missing or broken, attempt auto-provisioning via setup script
-  if (!verifyResult.ok && !isAutoProvisioning) {
+  // If missing or broken, attempt auto-provisioning via setup script once
+  if (!verifyResult.ok && !isAutoProvisioning && !autoProvisionAttempted[version]) {
+    autoProvisionAttempted[version] = true;
     const setupScript = path.resolve(getProjectRoot(), 'scripts', 'setup-ssh-venvs.sh');
     if (fs.existsSync(setupScript)) {
       console.warn(`[SSH Backend Resolver] Dedicated ${version.toUpperCase()} Python venv with Paramiko not verified at '${pythonBin || venvDir}'. Running setup script: ${setupScript}...`);

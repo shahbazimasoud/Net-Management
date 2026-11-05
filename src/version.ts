@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.416.1';
+export const APP_VERSION = '1.416.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.416.2',
+    releaseDate: '2026-11-05',
+    type: 'patch',
+    title: 'رفع خطای راه‌اندازی سرور توسعه (Dev Server): حل تداخل پورت ۸۰۸۰ انجین‌ایکس با ۳۰۰۰ و رفع خطای اسکوپ ماژول در سرویس قراردادها',
+    title_en: 'Fix Dev Server Startup: Resolve Port 8080 Collision with Nginx and Fix ESM __dirname Scope Error in License Contract Service',
+    changes: [
+      'اصلاح تابع تعیین پورت سرور (`getPort`) در `server.ts` جهت مهار پورت کانتینری ۸۰۸۰ انجین‌ایکس و هدایت قطعی به پورت استاندارد ۳۰۰۰.',
+      'رفع خطای زمان اجرای `ReferenceError: __dirname is not defined in ES module scope` در سرویس مدیریت قراردادها و لایسنس‌ها (`licenseContractService.ts`) با استفاده از `fileURLToPath(import.meta.url)`.',
+      'بهینه‌سازی ماژول عیب‌یابی SSH (`sshBackendResolver.ts`) و جلوگیری از اجرای مکرر و مسدودکننده اسکریپت در زمان بوت اولیه سرور.',
+      'راه‌اندازی مجدد و موفقیت‌آمیز سرور با تایید کامل پاسخ‌دهی کدهای HTTP 200 روی پورت‌های ۳۰۰۰ و ۸۰۸۰.'
+    ],
+    changes_en: [
+      'Refined server port resolver (`getPort`) in `server.ts` to prevent collision with Nginx proxy on port 8080 and enforce port 3000.',
+      'Fixed runtime `ReferenceError: __dirname is not defined in ES module scope` in `licenseContractService.ts` using modern `fileURLToPath(import.meta.url)`.',
+      'Optimized `sshBackendResolver.ts` startup check to prevent repetitive blocking provisioning script executions during node initialization.',
+      'Successfully restarted dev server with verified HTTP 200 responses on both local port 3000 and reverse proxy port 8080.'
+    ]
+  },
   {
     version: '1.416.1',
     releaseDate: '2026-11-05',

@@ -2362,6 +2362,54 @@
       "details": "Backup generated successfully in 630ms. File: auto_backup_servers_only_2026-11-02T06-03-26-463Z_job-servers-fleet.json (3.63 KB).",
       "ip_address": "127.0.0.1",
       "user_agent": ""
+    },
+    {
+      "id": "log-1793902306271-dvmey",
+      "timestamp": "2026-11-05T18:11:46.271Z",
+      "user_name": "cron_daemon",
+      "action": "BACKUP_EXPORT",
+      "category": "disaster_recovery",
+      "target": "Scope: full (Engine: fallback_json)",
+      "status": "success",
+      "details": "Exported full backup. Servers: 0, Devices: 1, Users: 1. Encrypted: false, Sanitized: false",
+      "ip_address": "127.0.0.1",
+      "user_agent": "NetTopology-DR-Engine"
+    },
+    {
+      "id": "log-1793902306494-7lu0n",
+      "timestamp": "2026-11-05T18:11:46.494Z",
+      "user_name": "cron_daemon",
+      "action": "SCHEDULED_BACKUP_EXECUTE",
+      "category": "disaster_recovery",
+      "target": "Job: Daily Disaster Recovery Snapshot (بکاپ جامع روزانه) (job-daily-dr)",
+      "status": "success",
+      "details": "Backup generated successfully in 457ms. File: auto_backup_full_2026-11-05T18-11-46-353Z_job-daily-dr.json (49.13 KB).",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
+    },
+    {
+      "id": "log-1793902307015-53yu7",
+      "timestamp": "2026-11-05T18:11:47.015Z",
+      "user_name": "cron_daemon",
+      "action": "BACKUP_EXPORT",
+      "category": "disaster_recovery",
+      "target": "Scope: servers_only (Engine: fallback_json)",
+      "status": "success",
+      "details": "Exported servers_only backup. Servers: 0, Devices: 0, Users: 0. Encrypted: false, Sanitized: false",
+      "ip_address": "127.0.0.1",
+      "user_agent": "NetTopology-DR-Engine"
+    },
+    {
+      "id": "log-1793902307298-p7vrl",
+      "timestamp": "2026-11-05T18:11:47.298Z",
+      "user_name": "cron_daemon",
+      "action": "SCHEDULED_BACKUP_EXECUTE",
+      "category": "disaster_recovery",
+      "target": "Job: Server Fleet Configuration Backup (بکاپ ناوگان سرورها) (job-servers-fleet)",
+      "status": "success",
+      "details": "Backup generated successfully in 590ms. File: auto_backup_servers_only_2026-11-05T18-11-47-088Z_job-servers-fleet.json (3.63 KB).",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
     }
   ],
   "ad_config": {
@@ -3255,11 +3303,11 @@
       "retention_days": 30,
       "last_status": "success",
       "created_at": "2026-09-14T00:00:00.000Z",
-      "updated_at": "2026-11-02T06:03:25.904Z",
-      "last_run_at": "2026-11-02T06:03:25.903Z",
-      "next_run_at": "2026-11-02T23:30:00.000Z",
-      "last_result_details": "Backup generated successfully in 534ms. File: auto_backup_full_2026-11-02T06-03-25-707Z_job-daily-dr.json (49.13 KB).",
-      "last_backup_file": "auto_backup_full_2026-11-02T06-03-25-707Z_job-daily-dr.json"
+      "updated_at": "2026-11-05T18:11:46.423Z",
+      "last_run_at": "2026-11-05T18:11:46.423Z",
+      "next_run_at": "2026-11-05T23:30:00.000Z",
+      "last_result_details": "Backup generated successfully in 457ms. File: auto_backup_full_2026-11-05T18-11-46-353Z_job-daily-dr.json (49.13 KB).",
+      "last_backup_file": "auto_backup_full_2026-11-05T18-11-46-353Z_job-daily-dr.json"
     },
     {
       "id": "job-servers-fleet",
@@ -3284,11 +3332,11 @@
       "retention_days": 14,
       "last_status": "success",
       "created_at": "2026-09-14T00:00:00.000Z",
-      "updated_at": "2026-11-02T06:03:26.733Z",
-      "next_run_at": "2026-11-03T00:30:00.000Z",
-      "last_run_at": "2026-11-02T06:03:26.732Z",
-      "last_result_details": "Backup generated successfully in 630ms. File: auto_backup_servers_only_2026-11-02T06-03-26-463Z_job-servers-fleet.json (3.63 KB).",
-      "last_backup_file": "auto_backup_servers_only_2026-11-02T06-03-26-463Z_job-servers-fleet.json"
+      "updated_at": "2026-11-05T18:11:47.227Z",
+      "next_run_at": "2026-11-06T00:30:00.000Z",
+      "last_run_at": "2026-11-05T18:11:47.227Z",
+      "last_result_details": "Backup generated successfully in 590ms. File: auto_backup_servers_only_2026-11-05T18-11-47-088Z_job-servers-fleet.json (3.63 KB).",
+      "last_backup_file": "auto_backup_servers_only_2026-11-05T18-11-47-088Z_job-servers-fleet.json"
     }
   ],
   "audit_email_reports": [
@@ -4286,7 +4334,7 @@
         "legacy_panel_update_seed_key_october_2026"
       ],
       "created_at": "2026-10-19T13:47:48.714Z",
-      "updated_at": "2026-11-02T20:30:21.924Z"
+      "updated_at": "2026-11-05T18:11:39.362Z"
     }
   ],
   "device_command_audit_logs": [
@@ -4345,5 +4393,136 @@
     "lastCleanupDeletedCount": 0,
     "updated_at": "2026-10-29T21:56:24.637Z",
     "updated_by": "TestRunner"
-  }
+  },
+  "licenses": [
+    {
+      "id": "lic-101-cisco-dna",
+      "title": "Cisco DNA Advantage 3-Year Subscription",
+      "licenseKey": "DNA-ADV-3Y-C9300-88A9F",
+      "deviceType": "switch",
+      "vendor": "Cisco Systems",
+      "connectedDeviceId": "dev-1793169230513",
+      "connectedDeviceName": "ASH-Sul-S-CAM-2",
+      "ownerName": "مهندس فدایی",
+      "ownerEmail": "d.fadaei@corp.internal",
+      "department": "واحد زیرساخت شبکه و امنیت",
+      "startDate": "2024-01-15",
+      "endDate": "2027-01-15",
+      "status": "active",
+      "cost": 185000000,
+      "currency": "IRR",
+      "paymentMethod": "سالانه (۳ ساله شرکتی)",
+      "notifyEmails": [
+        "d.fadaei@corp.internal",
+        "netops@corp.internal"
+      ],
+      "alertDays": [
+        60,
+        30,
+        15,
+        7,
+        0
+      ],
+      "attachments": [],
+      "notes": "لایسنس فعال نرم‌افزاری سوئیچ سیسکو کاتالیست شامل مانیتورینگ تله‌متری و لایه ۳ کامل.",
+      "createdAt": "2024-01-15T08:00:00Z",
+      "updatedAt": "2026-11-05T08:00:00Z"
+    },
+    {
+      "id": "lic-102-mikrotik-chr",
+      "title": "MikroTik RouterOS CHR P10 Perpetual",
+      "licenseKey": "MTIK-CHR-P10-99342-FF71",
+      "deviceType": "router",
+      "vendor": "MikroTik",
+      "ownerName": "مهندس مسعود شهبازی",
+      "ownerEmail": "shahbazimasoud@gmail.com",
+      "department": "دیتاسنتر مرکزی",
+      "startDate": "2025-05-10",
+      "endDate": "2026-12-01",
+      "status": "expiring_soon",
+      "cost": 45000000,
+      "currency": "IRR",
+      "paymentMethod": "یکبار خرید مادام‌العمر (تمدید پشتیبانی سالانه)",
+      "notifyEmails": [
+        "shahbazimasoud@gmail.com",
+        "admin@corp.internal"
+      ],
+      "alertDays": [
+        30,
+        20,
+        10,
+        5,
+        0
+      ],
+      "attachments": [],
+      "notes": "لایسنس کلود هاستد روتر میکروتیک سرعت ۱۰ گیگابیت بر ثانیه.",
+      "createdAt": "2025-05-10T10:30:00Z",
+      "updatedAt": "2026-11-05T08:00:00Z"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "cnt-201-hardware-support",
+      "contractNumber": "CTR-2025-NET-084",
+      "title": "قرارداد پشتیبانی و گارانتی سخت‌افزاری سوئیچ‌ها و روترهای دیتاسنتر",
+      "vendorName": "شرکت فناوری ارتباطات پیشرو داده",
+      "vendorContact": "مهندس کریمی - ۰۲۱۸۸۹۹۰۰۱۱ / support@pishro-data.ir",
+      "contractType": "sla_support",
+      "ownerName": "مدیر فناوری اطلاعات",
+      "ownerEmail": "it-director@corp.internal",
+      "department": "مدیریت فناوری اطلاعات",
+      "startDate": "2025-01-01",
+      "endDate": "2026-01-01",
+      "status": "expired",
+      "totalCost": 480000000,
+      "currency": "IRR",
+      "paymentTerms": "پرداخت فصلی (۴ قسط مساوی)",
+      "notifyEmails": [
+        "it-director@corp.internal",
+        "shahbazimasoud@gmail.com"
+      ],
+      "alertDays": [
+        45,
+        30,
+        15,
+        5,
+        0
+      ],
+      "attachments": [],
+      "notes": "پوشش تعویض قطعه در کمتر از ۴ ساعت (SLA 4h On-site Spare Replacement).",
+      "createdAt": "2025-01-01T09:00:00Z",
+      "updatedAt": "2026-11-05T08:00:00Z"
+    },
+    {
+      "id": "cnt-202-isp-bandwidth",
+      "contractNumber": "ISP-FIBER-1404-92",
+      "title": "قرارداد سرویس پهنای باند اختصاصی فیبر نوری ۱ گیگابیت متقارن",
+      "vendorName": "شرکت ارتباطات زیرساخت و رسپینا",
+      "vendorContact": "بخش امور مشترکین سازمانی - ۱۵۲۴",
+      "contractType": "internet_isp",
+      "ownerName": "تیم زیرساخت شبکه",
+      "ownerEmail": "noc@corp.internal",
+      "department": "عملیات شبکه NOC",
+      "startDate": "2026-03-01",
+      "endDate": "2027-03-01",
+      "status": "active",
+      "totalCost": 1200000000,
+      "currency": "IRR",
+      "paymentTerms": "صورت‌حساب ماهانه",
+      "notifyEmails": [
+        "noc@corp.internal",
+        "financial@corp.internal"
+      ],
+      "alertDays": [
+        60,
+        30,
+        15,
+        0
+      ],
+      "attachments": [],
+      "notes": "لینک فیبر نوری اختصاصی همراه با بلوک IP Valid /28 و توافق‌نامه سطح خدمات ۹۹.۹٪.",
+      "createdAt": "2026-03-01T12:00:00Z",
+      "updatedAt": "2026-11-05T08:00:00Z"
+    }
+  ]
 }

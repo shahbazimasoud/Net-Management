@@ -1,12 +1,31 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { verifyToken, UserSessionPayload } from './auth';
 import { findUserById, findUserByUsername, getEffectivePolicyForUser, addPortalAuditLog, getEmailConfig, getGeneralSettings } from './db';
 import { createMailTransport } from './emailService';
 import { LicenseItem, ContractItem, AttachmentFile, LicenseStatus, ContractStatus } from '../src/types';
 
-const projectRoot = path.resolve(__dirname, '..');
+// Safely resolve project root across both ESM (tsx dev) and CJS (dist bundle)
+const getProjectRoot = (): string => {
+  if (typeof __dirname !== 'undefined') {
+    return path.basename(__dirname) === 'dist' || path.basename(__dirname) === 'server'
+      ? path.resolve(__dirname, '..')
+      : __dirname;
+  }
+  try {
+    const filename = fileURLToPath(import.meta.url);
+    const dir = path.dirname(filename);
+    return path.basename(dir) === 'server' || path.basename(dir) === 'dist'
+      ? path.resolve(dir, '..')
+      : process.cwd();
+  } catch {
+    return process.cwd();
+  }
+};
+
+const projectRoot = getProjectRoot();
 const dbStorePath = path.join(projectRoot, 'backend', 'database_store.json');
 const uploadDir = path.join(projectRoot, 'backend', 'uploads', 'contracts');
 
