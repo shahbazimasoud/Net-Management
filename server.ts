@@ -635,6 +635,7 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
     const envPath = path.join(projectRoot, '.env');
     const dbStore = path.join(projectRoot, 'backend', 'database_store.json');
     const netData = path.join(projectRoot, 'backend', 'network_data.json');
+    const uploadsDir = path.join(projectRoot, 'backend', 'uploads');
 
     // Step 1: Deep Memory & Disk Snapshot of all user data to prevent any data loss
     let preNetworkData: any = null;
@@ -703,6 +704,29 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
         fs.writeFileSync(path.join(backupDir, 'network_data.json'), str, 'utf-8');
         fs.writeFileSync(path.join(persistentVaultDir, 'network_data.json'), str, 'utf-8');
       }
+
+      // Snapshot persistent uploads & contract documents
+      if (fs.existsSync(uploadsDir)) {
+        try {
+          const backupUploads = path.join(backupDir, 'uploads');
+          const persistentUploads = path.join(persistentVaultDir, 'uploads');
+          fs.mkdirSync(backupUploads, { recursive: true });
+          fs.mkdirSync(persistentUploads, { recursive: true });
+          fs.cpSync(uploadsDir, backupUploads, { recursive: true });
+          fs.cpSync(uploadsDir, persistentUploads, { recursive: true });
+
+          try {
+            if (fs.existsSync('/etc/nettopology-backup')) {
+              fs.mkdirSync('/etc/nettopology-backup/uploads', { recursive: true });
+              fs.cpSync(uploadsDir, '/etc/nettopology-backup/uploads', { recursive: true });
+            }
+          } catch {}
+          log('Safeguarded all persistent uploaded contract documents, licenses, and attachment files.');
+        } catch (upErr: any) {
+          log(`Notice creating uploads snapshot: ${upErr.message}`);
+        }
+      }
+
       log(`Safeguarded ${userDeviceCount} existing network devices, topology data, and environment configuration.`);
     } catch (bErr: any) {
       log(`State backup notice: ${bErr.message}`);
@@ -722,7 +746,7 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
         await executeShell('git fetch origin master', projectRoot, 30000);
         await executeShell('git checkout master 2>/dev/null || git checkout -B master origin/master', projectRoot, 10000);
         await executeShell('git reset --hard origin/master', projectRoot, 10000);
-        await executeShell('git clean -fd -e .env -e backend/database_store.json -e backend/network_data.json -e backend/backups', projectRoot, 10000);
+        await executeShell('git clean -fd -e .env -e backend/database_store.json -e backend/network_data.json -e backend/backups -e backend/uploads', projectRoot, 10000);
         log('Repository codebase successfully aligned with origin/master.');
       } catch (gitErr: any) {
         log(`Git fetch warning: ${gitErr.message}. Falling back to pull...`);
@@ -840,7 +864,14 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
           audit_logs: preDatabaseStore.audit_logs || repoDbStore.audit_logs || [],
           ad_config: (preDatabaseStore.ad_config && preDatabaseStore.ad_config.server && preDatabaseStore.ad_config.server !== '192.168.1.10')
             ? preDatabaseStore.ad_config
-            : (preDatabaseStore.ad_config || repoDbStore.ad_config)
+            : (preDatabaseStore.ad_config || repoDbStore.ad_config),
+          licenses: preDatabaseStore.licenses || repoDbStore.licenses || [],
+          contracts: preDatabaseStore.contracts || repoDbStore.contracts || [],
+          license_contracts_logs: preDatabaseStore.license_contracts_logs || repoDbStore.license_contracts_logs || [],
+          attachment_blobs: {
+            ...(repoDbStore.attachment_blobs || {}),
+            ...(preDatabaseStore.attachment_blobs || {})
+          }
         };
 
         fs.writeFileSync(dbStore, JSON.stringify(finalDbStore, null, 2), 'utf-8');
@@ -857,6 +888,28 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
       if (preEnvContent) {
         fs.writeFileSync(envPath, preEnvContent, 'utf-8');
         log('Safeguarded and restored environment configuration (.env).');
+      }
+
+      // 4. Restore and Reconcile Uploads Directory (Guarantees zero-data loss across all updates)
+      try {
+        if (!fs.existsSync(uploadsDir)) {
+          fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+        const sourceCandidates = [
+          path.join(persistentVaultDir, 'uploads'),
+          path.join(backupDir, 'uploads'),
+          '/etc/nettopology-backup/uploads'
+        ];
+        for (const src of sourceCandidates) {
+          if (fs.existsSync(src)) {
+            try {
+              fs.cpSync(src, uploadsDir, { recursive: true });
+            } catch {}
+          }
+        }
+        log('Safeguarded and restored all uploaded files, documents, and contract attachments to backend/uploads.');
+      } catch (upRestoreErr: any) {
+        log(`Notice restoring uploads: ${upRestoreErr.message}`);
       }
     } catch (restoreErr: any) {
       log(`Error during user data restoration: ${restoreErr.message}`);

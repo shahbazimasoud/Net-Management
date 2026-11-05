@@ -19,3 +19,7 @@ backend/server_backups/
 bun.lock*
 *.enc.json
 backups/
+backend/uploads/*
+!backend/uploads/.gitkeep
+!backend/uploads/contracts/
+!backend/uploads/contracts/.gitkeep

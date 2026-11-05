@@ -28,14 +28,40 @@ const getProjectRoot = (): string => {
 const projectRoot = getProjectRoot();
 const dbStorePath = path.join(projectRoot, 'backend', 'database_store.json');
 const uploadDir = path.join(projectRoot, 'backend', 'uploads', 'contracts');
+const sysBackupUploadDir = '/etc/nettopology-backup/uploads/contracts';
 
-// Ensure upload directory exists
-if (!fs.existsSync(uploadDir)) {
-  try {
+// Ensure upload directory exists and synchronize persistent backups across updates/reinstalls
+try {
+  if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
-  } catch (e) {
-    console.error('Failed to create contracts upload directory:', e);
   }
+} catch (e) {
+  console.error('Failed to create contracts upload directory:', e);
+}
+
+// Bi-directional synchronization: restore uploads from /etc/nettopology-backup if missing locally,
+// and ensure persistent snapshot directory has a copy of all current documents.
+try {
+  if (fs.existsSync(sysBackupUploadDir)) {
+    const backupFiles = fs.readdirSync(sysBackupUploadDir);
+    for (const file of backupFiles) {
+      const srcFile = path.join(sysBackupUploadDir, file);
+      const destFile = path.join(uploadDir, file);
+      if (!fs.existsSync(destFile)) {
+        try {
+          if (fs.statSync(srcFile).isFile()) {
+            fs.copyFileSync(srcFile, destFile);
+          }
+        } catch {}
+      }
+    }
+  } else if (fs.existsSync('/etc/nettopology-backup')) {
+    try {
+      fs.mkdirSync(sysBackupUploadDir, { recursive: true });
+    } catch {}
+  }
+} catch {
+  // Graceful fallback for non-root containers
 }
 
 // Helper to read and write database_store.json atomically
@@ -1065,6 +1091,14 @@ licenseContractRouter.post('/licenses-contracts/upload', async (req: Request, re
         fs.mkdirSync(uploadDir, { recursive: true });
       }
       fs.writeFileSync(targetFilePath, buffer);
+
+      // Mirror to persistent system backup directory (/etc/nettopology-backup/uploads/contracts) if available
+      try {
+        if (!fs.existsSync(sysBackupUploadDir)) {
+          fs.mkdirSync(sysBackupUploadDir, { recursive: true });
+        }
+        fs.writeFileSync(path.join(sysBackupUploadDir, diskFileName), buffer);
+      } catch {}
     } catch (fsErr) {
       console.warn('Failed writing upload to disk, persisting in store:', fsErr);
     }
@@ -1156,6 +1190,32 @@ licenseContractRouter.get('/licenses-contracts/download/:id', async (req: Reques
         filePath = path.join(uploadDir, matched);
         originalName = matched.includes('_') ? matched.substring(matched.indexOf('_') + 1) : matched;
       }
+    }
+
+    // 1.5 Check if file exists in persistent system backup directory (/etc/nettopology-backup/uploads/contracts)
+    if (!filePath && fs.existsSync(sysBackupUploadDir)) {
+      try {
+        const backupFiles = fs.readdirSync(sysBackupUploadDir);
+        const matchedBackup = backupFiles.find(
+          (f) =>
+            f.startsWith(`${id}_`) ||
+            f === id ||
+            f.includes(id) ||
+            (queryFileName && f.endsWith(queryFileName))
+        );
+        if (matchedBackup) {
+          const sysFile = path.join(sysBackupUploadDir, matchedBackup);
+          const localDest = path.join(uploadDir, matchedBackup);
+          try {
+            if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+            fs.copyFileSync(sysFile, localDest);
+            filePath = localDest;
+          } catch {
+            filePath = sysFile;
+          }
+          originalName = matchedBackup.includes('_') ? matchedBackup.substring(matchedBackup.indexOf('_') + 1) : matchedBackup;
+        }
+      } catch {}
     }
 
     // 2. If not on disk, search database_store.json (blobs, licenses, contracts)

@@ -543,6 +543,11 @@ if [ -d "$INSTALL_DIR" ]; then
   [ -f "$INSTALL_DIR/backend/security/.secret.key" ] && cp -f "$INSTALL_DIR/backend/security/.secret.key" "$BACKUP_DIR/.secret.key" 2>/dev/null || true
   [ -f "$INSTALL_DIR/backend/network_data.json" ] && cp -f "$INSTALL_DIR/backend/network_data.json" "$BACKUP_DIR/network_data.json" 2>/dev/null || true
   [ -f "$INSTALL_DIR/backend/database_store.json" ] && cp -f "$INSTALL_DIR/backend/database_store.json" "$BACKUP_DIR/database_store.json" 2>/dev/null || true
+  if [ -d "$INSTALL_DIR/backend/uploads" ]; then
+    log_info "Creating snapshot of persistent uploaded files and documents in $BACKUP_DIR/uploads..."
+    mkdir -p "$BACKUP_DIR/uploads"
+    cp -rpf "$INSTALL_DIR/backend/uploads"/. "$BACKUP_DIR/uploads/" 2>/dev/null || true
+  fi
 fi
 
 # ------------------------------------------------------------------------------
@@ -560,6 +565,11 @@ if [ "$(pwd)" != "$INSTALL_DIR" ]; then
     fi
     git reset --hard origin/master || git reset --hard origin/main || true
   else
+    # Safeguard persistent uploads directory before directory recreation
+    if [ -d "$INSTALL_DIR/backend/uploads" ]; then
+      mkdir -p "$BACKUP_DIR/uploads"
+      cp -rpf "$INSTALL_DIR/backend/uploads"/. "$BACKUP_DIR/uploads/" 2>/dev/null || true
+    fi
     rm -rf "$INSTALL_DIR"/*
     CLONE_SUCCESS=false
 
@@ -637,6 +647,13 @@ if [ -f "$BACKUP_DIR/.secret.key" ]; then
   mkdir -p "$INSTALL_DIR/backend/security"
   cp -f "$BACKUP_DIR/.secret.key" "$INSTALL_DIR/backend/security/.secret.key"
   chmod 600 "$INSTALL_DIR/backend/security/.secret.key" 2>/dev/null || true
+fi
+
+if [ -d "$BACKUP_DIR/uploads" ]; then
+  log_info "Restoring persistent uploads and contract documents from $BACKUP_DIR/uploads..."
+  mkdir -p "$INSTALL_DIR/backend/uploads"
+  cp -rpf "$BACKUP_DIR/uploads"/. "$INSTALL_DIR/backend/uploads/" 2>/dev/null || true
+  log_success "Persistent uploaded files preserved and restored successfully."
 fi
 
 # ------------------------------------------------------------------------------

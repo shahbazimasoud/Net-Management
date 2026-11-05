@@ -95,14 +95,22 @@ fi
 echo ""
 log_step "Proceeding with uninstallation and data protection..."
 
-# 1. Backup Topology Data
+# 1. Backup Topology Data & Uploads
 BACKUP_DIR="/etc/nettopology-backup"
 if [ "$PRESERVE_DATA" = true ]; then
-  log_step "Creating persistent backup of network topology database in $BACKUP_DIR..."
+  log_step "Creating persistent backup of network topology database and uploaded files in $BACKUP_DIR..."
   mkdir -p "$BACKUP_DIR"
+  [ -f "$INSTALL_DIR/.env" ] && cp -f "$INSTALL_DIR/.env" "$BACKUP_DIR/.env" 2>/dev/null || true
+  [ -f "$INSTALL_DIR/backend/security/.secret.key" ] && cp -f "$INSTALL_DIR/backend/security/.secret.key" "$BACKUP_DIR/.secret.key" 2>/dev/null || true
+  [ -f "$INSTALL_DIR/backend/database_store.json" ] && cp -f "$INSTALL_DIR/backend/database_store.json" "$BACKUP_DIR/database_store.json" 2>/dev/null || true
   if [ -f "$INSTALL_DIR/backend/network_data.json" ]; then
-    cp "$INSTALL_DIR/backend/network_data.json" "$BACKUP_DIR/network_data.json"
+    cp -f "$INSTALL_DIR/backend/network_data.json" "$BACKUP_DIR/network_data.json" 2>/dev/null || true
     log_success "Preserved database to $BACKUP_DIR/network_data.json"
+  fi
+  if [ -d "$INSTALL_DIR/backend/uploads" ]; then
+    mkdir -p "$BACKUP_DIR/uploads"
+    cp -rpf "$INSTALL_DIR/backend/uploads"/. "$BACKUP_DIR/uploads/" 2>/dev/null || true
+    log_success "Preserved all uploaded contracts, licenses, and attachment files to $BACKUP_DIR/uploads"
   fi
 fi
 
@@ -147,8 +155,13 @@ fi
 
 echo ""
 log_success "NetTopology uninstallation completed successfully!"
-if [ "$PRESERVE_DATA" = true ] && [ -f "$BACKUP_DIR/network_data.json" ]; then
-  echo -e "💾 ${GREEN}Your network topology data was safely preserved in: ${BOLD}$BACKUP_DIR/network_data.json${NC}"
-  echo -e "   If you reinstall NetTopology in the future, your configurations will be automatically restored."
+if [ "$PRESERVE_DATA" = true ]; then
+  if [ -f "$BACKUP_DIR/network_data.json" ]; then
+    echo -e "💾 ${GREEN}Your network topology data was safely preserved in: ${BOLD}$BACKUP_DIR/network_data.json${NC}"
+  fi
+  if [ -d "$BACKUP_DIR/uploads" ]; then
+    echo -e "📎 ${GREEN}Your uploaded contract documents, licenses, and attachment files were safely preserved in: ${BOLD}$BACKUP_DIR/uploads${NC}"
+  fi
+  echo -e "   If you reinstall NetTopology in the future, your configurations, databases, and uploaded files will be automatically restored."
 fi
 echo -e "${CYAN}======================================================================${NC}"

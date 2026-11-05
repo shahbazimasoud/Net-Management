@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.418.3';
+export const APP_VERSION = '1.418.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.418.4',
+    releaseDate: '2026-11-05',
+    type: 'patch',
+    title: 'حفظ دائمی و ماندگار پوشه آپلود و پیوست‌های قراردادها و لایسنس‌ها در فرآیندهای آپدیت، نصب مجدد و حذف پنل',
+    title_en: 'Permanent Preservation of Uploads Folder and Contract/License Attachments Across Panel Updates, Reinstalls, and Uninstallation',
+    changes: [
+      'تضمین عدم حذف محتویات پوشه آپلود (backend/uploads) و کلیه اسناد پیوست قراردادها و فاکتورها در چرخه ارتقای آنلاین، بازنشانی مخزن و دستورات git clean.',
+      'پشتیبان‌گیری خودکار، فوری و ایزوله پوشه آپلودها در مسیر ماندگار سیستمی `/etc/nettopology-backup/uploads` قبل از هرگونه تغییر، پول یا کامپایل مجدد.',
+      'تجهیز اسکریپت‌های نصب و استقرار (`setup-panel.sh` و `install.sh`) به ماژول ذخیره‌سازی پیشگیرانه و بازیابی خودکار اسناد پیوست، پایگاه‌های داده و کلیدهای رمزنگاری.',
+      'تجهیز اسکریپت‌های حذف پنل (`uninstall-panel.sh` و `uninstall.sh`) به لایه حفاظتی جهت عدم حذف فایل‌های آپلود شده و حفظ اسناد مالی و قراردادها در مسیر امن سرور.',
+      'پیاده‌سازی همگام‌سازی خودکار و دوطرفه میان پوشه محلی `backend/uploads/contracts` و مخزن سیستمی `/etc/nettopology-backup/uploads/contracts` در سرویس بک‌اند.'
+    ],
+    changes_en: [
+      'Guaranteed zero-data loss for backend uploads folder (`backend/uploads`) and contract/license attachments across in-place updates, repository resets, and git clean commands.',
+      'Automated proactive persistent snapshotting of upload directory to `/etc/nettopology-backup/uploads` before code synchronization, git pulls, or rebuilds.',
+      'Equipped installation and deployment scripts (`setup-panel.sh` and `install.sh`) with bidirectional pre-upgrade snapshots and post-upgrade restoration for all documents and fallback stores.',
+      'Protected uninstallation scripts (`uninstall-panel.sh` and `uninstall.sh`) from purging uploaded attachments, keeping enterprise contracts safely retained in `/etc/nettopology-backup`.',
+      'Engineered continuous bidirectional synchronization between `backend/uploads/contracts` and persistent `/etc/nettopology-backup/uploads/contracts` in backend service.'
+    ]
+  },
   {
     version: '1.418.3',
     releaseDate: '2026-11-05',

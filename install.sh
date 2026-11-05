@@ -330,10 +330,16 @@ VAULT_SECRET=$VAULT_SECRET
 NETTOP_ENCRYPTION_KEY=$NETTOP_ENCRYPTION_KEY
 EOF
 
-# Backup persistent secrets to /etc/nettopology-backup
+# Backup persistent secrets and user data to /etc/nettopology-backup
 mkdir -p /etc/nettopology-backup 2>/dev/null || true
 cp -f "$APP_DIR/.env" /etc/nettopology-backup/.env 2>/dev/null || true
 [ -f "$APP_DIR/backend/security/.secret.key" ] && cp -f "$APP_DIR/backend/security/.secret.key" /etc/nettopology-backup/.secret.key 2>/dev/null || true
+[ -f "$APP_DIR/backend/network_data.json" ] && cp -f "$APP_DIR/backend/network_data.json" /etc/nettopology-backup/network_data.json 2>/dev/null || true
+[ -f "$APP_DIR/backend/database_store.json" ] && cp -f "$APP_DIR/backend/database_store.json" /etc/nettopology-backup/database_store.json 2>/dev/null || true
+if [ -d "$APP_DIR/backend/uploads" ]; then
+  mkdir -p /etc/nettopology-backup/uploads
+  cp -rpf "$APP_DIR/backend/uploads"/. /etc/nettopology-backup/uploads/ 2>/dev/null || true
+fi
 
 # ------------------------------------------------------------------------------
 # 2. Package Manager & System Dependencies & PostgreSQL
@@ -685,6 +691,20 @@ Environment=PYTHON_PORT=$INTERNAL_BACKEND_PORT
 [Install]
 WantedBy=multi-user.target
 EOF
+
+# Restore persistent user data and uploads if missing
+if [ -f "/etc/nettopology-backup/network_data.json" ] && [ ! -f "$APP_DIR/backend/network_data.json" ]; then
+  mkdir -p "$APP_DIR/backend"
+  cp -f "/etc/nettopology-backup/network_data.json" "$APP_DIR/backend/network_data.json" 2>/dev/null || true
+fi
+if [ -f "/etc/nettopology-backup/database_store.json" ] && [ ! -f "$APP_DIR/backend/database_store.json" ]; then
+  mkdir -p "$APP_DIR/backend"
+  cp -f "/etc/nettopology-backup/database_store.json" "$APP_DIR/backend/database_store.json" 2>/dev/null || true
+fi
+if [ -d "/etc/nettopology-backup/uploads" ]; then
+  mkdir -p "$APP_DIR/backend/uploads"
+  cp -rpf /etc/nettopology-backup/uploads/. "$APP_DIR/backend/uploads/" 2>/dev/null || true
+fi
 
 systemctl daemon-reload
 systemctl enable nettopology.service
