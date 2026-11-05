@@ -275,3 +275,29 @@
 > 1. **Granular Multi-Vendor RBAC Integration**: Whenever any new feature, tab, module, modal, or action is created in any part of the panel, corresponding granular permissions MUST be registered in the RBAC schema (`AccessPolicy`, `PERMISSIONS`). Access must be verified against `effectivePolicy` in the UI and authoritatively enforced with `403 Forbidden` on backend endpoints.
 > 2. **Day-One Audit Logging Enforcement**: All interactions, state modifications, command dispatches, and configurations performed in the new module MUST immediately emit structured audit logs to the server audit system (`audit_logs` / `device_command_audit_logs`) including user identity, IP address, timestamp, action target, execution status, and technical details.
 
+---
+
+## 17. Mandatory 3-Dots Action Menu for All Tables and Lists (قانون قطعی و اجباری تجمیع اکشن‌ها در منوی سه‌نقطه در تمامی جداول و لیست‌ها)
+
+> [!CRITICAL]
+> **قانون الزام تجمیع اکشن‌های جداول و لیست‌ها در منوی ۳ نقطه به‌جای دکمه‌های ردیفی (MANDATORY 3-DOTS ACTION MENU FOR ALL LISTS & TABLES)**
+> هر هوش مصنوعی یا توسعه‌دهنده‌ای که در این پروژه صفحه‌ای، تبی، ماژولی یا ویویی حاوی جدول یا فهرستی از آیتم‌ها (نظیر لایسنس‌ها، قراردادها، کاربران، تجهیزات، خط‌مشی‌ها، لاگ‌ها، بکاپ‌ها و ...) ایجاد یا ویرایش می‌کند که برای آیتم‌های آن تعدادی عملیات (اکشن نظیر ویرایش، حذف، تمدید، ارسال تست، تاریخچه، کپی، جابجایی و ...) تعریف می‌شود، **موظف است به جای درست کردن چندین دکمه ردیفی، منحصراً از منوی ۳ نقطه استفاده نماید**:
+> 
+> 1. **ممنوعیت ردیف کردن دکمه‌ها (No Cluttered In-Row Action Buttons):**
+>    - چیدن دکمه‌های متعدد مجزا در یک سطر یا ستون اکشن‌ها اکیداً ممنوع است. این کار باعث آشفتگی بصری، خروج متن و دکمه‌ها از عرض صفحه و ایجاد اسکرول ناخواسته در رزولوشن‌های مختلف می‌گردد.
+> 
+> 2. **استفاده اجباری از دکمه ۳ نقطه (`MoreVertical`):**
+>    - در ستون «عملیات / Actions» باید یک دکمه واحد، مینیمال و استاندارد با آیکون سه نقطه عمودی (`MoreVertical` از کتابخانه `lucide-react`) قرار گیرد.
+> 
+> 3. **معماری منوی دراپ‌داون مبتنی بر پورتال (Portal-Rendered Context Menu):**
+>    - منوی بازشونده با کلیک روی دکمه ۳ نقطه باید از طریق `createPortal(..., document.body)` مستقیماً در ریشه سند رندر شود تا در استایل‌های `overflow-hidden` جدول یا والد محبوس نشود.
+>    - محاسبه خودکار موقعیت باز شدن (بالا یا پایین دکمه بر اساس فاصله تا پایین پنجره جهت جلوگیری از خروج از صفحه).
+>    - تعبیه پوشش پس‌زمینه شفاف (Backdrop) جهت بستن خودکار منو با کلیک در بیرون (`onClick={() => setActionMenuAnchor(null)}`).
+>    - گزینه‌های منو باید دارای آیکون شفاف، عنوان دوزبانه (`isEn`)، سازگاری کامل با تم روشن و تاریک، رعایت پرمیشن‌های دسترسی (RBAC) و تفکیک رنگی دکمه‌های خطر (مانند حذف با تم قرمز `text-rose-400`) باشند.
+> 
+> ---
+> 
+> **English Directive:**
+> Whenever building or modifying any page, view, or tab containing a data table, list, or grid with multiple row actions (such as Edit, Delete, Renew, Test, History, Copy, etc.), agents MUST NOT render multiple separate action buttons side-by-side in the row. Instead, agents MUST provide a single 3-dots action button using `MoreVertical` from `lucide-react` that opens a portal-rendered floating dropdown menu (`createPortal(..., document.body)`). The menu must feature auto-positioning, outside-click backdrop dismissal, bilingual labels, light/dark theme contrast, RBAC permission checks, and highlighted danger actions.
+
+
