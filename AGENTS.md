@@ -247,3 +247,31 @@
 > 3. **ممانعت سمت سرور از دسترسی مستقیم (Server-Side Endpoint Enforcement)**:
 >    - هرگونه درخواست برای مشاهده یا اجرای دستور روی دیوایسی که خارج از محدوده گروه انتخابی در پالیسی دیتابیس باشد، باید بلافاصله با خطای `403 Forbidden` در بک‌اند متوقف گردد.
 
+---
+
+## 16. Mandatory Zero-Day RBAC Permission Binding & Audit Logging for All New Features (قانون قطعی و الزامی اتصال هر فیچر یا بخش جدید به سیستم کنترل دسترسی RBAC و لاگ‌گیری حسابرسی از بدو پیاده‌سازی)
+
+> [!CRITICAL]
+> **قانون الزام پیاده‌سازی همزمان کنترل دسترسی و لاگ‌گیری برای هر ماژول یا فیچر جدید (ZERO-DAY RBAC BINDING & AUDIT LOGGING RULE)**
+> هر هوش مصنوعی یا توسعه‌دهنده‌ای که امکان، بخش، تب، مدال، دکمه کنترلی یا ابزار جدیدی به هر کجای پنل (از جمله تنظیمات، تجهیزات، پورت‌ها، ترمینال، ریموت، ابزارهای شبکه، بکاپ یا مانیتورینگ) اضافه می‌کند، **موظف است از همان ابتدای پیاده‌سازی و بدون استثنا تمامی الزامات امنیتی و لاگ‌گیری زیر را تعبیه نماید**:
+> 
+> 1. **اتصال ساختاری به سیستم کنترل دسترسی (Granular Multi-Vendor Access Control / RBAC Binding)**:
+>    - هر قابلیت یا بخش جدید بر اساس جایگاه و کارکرد خود باید دارای شناسه پرمیشن (Permission Key) مشخص در تایپ‌ها (`AccessPolicy`, `PERMISSIONS`) باشد.
+>    - دسترسی، مشاهده یا اجرای آن بخش باید مستقیماً با پالیسی مؤثر کاربر (`effectivePolicy` / `canAccess`) اعتبارسنجی شود.
+>    - اگر کاربری فاقد پرمیشن مربوطه باشد، دکمه، منو، تب یا مدال آن بخش باید طبق دسترسی پنهان یا غیرفعال گردد و اندپوینت‌های بک‌اند مربوطه نیز باید با خطای `403 Forbidden` مانع از اجرای درخواست شوند.
+> 
+> 2. **لاگ‌گیری حسابرسی جامع از همان ابتدا (Comprehensive Audit Trail from Day One)**:
+>    - تمامی عملیات‌ها، تغییرات پیکربندی، کلیک روی دکمه‌های اعمال/ذخیره/حذف، و اجرای دستورات در فیچر جدید باید بلافاصله در سیستم ثبت وقایع حسابرسی سرور (`audit_logs` و `device_command_audit_logs`) با جزئیات کامل ذخیره شوند:
+>      - شناسه و نام کاربری (`username` / `userId`)
+>      - آدرس IP درخواست‌دهنده (`ipAddress` / `clientIp`)
+>      - تایم‌استمپ دقیق رخداد به فرمت ISO UTC
+>      - نوع عملیات و بخش هدف (`category`, `action`, `target`)
+>      - وضعیت انجام عملیات (`status: success | failure`) و توضیحات فنی شفاف (`details`)
+>    - هیچ فیچر عملیاتی یا مدیریتی نباید بدون ردپای مانیتورینگ و لاگ حسابرسی (Audit Trail) ایجاد یا مستقر شود.
+> 
+> ---
+> 
+> **English Directive:**
+> 1. **Granular Multi-Vendor RBAC Integration**: Whenever any new feature, tab, module, modal, or action is created in any part of the panel, corresponding granular permissions MUST be registered in the RBAC schema (`AccessPolicy`, `PERMISSIONS`). Access must be verified against `effectivePolicy` in the UI and authoritatively enforced with `403 Forbidden` on backend endpoints.
+> 2. **Day-One Audit Logging Enforcement**: All interactions, state modifications, command dispatches, and configurations performed in the new module MUST immediately emit structured audit logs to the server audit system (`audit_logs` / `device_command_audit_logs`) including user identity, IP address, timestamp, action target, execution status, and technical details.
+

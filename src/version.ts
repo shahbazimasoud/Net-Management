@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.412.1';
+export const APP_VERSION = '1.412.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.412.2',
+    releaseDate: '2026-11-05',
+    type: 'patch',
+    title: 'تصویب و ثبت قانون الزامی اتصال هر فیچر جدید به سیستم کنترل دسترسی (RBAC) و لاگ‌گیری حسابرسی از بدو پیاده‌سازی',
+    title_en: 'Enacted Mandatory Rule 16: Zero-Day RBAC Permission Binding and Audit Logging for All New Features',
+    changes: [
+      'تصویب قانون ۱۶ در دستورالعمل‌های اجباری هوش مصنوعی (`AGENTS.md` و `GEMINI.md`) مبنی بر الزام اتصال هر فیچر، بخش، تب، مدال یا ابزار جدید به سیستم کنترل دسترسی چندفروشنده‌ای (`Granular Multi-Vendor Access Control / RBAC`) از اولین لحظه پیاده‌سازی.',
+      'الزام ثبت همزمان و بی‌درنگ تمامی تعاملات، تغییرات پیکربندی، کلیک‌های کنترلی و اجرای دستورات فیچر جدید در سیستم لاگ‌گیری حسابرسی سرور (`audit_logs` و `device_command_audit_logs`) با جزئیات کامل کاربر، IP و زمان.',
+      'به‌روزرسانی چک‌لیست اعتبارسنجی کیفیت در `MODAL_GUIDELINES.md` جهت انطباق پرمیشن‌های دسترسی و لاگ‌گیری حسابرسی در کلیه مودال‌های فعلی و آینده.'
+    ],
+    changes_en: [
+      'Codified Rule 16 in AI directives (`AGENTS.md` and `GEMINI.md`) mandating architectural integration of every new feature, tab, modal, or tool into the Granular Multi-Vendor RBAC system right from initial implementation.',
+      'Mandated day-one built-in audit logging (`audit_logs` and `device_command_audit_logs`) for all interactions, configuration changes, and command executions with full user attribution, IP, and timestamp.',
+      'Updated the modal verification checklist in `MODAL_GUIDELINES.md` to enforce RBAC access policy validation and audit trail compliance across all current and future modals.'
+    ]
+  },
   {
     version: '1.412.1',
     releaseDate: '2026-11-05',
