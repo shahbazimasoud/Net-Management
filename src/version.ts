@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.415.0';
+export const APP_VERSION = '1.416.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.416.0',
+    releaseDate: '2026-11-05',
+    type: 'minor',
+    title: 'فاز ۴ مدیریت قراردادها و لایسنس‌ها: رابط کاربری جامع مدیریت قراردادها و SLA، مودال استاندارد یونیورسال، پیش‌نمایش مستقیم PDF در مرورگر و پایش اقساط',
+    title_en: 'Phase 4 Contracts & Licenses: Contracts & SLA Agreements Management UI, Universal Contract Modal, In-Browser PDF Preview, and Payment Milestone Tracking',
+    changes: [
+      'توسعه داشبورد جامع مدیریت قراردادها (`ContractsView`) با ۵ کارت شاخص آماری (کل قراردادها، معتبر، نزدیک انقضا، منقضی/در حال تمدید، ارزش کل تعهدات مالی) مجهز به راهنماهای سه‌بخشی FieldInfoTooltip.',
+      'طراحی جدول اطلاعات قراردادهای پیمانکاران، پهنای باند اختصاصی ISP، گارانتی تجهیزات، پشتیبانی دیتاسنتر و نگهداری نرم‌افزار با جستجوی چندفیلدی و فیلترهای پیشرفته.',
+      'ساخت مودال استاندارد ثبت و ویرایش قرارداد (`ContractModal`) منطبق بر کلیه قوانین پنج‌گانه استانداردهای یونیورسال (دکمه‌های سه‌گانه هدر، مینیمایز به ToolsDock، تمام‌صفحه با حریم bottom-8 و رندر مستقیم پورتال).',
+      'پیاده‌سازی ماژول پیش‌نمایش مستقیم اسناد و فایل‌های PDF قرارداد و فاکتورها در مرورگر (`AttachmentPreviewModal`) با امکان بزرگ‌نمایی، چرخش و دانلود بدون نیاز به خروج از پنل.',
+      'مدیریت اقساط، شرایط پرداخت، دوره گارانتی و اطلاعات کارشناس رابط پشتیبانی ۲۴/۷ پیمانکاران.',
+      'سیستم زمان‌بندی یادآوری‌های پلکانی سررسید با نقاط عطف سفارشی (۶۰، ۴۵، ۳۰، ۱۵، ۵ و روز صفر) و دکمه تست آنی ارسال ایمیل هشدار.',
+      'رعایت صددرصدی قانون ۴ در مورد ممنوعیت نمایش متن فارسی در حالت انگلیسی و انطباق کامل تم‌های تیره و روشن.'
+    ],
+    changes_en: [
+      'Engineered comprehensive Contracts & SLA Agreements management dashboard (`ContractsView`) featuring 5 KPI metric cards with 3-part FieldInfoTooltips.',
+      'Built responsive data table tracking vendor hardware warranties, dedicated ISP bandwidth SLAs, datacenter colocation, and software maintenance with multi-field search and category filtering.',
+      'Developed universal-compliant `ContractModal` adhering strictly to all 5 modal architectural specifications (Triad header controls, ToolsDock minimization, Fullscreen with bottom-8 footer clearance, and React Portal rendering).',
+      'Implemented in-browser PDF, invoice, and document previewer modal (`AttachmentPreviewModal`) with native zoom, rotation, and direct download capabilities without leaving the panel.',
+      'Added vendor support contact escalation tracking, payment schedule terms, currency management, and warranty replacement duration.',
+      'Integrated stepped renewal alert schedules with customizable notification milestones (e.g. 60, 45, 30, 15, 5, 0 days) and instant test email dispatch.',
+      'Strict adherence to Rule 4 (zero Persian text in English mode) and universal high-contrast light/dark theme adaptation.'
+    ]
+  },
   {
     version: '1.415.0',
     releaseDate: '2026-11-05',
