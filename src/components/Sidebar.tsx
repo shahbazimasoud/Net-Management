@@ -145,6 +145,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ],
     },
     {
+      id: 'contracts_licenses',
+      titleKey: 'parent_contracts_licenses_title',
+      tagKey: 'parent_contracts_licenses_tag',
+      icon: FileCheck,
+      colorClass: 'text-violet-400 border-violet-500/30 bg-violet-500/10',
+      items: [
+        {
+          id: 'licenses',
+          labelKey: 'tab_licenses',
+          icon: KeyRound,
+          badge: 'Lic',
+        },
+        {
+          id: 'contracts',
+          labelKey: 'tab_contracts',
+          icon: ScrollText,
+          badge: 'SLA',
+        },
+      ],
+    },
+    {
       id: 'servers',
       titleKey: 'parent_servers_title',
       tagKey: 'parent_servers_tag',
@@ -201,27 +222,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_logs',
           icon: ScrollText,
           badge: 'Live',
-        },
-      ],
-    },
-    {
-      id: 'contracts_licenses',
-      titleKey: 'parent_contracts_licenses_title',
-      tagKey: 'parent_contracts_licenses_tag',
-      icon: FileCheck,
-      colorClass: 'text-violet-400 border-violet-500/30 bg-violet-500/10',
-      items: [
-        {
-          id: 'licenses',
-          labelKey: 'tab_licenses',
-          icon: KeyRound,
-          badge: 'Lic',
-        },
-        {
-          id: 'contracts',
-          labelKey: 'tab_contracts',
-          icon: ScrollText,
-          badge: 'SLA',
         },
       ],
     },
@@ -334,8 +334,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       .filter((group) => group.items.length > 0);
   }, [navGroups, effectivePolicy, currentUser, isSuper]);
 
-  // Which parent accordion is currently expanded (Default state is open: first available or 'infra')
-  const [expandedParentId, setExpandedParentId] = useState<string>('infra');
+  // Which parent accordions are currently expanded (Default: both 'infra' and 'contracts_licenses' are expanded and immediately visible!)
+  const [expandedGroupIds, setExpandedGroupIds] = useState<string[]>(['infra', 'contracts_licenses']);
 
   // Keep expanded parent synced with activeTab so active item is always visible
   useEffect(() => {
@@ -343,15 +343,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       g.items.some((i) => i.id === activeTab || (activeTab === 'settings' && g.id === 'settings'))
     );
     if (parentForActive) {
-      if (parentForActive.id !== expandedParentId) {
-        setExpandedParentId(parentForActive.id);
-      }
-    } else if (visibleNavGroups.length > 0 && !visibleNavGroups.some((g) => g.id === expandedParentId)) {
-      setExpandedParentId(visibleNavGroups[0].id);
+      setExpandedGroupIds((prev) =>
+        prev.includes(parentForActive.id) ? prev : [...prev, parentForActive.id]
+      );
     }
   }, [activeTab, visibleNavGroups]);
 
-  // Accordion toggle: Clicking a parent opens it, and closes all other parents
+  // Accordion toggle: Clicking a parent expands/collapses it and navigates to its primary item
   const handleParentClick = (groupId: string) => {
     if ((groupId === 'settings' || groupId === 'system') && !isSuper) {
       return; // Denied to non-superadmin
@@ -359,21 +357,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     if (isCollapsed) {
       onToggleCollapse(); // Auto expand sidebar if collapsed
-      setExpandedParentId(groupId);
-      if (groupId === 'settings') {
-        setActiveTab('general-settings');
-      }
-      return;
     }
 
-    if (expandedParentId === groupId) {
-      // Toggle or keep open
-      setExpandedParentId('');
-    } else {
-      // Open this parent and close others
-      setExpandedParentId(groupId);
-      if (groupId === 'settings') {
-        setActiveTab('general-settings');
+    const isCurrentlyOpen = expandedGroupIds.includes(groupId);
+
+    setExpandedGroupIds((prev) =>
+      isCurrentlyOpen
+        ? prev.filter((id) => id !== groupId)
+        : [...prev, groupId]
+    );
+
+    // Auto-navigate to first child item in this group if not already inside this group
+    const group = visibleNavGroups.find((g) => g.id === groupId);
+    if (group && group.items.length > 0) {
+      const hasActiveChild = group.items.some((i) => i.id === activeTab);
+      if (!hasActiveChild) {
+        setActiveTab(group.items[0].id);
       }
     }
   };
@@ -479,7 +478,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Scrollable Navigation Area with Interactive Accordion Parents */}
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-2 py-1 custom-scrollbar">
         {visibleNavGroups.map((group) => {
-          const isExpanded = expandedParentId === group.id;
+          const isExpanded = expandedGroupIds.includes(group.id);
           const GroupIcon = group.icon;
           const hasActiveChild = group.items.some((i) => i.id === activeTab);
 

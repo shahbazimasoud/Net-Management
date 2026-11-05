@@ -267,7 +267,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewLicenses: true,
     canManageLicenses: false,
     canDeleteLicenses: false,
-    canViewContracts: false,
+    canViewContracts: true,
     canManageContracts: false,
     canDeleteContracts: false,
   },
@@ -1393,7 +1393,10 @@ export function getEffectiveUserPolicy(
 }
 
 export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, user?: any): boolean {
-  if (!policy && !user) return false;
+  if (!policy && !user) {
+    if (tabId.startsWith('settings') || tabId === 'system') return false;
+    return true;
+  }
 
   const isSuperAdmin =
     policy?.id === 'policy-super-admin' ||

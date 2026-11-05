@@ -99,7 +99,7 @@ export const translations = {
     parent_system_title: 'System & Security',
     parent_system_tag: 'SECURITY',
     parent_contracts_licenses_title: 'Contracts & Licenses',
-    parent_contracts_licenses_tag: 'LICENSES',
+    parent_contracts_licenses_tag: 'SLA/LIC',
     parent_settings_title: 'Settings',
     parent_settings_tag: 'SETTINGS',
 
@@ -796,8 +796,8 @@ export const translations = {
     parent_monitor_tag: 'MONITOR',
     parent_system_title: 'سیستم و امنیت',
     parent_system_tag: 'SECURITY',
-    parent_contracts_licenses_title: 'مدیریت قرارداد و لایسنس',
-    parent_contracts_licenses_tag: 'LICENSES',
+    parent_contracts_licenses_title: 'مدیریت قراردادها و لایسنس‌ها',
+    parent_contracts_licenses_tag: 'SLA/LIC',
     parent_settings_title: 'تنظیمات (Settings)',
     parent_settings_tag: 'SETTINGS',
 

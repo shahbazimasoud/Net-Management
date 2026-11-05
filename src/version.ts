@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.416.0';
+export const APP_VERSION = '1.416.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.416.1',
+    releaseDate: '2026-11-05',
+    type: 'patch',
+    title: 'بهبود دسترسی‌پذیری و نمایش مستقیم منوی مدیریت قراردادها و لایسنس‌ها در سایدبار و نوار بالا',
+    title_en: 'Enhanced Accessibility & Direct Visibility for Contracts & Licenses Menu in Sidebar and Navbar',
+    changes: [
+      'انتقال گروه منوی «مدیریت قراردادها و لایسنس‌ها» به ردیف دوم سایدبار (دقیقاً زیر زیرساخت) جهت دیده‌شدن فوری بدون نیاز به اسکرول.',
+      'تنظیم باز بودن خودکار (Expanded) آکاردئون مدیریت قراردادها و لایسنس‌ها در لود اولیه برنامه در کنار منوی زیرساخت.',
+      'هوشمندسازی کلیک روی عنوان سرگروه آکاردئون جهت ناوبری خودکار به اولین زیرمنو (لایسنس‌ها) همزمان با باز/بسته شدن.',
+      'افزودن دکمه دسترسی سریع و نشانگر وضعیت «قراردادها و لایسنس» در نوار بالای پنل (Navbar) جهت دسترسی با یک کلیک از هر بخش سامانه.',
+      'افزودن لینک‌های هدایت مستقیم به «مدیریت لایسنس‌ها» و «قراردادها و SLA» در داخل منوی کاربری بالای صفحه.',
+      'اصلاح منطق اعتبارسنجی تب‌های مجاز در سیستم کنترل دسترسی (RBAC) برای جلوگیری از عدم نمایش تب‌ها در لود اولیه.',
+      'رعایت صددرصدی قانون ۴ در ممنوعیت نمایش متن فارسی در حالت انگلیسی و هماهنگی کامل تم‌های تیره و روشن.'
+    ],
+    changes_en: [
+      'Relocated "Contracts & Licenses" nav group to the 2nd position in the sidebar right below Infrastructure for instant visibility without scrolling.',
+      'Configured automatic default expansion of the Contracts & Licenses accordion on initial load alongside Infrastructure.',
+      'Enhanced parent accordion header click behavior to instantly navigate to the primary item (Licenses) while toggling open/close state.',
+      'Integrated quick-action shortcut button for "Contracts & Lic" in the top Navbar for 1-click access from anywhere in the application.',
+      'Added direct navigation links for "Licenses Management" and "Contracts & SLA" inside the user profile header dropdown.',
+      'Refined tab authorization check in RBAC access policy to prevent tab suppression during initial state hydration.',
+      'Strict adherence to Rule 4 (zero Persian text in English mode) and universal high-contrast light/dark theme adaptation.'
+    ]
+  },
   {
     version: '1.416.0',
     releaseDate: '2026-11-05',

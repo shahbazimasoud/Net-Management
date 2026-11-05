@@ -9,6 +9,9 @@ import {
   User,
   ShieldCheck,
   FileText,
+  FileCheck,
+  KeyRound,
+  ScrollText,
   ArrowUpCircle,
   Sparkles,
   LogOut,
@@ -41,6 +44,8 @@ interface NavbarProps {
   onOpenSettings?: () => void;
   onOpenPasswordVault?: () => void;
   onOpenUpdateSettings?: () => void;
+  onOpenLicenses?: () => void;
+  onOpenContracts?: () => void;
   customTitle?: string;
   customSubtitle?: string;
   logoType?: 'default' | 'preset' | 'custom_url';
@@ -60,6 +65,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSettings,
   onOpenPasswordVault,
   onOpenUpdateSettings,
+  onOpenLicenses,
+  onOpenContracts,
   customTitle,
   customSubtitle,
   logoType = 'default',
@@ -209,6 +216,22 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Lock className="w-3.5 h-3.5 text-cyan-400" />
             <span className="hidden md:inline">{isEn ? 'Vault' : 'ولت پسورد'}</span>
+          </button>
+        )}
+
+        {/* Contracts & Licenses Direct Access Button */}
+        {(onOpenLicenses || onOpenContracts) && (
+          <button
+            onClick={() => {
+              if (onOpenLicenses) onOpenLicenses();
+              else if (onOpenContracts) onOpenContracts();
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/25 text-violet-300 hover:text-white font-medium text-xs shadow-xs transition active:scale-95 cursor-pointer"
+            title={isEn ? 'Contracts & Licenses Management' : 'مدیریت قراردادها و لایسنس‌ها'}
+            id="navbar-contracts-licenses-btn"
+          >
+            <FileCheck className="w-3.5 h-3.5 text-violet-400" />
+            <span className="hidden md:inline">{isEn ? 'Contracts & Lic' : 'قراردادها و لایسنس'}</span>
           </button>
         )}
 
@@ -446,6 +469,42 @@ export const Navbar: React.FC<NavbarProps> = ({
                         )}
                       </div>
                     </button>
+                  </div>
+                )}
+
+                {/* Quick Management Links */}
+                {(onOpenLicenses || onOpenContracts) && (
+                  <div className="pt-2 mt-2 border-t border-white/10 space-y-1">
+                    {onOpenLicenses && (
+                      <button
+                        onClick={() => {
+                          setProfileOpen(false);
+                          onOpenLicenses();
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl hover:bg-white/5 text-slate-300 hover:text-white text-xs transition cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <KeyRound className="w-3.5 h-3.5 text-violet-400" />
+                          <span>{isEn ? 'Licenses Management' : 'مدیریت لایسنس‌ها'}</span>
+                        </div>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-violet-500/20 text-violet-300">Lic</span>
+                      </button>
+                    )}
+                    {onOpenContracts && (
+                      <button
+                        onClick={() => {
+                          setProfileOpen(false);
+                          onOpenContracts();
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl hover:bg-white/5 text-slate-300 hover:text-white text-xs transition cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <ScrollText className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>{isEn ? 'Contracts & SLA' : 'مدیریت قراردادها و SLA'}</span>
+                        </div>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300">SLA</span>
+                      </button>
+                    )}
                   </div>
                 )}
 
