@@ -265,7 +265,10 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
             dataBase64: dataUrl,
           });
           if (res.attachment) {
-            newAttachments.push(res.attachment);
+            newAttachments.push({
+              ...res.attachment,
+              dataBase64: res.attachment.dataBase64 || dataUrl,
+            });
           }
         } catch {
           // If server upload route had an issue, fallback to inline base64 attachment

@@ -292,7 +292,13 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         });
 
         if (uploadRes.success && uploadRes.attachment) {
-          setAttachments((prev) => [...prev, uploadRes.attachment]);
+          setAttachments((prev) => [
+            ...prev,
+            {
+              ...uploadRes.attachment,
+              dataBase64: uploadRes.attachment.dataBase64 || dataBase64,
+            },
+          ]);
         }
       }
     } catch (err: any) {

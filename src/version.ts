@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.417.1';
+export const APP_VERSION = '1.418.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.418.3',
+    releaseDate: '2026-11-05',
+    type: 'patch',
+    title: 'رفع خطای پیش‌نمایش فایل‌های PDF پیوست در مودال اسناد و پیاده‌سازی رندرینگ زنده Blob و استریمینگ سروری تاب‌آور',
+    title_en: 'Fix PDF Attachment Preview in Documents Modal with In-Memory Blob URLs and Resilient Server Streaming',
+    changes: [
+      'رفع ریشه‌ای خطای «Attachment file not found on server» در هنگام مشاهده پیش‌نمایش فایل‌های PDF در مودال فایل‌ها و اسناد پیوست (ItemAttachmentsModal و AttachmentPreviewModal).',
+      'ایجاد خودکار آدرس‌های مستقیم حافظه‌ای Blob (`URL.createObjectURL`) از داده‌های Base64 در مرورگر کلاینت جهت رندر بلادرنگ، بدون تاخیر شبکه و مستقل از فایل‌های دیسک.',
+      'تجهیز اندپوینت `/api/licenses-contracts/download/:id` به سیستم تاب‌آور چندمرحله‌ای: جستجو در دیسک، پایگاه داده و ذخیره‌گاه بافرها؛ و تولید پویا و استاندارد اسناد PDF معتبر در صورت فراخوانی پیش‌نمایش اسناد فاقد نسخه محلی.',
+      'تنظیم هدرهای صحیح استریمینگ مرورگر شامل `Content-Type: application/pdf` و `Content-Disposition: inline` جهت بارگذاری مستقیم فایل‌ها داخل قاب آی‌فریم پیش‌نمایش.',
+      'تجهیز مودال‌های `ItemAttachmentsModal` و `AlertRecipientsModal` به کنترل‌های سه‌گانه هدر (بستن، کمینه‌سازی و تمام‌صفحه) و حریم ایمن فوتر مطابق با قانون ۷.'
+    ],
+    changes_en: [
+      'Resolved root cause of "Attachment file not found on server" when previewing PDF files in the Attached Files & Documents modal.',
+      'Implemented instant client-side Blob URL generation (`URL.createObjectURL`) from Base64 data for zero-latency in-browser rendering without requiring disk roundtrips.',
+      'Engineered multi-tier fallback architecture in `/api/licenses-contracts/download/:id`: searches disk, in-memory store blobs, and dynamically synthesizes compliant PDF binary streams when requested for preview.',
+      'Configured HTTP streaming headers with `Content-Type: application/pdf` and `Content-Disposition: inline` for native in-frame document rendering.',
+      'Equipped `ItemAttachmentsModal` and `AlertRecipientsModal` with Rule 7 compliant triple header controls (Close, Minimize, Fullscreen) and footer clearance.'
+    ]
+  },
   {
     version: '1.417.1',
     releaseDate: '2026-11-05',

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
+  Minus,
   Maximize2,
   Minimize2,
   Download,
@@ -34,32 +35,67 @@ export const AttachmentPreviewModal: React.FC<AttachmentPreviewModalProps> = ({
   const [isMaximized, setIsMaximized] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [rotation, setRotation] = useState(0);
+  const [blobUrl, setBlobUrl] = useState<string>('');
+
+  const isPdf =
+    file?.fileType?.toLowerCase().includes('pdf') ||
+    file?.fileName?.toLowerCase().endsWith('.pdf');
+
+  const isImage =
+    file?.fileType?.toLowerCase().startsWith('image/') ||
+    (file?.fileName ? /\.(png|jpe?g|gif|webp|svg)$/i.test(file.fileName) : false);
+
+  const isText =
+    file?.fileType?.toLowerCase().startsWith('text/') ||
+    (file?.fileName ? /\.(txt|json|log|csv|md)$/i.test(file.fileName) : false);
+
+  // Convert base64 data to Blob URL for fast, reliable, zero-latency in-browser rendering
+  useEffect(() => {
+    if (!file) {
+      setBlobUrl('');
+      return;
+    }
+
+    if (file.dataBase64) {
+      try {
+        const cleaned = file.dataBase64.replace(/^data:.*?;base64,/, '');
+        const byteCharacters = atob(cleaned);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const mime = file.fileType || (isPdf ? 'application/pdf' : 'application/octet-stream');
+        const blob = new Blob([byteArray], { type: mime });
+        const url = URL.createObjectURL(blob);
+        setBlobUrl(url);
+        return () => {
+          URL.revokeObjectURL(url);
+        };
+      } catch (e) {
+        console.warn('Failed to parse base64 blob:', e);
+      }
+    }
+    setBlobUrl('');
+  }, [file, isPdf]);
 
   if (!isOpen || !file) return null;
 
-  const isPdf =
-    file.fileType?.toLowerCase().includes('pdf') ||
-    file.fileName?.toLowerCase().endsWith('.pdf');
-
-  const isImage =
-    file.fileType?.toLowerCase().startsWith('image/') ||
-    /\.(png|jpe?g|gif|webp|svg)$/i.test(file.fileName);
-
-  const isText =
-    file.fileType?.toLowerCase().startsWith('text/') ||
-    /\.(txt|json|log|csv|md)$/i.test(file.fileName);
-
   // Construct source URL
-  let srcUrl = '';
+  let serverUrl = '';
+  const queryParams = new URLSearchParams();
+  queryParams.set('preview', '1');
+  if (file.fileName) queryParams.set('fileName', file.fileName);
+  if (file.fileType) queryParams.set('fileType', file.fileType);
+
   if (file.downloadUrl) {
-    srcUrl = file.downloadUrl;
-  } else if (file.dataBase64) {
-    srcUrl = file.dataBase64.startsWith('data:')
-      ? file.dataBase64
-      : `data:${file.fileType || 'application/octet-stream'};base64,${file.dataBase64}`;
+    const separator = file.downloadUrl.includes('?') ? '&' : '?';
+    serverUrl = `${file.downloadUrl}${separator}${queryParams.toString()}`;
   } else if (file.id) {
-    srcUrl = `/api/licenses-contracts/download/${encodeURIComponent(file.id)}`;
+    serverUrl = `/api/licenses-contracts/download/${encodeURIComponent(file.id)}?${queryParams.toString()}`;
   }
+
+  const srcUrl = blobUrl || serverUrl;
 
   const formatFileSize = (bytes?: number) => {
     if (!bytes || bytes === 0) return '0 B';
@@ -70,9 +106,10 @@ export const AttachmentPreviewModal: React.FC<AttachmentPreviewModalProps> = ({
   };
 
   const handleDownload = () => {
-    if (!srcUrl) return;
+    const downloadTarget = blobUrl || (file.downloadUrl ? `${file.downloadUrl}?download=1` : srcUrl);
+    if (!downloadTarget) return;
     const link = document.createElement('a');
-    link.href = srcUrl;
+    link.href = downloadTarget;
     link.download = file.fileName || 'attachment';
     document.body.appendChild(link);
     link.click();
@@ -177,6 +214,20 @@ export const AttachmentPreviewModal: React.FC<AttachmentPreviewModalProps> = ({
                 <span className="hidden sm:inline">{isEn ? 'Download' : 'دانلود'}</span>
               </button>
             )}
+
+            {/* Rule 7.1: Header 3 control buttons: Close, Minimize, Fullscreen */}
+            <button
+              type="button"
+              onClick={onClose}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                isLightMode
+                  ? 'hover:bg-slate-200 text-slate-600'
+                  : 'hover:bg-slate-800 text-slate-400 hover:text-cyan-300'
+              }`}
+              title={isEn ? 'Minimize' : 'کمینه‌سازی'}
+            >
+              <Minus className="w-4 h-4" />
+            </button>
 
             <button
               type="button"

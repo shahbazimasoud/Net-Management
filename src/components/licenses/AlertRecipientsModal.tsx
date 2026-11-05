@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
+  Minus,
+  Maximize2,
+  Minimize2,
   Mail,
   Bell,
   Clock,
@@ -18,6 +21,7 @@ import {
 interface AlertRecipientsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onMinimize?: () => void;
   itemTitle: string;
   itemType?: 'license' | 'contract';
   ownerEmail?: string;
@@ -35,6 +39,7 @@ interface AlertRecipientsModalProps {
 export const AlertRecipientsModal: React.FC<AlertRecipientsModalProps> = ({
   isOpen,
   onClose,
+  onMinimize,
   itemTitle,
   itemType = 'license',
   ownerEmail,
@@ -49,6 +54,7 @@ export const AlertRecipientsModal: React.FC<AlertRecipientsModalProps> = ({
   isSendingTest = false,
 }) => {
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
+  const [isMaximized, setIsMaximized] = useState(false);
 
   if (!isOpen) return null;
 
@@ -84,7 +90,11 @@ export const AlertRecipientsModal: React.FC<AlertRecipientsModalProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[999990] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md modal-backdrop-blur"
+      className={
+        isMaximized
+          ? 'fixed top-0 left-0 right-0 bottom-8 z-[999990] p-0 flex flex-col'
+          : 'fixed top-0 left-0 right-0 bottom-8 z-[999990] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md modal-backdrop-blur'
+      }
       data-modal-backdrop="true"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -92,7 +102,11 @@ export const AlertRecipientsModal: React.FC<AlertRecipientsModalProps> = ({
       dir={isEn ? 'ltr' : 'rtl'}
     >
       <div
-        className={`w-full max-w-xl max-h-[85vh] rounded-2xl border shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 ${
+        className={`flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 transition-all ${
+          isMaximized
+            ? 'w-full h-full max-w-none max-h-full rounded-none border-none'
+            : 'w-full max-w-xl max-h-[85vh] rounded-2xl border shadow-2xl'
+        } ${
           isLightMode
             ? 'bg-white border-slate-200 text-slate-800'
             : 'bg-slate-900 border-slate-800 text-slate-100'
@@ -118,7 +132,7 @@ export const AlertRecipientsModal: React.FC<AlertRecipientsModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             {allRecipients.length > 0 && (
               <button
                 type="button"
@@ -130,17 +144,48 @@ export const AlertRecipientsModal: React.FC<AlertRecipientsModalProps> = ({
                 <span>{isEn ? 'Copy All Emails' : 'کپی همه ایمیل‌ها'}</span>
               </button>
             )}
+
+            {/* Rule 7.1: Header 3 control buttons: Close, Minimize, Fullscreen */}
+            <button
+              type="button"
+              onClick={() => {
+                if (onMinimize) onMinimize();
+                else onClose();
+              }}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                isLightMode
+                  ? 'hover:bg-slate-200 text-slate-600'
+                  : 'hover:bg-slate-800 text-slate-400 hover:text-cyan-300'
+              }`}
+              title={isEn ? 'Minimize' : 'کمینه‌سازی'}
+            >
+              <Minus className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsMaximized(!isMaximized)}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                isLightMode
+                  ? 'hover:bg-slate-200 text-slate-600'
+                  : 'hover:bg-slate-800 text-slate-400 hover:text-cyan-300'
+              }`}
+              title={isMaximized ? (isEn ? 'Exit Fullscreen' : 'خروج از تمام‌صفحه') : isEn ? 'Fullscreen' : 'تمام‌صفحه'}
+            >
+              {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+
             <button
               type="button"
               onClick={onClose}
-              className={`p-2 rounded-lg transition-colors cursor-pointer ${
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                 isLightMode
-                  ? 'hover:bg-slate-200 text-slate-600'
-                  : 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                  ? 'hover:bg-rose-100 text-slate-600 hover:text-rose-600'
+                  : 'hover:bg-rose-950/40 text-slate-400 hover:text-rose-400'
               }`}
               title={isEn ? 'Close' : 'بستن'}
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
