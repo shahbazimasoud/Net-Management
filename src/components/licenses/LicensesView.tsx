@@ -37,7 +37,8 @@ import {
   LicenseDeviceType,
   LicenseStatus,
   Device,
-  AccessPolicy
+  AccessPolicy,
+  AttachmentFile
 } from '../../types';
 import {
   fetchLicensesApi,
@@ -47,6 +48,9 @@ import {
 } from '../../services/api';
 import { LicenseModal } from './LicenseModal';
 import { RenewalHistoryModal } from './RenewalHistoryModal';
+import { ItemAttachmentsModal } from './ItemAttachmentsModal';
+import { AlertRecipientsModal } from './AlertRecipientsModal';
+import { AttachmentPreviewModal } from './AttachmentPreviewModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 interface LicensesViewProps {
@@ -74,6 +78,19 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
   const [historyLicense, setHistoryLicense] = useState<LicenseItem | null>(null);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [testingLicenseId, setTestingLicenseId] = useState<string | null>(null);
+
+  // Modals for Alerts & Files
+  const [attachmentsModalItem, setAttachmentsModalItem] = useState<{
+    title: string;
+    attachments: AttachmentFile[];
+  } | null>(null);
+  const [isAttachmentsModalOpen, setIsAttachmentsModalOpen] = useState(false);
+
+  const [alertModalItem, setAlertModalItem] = useState<LicenseItem | null>(null);
+  const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
+
+  const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -901,33 +918,51 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
                       {/* Alerts & Attachments */}
                       <td className="py-3.5 px-3">
                         <div className="flex items-center gap-2">
-                          {/* Alert recipients badge */}
-                          <div
-                            className="flex items-center gap-1 px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 text-sky-300 text-[10px]"
-                            title={lic.notifyEmails?.join(', ') || 'No recipient emails'}
+                          {/* Alert recipients badge - clickable button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAlertModalItem(lic);
+                              setIsAlertModalOpen(true);
+                            }}
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer group ${
+                              (lic.notifyEmails?.length || 0) + (lic.ownerEmail ? 1 : 0) > 0
+                                ? 'bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border-sky-500/30 hover:border-sky-400'
+                                : 'bg-slate-800/40 hover:bg-slate-800 text-slate-400 border-slate-700/60'
+                            }`}
+                            title={
+                              isEn
+                                ? `View ${(lic.notifyEmails?.length || 0) + (lic.ownerEmail ? 1 : 0)} alert recipients & schedule`
+                                : `مشاهده ${(lic.notifyEmails?.length || 0) + (lic.ownerEmail ? 1 : 0)} گیرنده و زمان‌بندی هشدارها`
+                            }
                           >
-                            <Mail className="w-3 h-3" />
+                            <Mail className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform shrink-0" />
                             <span>{(lic.notifyEmails?.length || 0) + (lic.ownerEmail ? 1 : 0)}</span>
-                          </div>
+                          </button>
 
-                          {/* Attachments badge with download */}
+                          {/* Attachments badge - clickable button to view and download all files */}
                           {lic.attachments && lic.attachments.length > 0 ? (
-                            <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px]">
-                              <Paperclip className="w-3 h-3" />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAttachmentsModalItem({
+                                  title: lic.title,
+                                  attachments: lic.attachments,
+                                });
+                                setIsAttachmentsModalOpen(true);
+                              }}
+                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 hover:border-indigo-400 text-indigo-300 text-[11px] font-semibold transition-all cursor-pointer group"
+                              title={
+                                isEn
+                                  ? `Click to view and download ${lic.attachments.length} attached files`
+                                  : `کلیک برای مشاهده و دانلود ${lic.attachments.length} فایل پیوست`
+                              }
+                            >
+                              <Paperclip className="w-3.5 h-3.5 text-indigo-400 group-hover:scale-110 transition-transform shrink-0" />
                               <span>{lic.attachments.length}</span>
-                              {lic.attachments[0].downloadUrl && (
-                                <a
-                                  href={lic.attachments[0].downloadUrl}
-                                  download={lic.attachments[0].fileName}
-                                  className="ml-1 hover:text-white"
-                                  title={isEn ? `Download ${lic.attachments[0].fileName}` : 'دانلود پیوست'}
-                                >
-                                  <Download className="w-2.5 h-2.5" />
-                                </a>
-                              )}
-                            </div>
+                            </button>
                           ) : (
-                            <span className="text-[10px] text-slate-400">-</span>
+                            <span className="text-[11px] text-slate-500 px-1 font-mono">-</span>
                           )}
                         </div>
                       </td>
@@ -1000,6 +1035,60 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
         }}
         type="license"
         item={historyLicense}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* Item Attachments & Downloads Modal */}
+      <ItemAttachmentsModal
+        isOpen={isAttachmentsModalOpen}
+        onClose={() => {
+          setIsAttachmentsModalOpen(false);
+          setAttachmentsModalItem(null);
+        }}
+        itemTitle={attachmentsModalItem?.title || ''}
+        attachments={attachmentsModalItem?.attachments || []}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        onPreviewFile={(file) => {
+          setPreviewFile(file);
+          setIsPreviewOpen(true);
+        }}
+      />
+
+      {/* Alert Recipients & Milestones Modal */}
+      <AlertRecipientsModal
+        isOpen={isAlertModalOpen}
+        onClose={() => {
+          setIsAlertModalOpen(false);
+          setAlertModalItem(null);
+        }}
+        itemTitle={alertModalItem?.title || ''}
+        itemType="license"
+        ownerEmail={alertModalItem?.ownerEmail}
+        ownerName={alertModalItem?.ownerName}
+        department={alertModalItem?.department}
+        notifyEmails={alertModalItem?.notifyEmails}
+        alertDays={alertModalItem?.alertDays || [60, 30, 15, 7, 1]}
+        endDate={alertModalItem?.endDate}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        isSendingTest={testingLicenseId === alertModalItem?.id}
+        onSendTestAlert={async () => {
+          if (alertModalItem) {
+            await handleTestAlert(alertModalItem);
+          }
+        }}
+      />
+
+      {/* Single Attachment File Preview Modal */}
+      <AttachmentPreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => {
+          setIsPreviewOpen(false);
+          setPreviewFile(null);
+        }}
+        file={previewFile}
         isLightMode={isLightMode}
         isEn={isEn}
       />

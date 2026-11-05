@@ -53,6 +53,8 @@ import {
 import { ContractModal } from './ContractModal';
 import { AttachmentPreviewModal } from './AttachmentPreviewModal';
 import { RenewalHistoryModal } from './RenewalHistoryModal';
+import { ItemAttachmentsModal } from './ItemAttachmentsModal';
+import { AlertRecipientsModal } from './AlertRecipientsModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 interface ContractsViewProps {
@@ -85,6 +87,16 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
   // Attachment Preview Modal
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  // Modals for Alerts & Files
+  const [attachmentsModalItem, setAttachmentsModalItem] = useState<{
+    title: string;
+    attachments: AttachmentFile[];
+  } | null>(null);
+  const [isAttachmentsModalOpen, setIsAttachmentsModalOpen] = useState(false);
+
+  const [alertModalItem, setAlertModalItem] = useState<ContractItem | null>(null);
+  const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
 
   // Delete Confirmation Modal
   const [contractToDelete, setContractToDelete] = useState<ContractItem | null>(null);
@@ -772,7 +784,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                   <th className="px-4 py-3">{isEn ? 'Owner / Dept' : 'مسئول / واحد'}</th>
                   <th className="px-4 py-3">{isEn ? 'Validity / Countdown' : 'اعتبار و روزشمار'}</th>
                   <th className="px-4 py-3">{isEn ? 'Financials' : 'مبلغ و شرایط'}</th>
-                  <th className="px-4 py-3">{isEn ? 'Files' : 'پیوست‌ها'}</th>
+                  <th className="px-4 py-3">{isEn ? 'Alerts & Files' : 'هشدارها و پیوست‌ها'}</th>
                   <th className="px-4 py-3 text-right">{isEn ? 'Actions' : 'عملیات'}</th>
                 </tr>
               </thead>
@@ -913,26 +925,56 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Attachments */}
+                      {/* Alerts & Attachments */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        {contract.attachments && contract.attachments.length > 0 ? (
-                          <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-2">
+                          {/* Alert recipients badge - clickable button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAlertModalItem(contract);
+                              setIsAlertModalOpen(true);
+                            }}
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer group ${
+                              (contract.notifyEmails?.length || 0) + (contract.ownerEmail ? 1 : 0) > 0
+                                ? 'bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border-sky-500/30 hover:border-sky-400'
+                                : 'bg-slate-800/40 hover:bg-slate-800 text-slate-400 border-slate-700/60'
+                            }`}
+                            title={
+                              isEn
+                                ? `View ${(contract.notifyEmails?.length || 0) + (contract.ownerEmail ? 1 : 0)} alert recipients & schedule`
+                                : `مشاهده ${(contract.notifyEmails?.length || 0) + (contract.ownerEmail ? 1 : 0)} گیرنده و زمان‌بندی هشدارها`
+                            }
+                          >
+                            <Mail className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform shrink-0" />
+                            <span>{(contract.notifyEmails?.length || 0) + (contract.ownerEmail ? 1 : 0)}</span>
+                          </button>
+
+                          {/* Attachments badge - clickable button to view and download all files */}
+                          {contract.attachments && contract.attachments.length > 0 ? (
                             <button
                               type="button"
-                              onClick={() => handlePreviewAttachment(contract.attachments[0])}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
-                              title={isEn ? 'Preview PDF in browser' : 'مشاهده مستقیم PDF در مرورگر'}
+                              onClick={() => {
+                                setAttachmentsModalItem({
+                                  title: contract.title,
+                                  attachments: contract.attachments,
+                                });
+                                setIsAttachmentsModalOpen(true);
+                              }}
+                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 hover:border-indigo-400 text-indigo-300 text-[11px] font-semibold transition-all cursor-pointer group"
+                              title={
+                                isEn
+                                  ? `Click to view and download ${contract.attachments.length} attached files`
+                                  : `کلیک برای مشاهده و دانلود ${contract.attachments.length} فایل پیوست`
+                              }
                             >
-                              <Paperclip className="w-3 h-3 text-indigo-400" />
-                              <span>{contract.attachments.length} {isEn ? 'files' : 'پیوست'}</span>
-                              <Eye className="w-3 h-3 text-indigo-400" />
+                              <Paperclip className="w-3.5 h-3.5 text-indigo-400 group-hover:scale-110 transition-transform shrink-0" />
+                              <span>{contract.attachments.length}</span>
                             </button>
-                          </div>
-                        ) : (
-                          <span className="text-[11px] text-slate-500">
-                            {isEn ? 'No files' : 'بدون پیوست'}
-                          </span>
-                        )}
+                          ) : (
+                            <span className="text-[11px] text-slate-500 px-1 font-mono">-</span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Actions with 3-Dots Menu */}
@@ -1017,6 +1059,48 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
         isLightMode={isLightMode}
         isEn={isEn}
         onPreviewAttachment={handlePreviewAttachment}
+      />
+
+      {/* Item Attachments & Downloads Modal */}
+      <ItemAttachmentsModal
+        isOpen={isAttachmentsModalOpen}
+        onClose={() => {
+          setIsAttachmentsModalOpen(false);
+          setAttachmentsModalItem(null);
+        }}
+        itemTitle={attachmentsModalItem?.title || ''}
+        attachments={attachmentsModalItem?.attachments || []}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        onPreviewFile={(file) => {
+          setPreviewFile(file);
+          setIsPreviewOpen(true);
+        }}
+      />
+
+      {/* Alert Recipients & Milestones Modal */}
+      <AlertRecipientsModal
+        isOpen={isAlertModalOpen}
+        onClose={() => {
+          setIsAlertModalOpen(false);
+          setAlertModalItem(null);
+        }}
+        itemTitle={alertModalItem?.title || ''}
+        itemType="contract"
+        ownerEmail={alertModalItem?.ownerEmail}
+        ownerName={alertModalItem?.ownerName}
+        department={alertModalItem?.department}
+        notifyEmails={alertModalItem?.notifyEmails}
+        alertDays={alertModalItem?.alertDays || [60, 30, 15, 7, 1]}
+        endDate={alertModalItem?.endDate}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        isSendingTest={testingContractId === alertModalItem?.id}
+        onSendTestAlert={async () => {
+          if (alertModalItem) {
+            await handleTestAlert(alertModalItem);
+          }
+        }}
       />
 
       {/* Delete Confirmation Modal */}
