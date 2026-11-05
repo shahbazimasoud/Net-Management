@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.417.0';
+export const APP_VERSION = '1.417.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.417.1',
+    releaseDate: '2026-11-05',
+    type: 'patch',
+    title: 'انتقال و تجمیع کلیه عملیات‌های جدول لایسنس‌ها و قراردادها به منوی ۳ نقطه شناور و استاندارد',
+    title_en: 'Consolidation of Licenses & Contracts Table Actions into Floating 3-Dots Action Menu',
+    changes: [
+      'حذف دکمه‌های متعدد و پراکنده ستون عملیات در جدول لایسنس‌ها و قراردادها و جایگزینی با دکمه ۳ نقطه عمودی (MoreVertical).',
+      'طراحی منوی اکشن شناور مبتنی بر پرتال (Portal) با پس‌زمینه شفاف و بسته شدن هوشمند با کلیک به بیرون.',
+      'محاسبه خودکار موقعیت منو بر اساس ارتفاع دید مانیتور، پشتیبانی از باز شدن به سمت بالا/پایین و رعایت فاصله ایمن بالای فوتر (Rule 7.2).',
+      'حفظ کلیه عملیات‌های پیشین شامل ارسال ایمیل تستی، تمدید دوره جدید، مشاهده زنجیره سوابق، ویرایش و حذف با آیکون‌ها و رنگ‌های اختصاصی.'
+    ],
+    changes_en: [
+      'Consolidated multiple cluttered row action buttons into a sleek, contextual 3-dots dropdown menu (MoreVertical) in Licenses and Contracts views.',
+      'Implemented boundary-clamped portal-based floating action menu with transparent backdrop and clean click-outside dismissal.',
+      'Smart adaptive viewport positioning: auto-detects space above/below and strictly respects the 44px bottom footer clearance barrier (Rule 7.2).',
+      'Preserved all row operations including test alert dispatch, cycle renewal, history chain view, editing, and deletion with distinct icons and semantic accent styles.'
+    ]
+  },
   {
     version: '1.417.0',
     releaseDate: '2026-11-05',

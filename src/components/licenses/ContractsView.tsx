@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ScrollText,
   Plus,
@@ -32,7 +33,8 @@ import {
   Layers,
   ArrowRight,
   RotateCw,
-  History
+  History,
+  MoreVertical
 } from 'lucide-react';
 import {
   ContractItem,
@@ -93,6 +95,69 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // 3-Dots Action Menu state
+  const [actionMenuAnchor, setActionMenuAnchor] = useState<{
+    id: string;
+    item: ContractItem;
+    top?: number;
+    bottom?: number;
+    left?: number;
+    maxHeight?: number;
+  } | null>(null);
+
+  const handleToggleActionMenu = (e: React.MouseEvent<HTMLButtonElement>, contract: ContractItem) => {
+    e.stopPropagation();
+    if (actionMenuAnchor?.id === contract.id) {
+      setActionMenuAnchor(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const menuWidth = 220;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const topMargin = 12;
+    const bottomMargin = 44; // Rule 7.2: strict clearance above footer bar
+    const estimatedMenuHeight = 220;
+
+    const spaceBelow = viewportHeight - rect.bottom - bottomMargin;
+    const spaceAbove = rect.top - topMargin;
+
+    let top: number | undefined;
+    let bottom: number | undefined;
+    let maxHeight: number;
+
+    if (spaceBelow >= estimatedMenuHeight || spaceBelow >= spaceAbove) {
+      top = rect.bottom + 6;
+      maxHeight = Math.max(140, viewportHeight - top - bottomMargin);
+    } else {
+      bottom = viewportHeight - rect.top + 6;
+      maxHeight = Math.max(140, rect.top - topMargin - 6);
+    }
+
+    let left: number;
+    if (!isEn) {
+      // In RTL: align left edge of menu with left edge of button
+      left = Math.max(12, Math.min(rect.left, viewportWidth - menuWidth - 12));
+    } else {
+      // In LTR: align right edge of menu with right edge of button
+      const desiredLeft = rect.right - menuWidth;
+      if (desiredLeft >= 12) {
+        left = desiredLeft;
+      } else {
+        left = Math.max(12, Math.min(rect.left, viewportWidth - menuWidth - 12));
+      }
+    }
+
+    setActionMenuAnchor({
+      id: contract.id,
+      item: contract,
+      top,
+      bottom,
+      left,
+      maxHeight,
+    });
+  };
 
   // RBAC checks
   const canManage = effectivePolicy?.canManageContracts ?? true;
@@ -870,80 +935,23 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                         )}
                       </td>
 
-                      {/* Actions */}
-                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1">
-                          {/* Test Alert Button */}
+                      {/* Actions with 3-Dots Menu */}
+                      <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center">
                           <button
                             type="button"
-                            onClick={() => handleTestAlert(contract)}
-                            disabled={testingContractId === contract.id}
-                            className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
-                              testingContractId === contract.id
-                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border-slate-700'
+                            onClick={(e) => handleToggleActionMenu(e, contract)}
+                            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                              actionMenuAnchor?.id === contract.id
+                                ? 'bg-indigo-600 text-white border-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.4)]'
+                                : isLightMode
+                                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border-slate-700/80 hover:text-white'
                             }`}
-                            title={isEn ? 'Send instant test email alert' : 'ارسال ایمیل هشدار آزمایشی'}
+                            title={isEn ? 'Actions & Options' : 'عملیات و گزینه‌ها'}
                           >
-                            <Send className={`w-3.5 h-3.5 ${testingContractId === contract.id ? 'animate-spin' : ''}`} />
+                            <MoreVertical className="w-4 h-4" />
                           </button>
-
-                          {/* Renew Button */}
-                          {canManage && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingContract(contract);
-                                setModalMode('renew');
-                                setIsModalOpen(true);
-                              }}
-                              className="p-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 transition-colors cursor-pointer"
-                              title={isEn ? 'Renew Contract (Start Next Cycle)' : 'تمدید قرارداد (ایجاد دوره بعدی با حفظ سابقه)'}
-                            >
-                              <RotateCw className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-
-                          {/* History Chain Button */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setHistoryContract(contract);
-                              setIsHistoryModalOpen(true);
-                            }}
-                            className="p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 transition-colors cursor-pointer"
-                            title={isEn ? 'View Renewal & Audit History Chain' : 'مشاهده سوابق و زنجیره تمدیدها'}
-                          >
-                            <History className="w-3.5 h-3.5" />
-                          </button>
-
-                          {/* Edit Button */}
-                          {canManage && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingContract(contract);
-                                setModalMode('edit');
-                                setIsModalOpen(true);
-                              }}
-                              className="p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 transition-colors cursor-pointer"
-                              title={isEn ? 'Edit contract' : 'ویرایش قرارداد'}
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-
-                          {/* Delete Button */}
-                          {canDelete && (
-                            <button
-                              type="button"
-                              onClick={() => setContractToDelete(contract)}
-                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors cursor-pointer"
-                              title={isEn ? 'Delete contract' : 'حذف قرارداد'}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -1067,6 +1075,129 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Floating 3-Dots Action Dropdown Menu (Portal) */}
+      {actionMenuAnchor &&
+        createPortal(
+          <>
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 z-[99998] bg-transparent"
+              onClick={() => setActionMenuAnchor(null)}
+            />
+
+            {/* Dropdown Menu */}
+            <div
+              style={{
+                position: 'fixed',
+                top: actionMenuAnchor.top !== undefined ? `${actionMenuAnchor.top}px` : undefined,
+                bottom: actionMenuAnchor.bottom !== undefined ? `${actionMenuAnchor.bottom}px` : undefined,
+                left: `${actionMenuAnchor.left}px`,
+                maxHeight: `${actionMenuAnchor.maxHeight}px`,
+              }}
+              className={`z-[99999] min-w-[210px] rounded-xl border shadow-2xl p-1.5 flex flex-col gap-1 overflow-y-auto backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 ${
+                isLightMode
+                  ? 'bg-white/95 border-slate-200 shadow-slate-400/30'
+                  : 'bg-slate-900/95 border-slate-700/80 shadow-black/80'
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Test Alert Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  handleTestAlert(actionMenuAnchor.item);
+                  setActionMenuAnchor(null);
+                }}
+                disabled={testingContractId === actionMenuAnchor.item.id}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
+                  isLightMode ? 'hover:bg-amber-50 text-amber-700' : 'hover:bg-amber-500/15 text-amber-300'
+                }`}
+              >
+                {testingContractId === actionMenuAnchor.item.id ? (
+                  <div className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                ) : (
+                  <Send className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                )}
+                <span>{isEn ? 'Send Test Alert' : 'ارسال ایمیل هشدار آزمایشی'}</span>
+              </button>
+
+              {/* Renew Button */}
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingContract(actionMenuAnchor.item);
+                    setModalMode('renew');
+                    setIsModalOpen(true);
+                    setActionMenuAnchor(null);
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
+                    isLightMode ? 'hover:bg-cyan-50 text-cyan-700' : 'hover:bg-cyan-500/15 text-cyan-300'
+                  }`}
+                >
+                  <RotateCw className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                  <span>{isEn ? 'Renew Contract' : 'تمدید قرارداد (دوره جدید)'}</span>
+                </button>
+              )}
+
+              {/* History Chain Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setHistoryContract(actionMenuAnchor.item);
+                  setIsHistoryModalOpen(true);
+                  setActionMenuAnchor(null);
+                }}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
+                  isLightMode ? 'hover:bg-indigo-50 text-indigo-700' : 'hover:bg-indigo-500/15 text-indigo-300'
+                }`}
+              >
+                <History className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span>{isEn ? 'Renewal History Chain' : 'مشاهده زنجیره سوابق'}</span>
+              </button>
+
+              {/* Edit Button */}
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingContract(actionMenuAnchor.item);
+                    setModalMode('edit');
+                    setIsModalOpen(true);
+                    setActionMenuAnchor(null);
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
+                    isLightMode ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-800 text-slate-200'
+                  }`}
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>{isEn ? 'Edit Contract' : 'ویرایش قرارداد'}</span>
+                </button>
+              )}
+
+              {/* Delete Button */}
+              {canDelete && (
+                <div className={`pt-1 mt-0.5 border-t ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setContractToDelete(actionMenuAnchor.item);
+                      setActionMenuAnchor(null);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
+                      isLightMode ? 'hover:bg-rose-50 text-rose-600' : 'hover:bg-rose-500/15 text-rose-400'
+                    }`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    <span>{isEn ? 'Delete Contract' : 'حذف قرارداد'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </>,
+          document.body
+        )}
     </div>
   );
 };
