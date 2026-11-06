@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.418.4';
+export const APP_VERSION = '1.418.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.418.5',
+    releaseDate: '2026-11-05',
+    type: 'patch',
+    title: 'تجهیز فرآیند حذف پیوست‌های قراردادها و لایسنس‌ها به مودال تایید حذف استاندارد DeleteConfirmModal مطابق استایل حذف تجهیزات',
+    title_en: 'Equip Contract and License Attachment Deletion with Standard DeleteConfirmModal Matching Device Deletion UX',
+    changes: [
+      'پیاده‌سازی صفحه پرامپت تایید حذف استاندارد (DeleteConfirmModal) برای کلیه فایل‌های پیوست در فرم‌های قرارداد و لایسنس با استایل دقیق حذف تجهیزات.',
+      'افزودن تارگت اختصاصی attachment به کامپوننت DeleteConfirmModal به همراه نمایش آیکون سنجاق پیوست، نام فایل، حجم فایل به فرمت B/KB/MB/GB و عنوان آیتم مربوطه.',
+      'رندرینگ پورتال با createPortal در ریشه سند (document.body) با لایه z-[999995] و رعایت حریم همیشگی فوتر (bottom-8) برای عدم تداخل با پنجره‌های والد.',
+      'پشتیبانی دوطرفه و کامل از تم‌های تیره (Dark) و روشن (Light) و سازگاری صددرصدی با زبان فعال سیستم (فارسی و انگلیسی).'
+    ],
+    changes_en: [
+      'Implemented standard deletion confirmation prompt modal (DeleteConfirmModal) for all attached files in contract and license forms matching the exact device deletion design.',
+      'Added specialized attachment target in DeleteConfirmModal featuring paperclip icon, file name, human-readable file size (B/KB/MB/GB), and parent item title metadata.',
+      'Document body portal rendering (z-[999995]) with strict footer boundary clearance (bottom-8) ensuring no clipping by parent container overflow or stacking contexts.',
+      'Fully responsive dual dark/light theme styling and strict bilingual support in both Persian and English.'
+    ]
+  },
   {
     version: '1.418.4',
     releaseDate: '2026-11-05',

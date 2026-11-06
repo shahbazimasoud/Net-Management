@@ -38,6 +38,7 @@ import { createContractApi, updateContractApi, renewContractApi, uploadContractA
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
 import { AttachmentPreviewModal } from './AttachmentPreviewModal';
+import { DeleteConfirmModal } from '../DeleteConfirmModal';
 
 interface ContractModalProps {
   isOpen: boolean;
@@ -89,6 +90,9 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   // Preview Modal
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  // Delete Confirmation Modal for Attachments
+  const [attachmentToDelete, setAttachmentToDelete] = useState<AttachmentFile | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -315,7 +319,8 @@ export const ContractModal: React.FC<ContractModalProps> = ({
 
   // Remove attachment
   const handleRemoveAttachment = (attId: string) => {
-    setAttachments(attachments.filter((a) => a.id !== attId));
+    setAttachments((prev) => prev.filter((a) => a.id !== attId));
+    setAttachmentToDelete(null);
   };
 
   // Open in-browser PDF/Document preview
@@ -1299,7 +1304,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                           {/* Delete Button */}
                           <button
                             type="button"
-                            onClick={() => handleRemoveAttachment(file.id)}
+                            onClick={() => setAttachmentToDelete(file)}
                             className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
                             title={isEn ? 'Delete file' : 'حذف فایل'}
                           >
@@ -1390,6 +1395,27 @@ export const ContractModal: React.FC<ContractModalProps> = ({
         file={previewFile}
         isLightMode={isLightMode}
         isEn={isEn}
+      />
+
+      {/* Delete Confirmation Modal for Attachments (Matches device delete modal style) */}
+      <DeleteConfirmModal
+        isOpen={!!attachmentToDelete}
+        onClose={() => setAttachmentToDelete(null)}
+        target={
+          attachmentToDelete
+            ? {
+                type: 'attachment',
+                id: attachmentToDelete.id,
+                name: attachmentToDelete.fileName,
+                fileSize: attachmentToDelete.fileSize,
+                fileType: attachmentToDelete.fileType,
+                parentTitle: title || (isEn ? 'Contract Document' : 'سند قرارداد'),
+                itemType: 'contract',
+              }
+            : null
+        }
+        onConfirmDeleteAttachment={(id) => handleRemoveAttachment(id)}
+        isLightMode={isLightMode}
       />
     </div>,
     document.body

@@ -1,5 +1,6 @@
 import React from 'react';
-import { AlertTriangle, Trash2, Box, Server, ShieldCheck, X, AlertCircle, StickyNote } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { AlertTriangle, Trash2, Box, Server, ShieldCheck, X, AlertCircle, StickyNote, Paperclip, FileText, ScrollText, KeyRound } from 'lucide-react';
 import { MountedHardwareDevice } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -40,7 +41,49 @@ export interface DeleteStickyNoteTarget {
   linkedDeviceName?: string;
 }
 
-export type DeleteTarget = DeleteDeviceTarget | DeleteRackTarget | DeleteRackDeviceTarget | DeleteStickyNoteTarget;
+export interface DeleteAttachmentTarget {
+  type: 'attachment';
+  id: string;
+  name: string;
+  fileSize?: number;
+  fileType?: string;
+  parentTitle?: string;
+  itemType?: 'contract' | 'license' | 'document';
+}
+
+export interface DeleteContractTarget {
+  type: 'contract';
+  id: string;
+  name: string;
+  contractNumber?: string;
+  vendorName?: string;
+}
+
+export interface DeleteLicenseTarget {
+  type: 'license';
+  id: string;
+  name: string;
+  licenseKey?: string;
+  vendor?: string;
+}
+
+export interface DeleteGenericTarget {
+  type: 'generic';
+  id: string;
+  name: string;
+  category?: string;
+  description?: string;
+}
+
+export type DeleteTarget =
+  | DeleteDeviceTarget
+  | DeleteRackTarget
+  | DeleteRackDeviceTarget
+  | DeleteStickyNoteTarget
+  | DeleteAttachmentTarget
+  | DeleteContractTarget
+  | DeleteLicenseTarget
+  | DeleteGenericTarget;
 
 interface DeleteConfirmModalProps {
   isOpen: boolean;
@@ -50,6 +93,11 @@ interface DeleteConfirmModalProps {
   onConfirmDeleteRack?: (rackId: string, deleteMountedDevices: boolean) => void;
   onConfirmRemoveFromRack?: (rackId: string, deviceId: string) => void;
   onConfirmDeleteStickyNote?: (noteId: string) => void;
+  onConfirmDeleteAttachment?: (attachmentId: string) => void;
+  onConfirmDeleteContract?: (contractId: string) => void;
+  onConfirmDeleteLicense?: (licenseId: string) => void;
+  onConfirm?: () => void;
+  isLightMode?: boolean;
 }
 
 export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
@@ -60,33 +108,61 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   onConfirmDeleteRack,
   onConfirmRemoveFromRack,
   onConfirmDeleteStickyNote,
+  onConfirmDeleteAttachment,
+  onConfirmDeleteContract,
+  onConfirmDeleteLicense,
+  onConfirm,
+  isLightMode: propIsLightMode,
 }) => {
   const { isEn } = useLanguage();
 
   if (!isOpen || !target) return null;
 
+  const isLightMode =
+    propIsLightMode ??
+    (typeof document !== 'undefined' &&
+      (document.documentElement.classList.contains('light') ||
+        document.body.classList.contains('light') ||
+        localStorage.getItem('nettopology_theme') === 'light'));
+
   const isRack = target.type === 'rack';
   const isRackDevice = target.type === 'rack_device';
   const isNote = target.type === 'note';
+  const isAttachment = target.type === 'attachment';
   const rackTarget = isRack ? (target as DeleteRackTarget) : null;
   const rackDeviceTarget = isRackDevice ? (target as DeleteRackDeviceTarget) : null;
   const noteTarget = isNote ? (target as DeleteStickyNoteTarget) : null;
+  const attachmentTarget = isAttachment ? (target as DeleteAttachmentTarget) : null;
   const deviceTarget = target.type === 'device' ? (target as DeleteDeviceTarget) : null;
   const hasMountedDevices = (rackTarget?.devices?.length || 0) > 0;
 
-  return (
+  const formatFileSize = (bytes?: number) => {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+  };
+
+  const modalElement = (
     <div
-      className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+      className="fixed top-0 left-0 right-0 bottom-8 z-[999995] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
-        className="relative w-full max-w-lg bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden animate-scale-up"
+        className={`relative w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border animate-scale-up ${
+          isLightMode
+            ? 'bg-white border-slate-200 text-slate-900'
+            : 'bg-slate-900 border-slate-700/80 text-white'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-950/60">
+        <div className={`flex items-center justify-between px-5 py-4 border-b ${
+          isLightMode ? 'border-slate-200 bg-slate-50' : 'border-slate-800 bg-slate-950/60'
+        }`}>
           <div className="flex items-center gap-2.5">
             <div className={`p-2 rounded-xl border ${
               isRack && hasMountedDevices
@@ -94,6 +170,8 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                 : isNote
                 ? 'bg-amber-500/15 border-amber-500/30 text-amber-400'
                 : isRackDevice
+                ? 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                : isAttachment
                 ? 'bg-rose-500/15 border-rose-500/30 text-rose-400'
                 : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
             }`}>
@@ -103,12 +181,14 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                 <StickyNote className="w-5 h-5" />
               ) : isRackDevice ? (
                 <Server className="w-5 h-5" />
+              ) : isAttachment ? (
+                <Paperclip className="w-5 h-5" />
               ) : (
                 <AlertTriangle className="w-5 h-5" />
               )}
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">
+              <h3 className={`text-base font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
                 {isRack
                   ? isEn
                     ? `Delete Server Rack (${target.name})`
@@ -121,11 +201,15 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   ? isEn
                     ? `Remove Device from Rack (${target.name})`
                     : `حذف تجهیز از داخل رک («${target.name}»)`
+                  : isAttachment
+                  ? isEn
+                    ? `Delete Attachment ("${target.name}")`
+                    : `حذف فایل پیوست («${target.name}»)`
                   : isEn
                   ? `Delete Device (${target.name})`
                   : `حذف تجهیز («${target.name}»)`}
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className={`text-xs ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                 {isRack
                   ? isEn
                     ? `${rackTarget?.units}U Datacenter Cabinet`
@@ -142,6 +226,10 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   ? isEn
                     ? `Rack: ${rackDeviceTarget?.rackName || 'Rack'} • Units U${rackDeviceTarget?.startU}-U${(rackDeviceTarget?.startU || 1) + (rackDeviceTarget?.heightU || 1) - 1}`
                     : `رک: ${rackDeviceTarget?.rackName || 'رک'} • یونیت‌های U${rackDeviceTarget?.startU} الی U${(rackDeviceTarget?.startU || 1) + (rackDeviceTarget?.heightU || 1) - 1}`
+                  : isAttachment
+                  ? isEn
+                    ? `${attachmentTarget?.parentTitle ? `${attachmentTarget.parentTitle} • ` : ''}${formatFileSize(attachmentTarget?.fileSize)}`
+                    : `${attachmentTarget?.parentTitle ? `مربوط به: «${attachmentTarget.parentTitle}» • ` : ''}${formatFileSize(attachmentTarget?.fileSize)}`
                   : deviceTarget?.model || deviceTarget?.ip || (isEn ? 'Network Hardware' : 'تجهیز شبکه')}
               </p>
             </div>
@@ -149,7 +237,9 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 transition"
+            className={`p-1.5 rounded-lg transition ${
+              isLightMode ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200' : 'text-slate-400 hover:text-white hover:bg-white/10'
+            }`}
           >
             <X className="w-4 h-4" />
           </button>
@@ -273,6 +363,44 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                 </p>
               )}
             </div>
+          ) : isAttachment ? (
+            /* Attachment Deletion Content */
+            <div className="space-y-3">
+              <div className={`p-3.5 rounded-xl border text-xs space-y-2 ${
+                isLightMode
+                  ? 'bg-rose-50 border-rose-200 text-rose-900'
+                  : 'bg-rose-950/25 border-rose-500/40 text-rose-200'
+              }`}>
+                <div className="flex items-center gap-2 font-bold text-rose-500">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>
+                    {isEn ? 'Confirm Attachment Deletion' : 'تایید حذف فایل پیوست'}
+                  </span>
+                </div>
+                <p className={`leading-relaxed ${isLightMode ? 'text-slate-700' : 'text-slate-200'}`}>
+                  {isEn
+                    ? `Are you sure you want to delete the attached file "${attachmentTarget?.name}"?`
+                    : `آیا از حذف سند و فایل پیوست «${attachmentTarget?.name}» اطمینان دارید؟`}
+                </p>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono pt-1">
+                  {attachmentTarget?.parentTitle && (
+                    <span className={`px-2 py-0.5 rounded ${isLightMode ? 'bg-slate-200 text-slate-800' : 'bg-slate-800 text-slate-300'}`}>
+                      {isEn ? 'Item' : 'آیتم'}: <strong>{attachmentTarget.parentTitle}</strong>
+                    </span>
+                  )}
+                  {attachmentTarget?.fileSize !== undefined && (
+                    <span className={`px-2 py-0.5 rounded ${isLightMode ? 'bg-amber-100 text-amber-900' : 'bg-amber-500/15 text-amber-300'}`}>
+                      {isEn ? 'Size' : 'حجم'}: <strong>{formatFileSize(attachmentTarget.fileSize)}</strong>
+                    </span>
+                  )}
+                </div>
+              </div>
+              <p className={`text-[11px] leading-relaxed ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                {isEn
+                  ? 'This document will be permanently removed from this record. Please confirm your action to proceed.'
+                  : 'توجه: این سند از پیوست‌های این بخش حذف خواهد شد. لطفاً جهت تکمیل فرآیند تایید نمایید.'}
+              </p>
+            </div>
           ) : (
             /* Device Deletion Content */
             <div className="space-y-3">
@@ -297,11 +425,17 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 px-5 py-4 border-t border-slate-800 bg-slate-950/70">
+        <div className={`flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 px-5 py-4 border-t ${
+          isLightMode ? 'border-slate-200 bg-slate-50' : 'border-slate-800 bg-slate-950/70'
+        }`}>
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-white/10 transition active:scale-95 cursor-pointer"
+            className={`px-4 py-2 rounded-xl text-xs font-medium border transition active:scale-95 cursor-pointer ${
+              isLightMode
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-white/10'
+            }`}
           >
             {isEn ? 'Cancel' : 'انصراف'}
           </button>
@@ -385,6 +519,21 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
               <Trash2 className="w-4 h-4" />
               <span>{isEn ? 'Delete Note' : 'حذف یادداشت'}</span>
             </button>
+          ) : isAttachment ? (
+            <button
+              type="button"
+              id="confirm-delete-attachment-btn"
+              onClick={() => {
+                if (attachmentTarget && onConfirmDeleteAttachment) {
+                  onConfirmDeleteAttachment(attachmentTarget.id);
+                }
+                onClose();
+              }}
+              className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold border border-rose-500/50 shadow-lg transition active:scale-95 cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>{isEn ? 'Delete Attachment' : 'حذف فایل پیوست'}</span>
+            </button>
           ) : (
             <button
               type="button"
@@ -404,4 +553,9 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
       </div>
     </div>
   );
+
+  if (typeof document !== 'undefined') {
+    return createPortal(modalElement, document.body);
+  }
+  return modalElement;
 };

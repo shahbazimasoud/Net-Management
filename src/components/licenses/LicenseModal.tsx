@@ -36,6 +36,7 @@ import {
 import { createLicenseApi, updateLicenseApi, renewLicenseApi, uploadContractAttachmentApi } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
+import { DeleteConfirmModal } from '../DeleteConfirmModal';
 
 interface LicenseModalProps {
   isOpen: boolean;
@@ -85,6 +86,9 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [notes, setNotes] = useState('');
+
+  // Delete Confirmation Modal for Attachments
+  const [attachmentToDelete, setAttachmentToDelete] = useState<AttachmentFile | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -300,6 +304,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
 
   const handleRemoveAttachment = (attId: string) => {
     setAttachments((prev) => prev.filter((a) => a.id !== attId));
+    setAttachmentToDelete(null);
   };
 
   // Calculate status based on endDate
@@ -1253,7 +1258,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                         )}
                         <button
                           type="button"
-                          onClick={() => handleRemoveAttachment(att.id)}
+                          onClick={() => setAttachmentToDelete(att)}
                           className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
                           title={isEn ? 'Delete File' : 'حذف فایل'}
                         >
@@ -1338,6 +1343,27 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* Delete Confirmation Modal for Attachments (Matches device delete modal style) */}
+      <DeleteConfirmModal
+        isOpen={!!attachmentToDelete}
+        onClose={() => setAttachmentToDelete(null)}
+        target={
+          attachmentToDelete
+            ? {
+                type: 'attachment',
+                id: attachmentToDelete.id,
+                name: attachmentToDelete.fileName,
+                fileSize: attachmentToDelete.fileSize,
+                fileType: attachmentToDelete.fileType,
+                parentTitle: title || (isEn ? 'Software License' : 'لایسنس نرم‌افزار'),
+                itemType: 'license',
+              }
+            : null
+        }
+        onConfirmDeleteAttachment={(id) => handleRemoveAttachment(id)}
+        isLightMode={isLightMode}
+      />
     </div>,
     document.body
   );
