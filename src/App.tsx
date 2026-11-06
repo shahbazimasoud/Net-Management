@@ -1314,8 +1314,6 @@ export default function App() {
           onOpenSettings={() => setActiveTab('settings')}
           onOpenPasswordVault={() => handleOpenTool('password_vault')}
           onOpenUpdateSettings={() => setActiveTab('settings-update')}
-          onOpenLicenses={() => setActiveTab('licenses')}
-          onOpenContracts={() => setActiveTab('contracts')}
           customTitle={generalSettings.panelTitle}
           customSubtitle={generalSettings.panelSubtitle}
           logoType={generalSettings.logoType}

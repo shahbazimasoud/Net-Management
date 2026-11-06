@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.419.0';
+export const APP_VERSION = '1.419.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.419.1',
+    releaseDate: '2026-11-06',
+    type: 'patch',
+    title: 'حذف دکمه تکراری قراردادها و لایسنس‌ها از نوار هدر بالای پنل با توجه به حضور در سایدبار اصلی',
+    title_en: 'Remove Redundant Contracts and Licenses Buttons from Header Navbar In Favor of Sidebar Navigation',
+    changes: [
+      'حذف دکمه دسترسی مستقیم «Contracts & Lic» از نوار ناوبری بالای صفحه (Navbar Header) جهت خلوت‌سازی هدر و جلوگیری از افزونگی المان‌های رابط کاربری.',
+      'حذف لینک‌های مربوط به قراردادها و لایسنس‌ها از منوی دراپ‌داون پروفایل در هدر و هدایت انحصاری ناوبری از طریق گروه منوی اختصاصی سایدبار.',
+      'پاکسازی پراپ‌های onOpenLicenses و onOpenContracts در کامپوننت‌های Navbar و App.tsx با حفظ یکپارچگی کامل کدهای تایپ‌اسکریپت.'
+    ],
+    changes_en: [
+      'Removed the redundant "Contracts & Lic" shortcut button from the top navbar header to declutter UI and prevent duplicate navigation controls.',
+      'Cleaned up quick management links for licenses and contracts inside the user profile dropdown, retaining sidebar accordions as the authoritative entry point.',
+      'Removed obsolete onOpenLicenses and onOpenContracts props from Navbar and App.tsx preserving strict TypeScript integrity.'
+    ]
+  },
   {
     version: '1.419.0',
     releaseDate: '2026-11-06',
