@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.419.2';
+export const APP_VERSION = '1.420.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.420.0',
+    releaseDate: '2026-11-06',
+    type: 'minor',
+    title: 'افزودن تفکیک دسترسی به صفحات قراردادها و لایسنس‌ها در تب ناوبری و تب اختصاصی مدیریت محدوده و اختیارات جزئی در Access Policy',
+    title_en: 'Add Dedicated Navigation Toggles & Granular Scope and Permissions Tab for Contracts & Licenses in Access Policy',
+    changes: [
+      'افزودن دسترسی‌های مجزا به صفحه مخزن قراردادها (canViewContracts) و صفحه مدیریت لایسنس‌ها (canViewLicenses) در تب صفحات و ابزارها (Navigation & Views) پالیسی‌های دسترسی (RBAC).',
+      'طراحی و پیاده‌سازی تب اختصاصی و جامع «قراردادها و لایسنس‌ها» (contracts_licenses) در مودال مدیریت پالیسی دسترسی جهت تعیین دامنه دسترسی به کل یا قراردادها/لایسنس‌های مشخص‌شده.',
+      'افزودن امکان انتخاب تفکیکی قراردادها و لایسنس‌های زنده با ابزار جستجو، فیلتر آنی، شمارنده انتخاب و دکمه‌های انتخاب/لغو همه بر پایه داده‌های معتبر پایگاه‌داده سرور.',
+      'تعبیه اختیارات عملیاتی جزئی شامل مجوز ایجاد و افزودن موارد جدید (حتی در صورت عدم دسترسی به موارد قبلی)، مشاهده فقط‌خواندنی، ویرایش و تمدید، حذف کامل، و حذف فایل‌ها و پیوست‌های داخلی به همراه راهنمای سه‌بخشی ایمن (FieldInfoTooltip) برای هر آیتم.',
+      'اعمال کامل اعتبارسنجی و مهار امنیتی دسترسی‌ها در فرانت‌اند (ContractsView، LicensesView و مودال‌های آن‌ها) و بک‌اند اکسپرس (licenseContractService) جهت تضمین اعمال حاکمیتی RBAC.'
+    ],
+    changes_en: [
+      'Added distinct navigation access toggles for the Contracts Repository (canViewContracts) and Licenses Management (canViewLicenses) in the Access Policy Navigation & Views tab.',
+      'Designed and integrated a dedicated "Contracts & Licenses" (contracts_licenses) governance tab in the Access Policy Modal to govern item scopes (All vs. Specific items).',
+      'Implemented searchable live contract and license selection checklists with real-time query filtering, item counters, and bulk select/deselect actions backed by authentic server data.',
+      'Equipped granular operational toggles: ability to add new items (even without prior scoped access), read-only view, edit & renew, permanent deletion, and deletion of internal document attachments with boundary-safe 3-part FieldInfoTooltips.',
+      'Enforced comprehensive backend API security validation (licenseContractService) and frontend views (ContractsView, LicensesView, ContractModal, LicenseModal) adhering strictly to defined RBAC policies.'
+    ]
+  },
   {
     version: '1.419.2',
     releaseDate: '2026-11-06',

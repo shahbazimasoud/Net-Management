@@ -165,8 +165,19 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
   };
 
   // RBAC checks
-  const canManage = effectivePolicy?.canManageLicenses ?? true;
+  const canAdd = effectivePolicy?.canAddLicenses ?? effectivePolicy?.canManageLicenses ?? true;
+  const canEdit = effectivePolicy?.canEditLicenses ?? effectivePolicy?.canManageLicenses ?? true;
   const canDelete = effectivePolicy?.canDeleteLicenses ?? true;
+  const canDeleteAttachments = effectivePolicy?.canDeleteLicenseAttachments ?? true;
+
+  // Filter licenses according to policy scoping (all vs specific)
+  const visibleLicenses = useMemo(() => {
+    if (effectivePolicy?.targetLicenseScope === 'specific') {
+      const allowedIds = effectivePolicy.targetLicenseIds || [];
+      return licenses.filter((l) => allowedIds.includes(l.id));
+    }
+    return licenses;
+  }, [licenses, effectivePolicy]);
 
   // Show auto-dismissing toast
   const showToast = useCallback((text: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -332,15 +343,15 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
   // Unique vendors for filter
   const uniqueVendors = useMemo(() => {
     const set = new Set<string>();
-    licenses.forEach((lic) => {
+    visibleLicenses.forEach((lic) => {
       if (lic.vendor) set.add(lic.vendor.trim());
     });
     return Array.from(set).sort();
-  }, [licenses]);
+  }, [visibleLicenses]);
 
   // Filtered licenses
   const filteredLicenses = useMemo(() => {
-    return licenses.filter((lic) => {
+    return visibleLicenses.filter((lic) => {
       // Search
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -381,7 +392,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
 
       return true;
     });
-  }, [licenses, searchQuery, typeFilter, vendorFilter, statusFilter, devices]);
+  }, [visibleLicenses, searchQuery, typeFilter, vendorFilter, statusFilter, devices]);
 
   // Summary Metrics calculations
   const summaryMetrics = useMemo(() => {
@@ -392,7 +403,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
     let totalCostIrr = 0;
     let totalCostUsd = 0;
 
-    licenses.forEach((lic) => {
+    visibleLicenses.forEach((lic) => {
       const days = getDaysRemaining(lic.endDate);
       if (days < 0 || lic.status === 'expired') {
         expired++;
@@ -413,7 +424,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
     });
 
     return {
-      total: licenses.length,
+      total: visibleLicenses.length,
       active,
       expiring,
       expired,
@@ -421,7 +432,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
       totalCostIrr,
       totalCostUsd,
     };
-  }, [licenses]);
+  }, [visibleLicenses]);
 
   // Formatted cost display to ensure numbers fit cleanly without overflow
   const formattedCostDisplay = useMemo(() => {
@@ -585,7 +596,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
           </button>
 
           {/* Add New License Button */}
-          {canManage && (
+          {canAdd && (
             <button
               type="button"
               onClick={() => {
@@ -885,7 +896,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
                 ? 'Register your software, firmware, and equipment licenses to track validity periods and avoid service disruptions.'
                 : 'لایسنس‌ها و مجوزهای نرم‌افزاری و سخت‌افزاری خود را جهت پایش خودکار سررسید و جلوگیری از اختلال شبکه ثبت نمایید.'}
             </p>
-            {canManage && (
+            {canAdd && (
               <button
                 type="button"
                 onClick={() => {
@@ -1131,6 +1142,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
         devices={devices}
         isLightMode={isLightMode}
         isEn={isEn}
+        canDeleteAttachments={canDeleteAttachments}
         onSaved={(savedLicense) => {
           loadLicenses(true);
           showToast(
@@ -1264,7 +1276,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
               </button>
 
               {/* Renew Button */}
-              {canManage && (
+              {canEdit && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1299,7 +1311,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
               </button>
 
               {/* Edit Button */}
-              {canManage && (
+              {canEdit && (
                 <button
                   type="button"
                   onClick={() => {

@@ -47,6 +47,7 @@ interface ContractModalProps {
   mode?: 'create' | 'edit' | 'renew';
   isLightMode?: boolean;
   isEn?: boolean;
+  canDeleteAttachments?: boolean;
   onSaved: (contract: ContractItem) => void;
 }
 
@@ -57,6 +58,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   mode = 'edit',
   isLightMode = false,
   isEn = true,
+  canDeleteAttachments = true,
   onSaved,
 }) => {
   const { dockModal } = useModalDock();
@@ -1302,14 +1304,16 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                           </button>
 
                           {/* Delete Button */}
-                          <button
-                            type="button"
-                            onClick={() => setAttachmentToDelete(file)}
-                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
-                            title={isEn ? 'Delete file' : 'حذف فایل'}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canDeleteAttachments && (
+                            <button
+                              type="button"
+                              onClick={() => setAttachmentToDelete(file)}
+                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
+                              title={isEn ? 'Delete file' : 'حذف فایل'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     );

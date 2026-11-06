@@ -46,6 +46,7 @@ interface LicenseModalProps {
   devices: Device[];
   isLightMode?: boolean;
   isEn?: boolean;
+  canDeleteAttachments?: boolean;
   onSaved: (license: LicenseItem) => void;
 }
 
@@ -57,6 +58,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   devices,
   isLightMode = false,
   isEn = true,
+  canDeleteAttachments = true,
   onSaved,
 }) => {
   const { dockModal } = useModalDock();
@@ -1256,14 +1258,16 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                             <Download className="w-3.5 h-3.5" />
                           </a>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => setAttachmentToDelete(att)}
-                          className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
-                          title={isEn ? 'Delete File' : 'حذف فایل'}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {canDeleteAttachments && (
+                          <button
+                            type="button"
+                            onClick={() => setAttachmentToDelete(att)}
+                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
+                            title={isEn ? 'Delete File' : 'حذف فایل'}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}

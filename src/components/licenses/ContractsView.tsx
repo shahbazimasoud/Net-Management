@@ -174,8 +174,19 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
   };
 
   // RBAC checks
-  const canManage = effectivePolicy?.canManageContracts ?? true;
+  const canAdd = effectivePolicy?.canAddContracts ?? effectivePolicy?.canManageContracts ?? true;
+  const canEdit = effectivePolicy?.canEditContracts ?? effectivePolicy?.canManageContracts ?? true;
   const canDelete = effectivePolicy?.canDeleteContracts ?? true;
+  const canDeleteAttachments = effectivePolicy?.canDeleteContractAttachments ?? true;
+
+  // Filter contracts according to policy scoping (all vs specific)
+  const visibleContracts = useMemo(() => {
+    if (effectivePolicy?.targetContractScope === 'specific') {
+      const allowedIds = effectivePolicy.targetContractIds || [];
+      return contracts.filter((c) => allowedIds.includes(c.id));
+    }
+    return contracts;
+  }, [contracts, effectivePolicy]);
 
   // Show auto-dismissing toast
   const showToast = useCallback((text: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -312,7 +323,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
 
   // Filtered contracts
   const filteredContracts = useMemo(() => {
-    return contracts.filter((cnt) => {
+    return visibleContracts.filter((cnt) => {
       // Type filter
       if (typeFilter !== 'all' && cnt.contractType !== typeFilter) {
         return false;
@@ -338,27 +349,27 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
 
       return true;
     });
-  }, [contracts, typeFilter, statusFilter, searchQuery]);
+  }, [visibleContracts, typeFilter, statusFilter, searchQuery]);
 
   // Statistical KPI metrics
   const stats = useMemo(() => {
-    const total = contracts.length;
-    const active = contracts.filter((c) => c.status === 'active').length;
-    const expiringSoon = contracts.filter((c) => c.status === 'expiring_soon').length;
-    const expired = contracts.filter((c) => c.status === 'expired').length;
-    const inRenewal = contracts.filter((c) => c.status === 'in_renewal').length;
+    const total = visibleContracts.length;
+    const active = visibleContracts.filter((c) => c.status === 'active').length;
+    const expiringSoon = visibleContracts.filter((c) => c.status === 'expiring_soon').length;
+    const expired = visibleContracts.filter((c) => c.status === 'expired').length;
+    const inRenewal = visibleContracts.filter((c) => c.status === 'in_renewal').length;
 
     // Total cost in IRR
-    const totalCostIrr = contracts
+    const totalCostIrr = visibleContracts
       .filter((c) => c.currency === 'IRR' && c.totalCost)
       .reduce((sum, c) => sum + (c.totalCost || 0), 0);
 
-    const totalCostUsd = contracts
+    const totalCostUsd = visibleContracts
       .filter((c) => c.currency === 'USD' && c.totalCost)
       .reduce((sum, c) => sum + (c.totalCost || 0), 0);
 
     return { total, active, expiringSoon, expired, inRenewal, totalCostIrr, totalCostUsd };
-  }, [contracts]);
+  }, [visibleContracts]);
 
   // Days left calculation
   const getDaysLeft = (endDate: string) => {
@@ -489,7 +500,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
             </span>
           </button>
 
-          {canManage && (
+          {canAdd && (
             <button
               type="button"
               onClick={() => {
@@ -767,7 +778,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                   : 'هنوز قراردادی ثبت نشده است. با زدن دکمه «ثبت قرارداد جدید» اولین قرارداد سازمان را تعریف فرمایید.'}
               </p>
             </div>
-            {canManage && (
+            {canAdd && (
               <button
                 type="button"
                 onClick={() => {
@@ -1030,6 +1041,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
         mode={modalMode}
         isLightMode={isLightMode}
         isEn={isEn}
+        canDeleteAttachments={canDeleteAttachments}
         onSaved={() => {
           loadContracts(true);
           showToast(
@@ -1221,7 +1233,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
               </button>
 
               {/* Renew Button */}
-              {canManage && (
+              {canEdit && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1256,7 +1268,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
               </button>
 
               {/* Edit Button */}
-              {canManage && (
+              {canEdit && (
                 <button
                   type="button"
                   onClick={() => {

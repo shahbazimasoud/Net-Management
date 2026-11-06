@@ -1029,6 +1029,20 @@ export interface AccessPolicy {
   canManageContracts?: boolean;
   canDeleteContracts?: boolean;
 
+  // Granular Contract Access & Scope
+  targetContractScope?: 'all' | 'specific';
+  targetContractIds?: string[];
+  canAddContracts?: boolean;
+  canEditContracts?: boolean;
+  canDeleteContractAttachments?: boolean;
+
+  // Granular License Access & Scope
+  targetLicenseScope?: 'all' | 'specific';
+  targetLicenseIds?: string[];
+  canAddLicenses?: boolean;
+  canEditLicenses?: boolean;
+  canDeleteLicenseAttachments?: boolean;
+
   permissions?: any;
 }
 

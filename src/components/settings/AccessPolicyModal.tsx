@@ -57,6 +57,9 @@ import {
   Copy,
   BookmarkPlus,
   ShieldAlert,
+  ScrollText,
+  FileCheck,
+  Paperclip,
 } from 'lucide-react';
 import {
   AccessPolicy,
@@ -69,6 +72,8 @@ import {
   ServerGroup,
   ServerActionKey,
   NetworkDeviceActionKey,
+  ContractItem,
+  LicenseItem,
 } from '../../types';
 import { useLanguage } from '../../i18n';
 import { useModalDock } from '../../context/ModalDockContext';
@@ -82,11 +87,12 @@ import {
   RESTRICTED_DEVICE_PERMISSIONS,
   isDeviceActionPermitted,
 } from '../../utils/rbac';
-import { fetchActiveDirectoryConfig } from '../../services/api';
+import { fetchActiveDirectoryConfig, fetchContractsApi, fetchLicensesApi } from '../../services/api';
 
 export type PolicyModalTab =
   | 'identity'
   | 'navigation'
+  | 'contracts_licenses'
   | 'servers'
   | 'global'
   | 'matrix';
@@ -106,6 +112,8 @@ export interface AccessPolicyModalProps {
   liveDeviceGroups?: DeviceGroup[];
   liveServers?: RemoteServer[];
   liveServerGroups?: ServerGroup[];
+  liveContracts?: ContractItem[];
+  liveLicenses?: LicenseItem[];
 }
 
 export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
@@ -123,6 +131,8 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   liveDeviceGroups = [],
   liveServers = [],
   liveServerGroups = [],
+  liveContracts = [],
+  liveLicenses = [],
 }) => {
   const { isRtl, isEn } = useLanguage();
   const { dockModal } = useModalDock();
@@ -137,6 +147,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
 
   const [activeTab, setActiveTab] = useState<PolicyModalTab>('identity');
   const [isMaximized, setIsMaximized] = useState(false);
+
+  const [contractsList, setContractsList] = useState<ContractItem[]>(liveContracts || []);
+  const [licensesList, setLicensesList] = useState<LicenseItem[]>(liveLicenses || []);
+  const [contractsSearch, setContractsSearch] = useState('');
+  const [licensesSearch, setLicensesSearch] = useState('');
+  const [isLoadingContractsLicenses, setIsLoadingContractsLicenses] = useState(false);
+
   const [draftPolicy, setDraftPolicy] = useState<AccessPolicy | null>(() => {
     if (!initialPolicy) return null;
     return {
@@ -170,6 +187,20 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canManageNavigationGovernance:
         initialPolicy.canManageNavigationGovernance ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canViewContracts: initialPolicy.canViewContracts ?? true,
+      canViewLicenses: initialPolicy.canViewLicenses ?? true,
+      targetContractScope: initialPolicy.targetContractScope || 'all',
+      targetContractIds: initialPolicy.targetContractIds || [],
+      canAddContracts: initialPolicy.canAddContracts ?? initialPolicy.canManageContracts ?? true,
+      canEditContracts: initialPolicy.canEditContracts ?? initialPolicy.canManageContracts ?? true,
+      canDeleteContracts: initialPolicy.canDeleteContracts ?? true,
+      canDeleteContractAttachments: initialPolicy.canDeleteContractAttachments ?? true,
+      targetLicenseScope: initialPolicy.targetLicenseScope || 'all',
+      targetLicenseIds: initialPolicy.targetLicenseIds || [],
+      canAddLicenses: initialPolicy.canAddLicenses ?? initialPolicy.canManageLicenses ?? true,
+      canEditLicenses: initialPolicy.canEditLicenses ?? initialPolicy.canManageLicenses ?? true,
+      canDeleteLicenses: initialPolicy.canDeleteLicenses ?? true,
+      canDeleteLicenseAttachments: initialPolicy.canDeleteLicenseAttachments ?? true,
       defaultServerPermissions: initialPolicy.defaultServerPermissions || {
         terminal: false,
         file_explorer: true,
@@ -475,6 +506,29 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canAddDevice:
           initialPolicy.canAddDevice ??
           Boolean(initialPolicy.defaultDevicePermissions?.add_device ?? initialPolicy.canManageDevices),
+        canBulkConfigureDevices:
+          initialPolicy.canBulkConfigureDevices ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canBulkConfigureServers:
+          initialPolicy.canBulkConfigureServers ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canManageNavigationGovernance:
+          initialPolicy.canManageNavigationGovernance ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canViewContracts: initialPolicy.canViewContracts ?? true,
+        canViewLicenses: initialPolicy.canViewLicenses ?? true,
+        targetContractScope: initialPolicy.targetContractScope || 'all',
+        targetContractIds: initialPolicy.targetContractIds || [],
+        canAddContracts: initialPolicy.canAddContracts ?? initialPolicy.canManageContracts ?? true,
+        canEditContracts: initialPolicy.canEditContracts ?? initialPolicy.canManageContracts ?? true,
+        canDeleteContracts: initialPolicy.canDeleteContracts ?? true,
+        canDeleteContractAttachments: initialPolicy.canDeleteContractAttachments ?? true,
+        targetLicenseScope: initialPolicy.targetLicenseScope || 'all',
+        targetLicenseIds: initialPolicy.targetLicenseIds || [],
+        canAddLicenses: initialPolicy.canAddLicenses ?? initialPolicy.canManageLicenses ?? true,
+        canEditLicenses: initialPolicy.canEditLicenses ?? initialPolicy.canManageLicenses ?? true,
+        canDeleteLicenses: initialPolicy.canDeleteLicenses ?? true,
+        canDeleteLicenseAttachments: initialPolicy.canDeleteLicenseAttachments ?? true,
         defaultServerPermissions: initialPolicy.defaultServerPermissions || {
           terminal: false,
           file_explorer: true,
@@ -522,8 +576,43 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       setServerScopeSearch('');
       setServerOverrideFilter('all');
       setExpandedServerOverrideId(null);
+      setContractsSearch('');
+      setLicensesSearch('');
     }
   }, [isOpen, initialPolicy]);
+
+  // Fetch authentic live Contracts and Licenses from backend on modal open
+  useEffect(() => {
+    if (!isOpen) return;
+    let isCancelled = false;
+    const fetchLiveItems = async () => {
+      try {
+        setIsLoadingContractsLicenses(true);
+        const [cntRes, licRes] = await Promise.all([
+          fetchContractsApi().catch(() => ({ contracts: [] })),
+          fetchLicensesApi().catch(() => ({ licenses: [] })),
+        ]);
+        if (!isCancelled) {
+          if (Array.isArray(cntRes?.contracts)) {
+            setContractsList(cntRes.contracts);
+          }
+          if (Array.isArray(licRes?.licenses)) {
+            setLicensesList(licRes.licenses);
+          }
+        }
+      } catch (err) {
+        // Fallback to initial prop arrays
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingContractsLicenses(false);
+        }
+      }
+    };
+    fetchLiveItems();
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOpen]);
 
   // Derived filtered users and groups for subject selection
   const filteredAdUsers = useMemo(() => {
@@ -604,6 +693,35 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         d.model?.toLowerCase().includes(q)
     );
   }, [devices, deviceSearchQuery]);
+
+  const filteredContracts = useMemo(() => {
+    if (!contractsSearch.trim()) return contractsList;
+    const q = contractsSearch.toLowerCase().trim();
+    return contractsList.filter(
+      (c) =>
+        c.title?.toLowerCase().includes(q) ||
+        c.contractNumber?.toLowerCase().includes(q) ||
+        c.vendorName?.toLowerCase().includes(q) ||
+        c.vendorContact?.toLowerCase().includes(q) ||
+        c.ownerName?.toLowerCase().includes(q) ||
+        c.department?.toLowerCase().includes(q) ||
+        c.contractType?.toLowerCase().includes(q)
+    );
+  }, [contractsList, contractsSearch]);
+
+  const filteredLicenses = useMemo(() => {
+    if (!licensesSearch.trim()) return licensesList;
+    const q = licensesSearch.toLowerCase().trim();
+    return licensesList.filter(
+      (l) =>
+        l.title?.toLowerCase().includes(q) ||
+        l.licenseKey?.toLowerCase().includes(q) ||
+        l.vendor?.toLowerCase().includes(q) ||
+        l.deviceType?.toLowerCase().includes(q) ||
+        l.ownerName?.toLowerCase().includes(q) ||
+        l.department?.toLowerCase().includes(q)
+    );
+  }, [licensesList, licensesSearch]);
 
   // Selected subject IDs & Names supporting multi-selection
   const selectedSubjectIds: string[] = useMemo(() => {
@@ -758,6 +876,52 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     });
   }, [permittedDevices, matrixDeviceSearch, matrixDeviceFilter, draftPolicy]);
 
+  const handleToggleContractId = useCallback((id: string) => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      const current = prev.targetContractIds || [];
+      const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+      return { ...prev, targetContractIds: next };
+    });
+  }, []);
+
+  const handleSelectAllContracts = useCallback(() => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      return { ...prev, targetContractIds: contractsList.map((c) => c.id) };
+    });
+  }, [contractsList]);
+
+  const handleDeselectAllContracts = useCallback(() => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      return { ...prev, targetContractIds: [] };
+    });
+  }, []);
+
+  const handleToggleLicenseId = useCallback((id: string) => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      const current = prev.targetLicenseIds || [];
+      const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+      return { ...prev, targetLicenseIds: next };
+    });
+  }, []);
+
+  const handleSelectAllLicenses = useCallback(() => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      return { ...prev, targetLicenseIds: licensesList.map((l) => l.id) };
+    });
+  }, [licensesList]);
+
+  const handleDeselectAllLicenses = useCallback(() => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      return { ...prev, targetLicenseIds: [] };
+    });
+  }, []);
+
   const handleMinimize = () => {
     if (!draftPolicy) return;
     if (onMinimize) {
@@ -824,6 +988,8 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canViewNetworkTools: enabled,
         canViewPhysicalPlacement: enabled,
         canViewSettings: enabled,
+        canViewContracts: enabled,
+        canViewLicenses: enabled,
         canBulkConfigureDevices: enabled,
         canBulkConfigureServers: enabled,
         canManageNavigationGovernance: enabled,
@@ -895,6 +1061,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       labelFa: 'صفحات و ابزارها',
       icon: Compass,
       color: 'text-cyan-400',
+    },
+    {
+      id: 'contracts_licenses',
+      labelEn: 'Contracts & Licenses',
+      labelFa: 'قراردادها و لایسنس‌ها',
+      icon: FileCheck,
+      color: 'text-emerald-400',
     },
     {
       id: 'servers',
@@ -2909,6 +3082,34 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         icon: Settings,
                       },
                       {
+                        key: 'canViewContracts',
+                        labelEn: 'Contracts Management',
+                        labelFa: 'مدیریت قراردادها',
+                        descEn: 'Access to the Contracts repository & SLA view',
+                        descFa: 'دسترسی به صفحه مخزن قراردادها و وضعیت SLA',
+                        icon: ScrollText,
+                        whatIsItEn: 'Controls access to the Contracts page and navigation tab in the panel.',
+                        whatIsItFa: 'مجوز ورود و مشاهده صفحه و منوی قراردادها در پنل.',
+                        whyNeededEn: 'Contracts contain sensitive commercial agreements, financial terms, and vendor SLAs that should be restricted to authorized roles.',
+                        whyNeededFa: 'قراردادها شامل توافقات تجاری، اطلاعات مالی و شرایط پشتیبانی حساس هستند و باید محدود به افراد مجاز باشند.',
+                        practicalExampleEn: 'Enable for Legal, Procurement, IT Managers, and Administrators',
+                        practicalExampleFa: 'برای مدیران IT، حقوقی، تدارکات و ادمین‌های شبکه فعال باشد',
+                      },
+                      {
+                        key: 'canViewLicenses',
+                        labelEn: 'Licenses Management',
+                        labelFa: 'مدیریت لایسنس‌ها',
+                        descEn: 'Access to Software & Equipment Licenses page',
+                        descFa: 'دسترسی به صفحه لایسنس‌های نرم‌افزاری و تجهیزات',
+                        icon: FileCheck,
+                        whatIsItEn: 'Controls access to the Software & Equipment Licenses page and navigation tab.',
+                        whatIsItFa: 'مجوز ورود و مشاهده صفحه و منوی مدیریت لایسنس‌ها در پنل.',
+                        whyNeededEn: 'Software licenses and product keys require controlled access to prevent license leaks or unauthorized expiration management.',
+                        whyNeededFa: 'کلیدهای فعال‌سازی و لایسنس‌های نرم‌افزاری نیازمند دسترسی کنترل‌شده برای پیشگیری از افشای کلیدها هستند.',
+                        practicalExampleEn: 'Enable for IT Asset Managers, System Administrators, and Super Administrators',
+                        practicalExampleFa: 'برای مدیران دارایی‌های IT، ادمین‌های سیستم و سوپرادمین‌ها فعال باشد',
+                      },
+                      {
                         key: 'canBulkConfigureDevices',
                         labelEn: 'Bulk Device Configuration',
                         labelFa: 'پیکربندی گروهی تجهیزات شبکه',
@@ -3021,6 +3222,1208 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         </label>
                       );
                     })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: Contracts & Licenses Governance */}
+            {/* ========================================================================= */}
+            {activeTab === 'contracts_licenses' && (
+              <div className="space-y-5 animate-fadeIn">
+                {/* Informational Guidance Banner */}
+                <div
+                  className={`p-3.5 rounded-xl border flex items-start gap-3 ${
+                    isLightMode
+                      ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+                      : 'bg-emerald-950/30 border-emerald-500/20 text-emerald-200'
+                  }`}
+                >
+                  <Info className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                  <div className="text-xs leading-relaxed">
+                    <p className="font-semibold mb-0.5">
+                      {isEn
+                        ? 'Granular Access Governance for Contracts & Licenses'
+                        : 'مدیریت و کنترل دسترسی جزئی به قراردادها و لایسنس‌ها'}
+                    </p>
+                    <p className={`text-[11px] ${isLightMode ? 'text-emerald-800' : 'text-emerald-300/80'}`}>
+                      {isEn
+                        ? 'Access to the Contracts and Licenses pages must first be enabled in the "Navigation & Views" tab. Here you define the exact scope (all vs. specific items) and operational authorities (read-only view, create, edit, delete, or delete internal attachments).'
+                        : 'ورود به صفحات قراردادها و لایسنس‌ها ابتدا در تب «صفحات و ابزارها» تعیین می‌شود. در این بخش مشخص می‌کنید کاربر به کدام قراردادها یا لایسنس‌ها (همه یا فقط موارد خاص) دسترسی داشته باشد و چه عملیاتی شامل مشاهده، افزودن، ویرایش، حذف کامل یا حذف پیوست‌ها مجاز باشد.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* ==================== 1. CONTRACTS GOVERNANCE ==================== */}
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950/60 border-white/10'
+                  }`}
+                >
+                  {/* Section Header */}
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <ScrollText className="w-4 h-4 text-emerald-500" />
+                      <h4
+                        className={`text-xs font-bold ${
+                          isLightMode ? 'text-slate-900' : 'text-white'
+                        }`}
+                      >
+                        {isEn
+                          ? 'Contracts Repository Access & Scoping'
+                          : 'محدوده و مجوزهای دسترسی به قراردادها'}
+                      </h4>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+                      {draftPolicy?.targetContractScope === 'all'
+                        ? (isEn ? 'Scope: All Contracts' : 'دامنه: تمام قراردادها')
+                        : `${isEn ? 'Selected:' : 'انتخاب‌شده:'} ${(draftPolicy?.targetContractIds || []).length}`}
+                    </span>
+                  </div>
+
+                  <p
+                    className={`text-[11px] mb-4 ${
+                      isLightMode ? 'text-slate-500' : 'text-slate-400'
+                    }`}
+                  >
+                    {isEn
+                      ? 'Configure whether the subject can access all organizational contracts or only designated specific contracts.'
+                      : 'تعیین کنید کاربر به کلیه قراردادهای سازمانی دسترسی داشته باشد یا تنها قراردادهای انتخاب‌شده در لیست زیر.'}
+                  </p>
+
+                  {/* Scope Radio Selection */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                    {/* All Contracts Radio */}
+                    <label
+                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition select-none ${
+                        (draftPolicy?.targetContractScope || 'all') === 'all'
+                          ? isLightMode
+                            ? 'bg-emerald-50/80 border-emerald-300 shadow-xs'
+                            : 'bg-emerald-500/10 border-emerald-500/40 text-white'
+                          : isLightMode
+                          ? 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                          : 'bg-white/5 border-white/5 hover:border-white/10'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetContractScope"
+                        checked={(draftPolicy?.targetContractScope || 'all') === 'all'}
+                        onChange={() =>
+                          setDraftPolicy((prev) => (prev ? { ...prev, targetContractScope: 'all' } : prev))
+                        }
+                        className="mt-0.5 text-emerald-500 focus:ring-emerald-400"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span
+                            className={`text-xs font-semibold ${
+                              isLightMode ? 'text-slate-900' : 'text-white'
+                            }`}
+                          >
+                            {isEn ? 'All Contracts' : 'دسترسی به تمامی قراردادها'}
+                          </span>
+                          <FieldInfoTooltip
+                            title={isEn ? 'All Contracts Scope' : 'دامنه کلیه قراردادها'}
+                            whatIsIt={
+                              isEn
+                                ? 'Grants unrestricted visibility to all existing and future registered contracts.'
+                                : 'دسترسی به تمام قراردادهای فعلی و قراردادهایی که در آینده در سامانه ثبت خواهند شد.'
+                            }
+                            whyNeeded={
+                              isEn
+                                ? 'Suitable for executives, legal teams, or procurement officers who need comprehensive organizational oversight.'
+                                : 'مناسب برای مدیران عامل، مدیران مالی و حقوقی که باید بر کل قراردادهای شرکت اشراف داشته باشند.'
+                            }
+                            practicalExample={
+                              isEn
+                                ? 'Recommended for Department Heads and Chief IT Officers'
+                                : 'پیشنهادی برای مدیران ارشد، مالی و حراست IT'
+                            }
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                          />
+                        </div>
+                        <p
+                          className={`text-[10px] mt-0.5 ${
+                            isLightMode ? 'text-slate-500' : 'text-slate-400'
+                          }`}
+                        >
+                          {isEn
+                            ? 'User can view and interact with every contract in the organization repository.'
+                            : 'کاربر اجازه مشاهده و کار با کلیه قراردادهای ثبت‌شده در سازمان را خواهد داشت.'}
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Specific Contracts Radio */}
+                    <label
+                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition select-none ${
+                        draftPolicy?.targetContractScope === 'specific'
+                          ? isLightMode
+                            ? 'bg-emerald-50/80 border-emerald-300 shadow-xs'
+                            : 'bg-emerald-500/10 border-emerald-500/40 text-white'
+                          : isLightMode
+                          ? 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                          : 'bg-white/5 border-white/5 hover:border-white/10'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetContractScope"
+                        checked={draftPolicy?.targetContractScope === 'specific'}
+                        onChange={() =>
+                          setDraftPolicy((prev) => (prev ? { ...prev, targetContractScope: 'specific' } : prev))
+                        }
+                        className="mt-0.5 text-emerald-500 focus:ring-emerald-400"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span
+                            className={`text-xs font-semibold ${
+                              isLightMode ? 'text-slate-900' : 'text-white'
+                            }`}
+                          >
+                            {isEn ? 'Specific Contracts Only' : 'فقط قراردادهای مشخص‌شده'}
+                          </span>
+                          <FieldInfoTooltip
+                            title={isEn ? 'Specific Contracts Scope' : 'دامنه اختصاصی قراردادها'}
+                            whatIsIt={
+                              isEn
+                                ? 'Limits subject visibility strictly to the selected contracts in the list below.'
+                                : 'محدودسازی دسترسی کاربر صرفاً به قراردادهایی که در چک‌لیست زیر تیک خورده باشند.'
+                            }
+                            whyNeeded={
+                              isEn
+                                ? 'Enforces least-privilege access so vendors, sub-contractors, or branch managers only see relevant contracts.'
+                                : 'رعایت اصل حداقل دسترسی تا پیمانکاران یا مسئولان شعب فقط قراردادهای مربوط به خود را ببینند.'
+                            }
+                            practicalExample={
+                              isEn
+                                ? 'Select only ISP Link agreements for WAN network operators'
+                                : 'فقط قراردادهای لینک اینترنت و فیبر نوری برای کارشناسان WAN انتخاب شود'
+                            }
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                          />
+                        </div>
+                        <p
+                          className={`text-[10px] mt-0.5 ${
+                            isLightMode ? 'text-slate-500' : 'text-slate-400'
+                          }`}
+                        >
+                          {isEn
+                            ? 'Restrict visibility to explicitly checked contracts in the selector below.'
+                            : 'دسترسی فقط به قراردادهایی که صراحتاً در لیست زیر انتخاب شوند محدود خواهد شد.'}
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Specific Contracts Picker Table */}
+                  {draftPolicy?.targetContractScope === 'specific' && (
+                    <div
+                      className={`p-3 rounded-xl border mb-4 ${
+                        isLightMode
+                          ? 'bg-slate-50/80 border-slate-200'
+                          : 'bg-slate-900/60 border-white/10'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                        <div className="relative flex-1">
+                          <Search className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={contractsSearch}
+                            onChange={(e) => setContractsSearch(e.target.value)}
+                            placeholder={
+                              isEn
+                                ? 'Filter contracts by title, vendor, code, or SLA...'
+                                : 'جستجو بر اساس عنوان، پیمانکار، شماره قرارداد یا SLA...'
+                            }
+                            className={`w-full text-xs rounded-lg pr-8 pl-3 py-1.5 border transition outline-none ${
+                              isLightMode
+                                ? 'bg-white border-slate-200 text-slate-800 focus:border-emerald-500'
+                                : 'bg-white/5 border-white/10 text-white focus:border-emerald-500'
+                            }`}
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2 self-end sm:self-auto">
+                          <button
+                            type="button"
+                            onClick={handleSelectAllContracts}
+                            className="px-2 py-1 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition cursor-pointer"
+                          >
+                            {isEn ? 'Select All' : 'انتخاب همه'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleDeselectAllContracts}
+                            className="px-2 py-1 rounded text-[11px] font-medium bg-white/5 text-slate-400 border border-white/10 hover:text-white transition cursor-pointer"
+                          >
+                            {isEn ? 'Deselect All' : 'لغو همه'}
+                          </button>
+                          <span className="text-[10px] text-slate-400 px-1 font-mono">
+                            {(draftPolicy?.targetContractIds || []).length} / {contractsList.length}
+                          </span>
+                        </div>
+                      </div>
+
+                      {isLoadingContractsLicenses ? (
+                        <div className="py-8 text-center text-xs text-slate-400">
+                          <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-2 text-emerald-400" />
+                          {isEn ? 'Loading authentic contracts from server...' : 'در حال بارگذاری قراردادهای معتبر از سرور...'}
+                        </div>
+                      ) : filteredContracts.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-slate-400">
+                          <ScrollText className="w-6 h-6 mx-auto mb-1.5 opacity-30" />
+                          {contractsSearch
+                            ? (isEn ? 'No contracts match your search filter.' : 'هیچ قراردادی با فیلتر جستجوی شما یافت نشد.')
+                            : (isEn ? 'No contracts found in repository. You can allow adding new ones below.' : 'هیچ قراردادی در مخزن ثبت نشده است. می‌توانید مجوز افزودن قرارداد را در ادامه فعال نمایید.')}
+                        </div>
+                      ) : (
+                        <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
+                          {filteredContracts.map((c) => {
+                            const isSelected = (draftPolicy?.targetContractIds || []).includes(c.id);
+                            return (
+                              <div
+                                key={c.id}
+                                onClick={() => handleToggleContractId(c.id)}
+                                className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition select-none ${
+                                  isSelected
+                                    ? isLightMode
+                                      ? 'bg-emerald-50 border-emerald-300 text-slate-900'
+                                      : 'bg-emerald-500/15 border-emerald-500/40 text-white'
+                                    : isLightMode
+                                    ? 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                                    : 'bg-white/5 border-white/5 text-slate-300 hover:border-white/10'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  {isSelected ? (
+                                    <CheckSquare className="w-4 h-4 text-emerald-500 shrink-0" />
+                                  ) : (
+                                    <Square className="w-4 h-4 text-slate-400 shrink-0" />
+                                  )}
+                                  <div className="truncate">
+                                    <div className="font-semibold truncate">{c.title}</div>
+                                    <div className="text-[10px] text-slate-400 truncate flex items-center gap-2">
+                                      <span>{c.contractNumber || c.id}</span>
+                                      {c.vendorName && <span>• {c.vendorName}</span>}
+                                      {c.contractType && <span>• {c.contractType}</span>}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                  {c.status && (
+                                    <span
+                                      className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono uppercase ${
+                                        c.status === 'active'
+                                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                          : c.status === 'expired'
+                                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                      }`}
+                                    >
+                                      {c.status}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Granular Operational Permissions for Contracts */}
+                  <div className="pt-2 border-t border-slate-200/60 dark:border-white/10">
+                    <h5
+                      className={`text-[11px] font-bold mb-2.5 flex items-center gap-1.5 ${
+                        isLightMode ? 'text-slate-800' : 'text-slate-200'
+                      }`}
+                    >
+                      <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+                      {isEn
+                        ? 'Granular Operational Permissions for Contracts'
+                        : 'اختیارات و مجوزهای عملیاتی روی قراردادها'}
+                    </h5>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                      {/* 1. canViewContracts */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canViewContracts !== false
+                            ? isLightMode
+                              ? 'bg-emerald-50/70 border-emerald-300'
+                              : 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canViewContracts !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) => (prev ? { ...prev, canViewContracts: e.target.checked } : prev))
+                          }
+                          className="mt-0.5 rounded text-emerald-500 focus:ring-emerald-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`text-xs font-semibold ${
+                                isLightMode ? 'text-slate-900' : 'text-white'
+                              }`}
+                            >
+                              {isEn ? 'View & Read Contracts' : 'مشاهده و خواندن قراردادها'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'View Contracts Permission' : 'مجوز مشاهده قراردادها'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Enables read-only access to view contract details, terms, SLA levels, and documents.'
+                                  : 'امکان مشاهده و مطالعه جزئیات قراردادها، اطلاعات پیمانکار، شرایط SLA و اسناد ضمیمه.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Essential baseline permission required to review organizational agreements.'
+                                  : 'مجوز پایه برای بررسی و خواندن مفاد قراردادهای سازمان بدون امکان دستکاری.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Enable for Helpdesk, NOC engineers, or Auditors'
+                                  : 'برای مهندسان پشتیبانی، ناظران شبکه و حسابرسان فعال باشد'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Inspect contract metadata & SLAs' : 'بررسی اطلاعات قرارداد، پیمانکار و تعهدات'}
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* 2. canAddContracts */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canAddContracts !== false
+                            ? isLightMode
+                              ? 'bg-emerald-50/70 border-emerald-300'
+                              : 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canAddContracts !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) => (prev ? { ...prev, canAddContracts: e.target.checked } : prev))
+                          }
+                          className="mt-0.5 rounded text-emerald-500 focus:ring-emerald-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`text-xs font-semibold ${
+                                isLightMode ? 'text-slate-900' : 'text-white'
+                              }`}
+                            >
+                              {isEn ? 'Add New Contracts' : 'ایجاد و افزودن قرارداد جدید'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'Add Contracts Permission' : 'مجوز افزودن قرارداد جدید'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Allows the user to register and add new contracts even if they had no prior scoped contracts.'
+                                  : 'به کاربر اجازه می‌دهد قرارداد جدید ثبت و اضافه نماید حتی اگر از قبل قراردادی در محدوده‌اش نبوده باشد.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Delegates contract registration to procurement officers or department heads.'
+                                  : 'واگذاری اختیار ثبت قراردادهای جدید به کارشناسان خرید یا مدیران بخش‌ها.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Enable for Procurement and Contracting Officers'
+                                  : 'برای کارشناسان امور قراردادها و تدارکات فعال شود'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Register new service agreements' : 'ثبت و تعریف قراردادهای جدید در سامانه'}
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* 3. canEditContracts */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canEditContracts !== false
+                            ? isLightMode
+                              ? 'bg-emerald-50/70 border-emerald-300'
+                              : 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canEditContracts !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) => (prev ? { ...prev, canEditContracts: e.target.checked } : prev))
+                          }
+                          className="mt-0.5 rounded text-emerald-500 focus:ring-emerald-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`text-xs font-semibold ${
+                                isLightMode ? 'text-slate-900' : 'text-white'
+                              }`}
+                            >
+                              {isEn ? 'Edit & Renew Contracts' : 'ویرایش و تمدید قراردادها'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'Edit Contracts Permission' : 'مجوز ویرایش قراردادها'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Allows updating contract details, extending end dates, modifying SLAs, or uploading attachments.'
+                                  : 'اختیار اصلاح اطلاعات قرارداد، تغییر تاریخ پایان، تمدید، تغییر SLA و بارگذاری مدارک.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Prevents unauthorized tampering of binding contractual SLA obligations.'
+                                  : 'پیشگیری از دستکاری ناخواسته تعهدات و پارامترهای حقوقی قرارداد.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Enable for Contract Administrators'
+                                  : 'برای مدیران قراردادها و ناظران پیمان فعال باشد'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Update terms, SLAs, & renewal dates' : 'ویرایش شرایط، تعهدات SLA و تاریخ تمدید'}
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* 4. canDeleteContracts */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canDeleteContracts !== false
+                            ? isLightMode
+                              ? 'bg-rose-50/70 border-rose-300'
+                              : 'bg-rose-500/10 border-rose-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canDeleteContracts !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) => (prev ? { ...prev, canDeleteContracts: e.target.checked } : prev))
+                          }
+                          className="mt-0.5 rounded text-rose-500 focus:ring-rose-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`text-xs font-semibold ${
+                                isLightMode ? 'text-slate-900' : 'text-white'
+                              }`}
+                            >
+                              {isEn ? 'Delete Contracts' : 'حذف کامل قراردادها'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'Delete Contracts Authority' : 'اختیار حذف قراردادها'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Allows permanently deleting contract records from the organization repository.'
+                                  : 'مجوز حذف قطعی و غیرقابل بازگشت رکورد قرارداد از مخزن سازمان.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Destructive action that could delete critical legal records. Restrict strictly.'
+                                  : 'عملیات خطرناک و حساس که می‌تواند سوابق حقوقی معتبر را از بین ببرد؛ باید شدیداً محدود گردد.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Restrict strictly to Super Administrator'
+                                  : 'منحصراً برای سوپرادمین و رده بالای حاکمیتی فعال باشد'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Permanently remove contract records' : 'حذف همیشگی پرونده قرارداد از سامانه'}
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* 5. canDeleteContractAttachments */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canDeleteContractAttachments !== false
+                            ? isLightMode
+                              ? 'bg-amber-50/70 border-amber-300'
+                              : 'bg-amber-500/10 border-amber-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canDeleteContractAttachments !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) => (prev ? { ...prev, canDeleteContractAttachments: e.target.checked } : prev))
+                          }
+                          className="mt-0.5 rounded text-amber-500 focus:ring-amber-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`text-xs font-semibold ${
+                                isLightMode ? 'text-slate-900' : 'text-white'
+                              }`}
+                            >
+                              {isEn ? 'Delete Contract Attachments' : 'حذف پیوست‌های قرارداد'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'Delete Contract Attachments' : 'مجوز حذف پیوست‌های قرارداد'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Allows deleting attached PDFs, scanned signed pages, or documents inside a contract.'
+                                  : 'مجوز حذف فایل‌های PDF، اسکن قرارداد امضاشده و مستندات داخل قرارداد.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Protects original evidentiary files from being deleted by standard operators.'
+                                  : 'حفظ مستندات معتبر و جلوگیری از پاک شدن مدارک رسمی توسط کاربران عادی.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Disable for regular staff to prevent loss of signed PDF copies'
+                                  : 'برای کارمندان عادی غیرفعال باشد تا نسخه PDF امضاشده حفظ گردد'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Remove attached PDF & signed docs' : 'پاک کردن فایل‌های پیوست و اسناد داخل قرارداد'}
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ==================== 2. LICENSES GOVERNANCE ==================== */}
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950/60 border-white/10'
+                  }`}
+                >
+                  {/* Section Header */}
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <FileCheck className="w-4 h-4 text-emerald-500" />
+                      <h4
+                        className={`text-xs font-bold ${
+                          isLightMode ? 'text-slate-900' : 'text-white'
+                        }`}
+                      >
+                        {isEn
+                          ? 'Licenses Repository Access & Scoping'
+                          : 'محدوده و مجوزهای دسترسی به لایسنس‌ها'}
+                      </h4>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+                      {draftPolicy?.targetLicenseScope === 'all'
+                        ? (isEn ? 'Scope: All Licenses' : 'دامنه: تمام لایسنس‌ها')
+                        : `${isEn ? 'Selected:' : 'انتخاب‌شده:'} ${(draftPolicy?.targetLicenseIds || []).length}`}
+                    </span>
+                  </div>
+
+                  <p
+                    className={`text-[11px] mb-4 ${
+                      isLightMode ? 'text-slate-500' : 'text-slate-400'
+                    }`}
+                  >
+                    {isEn
+                      ? 'Configure whether the subject can access all software and appliance licenses or only designated specific licenses.'
+                      : 'تعیین کنید کاربر به کلیه لایسنس‌های نرم‌افزاری و تجهیزات دسترسی داشته باشد یا فقط لایسنس‌های انتخاب‌شده در لیست زیر.'}
+                  </p>
+
+                  {/* Scope Radio Selection */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                    {/* All Licenses Radio */}
+                    <label
+                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition select-none ${
+                        (draftPolicy?.targetLicenseScope || 'all') === 'all'
+                          ? isLightMode
+                            ? 'bg-emerald-50/80 border-emerald-300 shadow-xs'
+                            : 'bg-emerald-500/10 border-emerald-500/40 text-white'
+                          : isLightMode
+                          ? 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                          : 'bg-white/5 border-white/5 hover:border-white/10'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetLicenseScope"
+                        checked={(draftPolicy?.targetLicenseScope || 'all') === 'all'}
+                        onChange={() =>
+                          setDraftPolicy((prev) => (prev ? { ...prev, targetLicenseScope: 'all' } : prev))
+                        }
+                        className="mt-0.5 text-emerald-500 focus:ring-emerald-400"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span
+                            className={`text-xs font-semibold ${
+                              isLightMode ? 'text-slate-900' : 'text-white'
+                            }`}
+                          >
+                            {isEn ? 'All Licenses' : 'دسترسی به تمامی لایسنس‌ها'}
+                          </span>
+                          <FieldInfoTooltip
+                            title={isEn ? 'All Licenses Scope' : 'دامنه کلیه لایسنس‌ها'}
+                            whatIsIt={
+                              isEn
+                                ? 'Grants unrestricted visibility to all existing and future registered software and appliance licenses.'
+                                : 'دسترسی به تمام لایسنس‌های موجود و لایسنس‌هایی که در آینده ثبت خواهند شد.'
+                            }
+                            whyNeeded={
+                              isEn
+                                ? 'Necessary for asset managers, IT directors, and license compliance officers.'
+                                : 'الزامی برای مدیران دارایی‌های نرم‌افزاری، مسئولان تمدید و مدیران IT.'
+                            }
+                            practicalExample={
+                              isEn
+                                ? 'Recommended for Enterprise Asset Managers and Super Admins'
+                                : 'پیشنهادی برای مدیران ارشد دارایی IT و سوپرادمین‌ها'
+                            }
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                          />
+                        </div>
+                        <p
+                          className={`text-[10px] mt-0.5 ${
+                            isLightMode ? 'text-slate-500' : 'text-slate-400'
+                          }`}
+                        >
+                          {isEn
+                            ? 'User can view and manage every license in the organization repository.'
+                            : 'کاربر به کلیه لایسنس‌های نرم‌افزاری و سخت‌افزاری سازمان دسترسی خواهد داشت.'}
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Specific Licenses Radio */}
+                    <label
+                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition select-none ${
+                        draftPolicy?.targetLicenseScope === 'specific'
+                          ? isLightMode
+                            ? 'bg-emerald-50/80 border-emerald-300 shadow-xs'
+                            : 'bg-emerald-500/10 border-emerald-500/40 text-white'
+                          : isLightMode
+                          ? 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                          : 'bg-white/5 border-white/5 hover:border-white/10'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetLicenseScope"
+                        checked={draftPolicy?.targetLicenseScope === 'specific'}
+                        onChange={() =>
+                          setDraftPolicy((prev) => (prev ? { ...prev, targetLicenseScope: 'specific' } : prev))
+                        }
+                        className="mt-0.5 text-emerald-500 focus:ring-emerald-400"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span
+                            className={`text-xs font-semibold ${
+                              isLightMode ? 'text-slate-900' : 'text-white'
+                            }`}
+                          >
+                            {isEn ? 'Specific Licenses Only' : 'فقط لایسنس‌های مشخص‌شده'}
+                          </span>
+                          <FieldInfoTooltip
+                            title={isEn ? 'Specific Licenses Scope' : 'دامنه اختصاصی لایسنس‌ها'}
+                            whatIsIt={
+                              isEn
+                                ? 'Limits subject access strictly to the checked licenses in the list below.'
+                                : 'محدود کردن دسترسی کاربر منحصراً به لایسنس‌هایی که در لیست زیر انتخاب شده‌اند.'
+                            }
+                            whyNeeded={
+                              isEn
+                                ? 'Prevents unauthorized exposure of sensitive product keys or activation files to unrelated teams.'
+                                : 'جلوگیری از افشای کلیدهای فعال‌سازی نرم‌افزارهای حساس به تیم‌ها یا کارمندان غیرمرتبط.'
+                            }
+                            practicalExample={
+                              isEn
+                                ? 'Assign only VMware and Windows Server keys to Virtualization Admins'
+                                : 'فقط لایسنس‌های مجازی‌سازی و ویندوز سرور برای ادمین‌های دیتاسنتر انتخاب شود'
+                            }
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                          />
+                        </div>
+                        <p
+                          className={`text-[10px] mt-0.5 ${
+                            isLightMode ? 'text-slate-500' : 'text-slate-400'
+                          }`}
+                        >
+                          {isEn
+                            ? 'Restrict visibility to explicitly checked licenses in the selector below.'
+                            : 'دسترسی فقط به لایسنس‌هایی که صراحتاً در لیست زیر انتخاب شوند محدود خواهد شد.'}
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Specific Licenses Picker Table */}
+                  {draftPolicy?.targetLicenseScope === 'specific' && (
+                    <div
+                      className={`p-3 rounded-xl border mb-4 ${
+                        isLightMode
+                          ? 'bg-slate-50/80 border-slate-200'
+                          : 'bg-slate-900/60 border-white/10'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                        <div className="relative flex-1">
+                          <Search className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={licensesSearch}
+                            onChange={(e) => setLicensesSearch(e.target.value)}
+                            placeholder={
+                              isEn
+                                ? 'Filter licenses by name, software, key, or category...'
+                                : 'جستجو بر اساس نام، نرم‌افزار، کلید لایسنس یا دسته‌بندی...'
+                            }
+                            className={`w-full text-xs rounded-lg pr-8 pl-3 py-1.5 border transition outline-none ${
+                              isLightMode
+                                ? 'bg-white border-slate-200 text-slate-800 focus:border-emerald-500'
+                                : 'bg-white/5 border-white/10 text-white focus:border-emerald-500'
+                            }`}
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2 self-end sm:self-auto">
+                          <button
+                            type="button"
+                            onClick={handleSelectAllLicenses}
+                            className="px-2 py-1 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition cursor-pointer"
+                          >
+                            {isEn ? 'Select All' : 'انتخاب همه'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleDeselectAllLicenses}
+                            className="px-2 py-1 rounded text-[11px] font-medium bg-white/5 text-slate-400 border border-white/10 hover:text-white transition cursor-pointer"
+                          >
+                            {isEn ? 'Deselect All' : 'لغو همه'}
+                          </button>
+                          <span className="text-[10px] text-slate-400 px-1 font-mono">
+                            {(draftPolicy?.targetLicenseIds || []).length} / {licensesList.length}
+                          </span>
+                        </div>
+                      </div>
+
+                      {isLoadingContractsLicenses ? (
+                        <div className="py-8 text-center text-xs text-slate-400">
+                          <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-2 text-emerald-400" />
+                          {isEn ? 'Loading authentic licenses from server...' : 'در حال بارگذاری لایسنس‌های معتبر از سرور...'}
+                        </div>
+                      ) : filteredLicenses.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-slate-400">
+                          <FileCheck className="w-6 h-6 mx-auto mb-1.5 opacity-30" />
+                          {licensesSearch
+                            ? (isEn ? 'No licenses match your search filter.' : 'هیچ لایسنسی با فیلتر جستجوی شما یافت نشد.')
+                            : (isEn ? 'No licenses found in repository. You can allow adding new ones below.' : 'هیچ لایسنسی در مخزن ثبت نشده است. می‌توانید مجوز افزودن لایسنس را در ادامه فعال نمایید.')}
+                        </div>
+                      ) : (
+                        <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
+                          {filteredLicenses.map((l) => {
+                            const isSelected = (draftPolicy?.targetLicenseIds || []).includes(l.id);
+                            return (
+                              <div
+                                key={l.id}
+                                onClick={() => handleToggleLicenseId(l.id)}
+                                className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition select-none ${
+                                  isSelected
+                                    ? isLightMode
+                                      ? 'bg-emerald-50 border-emerald-300 text-slate-900'
+                                      : 'bg-emerald-500/15 border-emerald-500/40 text-white'
+                                    : isLightMode
+                                    ? 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                                    : 'bg-white/5 border-white/5 text-slate-300 hover:border-white/10'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  {isSelected ? (
+                                    <CheckSquare className="w-4 h-4 text-emerald-500 shrink-0" />
+                                  ) : (
+                                    <Square className="w-4 h-4 text-slate-400 shrink-0" />
+                                  )}
+                                  <div className="truncate">
+                                    <div className="font-semibold truncate">{l.title}</div>
+                                    <div className="text-[10px] text-slate-400 truncate flex items-center gap-2">
+                                      {l.vendor && <span>{l.vendor}</span>}
+                                      {l.deviceType && <span>• {l.deviceType}</span>}
+                                      {l.licenseKey && (
+                                        <span className="font-mono">
+                                          • {l.licenseKey.slice(0, 8)}...
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                  {l.status && (
+                                    <span
+                                      className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono uppercase ${
+                                        l.status === 'active'
+                                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                          : l.status === 'expired'
+                                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                      }`}
+                                    >
+                                      {l.status}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Granular Operational Permissions for Licenses */}
+                  <div className="pt-2 border-t border-slate-200/60 dark:border-white/10">
+                    <h5
+                      className={`text-[11px] font-bold mb-2.5 flex items-center gap-1.5 ${
+                        isLightMode ? 'text-slate-800' : 'text-slate-200'
+                      }`}
+                    >
+                      <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+                      {isEn
+                        ? 'Granular Operational Permissions for Licenses'
+                        : 'اختیارات و مجوزهای عملیاتی روی لایسنس‌ها'}
+                    </h5>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                      {/* 1. canViewLicenses */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canViewLicenses !== false
+                            ? isLightMode
+                              ? 'bg-emerald-50/70 border-emerald-300'
+                              : 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canViewLicenses !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) => (prev ? { ...prev, canViewLicenses: e.target.checked } : prev))
+                          }
+                          className="mt-0.5 rounded text-emerald-500 focus:ring-emerald-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`text-xs font-semibold ${
+                                isLightMode ? 'text-slate-900' : 'text-white'
+                              }`}
+                            >
+                              {isEn ? 'View & Read Licenses' : 'مشاهده و خواندن لایسنس‌ها'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'View Licenses Permission' : 'مجوز مشاهده لایسنس‌ها'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Enables read-only access to inspect license keys, validity periods, seat counts, and assigned devices.'
+                                  : 'امکان مشاهده و مطالعه کلیدهای فعال‌سازی، مدت اعتبار، تعداد کاربر مجاز و دستگاه‌های متصل.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Basic requirement for technical support staff to verify license entitlements.'
+                                  : 'مجوز پایه برای پرسنل فنی و پشتیبانی جهت بررسی فعال بودن نرم‌افزارها بدون حق تغییر.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Enable for NOC operators, System Admins, and Asset Auditors'
+                                  : 'برای اپراتورهای NOC، ادمین‌های سیستم و حسابرسان دارایی فعال باشد'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Inspect license keys & allocations' : 'مشاهده کلیدهای فعال‌سازی و تخصیص لایسنس'}
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* 2. canAddLicenses */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canAddLicenses !== false
+                            ? isLightMode
+                              ? 'bg-emerald-50/70 border-emerald-300'
+                              : 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canAddLicenses !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) => (prev ? { ...prev, canAddLicenses: e.target.checked } : prev))
+                          }
+                          className="mt-0.5 rounded text-emerald-500 focus:ring-emerald-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`text-xs font-semibold ${
+                                isLightMode ? 'text-slate-900' : 'text-white'
+                              }`}
+                            >
+                              {isEn ? 'Add New Licenses' : 'ایجاد و ثبت لایسنس جدید'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'Add Licenses Permission' : 'مجوز ثبت لایسنس جدید'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Allows the user to register and add new software or appliance licenses even if not previously scoped.'
+                                  : 'به کاربر اجازه می‌دهد لایسنس‌های جدید ثبت و ذخیره کند حتی اگر قبلاً لایسنسی در محدوده‌اش نبوده باشد.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Empowers software asset officers to record newly purchased licenses directly.'
+                                  : 'توانمندسازی مسئولان خرید و نرم‌افزار برای ورود مستقیم لایسنس‌های جدید خریداری‌شده.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Enable for Software Procurement Officers and Lead Sysadmins'
+                                  : 'برای مسئولان تدارکات نرم‌افزار و ادمین‌های ارشد شبکه فعال شود'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Register new software credentials' : 'ثبت و ورود لایسنس‌های جدید به سیستم'}
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* 3. canEditLicenses */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canEditLicenses !== false
+                            ? isLightMode
+                              ? 'bg-emerald-50/70 border-emerald-300'
+                              : 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canEditLicenses !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) => (prev ? { ...prev, canEditLicenses: e.target.checked } : prev))
+                          }
+                          className="mt-0.5 rounded text-emerald-500 focus:ring-emerald-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`text-xs font-semibold ${
+                                isLightMode ? 'text-slate-900' : 'text-white'
+                              }`}
+                            >
+                              {isEn ? 'Edit Licenses' : 'ویرایش اطلاعات لایسنس‌ها'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'Edit Licenses Permission' : 'مجوز ویرایش لایسنس‌ها'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Allows modifying license keys, expiration dates, seat assignments, and category details.'
+                                  : 'اختیار ویرایش کلیدهای فعال‌سازی، تاریخ‌های انقضا، تعداد کرسی‌ها و اطلاعات تجهیزات مرتبط.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Restricts modification of critical software activation keys to authorized staff only.'
+                                  : 'محدودسازی تغییر کلیدهای لایسنس برای جلوگیری از قطع سرویس نرم‌افزارها در سازمان.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Enable for Software License Administrators'
+                                  : 'برای مدیران لایسنس و مسئولان دارایی‌های دیجیتال فعال شود'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Update keys, seat counts, & validity' : 'به‌روزرسانی کلیدها، تعداد کاربر و تاریخ اعتبار'}
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* 4. canDeleteLicenses */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canDeleteLicenses !== false
+                            ? isLightMode
+                              ? 'bg-rose-50/70 border-rose-300'
+                              : 'bg-rose-500/10 border-rose-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canDeleteLicenses !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) => (prev ? { ...prev, canDeleteLicenses: e.target.checked } : prev))
+                          }
+                          className="mt-0.5 rounded text-rose-500 focus:ring-rose-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`text-xs font-semibold ${
+                                isLightMode ? 'text-slate-900' : 'text-white'
+                              }`}
+                            >
+                              {isEn ? 'Delete Licenses' : 'حذف کامل لایسنس‌ها'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'Delete Licenses Authority' : 'اختیار حذف لایسنس‌ها'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Allows permanently deleting license records and product keys from the repository.'
+                                  : 'مجوز حذف کامل و دائمی لایسنس‌ها و کلیدهای ثبت‌شده از پایگاه داده سامانه.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'High-risk destructive capability; prevents accidental loss of paid product licenses.'
+                                  : 'عملیات حساس و با ریسک بالا؛ جلوگیری از حذف تصادفی یا مخرب لایسنس‌های گران‌قیمت خریداری‌شده.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Strictly restricted to Super Administrator'
+                                  : 'منحصراً برای سوپرادمین و بالاترین سطح دسترسی فعال گردد'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Permanently remove license records' : 'حذف همیشگی لایسنس و کلیدها از سامانه'}
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* 5. canDeleteLicenseAttachments */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canDeleteLicenseAttachments !== false
+                            ? isLightMode
+                              ? 'bg-amber-50/70 border-amber-300'
+                              : 'bg-amber-500/10 border-amber-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canDeleteLicenseAttachments !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) => (prev ? { ...prev, canDeleteLicenseAttachments: e.target.checked } : prev))
+                          }
+                          className="mt-0.5 rounded text-amber-500 focus:ring-amber-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`text-xs font-semibold ${
+                                isLightMode ? 'text-slate-900' : 'text-white'
+                              }`}
+                            >
+                              {isEn ? 'Delete License Attachments' : 'حذف پیوست‌های لایسنس'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'Delete License Attachments' : 'مجوز حذف پیوست‌های لایسنس'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Allows deleting attached certificate keys (.lic, .crt, .key), invoice receipts, or documentation inside a license.'
+                                  : 'مجوز حذف فایل‌های ضمیمه، گواهی‌ها (.lic, .key)، رسیدهای خرید و فاکتورهای داخل لایسنس.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Protects original binary license files and procurement receipts from being deleted.'
+                                  : 'حفظ فایل‌های باینری لایسنس و مدارک خرید اصلی از پاک شدن توسط کاربران عادی.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Disable for general technical staff'
+                                  : 'برای کارشناسان فنی عمومی غیرفعال بماند'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Remove attached key files & proofs' : 'پاک کردن فایل‌های کلید و فاکتورهای داخل لایسنس'}
+                          </p>
+                        </div>
+                      </label>
+                    </div>
                   </div>
                 </div>
               </div>

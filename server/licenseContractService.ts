@@ -296,6 +296,12 @@ licenseContractRouter.get('/licenses', async (req: Request, res: Response) => {
     status: computeLicenseStatus(lic.startDate, lic.endDate, lic.status),
   }));
 
+  // Specific scope filtering if governed by policy
+  if (!isSuperAdmin && auth.policy?.targetLicenseScope === 'specific') {
+    const allowed = Array.isArray(auth.policy.targetLicenseIds) ? auth.policy.targetLicenseIds : [];
+    licenses = licenses.filter((l) => allowed.includes(l.id));
+  }
+
   res.json({
     success: true,
     licenses,
@@ -318,8 +324,13 @@ licenseContractRouter.post('/licenses', async (req: Request, res: Response) => {
   }
 
   const isSuperAdmin = auth.user?.role?.toLowerCase().includes('admin') || auth.policy?.id === 'policy-super-admin';
-  if (!isSuperAdmin && auth.policy?.canManageLicenses === false) {
-    return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to create licenses (canManageLicenses).' });
+  if (!isSuperAdmin) {
+    if (auth.policy?.canViewLicenses === false) {
+      return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to view or manage licenses.' });
+    }
+    if (auth.policy?.canAddLicenses === false || auth.policy?.canManageLicenses === false) {
+      return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to create licenses.' });
+    }
   }
 
   const body = req.body;
@@ -391,12 +402,20 @@ licenseContractRouter.put('/licenses/:id', async (req: Request, res: Response) =
     return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
   }
 
+  const { id } = req.params;
   const isSuperAdmin = auth.user?.role?.toLowerCase().includes('admin') || auth.policy?.id === 'policy-super-admin';
-  if (!isSuperAdmin && auth.policy?.canManageLicenses === false) {
-    return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to update licenses (canManageLicenses).' });
+  if (!isSuperAdmin) {
+    if (auth.policy?.canEditLicenses === false && auth.policy?.canManageLicenses === false) {
+      return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to update licenses (canEditLicenses).' });
+    }
+    if (auth.policy?.targetLicenseScope === 'specific') {
+      const allowed = Array.isArray(auth.policy.targetLicenseIds) ? auth.policy.targetLicenseIds : [];
+      if (!allowed.includes(id)) {
+        return res.status(403).json({ success: false, error: 'Access denied: License not within authorized scope.' });
+      }
+    }
   }
 
-  const { id } = req.params;
   const body = req.body;
   const store = readStore();
   const licenses: LicenseItem[] = Array.isArray(store.licenses) ? store.licenses : [];
@@ -407,6 +426,17 @@ licenseContractRouter.put('/licenses/:id', async (req: Request, res: Response) =
   }
 
   const existing = licenses[index];
+
+  // RBAC Attachment Deletion Check
+  if (!isSuperAdmin && auth.policy?.canDeleteLicenseAttachments === false && Array.isArray(body.attachments)) {
+    const existingAttIds = (existing.attachments || []).map((a: any) => a.id);
+    const newAttIds = body.attachments.map((a: any) => a.id);
+    const isRemoving = existingAttIds.some((aid: string) => !newAttIds.includes(aid));
+    if (isRemoving) {
+      return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to delete license attachments.' });
+    }
+  }
+
   const startDate = body.startDate || existing.startDate;
   const endDate = body.endDate || existing.endDate;
   const status = body.status ? body.status : computeLicenseStatus(startDate, endDate, existing.status);
@@ -453,12 +483,19 @@ licenseContractRouter.delete('/licenses/:id', async (req: Request, res: Response
     return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
   }
 
-  const isSuperAdmin = auth.user?.role?.toLowerCase().includes('admin') || auth.policy?.id === 'policy-super-admin';
-  if (!isSuperAdmin && auth.policy?.canDeleteLicenses === false && auth.policy?.canManageLicenses === false) {
-    return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to delete licenses.' });
-  }
-
   const { id } = req.params;
+  const isSuperAdmin = auth.user?.role?.toLowerCase().includes('admin') || auth.policy?.id === 'policy-super-admin';
+  if (!isSuperAdmin) {
+    if (auth.policy?.canDeleteLicenses === false) {
+      return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to delete licenses.' });
+    }
+    if (auth.policy?.targetLicenseScope === 'specific') {
+      const allowed = Array.isArray(auth.policy.targetLicenseIds) ? auth.policy.targetLicenseIds : [];
+      if (!allowed.includes(id)) {
+        return res.status(403).json({ success: false, error: 'Access denied: License not within authorized scope.' });
+      }
+    }
+  }
   const store = readStore();
   const licenses: LicenseItem[] = Array.isArray(store.licenses) ? store.licenses : [];
 
@@ -668,6 +705,12 @@ licenseContractRouter.get('/contracts', async (req: Request, res: Response) => {
     status: computeContractStatus(cnt.startDate, cnt.endDate, cnt.status),
   }));
 
+  // Specific scope filtering if governed by policy
+  if (!isSuperAdmin && auth.policy?.targetContractScope === 'specific') {
+    const allowed = Array.isArray(auth.policy.targetContractIds) ? auth.policy.targetContractIds : [];
+    contracts = contracts.filter((c) => allowed.includes(c.id));
+  }
+
   res.json({
     success: true,
     contracts,
@@ -690,8 +733,13 @@ licenseContractRouter.post('/contracts', async (req: Request, res: Response) => 
   }
 
   const isSuperAdmin = auth.user?.role?.toLowerCase().includes('admin') || auth.policy?.id === 'policy-super-admin';
-  if (!isSuperAdmin && auth.policy?.canManageContracts === false) {
-    return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to create contracts (canManageContracts).' });
+  if (!isSuperAdmin) {
+    if (auth.policy?.canViewContracts === false) {
+      return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to view or manage contracts.' });
+    }
+    if (auth.policy?.canAddContracts === false || auth.policy?.canManageContracts === false) {
+      return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to create contracts.' });
+    }
   }
 
   const body = req.body;
@@ -760,12 +808,20 @@ licenseContractRouter.put('/contracts/:id', async (req: Request, res: Response) 
     return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
   }
 
+  const { id } = req.params;
   const isSuperAdmin = auth.user?.role?.toLowerCase().includes('admin') || auth.policy?.id === 'policy-super-admin';
-  if (!isSuperAdmin && auth.policy?.canManageContracts === false) {
-    return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to update contracts.' });
+  if (!isSuperAdmin) {
+    if (auth.policy?.canEditContracts === false && auth.policy?.canManageContracts === false) {
+      return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to update contracts (canEditContracts).' });
+    }
+    if (auth.policy?.targetContractScope === 'specific') {
+      const allowed = Array.isArray(auth.policy.targetContractIds) ? auth.policy.targetContractIds : [];
+      if (!allowed.includes(id)) {
+        return res.status(403).json({ success: false, error: 'Access denied: Contract not within authorized scope.' });
+      }
+    }
   }
 
-  const { id } = req.params;
   const body = req.body;
   const store = readStore();
   const contracts: ContractItem[] = Array.isArray(store.contracts) ? store.contracts : [];
@@ -776,6 +832,17 @@ licenseContractRouter.put('/contracts/:id', async (req: Request, res: Response) 
   }
 
   const existing = contracts[index];
+
+  // RBAC Attachment Deletion Check
+  if (!isSuperAdmin && auth.policy?.canDeleteContractAttachments === false && Array.isArray(body.attachments)) {
+    const existingAttIds = (existing.attachments || []).map((a: any) => a.id);
+    const newAttIds = body.attachments.map((a: any) => a.id);
+    const isRemoving = existingAttIds.some((aid: string) => !newAttIds.includes(aid));
+    if (isRemoving) {
+      return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to delete contract attachments.' });
+    }
+  }
+
   const startDate = body.startDate || existing.startDate;
   const endDate = body.endDate || existing.endDate;
   const status = body.status ? body.status : computeContractStatus(startDate, endDate, existing.status);
@@ -822,12 +889,20 @@ licenseContractRouter.delete('/contracts/:id', async (req: Request, res: Respons
     return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
   }
 
+  const { id } = req.params;
   const isSuperAdmin = auth.user?.role?.toLowerCase().includes('admin') || auth.policy?.id === 'policy-super-admin';
-  if (!isSuperAdmin && auth.policy?.canDeleteContracts === false && auth.policy?.canManageContracts === false) {
-    return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to delete contracts.' });
+  if (!isSuperAdmin) {
+    if (auth.policy?.canDeleteContracts === false) {
+      return res.status(403).json({ success: false, error: 'Access denied: You do not have permission to delete contracts.' });
+    }
+    if (auth.policy?.targetContractScope === 'specific') {
+      const allowed = Array.isArray(auth.policy.targetContractIds) ? auth.policy.targetContractIds : [];
+      if (!allowed.includes(id)) {
+        return res.status(403).json({ success: false, error: 'Access denied: Contract not within authorized scope.' });
+      }
+    }
   }
 
-  const { id } = req.params;
   const store = readStore();
   const contracts: ContractItem[] = Array.isArray(store.contracts) ? store.contracts : [];
 

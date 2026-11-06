@@ -1685,3 +1685,132 @@ export function isTemplateApplyPermitted(
   if (policy.canApplyTemplates === false) return false;
   return Boolean(policy.canApplyTemplates);
 }
+
+// ==============================================================================
+// Contracts & Licenses Granular RBAC Evaluators
+// ==============================================================================
+
+export function isContractAccessPermitted(
+  contractId: string,
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (policy.canViewContracts === false) return false;
+  if (policy.targetContractScope === 'specific') {
+    const allowed = Array.isArray(policy.targetContractIds) ? policy.targetContractIds : [];
+    return allowed.includes(contractId);
+  }
+  return true;
+}
+
+export function isContractCreatePermitted(
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (policy.canViewContracts === false) return false;
+  if (policy.canAddContracts === false) return false;
+  return Boolean(policy.canAddContracts ?? policy.canManageContracts ?? true);
+}
+
+export function isContractEditPermitted(
+  contractId: string,
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (!isContractAccessPermitted(contractId, policy, isSuperAdmin)) return false;
+  if (policy.canEditContracts === false && policy.canManageContracts === false) return false;
+  return Boolean(policy.canEditContracts ?? policy.canManageContracts ?? true);
+}
+
+export function isContractDeletePermitted(
+  contractId: string,
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (!isContractAccessPermitted(contractId, policy, isSuperAdmin)) return false;
+  if (policy.canDeleteContracts === false) return false;
+  return Boolean(policy.canDeleteContracts ?? true);
+}
+
+export function isContractAttachmentDeletePermitted(
+  contractId: string,
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (!isContractAccessPermitted(contractId, policy, isSuperAdmin)) return false;
+  if (policy.canDeleteContractAttachments === false) return false;
+  return Boolean(policy.canDeleteContractAttachments ?? policy.canDeleteContracts ?? policy.canEditContracts ?? true);
+}
+
+export function isLicenseAccessPermitted(
+  licenseId: string,
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (policy.canViewLicenses === false) return false;
+  if (policy.targetLicenseScope === 'specific') {
+    const allowed = Array.isArray(policy.targetLicenseIds) ? policy.targetLicenseIds : [];
+    return allowed.includes(licenseId);
+  }
+  return true;
+}
+
+export function isLicenseCreatePermitted(
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (policy.canViewLicenses === false) return false;
+  if (policy.canAddLicenses === false) return false;
+  return Boolean(policy.canAddLicenses ?? policy.canManageLicenses ?? true);
+}
+
+export function isLicenseEditPermitted(
+  licenseId: string,
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (!isLicenseAccessPermitted(licenseId, policy, isSuperAdmin)) return false;
+  if (policy.canEditLicenses === false && policy.canManageLicenses === false) return false;
+  return Boolean(policy.canEditLicenses ?? policy.canManageLicenses ?? true);
+}
+
+export function isLicenseDeletePermitted(
+  licenseId: string,
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (!isLicenseAccessPermitted(licenseId, policy, isSuperAdmin)) return false;
+  if (policy.canDeleteLicenses === false) return false;
+  return Boolean(policy.canDeleteLicenses ?? true);
+}
+
+export function isLicenseAttachmentDeletePermitted(
+  licenseId: string,
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (!isLicenseAccessPermitted(licenseId, policy, isSuperAdmin)) return false;
+  if (policy.canDeleteLicenseAttachments === false) return false;
+  return Boolean(policy.canDeleteLicenseAttachments ?? policy.canDeleteLicenses ?? policy.canEditLicenses ?? true);
+}
+
