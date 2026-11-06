@@ -1083,6 +1083,16 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         client.sendKeyEvent(0, 0xffe9);
         client.sendKeyEvent(0, 0xffe3);
       }, 150);
+    } else if (keyCombo === 'Ctrl+Alt+End') {
+      // KeySyms: Ctrl = 0xFFE3, Alt = 0xFFE9, End = 0xFF57 (Windows RDP Terminal Services security shortcut)
+      client.sendKeyEvent(1, 0xffe3);
+      client.sendKeyEvent(1, 0xffe9);
+      client.sendKeyEvent(1, 0xff57);
+      setTimeout(() => {
+        client.sendKeyEvent(0, 0xff57);
+        client.sendKeyEvent(0, 0xffe9);
+        client.sendKeyEvent(0, 0xffe3);
+      }, 150);
     } else if (keyCombo === 'WinKey') {
       // KeySym: Super / Windows = 0xFFEB
       client.sendKeyEvent(1, 0xffeb);
@@ -1187,21 +1197,24 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       if (displayContainerRef.current) {
         displayContainerRef.current.focus();
       }
-      if (guacKeyboardRef.current && typeof guacKeyboardRef.current.type === 'function') {
-        try {
-          guacKeyboardRef.current.type(textToPaste);
-          return;
-        } catch {}
-      }
       if (guacClientRef.current) {
         const client = guacClientRef.current;
-        // Fallback: send Ctrl+V (Ctrl = 0xFFE3, v = 0x0076)
-        client.sendKeyEvent(1, 0xffe3);
-        client.sendKeyEvent(1, 0x0076);
-        setTimeout(() => {
-          client.sendKeyEvent(0, 0x0076);
-          client.sendKeyEvent(0, 0xffe3);
-        }, 100);
+        // Inject characters directly via keysyms so it types reliably on Windows logon screen, PowerShell and CMD
+        for (let i = 0; i < textToPaste.length; i++) {
+          const code = textToPaste.charCodeAt(i);
+          let keysym = code;
+          if (code === 10) {
+            keysym = 0xff0d; // Enter
+          } else if (code === 13) {
+            continue; // Skip CR in CRLF
+          } else if (code === 9) {
+            keysym = 0xff09; // Tab
+          } else if (code > 0x00ff) {
+            keysym = 0x01000000 | code;
+          }
+          client.sendKeyEvent(1, keysym);
+          client.sendKeyEvent(0, keysym);
+        }
       }
     }, 180);
   };
@@ -1488,6 +1501,15 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
               className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-[11px] border border-slate-700 transition-colors cursor-pointer"
             >
               Ctrl+Alt+Del
+            </button>
+
+            <button
+              type="button"
+              onClick={() => sendSpecialKey('Ctrl+Alt+End')}
+              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-[11px] border border-slate-700 transition-colors cursor-pointer"
+              title={isEn ? 'Send Ctrl+Alt+End (standard Windows RDP Security/Logon screen shortcut)' : 'ارسال Ctrl+Alt+End (میانبر اختصاصی صفحه لاگین و امنیت در RDP)'}
+            >
+              Ctrl+Alt+End
             </button>
 
             <button
@@ -1888,6 +1910,14 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                         className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-[11px] border border-slate-700 cursor-pointer"
                       >
                         Ctrl+Alt+Del
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sendSpecialKey('Ctrl+Alt+End')}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-[11px] border border-slate-700 cursor-pointer"
+                        title={isEn ? 'Ctrl+Alt+End' : 'ارسال Ctrl+Alt+End'}
+                      >
+                        Ctrl+Alt+End
                       </button>
                       <button
                         type="button"

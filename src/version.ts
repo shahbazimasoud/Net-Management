@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.420.1';
+export const APP_VERSION = '1.421.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.421.0',
+    releaseDate: '2026-11-06',
+    type: 'minor',
+    title: 'تکمیل و ارتقای پروتکل RDP ویندوز، تزریق مستقیم نویسه‌های کیبورد، میانبر اختصاصی Ctrl+Alt+End و ایمن‌سازی استریم گوآکامولی',
+    title_en: 'Windows RDP Protocol Hardening, Direct Keystroke Injection, Dedicated Ctrl+Alt+End Shortcut, and Stream Safeguards',
+    changes: [
+      'تجهیز قابلیت «ارسال و تایپ در سرور» (Send & Type in Remote) به تزریق مستقیم کلیدهای استاندارد X11 Keysym جهت تایپ واقعی نویسه‌به‌نویسه رمزها و متون حتی در صفحات لاگین ویندوز، پرامپت‌های UAC، کنسول‌های CMD و PowerShell که در آنها ارسال Ctrl+V کارایی ندارد.',
+      'افزودن میانبر استاندارد ترمینال سرویسز ویندوز `Ctrl+Alt+End` در نوار ابزار اصلی و نوار دایره‌ای شناور تمام‌صفحه جهت آنلاک سریع صفحه امنیت ویندوز بدون تداخل با کلیدهای محلی سیستم.',
+      'ایمن‌سازی استریم بافر گوآکامولی در سوکت TCP گیت‌وی با ماژول بومی `StringDecoder` جهت جلوگیری از شکستن و تخریب بایت‌های کاراکترهای چندبایتی UTF-8 در مرز بسته‌های TCP.',
+      'افزودن شنونده رویداد خطای وب‌سوکت (`clientWs.on("error")`) جهت جلوگیری از بروز استثناهای مدیریت‌نشده در قطعی‌های ناگهانی کلاینت.',
+      'ارسال ساختاریافته خطاهای guacd و نشست به فرمت استاندارد پروتکل Guacamole با کدهای تشخیصی دقیق و ترجمه فارسی و انگلیسی در زمان انقضای نشست (Idle Timeout).',
+      'تجهیز پارامترهای اتصال RDP به متد تغییر پویای ابعاد صفحه (`resize-method: display-update`) و بهینه‌سازی کانال‌های ارتباطی.'
+    ],
+    changes_en: [
+      'Empowered "Send & Type in Remote" clipboard action with authentic X11 keysym character-by-character direct keystroke injection, enabling seamless typing of passwords and commands into Windows login screens, UAC dialogs, CMD, and PowerShell consoles where Ctrl+V is ignored.',
+      'Introduced dedicated Windows Terminal Services / RDP `Ctrl+Alt+End` key shortcut button in both the standard header toolbar and full-monitor floating circle toolbar for instant Windows Security screen unlock.',
+      'Hardened the gateway TCP socket data stream with Node.js `StringDecoder` to guarantee multibyte UTF-8 characters are never sliced or corrupted across TCP packet boundaries.',
+      'Added missing `clientWs.on("error")` WebSocket error listener to safeguard against unhandled process exceptions on abnormal client disconnections.',
+      'Standardized idle timeout session termination to dispatch compliant Guacamole error instructions with structured bilingual diagnostics.',
+      'Integrated dynamic `resize-method: display-update` and optimized channel flags into the Guacamole RDP connection handshake.'
+    ]
+  },
   {
     version: '1.420.1',
     releaseDate: '2026-11-06',

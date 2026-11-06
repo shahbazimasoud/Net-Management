@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
+import { StringDecoder } from 'string_decoder';
 import { Express, Request, Response } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { verifyToken } from './auth';
@@ -623,13 +624,13 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
 
         try {
           if (session.clientWs && session.clientWs.readyState === WebSocket.OPEN) {
-            session.clientWs.send(
-              JSON.stringify({
-                type: 'session_terminated',
-                reason: 'IDLE_TIMEOUT',
-                message: 'Session disconnected due to 15 minutes of inactivity.',
-              })
-            );
+            const idlePayload = {
+              category: 'IDLE_TIMEOUT',
+              message_en: 'Session disconnected due to 15 minutes of inactivity.',
+              message_fa: 'ارتباط به دلیل ۱۵ دقیقه بی‌کاری قطع شد.',
+              code: '516',
+            };
+            session.clientWs.send(encodeGuacInstruction('error', JSON.stringify(idlePayload), '516'));
             session.clientWs.close(1000, 'Idle timeout');
           }
           if (session.socket) {
@@ -1374,6 +1375,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     // Connect to native guacd daemon via TCP
     const guacdSocket = new net.Socket();
     activeSession.socket = guacdSocket;
+    const guacdDecoder = new StringDecoder('utf8');
 
     let handshakeState: 'SELECT' | 'CONNECTING' | 'READY' = 'SELECT';
     let guacBuffer = '';
@@ -1405,7 +1407,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     });
 
     guacdSocket.on('data', (chunk: Buffer) => {
-      guacBuffer += chunk.toString('utf-8');
+      guacBuffer += guacdDecoder.write(chunk);
 
       while (true) {
         const next = extractNextGuacInstruction(guacBuffer);
@@ -1425,8 +1427,8 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
           errorSent = true;
           logSessionFailed(rawErrMsg, `Guacamole server returned error: ${rawErrMsg} (code ${rawErrCode})`);
           if (clientWs.readyState === WebSocket.OPEN) {
-            // Forward guacd's real error message directly to the UI
-            clientWs.send(encodeGuacInstruction('error', rawErrMsg, rawErrCode));
+            const structured = parseStructuredGuacError(rawErrMsg, config.serverIp, config.port, config.domain);
+            clientWs.send(encodeGuacInstruction('error', JSON.stringify(structured), structured.code || rawErrCode));
           }
           continue;
         }
@@ -1454,6 +1456,10 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
               'disable-copy': 'false',
               'disable-paste': 'false',
               'normalize-clipboard': 'preserve',
+              'resize-method': 'display-update',
+              'enable-audio-input': 'false',
+              'enable-printing': 'false',
+              'enable-drive': 'false',
               width: widthStr,
               height: heightStr,
               dpi: dpiStr,
@@ -1615,6 +1621,10 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
         } catch {}
       }, 150);
       activeSessions.delete(config.id);
+    });
+
+    clientWs.on('error', (err: Error) => {
+      console.warn(`[RemoteDesktop] clientWs error for session ${config.id}:`, err.message);
     });
 
     clientWs.on('close', () => {
