@@ -52,6 +52,7 @@ import { ItemAttachmentsModal } from './ItemAttachmentsModal';
 import { AlertRecipientsModal } from './AlertRecipientsModal';
 import { AttachmentPreviewModal } from './AttachmentPreviewModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { appDataCache } from '../../services/dataCache';
 
 interface LicensesViewProps {
   devices: Device[];
@@ -67,8 +68,9 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
   isEn = true,
   effectivePolicy,
 }) => {
-  const [licenses, setLicenses] = useState<LicenseItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const cachedLicenses = appDataCache.getOptimistic<LicenseItem[]>('licenses_list');
+  const [licenses, setLicenses] = useState<LicenseItem[]>(() => cachedLicenses || []);
+  const [isLoading, setIsLoading] = useState(() => !cachedLicenses);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRunningCron, setIsRunningCron] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -172,21 +174,32 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
     setTimeout(() => setToastMessage(null), 4500);
   }, []);
 
-  // Fetch licenses from server
+  // Fetch licenses from server with SWR caching & background revalidation
   const loadLicenses = useCallback(async (isSilent = false) => {
-    if (!isSilent) setIsLoading(true);
-    else setIsRefreshing(true);
+    const hasCache = Boolean(appDataCache.getOptimistic<LicenseItem[]>('licenses_list'));
+    if (!isSilent && !hasCache) {
+      setIsLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
 
     try {
-      const data = await fetchLicensesApi();
-      setLicenses(data.licenses || []);
+      const data = await appDataCache.query('licenses_list_full', () => fetchLicensesApi(), {
+        ttlMs: 45_000,
+        forceRefresh: isSilent,
+      });
+      const items = data.licenses || [];
+      appDataCache.set('licenses_list', items);
+      setLicenses(items);
     } catch (err: any) {
-      showToast(
-        isEn
-          ? `Failed to load licenses: ${err.message || 'Server error'}`
-          : `خطا در دریافت اطلاعات لایسنس‌ها: ${err.message || 'خطای سرور'}`,
-        'error'
-      );
+      if (!hasCache) {
+        showToast(
+          isEn
+            ? `Failed to load licenses: ${err.message || 'Server error'}`
+            : `خطا در دریافت اطلاعات لایسنس‌ها: ${err.message || 'خطای سرور'}`,
+          'error'
+        );
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -286,6 +299,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
     if (window.confirm(confirmText)) {
       try {
         await deleteLicenseApi(lic.id);
+        appDataCache.invalidate('licenses_list');
         setLicenses((prev) => prev.filter((item) => item.id !== lic.id));
         showToast(
           isEn ? `License "${lic.title}" deleted.` : `لایسنس «${lic.title}» حذف شد.`,

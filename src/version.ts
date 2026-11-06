@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.418.6';
+export const APP_VERSION = '1.419.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.419.0',
+    releaseDate: '2026-11-06',
+    type: 'minor',
+    title: 'یکپارچه‌سازی و پیاده‌سازی معماری بارگذاری آنی SWR و تدوین قانون سراسری بارگذاری داده‌ها در تمامی ماژول‌ها',
+    title_en: 'Universal Zero-Delay SWR Data Loading Architecture & Mandatory Global Data Loading Rule Codification',
+    changes: [
+      'طراحی و پیاده‌سازی موتور کشینگ جهانی و بهینه‌سازی بارگذاری داده‌ها (`UniversalDataCache / appDataCache`) مبتنی بر الگوی Stale-While-Revalidate (SWR).',
+      'تجهیز صفحات «مدیریت سرورهای ریموت و ناوگان اتوماسیون»، «مدیریت لایسنس‌ها» و «قراردادها» به رندرینگ فوری و آنی (Zero-Delay) دقیقاً مشابه صفحه مدیریت تجهیزات شبکه.',
+      'تفکیک پینگ زنده و پایش سنگین شبکه از لود مشخصات سرورها با پیاده‌سازی صف دسته‌ای غیراسپینری (Non-blocking Staggered Batches).',
+      'پیش‌بارگذاری ملایم و هوشمند در پس‌زمینه (Background Prefetch) در ریشه برنامه جهت آماده‌سازی کش قبل از ورود به تب‌های فرعی.',
+      'تدوین قانون قطعی و تخطی‌ناپذیر شماره ۱۹ در راهنماهای جامع سیستم (AGENTS.md و GEMINI.md) مبنی بر الزام استفاده از معماری SWR در کلیه صفحات جاری و آتی.'
+    ],
+    changes_en: [
+      'Engineered and deployed Universal Stale-While-Revalidate (SWR) cache engine (`UniversalDataCache / appDataCache`) across the entire client application.',
+      'Upgraded Remote Servers Fleet, Licenses & Entitlements, and Contracts views to deliver instant zero-delay UI rendering matching the Network Equipment Inventory baseline.',
+      'Decoupled heavy live keepalive probes and SSH handshakes from initial server fleet rendering via non-blocking staggered batches.',
+      'Integrated proactive warm-up background prefetching in app root (`App.tsx`) preparing in-memory state before user navigation.',
+      'Codified mandatory Rule 19 in AGENTS.md and GEMINI.md establishing the universal SWR zero-delay data loading standard for all existing and future modules.'
+    ]
+  },
   {
     version: '1.418.6',
     releaseDate: '2026-11-06',

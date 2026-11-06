@@ -1,11 +1,11 @@
 # NetTopology 🌐
 
-[![Version](https://img.shields.io/badge/version-1.418.6-blue.svg)](https://github.com/shahbazimasoud/Net-Management)
+[![Version](https://img.shields.io/badge/version-1.419.0-blue.svg)](https://github.com/shahbazimasoud/Net-Management)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/shahbazimasoud/Net-Management)
 [![Node](https://img.shields.io/badge/node-20%2B%20%7C%2022%20LTS-brightgreen.svg)](https://nodejs.org)
 
-سامانه جامع مدیریت، مانیتورینگ توپولوژی شبکه و مدیریت تجهیزات سیسکو (سویچ و روتر) - نسخه ۱.۴۱۸.۶
-A Comprehensive Network Topology, Cisco Switch/Router Management & Visual Configuration Platform - Version 1.418.6
+سامانه جامع مدیریت، مانیتورینگ توپولوژی شبکه و مدیریت تجهیزات سیسکو (سویچ و روتر) - نسخه ۱.۴۱۹.۰
+A Comprehensive Network Topology, Cisco Switch/Router Management & Visual Configuration Platform - Version 1.419.0
 
 ---
 

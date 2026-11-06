@@ -58,6 +58,7 @@ import { NginxManagementModal } from './NginxManagementModal';
 import { ApacheManagementModal } from './ApacheManagementModal';
 import { PostgreSQLManagementModal } from './PostgreSQLManagementModal';
 import { MySQLManagementModal } from './MySQLManagementModal';
+import { appDataCache } from '../../services/dataCache';
 import { WindowsRemoteConnectModal } from './WindowsRemoteConnectModal';
 import { InBrowserRemoteDesktopModal } from './InBrowserRemoteDesktopModal';
 import { OnDemandPasswordModal } from './OnDemandPasswordModal';
@@ -132,9 +133,12 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 }) => {
   const { dockModal, undockModal } = useModalDock();
 
-  const [servers, setServers] = useState<RemoteServer[]>([]);
-  const [tagsSummary, setTagsSummary] = useState<RemoteServerTagSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedServers = appDataCache.getOptimistic<RemoteServer[]>('remote_servers_fleet');
+  const cachedTags = appDataCache.getOptimistic<RemoteServerTagSummary[]>('remote_servers_tags');
+
+  const [servers, setServers] = useState<RemoteServer[]>(() => cachedServers || []);
+  const [tagsSummary, setTagsSummary] = useState<RemoteServerTagSummary[]>(() => cachedTags || []);
+  const [loading, setLoading] = useState(() => !cachedServers);
   const [error, setError] = useState<string | null>(null);
 
   // Filter & Search states - DEFAULT viewMode is 'list' per user requirement!
@@ -561,63 +565,92 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     );
   };
 
-  // Trigger genuine live fleet ping
+  // Trigger genuine live fleet ping in gentle non-blocking batches
   const triggerLiveFleetPing = (fleetServers: RemoteServer[]) => {
-    const allIds = fleetServers.map((s) => s.id);
-    setReachabilityCache((prev) => {
-      const next = { ...prev };
-      allIds.forEach((id) => {
-        next[id] = { reachable: false, latency: 0, testing: true };
-      });
-      return next;
-    });
+    if (!fleetServers || fleetServers.length === 0) return;
 
-    Promise.allSettled(
-      fleetServers.map(async (s) => {
-        try {
-          const res = await testRemoteServerConnection(s.id);
-          setReachabilityCache((prev) => ({
-            ...prev,
-            [s.id]: {
-              reachable: Boolean(res.reachable),
-              latency: res.reachable ? (res.latency_ms || 0) : 0,
-              testing: false,
-            },
-          }));
-          syncServerKeepaliveMetrics(s.id, res);
-        } catch {
-          setReachabilityCache((prev) => ({
-            ...prev,
-            [s.id]: {
-              reachable: false,
-              latency: 0,
-              testing: false,
-            },
-          }));
-        }
-      })
-    );
+    // Run in gentle non-blocking batches of 4 to prevent UI thread or network choking
+    const batchSize = 4;
+    (async () => {
+      for (let i = 0; i < fleetServers.length; i += batchSize) {
+        const batch = fleetServers.slice(i, i + batchSize);
+        // Set testing flag only for current active batch
+        setReachabilityCache((prev) => {
+          const next = { ...prev };
+          batch.forEach((s) => {
+            next[s.id] = {
+              reachable: prev[s.id]?.reachable ?? false,
+              latency: prev[s.id]?.latency ?? 0,
+              testing: true,
+            };
+          });
+          return next;
+        });
+
+        await Promise.allSettled(
+          batch.map(async (s) => {
+            try {
+              const res = await testRemoteServerConnection(s.id);
+              setReachabilityCache((prev) => ({
+                ...prev,
+                [s.id]: {
+                  reachable: Boolean(res.reachable),
+                  latency: res.reachable ? (res.latency_ms || 0) : 0,
+                  testing: false,
+                },
+              }));
+              syncServerKeepaliveMetrics(s.id, res);
+            } catch {
+              setReachabilityCache((prev) => ({
+                ...prev,
+                [s.id]: {
+                  reachable: false,
+                  latency: 0,
+                  testing: false,
+                },
+              }));
+            }
+          })
+        );
+      }
+    })();
   };
 
-  // Load server fleet
-  const loadFleet = async (autoPing = true) => {
-    setLoading(true);
+  // Load server fleet with SWR caching
+  const loadFleet = async (autoPing = false) => {
+    const hasCache = Boolean(appDataCache.getOptimistic<RemoteServer[]>('remote_servers_fleet'));
+    if (!hasCache) {
+      setLoading(true);
+    }
     setError(null);
+
     try {
       const [srvRes, tagRes] = await Promise.all([
-        fetchRemoteServers(),
-        fetchRemoteServerTags(),
+        appDataCache.query('remote_servers_fleet_full', () => fetchRemoteServers(), {
+          ttlMs: 45_000,
+          forceRefresh: !hasCache,
+        }),
+        appDataCache.query('remote_servers_tags_full', () => fetchRemoteServerTags(), {
+          ttlMs: 45_000,
+          forceRefresh: !hasCache,
+        }),
       ]);
+
       const loaded = srvRes.servers || [];
+      appDataCache.set('remote_servers_fleet', loaded);
+      appDataCache.set('remote_servers_tags', tagRes.tags || []);
+
       setServers(loaded);
       setTagsSummary(tagRes.tags || []);
 
-      // Auto-trigger live authentic keepalive ping check on initial load
+      // Auto-trigger live authentic keepalive ping check gently in background
       if (autoPing && loaded.length > 0) {
-        triggerLiveFleetPing(loaded);
+        setTimeout(() => triggerLiveFleetPing(loaded), 200);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load remote servers fleet');
+      if (!hasCache) {
+        setError(err.message || 'Failed to load remote servers fleet');
+      }
     } finally {
       setLoading(false);
     }
@@ -908,6 +941,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           outputSummaryEn: 'New server successfully registered in fleet inventory',
         });
       }
+      appDataCache.invalidate('remote_servers_fleet');
+      appDataCache.invalidate('remote_servers_tags');
       await loadFleet();
       setIsAddEditModalOpen(false);
       undockModal('add_edit_remote_server');
@@ -942,6 +977,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         outputSummary: `سرور ${serverToDelete.name} با موفقیت از ناوگان حذف شد`,
         outputSummaryEn: `Server ${serverToDelete.name} removed from fleet inventory`,
       });
+      appDataCache.invalidate('remote_servers_fleet');
+      appDataCache.invalidate('remote_servers_tags');
       await loadFleet();
       setSelectedServerIds((prev) => {
         const next = new Set(prev);

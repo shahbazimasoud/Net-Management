@@ -60,9 +60,13 @@ import {
   pingDevice,
   runCdpLldpScan,
   resetDemoData,
-  writeMemory,
-  fetchDevicePorts
+  fetchDevicePorts,
+  fetchRemoteServers,
+  fetchRemoteServerTags,
+  fetchLicensesApi,
+  fetchContractsApi
 } from './services/api';
+import { appDataCache } from './services/dataCache';
 import {
   logDeviceAddition,
   logDeviceDeletion,
@@ -1046,6 +1050,27 @@ export default function App() {
   useEffect(() => {
     if (isAuthenticated) {
       loadData();
+
+      // Gentle background pre-fetching for secondary modules (SWR cache warm-up)
+      // This guarantees instant zero-delay opening when user navigates to Servers, Licenses, or Contracts
+      const prefetchTimer = setTimeout(() => {
+        Promise.allSettled([
+          appDataCache.query('remote_servers_fleet_full', () => fetchRemoteServers(), { ttlMs: 60_000 }).then((res) => {
+            if (res?.servers) appDataCache.set('remote_servers_fleet', res.servers);
+          }),
+          appDataCache.query('remote_servers_tags_full', () => fetchRemoteServerTags(), { ttlMs: 60_000 }).then((res) => {
+            if (res?.tags) appDataCache.set('remote_servers_tags', res.tags);
+          }),
+          appDataCache.query('licenses_list_full', () => fetchLicensesApi(), { ttlMs: 60_000 }).then((res) => {
+            if (res?.licenses) appDataCache.set('licenses_list', res.licenses);
+          }),
+          appDataCache.query('contracts_list_full', () => fetchContractsApi(), { ttlMs: 60_000 }).then((res) => {
+            if (res?.contracts) appDataCache.set('contracts_list', res.contracts);
+          }),
+        ]);
+      }, 300);
+
+      return () => clearTimeout(prefetchTimer);
     }
   }, [isAuthenticated, loadData]);
 

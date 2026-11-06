@@ -332,5 +332,37 @@
 > 3. **Required Design Components**: Header with contextual icon and dual-language title; warning alert box with entity name and chips (size, IP, parent item); non-reversible deletion disclaimer; and action buttons (Cancel vs. Destructive Rose Delete with `Trash2` icon).
 > 4. **Portal & Footer Clearance**: Rendered directly via `createPortal(..., document.body)` with `z-[999995]`, `bottom-8` footer clearance, and strict dual dark/light theme contrast.
 
+---
+
+## 19. Mandatory Universal Data Loading & SWR Caching Architecture (قانون قطعی و اجباری الگوی استاندارد بارگذاری داده‌ها و کشینگ SWR در تمامی ماژول‌ها)
+
+> [!CRITICAL]
+> **قانون الزام بارگذاری بدون تأخیر و کشینگ هوشمند در سراسر سامانه (MANDATORY UNIVERSAL ZERO-DELAY DATA LOADING & SWR CACHING RULE)**
+> کلیه صفحات، ویوها، تب‌ها و کامپوننت‌های موجود در سامانه و هر ماژول یا صفحه‌ای که در آینده توسعه می‌یابد، **باید منحصراً و بدون استثنا از الگوی بارگذاری آنی و کشینگ هوشمند (SWR: Stale-While-Revalidate) تبعیت نمایند**. تجربه بارگذاری روان و بی‌درنگ صفحه «Network Equipment Inventory» الگوی مرجع قطعی تمام صفحات است.
+> 
+> 1. **نمایش آنی داده‌های موجود بدون مسدودسازی رابط کاربری (Instant Zero-Delay Initial Render)**:
+>    - هیچ صفحه‌ای نباید در هنگام ورود یا تعویض تب، رابط کاربری را با اسپینرهای سفید تمام‌صفحه یا بلاک‌کننده به تعویق بیندازد.
+>    - در لحظه رندر اولیه، داده‌ها باید بلافاصله از کش حافظه (`appDataCache.getOptimistic`) خوانده شده و جدول یا لیست با اطلاعات قبلی موجود رندر گردد (`isLoading = false` در صورت وجود کش).
+> 
+> 2. **اعتبارسنجی و بهینه‌سازی درخواست‌ها در پس‌زمینه (Background Revalidation & Deduplication)**:
+>    - استعلام آخرین وضعیت داده‌ها از سرور باید در پس‌زمینه انجام شده و داده‌های تازه بدون پرش یا لرزش رابط کاربری با استیت همگام شوند.
+>    - تمامی فراخوانی‌ها باید از طریق متد `appDataCache.query` انجام شوند تا از ارسال درخواست‌های تکراری و موازی به سرور (Request Deduplication) جلوگیری به عمل آید.
+> 
+> 3. **تفکیک عملیات سنگین و پینگ زنده از نمایش اولیه مشخصات (Decoupling Heavy Probes from Specs)**:
+>    - عملیات زمان‌بر نظیر پینگ زنده، تست پورت، هندشیک SSH یا پایش شبکه‌ای نباید مانع از نمایش فوری مشخصات پایه (نام، IP، مدل، دسته‌بندی و وضعیت قبلی) شوند.
+>    - پایش‌های زنده باید به صورت تدریجی (Staggered Batches / Non-blocking) پس از رندر اولیه مشخصات در پس‌زمینه فعال شوند.
+> 
+> 4. **باطل‌سازی دقیق کش پس از هرگونه تغییر داده (Strict Invalidation on Mutation)**:
+>    - پس از هرگونه ایجاد، ویرایش، حذف یا تمدید آیتم‌ها، کلید کش مربوطه باید فوراً با `appDataCache.invalidate(cacheKey)` نامعتبر شود تا از نمایش داده‌های قدیمی جلوگیری گردد.
+> 
+> ---
+> 
+> **English Directive:**
+> 1. **Instant Optimistic Render**: All pages, tabs, and views must initialize their state with optimistic in-memory data using `appDataCache.getOptimistic()`. Never display blocking full-page loading spinners when moving between tabs.
+> 2. **Silent Background Revalidation**: Network queries must execute quietly in the background via `appDataCache.query()` with built-in request deduplication and configurable TTL.
+> 3. **Decouple Heavy Network Probes**: Live telemetry checks (such as ping, port probes, SSH connections) must never block the rendering of entity specs. They must execute in non-blocking staggered batches.
+> 4. **Mutation-Driven Cache Invalidation**: Whenever an entity is added, updated, renewed, or deleted, agents must immediately call `appDataCache.invalidate(key)` to prevent stale data representation.
+
+
 
 

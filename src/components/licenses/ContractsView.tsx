@@ -56,6 +56,7 @@ import { RenewalHistoryModal } from './RenewalHistoryModal';
 import { ItemAttachmentsModal } from './ItemAttachmentsModal';
 import { AlertRecipientsModal } from './AlertRecipientsModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { appDataCache } from '../../services/dataCache';
 
 interface ContractsViewProps {
   devices: Device[];
@@ -72,8 +73,9 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
   effectivePolicy,
   onNavigateToLicenses,
 }) => {
-  const [contracts, setContracts] = useState<ContractItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const cachedContracts = appDataCache.getOptimistic<ContractItem[]>('contracts_list');
+  const [contracts, setContracts] = useState<ContractItem[]>(() => cachedContracts || []);
+  const [isLoading, setIsLoading] = useState(() => !cachedContracts);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRunningCron, setIsRunningCron] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -181,21 +183,32 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
     setTimeout(() => setToastMessage(null), 4500);
   }, []);
 
-  // Fetch contracts from server
+  // Fetch contracts from server with SWR caching & background revalidation
   const loadContracts = useCallback(async (isSilent = false) => {
-    if (!isSilent) setIsLoading(true);
-    else setIsRefreshing(true);
+    const hasCache = Boolean(appDataCache.getOptimistic<ContractItem[]>('contracts_list'));
+    if (!isSilent && !hasCache) {
+      setIsLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
 
     try {
-      const data = await fetchContractsApi();
-      setContracts(data.contracts || []);
+      const data = await appDataCache.query('contracts_list_full', () => fetchContractsApi(), {
+        ttlMs: 45_000,
+        forceRefresh: isSilent,
+      });
+      const items = data.contracts || [];
+      appDataCache.set('contracts_list', items);
+      setContracts(items);
     } catch (err: any) {
-      showToast(
-        isEn
-          ? `Failed to load contracts: ${err.message || 'Server error'}`
-          : `خطا در دریافت اطلاعات قراردادها: ${err.message || 'خطای سرور'}`,
-        'error'
-      );
+      if (!hasCache) {
+        showToast(
+          isEn
+            ? `Failed to load contracts: ${err.message || 'Server error'}`
+            : `خطا در دریافت اطلاعات قراردادها: ${err.message || 'خطای سرور'}`,
+          'error'
+        );
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -263,6 +276,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
 
     try {
       await deleteContractApi(contractToDelete.id);
+      appDataCache.invalidate('contracts_list');
       showToast(
         isEn
           ? `Contract "${contractToDelete.title}" deleted successfully.`
