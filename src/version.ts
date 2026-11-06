@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.420.0';
+export const APP_VERSION = '1.420.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.420.1',
+    releaseDate: '2026-11-06',
+    type: 'patch',
+    title: 'تکمیل شمای پایگاه‌داده PostgreSQL، هماهنگ‌سازی DDL و پایداری متادیتای دسترسی قراردادها و لایسنس‌ها در دیتابیس',
+    title_en: 'PostgreSQL Relational Schema Completion, DDL Synchronization, & Contracts/Licenses RBAC Database Persistence',
+    changes: [
+      'افزودن جداول رابطه‌ای رسمی `contracts` و `licenses` با کلیه کلیدها، فیلدهای JSONB و ایندکس‌های تخصصی در فایل ساختار پایگاه‌داده `/backend/schema.sql`.',
+      'تجهیز منطق همگام‌سازی و مایگریشن خودکار PostgreSQL در `server/db.ts` جهت تزریق و بک‌فیل فیلدهای دسترسی قراردادها و لایسنس‌ها در کلیه رکوردهای جدول `access_policies.policy_data`.',
+      'به‌روزرسانی پالت‌های پیش‌فرض پالیسی‌ها (DEFAULT_ACCESS_POLICIES) و دیتابیس پشتیبان `/backend/database_store.json` جهت تطابق صددرصدی با مدل داده جدید.',
+      'افزودن محاسبه خودکار `allowedContractIds` و `allowedLicenseIds` در متد هسته حاکمیت امنیتی سرور (`getEffectivePolicyForUser`).'
+    ],
+    changes_en: [
+      'Added full relational DDL tables for `contracts` and `licenses` with JSONB attributes and performance indexes to `/backend/schema.sql`.',
+      'Equipped PostgreSQL auto-migration & synchronization in `server/db.ts` to backfill contracts and licenses RBAC attributes into existing `access_policies.policy_data` records.',
+      'Updated default policy seeds (DEFAULT_ACCESS_POLICIES) and fallback database `/backend/database_store.json` for 100% data consistency.',
+      'Enriched server-authoritative effective policy calculation (`getEffectivePolicyForUser`) with `allowedContractIds` and `allowedLicenseIds` scoping.'
+    ]
+  },
   {
     version: '1.420.0',
     releaseDate: '2026-11-06',

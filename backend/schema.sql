@@ -636,3 +636,80 @@ CREATE TABLE IF NOT EXISTS log_retention_config (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_by VARCHAR(128)
 );
+
+-- 24. Organization Contracts & SLA Maintenance Agreements
+CREATE TABLE IF NOT EXISTS contracts (
+    id VARCHAR(64) PRIMARY KEY,
+    contract_number VARCHAR(128) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    vendor_name VARCHAR(255) NOT NULL,
+    vendor_contact TEXT,
+    contract_type VARCHAR(64) NOT NULL DEFAULT 'sla_support', -- 'sla_support' | 'hardware_warranty' | 'internet_isp' | 'datacenter_colocation' | 'software_maintenance' | 'hardware_purchase' | 'consulting' | 'other'
+    owner_name VARCHAR(128) NOT NULL,
+    owner_email VARCHAR(128),
+    department VARCHAR(128),
+    start_date VARCHAR(32) NOT NULL,
+    end_date VARCHAR(32) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'active', -- 'active' | 'expiring_soon' | 'expired' | 'renewed' | 'in_renewal' | 'terminated'
+    total_cost NUMERIC(18,2) DEFAULT 0,
+    currency VARCHAR(16) DEFAULT 'IRR',
+    payment_terms TEXT,
+    notify_emails JSONB NOT NULL DEFAULT '[]'::jsonb,
+    alert_days JSONB NOT NULL DEFAULT '[60, 30, 20, 10, 5, 0]'::jsonb,
+    attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status);
+CREATE INDEX IF NOT EXISTS idx_contracts_vendor ON contracts(vendor_name);
+CREATE INDEX IF NOT EXISTS idx_contracts_type ON contracts(contract_type);
+CREATE INDEX IF NOT EXISTS idx_contracts_end_date ON contracts(end_date);
+
+-- 25. Software & Equipment Licenses Inventory
+CREATE TABLE IF NOT EXISTS licenses (
+    id VARCHAR(64) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    license_key TEXT,
+    device_type VARCHAR(64) NOT NULL DEFAULT 'other',
+    vendor VARCHAR(128) NOT NULL,
+    connected_device_id VARCHAR(64),
+    connected_device_name VARCHAR(128),
+    connected_server_id VARCHAR(64),
+    connected_server_name VARCHAR(128),
+    owner_name VARCHAR(128) NOT NULL,
+    owner_email VARCHAR(128),
+    department VARCHAR(128),
+    start_date VARCHAR(32) NOT NULL,
+    end_date VARCHAR(32) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'active', -- 'active' | 'expiring_soon' | 'expired' | 'renewed' | 'in_renewal'
+    cost NUMERIC(18,2) DEFAULT 0,
+    currency VARCHAR(16) DEFAULT 'IRR',
+    payment_method VARCHAR(64),
+    notify_emails JSONB NOT NULL DEFAULT '[]'::jsonb,
+    alert_days JSONB NOT NULL DEFAULT '[60, 30, 20, 10, 5, 0]'::jsonb,
+    attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_licenses_status ON licenses(status);
+CREATE INDEX IF NOT EXISTS idx_licenses_vendor ON licenses(vendor);
+CREATE INDEX IF NOT EXISTS idx_licenses_device_id ON licenses(connected_device_id);
+CREATE INDEX IF NOT EXISTS idx_licenses_server_id ON licenses(connected_server_id);
+CREATE INDEX IF NOT EXISTS idx_licenses_end_date ON licenses(end_date);
+
+-- Ensure dynamic JSONB schema backfill for Access Policies in PostgreSQL
+DO $$
+BEGIN
+    -- Informational marker for policy_data JSONB schema extensions
+    -- The policy_data column stores:
+    -- canViewContracts (boolean), canViewLicenses (boolean),
+    -- targetContractScope ('all' | 'specific'), targetContractIds (text[]),
+    -- canAddContracts (boolean), canEditContracts (boolean), canDeleteContracts (boolean), canDeleteContractAttachments (boolean),
+    -- targetLicenseScope ('all' | 'specific'), targetLicenseIds (text[]),
+    -- canAddLicenses (boolean), canEditLicenses (boolean), canDeleteLicenses (boolean), canDeleteLicenseAttachments (boolean)
+    NULL;
+END $$;

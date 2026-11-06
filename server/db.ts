@@ -443,6 +443,20 @@ export const DEFAULT_ACCESS_POLICIES = [
     canBulkConfigureDevices: false,
     canBulkConfigureServers: false,
     canManageNavigationGovernance: false,
+    canViewContracts: false,
+    canViewLicenses: false,
+    targetContractScope: 'all',
+    targetContractIds: [],
+    canAddContracts: false,
+    canEditContracts: false,
+    canDeleteContracts: false,
+    canDeleteContractAttachments: false,
+    targetLicenseScope: 'all',
+    targetLicenseIds: [],
+    canAddLicenses: false,
+    canEditLicenses: false,
+    canDeleteLicenses: false,
+    canDeleteLicenseAttachments: false,
     // Device & Port Actions
     terminalAccess: 'none',
     canToggleAdminStatus: false,
@@ -508,6 +522,20 @@ export const DEFAULT_ACCESS_POLICIES = [
     canBulkConfigureDevices: false,
     canBulkConfigureServers: false,
     canManageNavigationGovernance: false,
+    canViewContracts: true,
+    canViewLicenses: true,
+    targetContractScope: 'all',
+    targetContractIds: [],
+    canAddContracts: false,
+    canEditContracts: false,
+    canDeleteContracts: false,
+    canDeleteContractAttachments: false,
+    targetLicenseScope: 'all',
+    targetLicenseIds: [],
+    canAddLicenses: false,
+    canEditLicenses: false,
+    canDeleteLicenses: false,
+    canDeleteLicenseAttachments: false,
     // Device & Port Actions
     terminalAccess: 'view_only',
     canToggleAdminStatus: false,
@@ -573,6 +601,20 @@ export const DEFAULT_ACCESS_POLICIES = [
     canBulkConfigureDevices: true,
     canBulkConfigureServers: true,
     canManageNavigationGovernance: true,
+    canViewContracts: true,
+    canViewLicenses: true,
+    targetContractScope: 'all',
+    targetContractIds: [],
+    canAddContracts: true,
+    canEditContracts: true,
+    canDeleteContracts: true,
+    canDeleteContractAttachments: true,
+    targetLicenseScope: 'all',
+    targetLicenseIds: [],
+    canAddLicenses: true,
+    canEditLicenses: true,
+    canDeleteLicenses: true,
+    canDeleteLicenseAttachments: true,
     // Device & Port Actions
     terminalAccess: 'full',
     canToggleAdminStatus: true,
@@ -1590,6 +1632,24 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
       if (pData.canManageNavigationGovernance === undefined) {
         const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
         pData.canManageNavigationGovernance = isSuper;
+        changed = true;
+      }
+      if (pData.canViewContracts === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        pData.canViewContracts = isSuper || r.id === 'policy-noc-observer';
+        pData.canViewLicenses = isSuper || r.id === 'policy-noc-observer';
+        pData.targetContractScope = 'all';
+        pData.targetContractIds = [];
+        pData.canAddContracts = isSuper;
+        pData.canEditContracts = isSuper;
+        pData.canDeleteContracts = isSuper;
+        pData.canDeleteContractAttachments = isSuper;
+        pData.targetLicenseScope = 'all';
+        pData.targetLicenseIds = [];
+        pData.canAddLicenses = isSuper;
+        pData.canEditLicenses = isSuper;
+        pData.canDeleteLicenses = isSuper;
+        pData.canDeleteLicenseAttachments = isSuper;
         changed = true;
       }
       if (changed) {
@@ -4162,6 +4222,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       targetServerIds: [],
       allowedDeviceIds: [],
       allowedServerIds: [],
+      allowedContractIds: [],
+      allowedLicenseIds: [],
       canViewDashboard: false,
       canViewTopology: false,
       canViewDevices: false,
@@ -4171,6 +4233,20 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canViewSettings: false,
       canViewServers: false,
       canViewLogs: false,
+      canViewContracts: false,
+      canViewLicenses: false,
+      targetContractScope: 'all',
+      targetContractIds: [],
+      canAddContracts: false,
+      canEditContracts: false,
+      canDeleteContracts: false,
+      canDeleteContractAttachments: false,
+      targetLicenseScope: 'all',
+      targetLicenseIds: [],
+      canAddLicenses: false,
+      canEditLicenses: false,
+      canDeleteLicenses: false,
+      canDeleteLicenseAttachments: false,
       canCheckUpdate: false,
       canPerformUpdate: false,
       canBulkConfigureDevices: false,
@@ -4318,10 +4394,14 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     if (!pol) return pol;
     let allowedDeviceIds: string[] | null = null;
     let allowedServerIds: string[] | null = null;
+    let allowedContractIds: string[] | null = null;
+    let allowedLicenseIds: string[] | null = null;
 
     if (isSuperAdmin || pol.id === 'policy-super-admin') {
       allowedDeviceIds = null;
       allowedServerIds = null;
+      allowedContractIds = null;
+      allowedLicenseIds = null;
     } else {
       // 1. Device Scope
       if (pol.targetScope === 'all') {
@@ -4389,12 +4469,28 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       } else {
         allowedServerIds = [];
       }
+
+      // 3. Contract Scope
+      if (pol.targetContractScope === 'specific') {
+        allowedContractIds = Array.isArray(pol.targetContractIds) ? pol.targetContractIds : [];
+      } else {
+        allowedContractIds = null;
+      }
+
+      // 4. License Scope
+      if (pol.targetLicenseScope === 'specific') {
+        allowedLicenseIds = Array.isArray(pol.targetLicenseIds) ? pol.targetLicenseIds : [];
+      } else {
+        allowedLicenseIds = null;
+      }
     }
 
     return {
       ...pol,
       allowedDeviceIds,
       allowedServerIds,
+      allowedContractIds,
+      allowedLicenseIds,
     };
   };
 
@@ -4437,6 +4533,20 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canBulkConfigureDevices: true,
       canBulkConfigureServers: true,
       canManageNavigationGovernance: true,
+      canViewContracts: true,
+      canViewLicenses: true,
+      targetContractScope: 'all',
+      targetContractIds: [],
+      canAddContracts: true,
+      canEditContracts: true,
+      canDeleteContracts: true,
+      canDeleteContractAttachments: true,
+      targetLicenseScope: 'all',
+      targetLicenseIds: [],
+      canAddLicenses: true,
+      canEditLicenses: true,
+      canDeleteLicenses: true,
+      canDeleteLicenseAttachments: true,
       terminalAccess: 'full',
       canToggleAdminStatus: true,
       canChangeVlan: true,
@@ -4523,6 +4633,20 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canBulkConfigureDevices: false,
     canBulkConfigureServers: false,
     canManageNavigationGovernance: false,
+    canViewContracts: false,
+    canViewLicenses: false,
+    targetContractScope: 'all',
+    targetContractIds: [],
+    canAddContracts: false,
+    canEditContracts: false,
+    canDeleteContracts: false,
+    canDeleteContractAttachments: false,
+    targetLicenseScope: 'all',
+    targetLicenseIds: [],
+    canAddLicenses: false,
+    canEditLicenses: false,
+    canDeleteLicenses: false,
+    canDeleteLicenseAttachments: false,
     terminalAccess: 'none',
     canToggleAdminStatus: false,
     canChangeVlan: false,
