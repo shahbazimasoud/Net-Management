@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.418.5';
+export const APP_VERSION = '1.418.6';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.418.6',
+    releaseDate: '2026-11-06',
+    type: 'patch',
+    title: 'تدوین و الزام قانون قطعی تایید حذف استاندارد با DeleteConfirmModal برای کلیه موجودیت‌ها و فرم‌های سامانه',
+    title_en: 'Mandate Universal Standard Deletion Confirmation Modal Rule Across Entire System Architecture',
+    changes: [
+      'تدوین قانون قطعی و تخطی‌ناپذیر شماره ۱۸ در راهنماهای جامع سیستم (AGENTS.md و GEMINI.md) مبنی بر الزام استفاده از DeleteConfirmModal جهت حذف هر موجودیت.',
+      'افزودن بخش ۶ در دستورالعمل ساخت مودال‌ها (MODAL_GUIDELINES.md) جهت ممنوعیت قطعی window.confirm و حذف بدون تایید.',
+      'الزام یکپارچه‌سازی تجربه کاربری حذف (آیکون نمادین، نام شیء، چیپ‌های مشخصات، هشدار پیامدهای حذف و دکمه مخرب قرمز با سطل زباله).',
+      'تضمین رعایت استانداردهای دسترسی‌پذیری، پورتال رندرینگ در ریشه سند (document.body) با لایه z-[999995] و فاصله ایمن bottom-8 از فوتر.'
+    ],
+    changes_en: [
+      'Authored and codified mandatory Rule 18 in AGENTS.md and GEMINI.md requiring the standard DeleteConfirmModal for deleting any entity across the panel.',
+      'Added Section 6 to MODAL_GUIDELINES.md explicitly prohibiting native browser window.confirm prompts and silent unconfirmed deletions.',
+      'Enforced unified deletion UX requirements (contextual icon, entity title, metadata chips, destructive consequences alert, and red rose Trash2 action button).',
+      'Guaranteed adherence to portal document body rendering at z-[999995] with strict bottom-8 footer clearance.'
+    ]
+  },
   {
     version: '1.418.5',
     releaseDate: '2026-11-05',

@@ -300,4 +300,37 @@
 > **English Directive:**
 > Whenever building or modifying any page, view, or tab containing a data table, list, or grid with multiple row actions (such as Edit, Delete, Renew, Test, History, Copy, etc.), agents MUST NOT render multiple separate action buttons side-by-side in the row. Instead, agents MUST provide a single 3-dots action button using `MoreVertical` from `lucide-react` that opens a portal-rendered floating dropdown menu (`createPortal(..., document.body)`). The menu must feature auto-positioning, outside-click backdrop dismissal, bilingual labels, light/dark theme contrast, RBAC permission checks, and highlighted danger actions.
 
+---
+
+## 18. Mandatory Universal Deletion Confirmation Modal Rule (قانون قطعی و اجباری تایید حذف با مودال استاندارد DeleteConfirmModal برای کلیه موجودیت‌ها)
+
+> [!CRITICAL]
+> **قانون الزام تخطی‌ناپذیر تایید حذف با مودال استاندارد DeleteConfirmModal برای هر نوع حذف (MANDATORY UNIVERSAL DELETION CONFIRMATION MODAL RULE)**
+> در تمامی بخش‌ها، فرم‌ها، جداول، پنجره‌ها، لیست‌ها و ابزارهای سراسر سامانه، **حذف هر موجودیت، شیء یا رکوردی** (اعم از تجهیزات شبکه، رک‌ها، تجهیزات داخل رک، پورت‌ها، لینک‌ها، یادداشت‌های بوم، اسناد و فایل‌های پیوست قراردادها و لایسنس‌ها، خود قراردادها، لایسنس‌ها، کاربران، خط‌مشی‌های دسترسی RBAC، پشتیبان‌ها، سرورها و هر نوع آیتم دیگر) **باید منحصراً و بدون استثنا از طریق صفحه و پرامپت تایید حذف استاندارد (`DeleteConfirmModal`) با طراحی و استایل یکپارچه انجام شود**.
+> 
+> 1. **ممنوعیت مطلق تایید بومی مرورگر یا حذف آنی بدون تایید (Zero Raw window.confirm / Zero Silent Deletions)**:
+>    - استفاده از توابع پیش‌فرض مرورگر نظیر `window.confirm`، `confirm(...)` یا هشدارهای متنی مرورگر اکیداً ممنوع و خلاف استانداردهای سیستم است.
+>    - حذف مستقیم و بی‌درنگ هر موجودیت با یک کلیک ساده بدون باز شدن صفحه تایید رسمی، نقض قطعی تجربه کاربری و الزامات ایمنی سامانه است.
+> 
+> 2. **انطباق دقیق با استایل و ساختار مودال حذف تجهیزات (`DeleteConfirmModal`)**:
+>    - هر پنجره تایید حذف باید دارای ساختار هماهنگ با حذف تجهیزات شبکه باشد:
+>      - هدر هشداردهنده شامل آیکون نمادین مرتبط با موجودیت با پس‌زمینه رنگی متناسب، عنوان دوزبانه شفاف حذف (`Delete <Entity>` / `حذف <موجودیت>`) و زیرعنوان با مشخصات و متادیتا.
+>      - بدنه پیام شامل باکس برجسته با بردر هشدار دهنده، پیام سوالی شفاف با ذکر نام دقیق آیتم، چیپ‌های متادیتای تکمیلی (نظیر حجم فایل، آدرس IP، شناسه، رک، یا آیتم والد).
+>      - متن هشدار قرمز/رز در خصوص عواقب دائمی حذف و غیرقابل بازگشت بودن عملیات.
+>      - فوتر اکشن‌ها شامل دکمه خاکستری «انصراف / Cancel» و دکمه اکشن مخرب قرمز رز (`bg-rose-600 hover:bg-rose-500`) با آیکون سطل زباله (`Trash2`).
+> 
+> 3. **معماری رندرینگ، حریم فوتر و تم‌پذیری**:
+>    - **پورتال در بدنه سند**: مودال باید مستقیماً با `createPortal(..., document.body)` با لایه بسیار بالا (`z-[999995]`) رندر شود تا در هیچ والد با overflow یا استکینگ کانتکست محدود نشود.
+>    - **حفظ حریم فوتر**: کانتینر مودال باید با فاصله `bottom-8` از پایین صفحه مهار گردد تا روی فوتر و نوار ابزار پایین نیفتد.
+>    - **تم‌های تیره و روشن**: ظاهر مودال، کارت‌های داخلی، متون و دکمه‌ها باید کاملاً متناسب با تم فعال پنل (`isLightMode`) با بالاترین کنتراست ارگونومیک رندر شوند.
+> 
+> ---
+> 
+> **English Directive:**
+> 1. **Zero Browser Native Prompts**: Never use raw `window.confirm()` or perform silent one-click deletions anywhere across the application.
+> 2. **Mandatory DeleteConfirmModal**: Deleting ANY item (devices, racks, rack devices, links, canvas sticky notes, contract attachments, license attachments, contracts, licenses, users, RBAC policies, backup archives, etc.) MUST prompt the user via the unified, standard `DeleteConfirmModal` matching the exact device deletion design pattern.
+> 3. **Required Design Components**: Header with contextual icon and dual-language title; warning alert box with entity name and chips (size, IP, parent item); non-reversible deletion disclaimer; and action buttons (Cancel vs. Destructive Rose Delete with `Trash2` icon).
+> 4. **Portal & Footer Clearance**: Rendered directly via `createPortal(..., document.body)` with `z-[999995]`, `bottom-8` footer clearance, and strict dual dark/light theme contrast.
+
+
 
