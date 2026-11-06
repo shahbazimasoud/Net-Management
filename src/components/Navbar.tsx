@@ -265,10 +265,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               ></div>
 
               <div
-                className={`absolute ${isRtl ? 'left-0 text-right' : 'right-0 text-left'} mt-2 w-72 rounded-2xl spatial-glass border border-white/15 p-3 shadow-2xl z-50 backdrop-blur-2xl`}
+                className={`absolute ${isRtl ? 'left-0 text-right' : 'right-0 text-left'} mt-2 w-80 rounded-2xl bg-slate-900/95 border border-white/15 p-3.5 shadow-2xl z-50 backdrop-blur-2xl ring-1 ring-white/10`}
               >
                 {/* Profile Header Card */}
-                <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/5 border border-white/10 mb-3">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.04] border border-white/10 mb-3 shadow-inner">
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-md relative shrink-0">
                     <ShieldCheck className="w-5 h-5 text-cyan-200" />
                     {hasUpdate && (
@@ -284,131 +284,146 @@ export const Navbar: React.FC<NavbarProps> = ({
                         {displayName}
                       </span>
                       <span
-                        className="inline-flex items-center p-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 shrink-0"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 shrink-0 text-[9px] font-medium"
                         title={t('profile_active_session')}
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)] animate-pulse" />
+                        <span className="hidden sm:inline">{isEn ? 'Active' : 'فعال'}</span>
                       </span>
                     </div>
-                    <p className="text-[10px] text-indigo-300 font-mono mt-0.5 truncate">
-                      {displayRole}
-                    </p>
-                    <p className="text-[9px] text-slate-400 font-mono truncate">
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <span className="text-[10px] text-indigo-300 font-mono px-1.5 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 truncate">
+                        {displayRole}
+                      </span>
+                    </div>
+                    <p className="text-[9px] text-slate-400 font-mono mt-1 truncate">
                       {displayEmail}
                     </p>
                   </div>
                 </div>
 
                 {/* Section 1: Language Switcher */}
-                <div className="mb-3">
-                  <div className="px-1 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                <div className="space-y-1.5">
+                  <div className="px-1 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
+                      <Globe className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                       <span>{t('profile_language_title')}</span>
                       {isCustomizedByUser ? (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-normal">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-normal">
                           {t('profile_custom_badge')}
                         </span>
                       ) : (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-white/10 text-slate-400 font-normal">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-slate-400 font-normal">
                           {t('profile_default_badge')}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      {isCustomizedByUser && (
-                        <button
-                          type="button"
-                          onClick={() => resetToDefaultLanguage()}
-                          className="text-[9px] text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
-                          title={isEn ? 'Reset to system default language' : 'بازنشانی به زبان پیش‌فرض سامانه'}
-                        >
-                          {t('profile_reset_to_default')}
-                        </button>
-                      )}
-                      <Globe className="w-3 h-3 text-cyan-400" />
-                    </div>
+                    {isCustomizedByUser && (
+                      <button
+                        type="button"
+                        onClick={() => resetToDefaultLanguage()}
+                        className="text-[9px] text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
+                        title={isEn ? 'Reset to system default language' : 'بازنشانی به زبان پیش‌فرض سامانه'}
+                      >
+                        {t('profile_reset_to_default')}
+                      </button>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-1.5 mt-1">
+                  <div className="grid grid-cols-2 gap-2 mt-1">
                     <button
+                      type="button"
                       onClick={() => setLanguage('en')}
-                      className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs transition cursor-pointer ${
+                      className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all duration-150 cursor-pointer ${
                         language === 'en'
-                          ? 'bg-cyan-600/30 text-white font-bold border border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
-                          : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
+                          ? 'bg-cyan-500/20 text-white font-bold border border-cyan-400/50 shadow-[0_0_12px_rgba(6,182,212,0.25)]'
+                          : 'bg-white/[0.03] text-slate-300 hover:text-white hover:bg-white/[0.08] border border-white/5'
                       }`}
                     >
-                      <span className="font-mono font-bold text-[10px] px-1 py-0.2 rounded bg-white/10 text-cyan-300">EN</span>
-                      <span>English</span>
-                      {language === 'en' && <Check className="w-3 h-3 text-cyan-400 ml-auto" />}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-mono font-bold text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-cyan-300 border border-cyan-400/20">EN</span>
+                        <span className="truncate">English</span>
+                      </div>
+                      {language === 'en' && <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
                     </button>
 
                     <button
+                      type="button"
                       onClick={() => setLanguage('fa')}
-                      className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs transition cursor-pointer ${
+                      className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all duration-150 cursor-pointer ${
                         language === 'fa'
-                          ? 'bg-cyan-600/30 text-white font-bold border border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
-                          : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
+                          ? 'bg-cyan-500/20 text-white font-bold border border-cyan-400/50 shadow-[0_0_12px_rgba(6,182,212,0.25)]'
+                          : 'bg-white/[0.03] text-slate-300 hover:text-white hover:bg-white/[0.08] border border-white/5'
                       }`}
                     >
-                      <span className="font-mono font-bold text-[10px] px-1 py-0.2 rounded bg-white/10 text-cyan-300">FA</span>
-                      <span>فارسی</span>
-                      {language === 'fa' && <Check className="w-3 h-3 text-cyan-400 ml-auto" />}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-mono font-bold text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-cyan-300 border border-cyan-400/20">FA</span>
+                        <span className="truncate">فارسی</span>
+                      </div>
+                      {language === 'fa' && <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
                     </button>
                   </div>
                 </div>
 
+                {/* Divider between Language and Theme */}
+                <div className="my-3 border-t border-white/10" />
+
                 {/* Section 2: Theme Switcher */}
-                <div className="mb-3">
-                  <div className="px-1 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                <div className="space-y-1.5">
+                  <div className="px-1 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
+                      <Palette className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                       <span>{t('profile_theme_title')}</span>
                       {isThemeCustomized ? (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-normal">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-normal">
                           {t('profile_custom_badge')}
                         </span>
                       ) : (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-white/10 text-slate-400 font-normal">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-slate-400 font-normal">
                           {t('profile_default_badge')}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      {isThemeCustomized && onResetThemeToDefault && (
-                        <button
-                          type="button"
-                          onClick={() => onResetThemeToDefault()}
-                          className="text-[9px] text-indigo-400 hover:text-indigo-300 underline cursor-pointer"
-                          title={isEn ? 'Reset to system default theme' : 'بازنشانی به تم پیش‌فرض سامانه'}
-                        >
-                          {t('profile_reset_to_default')}
-                        </button>
-                      )}
-                      <Palette className="w-3 h-3 text-indigo-400" />
-                    </div>
+                    {isThemeCustomized && onResetThemeToDefault && (
+                      <button
+                        type="button"
+                        onClick={() => onResetThemeToDefault()}
+                        className="text-[9px] text-indigo-400 hover:text-indigo-300 underline cursor-pointer"
+                        title={isEn ? 'Reset to system default theme' : 'بازنشانی به تم پیش‌فرض سامانه'}
+                      >
+                        {t('profile_reset_to_default')}
+                      </button>
+                    )}
                   </div>
 
-                  {/* Unified Themes Grid */}
-                  <div className="grid grid-cols-2 gap-1.5 mt-1.5">
-                    {themeOptions.map((opt) => {
+                  {/* Themes Grid */}
+                  <div className="grid grid-cols-2 gap-1.5 mt-1">
+                    {themeOptions.map((opt, idx) => {
                       const isSelected = panelTheme === opt.id;
+                      const isFullWidth = idx === themeOptions.length - 1 && themeOptions.length % 2 !== 0;
                       return (
                         <button
                           key={opt.id}
                           type="button"
                           onClick={() => onChangeTheme(opt.id)}
-                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs transition cursor-pointer text-left ${
+                          className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs transition-all duration-150 cursor-pointer ${
+                            isFullWidth ? 'col-span-2 justify-between' : ''
+                          } ${
                             isSelected
-                              ? 'bg-indigo-600/25 text-white font-bold border border-indigo-500/35'
-                              : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
+                              ? 'bg-indigo-600/30 text-white font-bold border border-indigo-400/50 shadow-[0_0_12px_rgba(99,102,241,0.25)]'
+                              : 'bg-white/[0.03] text-slate-300 hover:text-white hover:bg-white/[0.08] border border-white/5'
                           }`}
                         >
-                          <span
-                            className="w-3 h-3 rounded-full shrink-0 shadow-xs"
-                            style={{ backgroundColor: opt.color }}
-                          />
-                          <span className="truncate text-[11px]">{isEn ? opt.nameEn : opt.nameFa}</span>
-                          {isSelected && <Check className="w-3 h-3 text-indigo-400 ml-auto shrink-0" />}
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`w-3.5 h-3.5 rounded-full shrink-0 shadow-xs border ${
+                                isSelected ? 'ring-2 ring-white/50 border-transparent' : 'border-white/20'
+                              }`}
+                              style={{ backgroundColor: opt.color }}
+                            />
+                            <span className="truncate text-[11px]">{isEn ? opt.nameEn : opt.nameFa}</span>
+                          </div>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-indigo-300 shrink-0 ml-auto" />}
                         </button>
                       );
                     })}
@@ -417,53 +432,54 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                 {/* Section 3: Check for Updates & Release Notes (Super Admin Only) */}
                 {isSuperAdmin && (
-                  <div className="pt-2 border-t border-white/10 space-y-2">
-                    <button
-                      onClick={() => {
-                        setProfileOpen(false);
-                        if (onOpenUpdateSettings) {
-                          onOpenUpdateSettings();
-                        } else if (onOpenReleaseNotes) {
-                          onOpenReleaseNotes();
-                        }
-                      }}
-                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500/15 to-indigo-500/15 hover:from-purple-500/25 hover:to-indigo-500/25 border border-purple-500/25 text-purple-200 text-xs font-semibold transition cursor-pointer shadow-xs active:scale-98"
-                      title={isEn ? 'Open Panel Updates and Release Notes in Settings' : 'باز کردن صفحه ارتقا و به‌روزرسانی پنل در سیتینگ'}
-                    >
-                      <div className="flex items-center gap-2">
-                        <ArrowUpCircle className="w-4 h-4 text-purple-400" />
-                        <span>{isEn ? 'Check for Updates' : 'بررسی نسخه جدید و آپدیت'}</span>
-                      </div>
+                  <>
+                    <div className="my-3 border-t border-white/10" />
+                    <div>
+                      <button
+                        onClick={() => {
+                          setProfileOpen(false);
+                          if (onOpenUpdateSettings) {
+                            onOpenUpdateSettings();
+                          } else if (onOpenReleaseNotes) {
+                            onOpenReleaseNotes();
+                          }
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500/15 to-indigo-500/15 hover:from-purple-500/25 hover:to-indigo-500/25 border border-purple-500/25 text-purple-200 text-xs font-semibold transition cursor-pointer shadow-xs active:scale-98"
+                        title={isEn ? 'Open Panel Updates and Release Notes in Settings' : 'باز کردن صفحه ارتقا و به‌روزرسانی پنل در سیتینگ'}
+                      >
+                        <div className="flex items-center gap-2">
+                          <ArrowUpCircle className="w-4 h-4 text-purple-400" />
+                          <span>{isEn ? 'Check for Updates' : 'بررسی نسخه جدید و آپدیت'}</span>
+                        </div>
 
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300">
-                          v{APP_VERSION}
-                        </span>
-                        {hasUpdate && (
-                          <span className="relative flex h-2.5 w-2.5">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
-                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,1)]"></span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">
+                            v{APP_VERSION}
                           </span>
-                        )}
-                      </div>
-                    </button>
-                  </div>
+                          {hasUpdate && (
+                            <span className="relative flex h-2.5 w-2.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,1)]"></span>
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    </div>
+                  </>
                 )}
 
-
                 {/* Section 4: Log Out Action */}
-                <div className="pt-2 mt-2 border-t border-white/10">
-                  <button
-                    onClick={() => {
-                      setProfileOpen(false);
-                      logout();
-                    }}
-                    className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/25 hover:border-rose-500/40 text-xs font-semibold transition cursor-pointer active:scale-98"
-                  >
-                    <LogOut className="w-3.5 h-3.5 text-rose-400" />
-                    <span>{isEn ? 'Log Out of Account' : 'خروج از حساب کاربری'}</span>
-                  </button>
-                </div>
+                <div className="my-3 border-t border-white/10" />
+                <button
+                  onClick={() => {
+                    setProfileOpen(false);
+                    logout();
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/25 hover:border-rose-500/40 text-xs font-semibold transition cursor-pointer active:scale-98"
+                >
+                  <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                  <span>{isEn ? 'Log Out of Account' : 'خروج از حساب کاربری'}</span>
+                </button>
               </div>
             </>
           )}

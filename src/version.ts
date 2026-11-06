@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.419.1';
+export const APP_VERSION = '1.419.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.419.2',
+    releaseDate: '2026-11-06',
+    type: 'patch',
+    title: 'افزودن جداکننده تفکیک‌کننده و بازطراحی و ساماندهی منوی دراپ‌داون پروفایل و تنظیمات هدر',
+    title_en: 'Add Dedicated Separator and Refine Profile & Settings Dropdown Menu Layout',
+    changes: [
+      'افزودن خط جداکننده اختصاصی (Divider) میان بخش انتخاب زبان سامانه و پالت تم‌های رنگی در منوی پروفایل جهت خوانایی و تفکیک بصری ایده‌آل.',
+      'افزایش عرض کادر دراپ‌داون به w-80 و ساماندهی کارت پروفایل، بخش انتخاب زبان و چیدمان پالت رنگی با استایل مدرن شیشه‌ای تیره.',
+      'بهبود استایل دکمه‌های دوزبانه (EN / FA) با برچسب‌های متقارن و ارتقای متوازن شبکه تم‌ها با پشتیبانی کامل از چینش تم دارک و وضعیت فعال.'
+    ],
+    changes_en: [
+      'Added a dedicated visual separator line between the interface language selector and the theme palette within the profile dropdown.',
+      'Expanded dropdown width to w-80 and refined the user profile card, language switcher, and color palette with modern dark glass ergonomics.',
+      'Enhanced bilingual buttons (EN / FA) with symmetrical badges and balanced the theme grid with sleek active state highlights.'
+    ]
+  },
   {
     version: '1.419.1',
     releaseDate: '2026-11-06',

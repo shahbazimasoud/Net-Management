@@ -64,7 +64,8 @@ import {
   fetchRemoteServers,
   fetchRemoteServerTags,
   fetchLicensesApi,
-  fetchContractsApi
+  fetchContractsApi,
+  writeMemory
 } from './services/api';
 import { appDataCache } from './services/dataCache';
 import {
