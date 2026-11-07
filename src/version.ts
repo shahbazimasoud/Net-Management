@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.421.0';
+export const APP_VERSION = '1.421.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.421.1',
+    releaseDate: '2026-11-07',
+    type: 'patch',
+    title: 'اصلاح و هوشمندسازی محاسبه تاریخ‌های تمدید قرارداد و لایسنس، پریست‌های سریع زمانی و رفع خطای انقضای زودهنگام در تمدیدهای منقضی‌شده',
+    title_en: 'Smart Renewal Date Calculation, Quick Duration Presets, and Resolution of Premature Expiration on Expired Contracts & Licenses',
+    changes: [
+      'اصلاح ریشه‌ای باگ محاسبه تاریخ تمدید قراردادها و لایسنس‌های منقضی‌شده: در قراردادهایی که تاریخ پایان قبلی آنها در گذشته به اتمام رسیده بود، تاریخ شروع تمدید به‌طور خودکار از «امروز» تنظیم می‌شود تا یک دوره فعال کامل (مثلاً ۳۶۵ روزه) به کاربر تعلق گیرد و از انقضای زودهنگام (مانند ۵۶ روز باقیمانده به جای یک سال) پیشگیری شود.',
+      'افزودن کارت تنظیمات هوشمند تمدید (Smart Renewal Configuration) در مودال قرارداد و لایسنس همراه با امکان سوئیچ دوحالته بین «شروع از امروز (دوره کامل ۳۶۵ روزه)» و «پیوسته از پایان قبلی (پوشش عطف‌به‌ماسبق)».',
+      'افزودن دکمه‌های پریست سریع مدت قرارداد و لایسنس (+۶ ماه، +۱ سال، +۲ سال، +۳ سال) جهت تنظیم خودکار تاریخ پایان تنها با یک کلیک.',
+      'نمایش همزمان دو شاخص کلیدی در روزشمار مودال: طول کل دوره قرارداد/لایسنس (به روز و سال) در کنار روزهای باقیمانده تا انقضا از امروز.',
+      'هماهنگ‌سازی اندپوینت‌های سرور تمدید لایسنس و قرارداد (`POST /api/contracts/:id/renew` و `POST /api/licenses/:id/renew`) جهت محاسبه هوشمند تاریخ شروع از امروز در زمان منقضی بودن رکورد قبلی.'
+    ],
+    changes_en: [
+      'Fixed root cause of renewal date calculation for expired contracts and licenses: for records whose preceding end date is in the past, renewal start date now intelligently defaults to "today" to guarantee a full active coverage term (e.g. 365 days) from the renewal date, eliminating premature expiration countdowns.',
+      'Introduced Smart Renewal Configuration card in ContractModal and LicenseModal with a 2-way toggle between "From Today (Full Term)" and "Continuous from Expiry (Retroactive coverage)".',
+      'Added 1-click Quick Duration Presets (+6 Months, +1 Year, +2 Years, +3 Years) for instant recalculation of end date from the selected start date.',
+      'Upgraded modal countdown badge to display both Total Contract/License Term (in days and years) alongside active days remaining from today.',
+      'Synchronized server-side fallback renewal date logic in `POST /api/contracts/:id/renew` and `POST /api/licenses/:id/renew` to safely default start dates to today for expired assets.'
+    ]
+  },
   {
     version: '1.421.0',
     releaseDate: '2026-11-06',

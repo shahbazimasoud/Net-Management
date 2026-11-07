@@ -89,6 +89,9 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [notes, setNotes] = useState('');
 
+  // Renewal origin & duration configuration
+  const [renewalOrigin, setRenewalOrigin] = useState<'from_today' | 'continuous'>('from_today');
+
   // Preview Modal
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -97,6 +100,62 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const [attachmentToDelete, setAttachmentToDelete] = useState<AttachmentFile | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Detect whether previous contract had already expired
+  const isPreviousExpired = React.useMemo(() => {
+    if (!contract?.endDate) return false;
+    const end = new Date(contract.endDate);
+    if (isNaN(end.getTime())) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const endZero = new Date(end);
+    endZero.setHours(0, 0, 0, 0);
+    return endZero < today;
+  }, [contract?.endDate]);
+
+  // Total contract term in days
+  const totalTermDays = React.useMemo(() => {
+    if (!startDate || !endDate) return null;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+    return Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  }, [startDate, endDate]);
+
+  // Handle switching between starting from today vs continuous from previous end date
+  const handleRenewalOriginChange = (origin: 'from_today' | 'continuous') => {
+    setRenewalOrigin(origin);
+    const todayStr = new Date().toISOString().split('T')[0];
+    let newStart = todayStr;
+    if (origin === 'continuous' && contract?.endDate) {
+      try {
+        const d = new Date(contract.endDate);
+        if (!isNaN(d.getTime())) {
+          d.setDate(d.getDate() + 1);
+          newStart = d.toISOString().split('T')[0];
+        }
+      } catch {}
+    }
+    setStartDate(newStart);
+    try {
+      const d = new Date(newStart);
+      d.setFullYear(d.getFullYear() + 1);
+      setEndDate(d.toISOString().split('T')[0]);
+    } catch {
+      setEndDate(newStart);
+    }
+  };
+
+  // Apply quick duration presets (+6 months, +1 year, +2 years, etc.)
+  const handleApplyPresetDuration = (months: number) => {
+    try {
+      const base = startDate ? new Date(startDate) : new Date();
+      if (isNaN(base.getTime())) return;
+      const end = new Date(base);
+      end.setMonth(end.getMonth() + months);
+      setEndDate(end.toISOString().split('T')[0]);
+    } catch {}
+  };
 
   // Sync state when editing an existing contract or opening a new one
   useEffect(() => {
@@ -116,19 +175,36 @@ export const ContractModal: React.FC<ContractModalProps> = ({
       setOwnerEmail(contract.ownerEmail || '');
       setDepartment(contract.department || '');
 
-      // Calculate start date = 1 day after previous end date
+      // Smart renewal date calculation:
+      // If previous contract already expired in the past, start from today so user gets full 365 days of active coverage!
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0];
+      let oldExpired = false;
+      const prevEnd = new Date(contract.endDate);
+      if (!isNaN(prevEnd.getTime())) {
+        const todayZero = new Date();
+        todayZero.setHours(0, 0, 0, 0);
+        const prevEndZero = new Date(prevEnd);
+        prevEndZero.setHours(0, 0, 0, 0);
+        oldExpired = prevEndZero < todayZero;
+      }
+
       let nextStart = '';
-      try {
-        const d = new Date(contract.endDate);
-        if (!isNaN(d.getTime())) {
+      if (oldExpired) {
+        nextStart = todayStr;
+        setRenewalOrigin('from_today');
+      } else {
+        try {
+          const d = new Date(contract.endDate);
           d.setDate(d.getDate() + 1);
           nextStart = d.toISOString().split('T')[0];
-        }
-      } catch {}
-      if (!nextStart) nextStart = new Date().toISOString().split('T')[0];
+        } catch {}
+        if (!nextStart) nextStart = todayStr;
+        setRenewalOrigin('continuous');
+      }
       setStartDate(nextStart);
 
-      // Default end date = 1 year later
+      // Default end date = exactly 1 year later from nextStart
       let nextEnd = '';
       try {
         const d = new Date(nextStart);
@@ -881,10 +957,135 @@ export const ContractModal: React.FC<ContractModalProps> = ({
 
           {/* Section 3: Timeline & Financials */}
           <div className="space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-indigo-400" />
-              {isEn ? '3. Dates, Warranty Periods & Financial Amounts' : '۳. بازه زمانی، دوره گارانتی و مبالغ قرارداد'}
-            </h3>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                {isEn ? '3. Dates, Warranty Periods & Financial Amounts' : '۳. بازه زمانی، دوره گارانتی و مبالغ قرارداد'}
+              </h3>
+
+              {/* Quick Duration Presets */}
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className="text-[11px] text-slate-400 font-medium me-1 hidden sm:inline">
+                  {isEn ? 'Preset Term:' : 'مدت سریع:'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPresetDuration(6)}
+                  className={`px-2 py-0.5 rounded-lg border text-[11px] transition-colors cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 hover:border-indigo-400 text-slate-700'
+                      : 'bg-slate-900 border-slate-800 hover:border-indigo-500 text-slate-300'
+                  }`}
+                >
+                  {isEn ? '+6 Months' : '+۶ ماه'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPresetDuration(12)}
+                  className={`px-2 py-0.5 rounded-lg border text-[11px] transition-colors font-semibold cursor-pointer ${
+                    isLightMode
+                      ? 'bg-indigo-50 border-indigo-300 text-indigo-700 hover:bg-indigo-100'
+                      : 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/30'
+                  }`}
+                >
+                  {isEn ? '+1 Year' : '+۱ سال'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPresetDuration(24)}
+                  className={`px-2 py-0.5 rounded-lg border text-[11px] transition-colors cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 hover:border-indigo-400 text-slate-700'
+                      : 'bg-slate-900 border-slate-800 hover:border-indigo-500 text-slate-300'
+                  }`}
+                >
+                  {isEn ? '+2 Years' : '+۲ سال'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPresetDuration(36)}
+                  className={`px-2 py-0.5 rounded-lg border text-[11px] transition-colors cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 hover:border-indigo-400 text-slate-700'
+                      : 'bg-slate-900 border-slate-800 hover:border-indigo-500 text-slate-300'
+                  }`}
+                >
+                  {isEn ? '+3 Years' : '+۳ سال'}
+                </button>
+              </div>
+            </div>
+
+            {/* Smart Renewal Configuration Card */}
+            {mode === 'renew' && contract && (
+              <div
+                className={`p-3.5 rounded-xl border space-y-2.5 ${
+                  isLightMode
+                    ? 'bg-indigo-50/70 border-indigo-200 text-slate-800'
+                    : 'bg-indigo-950/30 border-indigo-500/30 text-slate-200'
+                }`}
+              >
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <RotateCw className="w-4 h-4 text-indigo-400" />
+                    <span className="text-xs font-bold text-indigo-300">
+                      {isEn ? 'Smart Renewal Configuration' : 'پیکربندی هوشمند دوره تمدید'}
+                    </span>
+                    {isPreviousExpired && (
+                      <span className="px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-bold">
+                        {isEn ? 'Previous Contract Expired' : 'قرارداد قبلی منقضی شده بود'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    {isEn ? 'Previous Term:' : 'دوره قرارداد قبلی:'}{' '}
+                    <span className="font-mono text-slate-300">
+                      {contract.startDate} → {contract.endDate}
+                    </span>
+                  </div>
+                </div>
+
+                {isPreviousExpired && (
+                  <p className="text-[11px] text-amber-300/90 leading-relaxed">
+                    {isEn
+                      ? 'Notice: Because the previous contract expired in the past, the renewal start date is set to today by default so you get a full 365-day active coverage period instead of burning elapsed past days.'
+                      : 'توجه: به دلیل آنکه قرارداد قبلی در گذشته به پایان رسیده، تاریخ شروع تمدید به‌طور پیش‌فرض از امروز تنظیم گردیده تا یک دوره کامل ۳۶۵ روزه از اکنون به شما تعلق گیرد و روزهای سپری‌شده گذشته نسوزد.'}
+                  </p>
+                )}
+
+                {/* Origin selection buttons */}
+                <div className="flex items-center gap-2 pt-0.5 flex-wrap">
+                  <span className="text-[11px] font-medium text-slate-400">
+                    {isEn ? 'Renewal Start Origin:' : 'مبدا زمانی تمدید:'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleRenewalOriginChange('from_today')}
+                    className={`px-2.5 py-1 text-xs rounded-lg border transition-all cursor-pointer ${
+                      renewalOrigin === 'from_today'
+                        ? 'bg-indigo-600 border-indigo-400 text-white font-bold shadow-sm'
+                        : isLightMode
+                        ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    {isEn ? 'From Today (Full Term)' : 'از امروز (دوره کامل ۳۶۵ روزه)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRenewalOriginChange('continuous')}
+                    className={`px-2.5 py-1 text-xs rounded-lg border transition-all cursor-pointer ${
+                      renewalOrigin === 'continuous'
+                        ? 'bg-indigo-600 border-indigo-400 text-white font-bold shadow-sm'
+                        : isLightMode
+                        ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    {isEn ? `Continuous from Expiry (${contract.endDate})` : `پیوسته از پایان قبلی (${contract.endDate})`}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Start Date */}
@@ -1018,7 +1219,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
               </div>
             </div>
 
-            {/* Countdown Badge Preview */}
+            {/* Dual Term Duration & Countdown Badge Preview */}
             {daysLeft !== null && (
               <div
                 className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
@@ -1030,22 +1231,32 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4" />
-                  <span>
-                    {isEn
-                      ? daysLeft < 0
-                        ? `Contract expired ${Math.abs(daysLeft)} days ago!`
+                  <Clock className="w-4 h-4 shrink-0" />
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+                    {totalTermDays !== null && (
+                      <span className="font-semibold text-slate-200">
+                        {isEn
+                          ? `Total Term: ${totalTermDays} days (${(totalTermDays / 365).toFixed(1)} yr)`
+                          : `طول دوره قرارداد: ${totalTermDays} روز (${(totalTermDays / 365).toFixed(1)} سال)`}
+                      </span>
+                    )}
+                    {totalTermDays !== null && <span className="hidden sm:inline text-slate-500">•</span>}
+                    <span>
+                      {isEn
+                        ? daysLeft < 0
+                          ? `Contract expired ${Math.abs(daysLeft)} days ago!`
+                          : daysLeft === 0
+                          ? 'Contract expires today!'
+                          : `${daysLeft} days remaining from today.`
+                        : daysLeft < 0
+                        ? `قرارداد ${Math.abs(daysLeft)} روز پیش منقضی شده است!`
                         : daysLeft === 0
-                        ? 'Contract expires today!'
-                        : `${daysLeft} days remaining until expiration.`
-                      : daysLeft < 0
-                      ? `قرارداد ${Math.abs(daysLeft)} روز پیش منقضی شده است!`
-                      : daysLeft === 0
-                      ? 'قرارداد امروز به پایان می‌رسد!'
-                      : `${daysLeft} روز تا سررسید و پایان قرارداد باقیمانده است.`}
-                  </span>
+                        ? 'قرارداد امروز به پایان می‌رسد!'
+                        : `${daysLeft} روز تا سررسید و پایان قرارداد از امروز باقیمانده است.`}
+                    </span>
+                  </div>
                 </div>
-                <span className="font-bold px-2 py-0.5 rounded-full bg-black/20 text-[11px]">
+                <span className="font-bold px-2 py-0.5 rounded-full bg-black/20 text-[11px] shrink-0">
                   {daysLeft < 0
                     ? isEn ? 'EXPIRED' : 'منقضی'
                     : daysLeft <= 45

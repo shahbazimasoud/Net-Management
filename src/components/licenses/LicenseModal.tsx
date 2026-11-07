@@ -89,10 +89,78 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [notes, setNotes] = useState('');
 
+  // Renewal origin & duration configuration
+  const [renewalOrigin, setRenewalOrigin] = useState<'from_today' | 'continuous'>('from_today');
+
   // Delete Confirmation Modal for Attachments
   const [attachmentToDelete, setAttachmentToDelete] = useState<AttachmentFile | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Detect whether previous license had already expired
+  const isPreviousExpired = React.useMemo(() => {
+    if (!license?.endDate) return false;
+    const end = new Date(license.endDate);
+    if (isNaN(end.getTime())) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const endZero = new Date(end);
+    endZero.setHours(0, 0, 0, 0);
+    return endZero < today;
+  }, [license?.endDate]);
+
+  // Total license term in days
+  const totalTermDays = React.useMemo(() => {
+    if (!startDate || !endDate) return null;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+    return Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  }, [startDate, endDate]);
+
+  // Days left until expiration from today
+  const daysLeft = React.useMemo(() => {
+    if (!endDate) return null;
+    const end = new Date(endDate);
+    const now = new Date();
+    if (isNaN(end.getTime())) return null;
+    return Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  }, [endDate]);
+
+  // Handle switching between starting from today vs continuous from previous end date
+  const handleRenewalOriginChange = (origin: 'from_today' | 'continuous') => {
+    setRenewalOrigin(origin);
+    const todayStr = new Date().toISOString().split('T')[0];
+    let newStart = todayStr;
+    if (origin === 'continuous' && license?.endDate) {
+      try {
+        const d = new Date(license.endDate);
+        if (!isNaN(d.getTime())) {
+          d.setDate(d.getDate() + 1);
+          newStart = d.toISOString().split('T')[0];
+        }
+      } catch {}
+    }
+    setStartDate(newStart);
+    try {
+      const d = new Date(newStart);
+      d.setFullYear(d.getFullYear() + 1);
+      setEndDate(d.toISOString().split('T')[0]);
+    } catch {
+      setEndDate(newStart);
+    }
+  };
+
+  // Apply quick duration presets (+6 months, +1 year, +2 years, etc.)
+  const handleApplyPresetDuration = (months: number) => {
+    try {
+      const base = startDate ? new Date(startDate) : new Date();
+      if (isNaN(base.getTime())) return;
+      const end = new Date(base);
+      end.setMonth(end.getMonth() + months);
+      setEndDate(end.toISOString().split('T')[0]);
+    } catch {}
+  };
 
   // Sync state when editing an existing license or opening a new one
   useEffect(() => {
@@ -110,19 +178,37 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
       setOwnerName(license.ownerName || '');
       setOwnerEmail(license.ownerEmail || '');
       setDepartment(license.department || '');
-      // Calculate start date = 1 day after previous end date
+
+      // Smart renewal date calculation:
+      // If previous license already expired in the past, start from today so user gets full 365 days of active coverage!
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0];
+      let oldExpired = false;
+      const prevEnd = new Date(license.endDate);
+      if (!isNaN(prevEnd.getTime())) {
+        const todayZero = new Date();
+        todayZero.setHours(0, 0, 0, 0);
+        const prevEndZero = new Date(prevEnd);
+        prevEndZero.setHours(0, 0, 0, 0);
+        oldExpired = prevEndZero < todayZero;
+      }
+
       let nextStart = '';
-      try {
-        const d = new Date(license.endDate);
-        if (!isNaN(d.getTime())) {
+      if (oldExpired) {
+        nextStart = todayStr;
+        setRenewalOrigin('from_today');
+      } else {
+        try {
+          const d = new Date(license.endDate);
           d.setDate(d.getDate() + 1);
           nextStart = d.toISOString().split('T')[0];
-        }
-      } catch {}
-      if (!nextStart) nextStart = new Date().toISOString().split('T')[0];
+        } catch {}
+        if (!nextStart) nextStart = todayStr;
+        setRenewalOrigin('continuous');
+      }
       setStartDate(nextStart);
 
-      // Default end date = 1 year later
+      // Default end date = exactly 1 year later
       let nextEnd = '';
       try {
         const d = new Date(nextStart);
@@ -804,10 +890,135 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
 
           {/* Section 3: Validity, Cost & Billing */}
           <div className="space-y-4 pt-2 border-t border-slate-800/60">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-emerald-400" />
-              {isEn ? '3. Validity Period & Financial Details' : '۳. دوره اعتبار زمانی و مشخصات مالی'}
-            </h3>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                {isEn ? '3. Validity Period & Financial Details' : '۳. دوره اعتبار زمانی و مشخصات مالی'}
+              </h3>
+
+              {/* Quick Duration Presets */}
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className="text-[11px] text-slate-400 font-medium me-1 hidden sm:inline">
+                  {isEn ? 'Preset Term:' : 'مدت سریع:'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPresetDuration(6)}
+                  className={`px-2 py-0.5 rounded-lg border text-[11px] transition-colors cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 hover:border-emerald-400 text-slate-700'
+                      : 'bg-slate-900 border-slate-800 hover:border-emerald-500 text-slate-300'
+                  }`}
+                >
+                  {isEn ? '+6 Months' : '+۶ ماه'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPresetDuration(12)}
+                  className={`px-2 py-0.5 rounded-lg border text-[11px] transition-colors font-semibold cursor-pointer ${
+                    isLightMode
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'
+                      : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30'
+                  }`}
+                >
+                  {isEn ? '+1 Year' : '+۱ سال'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPresetDuration(24)}
+                  className={`px-2 py-0.5 rounded-lg border text-[11px] transition-colors cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 hover:border-emerald-400 text-slate-700'
+                      : 'bg-slate-900 border-slate-800 hover:border-emerald-500 text-slate-300'
+                  }`}
+                >
+                  {isEn ? '+2 Years' : '+۲ سال'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPresetDuration(36)}
+                  className={`px-2 py-0.5 rounded-lg border text-[11px] transition-colors cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 hover:border-emerald-400 text-slate-700'
+                      : 'bg-slate-900 border-slate-800 hover:border-emerald-500 text-slate-300'
+                  }`}
+                >
+                  {isEn ? '+3 Years' : '+۳ سال'}
+                </button>
+              </div>
+            </div>
+
+            {/* Smart Renewal Configuration Card */}
+            {mode === 'renew' && license && (
+              <div
+                className={`p-3.5 rounded-xl border space-y-2.5 ${
+                  isLightMode
+                    ? 'bg-emerald-50/70 border-emerald-200 text-slate-800'
+                    : 'bg-emerald-950/30 border-emerald-500/30 text-slate-200'
+                }`}
+              >
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <RotateCw className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-bold text-emerald-300">
+                      {isEn ? 'Smart Renewal Configuration' : 'پیکربندی هوشمند دوره تمدید'}
+                    </span>
+                    {isPreviousExpired && (
+                      <span className="px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-bold">
+                        {isEn ? 'Previous License Expired' : 'لایسنس قبلی منقضی شده بود'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    {isEn ? 'Previous Term:' : 'دوره لایسنس قبلی:'}{' '}
+                    <span className="font-mono text-slate-300">
+                      {license.startDate || '—'} → {license.endDate}
+                    </span>
+                  </div>
+                </div>
+
+                {isPreviousExpired && (
+                  <p className="text-[11px] text-amber-300/90 leading-relaxed">
+                    {isEn
+                      ? 'Notice: Because the previous license expired in the past, the renewal start date is set to today by default so you get a full 365-day active coverage period instead of burning elapsed past days.'
+                      : 'توجه: به دلیل آنکه لایسنس قبلی در گذشته به پایان رسیده، تاریخ شروع تمدید به‌طور پیش‌فرض از امروز تنظیم گردیده تا یک دوره کامل ۳۶۵ روزه از اکنون به شما تعلق گیرد و روزهای سپری‌شده گذشته نسوزد.'}
+                  </p>
+                )}
+
+                {/* Origin selection buttons */}
+                <div className="flex items-center gap-2 pt-0.5 flex-wrap">
+                  <span className="text-[11px] font-medium text-slate-400">
+                    {isEn ? 'Renewal Start Origin:' : 'مبدا زمانی تمدید:'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleRenewalOriginChange('from_today')}
+                    className={`px-2.5 py-1 text-xs rounded-lg border transition-all cursor-pointer ${
+                      renewalOrigin === 'from_today'
+                        ? 'bg-emerald-600 border-emerald-400 text-white font-bold shadow-sm'
+                        : isLightMode
+                        ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    {isEn ? 'From Today (Full Term)' : 'از امروز (دوره کامل ۳۶۵ روزه)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRenewalOriginChange('continuous')}
+                    className={`px-2.5 py-1 text-xs rounded-lg border transition-all cursor-pointer ${
+                      renewalOrigin === 'continuous'
+                        ? 'bg-emerald-600 border-emerald-400 text-white font-bold shadow-sm'
+                        : isLightMode
+                        ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                        : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    {isEn ? `Continuous from Expiry (${license.endDate})` : `پیوسته از پایان قبلی (${license.endDate})`}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               <div>
@@ -967,6 +1178,53 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                 </select>
               </div>
             </div>
+
+            {/* Dual Term Duration & Countdown Badge Preview */}
+            {daysLeft !== null && (
+              <div
+                className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
+                  daysLeft < 0
+                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                    : daysLeft <= 30
+                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 shrink-0" />
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+                    {totalTermDays !== null && (
+                      <span className="font-semibold text-slate-200">
+                        {isEn
+                          ? `Total Term: ${totalTermDays} days (${(totalTermDays / 365).toFixed(1)} yr)`
+                          : `طول دوره لایسنس: ${totalTermDays} روز (${(totalTermDays / 365).toFixed(1)} سال)`}
+                      </span>
+                    )}
+                    {totalTermDays !== null && <span className="hidden sm:inline text-slate-500">•</span>}
+                    <span>
+                      {isEn
+                        ? daysLeft < 0
+                          ? `License expired ${Math.abs(daysLeft)} days ago!`
+                          : daysLeft === 0
+                          ? 'License expires today!'
+                          : `${daysLeft} days remaining from today.`
+                        : daysLeft < 0
+                        ? `لایسنس ${Math.abs(daysLeft)} روز پیش منقضی شده است!`
+                        : daysLeft === 0
+                        ? 'لایسنس امروز به پایان می‌رسد!'
+                        : `${daysLeft} روز تا پایان اعتبار لایسنس از امروز باقیمانده است.`}
+                    </span>
+                  </div>
+                </div>
+                <span className="font-bold px-2 py-0.5 rounded-full bg-black/20 text-[11px] shrink-0">
+                  {daysLeft < 0
+                    ? isEn ? 'EXPIRED' : 'منقضی'
+                    : daysLeft <= 30
+                    ? isEn ? 'EXPIRING SOON' : 'نزدیک انقضا'
+                    : isEn ? 'ACTIVE' : 'معتبر و فعال'}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Section 4: Alert Thresholds & Milestone Custom Days */}

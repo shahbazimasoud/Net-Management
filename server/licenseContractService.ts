@@ -552,14 +552,24 @@ licenseContractRouter.post('/licenses/:id/renew', async (req: Request, res: Resp
 
   const oldLicense = licenses[oldIndex];
 
-  // Calculate default next start date (1 day after old end date)
+  // Calculate default next start date (if not provided in body)
   let calculatedStartDate = body.startDate;
   if (!calculatedStartDate) {
     try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
       const oldEnd = new Date(oldLicense.endDate);
       if (!isNaN(oldEnd.getTime())) {
-        oldEnd.setDate(oldEnd.getDate() + 1);
-        calculatedStartDate = oldEnd.toISOString().split('T')[0];
+        const oldEndZero = new Date(oldEnd);
+        oldEndZero.setHours(0, 0, 0, 0);
+        if (oldEndZero < today) {
+          // If already expired in the past, default start date to today so user gets a full active term
+          calculatedStartDate = new Date().toISOString().split('T')[0];
+        } else {
+          // If still active, seamlessly continue 1 day after previous end date
+          oldEnd.setDate(oldEnd.getDate() + 1);
+          calculatedStartDate = oldEnd.toISOString().split('T')[0];
+        }
       }
     } catch {}
   }
@@ -962,10 +972,20 @@ licenseContractRouter.post('/contracts/:id/renew', async (req: Request, res: Res
   let calculatedStartDate = body.startDate;
   if (!calculatedStartDate) {
     try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
       const oldEnd = new Date(oldContract.endDate);
       if (!isNaN(oldEnd.getTime())) {
-        oldEnd.setDate(oldEnd.getDate() + 1);
-        calculatedStartDate = oldEnd.toISOString().split('T')[0];
+        const oldEndZero = new Date(oldEnd);
+        oldEndZero.setHours(0, 0, 0, 0);
+        if (oldEndZero < today) {
+          // If already expired in the past, default start date to today so user gets a full active term
+          calculatedStartDate = new Date().toISOString().split('T')[0];
+        } else {
+          // If still active, seamlessly continue 1 day after previous end date
+          oldEnd.setDate(oldEnd.getDate() + 1);
+          calculatedStartDate = oldEnd.toISOString().split('T')[0];
+        }
       }
     } catch {}
   }
