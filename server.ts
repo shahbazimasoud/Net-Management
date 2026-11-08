@@ -1351,6 +1351,25 @@ app.use('/api', (req: Request, res: Response) => {
   delete headers['content-length'];
   headers['connection'] = 'close';
 
+  // Decode bearer token and forward authenticated operator identity to python backend
+  const authHeader = (req.headers['authorization'] as string) || '';
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.substring(7).trim();
+      const parts = token.split('.');
+      if (parts.length >= 2) {
+        const payloadBase64 = parts[0];
+        const jsonStr = Buffer.from(payloadBase64, 'base64url').toString('utf-8');
+        const payload = JSON.parse(jsonStr);
+        if (payload?.username) {
+          headers['x-user-name'] = payload.username;
+          headers['x-operator-user'] = payload.username;
+          headers['x-user-role'] = payload.role || (payload.userType === 'ad' ? 'Domain User (Active Directory)' : 'User');
+        }
+      }
+    } catch {}
+  }
+
   let bodyData: string | undefined;
   if (req.body && Object.keys(req.body).length > 0) {
     bodyData = JSON.stringify(req.body);

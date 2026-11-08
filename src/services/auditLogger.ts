@@ -28,9 +28,10 @@ const STORAGE_KEYS = {
 export const AUDIT_LOG_UPDATED_EVENT = 'nettopology_audit_log_updated';
 
 /**
- * Derives current active actor from active simulation policy or default super-admin
+ * Derives current active actor from authenticated user session, token payload, active simulation, or fallback
  */
 export function getCurrentActor(): AuditActor {
+  // 1. Check if an active policy simulation is explicitly active
   try {
     const roleId = localStorage.getItem('nettopology_simulated_role_v1');
     if (roleId === 'policy-noc-readonly') {
@@ -41,8 +42,59 @@ export function getCurrentActor(): AuditActor {
       return { username: 'field_tech', role: 'Field Technician (تکنسین میدانی)', ipAddress: '192.168.10.110' };
     }
   } catch (e) {
-    // fallback
+    // ignore
   }
+
+  // 2. Check active authenticated session stored in session/local storage
+  try {
+    const activeUserRaw =
+      sessionStorage.getItem('nettopology_active_user_v1') ||
+      localStorage.getItem('nettopology_active_user_v1');
+    if (activeUserRaw) {
+      const u = JSON.parse(activeUserRaw);
+      if (u && (u.username || u.email)) {
+        const username = (u.username || u.email).trim();
+        const role = u.role || (u.userType === 'ad' ? 'Domain User (Active Directory)' : 'Administrator');
+        return {
+          username,
+          role,
+          ipAddress: typeof window !== 'undefined' ? window.location.hostname || '127.0.0.1' : '127.0.0.1',
+        };
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // 3. Fallback: Parse directly from cryptographic Bearer JWT token
+  try {
+    const token =
+      sessionStorage.getItem('nettopology_auth_token_v1') ||
+      localStorage.getItem('nettopology_auth_token_v1');
+    if (token && typeof token === 'string' && token.includes('.')) {
+      const payloadBase64Url = token.split('.')[0];
+      const base64 = payloadBase64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonStr = decodeURIComponent(
+        atob(base64)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      );
+      const payload = JSON.parse(jsonStr);
+      if (payload && (payload.username || payload.email)) {
+        const username = (payload.username || payload.email).trim();
+        const role = payload.role || (payload.userType === 'ad' ? 'Domain User (Active Directory)' : 'Administrator');
+        return {
+          username,
+          role,
+          ipAddress: typeof window !== 'undefined' ? window.location.hostname || '127.0.0.1' : '127.0.0.1',
+        };
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
   return {
     username: 'admin',
     role: 'Super Administrator (مدیر ارشد سامانه)',
@@ -490,6 +542,7 @@ export function logPortalEvent(entry: Omit<PortalAuditLogEntry, 'id' | 'timestam
  * Specifically logs when a device is decommissioned or deleted, capturing complete location & device snapshot
  */
 export function logDeviceDeletion(device: Device, actor?: AuditActor): PortalAuditLogEntry {
+  const effectiveActor = actor || getCurrentActor();
   const fullLocation = [
     device.building,
     device.floor,
@@ -502,7 +555,7 @@ export function logDeviceDeletion(device: Device, actor?: AuditActor): PortalAud
     action: 'DEVICE_DELETED',
     title: `حذف دیوایس شبکه «${device.name}» و آزادسازی موقعیت فیزیکی`,
     title_en: `Decommissioned Device "${device.name}" and Cleared Physical Rack Placement`,
-    actor: actor || getCurrentActor(),
+    actor: effectiveActor,
     target: {
       type: 'device',
       id: device.id,
@@ -527,8 +580,8 @@ export function logDeviceDeletion(device: Device, actor?: AuditActor): PortalAud
     },
     severity: 'warning',
     status: 'success',
-    details: `دیوایس «${device.name}» (IP: ${device.ip}، مدل: ${device.model}، با ${device.total_ports} پورت) مستقر در «${fullLocation || 'مکان نامشخص'}» توسط ${actor?.username || 'admin'} از سیستم حذف گردید.`,
-    details_en: `Device "${device.name}" (IP: ${device.ip}, Model: ${device.model}, ${device.total_ports} ports) located at "${fullLocation || 'Unknown'}" was deleted by ${actor?.username || 'admin'}.`,
+    details: `دیوایس «${device.name}» (IP: ${device.ip}، مدل: ${device.model}، با ${device.total_ports} پورت) مستقر در «${fullLocation || 'مکان نامشخص'}» توسط ${effectiveActor.username} از سیستم حذف گردید.`,
+    details_en: `Device "${device.name}" (IP: ${device.ip}, Model: ${device.model}, ${device.total_ports} ports) located at "${fullLocation || 'Unknown'}" was deleted by ${effectiveActor.username}.`,
   });
 }
 

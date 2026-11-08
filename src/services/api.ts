@@ -199,6 +199,32 @@ function getAuthToken(): string | null {
   }
 }
 
+function getActiveUsername(): string | null {
+  try {
+    const active =
+      sessionStorage.getItem('nettopology_active_user_v1') ||
+      localStorage.getItem('nettopology_active_user_v1');
+    if (active) {
+      const parsed = JSON.parse(active);
+      if (parsed?.username) return parsed.username;
+    }
+    const token = getAuthToken();
+    if (token && token.includes('.')) {
+      const payloadBase64Url = token.split('.')[0];
+      const base64 = payloadBase64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonStr = decodeURIComponent(
+        atob(base64)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      );
+      const parsed = JSON.parse(jsonStr);
+      if (parsed?.username) return parsed.username;
+    }
+  } catch {}
+  return null;
+}
+
 /**
  * Resilient fetch wrapper with automatic backoff for 503 (backend starting up) and network blips
  * Automatically injects PostgreSQL Bearer token and active role simulation headers
@@ -208,6 +234,11 @@ async function fetchWithRetry(url: string, options?: RequestInit, maxRetries = 3
   const reqHeaders = new Headers(options?.headers || {});
   if (token && !reqHeaders.has('Authorization')) {
     reqHeaders.set('Authorization', `Bearer ${token}`);
+  }
+  const activeUser = getActiveUsername();
+  if (activeUser) {
+    if (!reqHeaders.has('x-user-name')) reqHeaders.set('x-user-name', activeUser);
+    if (!reqHeaders.has('x-operator-user')) reqHeaders.set('x-operator-user', activeUser);
   }
   const updatedOptions: RequestInit = {
     ...options,

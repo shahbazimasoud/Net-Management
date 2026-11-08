@@ -168,6 +168,49 @@ except ImportError:
         os_mapper_registry = None
         bulk_execution_engine = None
 
+def extract_request_user(handler, body=None):
+    # 1. From custom headers injected by Node proxy
+    user = handler.headers.get("X-User-Name") or handler.headers.get("X-Operator-User")
+    if user and str(user).strip():
+        return str(user).strip()
+
+    # 2. From body if non-admin or explicit
+    if isinstance(body, dict):
+        b_user = body.get("username") or body.get("userName") or body.get("user_name")
+        if b_user and str(b_user).strip() and str(b_user).strip().lower() != "admin":
+            return str(b_user).strip()
+
+    # 3. From Authorization Bearer JWT
+    auth = handler.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:].strip()
+        try:
+            import base64, json
+            parts = token.split(".")
+            if len(parts) >= 2:
+                payload_str = parts[0]
+                rem = len(payload_str) % 4
+                if rem > 0:
+                    payload_str += "=" * (4 - rem)
+                decoded_bytes = base64.urlsafe_b64decode(payload_str)
+                payload_data = json.loads(decoded_bytes.decode("utf-8"))
+                if payload_data.get("username"):
+                    return str(payload_data["username"]).strip()
+        except Exception:
+            pass
+
+    # 4. Fallback from body or header role
+    if isinstance(body, dict):
+        b_user = body.get("username") or body.get("userName") or body.get("user_name")
+        if b_user and str(b_user).strip():
+            return str(b_user).strip()
+
+    role = handler.headers.get("X-User-Role")
+    if role and str(role).strip():
+        return str(role).strip()
+
+    return "admin"
+
 def record_audit_log(data: Dict[str, Any], user: str, device_id: str, device_name: str, action: str, details: str, result: str = "success"):
     logs = data.setdefault("audit_logs", [])
     entry = {
@@ -2866,7 +2909,7 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 vpn_label = cfg.get("name") or cfg.get("profile_name") or vpn_type
                 record_audit_log(
                     data,
-                    user=body.get("username", user_role),
+                    user=extract_request_user(self, body),
                     device_id=dev_id,
                     device_name=device.get("name", dev_id),
                     action=f"Configure VPN ({vpn_type}/{mode})",
@@ -3552,7 +3595,7 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             save_data(data)
 
             # Record audit log in persistent PostgreSQL & JSON store
-            user_name = body.get("user_name") or "Network Administrator"
+            user_name = extract_request_user(self, body)
             audit_entry = record_audit_log(
                 data,
                 user=user_name,
@@ -4258,7 +4301,7 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
 
                 record_audit_log(
                     data,
-                    user=user_role,
+                    user=extract_request_user(self),
                     device_id=dev_id,
                     device_name=device.get("name", dev_id),
                     action=f"Delete VPN ({vpn_id})",

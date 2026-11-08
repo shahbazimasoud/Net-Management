@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.424.0';
+export const APP_VERSION = '1.425.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.0',
+    releaseDate: '2026-11-08',
+    type: 'minor',
+    title: 'ثبت دقیق و بلادرنگ نام کاربری احرازشده اکتیو دایرکتوری (LDAP) و کاربران محلی در کلیه لاگ‌های ممیزی سیستم و تجهیزات',
+    title_en: 'Authentic Active Directory (LDAP) and Local User Attribution Across All System and Device Audit Logs',
+    changes: [
+      'اصلاح ساختاری مکانیسم انتساب اپراتور در سیستم ممیزی (Audit Logging) و حذف ارجاع پیش‌فرض به کاربر admin.',
+      'ثبت و ذخیره هویتی نام کاربری واقعی کاربران متصل از طریق Active Directory / LDAP در کلیه رویدادهای سیستم، فرمان‌های تجهیزات شبکه و لاگ‌های سرور.',
+      'استخراج مستقیم اطلاعات اپراتور از توکن JWT، هدرهای استاندارد (x-user-name, x-operator-user) و کش هویتی کلاینت.',
+      'تزریق خودکار هویت اپراتور در پراکسی سرور و انتقال آن به بک‌اند پایتون جهت ثبت در رویدادهای VPN و قالب‌های تجهیزات.',
+      'به‌روزرسانی تمامی رویدادها و اندپوینت‌های ممیزی سرور و لینوکس با نام کاربر حقیقی اجراکننده به جای Administrator هاردکدشده.'
+    ],
+    changes_en: [
+      'Engineered end-to-end operator attribution across all audit logging systems, eliminating fallback defaulting to admin.',
+      'Authentic tracking and recording of Active Directory (LDAP) domain accounts and local non-admin users in portal events, network device command trails, and server operations.',
+      'Server-side extraction of verified operator username directly from JWT bearer token, request headers (x-user-name, x-operator-user), and client session context.',
+      'Proxy-layer token decoding in Express to forward genuine authenticated usernames to the Python backend for VPN and template execution trails.',
+      'Refactored all server/Linux operation audit endpoints to record authentic operator credentials instead of hardcoded Administrator.'
+    ]
+  },
   {
     version: '1.424.0',
     releaseDate: '2026-11-08',

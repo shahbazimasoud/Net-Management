@@ -565,6 +565,39 @@ function getClientIp(req: Request): string {
   return req.socket.remoteAddress || '127.0.0.1';
 }
 
+// Helper to get authenticated or active operator identity from request
+export function getReqOperator(req: Request): { username: string; role: string; ip: string } {
+  const ip = getClientIp(req);
+  let username = '';
+  let role = '';
+
+  const authHeader = (req.headers.authorization as string) || '';
+  if (authHeader) {
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    const decoded = verifyToken(token);
+    if (decoded?.username) {
+      username = decoded.username.trim();
+      role = decoded.role || (decoded.userType === 'ad' ? 'Domain User (Active Directory)' : 'Administrator');
+    }
+  }
+
+  if (!username) {
+    const headerUser = (req.headers['x-user-name'] as string) || (req.headers['x-operator-user'] as string);
+    if (headerUser && headerUser.trim()) {
+      username = headerUser.trim();
+      role = (req.headers['x-user-role'] as string) || 'Operator';
+    }
+  }
+
+  if (!username) {
+    username = 'Administrator';
+    role = 'Super Administrator';
+  }
+
+  return { username, role, ip };
+}
+
+
 // -------------------------------------------------------------
 // Database Status Endpoint
 // -------------------------------------------------------------
@@ -1518,7 +1551,7 @@ apiRouter.post('/settings/users', async (req: Request, res: Response) => {
     if (Array.isArray(body)) {
       const savedBatch = await saveUsersBatch(body);
       await addAuditLog({
-        userName: 'Administrator',
+        userName: getReqOperator(req).username,
         action: 'Batch Local Users Updated',
         category: 'user_management',
         target: 'Users Database',
@@ -1584,7 +1617,7 @@ apiRouter.delete('/settings/users/:id', async (req: Request, res: Response) => {
     }
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: 'Local User Deleted',
       category: 'user_management',
       target: `User: ${userId}`,
@@ -2364,21 +2397,24 @@ apiRouter.get('/audit-logs/devices', async (req: Request, res: Response) => {
 // POST /api/audit-logs/devices - Record network device command audit trail
 apiRouter.post('/audit-logs/devices', async (req: Request, res: Response) => {
   try {
-    let operatorUsername = 'admin';
-    let operatorRole = 'Super Administrator';
-    const authHeader = req.headers.authorization || '';
-    if (authHeader) {
-      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-      const decoded = verifyToken(token);
-      if (decoded?.username) operatorUsername = decoded.username;
-      if (decoded?.role) operatorRole = decoded.role;
-    }
-
+    const op = getReqOperator(req);
     const payload = req.body || {};
-    const actor = payload.actor || {
-      username: payload.operator_username || payload.operatorUsername || operatorUsername,
-      role: payload.operator_role || payload.operatorRole || operatorRole,
-      ipAddress: payload.operator_ip || payload.operatorIp || getClientIp(req),
+    const passedActor = payload.actor || {};
+
+    let finalUsername = passedActor.username || payload.operator_username || payload.operatorUsername || op.username;
+    if ((!finalUsername || finalUsername === 'admin' || finalUsername === 'Administrator') && op.username && op.username !== 'admin') {
+      finalUsername = op.username;
+    }
+    let finalRole = passedActor.role || payload.operator_role || payload.operatorRole || op.role;
+    if ((!finalRole || finalRole === 'Super Administrator') && op.role && op.role !== 'Super Administrator') {
+      finalRole = op.role;
+    }
+    const finalIp = passedActor.ipAddress || payload.operator_ip || payload.operatorIp || op.ip;
+
+    const actor = {
+      username: finalUsername,
+      role: finalRole,
+      ipAddress: finalIp,
     };
 
     const savedLog = await addDeviceCommandLog({
@@ -2431,21 +2467,24 @@ apiRouter.get('/audit-logs/portal', async (req: Request, res: Response) => {
 // POST /api/audit-logs/portal - Record portal event audit log
 apiRouter.post('/audit-logs/portal', async (req: Request, res: Response) => {
   try {
-    let operatorUsername = 'admin';
-    let operatorRole = 'Super Administrator';
-    const authHeader = req.headers.authorization || '';
-    if (authHeader) {
-      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-      const decoded = verifyToken(token);
-      if (decoded?.username) operatorUsername = decoded.username;
-      if (decoded?.role) operatorRole = decoded.role;
-    }
-
+    const op = getReqOperator(req);
     const payload = req.body || {};
-    const actor = payload.actor || {
-      username: payload.user_name || payload.userName || operatorUsername,
-      role: payload.user_role || payload.userRole || operatorRole,
-      ipAddress: payload.client_ip || payload.ipAddress || getClientIp(req),
+    const passedActor = payload.actor || {};
+
+    let finalUsername = passedActor.username || payload.user_name || payload.userName || op.username;
+    if ((!finalUsername || finalUsername === 'admin' || finalUsername === 'Administrator') && op.username && op.username !== 'admin') {
+      finalUsername = op.username;
+    }
+    let finalRole = passedActor.role || payload.user_role || payload.userRole || op.role;
+    if ((!finalRole || finalRole === 'Super Administrator') && op.role && op.role !== 'Super Administrator') {
+      finalRole = op.role;
+    }
+    const finalIp = passedActor.ipAddress || payload.client_ip || payload.ipAddress || op.ip;
+
+    const actor = {
+      username: finalUsername,
+      role: finalRole,
+      ipAddress: finalIp,
     };
 
     const savedLog = await addPortalAuditLog({
@@ -2905,9 +2944,18 @@ apiRouter.get('/server-audit-logs', async (req: Request, res: Response) => {
 // POST /api/server-audit-logs
 apiRouter.post('/server-audit-logs', async (req: Request, res: Response) => {
   try {
-    const entry = req.body;
+    const entry = req.body || {};
     if (!entry || (!entry.serverId && !entry.server_id)) {
       return res.status(400).json({ success: false, error: 'Target server is required' });
+    }
+    const op = getReqOperator(req);
+    if (!entry.userName || entry.userName === 'admin' || entry.userName === 'Administrator') {
+      if (op.username && op.username !== 'admin') {
+        entry.userName = op.username;
+      }
+    }
+    if (!entry.clientIp) {
+      entry.clientIp = op.ip;
     }
     const saved = await addServerCommandLog(entry);
     res.json({ success: true, log: saved });
@@ -13376,7 +13424,7 @@ apiRouter.post('/remote-servers/:id/service-watchdogs', async (req: Request, res
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: 'Watchdog Policy Configured',
       category: 'operation',
       target: `${server.name || server.ip} (${rule.serviceName})`,
@@ -13409,7 +13457,7 @@ apiRouter.delete('/remote-servers/:id/service-watchdogs/:serviceName', async (re
     const result = await deleteLinuxServiceWatchdogSSH(server, serviceName, password);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: 'Watchdog Policy Removed',
       category: 'operation',
       target: `${server.name || server.ip} (${serviceName})`,
@@ -13464,7 +13512,7 @@ apiRouter.post('/remote-servers/:id/service-watchdogs/:serviceName/reset-loop', 
     const result = await resetLinuxServiceWatchdogAntiLoopSSH(server, serviceName, password);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: 'Watchdog Anti-Loop Lock Reset',
       category: 'operation',
       target: `${server.name || server.ip} (${serviceName})`,
@@ -13546,7 +13594,7 @@ apiRouter.post('/remote-servers/:id/directory-policies', async (req: Request, re
     const result = await saveLinuxDirectoryPolicySSH(server, rule, password);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: 'Directory Lifecycle Policy Configured',
       category: 'operation',
       target: `${server.name || server.ip} (${rule.name || rule.targetPath})`,
@@ -13579,7 +13627,7 @@ apiRouter.delete('/remote-servers/:id/directory-policies/:ruleId', async (req: R
     const result = await deleteLinuxDirectoryPolicySSH(server, ruleId, password);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: 'Directory Lifecycle Policy Deleted',
       category: 'operation',
       target: `${server.name || server.ip} (Rule: ${ruleId})`,
@@ -13612,7 +13660,7 @@ apiRouter.post('/remote-servers/:id/directory-policies/:ruleId/run-now', async (
     const result = await runLinuxDirectoryPolicyNowSSH(server, ruleId, password);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: 'Directory Policy Manual Trigger',
       category: 'operation',
       target: `${server.name || server.ip} (Rule: ${ruleId})`,
@@ -13673,7 +13721,7 @@ apiRouter.post('/remote-servers/:id/service-action', async (req: Request, res: R
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Linux Service ${action.toUpperCase()}`,
       category: 'operation',
       target: `${server.name || server.ip} (${serviceName})`,
@@ -15129,7 +15177,7 @@ apiRouter.post('/remote-servers/:id/process-action', async (req: Request, res: R
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Linux Process ${action.toUpperCase()} (PID ${pid})`,
       category: 'operation',
       target: `${server.name || server.ip} (PID ${pid})`,
@@ -15205,7 +15253,7 @@ const handleLinuxCreateUser = async (req: Request, res: Response) => {
     );
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Create Linux User (${username})`,
       category: 'security',
       target: `${server.name || server.ip}`,
@@ -15244,7 +15292,7 @@ const handleLinuxUpdateUser = async (req: Request, res: Response) => {
     );
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Update Linux User (${username})`,
       category: 'security',
       target: `${server.name || server.ip}`,
@@ -15312,7 +15360,7 @@ const handleLinuxUpdatePassword = async (req: Request, res: Response) => {
     const result = await updateLinuxUserPasswordSSH(server, username, password, ephemeralPassword, forcePasswordChange);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Update Password (${username})`,
       category: 'security',
       target: `${server.name || server.ip}`,
@@ -15347,7 +15395,7 @@ apiRouter.post('/api/remote-servers/:id/users/toggle-lock', async (req: Request,
     const result = await toggleLinuxUserLockSSH(server, username, Boolean(lock), ephemeralPassword);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: lock ? `Lock User (${username})` : `Unlock User (${username})`,
       category: 'security',
       target: `${server.name || server.ip}`,
@@ -15378,7 +15426,7 @@ apiRouter.post('/remote-servers/:id/users/toggle-lock', async (req: Request, res
     const result = await toggleLinuxUserLockSSH(server, username, Boolean(lock), ephemeralPassword);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: lock ? `Lock User (${username})` : `Unlock User (${username})`,
       category: 'security',
       target: `${server.name || server.ip}`,
@@ -15411,7 +15459,7 @@ apiRouter.post('/api/remote-servers/:id/users/groups', async (req: Request, res:
     const result = await updateLinuxUserGroupsSSH(server, username, groups || [], ephemeralPassword);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Update Groups (${username})`,
       category: 'security',
       target: `${server.name || server.ip}`,
@@ -15442,7 +15490,7 @@ apiRouter.post('/remote-servers/:id/users/groups', async (req: Request, res: Res
     const result = await updateLinuxUserGroupsSSH(server, username, groups || [], ephemeralPassword);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Update Groups (${username})`,
       category: 'security',
       target: `${server.name || server.ip}`,
@@ -15475,7 +15523,7 @@ apiRouter.post('/api/remote-servers/:id/groups/create', async (req: Request, res
     const result = await createLinuxGroupSSH(server, name, ephemeralPassword);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Create Group (${name})`,
       category: 'security',
       target: `${server.name || server.ip}`,
@@ -15506,7 +15554,7 @@ apiRouter.post('/remote-servers/:id/groups/create', async (req: Request, res: Re
     const result = await createLinuxGroupSSH(server, name, ephemeralPassword);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Create Group (${name})`,
       category: 'security',
       target: `${server.name || server.ip}`,
@@ -15539,7 +15587,7 @@ apiRouter.post('/api/remote-servers/:id/users/delete', async (req: Request, res:
     const result = await deleteLinuxUserSSH(server, username, Boolean(removeHome), ephemeralPassword);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Delete User (${username})`,
       category: 'security',
       target: `${server.name || server.ip}`,
@@ -15570,7 +15618,7 @@ apiRouter.post('/remote-servers/:id/users/delete', async (req: Request, res: Res
     const result = await deleteLinuxUserSSH(server, username, Boolean(removeHome), ephemeralPassword);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Delete User (${username})`,
       category: 'security',
       target: `${server.name || server.ip}`,
@@ -15659,7 +15707,7 @@ apiRouter.post('/remote-servers/:id/logs/truncate', async (req: Request, res: Re
     const result = await truncateLinuxLogSSH(server, filePath, password);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Truncate Log File (${filePath})`,
       category: 'operation',
       target: `${server.name || server.ip}`,
@@ -15697,7 +15745,7 @@ apiRouter.post('/remote-servers/:id/send-message', async (req: Request, res: Res
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Send Terminal Message (${target || 'all'})`,
       category: 'operation',
       target: `${server.name || server.ip}`,
@@ -15755,7 +15803,7 @@ apiRouter.post('/remote-servers/:id/logout-user', async (req: Request, res: Resp
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Logout User Session (${username || tty || 'active'})`,
       category: 'operation',
       target: `${server.name || server.ip}`,
@@ -15811,7 +15859,7 @@ apiRouter.post('/remote-servers/:id/restart', async (req: Request, res: Response
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: cancelPending
         ? `Cancel Scheduled ${isPowerOff ? 'Shutdown' : 'Restart'} (${isWindows ? 'Windows' : 'Linux'})`
         : `Server ${isPowerOff ? 'Shutdown' : 'Restart'} (${isWindows ? 'Windows' : 'Linux'}, Delay: ${delayMinutes || 0}m)`,
@@ -15887,7 +15935,7 @@ apiRouter.post('/remote-servers/bulk-power', async (req: Request, res: Response)
 
         // Audit log per server
         await addAuditLog({
-          userName: 'Administrator',
+          userName: getReqOperator(req).username,
           action: cancelPending
             ? `Bulk Cancel Scheduled ${isPowerOff ? 'Shutdown' : 'Restart'} (${server.os_type})`
             : `Bulk Server ${isPowerOff ? 'Shutdown' : 'Restart'} (${server.os_type}, Delay: ${delayMinutes || 0}m)`,
@@ -16039,7 +16087,7 @@ apiRouter.post('/remote-servers/:id/network-action', async (req: Request, res: R
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Configure Network Interface (${interfaceName})`,
       category: 'configuration',
       target: `${server.name || server.ip} (${interfaceName})`,
@@ -16073,7 +16121,7 @@ apiRouter.post('/remote-servers/:id/restart-network', async (req: Request, res: 
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Restart Network Service (${result.serviceRestarted})`,
       category: 'system',
       target: `${server.name || server.ip}`,
@@ -16111,7 +16159,7 @@ apiRouter.post('/remote-servers/:id/interface-state', async (req: Request, res: 
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Set Interface State (${interfaceName} -> ${state})`,
       category: 'configuration',
       target: `${server.name || server.ip} (${interfaceName})`,
@@ -16188,7 +16236,7 @@ apiRouter.post('/remote-servers/:id/firewall/rule', async (req: Request, res: Re
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Firewall Rule Added (${rule.action} ${rule.port || rule.protocol})`,
       category: 'security',
       target: `${server.name || server.ip} (${backend.toUpperCase()})`,
@@ -16226,7 +16274,7 @@ const handleFirewallDeleteRule = async (req: Request, res: Response) => {
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Firewall Rule Deleted (${rule.action} ${rule.port || rule.protocol})`,
       category: 'security',
       target: `${server.name || server.ip} (${rule.backend.toUpperCase()})`,
@@ -16277,7 +16325,7 @@ apiRouter.post('/remote-servers/:id/firewall/rule/update', async (req: Request, 
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Firewall Rule Updated (${newRule.action} ${newRule.port || newRule.protocol})`,
       category: 'security',
       target: `${server.name || server.ip} (${backend.toUpperCase()})`,
@@ -16315,7 +16363,7 @@ apiRouter.post('/remote-servers/:id/proxy-action', async (req: Request, res: Res
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: proxyConfig.enabled ? 'Set Persistent Proxy' : 'Clear Persistent Proxy',
       category: 'configuration',
       target: `${server.name || server.ip}`,
@@ -16380,7 +16428,7 @@ apiRouter.post('/remote-servers/:id/ssh-port', async (req: Request, res: Respons
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Change SSH Port (${parsedPort})`,
       category: 'security',
       target: `${server.name || server.ip} (Port ${parsedPort})`,
@@ -16666,7 +16714,7 @@ apiRouter.post('/remote-servers/:id/mount-action', async (req: Request, res: Res
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Mount Filesystem (${device} -> ${mountPoint})`,
       category: 'storage',
       target: `${server.name || server.ip} (${mountPoint})`,
@@ -16704,7 +16752,7 @@ apiRouter.post('/remote-servers/:id/unmount-action', async (req: Request, res: R
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Unmount Filesystem (${mountPoint})`,
       category: 'storage',
       target: `${server.name || server.ip} (${mountPoint})`,
@@ -16800,7 +16848,7 @@ apiRouter.post('/remote-servers/:id/disk-format-mount', async (req: Request, res
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Format & Mount Disk (${diskPath} -> ${mountPath})`,
       category: 'storage',
       target: `${server.name || server.ip} (${diskPath})`,
@@ -16836,7 +16884,7 @@ const handleLinuxStorageRescan = async (req: Request, res: Response) => {
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: 'Online SCSI & Storage Rescan',
       category: 'storage',
       target: server.name || server.ip,
@@ -16881,7 +16929,7 @@ apiRouter.post('/remote-servers/:id/lvm-extend', async (req: Request, res: Respo
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Extend Logical Volume (${lvPath} +${addSize})`,
       category: 'storage',
       target: `${server.name || server.ip} (${lvPath})`,
@@ -16932,7 +16980,7 @@ apiRouter.post('/remote-servers/:id/lvm-create', async (req: Request, res: Respo
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Create LVM Volume (${vgName}/${lvName} -> ${mountPath || 'unmounted'})`,
       category: 'storage',
       target: `${server.name || server.ip} (${vgName}/${lvName})`,
@@ -16974,7 +17022,7 @@ apiRouter.post('/remote-servers/:id/lvm-shrink', async (req: Request, res: Respo
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Shrink Logical Volume (${lvPath} -${reduceAmount})`,
       category: 'storage',
       target: `${server.name || server.ip} (${lvPath})`,
@@ -17012,7 +17060,7 @@ apiRouter.post('/remote-servers/:id/lvm-add-disk-to-vg', async (req: Request, re
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Add Disk to VG (${diskPath} -> ${vgName})`,
       category: 'storage',
       target: `${server.name || server.ip} (${vgName})`,
@@ -17050,7 +17098,7 @@ apiRouter.post('/remote-servers/:id/lvm-create-pv', async (req: Request, res: Re
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Initialize Physical Volume (${diskPath})`,
       category: 'storage',
       target: `${server.name || server.ip} (PV: ${diskPath})`,
@@ -17091,7 +17139,7 @@ apiRouter.post('/remote-servers/:id/lvm-create-vg', async (req: Request, res: Re
 
     // Audit log
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: `Create Volume Group (${vgName} on ${selectedDisks.join(', ')})`,
       category: 'storage',
       target: `${server.name || server.ip} (VG: ${vgName})`,
@@ -17141,7 +17189,7 @@ apiRouter.all('/remote-servers/:id/ssh-config', async (req: Request, res: Respon
     if (req.method === 'POST' && (req.body?.port || req.body?.permitRootLogin || req.body?.allowedIps)) {
       const result = await updateLinuxSshConfigSSH(server, req.body, ephemeralPassword);
       await addAuditLog({
-        userName: 'Administrator',
+        userName: getReqOperator(req).username,
         action: `Update SSH Configuration (Port ${req.body?.port})`,
         category: 'security',
         target: `${server.name || server.ip}`,
@@ -17174,7 +17222,7 @@ apiRouter.all('/remote-servers/:id/hostname', async (req: Request, res: Response
       const updateHosts = req.body.updateHosts !== false;
       const result = await updateLinuxHostnameSSH(server, req.body.hostname, updateHosts, ephemeralPassword);
       await addAuditLog({
-        userName: 'Administrator',
+        userName: getReqOperator(req).username,
         action: `Change Hostname (${req.body.hostname})`,
         category: 'configuration',
         target: `${server.name || server.ip} -> ${req.body.hostname}`,
@@ -17213,7 +17261,7 @@ apiRouter.all('/remote-servers/:id/hosts', async (req: Request, res: Response) =
     if (hasHostPayload) {
       const result = await updateLinuxHostsFileSSH(server, req.body, ephemeralPassword);
       await addAuditLog({
-        userName: 'Administrator',
+        userName: getReqOperator(req).username,
         action: 'Update /etc/hosts',
         category: 'configuration',
         target: `${server.name || server.ip}`,
@@ -17244,7 +17292,7 @@ apiRouter.all('/remote-servers/:id/tcp-wrappers', async (req: Request, res: Resp
     if (hasAction) {
       const result = await updateLinuxTcpWrappersSSH(server, req.body, ephemeralPassword);
       await addAuditLog({
-        userName: 'Administrator',
+        userName: getReqOperator(req).username,
         action: `Update TCP Wrappers (/etc/hosts.${req.body.target || 'allow'})`,
         category: 'security',
         target: `${server.name || server.ip}`,
@@ -17274,7 +17322,7 @@ apiRouter.all('/remote-servers/:id/dns', async (req: Request, res: Response) => 
     if (req.method === 'POST' && req.body?.nameservers) {
       const result = await updateLinuxDnsConfigSSH(server, req.body, ephemeralPassword);
       await addAuditLog({
-        userName: 'Administrator',
+        userName: getReqOperator(req).username,
         action: 'Update DNS Servers',
         category: 'configuration',
         target: `${server.name || server.ip}`,
@@ -17569,7 +17617,7 @@ apiRouter.post('/remote-servers/:id/fs/paste', async (req: Request, res: Respons
     );
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: operation === 'cut' ? 'Linux File(s) Moved/Cut' : 'Linux File(s) Copied',
       category: 'file_system',
       target: `Server ${server.name || server.ip}: ${targetDirectory}`,
@@ -17762,7 +17810,7 @@ apiRouter.post('/remote-servers/:id/fs/upload', async (req: Request, res: Respon
     const result = await uploadLinuxFile(server, targetDirectory, fileName, buffer, password);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: 'Linux Remote File Uploaded',
       category: 'file_system',
       target: `Server ${server.name}: ${result.path}`,
@@ -17823,7 +17871,7 @@ apiRouter.post('/remote-servers/:id/fs/update-attributes', async (req: Request, 
     );
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: 'Linux File Attributes Updated',
       category: 'file_system',
       target: `Server ${server.name || server.ip}: ${path}`,
@@ -17901,7 +17949,7 @@ apiRouter.post('/remote-servers/:id/cron-jobs/save', async (req: Request, res: R
     const result = await saveLinuxCronJobSSH(server, payload, password);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: payload.originalCommand ? 'Cron Job Updated' : 'Cron Job Created',
       category: 'operation',
       target: `${server.name || server.ip} (${payload.user || 'root'})`,
@@ -17936,7 +17984,7 @@ apiRouter.post('/remote-servers/:id/cron-jobs/toggle', async (req: Request, res:
     const result = await toggleLinuxCronJobSSH(server, payload, password);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: payload.enable ? 'Cron Job Resumed/Enabled' : 'Cron Job Paused/Stopped',
       category: 'operation',
       target: `${server.name || server.ip} (${payload.user || 'root'})`,
@@ -17971,7 +18019,7 @@ apiRouter.post('/remote-servers/:id/cron-jobs/delete', async (req: Request, res:
     const result = await deleteLinuxCronJobSSH(server, payload, password);
 
     await addAuditLog({
-      userName: 'Administrator',
+      userName: getReqOperator(req).username,
       action: 'Cron Job Deleted',
       category: 'operation',
       target: `${server.name || server.ip} (${payload.user || 'root'})`,

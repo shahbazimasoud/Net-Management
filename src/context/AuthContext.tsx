@@ -63,6 +63,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(data.user);
           setEffectivePolicy(data.effectivePolicy || null);
           setToken(storedToken);
+
+          // Store light user identity reference for non-React audit loggers
+          const activeStorage = localStorage.getItem(TOKEN_STORAGE_KEY) ? localStorage : sessionStorage;
+          activeStorage.setItem(
+            'nettopology_active_user_v1',
+            JSON.stringify({
+              username: data.user.username,
+              fullName: data.user.fullName,
+              email: data.user.email,
+              role: data.effectivePolicy?.name || data.user.role,
+              userType: data.user.userType,
+            })
+          );
+
           setIsLoading(false);
           return;
         }
@@ -73,6 +87,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sessionStorage.removeItem(TOKEN_STORAGE_KEY);
       localStorage.removeItem('nettopology_auth_user_v1');
       sessionStorage.removeItem('nettopology_auth_user_v1');
+      localStorage.removeItem('nettopology_active_user_v1');
+      sessionStorage.removeItem('nettopology_active_user_v1');
       setUser(null);
       setEffectivePolicy(null);
       setToken(null);
@@ -129,6 +145,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Persist only the cryptographic bearer token, never plain user or permissions
     const storage = rememberMe ? localStorage : sessionStorage;
     storage.setItem(TOKEN_STORAGE_KEY, newToken);
+    storage.setItem(
+      'nettopology_active_user_v1',
+      JSON.stringify({
+        username: newUser.username,
+        fullName: newUser.fullName,
+        email: newUser.email,
+        role: policy?.name || newUser.role,
+        userType: newUser.userType,
+      })
+    );
 
     // Remove obsolete unencrypted user objects if any existed from prior versions
     localStorage.removeItem('nettopology_auth_user_v1');
@@ -136,8 +162,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (rememberMe) {
       sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+      sessionStorage.removeItem('nettopology_active_user_v1');
     } else {
       localStorage.removeItem(TOKEN_STORAGE_KEY);
+      localStorage.removeItem('nettopology_active_user_v1');
     }
 
     // Fetch authoritative database policy immediately if not provided
@@ -149,6 +177,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .then((data) => {
           if (data.effectivePolicy) {
             setEffectivePolicy(data.effectivePolicy);
+            storage.setItem(
+              'nettopology_active_user_v1',
+              JSON.stringify({
+                username: newUser.username,
+                fullName: newUser.fullName,
+                email: newUser.email,
+                role: data.effectivePolicy.name || newUser.role,
+                userType: newUser.userType,
+              })
+            );
           }
         })
         .catch(() => {});
@@ -177,6 +215,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sessionStorage.removeItem(TOKEN_STORAGE_KEY);
       localStorage.removeItem('nettopology_auth_user_v1');
       sessionStorage.removeItem('nettopology_auth_user_v1');
+      localStorage.removeItem('nettopology_active_user_v1');
+      sessionStorage.removeItem('nettopology_active_user_v1');
       setUser(null);
       setEffectivePolicy(null);
       setToken(null);
