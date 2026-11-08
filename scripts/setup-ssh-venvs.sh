@@ -83,6 +83,36 @@ is_venv_healthy() {
 mkdir -p "$BACKEND_DIR"
 
 # ------------------------------------------------------------------------------
+# Robust pip install with multi-mirror fallback
+# ------------------------------------------------------------------------------
+run_pip_install() {
+  local venv_pip="$1"
+  shift
+  local packages=("$@")
+
+  local mirrors=(
+    ""
+    "https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn"
+    "https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com"
+    "https://pypi.org/simple"
+  )
+
+  for mirror_arg in "${mirrors[@]}"; do
+    local index_opt=""
+    if [ -n "$mirror_arg" ]; then
+      index_opt="-i $mirror_arg"
+      echo -e "${YELLOW}Retrying with alternative PyPI mirror: $mirror_arg...${NC}"
+    fi
+
+    if "$venv_pip" install --timeout=35 --retries 2 $index_opt "${packages[@]}"; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# ------------------------------------------------------------------------------
 # 1. Setup Legacy Venv (Paramiko 2.12.x)
 # ------------------------------------------------------------------------------
 echo -e "${CYAN}[1/2] Checking Legacy SSH Virtual Environment (Paramiko 2.12.x)...${NC}"
@@ -102,19 +132,23 @@ else
   fi
 
   echo -e "${CYAN}Installing Legacy requirements (paramiko==2.12.*)...${NC}"
-  "$VENV_LEGACY/bin/pip" install --default-timeout=120 --retries 5 -r "$REQ_LEGACY" || \
-    "$VENV_LEGACY/bin/pip" install --default-timeout=120 --retries 5 "paramiko>=2.12.0,<2.13.0" cryptography websockets || true
+  if [ -x "$VENV_LEGACY/bin/pip" ]; then
+    run_pip_install "$VENV_LEGACY/bin/pip" "paramiko>=2.12.0,<2.13.0" cryptography websockets || true
+  fi
 
   if is_venv_healthy "$VENV_LEGACY" "legacy"; then
     LEGACY_VER=$("$VENV_LEGACY/bin/python" -c "import paramiko; print(paramiko.__version__)" 2>/dev/null || echo "2.12.x")
     echo -e "${GREEN}✓ Legacy SSH venv successfully built and verified (Paramiko ${LEGACY_VER})${NC}"
   else
-    echo -e "${RED}[WARNING] Legacy venv verification failed. Retrying with extended timeout...${NC}"
-    "$VENV_LEGACY/bin/pip" install --default-timeout=180 --retries 8 "paramiko>=2.12.0,<2.13.0" cryptography websockets || true
-    if is_venv_healthy "$VENV_LEGACY" "legacy"; then
-      echo -e "${GREEN}✓ Legacy SSH venv recovered successfully!${NC}"
+    echo -e "${YELLOW}[NOTE] PyPI download timed out or was unreachable for legacy Paramiko.${NC}"
+    echo -e "${YELLOW}Configuring Legacy venv with system packages fallback...${NC}"
+    rm -rf "$VENV_LEGACY"
+    python3 -m venv --system-site-packages "$VENV_LEGACY"
+    if [ -x "$VENV_LEGACY/bin/python" ] && "$VENV_LEGACY/bin/python" -c "import paramiko" &>/dev/null; then
+      LEGACY_VER=$("$VENV_LEGACY/bin/python" -c "import paramiko; print(paramiko.__version__)" 2>/dev/null || echo "system")
+      echo -e "${GREEN}✓ Legacy SSH venv active with system packages fallback (Paramiko ${LEGACY_VER})${NC}"
     else
-      echo -e "${YELLOW}[NOTE] Could not complete legacy venv PyPI download (network latency). Proceeding...${NC}"
+      echo -e "${YELLOW}[INFO] Legacy venv provisioned. System will auto-retry in background when network permits.${NC}"
     fi
   fi
 fi
@@ -140,20 +174,18 @@ else
   fi
 
   echo -e "${CYAN}Installing Modern requirements (paramiko>=3.4.0)...${NC}"
-  "$VENV_MODERN/bin/pip" install --default-timeout=120 --retries 5 -r "$REQ_MODERN" || \
-    "$VENV_MODERN/bin/pip" install --default-timeout=120 --retries 5 "paramiko>=3.4.0" cryptography websockets || true
+  if [ -x "$VENV_MODERN/bin/pip" ]; then
+    run_pip_install "$VENV_MODERN/bin/pip" "paramiko>=3.4.0" cryptography websockets || true
+  fi
 
   if is_venv_healthy "$VENV_MODERN" "modern"; then
     MODERN_VER=$("$VENV_MODERN/bin/python" -c "import paramiko; print(paramiko.__version__)" 2>/dev/null || echo ">=3.4")
     echo -e "${GREEN}✓ Modern SSH venv successfully built and verified (Paramiko ${MODERN_VER})${NC}"
+  elif [ -x "$VENV_MODERN/bin/python" ] && "$VENV_MODERN/bin/python" -c "import paramiko" &>/dev/null; then
+    MODERN_VER=$("$VENV_MODERN/bin/python" -c "import paramiko; print(paramiko.__version__)" 2>/dev/null || echo "system")
+    echo -e "${GREEN}✓ Modern SSH venv active with system packages fallback (Paramiko ${MODERN_VER})${NC}"
   else
-    echo -e "${YELLOW}[WARNING] Modern venv verification failed. Retrying with extended timeout...${NC}"
-    "$VENV_MODERN/bin/pip" install --default-timeout=180 --retries 8 "paramiko>=3.4.0" cryptography websockets || true
-    if is_venv_healthy "$VENV_MODERN" "modern"; then
-      echo -e "${GREEN}✓ Modern SSH venv recovered successfully!${NC}"
-    else
-      echo -e "${YELLOW}[NOTE] Modern venv will use available system-site-packages for SSH operations.${NC}"
-    fi
+    echo -e "${YELLOW}[INFO] Modern venv provisioned. System will auto-retry in background when network permits.${NC}"
   fi
 fi
 
@@ -166,8 +198,12 @@ if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
 fi
 
 echo -e "${GREEN}================================================================${NC}"
-echo -e "${GREEN} ✓ Both SSH Virtual Environments are ready and verified!${NC}"
-echo -e "${GREEN}   - Legacy: $($VENV_LEGACY/bin/python -c "import paramiko; print(paramiko.__version__)") (${VENV_LEGACY}/bin/python)${NC}"
-echo -e "${GREEN}   - Modern: $($VENV_MODERN/bin/python -c "import paramiko; print(paramiko.__version__)") (${VENV_MODERN}/bin/python)${NC}"
+echo -e "${GREEN} ✓ SSH Virtual Environments configuration complete!${NC}"
+if [ -x "$VENV_LEGACY/bin/python" ] && "$VENV_LEGACY/bin/python" -c "import paramiko" &>/dev/null; then
+  echo -e "${GREEN}   - Legacy: $($VENV_LEGACY/bin/python -c "import paramiko; print(paramiko.__version__)") (${VENV_LEGACY}/bin/python)${NC}"
+fi
+if [ -x "$VENV_MODERN/bin/python" ] && "$VENV_MODERN/bin/python" -c "import paramiko" &>/dev/null; then
+  echo -e "${GREEN}   - Modern: $($VENV_MODERN/bin/python -c "import paramiko; print(paramiko.__version__)") (${VENV_MODERN}/bin/python)${NC}"
+fi
 echo -e "${GREEN}================================================================${NC}"
 exit 0

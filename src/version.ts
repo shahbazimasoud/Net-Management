@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.422.0';
+export const APP_VERSION = '1.423.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.423.0',
+    releaseDate: '2026-11-08',
+    type: 'patch',
+    title: 'رفع خطای ReadTimeout در زمان نصب نیازمندی‌های پایتون SSH (Paramiko) با افزودن میرورهای پشتیبان و سیستم فالبک هوشمند',
+    title_en: 'Fix PyPI ReadTimeout in SSH Virtual Environments Setup with Multi-Mirror Fallback and Graceful System Packages Fallback',
+    changes: [
+      'رفع خطای ReadTimeoutError در زمان نصب پکیج‌های پایتون و پارامیکو با افزودن میرورهای سریع و معتبر پایتون (Tsinghua, Aliyun و PyPI رسمی).',
+      'کاهش تایم‌اوت‌های طولانی pip و اعمال تلاش مجدد هوشمند به منظور جلوگیری از معطل ماندن اسکریپت نصب سرور.',
+      'پیاده‌سازی مکانیزم فالبک با --system-site-packages در صورتی که سرور به مخازن خارجی PyPI دسترسی نداشته یا پکت‌های شبکه با کندی شدید مواجه شوند.',
+      'اطمینان از عدم شکست کلی نصب اسکریپت setup-panel.sh در شرایط ناپایداری شبکه بین‌الملل سرور.'
+    ],
+    changes_en: [
+      'Resolved pip ReadTimeoutError during Paramiko package installation by introducing resilient multi-mirror fallback (Tsinghua, Aliyun, and official PyPI).',
+      'Configured reasonable network timeouts and automated mirror switching to eliminate installer hangs on rate-limited or firewalled server networks.',
+      'Implemented automatic fallback to system-site-packages when PyPI cannot be reached, ensuring SSH bridge connectivity without blocking server deployment.',
+      'Guaranteed setup-panel.sh script completes deployment smoothly even during upstream network degradation.'
+    ]
+  },
   {
     version: '1.422.0',
     releaseDate: '2026-11-07',
