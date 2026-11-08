@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.423.0';
+export const APP_VERSION = '1.424.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.424.0',
+    releaseDate: '2026-11-08',
+    type: 'minor',
+    title: 'انتقال ۱۰۰٪ قابلیت فعال/غیرفعال‌سازی قراردادها و لایسنس‌ها به درون منوی سه‌نقطه به همراه مودال اختصاصی تاییدیه قبل از غیرفعال‌سازی و ثبت قانون الزامی تجمیع کلیه اکشن‌ها درون منوی سه‌نقطه',
+    title_en: 'Encapsulate 100% of Active/Inactive Toggles into 3-Dots Action Menu with Confirmation Modal for Deactivation and Architectural Rule for Strict 3-Dots Encapsulation',
+    changes: [
+      'انتقال کامل دکمه‌های تاگل فعال/غیرفعال‌سازی قراردادها و لایسنس‌ها از سطر جدول به درون منوی سه‌نقطه شناور (MoreVertical).',
+      'حذف هرگونه دکمه شلوغ‌کننده و مجزا از ستون عملیات جدول، به طوری که ستون Actions تنها شامل تک دکمه استاندارد ۳-نقطه باشد.',
+      'طراحی هوشمند گزینه درون منو: در صورت فعال بودن آیتم، گزینه «غیرفعال‌سازی قرارداد / لایسنس» و در صورت غیرفعال بودن، گزینه «فعال‌سازی قرارداد / لایسنس» نمایش داده می‌شود.',
+      'افزودن مودال اختصاصی تاییدیه قبل از غیرفعال‌سازی: کلیک بر روی غیرفعال‌سازی از منوی سه‌نقطه ابتدا پنجره تایید رسمی با جزئیات توقف روزشمار و تعلیق هشدارهای ایمیلی را نمایش داده و پس از تایید اعمال می‌گردد (فعال‌سازی به صورت آنی و مستقیم انجام می‌شود).',
+      'حفظ عملکرد مستقیم بدون تاییدیه در داخل مودال‌های ویرایش/ثبت قرارداد و لایسنس طبق درخواست کاربر.',
+      'ثبت و تقویت قانون قطعی معماری شماره ۱۷ در مستندات AGENTS.md و GEMINI.md: الزام تخطی‌ناپذیر تعبیه ۱۰۰٪ امکانات و اکشن‌های جدید و موجود درون منوی سه‌نقطه و ممنوعیت مطلق دکمه‌های بیرونی در ستون عملیات مگر با درخواست مستقیم کاربر.'
+    ],
+    changes_en: [
+      'Relocated Active/Inactive toggles for Contracts and Licenses completely off table rows and exclusively into the floating 3-dots action menu (MoreVertical).',
+      'Eliminated visual clutter in the table Actions column, preserving a single, minimal 3-dots trigger button across all rows.',
+      'Smart Contextual Menu Actions: displays "Deactivate Contract / License" with PowerOff icon when active, and "Activate Contract / License" with Power icon when inactive.',
+      'Introduced a dedicated deactivation confirmation modal: clicking Deactivate from the 3-dots menu prompts the user with clear explanations of countdown pausing and alert suspensions before mutating state (Activating remains instant without confirmation).',
+      'Preserved instant direct toggling inside ContractModal and LicenseModal without unnecessary confirmation steps.',
+      'Enshrined strict Architectural Rule 17 in AGENTS.md and GEMINI.md mandating that all new or existing actions and features must reside inside the 3-dots menu with zero standalone external row buttons.'
+    ]
+  },
   {
     version: '1.423.0',
     releaseDate: '2026-11-08',

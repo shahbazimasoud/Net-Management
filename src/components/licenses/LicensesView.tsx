@@ -97,6 +97,10 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
+  // Deactivate Confirmation Modal
+  const [deactivatingLicense, setDeactivatingLicense] = useState<LicenseItem | null>(null);
+  const [isDeactivatingLoading, setIsDeactivatingLoading] = useState(false);
+
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -344,10 +348,10 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
     return Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   };
 
-  // Quick toggle active / inactive handler
-  const handleToggleActive = async (lic: LicenseItem) => {
+  // Toggle active / inactive handler
+  const handleToggleActive = async (lic: LicenseItem, targetActive?: boolean) => {
     const currentlyActive = lic.isActive !== false && lic.status !== 'inactive';
-    const nextActive = !currentlyActive;
+    const nextActive = targetActive !== undefined ? targetActive : !currentlyActive;
     try {
       const res = await updateLicenseApi(lic.id, {
         isActive: nextActive,
@@ -370,6 +374,17 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
           : `خطا در تغییر وضعیت: ${err.message || 'خطای سرور'}`,
         'error'
       );
+    }
+  };
+
+  const handleConfirmDeactivate = async () => {
+    if (!deactivatingLicense) return;
+    setIsDeactivatingLoading(true);
+    try {
+      await handleToggleActive(deactivatingLicense, false);
+      setDeactivatingLicense(null);
+    } finally {
+      setIsDeactivatingLoading(false);
     }
   };
 
@@ -1178,29 +1193,9 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Actions with Quick Toggle + 3-Dots Menu */}
+                      {/* Actions: 3-Dots Menu Only */}
                       <td className="py-3.5 px-4 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          {/* Quick Toggle Active / Inactive */}
-                          {canEdit && (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleActive(lic)}
-                              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-                                isInactive
-                                  ? 'bg-slate-800 text-slate-400 hover:text-emerald-400 border-slate-700 hover:border-emerald-500/50'
-                                  : 'bg-emerald-500/10 text-emerald-400 hover:text-rose-400 border-emerald-500/30 hover:border-rose-500/40'
-                              }`}
-                              title={
-                                isInactive
-                                  ? isEn ? 'Activate License' : 'فعال‌سازی لایسنس'
-                                  : isEn ? 'Deactivate (Pause alerts & countdown)' : 'غیرفعال‌سازی (توقف هشدارها و روزشمار)'
-                              }
-                            >
-                              {isInactive ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4" />}
-                            </button>
-                          )}
-
+                        <div className="flex items-center justify-center">
                           <button
                             type="button"
                             onClick={(e) => handleToggleActionMenu(e, lic)}
@@ -1325,6 +1320,76 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
         isEn={isEn}
       />
 
+      {/* Deactivate License Confirmation Modal */}
+      {deactivatingLicense && (
+        <div
+          className="fixed top-0 left-0 right-0 bottom-8 z-[999995] p-4 bg-black/80 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-150"
+          onClick={() => !isDeactivatingLoading && setDeactivatingLicense(null)}
+          dir={isEn ? 'ltr' : 'rtl'}
+        >
+          <div
+            className={`w-full max-w-md p-6 rounded-2xl border shadow-2xl space-y-4 animate-in zoom-in-95 duration-150 ${
+              isLightMode ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-800 text-slate-100'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-bold">
+                  {isEn ? 'Confirm License Deactivation' : 'تایید غیرفعال‌سازی لایسنس'}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  {isEn ? (
+                    <>
+                      Are you sure you want to deactivate license{' '}
+                      <span className="font-semibold text-slate-200">"{deactivatingLicense.title}"</span>?
+                      Deactivating will pause the expiration countdown and suspend all scheduled email alerts.
+                    </>
+                  ) : (
+                    <>
+                      آیا از غیرفعال‌سازی لایسنس{' '}
+                      <span className="font-semibold text-slate-200">«{deactivatingLicense.title}»</span>{' '}
+                      اطمینان دارید؟ با این کار، روزشمار انقضا متوقف شده و ارسال کلیه هشدارهای ایمیلی سررسید به حالت تعلیق درمی‌آید.
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeactivatingLicense(null)}
+                disabled={isDeactivatingLoading}
+                className={`px-4 py-2 text-xs font-semibold rounded-xl border transition-colors cursor-pointer ${
+                  isLightMode
+                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                }`}
+              >
+                {isEn ? 'Cancel' : 'انصراف'}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeactivate}
+                disabled={isDeactivatingLoading}
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/30 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isDeactivatingLoading ? (
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <PowerOff className="w-3.5 h-3.5" />
+                )}
+                <span>{isEn ? 'Deactivate License' : 'غیرفعال‌سازی لایسنس'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Floating 3-Dots Action Dropdown Menu (Portal) */}
       {actionMenuAnchor &&
         createPortal(
@@ -1371,18 +1436,26 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
                 <span>{isEn ? 'Dispatch Test Alert' : 'ارسال ایمیل هشدار تستی'}</span>
               </button>
 
-              {/* Quick Toggle Active / Inactive in Action Menu */}
+              {/* Toggle Active / Inactive in Action Menu */}
               {canEdit && (
                 <button
                   type="button"
                   onClick={() => {
-                    handleToggleActive(actionMenuAnchor.item);
+                    const item = actionMenuAnchor.item;
+                    const isCurrentlyInactive = item.isActive === false || item.status === 'inactive';
                     setActionMenuAnchor(null);
+                    if (isCurrentlyInactive) {
+                      // Activating is immediate, no confirmation needed
+                      handleToggleActive(item, true);
+                    } else {
+                      // Deactivation requires user confirmation first
+                      setDeactivatingLicense(item);
+                    }
                   }}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
                     (actionMenuAnchor.item.isActive === false || actionMenuAnchor.item.status === 'inactive')
                       ? isLightMode ? 'hover:bg-emerald-50 text-emerald-700' : 'hover:bg-emerald-500/15 text-emerald-400'
-                      : isLightMode ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-800 text-slate-300'
+                      : isLightMode ? 'hover:bg-amber-50 text-amber-700' : 'hover:bg-amber-500/15 text-amber-300'
                   }`}
                 >
                   {(actionMenuAnchor.item.isActive === false || actionMenuAnchor.item.status === 'inactive') ? (
@@ -1392,7 +1465,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
                     </>
                   ) : (
                     <>
-                      <PowerOff className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <PowerOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                       <span>{isEn ? 'Deactivate License' : 'غیرفعال‌سازی لایسنس'}</span>
                     </>
                   )}

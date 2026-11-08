@@ -277,14 +277,15 @@
 
 ---
 
-## 17. Mandatory 3-Dots Action Menu for All Tables and Lists (قانون قطعی و اجباری تجمیع اکشن‌ها در منوی سه‌نقطه در تمامی جداول و لیست‌ها)
+## 17. Mandatory 3-Dots Action Menu for All Tables and Lists (قانون قطعی و اجباری تجمیع ۱۰۰٪ اکشن‌ها و امکانات جدید در منوی سه‌نقطه)
 
 > [!CRITICAL]
 > **قانون الزام تجمیع اکشن‌های جداول و لیست‌ها در منوی ۳ نقطه به‌جای دکمه‌های ردیفی (MANDATORY 3-DOTS ACTION MENU FOR ALL LISTS & TABLES)**
-> هر هوش مصنوعی یا توسعه‌دهنده‌ای که در این پروژه صفحه‌ای، تبی، ماژولی یا ویویی حاوی جدول یا فهرستی از آیتم‌ها (نظیر لایسنس‌ها، قراردادها، کاربران، تجهیزات، خط‌مشی‌ها، لاگ‌ها، بکاپ‌ها و ...) ایجاد یا ویرایش می‌کند که برای آیتم‌های آن تعدادی عملیات (اکشن نظیر ویرایش، حذف، تمدید، ارسال تست، تاریخچه، کپی، جابجایی و ...) تعریف می‌شود، **موظف است به جای درست کردن چندین دکمه ردیفی، منحصراً از منوی ۳ نقطه استفاده نماید**:
+> هر هوش مصنوعی یا توسعه‌دهنده‌ای که در این پروژه صفحه‌ای، تبی، ماژولی یا ویویی حاوی جدول یا فهرستی از آیتم‌ها (نظیر لایسنس‌ها، قراردادها، کاربران، تجهیزات، خط‌مشی‌ها، لاگ‌ها، بکاپ‌ها و ...) ایجاد یا ویرایش می‌کند که برای آیتم‌های آن تعدادی عملیات یا امکان جدید (اکشن نظیر فعال/غیرفعال‌سازی، ویرایش، حذف، تمدید، ارسال تست، تاریخچه، کپی، جابجایی و ...) تعریف می‌شود، **موظف است به جای قرار دادن دکمه در سطر جدول، منحصراً تمامی امکانات را به درون منوی ۳ نقطه هدایت نماید**:
 > 
-> 1. **ممنوعیت ردیف کردن دکمه‌ها (No Cluttered In-Row Action Buttons):**
->    - چیدن دکمه‌های متعدد مجزا در یک سطر یا ستون اکشن‌ها اکیداً ممنوع است. این کار باعث آشفتگی بصری، خروج متن و دکمه‌ها از عرض صفحه و ایجاد اسکرول ناخواسته در رزولوشن‌های مختلف می‌گردد.
+> 1. **ممنوعیت مطلق قرار دادن دکمه‌های بیرونی در سطر جدول (Strict Zero External In-Row Buttons)**:
+>    - هر امکانی که اضافه می‌شود باید **منحصراً درون منوی سه‌نقطه (`MoreVertical`)** قرار گیرد و هیچ دکمه‌ای (اعم از تاگل فعال/غیرفعال، تست، سوییچ، کپی و ...) نباید بیرون در ستون عملیات جدول گذاشته شود، مگر اینکه کاربر صراحتاً و به طور مستقیم دستور دهد که دکمه خاصی بیرون باشد.
+>    - ستون عملیات («Actions») باید تمیز و یکپارچه بوده و فقط و فقط شامل تک دکمه ۳-نقطه باشد.
 > 
 > 2. **استفاده اجباری از دکمه ۳ نقطه (`MoreVertical`):**
 >    - در ستون «عملیات / Actions» باید یک دکمه واحد، مینیمال و استاندارد با آیکون سه نقطه عمودی (`MoreVertical` از کتابخانه `lucide-react`) قرار گیرد.
@@ -293,14 +294,20 @@
 >    - منوی بازشونده با کلیک روی دکمه ۳ نقطه باید از طریق `createPortal(..., document.body)` مستقیماً در ریشه سند رندر شود تا در استایل‌های `overflow-hidden` جدول یا والد محبوس نشود.
 >    - محاسبه خودکار موقعیت باز شدن (بالا یا پایین دکمه بر اساس فاصله تا پایین پنجره جهت جلوگیری از خروج از صفحه).
 >    - تعبیه پوشش پس‌زمینه شفاف (Backdrop) جهت بستن خودکار منو با کلیک در بیرون (`onClick={() => setActionMenuAnchor(null)}`).
->    - گزینه‌های منو باید دارای آیکون شفاف، عنوان دوزبانه (`isEn`)، سازگاری کامل با تم روشن و تاریک، رعایت پرمیشن‌های دسترسی (RBAC) و تفکیک رنگی دکمه‌های خطر (مانند حذف با تم قرمز `text-rose-400`) باشند.
+>    - گزینه‌های منو باید دارای آیکون شفاف، عنوان دوزبانه (`isEn`)، سازگاری کامل با تم روشن و تاریک، رعایت پرمیشن‌های دسترسی (RBAC) و تفکیک رنگی دکمه‌های خطر (مانند حذف با تم قرمز `text-rose-400`).
+> 
+> 4. **تاییدیه برای عملیات حساس درون منو (Confirmation for Sensitive Actions)**:
+>    - برای اقدامات حساس نظیر غیرفعال‌سازی، حذف، یا ریست از درون منوی سه نقطه، باید ابتدا مودال تایید اختصاصی به کاربر نمایش داده شود و پس از تایید اعمال گردد (فعال‌سازی نیازی به تایید ندارد).
 > 
 > ---
 > 
 > **English Directive:**
-> Whenever building or modifying any page, view, or tab containing a data table, list, or grid with multiple row actions (such as Edit, Delete, Renew, Test, History, Copy, etc.), agents MUST NOT render multiple separate action buttons side-by-side in the row. Instead, agents MUST provide a single 3-dots action button using `MoreVertical` from `lucide-react` that opens a portal-rendered floating dropdown menu (`createPortal(..., document.body)`). The menu must feature auto-positioning, outside-click backdrop dismissal, bilingual labels, light/dark theme contrast, RBAC permission checks, and highlighted danger actions.
-
----
+> 1. **Strict 3-Dots Encapsulation**: Whenever building or modifying any page, view, or tab containing a data table, list, or grid, ALL capabilities, toggles, features, and actions (e.g., Activate/Deactivate, Edit, Delete, Renew, Send Test Alert, History, Copy) MUST be placed strictly inside the 3-dots action menu (`MoreVertical`). Under NO circumstances should standalone action buttons be rendered outside in the table row/Actions column unless the user explicitly and specifically instructs to place a button outside.
+> 2. **Single Clean Trigger**: The table Actions column must contain ONLY the single 3-dots icon button.
+> 3. **Portal-Rendered Dropdown**: The menu must be rendered via `createPortal(..., document.body)` with auto-positioning, outside-click dismissal, bilingual labels, light/dark contrast, and RBAC enforcement.
+> 4. **Confirmation for Sensitive Actions**: Critical state mutations initiated from the menu (such as Deactivating an asset or Deleting) must prompt for confirmation via a dedicated modal before proceeding.
+> 
+> ---
 
 ## 18. Mandatory Universal Deletion Confirmation Modal Rule (قانون قطعی و اجباری تایید حذف با مودال استاندارد DeleteConfirmModal برای کلیه موجودیت‌ها)
 
