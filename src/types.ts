@@ -7728,7 +7728,7 @@ export interface TelegramTestResult {
 // ==============================================================================
 
 export type LicenseDeviceType = 'switch' | 'router' | 'firewall' | 'server' | 'access_point' | 'software' | 'cloud' | 'other';
-export type LicenseStatus = 'active' | 'expiring_soon' | 'expired' | 'renewed' | 'suspended';
+export type LicenseStatus = 'active' | 'expiring_soon' | 'expired' | 'renewed' | 'suspended' | 'inactive';
 
 export interface AttachmentFile {
   id: string;
@@ -7757,6 +7757,7 @@ export interface LicenseItem {
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   status: LicenseStatus;
+  isActive?: boolean; // false when explicitly deactivated (pauses countdown calculation and email alerts)
   cost?: number; // Cost paid
   currency: 'IRR' | 'USD' | 'EUR' | 'AED' | string;
   paymentMethod?: string; // Annual, One-time, Subscription
@@ -7773,7 +7774,7 @@ export interface LicenseItem {
 }
 
 export type ContractType = 'sla_support' | 'hardware_warranty' | 'internet_isp' | 'datacenter_colocation' | 'software_maintenance' | 'hardware_purchase' | 'consulting' | 'other';
-export type ContractStatus = 'active' | 'expiring_soon' | 'expired' | 'renewed' | 'in_renewal' | 'terminated';
+export type ContractStatus = 'active' | 'expiring_soon' | 'expired' | 'renewed' | 'in_renewal' | 'terminated' | 'inactive';
 
 export interface ContractItem {
   id: string;
@@ -7788,6 +7789,7 @@ export interface ContractItem {
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   status: ContractStatus;
+  isActive?: boolean; // false when explicitly deactivated (pauses countdown calculation and email alerts)
   totalCost?: number;
   currency: 'IRR' | 'USD' | 'EUR' | 'AED' | string;
   paymentTerms?: string; // Monthly, Quarterly, Annual, Milestone-based

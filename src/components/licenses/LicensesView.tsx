@@ -30,7 +30,9 @@ import {
   RotateCw,
   History,
   Eye,
-  MoreVertical
+  MoreVertical,
+  Power,
+  PowerOff
 } from 'lucide-react';
 import {
   LicenseItem,
@@ -43,6 +45,7 @@ import {
 import {
   fetchLicensesApi,
   deleteLicenseApi,
+  updateLicenseApi,
   testLicenseContractAlertApi,
   runLicenseContractCronNowApi
 } from '../../services/api';
@@ -332,12 +335,42 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
     setTimeout(() => setCopiedKeyId(null), 2000);
   };
 
-  // Calculate days remaining helper
-  const getDaysRemaining = (endDateStr: string): number => {
-    if (!endDateStr) return 0;
+  // Calculate days remaining helper (suppressed / returns null if inactive)
+  const getDaysRemaining = (endDateStr: string, isItemActive = true): number | null => {
+    if (!isItemActive) return null;
+    if (!endDateStr) return null;
     const now = new Date();
     const expiry = new Date(endDateStr);
     return Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  };
+
+  // Quick toggle active / inactive handler
+  const handleToggleActive = async (lic: LicenseItem) => {
+    const currentlyActive = lic.isActive !== false && lic.status !== 'inactive';
+    const nextActive = !currentlyActive;
+    try {
+      const res = await updateLicenseApi(lic.id, {
+        isActive: nextActive,
+        status: nextActive ? 'active' : 'inactive',
+      });
+      if (res.license) {
+        setLicenses((prev) => prev.map((l) => (l.id === lic.id ? res.license : l)));
+        appDataCache.invalidate('licenses_list');
+        showToast(
+          isEn
+            ? `License "${lic.title}" is now ${nextActive ? 'Active' : 'Inactive (Paused)'}.`
+            : `لایسنس «${lic.title}» به وضعیت ${nextActive ? 'فعال' : 'غیرفعال (متوقف)'} تغییر یافت.`,
+          'success'
+        );
+      }
+    } catch (err: any) {
+      showToast(
+        isEn
+          ? `Failed to update status: ${err.message || 'Server error'}`
+          : `خطا در تغییر وضعیت: ${err.message || 'خطای سرور'}`,
+        'error'
+      );
+    }
   };
 
   // Unique vendors for filter
@@ -352,6 +385,8 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
   // Filtered licenses
   const filteredLicenses = useMemo(() => {
     return visibleLicenses.filter((lic) => {
+      const isInactive = lic.isActive === false || lic.status === 'inactive';
+
       // Search
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -384,10 +419,21 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
 
       // Status
       if (statusFilter !== 'all') {
-        const days = getDaysRemaining(lic.endDate);
-        if (statusFilter === 'active' && (days <= 30 || lic.status === 'expired')) return false;
-        if (statusFilter === 'expiring_soon' && (days > 30 || days < 0)) return false;
-        if (statusFilter === 'expired' && days >= 0) return false;
+        if (statusFilter === 'inactive') {
+          if (!isInactive) return false;
+        } else if (statusFilter === 'active') {
+          if (isInactive) return false;
+          const days = getDaysRemaining(lic.endDate, true);
+          if (days !== null && (days <= 30 || lic.status === 'expired')) return false;
+        } else if (statusFilter === 'expiring_soon') {
+          if (isInactive) return false;
+          const days = getDaysRemaining(lic.endDate, true);
+          if (days === null || days > 30 || days < 0) return false;
+        } else if (statusFilter === 'expired') {
+          if (isInactive) return false;
+          const days = getDaysRemaining(lic.endDate, true);
+          if (days !== null && days >= 0) return false;
+        }
       }
 
       return true;
@@ -399,18 +445,24 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
     let active = 0;
     let expiring = 0;
     let expired = 0;
+    let inactive = 0;
     let totalAnnualCost = 0;
     let totalCostIrr = 0;
     let totalCostUsd = 0;
 
     visibleLicenses.forEach((lic) => {
-      const days = getDaysRemaining(lic.endDate);
-      if (days < 0 || lic.status === 'expired') {
-        expired++;
-      } else if (days <= 30 || lic.status === 'expiring_soon') {
-        expiring++;
+      const isInactive = lic.isActive === false || lic.status === 'inactive';
+      if (isInactive) {
+        inactive++;
       } else {
-        active++;
+        const days = getDaysRemaining(lic.endDate, true);
+        if (days !== null && days < 0 || lic.status === 'expired') {
+          expired++;
+        } else if (days !== null && days <= 30 || lic.status === 'expiring_soon') {
+          expiring++;
+        } else {
+          active++;
+        }
       }
 
       if (lic.cost) {
@@ -428,6 +480,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
       active,
       expiring,
       expired,
+      inactive,
       totalAnnualCost,
       totalCostIrr,
       totalCostUsd,
@@ -860,6 +913,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
           >
             <option value="all">{isEn ? 'All Statuses' : 'همه وضعیت‌ها'}</option>
             <option value="active">{isEn ? 'Active Only' : 'فقط معتبر'}</option>
+            <option value="inactive">{isEn ? 'Inactive (Paused)' : 'غیرفعال (متوقف)'}</option>
             <option value="expiring_soon">{isEn ? 'Expiring Soon (≤30d)' : 'فقط نزدیک به انقضا'}</option>
             <option value="expired">{isEn ? 'Expired Only' : 'فقط منقضی شده'}</option>
           </select>
@@ -933,22 +987,35 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-800/40">
                 {filteredLicenses.map((lic) => {
-                  const daysRemaining = getDaysRemaining(lic.endDate);
-                  const isExpired = daysRemaining < 0 || lic.status === 'expired';
-                  const isExpiringSoon = !isExpired && (daysRemaining <= 30 || lic.status === 'expiring_soon');
+                  const isInactive = lic.isActive === false || lic.status === 'inactive';
+                  const daysRemaining = getDaysRemaining(lic.endDate, !isInactive);
+                  const isExpired = !isInactive && (daysRemaining !== null && daysRemaining < 0 || lic.status === 'expired');
+                  const isExpiringSoon = !isInactive && !isExpired && (daysRemaining !== null && daysRemaining <= 30 || lic.status === 'expiring_soon');
                   const connectedDev = devices.find((d) => d.id === lic.connectedDeviceId);
 
                   return (
                     <tr
                       key={lic.id}
-                      className={`transition-colors hover:${
-                        isLightMode ? 'bg-slate-50' : 'bg-slate-800/30'
+                      className={`transition-colors ${
+                        isInactive
+                          ? isLightMode
+                            ? 'bg-slate-100/70 border-l-4 border-l-slate-400 opacity-70 hover:bg-slate-200/50 text-slate-500'
+                            : 'bg-slate-900/40 border-l-4 border-l-slate-600 opacity-65 hover:bg-slate-800/40 text-slate-400'
+                          : isLightMode
+                          ? 'hover:bg-slate-50 divide-slate-100'
+                          : 'hover:bg-slate-800/30'
                       }`}
                     >
                       {/* Title & Key */}
                       <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-200 flex items-center gap-1.5 flex-wrap">
+                        <div className={`font-bold flex items-center gap-1.5 flex-wrap ${isInactive ? 'text-slate-400' : 'text-slate-200'}`}>
                           <span>{lic.title}</span>
+                          {isInactive && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-700/50 text-slate-300 border border-slate-600/60 flex items-center gap-1">
+                              <PowerOff className="w-2.5 h-2.5" />
+                              {isEn ? 'INACTIVE' : 'غیرفعال'}
+                            </span>
+                          )}
                           {lic.renewalCycle && lic.renewalCycle > 1 && (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                               {isEn ? `Cycle ${lic.renewalCycle}` : `دوره ${lic.renewalCycle}`}
@@ -981,7 +1048,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
 
                       {/* Vendor & Type */}
                       <td className="py-3.5 px-3">
-                        <div className="font-medium text-slate-300">{lic.vendor || '-'}</div>
+                        <div className={`font-medium ${isInactive ? 'text-slate-400' : 'text-slate-300'}`}>{lic.vendor || '-'}</div>
                         <div className="text-[10px] text-slate-400 capitalize">
                           {lic.deviceType?.replace('_', ' ') || 'Other'}
                         </div>
@@ -991,9 +1058,9 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
                       <td className="py-3.5 px-3">
                         {connectedDev ? (
                           <div className="flex items-center gap-1.5">
-                            <Server className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                            <Server className={`w-3.5 h-3.5 ${isInactive ? 'text-slate-500' : 'text-cyan-400'} shrink-0`} />
                             <div>
-                              <p className="font-medium text-slate-200 text-xs truncate max-w-[140px]">{connectedDev.name}</p>
+                              <p className={`font-medium text-xs truncate max-w-[140px] ${isInactive ? 'text-slate-400' : 'text-slate-200'}`}>{connectedDev.name}</p>
                               <p className="font-mono text-[10px] text-slate-400">{connectedDev.ip}</p>
                             </div>
                           </div>
@@ -1006,14 +1073,19 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
 
                       {/* Owner & Department */}
                       <td className="py-3.5 px-3">
-                        <div className="text-slate-300 font-medium">{lic.ownerName || '-'}</div>
+                        <div className={`font-medium ${isInactive ? 'text-slate-400' : 'text-slate-300'}`}>{lic.ownerName || '-'}</div>
                         <div className="text-[10px] text-slate-400">{lic.department || '-'}</div>
                       </td>
 
                       {/* Validity & Expiry Countdown */}
                       <td className="py-3.5 px-3">
                         <div className="flex items-center gap-1.5">
-                          {lic.status === 'renewed' ? (
+                          {isInactive ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700/80">
+                              <PowerOff className="w-3 h-3 text-slate-400" />
+                              {isEn ? 'INACTIVE (PAUSED)' : 'غیرفعال (متوقف)'}
+                            </span>
+                          ) : lic.status === 'renewed' ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
                               <RotateCw className="w-3 h-3" />
                               {isEn ? 'Renewed' : 'تمدید شده'}
@@ -1042,7 +1114,7 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
 
                       {/* Investment */}
                       <td className="py-3.5 px-3">
-                        <div className="font-medium text-slate-200">
+                        <div className={`font-medium ${isInactive ? 'text-slate-400' : 'text-slate-200'}`}>
                           {lic.cost ? `${lic.cost.toLocaleString()} ${lic.currency}` : '-'}
                         </div>
                         <div className="text-[10px] text-slate-400 capitalize">
@@ -1061,17 +1133,21 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
                               setIsAlertModalOpen(true);
                             }}
                             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer group ${
-                              (lic.notifyEmails?.length || 0) + (lic.ownerEmail ? 1 : 0) > 0
+                              isInactive
+                                ? 'bg-slate-800/20 text-slate-500 border-slate-700/40 opacity-60'
+                                : (lic.notifyEmails?.length || 0) + (lic.ownerEmail ? 1 : 0) > 0
                                 ? 'bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border-sky-500/30 hover:border-sky-400'
                                 : 'bg-slate-800/40 hover:bg-slate-800 text-slate-400 border-slate-700/60'
                             }`}
                             title={
-                              isEn
+                              isInactive
+                                ? isEn ? 'Reminders paused (Inactive license)' : 'یادآورها متوقف هستند (لایسنس غیرفعال)'
+                                : isEn
                                 ? `View ${(lic.notifyEmails?.length || 0) + (lic.ownerEmail ? 1 : 0)} alert recipients & schedule`
                                 : `مشاهده ${(lic.notifyEmails?.length || 0) + (lic.ownerEmail ? 1 : 0)} گیرنده و زمان‌بندی هشدارها`
                             }
                           >
-                            <Mail className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform shrink-0" />
+                            <Mail className={`w-3.5 h-3.5 ${isInactive ? 'text-slate-500' : 'text-sky-400 group-hover:scale-110'} transition-transform shrink-0`} />
                             <span>{(lic.notifyEmails?.length || 0) + (lic.ownerEmail ? 1 : 0)}</span>
                           </button>
 
@@ -1102,9 +1178,29 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Actions with 3-Dots Menu */}
+                      {/* Actions with Quick Toggle + 3-Dots Menu */}
                       <td className="py-3.5 px-4 text-center">
-                        <div className="flex items-center justify-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {/* Quick Toggle Active / Inactive */}
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleActive(lic)}
+                              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                                isInactive
+                                  ? 'bg-slate-800 text-slate-400 hover:text-emerald-400 border-slate-700 hover:border-emerald-500/50'
+                                  : 'bg-emerald-500/10 text-emerald-400 hover:text-rose-400 border-emerald-500/30 hover:border-rose-500/40'
+                              }`}
+                              title={
+                                isInactive
+                                  ? isEn ? 'Activate License' : 'فعال‌سازی لایسنس'
+                                  : isEn ? 'Deactivate (Pause alerts & countdown)' : 'غیرفعال‌سازی (توقف هشدارها و روزشمار)'
+                              }
+                            >
+                              {isInactive ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={(e) => handleToggleActionMenu(e, lic)}
@@ -1274,6 +1370,34 @@ export const LicensesView: React.FC<LicensesViewProps> = ({
                 )}
                 <span>{isEn ? 'Dispatch Test Alert' : 'ارسال ایمیل هشدار تستی'}</span>
               </button>
+
+              {/* Quick Toggle Active / Inactive in Action Menu */}
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleToggleActive(actionMenuAnchor.item);
+                    setActionMenuAnchor(null);
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
+                    (actionMenuAnchor.item.isActive === false || actionMenuAnchor.item.status === 'inactive')
+                      ? isLightMode ? 'hover:bg-emerald-50 text-emerald-700' : 'hover:bg-emerald-500/15 text-emerald-400'
+                      : isLightMode ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-800 text-slate-300'
+                  }`}
+                >
+                  {(actionMenuAnchor.item.isActive === false || actionMenuAnchor.item.status === 'inactive') ? (
+                    <>
+                      <Power className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{isEn ? 'Activate License' : 'فعال‌سازی لایسنس'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <PowerOff className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>{isEn ? 'Deactivate License' : 'غیرفعال‌سازی لایسنس'}</span>
+                    </>
+                  )}
+                </button>
+              )}
 
               {/* Renew Button */}
               {canEdit && (

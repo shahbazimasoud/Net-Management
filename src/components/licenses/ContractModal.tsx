@@ -26,7 +26,9 @@ import {
   Tag,
   Eye,
   FileCheck,
-  RotateCw
+  RotateCw,
+  Power,
+  PowerOff
 } from 'lucide-react';
 import {
   ContractItem,
@@ -88,6 +90,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [notes, setNotes] = useState('');
+  const [isActive, setIsActive] = useState<boolean>(true);
 
   // Renewal origin & duration configuration
   const [renewalOrigin, setRenewalOrigin] = useState<'from_today' | 'continuous'>('from_today');
@@ -221,6 +224,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
       setAlertDays(contract.alertDays?.length ? contract.alertDays : [60, 45, 30, 15, 5, 0]);
       setNotifyEmails(contract.notifyEmails || []);
       setAttachments([]); // Fresh attachments for this renewal
+      setIsActive(true);
       setNotes(
         isEn
           ? `Renewed from contract #${contract.contractNumber} (${contract.startDate} to ${contract.endDate})`
@@ -244,6 +248,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
       setNotifyEmails(contract.notifyEmails || []);
       setAttachments(contract.attachments || []);
       setNotes(contract.notes || '');
+      setIsActive(contract.isActive !== undefined ? contract.isActive : contract.status !== 'inactive');
     } else {
       // Default initial values for new contract
       const now = new Date();
@@ -270,6 +275,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
       setNotifyEmails([]);
       setAttachments([]);
       setNotes('');
+      setIsActive(true);
     }
     setErrorMessage(null);
     setIsMinimized(false);
@@ -407,8 +413,9 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     setIsPreviewOpen(true);
   };
 
-  // Calculate days left
+  // Calculate days left (suppressed / paused when contract is inactive)
   const calculateDaysLeft = () => {
+    if (!isActive) return null;
     if (!endDate) return null;
     const end = new Date(endDate);
     const now = new Date();
@@ -444,7 +451,9 @@ export const ContractModal: React.FC<ContractModalProps> = ({
     setErrorMessage(null);
 
     let calculatedStatus: ContractStatus = 'active';
-    if (daysLeft !== null) {
+    if (!isActive) {
+      calculatedStatus = 'inactive';
+    } else if (daysLeft !== null) {
       if (daysLeft < 0) calculatedStatus = 'expired';
       else if (daysLeft <= 45) calculatedStatus = 'expiring_soon';
       else calculatedStatus = 'active';
@@ -461,6 +470,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
       department: department.trim(),
       startDate,
       endDate,
+      isActive,
       status: calculatedStatus,
       totalCost: Number(totalCost) || 0,
       currency,
@@ -628,10 +638,60 @@ export const ContractModal: React.FC<ContractModalProps> = ({
 
           {/* Section 1: Identification & Contract Type */}
           <div className="space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-              {isEn ? '1. Contract Identification & Agreement Type' : '۱. مشخصات قرارداد و نوع توافق‌نامه'}
-            </h3>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+                {isEn ? '1. Contract Identification & Agreement Type' : '۱. مشخصات قرارداد و نوع توافق‌نامه'}
+              </h3>
+
+              {/* Operational Status Toggle: Active vs Inactive */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-medium text-slate-400">
+                  {isEn ? 'Operational Status:' : 'وضعیت عملیاتی:'}
+                </span>
+                <div className="inline-flex p-0.5 rounded-xl border border-slate-700/60 bg-slate-900/80">
+                  <button
+                    type="button"
+                    onClick={() => setIsActive(true)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg font-bold transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : isLightMode
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Power className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Active' : 'فعال'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsActive(false)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg font-bold transition-all cursor-pointer ${
+                      !isActive
+                        ? 'bg-slate-700 text-slate-200 border border-slate-600 shadow-sm'
+                        : isLightMode
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <PowerOff className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{isEn ? 'Inactive (Paused)' : 'غیرفعال (متوقف)'}</span>
+                  </button>
+                </div>
+                <FieldInfoTooltip
+                  title={isEn ? 'Operational Status' : 'وضعیت عملیاتی'}
+                  infoWhatEn="Controls whether this contract is actively tracked with countdown timers and automated email alerts."
+                  infoWhatFa="تعیین فعال یا متوقف بودن پایش قرارداد، روزشمار انقضا و ارسال ایمیل‌های یادآوری."
+                  infoWhyEn="When Inactive, the contract countdown is paused and NO email alerts will be sent, without deleting historical records."
+                  infoWhyFa="در حالت غیرفعال، روزشمار متوقف شده و هیچ ایمیل یادآوری ارسال نمی‌شود، بدون نیاز به حذف قرارداد از سیستم."
+                  infoExampleEn="Active for ongoing contracts; Inactive for archived or paused agreements."
+                  infoExampleFa="فعال برای قراردادهای جاری؛ غیرفعال برای قراردادهای متوقف یا موقتاً تعلیق‌شده."
+                  isLightMode={isLightMode}
+                  isEn={isEn}
+                />
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Contract Number */}
@@ -1220,7 +1280,33 @@ export const ContractModal: React.FC<ContractModalProps> = ({
             </div>
 
             {/* Dual Term Duration & Countdown Badge Preview */}
-            {daysLeft !== null && (
+            {!isActive ? (
+              <div
+                className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
+                  isLightMode
+                    ? 'bg-slate-100 border-slate-300 text-slate-700'
+                    : 'bg-slate-900/80 border-slate-700 text-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <PowerOff className="w-4 h-4 text-slate-400 shrink-0" />
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+                    <span className="font-semibold text-slate-300">
+                      {isEn ? 'Contract Inactive (Paused)' : 'قرارداد غیرفعال (متوقف‌شده)'}
+                    </span>
+                    <span className="hidden sm:inline text-slate-500">•</span>
+                    <span className="text-[11px] text-slate-400">
+                      {isEn
+                        ? 'Expiration countdown is paused and automated email reminders are disabled.'
+                        : 'روزشمار انقضا متوقف بوده و ارسال ایمیل‌های هشدار خودکار غیرفعال است.'}
+                    </span>
+                  </div>
+                </div>
+                <span className="font-bold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-[10px] shrink-0">
+                  {isEn ? 'PAUSED' : 'متوقف'}
+                </span>
+              </div>
+            ) : daysLeft !== null ? (
               <div
                 className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
                   daysLeft < 0
@@ -1264,7 +1350,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
                     : isEn ? 'ACTIVE' : 'معتبر و فعال'}
                 </span>
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Section 4: Email Alerts & Milestone Schedule */}

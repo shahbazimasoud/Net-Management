@@ -34,7 +34,9 @@ import {
   ArrowRight,
   RotateCw,
   History,
-  MoreVertical
+  MoreVertical,
+  Power,
+  PowerOff
 } from 'lucide-react';
 import {
   ContractItem,
@@ -47,6 +49,7 @@ import {
 import {
   fetchContractsApi,
   deleteContractApi,
+  updateContractApi,
   testLicenseContractAlertApi,
   runLicenseContractCronNowApi
 } from '../../services/api';
@@ -330,8 +333,14 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
       }
 
       // Status filter
-      if (statusFilter !== 'all' && cnt.status !== statusFilter) {
-        return false;
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'inactive') {
+          if (cnt.isActive !== false && cnt.status !== 'inactive') return false;
+        } else if (statusFilter === 'active') {
+          if (cnt.isActive === false || cnt.status !== 'active') return false;
+        } else if (cnt.status !== statusFilter) {
+          return false;
+        }
       }
 
       // Search query
@@ -354,9 +363,10 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
   // Statistical KPI metrics
   const stats = useMemo(() => {
     const total = visibleContracts.length;
-    const active = visibleContracts.filter((c) => c.status === 'active').length;
-    const expiringSoon = visibleContracts.filter((c) => c.status === 'expiring_soon').length;
-    const expired = visibleContracts.filter((c) => c.status === 'expired').length;
+    const inactive = visibleContracts.filter((c) => c.status === 'inactive' || c.isActive === false).length;
+    const active = visibleContracts.filter((c) => (c.isActive !== false && c.status !== 'inactive') && c.status === 'active').length;
+    const expiringSoon = visibleContracts.filter((c) => (c.isActive !== false && c.status !== 'inactive') && c.status === 'expiring_soon').length;
+    const expired = visibleContracts.filter((c) => (c.isActive !== false && c.status !== 'inactive') && c.status === 'expired').length;
     const inRenewal = visibleContracts.filter((c) => c.status === 'in_renewal').length;
 
     // Total cost in IRR
@@ -368,11 +378,41 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
       .filter((c) => c.currency === 'USD' && c.totalCost)
       .reduce((sum, c) => sum + (c.totalCost || 0), 0);
 
-    return { total, active, expiringSoon, expired, inRenewal, totalCostIrr, totalCostUsd };
+    return { total, active, expiringSoon, expired, inRenewal, inactive, totalCostIrr, totalCostUsd };
   }, [visibleContracts]);
 
-  // Days left calculation
-  const getDaysLeft = (endDate: string) => {
+  // Quick toggle active / inactive handler
+  const handleToggleActive = async (contract: ContractItem) => {
+    const currentlyActive = contract.isActive !== false && contract.status !== 'inactive';
+    const nextActive = !currentlyActive;
+    try {
+      const res = await updateContractApi(contract.id, {
+        isActive: nextActive,
+        status: nextActive ? 'active' : 'inactive',
+      });
+      if (res.contract) {
+        setContracts((prev) => prev.map((c) => (c.id === contract.id ? res.contract : c)));
+        appDataCache.invalidate('contracts_list');
+        showToast(
+          isEn
+            ? `Contract "${contract.title}" is now ${nextActive ? 'Active' : 'Inactive (Paused)'}.`
+            : `قرارداد «${contract.title}» به وضعیت ${nextActive ? 'فعال' : 'غیرفعال (متوقف)'} تغییر یافت.`,
+          'success'
+        );
+      }
+    } catch (err: any) {
+      showToast(
+        isEn
+          ? `Failed to update status: ${err.message || 'Server error'}`
+          : `خطا در تغییر وضعیت: ${err.message || 'خطای سرور'}`,
+        'error'
+      );
+    }
+  };
+
+  // Days left calculation (suppressed if inactive)
+  const getDaysLeft = (endDate: string, isItemActive = true) => {
+    if (!isItemActive) return null;
     if (!endDate) return null;
     const end = new Date(endDate);
     const now = new Date();
@@ -737,6 +777,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
             >
               <option value="all">{isEn ? 'All Statuses' : 'همه وضعیت‌ها'}</option>
               <option value="active">{isEn ? 'Active & Valid' : 'معتبر و فعال'}</option>
+              <option value="inactive">{isEn ? 'Inactive (Paused)' : 'غیرفعال (متوقف)'}</option>
               <option value="expiring_soon">{isEn ? 'Expiring Soon' : 'نزدیک انقضا'}</option>
               <option value="expired">{isEn ? 'Expired' : 'منقضی شده'}</option>
               <option value="in_renewal">{isEn ? 'In Renewal' : 'در حال تمدید'}</option>
@@ -815,15 +856,20 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-800/40 text-xs">
                 {filteredContracts.map((contract) => {
-                  const daysLeft = getDaysLeft(contract.endDate);
-                  const isExpired = contract.status === 'expired' || (daysLeft !== null && daysLeft < 0);
-                  const isExpiringSoon = contract.status === 'expiring_soon' || (daysLeft !== null && daysLeft <= 45 && daysLeft >= 0);
+                  const isInactive = contract.isActive === false || contract.status === 'inactive';
+                  const daysLeft = getDaysLeft(contract.endDate, !isInactive);
+                  const isExpired = !isInactive && (contract.status === 'expired' || (daysLeft !== null && daysLeft < 0));
+                  const isExpiringSoon = !isInactive && (contract.status === 'expiring_soon' || (daysLeft !== null && daysLeft <= 45 && daysLeft >= 0));
 
                   return (
                     <tr
                       key={contract.id}
                       className={`transition-colors ${
-                        isLightMode
+                        isInactive
+                          ? isLightMode
+                            ? 'bg-slate-100/70 border-l-4 border-l-slate-400 opacity-70 hover:bg-slate-200/50 text-slate-500'
+                            : 'bg-slate-900/40 border-l-4 border-l-slate-600 opacity-65 hover:bg-slate-800/40 text-slate-400'
+                          : isLightMode
                           ? 'hover:bg-slate-50/80 divide-slate-100'
                           : 'hover:bg-slate-800/30'
                       }`}
@@ -832,7 +878,13 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                       <td className="px-4 py-3.5">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-slate-100">{contract.title}</span>
+                            <span className={`font-bold ${isInactive ? 'text-slate-400' : 'text-slate-100'}`}>{contract.title}</span>
+                            {isInactive && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-700/50 text-slate-300 border border-slate-600/60 flex items-center gap-1">
+                                <PowerOff className="w-2.5 h-2.5" />
+                                {isEn ? 'INACTIVE' : 'غیرفعال'}
+                              </span>
+                            )}
                             {contract.renewalCycle && contract.renewalCycle > 1 && (
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                                 {isEn ? `Cycle ${contract.renewalCycle}` : `دوره ${contract.renewalCycle}`}
@@ -865,7 +917,11 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
 
                       {/* Category */}
                       <td className="px-4 py-3.5">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap ${
+                          isInactive
+                            ? 'bg-slate-800/40 text-slate-400 border border-slate-700/60'
+                            : 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20'
+                        }`}>
                           <ShieldCheck className="w-3 h-3" />
                           <span>{getContractTypeLabel(contract.contractType)}</span>
                         </span>
@@ -874,7 +930,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                       {/* Vendor / Partner */}
                       <td className="px-4 py-3.5">
                         <div className="space-y-0.5">
-                          <p className="font-semibold text-slate-200 flex items-center gap-1">
+                          <p className={`font-semibold flex items-center gap-1 ${isInactive ? 'text-slate-400' : 'text-slate-200'}`}>
                             <Building2 className="w-3.5 h-3.5 text-slate-400" />
                             <span>{contract.vendorName}</span>
                           </p>
@@ -889,7 +945,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                       {/* Owner / Dept */}
                       <td className="px-4 py-3.5">
                         <div className="space-y-0.5">
-                          <p className="text-slate-200 font-medium">{contract.ownerName || 'Admin'}</p>
+                          <p className={`font-medium ${isInactive ? 'text-slate-400' : 'text-slate-200'}`}>{contract.ownerName || 'Admin'}</p>
                           <p className="text-[11px] text-slate-500">{contract.department || 'IT'}</p>
                         </div>
                       </td>
@@ -901,7 +957,12 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                             {contract.startDate} → {contract.endDate}
                           </div>
                           <div>
-                            {contract.status === 'renewed' ? (
+                            {isInactive ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700/80">
+                                <PowerOff className="w-3 h-3 text-slate-400" />
+                                <span>{isEn ? 'INACTIVE (PAUSED)' : 'غیرفعال (متوقف)'}</span>
+                              </span>
+                            ) : contract.status === 'renewed' ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                                 <RotateCw className="w-3 h-3" />
                                 <span>{isEn ? 'RENEWED' : 'تمدید شده'}</span>
@@ -937,7 +998,7 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                       {/* Financials */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         <div className="space-y-0.5">
-                          <p className="font-mono font-bold text-slate-200">
+                          <p className={`font-mono font-bold ${isInactive ? 'text-slate-400' : 'text-slate-200'}`}>
                             {contract.totalCost
                               ? `${contract.totalCost.toLocaleString()} ${contract.currency}`
                               : isEn ? 'Included / Fixed' : 'توافقی / ثابت'}
@@ -961,17 +1022,21 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                               setIsAlertModalOpen(true);
                             }}
                             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer group ${
-                              (contract.notifyEmails?.length || 0) + (contract.ownerEmail ? 1 : 0) > 0
+                              isInactive
+                                ? 'bg-slate-800/20 text-slate-500 border-slate-700/40 opacity-60'
+                                : (contract.notifyEmails?.length || 0) + (contract.ownerEmail ? 1 : 0) > 0
                                 ? 'bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border-sky-500/30 hover:border-sky-400'
                                 : 'bg-slate-800/40 hover:bg-slate-800 text-slate-400 border-slate-700/60'
                             }`}
                             title={
-                              isEn
+                              isInactive
+                                ? isEn ? 'Reminders paused (Inactive contract)' : 'یادآورها متوقف هستند (قرارداد غیرفعال)'
+                                : isEn
                                 ? `View ${(contract.notifyEmails?.length || 0) + (contract.ownerEmail ? 1 : 0)} alert recipients & schedule`
                                 : `مشاهده ${(contract.notifyEmails?.length || 0) + (contract.ownerEmail ? 1 : 0)} گیرنده و زمان‌بندی هشدارها`
                             }
                           >
-                            <Mail className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform shrink-0" />
+                            <Mail className={`w-3.5 h-3.5 ${isInactive ? 'text-slate-500' : 'text-sky-400 group-hover:scale-110'} transition-transform shrink-0`} />
                             <span>{(contract.notifyEmails?.length || 0) + (contract.ownerEmail ? 1 : 0)}</span>
                           </button>
 
@@ -1002,9 +1067,29 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Actions with 3-Dots Menu */}
+                      {/* Actions: Quick Toggle + 3-Dots Menu */}
                       <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {/* Quick Toggle Active/Inactive */}
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleActive(contract)}
+                              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                                isInactive
+                                  ? 'bg-slate-800 text-slate-400 hover:text-emerald-400 border-slate-700 hover:border-emerald-500/50'
+                                  : 'bg-emerald-500/10 text-emerald-400 hover:text-rose-400 border-emerald-500/30 hover:border-rose-500/40'
+                              }`}
+                              title={
+                                isInactive
+                                  ? isEn ? 'Activate Contract' : 'فعال‌سازی قرارداد'
+                                  : isEn ? 'Deactivate (Pause alerts & countdown)' : 'غیرفعال‌سازی (توقف هشدارها و روزشمار)'
+                              }
+                            >
+                              {isInactive ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={(e) => handleToggleActionMenu(e, contract)}
@@ -1231,6 +1316,34 @@ export const ContractsView: React.FC<ContractsViewProps> = ({
                 )}
                 <span>{isEn ? 'Send Test Alert' : 'ارسال ایمیل هشدار آزمایشی'}</span>
               </button>
+
+              {/* Quick Toggle Active / Inactive in Action Menu */}
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleToggleActive(actionMenuAnchor.item);
+                    setActionMenuAnchor(null);
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
+                    (actionMenuAnchor.item.isActive === false || actionMenuAnchor.item.status === 'inactive')
+                      ? isLightMode ? 'hover:bg-emerald-50 text-emerald-700' : 'hover:bg-emerald-500/15 text-emerald-400'
+                      : isLightMode ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-800 text-slate-300'
+                  }`}
+                >
+                  {(actionMenuAnchor.item.isActive === false || actionMenuAnchor.item.status === 'inactive') ? (
+                    <>
+                      <Power className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{isEn ? 'Activate Contract' : 'فعال‌سازی قرارداد'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <PowerOff className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>{isEn ? 'Deactivate Contract' : 'غیرفعال‌سازی قرارداد'}</span>
+                    </>
+                  )}
+                </button>
+              )}
 
               {/* Renew Button */}
               {canEdit && (

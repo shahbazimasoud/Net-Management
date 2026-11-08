@@ -88,7 +88,8 @@ function writeStore(store: any): void {
 }
 
 // Compute dynamic status based on dates
-export function computeLicenseStatus(startDate: string, endDate: string, currentStatus?: LicenseStatus): LicenseStatus {
+export function computeLicenseStatus(startDate: string, endDate: string, currentStatus?: LicenseStatus, isActive?: boolean): LicenseStatus {
+  if (isActive === false || currentStatus === 'inactive') return 'inactive';
   if (currentStatus === 'suspended') return 'suspended';
   if (currentStatus === 'renewed') return 'renewed';
   const now = new Date();
@@ -103,7 +104,8 @@ export function computeLicenseStatus(startDate: string, endDate: string, current
   return 'active';
 }
 
-export function computeContractStatus(startDate: string, endDate: string, currentStatus?: ContractStatus): ContractStatus {
+export function computeContractStatus(startDate: string, endDate: string, currentStatus?: ContractStatus, isActive?: boolean): ContractStatus {
+  if (isActive === false || currentStatus === 'inactive') return 'inactive';
   if (currentStatus === 'terminated') return 'terminated';
   if (currentStatus === 'renewed') return 'renewed';
   if (currentStatus === 'in_renewal') return 'in_renewal';
@@ -290,11 +292,15 @@ licenseContractRouter.get('/licenses', async (req: Request, res: Response) => {
   const store = readStore();
   let licenses: LicenseItem[] = Array.isArray(store.licenses) ? store.licenses : [];
 
-  // Recalculate dynamic statuses
-  licenses = licenses.map((lic) => ({
-    ...lic,
-    status: computeLicenseStatus(lic.startDate, lic.endDate, lic.status),
-  }));
+  // Recalculate dynamic statuses with active/inactive support
+  licenses = licenses.map((lic) => {
+    const isAct = lic.isActive !== undefined ? lic.isActive : (lic.status !== 'inactive');
+    return {
+      ...lic,
+      isActive: isAct,
+      status: computeLicenseStatus(lic.startDate, lic.endDate, lic.status, isAct),
+    };
+  });
 
   // Specific scope filtering if governed by policy
   if (!isSuperAdmin && auth.policy?.targetLicenseScope === 'specific') {
@@ -309,6 +315,7 @@ licenseContractRouter.get('/licenses', async (req: Request, res: Response) => {
     summary: {
       total: licenses.length,
       active: licenses.filter((l) => l.status === 'active').length,
+      inactive: licenses.filter((l) => l.status === 'inactive' || l.isActive === false).length,
       expiring_soon: licenses.filter((l) => l.status === 'expiring_soon').length,
       expired: licenses.filter((l) => l.status === 'expired').length,
       renewed: licenses.filter((l) => l.status === 'renewed').length,
@@ -342,7 +349,8 @@ licenseContractRouter.post('/licenses', async (req: Request, res: Response) => {
   if (!Array.isArray(store.licenses)) store.licenses = [];
 
   const newId = `lic-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-  const status = computeLicenseStatus(body.startDate, body.endDate, body.status);
+  const isActive = body.isActive !== undefined ? Boolean(body.isActive) : (body.status !== 'inactive');
+  const status = computeLicenseStatus(body.startDate, body.endDate, body.status, isActive);
 
   const newLicense: LicenseItem = {
     id: newId,
@@ -360,6 +368,7 @@ licenseContractRouter.post('/licenses', async (req: Request, res: Response) => {
     startDate: body.startDate,
     endDate: body.endDate,
     status,
+    isActive,
     cost: typeof body.cost === 'number' ? body.cost : Number(body.cost) || 0,
     currency: body.currency || 'IRR',
     paymentMethod: body.paymentMethod || 'Annual',
@@ -439,7 +448,12 @@ licenseContractRouter.put('/licenses/:id', async (req: Request, res: Response) =
 
   const startDate = body.startDate || existing.startDate;
   const endDate = body.endDate || existing.endDate;
-  const status = body.status ? body.status : computeLicenseStatus(startDate, endDate, existing.status);
+  const isActive = body.isActive !== undefined
+    ? Boolean(body.isActive)
+    : (body.status !== undefined ? body.status !== 'inactive' : (existing.isActive !== undefined ? existing.isActive : existing.status !== 'inactive'));
+  const status = body.status
+    ? (isActive ? body.status : 'inactive')
+    : computeLicenseStatus(startDate, endDate, existing.status, isActive);
 
   const updated: LicenseItem = {
     ...existing,
@@ -447,6 +461,7 @@ licenseContractRouter.put('/licenses/:id', async (req: Request, res: Response) =
     id: existing.id,
     startDate,
     endDate,
+    isActive,
     status,
     updatedAt: new Date().toISOString(),
   };
@@ -710,10 +725,14 @@ licenseContractRouter.get('/contracts', async (req: Request, res: Response) => {
   const store = readStore();
   let contracts: ContractItem[] = Array.isArray(store.contracts) ? store.contracts : [];
 
-  contracts = contracts.map((cnt) => ({
-    ...cnt,
-    status: computeContractStatus(cnt.startDate, cnt.endDate, cnt.status),
-  }));
+  contracts = contracts.map((cnt) => {
+    const isAct = cnt.isActive !== undefined ? cnt.isActive : (cnt.status !== 'inactive');
+    return {
+      ...cnt,
+      isActive: isAct,
+      status: computeContractStatus(cnt.startDate, cnt.endDate, cnt.status, isAct),
+    };
+  });
 
   // Specific scope filtering if governed by policy
   if (!isSuperAdmin && auth.policy?.targetContractScope === 'specific') {
@@ -728,6 +747,7 @@ licenseContractRouter.get('/contracts', async (req: Request, res: Response) => {
     summary: {
       total: contracts.length,
       active: contracts.filter((c) => c.status === 'active').length,
+      inactive: contracts.filter((c) => c.status === 'inactive' || c.isActive === false).length,
       expiring_soon: contracts.filter((c) => c.status === 'expiring_soon').length,
       expired: contracts.filter((c) => c.status === 'expired').length,
       in_renewal: contracts.filter((c) => c.status === 'in_renewal').length,
@@ -761,7 +781,8 @@ licenseContractRouter.post('/contracts', async (req: Request, res: Response) => 
   if (!Array.isArray(store.contracts)) store.contracts = [];
 
   const newId = `cnt-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-  const status = computeContractStatus(body.startDate, body.endDate, body.status);
+  const isActive = body.isActive !== undefined ? Boolean(body.isActive) : (body.status !== 'inactive');
+  const status = computeContractStatus(body.startDate, body.endDate, body.status, isActive);
 
   const newContract: ContractItem = {
     id: newId,
@@ -776,6 +797,7 @@ licenseContractRouter.post('/contracts', async (req: Request, res: Response) => 
     startDate: body.startDate,
     endDate: body.endDate,
     status,
+    isActive,
     totalCost: typeof body.totalCost === 'number' ? body.totalCost : Number(body.totalCost) || 0,
     currency: body.currency || 'IRR',
     paymentTerms: body.paymentTerms || 'Monthly',
@@ -855,7 +877,12 @@ licenseContractRouter.put('/contracts/:id', async (req: Request, res: Response) 
 
   const startDate = body.startDate || existing.startDate;
   const endDate = body.endDate || existing.endDate;
-  const status = body.status ? body.status : computeContractStatus(startDate, endDate, existing.status);
+  const isActive = body.isActive !== undefined
+    ? Boolean(body.isActive)
+    : (body.status !== undefined ? body.status !== 'inactive' : (existing.isActive !== undefined ? existing.isActive : existing.status !== 'inactive'));
+  const status = body.status
+    ? (isActive ? body.status : 'inactive')
+    : computeContractStatus(startDate, endDate, existing.status, isActive);
 
   const updated: ContractItem = {
     ...existing,
@@ -863,6 +890,7 @@ licenseContractRouter.put('/contracts/:id', async (req: Request, res: Response) 
     id: existing.id,
     startDate,
     endDate,
+    isActive,
     status,
     updatedAt: new Date().toISOString(),
   };
@@ -1742,6 +1770,8 @@ export async function checkAndSendLicenseContractAlerts(): Promise<{
   // 1. Check Licenses
   for (const lic of licenses) {
     try {
+      // Skip inactive or suspended licenses - no alerts or notifications should be sent
+      if (lic.isActive === false || lic.status === 'inactive' || lic.status === 'suspended') continue;
       if (!Array.isArray(lic.notifyEmails) || lic.notifyEmails.length === 0) continue;
 
       const end = new Date(lic.endDate);
@@ -1791,6 +1821,8 @@ export async function checkAndSendLicenseContractAlerts(): Promise<{
   // 2. Check Contracts
   for (const cnt of contracts) {
     try {
+      // Skip inactive or terminated contracts - no alerts or notifications should be sent
+      if (cnt.isActive === false || cnt.status === 'inactive' || cnt.status === 'terminated') continue;
       if (!Array.isArray(cnt.notifyEmails) || cnt.notifyEmails.length === 0) continue;
 
       const end = new Date(cnt.endDate);

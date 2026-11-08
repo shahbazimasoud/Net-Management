@@ -650,7 +650,8 @@ CREATE TABLE IF NOT EXISTS contracts (
     department VARCHAR(128),
     start_date VARCHAR(32) NOT NULL,
     end_date VARCHAR(32) NOT NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'active', -- 'active' | 'expiring_soon' | 'expired' | 'renewed' | 'in_renewal' | 'terminated'
+    status VARCHAR(32) NOT NULL DEFAULT 'active', -- 'active' | 'expiring_soon' | 'expired' | 'renewed' | 'in_renewal' | 'terminated' | 'inactive'
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     total_cost NUMERIC(18,2) DEFAULT 0,
     currency VARCHAR(16) DEFAULT 'IRR',
     payment_terms TEXT,
@@ -663,6 +664,7 @@ CREATE TABLE IF NOT EXISTS contracts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status);
+CREATE INDEX IF NOT EXISTS idx_contracts_is_active ON contracts(is_active);
 CREATE INDEX IF NOT EXISTS idx_contracts_vendor ON contracts(vendor_name);
 CREATE INDEX IF NOT EXISTS idx_contracts_type ON contracts(contract_type);
 CREATE INDEX IF NOT EXISTS idx_contracts_end_date ON contracts(end_date);
@@ -683,7 +685,8 @@ CREATE TABLE IF NOT EXISTS licenses (
     department VARCHAR(128),
     start_date VARCHAR(32) NOT NULL,
     end_date VARCHAR(32) NOT NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'active', -- 'active' | 'expiring_soon' | 'expired' | 'renewed' | 'in_renewal'
+    status VARCHAR(32) NOT NULL DEFAULT 'active', -- 'active' | 'expiring_soon' | 'expired' | 'renewed' | 'in_renewal' | 'inactive'
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     cost NUMERIC(18,2) DEFAULT 0,
     currency VARCHAR(16) DEFAULT 'IRR',
     payment_method VARCHAR(64),

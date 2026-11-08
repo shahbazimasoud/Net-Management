@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.421.1';
+export const APP_VERSION = '1.422.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.422.0',
+    releaseDate: '2026-11-07',
+    type: 'minor',
+    title: 'افزودن قابلیت وضعیت فعال و غیرفعال (Active/Inactive) برای قراردادها و لایسنس‌ها با تفکیک بصری رنگی، توقف کامل روزشمار و جلوگیری قطعی از ارسال ایمیل‌های یادآوری',
+    title_en: 'Active & Inactive Operational State for Contracts & Licenses with Visual Distinct Styling, Paused Expiration Countdowns, and Complete Suppression of Automated Reminder Emails',
+    changes: [
+      'افزودن وضعیت عملیاتی دوگانه فعال (Active) و غیرفعال (Inactive) برای کلیه قراردادها و لایسنس‌های نرم‌افزاری و سخت‌افزاری سازمان.',
+      'تفکیک بصری کامل در جدول و لیست‌ها: ردیف‌های غیرفعال با استایل کدر و خاکستری، حاشیه کناری متمایز و برچسب اختصاصی «INACTIVE» نمایش داده می‌شوند.',
+      'توقف کامل محاسبه زمان انقضا و روزشمار: در وضعیت غیرفعال، روزشمار انقضا محاسبه نشده و برچسب متوقف «INACTIVE (PAUSED)» جایگزین تایمر شمارش معکوس می‌شود.',
+      'جلوگیری قطعی از ارسال ایمیل‌های یادآوری: موتور کران جاب پس‌زمینه و هشدارهای سررسید رکوردهای غیرفعال را نادیده گرفته و هیچ ایمیل هشداری برای آنها ارسال نمی‌کند.',
+      'افزودن دکمه تاگل سریع ۱-کلیکی (Power/PowerOff) در ستون عملیات جدول و منوی سه‌نقطه جهت تغییر آنی وضعیت بدون نیاز به باز کردن کامل فرم.',
+      'افزودن سلکتور وضعیت عملیاتی فعال/غیرفعال در سکشن اول مودال قرارداد و لایسنس به همراه تولتیپ راهنمای سه بخشی سه‌گانه.',
+      'افزودن فیلتر اختصاصی «Inactive (Paused)» در دراپ‌داون وضعیت و تفکیک آمار دارایی‌های غیرفعال در محاسبات KPI.'
+    ],
+    changes_en: [
+      'Introduced dual operational states (Active vs Inactive) across all enterprise vendor contracts, warranties, SLAs, and equipment licenses.',
+      'Distinct visual styling: Inactive rows feature muted opacity, dimmed slate palette, distinctive accent border, and dedicated INACTIVE badges.',
+      'Complete countdown suppression: Expiration countdown calculation is completely paused for inactive items, replaced by an "INACTIVE (PAUSED)" badge.',
+      'Zero reminder email dispatch: Background alert daemon and cron jobs explicitly skip all inactive records, guaranteeing zero notification emails.',
+      '1-Click quick toggle button (Power/PowerOff icon) in table Actions column and 3-dots menu for immediate state switching without opening the modal.',
+      'Added Operational Status button group in Section 1 of ContractModal and LicenseModal with 3-part boundary-safe FieldInfoTooltip.',
+      'Added dedicated "Inactive (Paused)" option to status filter dropdowns and updated KPI summary metrics.'
+    ]
+  },
   {
     version: '1.421.1',
     releaseDate: '2026-11-07',

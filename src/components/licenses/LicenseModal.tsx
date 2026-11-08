@@ -24,7 +24,9 @@ import {
   CheckCircle2,
   ShieldCheck,
   Tag,
-  RotateCw
+  RotateCw,
+  Power,
+  PowerOff
 } from 'lucide-react';
 import {
   LicenseItem,
@@ -88,6 +90,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [notes, setNotes] = useState('');
+  const [isActive, setIsActive] = useState<boolean>(true);
 
   // Renewal origin & duration configuration
   const [renewalOrigin, setRenewalOrigin] = useState<'from_today' | 'continuous'>('from_today');
@@ -118,14 +121,15 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
     return Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
   }, [startDate, endDate]);
 
-  // Days left until expiration from today
+  // Days left until expiration from today (suppressed / paused when inactive)
   const daysLeft = React.useMemo(() => {
+    if (!isActive) return null;
     if (!endDate) return null;
     const end = new Date(endDate);
     const now = new Date();
     if (isNaN(end.getTime())) return null;
     return Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-  }, [endDate]);
+  }, [endDate, isActive]);
 
   // Handle switching between starting from today vs continuous from previous end date
   const handleRenewalOriginChange = (origin: 'from_today' | 'continuous') => {
@@ -225,6 +229,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
       setAlertDays(license.alertDays?.length ? license.alertDays : [30, 15, 7, 0]);
       setNotifyEmails(license.notifyEmails || []);
       setAttachments([]); // New fresh documents for this renewal cycle
+      setIsActive(true);
       setNotes(
         isEn
           ? `Renewed from preceding cycle (${license.startDate} to ${license.endDate})`
@@ -248,6 +253,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
       setNotifyEmails(license.notifyEmails || []);
       setAttachments(license.attachments || []);
       setNotes(license.notes || '');
+      setIsActive(license.isActive !== undefined ? license.isActive : license.status !== 'inactive');
     } else {
       // Default initial values for new license
       setTitle('');
@@ -270,6 +276,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
       setNotifyEmails([]);
       setAttachments([]);
       setNotes('');
+      setIsActive(true);
     }
     setErrorMessage(null);
     setIsMinimized(false);
@@ -425,7 +432,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    const calculatedStatus = calculateCurrentStatus(endDate);
+    const calculatedStatus: LicenseStatus = !isActive ? 'inactive' : calculateCurrentStatus(endDate);
 
     const licensePayload: Partial<LicenseItem> = {
       title: title.trim(),
@@ -438,6 +445,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
       department: department.trim(),
       startDate,
       endDate,
+      isActive,
       cost: Number(cost) || 0,
       currency,
       paymentMethod,
@@ -605,10 +613,60 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
 
           {/* Section 1: Basic Identity & Keys */}
           <div className="space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-violet-400" />
-              {isEn ? '1. Identification & Vendor Details' : '۱. مشخصات هویتی و تامین‌کننده'}
-            </h3>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-violet-400" />
+                {isEn ? '1. Identification & Vendor Details' : '۱. مشخصات هویتی و تامین‌کننده'}
+              </h3>
+
+              {/* Operational Status Toggle: Active vs Inactive */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-medium text-slate-400">
+                  {isEn ? 'Operational Status:' : 'وضعیت عملیاتی:'}
+                </span>
+                <div className="inline-flex p-0.5 rounded-xl border border-slate-700/60 bg-slate-900/80">
+                  <button
+                    type="button"
+                    onClick={() => setIsActive(true)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg font-bold transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : isLightMode
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Power className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Active' : 'فعال'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsActive(false)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg font-bold transition-all cursor-pointer ${
+                      !isActive
+                        ? 'bg-slate-700 text-slate-200 border border-slate-600 shadow-sm'
+                        : isLightMode
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <PowerOff className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{isEn ? 'Inactive (Paused)' : 'غیرفعال (متوقف)'}</span>
+                  </button>
+                </div>
+                <FieldInfoTooltip
+                  title={isEn ? 'Operational Status' : 'وضعیت عملیاتی لایسنس'}
+                  infoWhatEn="Controls whether this license is actively tracked with countdown timers and automated email alerts."
+                  infoWhatFa="تعیین فعال یا متوقف بودن پایش لایسنس، روزشمار انقضا و ارسال ایمیل‌های یادآوری."
+                  infoWhyEn="When Inactive, the expiration countdown is paused and NO email alerts will be dispatched, keeping records preserved without annoyance."
+                  infoWhyFa="در حالت غیرفعال، روزشمار متوقف شده و هیچ ایمیل هشداری ارسال نمی‌شود، بدون نیاز به پاک کردن سوابق لایسنس."
+                  infoExampleEn="Active for current network licenses; Inactive for decommissioned or idle equipment licenses."
+                  infoExampleFa="فعال برای لایسنس‌های جاری؛ غیرفعال برای لایسنس‌های دیوایس‌های خاموش یا اسقاط‌شده."
+                  isLightMode={isLightMode}
+                  isEn={isEn}
+                />
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Title */}
@@ -1180,7 +1238,33 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
             </div>
 
             {/* Dual Term Duration & Countdown Badge Preview */}
-            {daysLeft !== null && (
+            {!isActive ? (
+              <div
+                className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
+                  isLightMode
+                    ? 'bg-slate-100 border-slate-300 text-slate-700'
+                    : 'bg-slate-900/80 border-slate-700 text-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <PowerOff className="w-4 h-4 text-slate-400 shrink-0" />
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+                    <span className="font-semibold text-slate-300">
+                      {isEn ? 'License Inactive (Paused)' : 'لایسنس غیرفعال (متوقف‌شده)'}
+                    </span>
+                    <span className="hidden sm:inline text-slate-500">•</span>
+                    <span className="text-[11px] text-slate-400">
+                      {isEn
+                        ? 'Expiration countdown is paused and automated email reminders are disabled.'
+                        : 'روزشمار انقضا متوقف بوده و ارسال ایمیل‌های هشدار خودکار غیرفعال است.'}
+                    </span>
+                  </div>
+                </div>
+                <span className="font-bold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-[10px] shrink-0">
+                  {isEn ? 'PAUSED' : 'متوقف'}
+                </span>
+              </div>
+            ) : daysLeft !== null ? (
               <div
                 className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
                   daysLeft < 0
@@ -1224,7 +1308,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                     : isEn ? 'ACTIVE' : 'معتبر و فعال'}
                 </span>
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Section 4: Alert Thresholds & Milestone Custom Days */}
