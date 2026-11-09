@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ScrollText,
   Terminal,
@@ -280,8 +280,14 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isConfirmPurgeOpen, setIsConfirmPurgeOpen] = useState(false);
 
+  // Concurrency guard and debounce timer to prevent overlapping fetches and number fluctuation
+  const isRefreshingRef = useRef(false);
+  const debounceTimerRef = useRef<any>(null);
+
   // Authoritative live refresh directly from PostgreSQL backend with optimistic cache fallback
   const refreshData = async () => {
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
     setIsRefreshing(true);
     try {
       const [pLogs, cLogs, sLogs, statsData] = await Promise.all([
@@ -297,6 +303,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
     } catch (err) {
       console.warn('[AuditLogsView] Failed to live-refresh audit logs from PostgreSQL:', err);
     } finally {
+      isRefreshingRef.current = false;
       setTimeout(() => setIsRefreshing(false), 300);
     }
   };
@@ -310,11 +317,17 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
     loadReportsList();
 
     const handleUpdate = () => {
-      refreshData();
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => {
+        refreshData();
+      }, 500);
     };
 
     window.addEventListener(AUDIT_LOG_UPDATED_EVENT, handleUpdate);
-    return () => window.removeEventListener(AUDIT_LOG_UPDATED_EVENT, handleUpdate);
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      window.removeEventListener(AUDIT_LOG_UPDATED_EVENT, handleUpdate);
+    };
   }, []);
 
   // Copy helper

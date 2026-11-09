@@ -103,10 +103,11 @@ export function getCurrentActor(): AuditActor {
 }
 
 // ==========================================
-// Pre-seeded Realistic Audit History
+// Pre-seeded Realistic Audit History (Empty - strictly authentic live telemetry)
 // ==========================================
 
-const SEED_PORTAL_LOGS: PortalAuditLogEntry[] = [
+const SEED_PORTAL_LOGS: PortalAuditLogEntry[] = [];
+/*
   {
     id: 'log-portal-101',
     timestamp: new Date(Date.now() - 1000 * 60 * 18).toISOString(),
@@ -283,6 +284,7 @@ const SEED_PORTAL_LOGS: PortalAuditLogEntry[] = [
     details_en: 'Restored 6 configuration templates incrementally with pre-flight safety snapshot captured.',
   }
 ];
+*/
 
 // ==========================================
 // Storage & Access API (PostgreSQL-Authoritative with Resilient Local Cache)
@@ -300,7 +302,7 @@ export async function fetchPortalAuditLogs(options: {
     const res = await fetchPortalAuditLogsApi(options);
     if (res && res.success && Array.isArray(res.logs)) {
       if (res.logs.length > 0 || (options.category === undefined && options.search === undefined)) {
-        savePortalAuditLogs(res.logs);
+        savePortalAuditLogs(res.logs, false); // Do not dispatch recursive update event on cache sync
       }
       return res.logs;
     }
@@ -315,32 +317,28 @@ export function loadPortalAuditLogs(): PortalAuditLogEntry[] {
     const raw = localStorage.getItem(STORAGE_KEYS.PORTAL_LOGS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const existingIds = new Set(parsed.map((p: PortalAuditLogEntry) => p.id));
-        let changed = false;
-        for (const seed of SEED_PORTAL_LOGS) {
-          if (!existingIds.has(seed.id)) {
-            parsed.push(seed);
-            changed = true;
-          }
-        }
-        if (changed) {
-          savePortalAuditLogs(parsed);
-        }
-        return parsed;
+      if (Array.isArray(parsed)) {
+        // Filter out any legacy synthetic seed logs so they never pollute authentic counts
+        return parsed.filter(
+          (p: PortalAuditLogEntry) => p && p.id && !p.id.startsWith('log-portal-10')
+        );
       }
     }
   } catch (e) {
     console.error('Failed to load portal audit logs', e);
   }
-  savePortalAuditLogs(SEED_PORTAL_LOGS);
-  return SEED_PORTAL_LOGS;
+  return [];
 }
 
-export function savePortalAuditLogs(logs: PortalAuditLogEntry[]): void {
+export function savePortalAuditLogs(logs: PortalAuditLogEntry[], notify = true): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.PORTAL_LOGS, JSON.stringify(logs));
-    window.dispatchEvent(new CustomEvent(AUDIT_LOG_UPDATED_EVENT, { detail: { type: 'portal' } }));
+    const cleanLogs = (logs || []).filter(
+      (p) => p && p.id && !(typeof p.id === 'string' && p.id.startsWith('log-portal-10'))
+    );
+    localStorage.setItem(STORAGE_KEYS.PORTAL_LOGS, JSON.stringify(cleanLogs));
+    if (notify && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(AUDIT_LOG_UPDATED_EVENT, { detail: { type: 'portal' } }));
+    }
   } catch (e) {
     console.error('Failed to save portal audit logs', e);
   }
@@ -361,7 +359,7 @@ export async function fetchDeviceCommandLogs(options: {
   try {
     const res = await fetchDeviceCommandLogsApi(options);
     if (res && res.success && Array.isArray(res.logs)) {
-      saveDeviceCommandLogs(res.logs);
+      saveDeviceCommandLogs(res.logs, false); // Do not dispatch recursive update event on cache sync
       return res.logs;
     }
   } catch (err) {
@@ -386,7 +384,7 @@ export function loadDeviceCommandLogs(): DeviceCommandLogEntry[] {
           return true;
         });
         if (authenticLogs.length !== parsed.length) {
-          saveDeviceCommandLogs(authenticLogs);
+          saveDeviceCommandLogs(authenticLogs, false);
         }
         return authenticLogs;
       }
@@ -397,14 +395,16 @@ export function loadDeviceCommandLogs(): DeviceCommandLogEntry[] {
   return [];
 }
 
-export function saveDeviceCommandLogs(logs: DeviceCommandLogEntry[]): void {
+export function saveDeviceCommandLogs(logs: DeviceCommandLogEntry[], notify = true): void {
   try {
     // Ensure no mock seeds leak into storage
     const cleanLogs = (logs || []).filter(
       (p) => p && p.id && !(typeof p.id === 'string' && p.id.startsWith('cmd-log-2'))
     );
     localStorage.setItem(STORAGE_KEYS.COMMAND_LOGS, JSON.stringify(cleanLogs));
-    window.dispatchEvent(new CustomEvent(AUDIT_LOG_UPDATED_EVENT, { detail: { type: 'command' } }));
+    if (notify && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(AUDIT_LOG_UPDATED_EVENT, { detail: { type: 'command' } }));
+    }
   } catch (e) {
     console.error('Failed to save device command logs', e);
   }
@@ -450,7 +450,7 @@ export async function fetchServerCommandLogs(options: {
     if (res.ok) {
       const data = await res.json();
       if (data.success && Array.isArray(data.logs)) {
-        saveServerCommandLogs(data.logs);
+        saveServerCommandLogs(data.logs, false); // Do not dispatch recursive update event on cache sync
         return data.logs;
       }
     }
@@ -462,10 +462,12 @@ export async function fetchServerCommandLogs(options: {
 
 export const loadServerCommandLogs = fetchServerCommandLogs;
 
-export function saveServerCommandLogs(logs: ServerCommandAuditLogEntry[]): void {
+export function saveServerCommandLogs(logs: ServerCommandAuditLogEntry[], notify = true): void {
   try {
     localStorage.setItem(STORAGE_KEYS.SERVER_COMMAND_LOGS, JSON.stringify(logs));
-    window.dispatchEvent(new CustomEvent(AUDIT_LOG_UPDATED_EVENT, { detail: { type: 'server_command' } }));
+    if (notify && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(AUDIT_LOG_UPDATED_EVENT, { detail: { type: 'server_command' } }));
+    }
   } catch (e) {
     console.error('Failed to save server command logs', e);
   }

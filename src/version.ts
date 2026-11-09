@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.0';
+export const APP_VERSION = '1.425.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.1',
+    releaseDate: '2026-11-08',
+    type: 'patch',
+    title: 'رفع مشکل نوسان و تغییر مداوم شمارنده رویدادهای پرتال (Portal Audit Events) در صفحه لاگ‌های ممیزی و مهار چرخه بازگشتی رویدادها',
+    title_en: 'Fix Fluctuating Portal Audit Events Counter and Eliminate Recursive Event Feedback Loops in Audit & Command Logs',
+    changes: [
+      'رفع کامل مشکل نوسان، پرش و کم و زیاد شدن مداوم عدد شمارنده وقایع پرتال (Portal Audit Events) در کارت شاخص و نشان تب صفحه لاگ‌های ممیزی.',
+      'حذف تزریق و بازتولید داده‌های نمونه (Mock Seed Logs) در هنگام فراخوانی کش محلی، در انطباق کامل با قانون عدم تولید داده جعلی (Rule 8).',
+      'مهار چرخه تکرارشونده و بی‌نهایت رویدادها (Event Feedback Loop) با افزودن فلگ اطلاع‌رسانی مشروط در متدهای ذخیره‌سازی لاگ‌ها (savePortalAuditLogs, saveDeviceCommandLogs, saveServerCommandLogs) به هنگام همگام‌سازی کش.',
+      'تجهیز تابع به‌روزرسانی زنده (refreshData) به قفل همزمانی (Concurrency Lock با useRef) و دیبانسر ۵۰۰ میلی‌ثانیه‌ای رویدادها جهت جلوگیری از پردازش همپوشان و نامرتب ریکوئست‌ها.'
+    ],
+    changes_en: [
+      'Resolved continuous fluctuation and jitter of the Portal Audit Events counter on KPI summary cards and tab badges in Audit & Command Logs.',
+      'Purged synthetic seed log reinjection from local cache retrieval, strictly enforcing Rule 8 against fake/mock telemetry.',
+      'Eliminated recursive infinite event dispatch loops by introducing conditional notification flags during background cache synchronization.',
+      'Equipped live refresh functions with concurrency execution locks and 500ms event debouncers to prevent out-of-order state tearing.'
+    ]
+  },
   {
     version: '1.425.0',
     releaseDate: '2026-11-08',
