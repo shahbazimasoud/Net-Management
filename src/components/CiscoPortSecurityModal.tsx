@@ -38,6 +38,7 @@ import {
 } from './PortInspectorModal';
 import { executeDeviceOperation, fetchDevicePorts, openDeviceSessionApi } from '../services/api';
 import { matchPortFlexible } from '../utils/portUtils';
+import { useAuth } from '../context/AuthContext';
 import { logDeviceCommand } from '../services/auditLogger';
 
 export interface CiscoPortSecurityModalProps {
@@ -61,6 +62,18 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
 }) => {
   const { isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
+  const { user, effectivePolicy } = useAuth();
+
+  const currentActor = useMemo(() => {
+    if (user && (user.username || user.email)) {
+      return {
+        username: (user.username || user.email).trim(),
+        role: effectivePolicy?.name || user.role || (user.userType === 'ad' ? 'Domain User (Active Directory)' : 'Administrator'),
+        ipAddress: typeof window !== 'undefined' ? window.location.hostname || '127.0.0.1' : '127.0.0.1',
+      };
+    }
+    return undefined;
+  }, [user, effectivePolicy]);
 
   // Detect Light Mode
   const isLightMode = useMemo(() => {
@@ -302,6 +315,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           command: `clear port-security mac-address ${targetMac} interface ${portId}`,
           riskLevel: 'low',
           status: 'success',
+          actor: currentActor,
           outputSummary: `Cleared MAC ${targetMac} from port ${portId}`,
           notes: `Port security MAC cleared`,
         });
@@ -372,6 +386,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           command: `clear port-security all interface ${portId}`,
           riskLevel: 'medium',
           status: 'success',
+          actor: currentActor,
           outputSummary: `Cleared all learned MAC addresses from port ${portId}`,
           notes: `Port security all MACs cleared`,
         });
@@ -433,6 +448,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           command: `interface ${portId}\n shutdown\n no shutdown`,
           riskLevel: 'low',
           status: 'success',
+          actor: currentActor,
           outputSummary: `Recovered port ${portId} from err-disabled state`,
           notes: `Err-disable recovery executed`,
         });
@@ -658,6 +674,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           command: liveCliCommand,
           riskLevel: 'medium',
           status: 'success',
+          actor: currentActor,
           outputSummary: `Applied port security configuration on interface ${portId}`,
           notes: `Port security updated: mode=${mode}, maxMac=${maxMac}, violation=${violation}`,
         });

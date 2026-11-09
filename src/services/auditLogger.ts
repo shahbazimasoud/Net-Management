@@ -72,7 +72,8 @@ export function getCurrentActor(): AuditActor {
       sessionStorage.getItem('nettopology_auth_token_v1') ||
       localStorage.getItem('nettopology_auth_token_v1');
     if (token && typeof token === 'string' && token.includes('.')) {
-      const payloadBase64Url = token.split('.')[0];
+      const parts = token.split('.');
+      const payloadBase64Url = parts.length >= 3 ? parts[1] : parts[0];
       const base64 = payloadBase64Url.replace(/-/g, '+').replace(/_/g, '/');
       const jsonStr = decodeURIComponent(
         atob(base64)
@@ -81,11 +82,11 @@ export function getCurrentActor(): AuditActor {
           .join('')
       );
       const payload = JSON.parse(jsonStr);
-      if (payload && (payload.username || payload.email)) {
-        const username = (payload.username || payload.email).trim();
+      const candidateUsername = (payload?.username || payload?.samAccountName || payload?.user?.username || payload?.email || '').trim();
+      if (candidateUsername) {
         const role = payload.role || (payload.userType === 'ad' ? 'Domain User (Active Directory)' : 'Administrator');
         return {
-          username,
+          username: candidateUsername,
           role,
           ipAddress: typeof window !== 'undefined' ? window.location.hostname || '127.0.0.1' : '127.0.0.1',
         };

@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.2';
+export const APP_VERSION = '1.425.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.3',
+    releaseDate: '2026-11-09',
+    type: 'patch',
+    title: 'تضمین ثبت قطعی لاگ عملیات و دستورات پورت (خاموش/روشن، دسکریپشن، VLAN، پاک‌سازی و پیکربندی مک‌آدرس‌های پورت سکوریتی) به نام کاربر واقعی احرازشده اکتیو دایرکتوری (LDAP)',
+    title_en: 'Guaranteed Authentic AD/LDAP User Attribution for All Port Operations: Shutdown, Description, VLAN, and Port Security MAC Management',
+    changes: [
+      'تجهیز کامل مودال بازرسی پورت (PortInspectorModal) و مودال امنیت پورت سیسکو (CiscoPortSecurityModal) به هویت کاربر لاگین‌شده اکتیو دایرکتوری (LDAP/AD).',
+      'ثبت قطعی لاگ به نام دقیق کاربر لاگین‌شده در کلیه عملیات پورت: خاموش و روشن کردن (Shutdown / No-Shutdown)، تنظیم و تغییر توضیحات پورت (Port Description)، تغییر و تخصیص VLAN از منوی کلیک‌راست و پنل ویرایش پورت.',
+      'ثبت دقیق عملیات پاک‌سازی تک‌مک‌آدرس (Clear MAC)، پاک‌سازی کامل مک‌ها (Clear All MACs)، بازنشانی وضعیت Err-Disable و اعمال پیکربندی Port Security (حالت Sticky، حداکثر تعداد مک و نوع تخلف) به نام کاربر جاری.',
+      'اصلاح منطق استخراج پی‌لود توکن هویتی در سرویس‌های ممیزی و API (auditLogger و api) جهت پشتیبانی بدون خطا از ساختارهای توکن دو بخشی و استاندارد JWT سه بخشی.',
+      'پایبندی ۱۰۰ درصدی به قوانین عدم استفاده از داده‌های ساختگی یا شبیه‌سازی‌شده (Rule 8)؛ کلیه لاگ‌ها منحصراً منعکس‌کننده نشست‌های زنده و فرامین ارسالی واقعی به تجهیزات شبکه هستند.'
+    ],
+    changes_en: [
+      'Fully bound authenticated Active Directory (LDAP/AD) and local user identity across PortInspectorModal and CiscoPortSecurityModal.',
+      'Ensured authentic actor attribution for all physical port operations: port shutdown/no-shutdown, port description updates, and VLAN modifications via context menu and edit panels.',
+      'Guaranteed direct user logging for Cisco Port Security actions: individual MAC clearance, clearing all learned MAC addresses, recovering ports from err-disabled status, and saving security policies (Sticky, Max MAC, Violation mode).',
+      'Enhanced JWT token payload decoder in auditLogger and api services to reliably support both 2-part and standard 3-part authentication tokens.',
+      'Strict adherence to Rule 8 (Zero Mock Data); all command entries represent real-world physical switch operations and genuine active user sessions.'
+    ]
+  },
   {
     version: '1.425.2',
     releaseDate: '2026-11-09',

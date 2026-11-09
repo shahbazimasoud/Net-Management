@@ -210,7 +210,8 @@ function getActiveUsername(): string | null {
     }
     const token = getAuthToken();
     if (token && token.includes('.')) {
-      const payloadBase64Url = token.split('.')[0];
+      const parts = token.split('.');
+      const payloadBase64Url = parts.length >= 3 ? parts[1] : parts[0];
       const base64 = payloadBase64Url.replace(/-/g, '+').replace(/_/g, '/');
       const jsonStr = decodeURIComponent(
         atob(base64)
@@ -219,7 +220,8 @@ function getActiveUsername(): string | null {
           .join('')
       );
       const parsed = JSON.parse(jsonStr);
-      if (parsed?.username) return parsed.username;
+      const candidate = (parsed?.username || parsed?.samAccountName || parsed?.user?.username || parsed?.email || '').trim();
+      if (candidate) return candidate;
     }
   } catch {}
   return null;

@@ -288,7 +288,18 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
 }) => {
   const { t, isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
-  const { effectivePolicy } = useAuth();
+  const { user, effectivePolicy } = useAuth();
+
+  const currentActor = useMemo(() => {
+    if (user && (user.username || user.email)) {
+      return {
+        username: (user.username || user.email).trim(),
+        role: effectivePolicy?.name || user.role || (user.userType === 'ad' ? 'Domain User (Active Directory)' : 'Administrator'),
+        ipAddress: typeof window !== 'undefined' ? window.location.hostname || '127.0.0.1' : '127.0.0.1',
+      };
+    }
+    return undefined;
+  }, [user, effectivePolicy]);
 
   const canTerminal = Boolean(
     device &&
@@ -662,6 +673,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           status: 'success',
           outputSummary: `Executed port action "${action}" on interface ${targetPortId}`,
           notes: `Port ${targetPortId} configured via Port Inspector context menu`,
+          actor: currentActor,
         });
       } catch (logErr) {
         console.warn('Failed to record device command log:', logErr);
@@ -797,6 +809,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           status: 'success',
           outputSummary: `VLAN ${newVlan} assigned to interface ${targetPortId}`,
           notes: `Port ${targetPortId} VLAN configured via Port Inspector Modal`,
+          actor: currentActor,
         });
       } catch (logErr) {
         console.warn('Failed to record device command log:', logErr);
@@ -910,6 +923,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           status: 'success',
           outputSummary: `Interface ${targetPort.port_id} description set to "${cleanDesc}"`,
           notes: `Port ${targetPort.port_id} description updated via Port Inspector Modal`,
+          actor: currentActor,
         });
       } catch (logErr) {
         console.warn('Failed to record device command log:', logErr);
@@ -1698,6 +1712,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             status: 'success',
             outputSummary: `Applied batch port configuration to ${res.updatedCount} ports (${targetPortIds.join(', ')})`,
             notes: `Batch port configuration executed via Port Inspector Modal`,
+            actor: currentActor,
           });
         } catch (logErr) {
           console.warn('Failed to record batch device command log:', logErr);
@@ -1782,6 +1797,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             status: 'success',
             outputSummary: `Applied physical interface configuration on port ${portId}`,
             notes: `Port ${portId} parameters updated via Port Inspector Modal`,
+            actor: currentActor,
           });
         } catch (logErr) {
           console.warn('Failed to record single port device command log:', logErr);
@@ -1820,6 +1836,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           status: 'success',
           outputSummary: `Saved running-config to startup-config in NVRAM`,
           notes: `Executed write memory from Port Inspector Modal`,
+          actor: currentActor,
         });
       } catch (logErr) {
         console.warn('Failed to record write memory command log:', logErr);
