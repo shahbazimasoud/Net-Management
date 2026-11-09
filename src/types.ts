@@ -1247,7 +1247,9 @@ export type CommandChannel =
   | 'template_push'
   | 'port_context_menu'
   | 'batch_config'
-  | 'api_script';
+  | 'api_script'
+  | 'port_configuration'
+  | 'port_security';
 
 export interface DeviceCommandLogEntry {
   id: string;

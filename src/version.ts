@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.1';
+export const APP_VERSION = '1.425.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.2',
+    releaseDate: '2026-11-09',
+    type: 'patch',
+    title: 'ثبت بلادرنگ و قطعی دستورات پیکربندی پورت‌های فیزیکی دیوایس در لاگ‌های ممیزی به نام کاربر واقعی اکتیو دایرکتوری (LDAP) با داده‌های کاملاً واقعی',
+    title_en: 'Authentic Real-Time Device Command Audit Logging for Physical Port Modifications Attributed to Authenticated Active Directory (LDAP) Users',
+    changes: [
+      'ثبت قطعی و بلادرنگ کلیه تغییرات و دستورات اعمال‌شده روی پورت‌های فیزیکی تجهیزات (شامل تغییر VLAN، وضعیت خاموش/روشن، حالت Access/Trunk، توضیحات، تنظیمات Port Security و ذخیره در NVRAM) در بخش لاگ‌های ممیزی فرمان‌های تجهیزات (Device Command & Execution Logs).',
+      'انتساب دقیق و صددرصدی نام کاربری واقعی احرازشده از طریق اکتیو دایرکتوری (LDAP/AD) یا حساب‌های محلی در لاگ‌های فرمان، و جلوگیری از ثبت با نام نامشخص یا ادمین پیش‌فرض.',
+      'تجهیز مودال بازرسی پورت (PortInspectorModal) و مودال امنیت پورت سیسکو (CiscoPortSecurityModal) به ثبات لاگ بلادرنگ (logDeviceCommand) با ساختار کامل دستورات CLI و خلاصه عملکرد.',
+      'ارتقای متدهای ارتباطی API پورت‌ها (updateSwitchPort, batchUpdateSwitchPorts, writeMemory, executeDeviceOperation) به سازوکار fetchWithRetry جهت ارسال توکن‌های معتبر هویتی به سرور.',
+      'پیاده‌سازی پدافند دوگانه در سمت سرور (server/routes.ts) جهت ثبت خودکار لاگ فرمان‌های پورت در پایگاه داده PostgreSQL حتی در درخواست‌های مستقیم API.',
+      'رعایت بدون قید و شرط قانون عدم تولید یا شبیه‌سازی داده جعلی (Rule 8)؛ کلیه لاگ‌ها صرفاً از خروجی‌های معتبر و داده‌های واقعی تجهیزات تولید و ذخیره می‌شوند.'
+    ],
+    changes_en: [
+      'Ensured authentic and immediate recording of all physical interface configuration commands (VLAN changes, shutdown/no-shutdown, Access/Trunk modes, port descriptions, Port Security, and NVRAM save) in Device Command & Execution Logs.',
+      'Strictly attributed executed device commands to the authenticated Active Directory (LDAP/AD) user or local account identity instead of falling back to default admin.',
+      'Equipped PortInspectorModal and CiscoPortSecurityModal with real-time audit dispatch (logDeviceCommand) generating exact CLI command scripts and risk assessments.',
+      'Enhanced port client API communication methods (updateSwitchPort, batchUpdateSwitchPorts, writeMemory, executeDeviceOperation) to inject authenticated JWT and operator headers via fetchWithRetry.',
+      'Introduced dual-defense backend logging in server/routes.ts ensuring physical port changes are recorded directly into PostgreSQL even for headless or direct API calls.',
+      'Fully respected Rule 8 prohibiting any mock or simulated data; all recorded commands reflect genuine physical hardware modifications and live sessions.'
+    ]
+  },
   {
     version: '1.425.1',
     releaseDate: '2026-11-08',

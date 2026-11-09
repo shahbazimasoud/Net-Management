@@ -38,6 +38,7 @@ import {
 } from './PortInspectorModal';
 import { executeDeviceOperation, fetchDevicePorts, openDeviceSessionApi } from '../services/api';
 import { matchPortFlexible } from '../utils/portUtils';
+import { logDeviceCommand } from '../services/auditLogger';
 
 export interface CiscoPortSecurityModalProps {
   isOpen: boolean;
@@ -289,6 +290,25 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
         onPortUpdated(updatedPort);
       }
 
+      try {
+        logDeviceCommand({
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+          deviceModel: device.model,
+          deviceLocation: [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > '),
+          channel: 'port_security',
+          command: `clear port-security mac-address ${targetMac} interface ${portId}`,
+          riskLevel: 'low',
+          status: 'success',
+          outputSummary: `Cleared MAC ${targetMac} from port ${portId}`,
+          notes: `Port security MAC cleared`,
+        });
+      } catch (logErr) {
+        console.warn('Failed to record device command log:', logErr);
+      }
+
       setNotification({
         type: 'success',
         message: isEn
@@ -340,6 +360,25 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
         onPortUpdated(updatedPort);
       }
 
+      try {
+        logDeviceCommand({
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+          deviceModel: device.model,
+          deviceLocation: [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > '),
+          channel: 'port_security',
+          command: `clear port-security all interface ${portId}`,
+          riskLevel: 'medium',
+          status: 'success',
+          outputSummary: `Cleared all learned MAC addresses from port ${portId}`,
+          notes: `Port security all MACs cleared`,
+        });
+      } catch (logErr) {
+        console.warn('Failed to record device command log:', logErr);
+      }
+
       setNotification({
         type: 'success',
         message: isEn
@@ -380,6 +419,25 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
 
       if (onPortUpdated) {
         onPortUpdated(updatedPort);
+      }
+
+      try {
+        logDeviceCommand({
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+          deviceModel: device.model,
+          deviceLocation: [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > '),
+          channel: 'port_security',
+          command: `interface ${portId}\n shutdown\n no shutdown`,
+          riskLevel: 'low',
+          status: 'success',
+          outputSummary: `Recovered port ${portId} from err-disabled state`,
+          notes: `Err-disable recovery executed`,
+        });
+      } catch (logErr) {
+        console.warn('Failed to record device command log:', logErr);
       }
 
       setNotification({
@@ -587,6 +645,25 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
         onPortUpdated(enrichedPort);
       }
       setMacEntries(getPortMacAddresses(enrichedPort).filter((e) => e.type !== 'hardware'));
+
+      try {
+        logDeviceCommand({
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+          deviceModel: device.model,
+          deviceLocation: [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > '),
+          channel: 'port_security',
+          command: liveCliCommand,
+          riskLevel: 'medium',
+          status: 'success',
+          outputSummary: `Applied port security configuration on interface ${portId}`,
+          notes: `Port security updated: mode=${mode}, maxMac=${maxMac}, violation=${violation}`,
+        });
+      } catch (logErr) {
+        console.warn('Failed to record device command log:', logErr);
+      }
 
       setNotification({
         type: 'success',

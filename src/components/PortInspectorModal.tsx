@@ -9,7 +9,7 @@ import { CiscoPortContextMenu } from './CiscoPortContextMenu';
 import { CiscoPortStatisticsModal } from './CiscoPortStatisticsModal';
 import { CiscoPortSecurityModal } from './CiscoPortSecurityModal';
 import { CiscoCommandConfirmModal } from './CiscoCommandConfirmModal';
-import { CiscoPortConfigConfirmModal, PortConfigUpdates } from './CiscoPortConfigConfirmModal';
+import { CiscoPortConfigConfirmModal, PortConfigUpdates, generateCiscoPortConfigCli } from './CiscoPortConfigConfirmModal';
 import { AssignVlanModal } from './AssignVlanModal';
 import { PortDescriptionModal } from './PortDescriptionModal';
 import { CiscoWriteConfirmModal, WriteChangeItem } from './CiscoWriteConfirmModal';
@@ -20,6 +20,7 @@ import { useModalDock } from '../context/ModalDockContext';
 import { useAuth } from '../context/AuthContext';
 import { isDeviceActionPermitted } from '../utils/rbac';
 import { matchPortFlexible } from '../utils/portUtils';
+import { logDeviceCommand } from '../services/auditLogger';
 
 export interface ResolvedPortSecurity {
   enabled: boolean;
@@ -590,7 +591,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           ...updates,
           port_id: targetPortId,
           interface: targetPortId,
-        });
+        }, { clientAuditLogged: true });
       } catch (putErr) {
         if (!opRes?.success) {
           throw putErr;
@@ -645,6 +646,26 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           timestamp: new Date().toLocaleTimeString(),
         },
       ]);
+
+      // Record device command audit log with authentic active operator
+      try {
+        logDeviceCommand({
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+          deviceModel: device.model,
+          deviceLocation: [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > '),
+          channel: 'port_context_menu',
+          command: cmdText,
+          riskLevel: action === 'shutdown' ? 'medium' : 'low',
+          status: 'success',
+          outputSummary: `Executed port action "${action}" on interface ${targetPortId}`,
+          notes: `Port ${targetPortId} configured via Port Inspector context menu`,
+        });
+      } catch (logErr) {
+        console.warn('Failed to record device command log:', logErr);
+      }
 
       setConfirmModalState(null);
       if (onPortUpdated) onPortUpdated();
@@ -701,7 +722,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           mode: 'access',
           port_id: targetPortId,
           interface: targetPortId,
-        });
+        }, { clientAuditLogged: true });
       } catch (putErr) {
         if (!opRes?.success) {
           throw putErr;
@@ -760,6 +781,27 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           timestamp: new Date().toLocaleTimeString(),
         },
       ]);
+
+      // Record device command audit log with authentic active operator
+      try {
+        logDeviceCommand({
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+          deviceModel: device.model,
+          deviceLocation: [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > '),
+          channel: 'port_context_menu',
+          command: `interface ${targetPortId}\n switchport mode access\n switchport access vlan ${newVlan}`,
+          riskLevel: 'low',
+          status: 'success',
+          outputSummary: `VLAN ${newVlan} assigned to interface ${targetPortId}`,
+          notes: `Port ${targetPortId} VLAN configured via Port Inspector Modal`,
+        });
+      } catch (logErr) {
+        console.warn('Failed to record device command log:', logErr);
+      }
+
       setVlanAssignModalPort(null);
       if (onPortUpdated) onPortUpdated();
     } catch (err: any) {
@@ -815,7 +857,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           description: cleanDesc,
           port_id: targetPortId,
           interface: targetPortId,
-        });
+        }, { clientAuditLogged: true });
       } catch (putErr) {
         if (!opRes?.success) {
           throw putErr;
@@ -852,6 +894,27 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           timestamp: new Date().toLocaleTimeString(),
         },
       ]);
+
+      // Record device command audit log with authentic active operator
+      try {
+        logDeviceCommand({
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+          deviceModel: device.model,
+          deviceLocation: [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > '),
+          channel: 'port_context_menu',
+          command: `interface ${targetPort.port_id}\n description ${cleanDesc}`,
+          riskLevel: 'low',
+          status: 'success',
+          outputSummary: `Interface ${targetPort.port_id} description set to "${cleanDesc}"`,
+          notes: `Port ${targetPort.port_id} description updated via Port Inspector Modal`,
+        });
+      } catch (logErr) {
+        console.warn('Failed to record device command log:', logErr);
+      }
+
       setDescriptionModalPort(null);
       if (onPortUpdated) onPortUpdated();
     } catch (err: any) {
@@ -1599,7 +1662,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           }
         }
 
-        const res = await batchUpdateSwitchPorts(device.id, targetPortIds, batchPayload);
+        const res = await batchUpdateSwitchPorts(device.id, targetPortIds, batchPayload, { clientAuditLogged: true });
 
         // Update local ports
         const updatedPortMap = new Map(res.ports.map((p) => [p.port_id, p]));
@@ -1618,6 +1681,27 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             ? `Successfully executed Cisco commands and applied configuration to ${res.updatedCount} ports!`
             : `دستورات سیسکو با موفقیت روی ${res.updatedCount} پورت انتخابی اجرا و اعمال شدند!`
         );
+
+        // Record authentic device command log for batch operation
+        try {
+          const cliScript = generateCiscoPortConfigCli(device, targetPortIds, updates);
+          logDeviceCommand({
+            deviceId: device.id,
+            deviceName: device.name,
+            deviceIp: device.ip,
+            deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+            deviceModel: device.model,
+            deviceLocation: [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > '),
+            channel: 'port_configuration',
+            command: cliScript || `batch update on ${targetPortIds.length} ports`,
+            riskLevel: 'medium',
+            status: 'success',
+            outputSummary: `Applied batch port configuration to ${res.updatedCount} ports (${targetPortIds.join(', ')})`,
+            notes: `Batch port configuration executed via Port Inspector Modal`,
+          });
+        } catch (logErr) {
+          console.warn('Failed to record batch device command log:', logErr);
+        }
 
         // Reset batch inputs
         setBatchAdminStatus('no_change');
@@ -1663,7 +1747,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           singlePayload.port_security_violation = updates.port_security_violation;
         }
 
-        const res = await updateSwitchPort(device.id, portId, singlePayload);
+        const res = await updateSwitchPort(device.id, portId, singlePayload, { clientAuditLogged: true });
 
         // Update local ports
         setPorts((prev) =>
@@ -1681,6 +1765,27 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
         }
         setIsEditing(false);
         device.has_unsaved_changes = true;
+
+        // Record authentic device command log for single port modification
+        try {
+          const cliScript = generateCiscoPortConfigCli(device, [portId], updates);
+          logDeviceCommand({
+            deviceId: device.id,
+            deviceName: device.name,
+            deviceIp: device.ip,
+            deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+            deviceModel: device.model,
+            deviceLocation: [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > '),
+            channel: 'port_configuration',
+            command: cliScript || `configure interface ${portId}`,
+            riskLevel: singlePayload.admin_status === 'disabled' ? 'medium' : 'low',
+            status: 'success',
+            outputSummary: `Applied physical interface configuration on port ${portId}`,
+            notes: `Port ${portId} parameters updated via Port Inspector Modal`,
+          });
+        } catch (logErr) {
+          console.warn('Failed to record single port device command log:', logErr);
+        }
       }
 
       if (onPortUpdated) onPortUpdated();
@@ -1696,9 +1801,30 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     if (!device) return;
     try {
       setIsWritingMem(true);
-      await writeMemory(device.id);
+      await writeMemory(device.id, { clientAuditLogged: true });
       device.has_unsaved_changes = false;
       setSessionChanges([]);
+
+      // Record authentic device command log for NVRAM save
+      try {
+        logDeviceCommand({
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+          deviceModel: device.model,
+          deviceLocation: [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > '),
+          channel: 'port_configuration',
+          command: 'write memory',
+          riskLevel: 'medium',
+          status: 'success',
+          outputSummary: `Saved running-config to startup-config in NVRAM`,
+          notes: `Executed write memory from Port Inspector Modal`,
+        });
+      } catch (logErr) {
+        console.warn('Failed to record write memory command log:', logErr);
+      }
+
       if (onPortUpdated) onPortUpdated();
     } catch (err: any) {
       alert((isEn ? 'Failed to save configuration to NVRAM: ' : 'خطا در ذخیره‌سازی در استارتاپ: ') + (err.message || err));

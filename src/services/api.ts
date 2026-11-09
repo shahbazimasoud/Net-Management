@@ -366,7 +366,7 @@ export async function executeDeviceOperation(
   port?: SwitchPort;
   message?: string;
 }> {
-  const res = await fetch(`${API_BASE}/devices/${deviceId}/operations`, {
+  const res = await fetchWithRetry(`${API_BASE}/devices/${deviceId}/operations`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -571,7 +571,8 @@ export async function checkDeviceSessionStatusApi(deviceId: string): Promise<{ s
 export async function updateSwitchPort(
   deviceId: string,
   portId: string,
-  updates: Partial<SwitchPort> & { interface?: string }
+  updates: Partial<SwitchPort> & { interface?: string },
+  options?: { clientAuditLogged?: boolean }
 ): Promise<{ port: SwitchPort; message: string; success?: boolean; cli_output?: string }> {
   const cleanId = String(
     portId ||
@@ -582,9 +583,14 @@ export async function updateSwitchPort(
     ''
   ).trim();
 
-  const res = await fetch(`${API_BASE}/devices/${deviceId}/ports/${encodeURIComponent(cleanId)}`, {
+  const reqHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (options?.clientAuditLogged) {
+    reqHeaders['x-client-audit-logged'] = 'true';
+  }
+
+  const res = await fetchWithRetry(`${API_BASE}/devices/${deviceId}/ports/${encodeURIComponent(cleanId)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: reqHeaders,
     body: JSON.stringify({ ...updates, port_id: cleanId, interface: cleanId }),
   });
   if (!res.ok) {
@@ -597,11 +603,17 @@ export async function updateSwitchPort(
 export async function batchUpdateSwitchPorts(
   deviceId: string,
   portIds: string[],
-  updates: Partial<SwitchPort>
+  updates: Partial<SwitchPort>,
+  options?: { clientAuditLogged?: boolean }
 ): Promise<{ success: boolean; updatedCount: number; message: string; ports: SwitchPort[] }> {
-  const res = await fetch(`${API_BASE}/devices/${deviceId}/ports/batch`, {
+  const reqHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (options?.clientAuditLogged) {
+    reqHeaders['x-client-audit-logged'] = 'true';
+  }
+
+  const res = await fetchWithRetry(`${API_BASE}/devices/${deviceId}/ports/batch`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: reqHeaders,
     body: JSON.stringify({ port_ids: portIds, updates }),
   });
   if (!res.ok) throw new Error('Failed to batch update ports');
@@ -823,10 +835,18 @@ export async function fetchDeviceUnsavedChanges(deviceId: string): Promise<Devic
   return res.json();
 }
 
-export async function writeMemory(deviceId: string): Promise<{ success: boolean; device: Device; message: string }> {
-  const res = await fetch(`${API_BASE}/devices/${deviceId}/write-memory`, {
+export async function writeMemory(
+  deviceId: string,
+  options?: { clientAuditLogged?: boolean }
+): Promise<{ success: boolean; device: Device; message: string }> {
+  const reqHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (options?.clientAuditLogged) {
+    reqHeaders['x-client-audit-logged'] = 'true';
+  }
+
+  const res = await fetchWithRetry(`${API_BASE}/devices/${deviceId}/write-memory`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: reqHeaders,
   });
   if (!res.ok) throw new Error('Failed to write memory');
   return res.json();

@@ -4064,6 +4064,34 @@ apiRouter.post('/devices/:id/write-memory', async (req: Request, res: Response) 
       last_write_memory_time: new Date().toISOString(),
     });
 
+    if (req.headers['x-client-audit-logged'] !== 'true') {
+      try {
+        const opUser = getReqOperator(req);
+        const locationStr = [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > ');
+        await addDeviceCommandLog({
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+          deviceModel: device.model,
+          deviceLocation: locationStr || undefined,
+          channel: 'port_configuration',
+          command: 'write memory',
+          riskLevel: 'medium',
+          status: 'success',
+          outputSummary: `Saved running-config to NVRAM on ${device.name}`,
+          notes: `NVRAM write memory executed`,
+          actor: {
+            username: opUser.username,
+            role: opUser.role,
+            ipAddress: opUser.ip,
+          },
+        });
+      } catch (auditErr) {
+        console.warn('[Audit] Could not save write memory command log:', auditErr);
+      }
+    }
+
     return res.json({
       success: true,
       device: updated,
@@ -5447,6 +5475,35 @@ apiRouter.put('/devices/:id/ports/batch', async (req: Request, res: Response) =>
     device.last_modified_time = new Date().toISOString();
     await updateDevice(device.id, { ports: device.ports, has_unsaved_changes: true });
 
+    // Authoritatively record physical port command in device_command_audit_logs if not already logged client-side
+    if (req.headers['x-client-audit-logged'] !== 'true') {
+      try {
+        const op = getReqOperator(req);
+        const locationStr = [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > ');
+        await addDeviceCommandLog({
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+          deviceModel: device.model,
+          deviceLocation: locationStr || undefined,
+          channel: 'port_configuration',
+          command: cliOutput?.trim() || `batch update on ${portIds.length} ports (${portIds.join(', ')})`,
+          riskLevel: 'medium',
+          status: 'success',
+          outputSummary: `Batch updated ${updatedCount} ports on ${device.name}`,
+          notes: `Target ports: ${portIds.slice(0, 10).join(', ')}`,
+          actor: {
+            username: op.username,
+            role: op.role,
+            ipAddress: op.ip,
+          },
+        });
+      } catch (auditErr) {
+        console.warn('[Audit] Could not save batch port command log:', auditErr);
+      }
+    }
+
     if ('admin_status' in updates || 'status' in updates) {
       const isDown = updates.admin_status === 'disabled' || updates.status === 'down';
       const portNames = matchedPorts.slice(0, 5).map((p: any) => p.port_id || p.name).join(', ') + (matchedPorts.length > 5 ? ` (+${matchedPorts.length - 5} more)` : '');
@@ -5668,6 +5725,35 @@ apiRouter.put([
     device.has_unsaved_changes = true;
     device.last_modified_time = new Date().toISOString();
     await updateDevice(device.id, { ports: device.ports, has_unsaved_changes: true });
+
+    // Authoritatively record physical port command in device_command_audit_logs if not already logged client-side
+    if (req.headers['x-client-audit-logged'] !== 'true') {
+      try {
+        const op = getReqOperator(req);
+        const locationStr = [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > ');
+        await addDeviceCommandLog({
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+          deviceModel: device.model,
+          deviceLocation: locationStr || undefined,
+          channel: 'port_configuration',
+          command: cliOutput?.trim() || `interface ${portId}\n ${Object.entries(updates).map(([k, v]) => `${k} ${v}`).join('; ')}`,
+          riskLevel: updates.admin_status === 'disabled' ? 'medium' : 'low',
+          status: 'success',
+          outputSummary: `Configured interface ${portId} on ${device.name}`,
+          notes: `Updated parameters: ${Object.keys(updates).join(', ')}`,
+          actor: {
+            username: op.username,
+            role: op.role,
+            ipAddress: op.ip,
+          },
+        });
+      } catch (auditErr) {
+        console.warn('[Audit] Could not save single port command log:', auditErr);
+      }
+    }
 
     if ('admin_status' in updates || 'status' in updates) {
       const isDown = updates.admin_status === 'disabled' || updates.status === 'down' || targetPort.status === 'down';
@@ -6228,6 +6314,34 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
       device.has_unsaved_changes = true;
       updatedPort = p;
       await updateDevice(device.id, { ports: device.ports, has_unsaved_changes: true });
+    }
+
+    if (req.headers['x-client-audit-logged'] !== 'true' && op !== 'port_sec_query' && op !== 'query') {
+      try {
+        const opUser = getReqOperator(req);
+        const locationStr = [device.building, device.floor, device.unit, device.rack ? `Rack ${device.rack}` : ''].filter(Boolean).join(' > ');
+        await addDeviceCommandLog({
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceVendor: (device.model || '').toLowerCase().includes('mikrotik') ? 'mikrotik' : 'cisco',
+          deviceModel: device.model,
+          deviceLocation: locationStr || undefined,
+          channel: 'port_context_menu',
+          command: result.cli_command || `operation: ${op} on ${iface || 'device'}`,
+          riskLevel: op.includes('shutdown') ? 'medium' : 'low',
+          status: 'success',
+          outputSummary: `Executed ${op} on ${iface || device.name}`,
+          notes: `Hardware operation applied`,
+          actor: {
+            username: opUser.username,
+            role: opUser.role,
+            ipAddress: opUser.ip,
+          },
+        });
+      } catch (auditErr) {
+        console.warn('[Audit] Could not save operation command log:', auditErr);
+      }
     }
 
     return res.json({
