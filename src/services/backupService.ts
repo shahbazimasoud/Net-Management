@@ -666,7 +666,7 @@ export async function executeRestore(
   }
 
   if (actualData.activeDirectory && typeof actualData.activeDirectory === 'object') {
-    saveActiveDirectoryConfig(actualData.activeDirectory);
+    saveActiveDirectoryConfig(actualData.activeDirectory, { replaceSyncedObjects: true });
   }
 
   if (actualData.accessPolicies && Array.isArray(actualData.accessPolicies)) {

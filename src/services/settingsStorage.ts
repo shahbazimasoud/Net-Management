@@ -125,89 +125,23 @@ export const DEFAULT_DEVICE_GROUPS: DeviceGroup[] = [
   },
 ];
 
-// Initial Seed: Active Directory Config & Synced Objects
+// Clean Initial State: Active Directory Config & Synced Objects (Authoritative in PostgreSQL)
 export const DEFAULT_AD_CONFIG: ActiveDirectoryConfig = {
-  enabled: true,
-  server: '192.168.1.10',
+  enabled: false,
+  server: '',
   port: 389,
   useSsl: false,
-  domain: 'corp.internal',
-  baseDn: 'DC=corp,DC=internal',
-  bindUser: 'svc-netops@corp.internal',
-  bindPassword: '••••••••••••',
-  userSearchBase: 'OU=Staff,DC=corp,DC=internal',
-  groupSearchBase: 'OU=SecurityGroups,DC=corp,DC=internal',
-  lastSyncStatus: 'success',
-  lastSyncMessage: 'همگام‌سازی با موفقیت انجام شد (4 گروه امنیتی و 6 کاربر دامین دریافت گردید)',
-  lastSyncTime: '2026-09-09 16:30:00',
-  syncedGroups: [
-    {
-      dn: 'CN=Helpdesk-Admins,OU=SecurityGroups,DC=corp,DC=internal',
-      cn: 'Helpdesk-Admins',
-      description: 'کارشناسان پشتیبانی و تیم هلپ‌دسک سازمان',
-      memberCount: 8,
-    },
-    {
-      dn: 'CN=NetOps-Engineers,OU=SecurityGroups,DC=corp,DC=internal',
-      cn: 'NetOps-Engineers',
-      description: 'مهندسان ارشد شبکه و زیرساخت ارتباطی',
-      memberCount: 4,
-    },
-    {
-      dn: 'CN=NOC-Monitoring,OU=SecurityGroups,DC=corp,DC=internal',
-      cn: 'NOC-Monitoring',
-      description: 'تیم پایش و مانیتورینگ مرکز عملیات شبکه (فقط مشاهده)',
-      memberCount: 6,
-    },
-    {
-      dn: 'CN=Security-Auditors,OU=SecurityGroups,DC=corp,DC=internal',
-      cn: 'Security-Auditors',
-      description: 'حسابرسان امنیتی و ممیزی پورت سکیوریتی و مک آدرس‌ها',
-      memberCount: 3,
-    },
-  ],
-  syncedUsers: [
-    {
-      dn: 'CN=Masoud Shahbazi,OU=Staff,DC=corp,DC=internal',
-      samAccountName: 'm.shahbazi',
-      displayName: 'مسعود شهبازی (Network Lead)',
-      email: 'm.shahbazi@corp.internal',
-      department: 'زیرساخت و شبکه',
-      title: 'Senior Network Architect',
-      groups: ['NetOps-Engineers'],
-      enabled: true,
-    },
-    {
-      dn: 'CN=Ali Rezaei,OU=Staff,DC=corp,DC=internal',
-      samAccountName: 'a.rezaei',
-      displayName: 'علی رضایی (Helpdesk L1)',
-      email: 'a.rezaei@corp.internal',
-      department: 'پشتیبانی فنی (Helpdesk)',
-      title: 'Helpdesk Specialist',
-      groups: ['Helpdesk-Admins'],
-      enabled: true,
-    },
-    {
-      dn: 'CN=Sara Karimi,OU=Staff,DC=corp,DC=internal',
-      samAccountName: 's.karimi',
-      displayName: 'سارا کریمی (NOC Operator)',
-      email: 's.karimi@corp.internal',
-      department: 'مرکز عملیات شبکه',
-      title: 'NOC Tier-1 Analyst',
-      groups: ['NOC-Monitoring'],
-      enabled: true,
-    },
-    {
-      dn: 'CN=Reza Mohammadi,OU=Staff,DC=corp,DC=internal',
-      samAccountName: 'r.mohammadi',
-      displayName: 'رضا محمدی (Security Auditor)',
-      email: 'r.mohammadi@corp.internal',
-      department: 'امنیت اطلاعات',
-      title: 'Infosec Compliance Officer',
-      groups: ['Security-Auditors'],
-      enabled: true,
-    },
-  ],
+  domain: '',
+  baseDn: '',
+  bindUser: '',
+  bindPassword: '',
+  userSearchBase: '',
+  groupSearchBase: '',
+  lastSyncStatus: 'idle',
+  lastSyncMessage: '',
+  lastSyncTime: null,
+  syncedGroups: [],
+  syncedUsers: [],
 };
 
 // Initial Seed: Granular Access Policies (RBAC)
@@ -659,84 +593,79 @@ export function saveDeviceGroups(groups: DeviceGroup[]): void {
   }
 }
 
+let inMemoryAdConfig: ActiveDirectoryConfig | null = null;
+
 export function loadActiveDirectoryConfig(): ActiveDirectoryConfig {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.AD_CONFIG);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        const users = Array.isArray(parsed.syncedUsers) && parsed.syncedUsers.length > 0
-          ? parsed.syncedUsers
-          : DEFAULT_AD_CONFIG.syncedUsers;
-        const groups = Array.isArray(parsed.syncedGroups) && parsed.syncedGroups.length > 0
-          ? parsed.syncedGroups
-          : DEFAULT_AD_CONFIG.syncedGroups;
-        return {
-          ...DEFAULT_AD_CONFIG,
-          ...parsed,
-          syncedUsers: users,
-          syncedGroups: groups,
-        };
-      }
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEYS.AD_CONFIG);
     }
-  } catch (e) {
-    console.error('Failed to parse AD config from localStorage', e);
-  }
-  // Pure getter: Never overwrite server database with default config during load
-  return DEFAULT_AD_CONFIG;
+  } catch {}
+  return inMemoryAdConfig || DEFAULT_AD_CONFIG;
 }
 
-export function saveActiveDirectoryConfig(config: ActiveDirectoryConfig): void {
+export function updateInMemoryAdConfig(config: ActiveDirectoryConfig): void {
+  inMemoryAdConfig = config;
   try {
-    localStorage.setItem(STORAGE_KEYS.AD_CONFIG, JSON.stringify(config));
     if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEYS.AD_CONFIG);
       window.dispatchEvent(new CustomEvent('nettopology_ad_config_changed', { detail: { config } }));
     }
-    const token = typeof window !== 'undefined'
-      ? localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1')
-      : null;
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    fetch('/api/settings/active-directory', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ config }),
-    }).catch(() => {});
-  } catch (e) {
-    console.error('Failed to save AD config to localStorage', e);
-  }
+  } catch {}
+}
+
+export function saveActiveDirectoryConfig(
+  config: ActiveDirectoryConfig,
+  options?: { skipBackendPost?: boolean; replaceSyncedObjects?: boolean }
+): void {
+  updateInMemoryAdConfig(config);
+  if (options?.skipBackendPost) return;
+
+  fetch('/api/settings/active-directory', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({
+      config,
+      replaceSyncedObjects: options?.replaceSyncedObjects === true,
+    }),
+  }).catch((e) => {
+    console.error('Failed to persist AD config to PostgreSQL backend:', e);
+  });
 }
 
 export async function syncActiveDirectoryConfigFromDatabase(): Promise<ActiveDirectoryConfig> {
   try {
-    const token = typeof window !== 'undefined'
-      ? localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1')
-      : null;
-    const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch('/api/settings/active-directory', { headers });
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEYS.AD_CONFIG);
+    }
+  } catch {}
+
+  try {
+    const res = await fetch('/api/settings/active-directory', {
+      headers: getAuthHeaders(),
+      cache: 'no-store',
+    });
     if (res.ok) {
       const data = await res.json();
       const cfg = data?.config;
       if (cfg && typeof cfg === 'object') {
-        const users = Array.isArray(cfg.syncedUsers) && cfg.syncedUsers.length > 0
-          ? cfg.syncedUsers
-          : DEFAULT_AD_CONFIG.syncedUsers;
-        const groups = Array.isArray(cfg.syncedGroups) && cfg.syncedGroups.length > 0
-          ? cfg.syncedGroups
-          : DEFAULT_AD_CONFIG.syncedGroups;
+        const users = Array.isArray(cfg.syncedUsers) ? cfg.syncedUsers : [];
+        const groups = Array.isArray(cfg.syncedGroups) ? cfg.syncedGroups : [];
         const merged: ActiveDirectoryConfig = {
           ...DEFAULT_AD_CONFIG,
           ...cfg,
           syncedUsers: users,
           syncedGroups: groups,
         };
-        localStorage.setItem(STORAGE_KEYS.AD_CONFIG, JSON.stringify(merged));
+        inMemoryAdConfig = merged;
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('nettopology_ad_config_changed', { detail: { config: merged } }));
+        }
         return merged;
       }
     }
   } catch (e) {
-    // Offline or fallback
+    console.warn('Could not sync Active Directory config from PostgreSQL:', e);
   }
   return loadActiveDirectoryConfig();
 }

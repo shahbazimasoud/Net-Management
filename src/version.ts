@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.7';
+export const APP_VERSION = '1.425.8';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.8',
+    releaseDate: '2026-11-14',
+    type: 'patch',
+    title: 'ذخیره‌سازی صددرصدی تنظیمات دامین کنترلر در PostgreSQL، حذف تکیه به LocalStorage و دریافت کامل کاربران اکتیو دایرکتوری',
+    title_en: 'PostgreSQL-Authoritative Active Directory Configuration & Complete LDAP User Synchronization',
+    changes: [
+      'حذف تکیه به LocalStorage و داده‌های آزمایشی پیش‌فرض در بخش تنظیمات اتصال دامین کنترلر؛ اکنون تمامی پارامترهای اتصال و آبجکت‌های همگام‌شده منحصراً در پایگاه داده PostgreSQL ذخیره و از همان‌جا در تمامی مرورگرها بازیابی می‌شوند.',
+      'تضمین بررسی اتصال PostgreSQL در توابع خواندن و نوشتن تنظیمات AD، رمزنگاری امن کلمه عبور Bind در پایگاه داده و جلوگیری از بازنویسی ناخواسته کاربران همگام‌شده هنگام ویرایش تنظیمات اتصال.',
+      'رفع بازخورد کاذب ذخیره هنگام خطای دیتابیس، افزودن همگام‌سازی خودکار از پایگاه داده هنگام باز شدن صفحات تنظیمات و کاربران اکتیو دایرکتوری، و رفع مشکل عدم ثبت تغییر SSL.',
+      'ارتقای موتور همگام‌سازی LDAP با افزایش تایم‌اوت استعلام‌های صفحه‌بندی‌شده به ۶۰ ثانیه، مدیریت صحیح خطای صفحه‌بندی و رفرال‌های دامین، پشتیبانی از member;range و primaryGroupID، و جستجوی موازی کنترل‌شده اعضا برای دریافت کامل کاربران دامین.'
+    ],
+    changes_en: [
+      'Eliminated localStorage authority and demo fallback records for Active Directory configuration so Domain Controller parameters and synced directory objects persist strictly in PostgreSQL across all browsers.',
+      'Ensured PostgreSQL connectivity checks before AD reads/writes, encrypted bind credentials at rest, and prevented connection parameter saves from overwriting previously synced AD users and groups.',
+      'Removed silent localStorage fallback on save failures, added authoritative database refresh on mount in LDAP and AD directory views, and fixed SSL toggle dirty state tracking.',
+      'Hardened LDAP directory synchronization with 60s paged search timeout, pageError and referral handling with non-paged fallback, AD member;range and primaryGroupID resolution, and bounded-concurrency member resolution to retrieve all domain users.'
+    ]
+  },
   {
     version: '1.425.7',
     releaseDate: '2026-11-14',

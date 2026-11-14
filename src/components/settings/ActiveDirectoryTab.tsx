@@ -27,12 +27,17 @@ import {
 } from 'lucide-react';
 import { ActiveDirectoryConfig, ADSecurityGroup, ADUser, AccessPolicy } from '../../types';
 import { syncActiveDirectoryApi, saveAccessPoliciesApi } from '../../services/api';
-import { loadAccessPolicies, saveAccessPolicies, syncAccessPoliciesFromDatabase } from '../../services/settingsStorage';
+import {
+  loadAccessPolicies,
+  saveAccessPolicies,
+  syncAccessPoliciesFromDatabase,
+  syncActiveDirectoryConfigFromDatabase,
+} from '../../services/settingsStorage';
 import { useLanguage } from '../../i18n';
 
 interface ActiveDirectoryTabProps {
   config: ActiveDirectoryConfig;
-  onSaveConfig: (cfg: ActiveDirectoryConfig) => void;
+  onSaveConfig: (cfg: ActiveDirectoryConfig, skipBackendPost?: boolean) => void;
   onNavigateToConnectionSettings?: () => void;
   isLightMode?: boolean;
 }
@@ -69,6 +74,14 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
         }
       })
       .catch(() => {});
+
+    syncActiveDirectoryConfigFromDatabase()
+      .then((dbAd) => {
+        if (dbAd && typeof dbAd === 'object') {
+          onSaveConfig(dbAd, true);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const hasUnsavedChanges = useMemo(() => {
@@ -87,22 +100,22 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
       const res = await syncActiveDirectoryApi(config);
       if (res.success) {
         const updated: ActiveDirectoryConfig = {
-          ...config,
-          syncedGroups: res.groups || [],
-          syncedUsers: res.users || [],
+          ...(res.config || config),
+          syncedGroups: res.groups || res.config?.syncedGroups || [],
+          syncedUsers: res.users || res.config?.syncedUsers || [],
           lastSyncStatus: 'success',
           lastSyncMessage:
             res.message ||
             (isEn
               ? `Successfully synchronized ${res.groups?.length || 0} security groups and ${res.users?.length || 0} domain users.`
               : `همگام‌سازی با موفقیت انجام شد (${res.groups?.length || 0} گروه و ${res.users?.length || 0} کاربر دریافت گردید).`),
-          lastSyncTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
+          lastSyncTime: res.config?.lastSyncTime || new Date().toISOString().replace('T', ' ').slice(0, 19),
         };
-        onSaveConfig(updated);
+        onSaveConfig(updated, true);
         showToast(
           isEn
-            ? `Synced ${res.groups?.length || 0} groups and ${res.users?.length || 0} users from Active Directory.`
-            : `تعداد ${res.groups?.length || 0} گروه امنیتی و ${res.users?.length || 0} کاربر از اکتیو دایرکتوری همگام‌سازی شد.`
+            ? `Synced ${updated.syncedGroups?.length || 0} groups and ${updated.syncedUsers?.length || 0} users from Active Directory.`
+            : `تعداد ${updated.syncedGroups?.length || 0} گروه امنیتی و ${updated.syncedUsers?.length || 0} کاربر از اکتیو دایرکتوری همگام‌سازی شد.`
         );
       } else {
         const errorMsg =
@@ -600,7 +613,7 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                 {isConnected ? (
                   <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono border border-emerald-500/30 flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>{config.domain || 'corp.internal'}</span>
+                    <span>{config.domain || config.server || 'Active Directory'}</span>
                   </span>
                 ) : (
                   <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-slate-500/20 text-slate-300 font-mono border border-slate-500/30">

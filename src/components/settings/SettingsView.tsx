@@ -154,9 +154,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const handleSaveAdConfig = (newConfig: ActiveDirectoryConfig) => {
+  const handleSaveAdConfig = (newConfig: ActiveDirectoryConfig, skipBackendPost = false) => {
     setAdConfig(newConfig);
-    saveActiveDirectoryConfig(newConfig);
+    saveActiveDirectoryConfig(newConfig, { skipBackendPost });
   };
 
   const handleSavePolicies = (newPolicies: AccessPolicy[]) => {

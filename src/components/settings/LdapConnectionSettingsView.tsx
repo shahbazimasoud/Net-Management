@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { ActiveDirectoryConfig, ADTestResult } from '../../types';
 import { testActiveDirectoryConnectionApi, syncActiveDirectoryApi, saveActiveDirectoryConfigApi } from '../../services/api';
+import { syncActiveDirectoryConfigFromDatabase } from '../../services/settingsStorage';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
@@ -27,7 +28,7 @@ import { APP_VERSION } from '../../version';
 
 interface LdapConnectionSettingsViewProps {
   config: ActiveDirectoryConfig;
-  onSaveConfig: (cfg: ActiveDirectoryConfig) => void;
+  onSaveConfig: (cfg: ActiveDirectoryConfig, skipBackendPost?: boolean) => void;
   onNavigateToDirectory?: () => void;
   isLightMode?: boolean;
 }
@@ -43,6 +44,7 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
   const isSuperAdmin = isUserSuperAdmin(user, effectivePolicy);
   const [formData, setFormData] = useState<ActiveDirectoryConfig>({ ...config });
   const [isDirty, setIsDirty] = useState(false);
+  const [isLoadingDb, setIsLoadingDb] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<ADTestResult | null>(null);
@@ -50,6 +52,34 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
   const [isSaving, setIsSaving] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState(false);
+
+  // Authoritatively pull fresh Active Directory configuration from PostgreSQL on mount
+  useEffect(() => {
+    let mounted = true;
+    setIsLoadingDb(true);
+    syncActiveDirectoryConfigFromDatabase()
+      .then((dbCfg) => {
+        if (!mounted || !dbCfg) return;
+        setFormData((prev) => (isDirty ? prev : { ...dbCfg }));
+        onSaveConfig(dbCfg, true);
+      })
+      .catch((err) => {
+        if (mounted) {
+          setSyncError(
+            err?.message ||
+              (isEn
+                ? 'Failed to load Active Directory configuration from PostgreSQL.'
+                : 'خطا در دریافت تنظیمات اکتیو دایرکتوری از پایگاه داده PostgreSQL.')
+          );
+        }
+      })
+      .finally(() => {
+        if (mounted) setIsLoadingDb(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     // Only update from parent config if user has not typed unsaved edits
@@ -69,19 +99,27 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
     setSyncError(null);
     try {
       const res = await saveActiveDirectoryConfigApi(formData);
-      const savedConfig = res?.config || formData;
+      if (!res || !res.success || !res.config) {
+        throw new Error(
+          isEn
+            ? 'Server did not confirm saving Active Directory configuration to PostgreSQL.'
+            : 'سرور ذخیره‌سازی تنظیمات در پایگاه داده را تایید نکرد.'
+        );
+      }
+      const savedConfig = res.config;
       setFormData(savedConfig);
       setIsDirty(false);
-      onSaveConfig(savedConfig);
+      onSaveConfig(savedConfig, true);
       setSaveToast(true);
       setTimeout(() => setSaveToast(false), 3000);
     } catch (err: any) {
-      console.error('Failed to save LDAP connection configuration:', err);
-      // Fallback local save if offline
-      onSaveConfig(formData);
-      setIsDirty(false);
-      setSaveToast(true);
-      setTimeout(() => setSaveToast(false), 3000);
+      console.error('Failed to save LDAP connection configuration to PostgreSQL:', err);
+      setSyncError(
+        err?.message ||
+          (isEn
+            ? 'Failed to save Active Directory configuration to PostgreSQL database.'
+            : 'خطا در ذخیره تنظیمات اکتیو دایرکتوری در پایگاه داده PostgreSQL.')
+      );
     } finally {
       setIsSaving(false);
     }
@@ -94,14 +132,12 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
     try {
       const result = await testActiveDirectoryConnectionApi(formData);
       setTestResult(result);
-      const updated: ActiveDirectoryConfig = {
-        ...formData,
+      setFormData((prev) => ({
+        ...prev,
         lastSyncStatus: result.success ? 'success' : 'failed',
         lastSyncMessage: result.message,
         lastSyncTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      };
-      setFormData(updated);
-      onSaveConfig(updated);
+      }));
     } catch (err: any) {
       const failResult: ADTestResult = {
         success: false,
@@ -114,14 +150,12 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
         logs: [`[Client Exception] ${err.message || 'Connection failure'}`],
       };
       setTestResult(failResult);
-      const updated: ActiveDirectoryConfig = {
-        ...formData,
+      setFormData((prev) => ({
+        ...prev,
         lastSyncStatus: 'failed',
         lastSyncMessage: failResult.message,
         lastSyncTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      };
-      setFormData(updated);
-      onSaveConfig(updated);
+      }));
     } finally {
       setIsTesting(false);
     }
@@ -134,19 +168,22 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
       const res = await syncActiveDirectoryApi(formData);
       if (res.success) {
         const updated: ActiveDirectoryConfig = {
-          ...formData,
-          syncedGroups: res.groups || [],
-          syncedUsers: res.users || [],
+          ...(res.config || formData),
+          syncedGroups: res.groups || res.config?.syncedGroups || [],
+          syncedUsers: res.users || res.config?.syncedUsers || [],
           lastSyncStatus: 'success',
           lastSyncMessage:
             res.message ||
             (isEn
               ? `Successfully synchronized ${res.groups?.length || 0} security groups and ${res.users?.length || 0} domain users.`
               : `همگام‌سازی با موفقیت انجام شد (${res.groups?.length || 0} گروه و ${res.users?.length || 0} کاربر دریافت گردید).`),
-          lastSyncTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
+          lastSyncTime: res.config?.lastSyncTime || new Date().toISOString().replace('T', ' ').slice(0, 19),
         };
         setFormData(updated);
-        onSaveConfig(updated);
+        setIsDirty(false);
+        onSaveConfig(updated, true);
+        setSaveToast(true);
+        setTimeout(() => setSaveToast(false), 3000);
       } else {
         const errorMsg =
           res.error ||
@@ -154,14 +191,10 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
             ? 'Failed to synchronize objects from Active Directory'
             : 'خطا در دریافت آبجکت‌ها از اکتیو دایرکتوری');
         setSyncError(errorMsg);
-        const updated: ActiveDirectoryConfig = {
-          ...formData,
-          lastSyncStatus: 'failed',
-          lastSyncMessage: errorMsg,
-          lastSyncTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
-        };
-        setFormData(updated);
-        onSaveConfig(updated);
+        if (res.config) {
+          setFormData(res.config);
+          onSaveConfig(res.config, true);
+        }
       }
     } catch (err: any) {
       const errorMsg =
@@ -170,14 +203,6 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
           ? 'Failed to connect to Active Directory server for synchronization'
           : 'خطا در برقراری ارتباط با سرور دامین جهت همگام‌سازی');
       setSyncError(errorMsg);
-      const updated: ActiveDirectoryConfig = {
-        ...formData,
-        lastSyncStatus: 'failed',
-        lastSyncMessage: errorMsg,
-        lastSyncTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      };
-      setFormData(updated);
-      onSaveConfig(updated);
     } finally {
       setIsSyncing(false);
     }
@@ -563,6 +588,7 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
                 checked={formData.useSsl}
                 onChange={(e) => {
                   const checked = e.target.checked;
+                  setIsDirty(true);
                   setFormData((prev) => ({
                     ...prev,
                     useSsl: checked,
@@ -576,9 +602,12 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
 
             <button
               type="submit"
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-xs transition shadow-md shadow-sky-600/30 cursor-pointer active:scale-95"
+              disabled={isSaving || isLoadingDb}
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-xs transition shadow-md shadow-sky-600/30 cursor-pointer active:scale-95 disabled:opacity-50"
             >
-              {isEn ? 'Save AD Configuration' : 'ذخیره تنظیمات دایرکتوری'}
+              {isSaving
+                ? (isEn ? 'Saving to PostgreSQL...' : 'درحال ذخیره در پایگاه داده...')
+                : (isEn ? 'Save AD Configuration' : 'ذخیره تنظیمات دایرکتوری')}
             </button>
           </div>
         </form>

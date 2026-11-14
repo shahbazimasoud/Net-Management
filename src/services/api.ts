@@ -1162,18 +1162,32 @@ export async function saveDeviceGroupsApi(groups: DeviceGroup[]): Promise<{ succ
 }
 
 export async function fetchActiveDirectoryConfig(): Promise<{ config: ActiveDirectoryConfig }> {
-  const res = await fetch(`${API_BASE}/active-directory`);
-  if (!res.ok) throw new Error('Failed to fetch active directory config');
+  const res = await fetchWithRetry(`${API_BASE}/settings/active-directory`, {
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || err.message || 'Failed to fetch active directory config from PostgreSQL');
+  }
   return res.json();
 }
 
-export async function saveActiveDirectoryConfigApi(config: ActiveDirectoryConfig): Promise<{ success: boolean; config: ActiveDirectoryConfig }> {
-  const res = await fetch(`${API_BASE}/active-directory`, {
+export async function saveActiveDirectoryConfigApi(
+  config: ActiveDirectoryConfig,
+  options?: { replaceSyncedObjects?: boolean }
+): Promise<{ success: boolean; config: ActiveDirectoryConfig }> {
+  const res = await fetchWithRetry(`${API_BASE}/settings/active-directory`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ config }),
+    body: JSON.stringify({
+      config,
+      replaceSyncedObjects: options?.replaceSyncedObjects === true,
+    }),
   });
-  if (!res.ok) throw new Error('Failed to save active directory config');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || err.message || 'Failed to save active directory config to PostgreSQL');
+  }
   return res.json();
 }
 
@@ -1186,14 +1200,14 @@ export async function testActiveDirectoryConnectionApi(config: ActiveDirectoryCo
   bindSuccess?: boolean;
   logs: string[];
 }> {
-  const res = await fetch(`${API_BASE}/active-directory/test`, {
+  const res = await fetchWithRetry(`${API_BASE}/settings/active-directory/test`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ config }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || 'Active Directory connection test failed');
+    throw new Error(err.error || err.message || 'Active Directory connection test failed');
   }
   return res.json();
 }
@@ -1203,10 +1217,11 @@ export async function syncActiveDirectoryApi(config: ActiveDirectoryConfig): Pro
   groups: import('../types').ADSecurityGroup[];
   users: import('../types').ADUser[];
   message?: string;
+  warnings?: string[];
   error?: string;
   config?: ActiveDirectoryConfig;
 }> {
-  const res = await fetch(`${API_BASE}/active-directory/sync`, {
+  const res = await fetchWithRetry(`${API_BASE}/settings/active-directory/sync`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ config }),

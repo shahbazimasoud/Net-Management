@@ -83,6 +83,7 @@ import {
   isDeviceActionPermitted,
   getActiveDirectoryConfig,
   saveActiveDirectoryConfig,
+  sanitizeAdConfigForClient,
   getGeneralSettings,
   saveGeneralSettings,
   getEmailConfig,
@@ -1949,8 +1950,9 @@ apiRouter.post(['/settings/device-groups', '/device-groups'], async (req: Reques
 // Active Directory Endpoints
 apiRouter.get(['/settings/active-directory', '/active-directory'], async (req: Request, res: Response) => {
   try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     const config = await getActiveDirectoryConfig();
-    res.json({ config });
+    res.json({ config: sanitizeAdConfigForClient(config) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1959,22 +1961,13 @@ apiRouter.get(['/settings/active-directory', '/active-directory'], async (req: R
 apiRouter.post(['/settings/active-directory', '/active-directory'], async (req: Request, res: Response) => {
   try {
     const configToSave = req.body?.config || req.body;
-    if (configToSave && typeof configToSave === 'object') {
-      try {
-        const existing = await getActiveDirectoryConfig();
-        if (
-          existing &&
-          existing.bindPassword &&
-          (!configToSave.bindPassword || configToSave.bindPassword === '••••••••••••')
-        ) {
-          configToSave.bindPassword = existing.bindPassword;
-        }
-      } catch {}
-    }
-    await saveActiveDirectoryConfig(configToSave);
-    res.json({ success: true, config: configToSave });
+    const replaceSyncedObjects = req.body?.replaceSyncedObjects === true || req.body?.preserveSyncedObjects === false;
+    const saved = await saveActiveDirectoryConfig(configToSave, {
+      preserveSyncedObjects: !replaceSyncedObjects,
+    });
+    res.json({ success: true, config: sanitizeAdConfigForClient(saved) });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -2267,8 +2260,17 @@ apiRouter.post(['/settings/telegram/test', '/alerts/telegram/test'], async (req:
 
 apiRouter.post(['/settings/active-directory/test', '/active-directory/test'], async (req: Request, res: Response) => {
   try {
-    const config = req.body?.config || req.body;
-    const result = await testLdapConnection(config);
+    const incomingConfig = req.body?.config || req.body || {};
+    const existingConfig = (await getActiveDirectoryConfig().catch(() => ({}))) || {};
+    const effectiveConfig = {
+      ...existingConfig,
+      ...incomingConfig,
+      bindPassword:
+        incomingConfig.bindPassword && incomingConfig.bindPassword !== '••••••••••••'
+          ? incomingConfig.bindPassword
+          : (existingConfig.bindPassword || ''),
+    };
+    const result = await testLdapConnection(effectiveConfig);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({
@@ -2282,43 +2284,51 @@ apiRouter.post(['/settings/active-directory/test', '/active-directory/test'], as
 
 apiRouter.post(['/settings/active-directory/sync', '/active-directory/sync'], async (req: Request, res: Response) => {
   try {
-    const config = req.body?.config || req.body;
-    const result = await syncLdapDirectory(config);
-    const currentConfig = (await getActiveDirectoryConfig()) || {};
+    const incomingConfig = req.body?.config || req.body || {};
+    const currentConfig = (await getActiveDirectoryConfig().catch(() => ({}))) || {};
+    const effectiveConfig = {
+      ...currentConfig,
+      ...incomingConfig,
+      bindPassword:
+        incomingConfig.bindPassword && incomingConfig.bindPassword !== '••••••••••••'
+          ? incomingConfig.bindPassword
+          : (currentConfig.bindPassword || ''),
+    };
+
+    const result = await syncLdapDirectory(effectiveConfig);
 
     if (result.success) {
       const updatedConfig = {
-        ...currentConfig,
-        ...config,
+        ...effectiveConfig,
         syncedGroups: result.groups,
         syncedUsers: result.users,
         lastSyncStatus: 'success',
         lastSyncMessage: result.message,
         lastSyncTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
       };
-      await saveActiveDirectoryConfig(updatedConfig);
+      const saved = await saveActiveDirectoryConfig(updatedConfig, { preserveSyncedObjects: false });
       res.json({
         success: true,
-        groups: result.groups,
-        users: result.users,
+        groups: saved.syncedGroups || result.groups,
+        users: saved.syncedUsers || result.users,
         message: result.message,
-        config: updatedConfig,
+        warnings: result.warnings,
+        config: sanitizeAdConfigForClient(saved),
       });
     } else {
       const updatedConfig = {
-        ...currentConfig,
-        ...config,
+        ...effectiveConfig,
         lastSyncStatus: 'failed',
         lastSyncMessage: result.error || 'Failed to sync objects from Active Directory',
         lastSyncTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
       };
-      await saveActiveDirectoryConfig(updatedConfig);
+      const saved = await saveActiveDirectoryConfig(updatedConfig, { preserveSyncedObjects: true });
       res.json({
         success: false,
-        groups: [],
-        users: [],
+        groups: saved.syncedGroups || [],
+        users: saved.syncedUsers || [],
         error: result.error || 'Failed to sync objects from Active Directory',
-        config: updatedConfig,
+        config: sanitizeAdConfigForClient(saved),
       });
     }
   } catch (err: any) {

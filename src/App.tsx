@@ -133,9 +133,17 @@ export default function App() {
     }
   }, [isAuthenticated]);
 
-  const handleSaveAdConfig = (updated: ActiveDirectoryConfig) => {
+  useEffect(() => {
+    if (isAuthenticated && (activeTab === 'settings-ldap' || activeTab === 'settings-ad' || activeTab === 'settings-rbac')) {
+      syncActiveDirectoryConfigFromDatabase().then((cfg) => {
+        if (cfg) setAdConfig(cfg);
+      }).catch(() => {});
+    }
+  }, [isAuthenticated, activeTab]);
+
+  const handleSaveAdConfig = (updated: ActiveDirectoryConfig, skipBackendPost = false) => {
     setAdConfig(updated);
-    saveActiveDirectoryConfig(updated);
+    saveActiveDirectoryConfig(updated, { skipBackendPost });
   };
 
   // Listen for real-time RBAC policy and simulated role events

@@ -972,104 +972,52 @@ const DEFAULT_CUSTOM_MAPS: any[] = [];
 const DEFAULT_NODE_POSITIONS: Record<string, Record<string, { x: number; y: number }>> = {};
 
 const DEFAULT_AD_CONFIG: any = {
-  enabled: true,
-  domain: 'corp.internal',
-  server: '192.168.1.10',
+  enabled: false,
+  domain: '',
+  server: '',
   port: 389,
   useSsl: false,
   use_ssl: false,
-  baseDn: 'DC=corp,DC=internal',
-  base_dn: 'DC=corp,DC=internal',
-  bindUser: 'svc-netops@corp.internal',
-  bind_user: 'svc-netops@corp.internal',
-  bindPassword: '••••••••••••',
-  bind_password: '••••••••••••',
-  userSearchBase: 'OU=Staff,DC=corp,DC=internal',
-  groupSearchBase: 'OU=SecurityGroups,DC=corp,DC=internal',
+  baseDn: '',
+  base_dn: '',
+  bindUser: '',
+  bind_user: '',
+  bindPassword: '',
+  bind_password: '',
+  userSearchBase: '',
+  groupSearchBase: '',
   syncIntervalMinutes: 15,
   sync_interval_min: 15,
   autoSync: true,
   auto_sync: true,
-  role_mappings: {
-    'Domain Admins': 'Super Administrator',
-    'Network Engineers': 'NOC Analyst',
-    'Helpdesk Staff': 'Helpdesk Specialist'
-  },
-  lastSyncStatus: 'success',
-  last_sync_status: 'success',
-  lastSyncMessage: 'همگام‌سازی با موفقیت انجام شد (4 گروه امنیتی و 4 کاربر دامین دریافت گردید)',
-  lastSyncTime: '2026-09-09 16:30:00',
-  last_sync: new Date().toISOString(),
-  status: 'configured',
-  syncedGroups: [
-    {
-      dn: 'CN=Helpdesk-Admins,OU=SecurityGroups,DC=corp,DC=internal',
-      cn: 'Helpdesk-Admins',
-      description: 'کارشناسان پشتیبانی و تیم هلپ‌دسک سازمان',
-      memberCount: 8,
-    },
-    {
-      dn: 'CN=NetOps-Engineers,OU=SecurityGroups,DC=corp,DC=internal',
-      cn: 'NetOps-Engineers',
-      description: 'مهندسان ارشد شبکه و زیرساخت ارتباطی',
-      memberCount: 4,
-    },
-    {
-      dn: 'CN=NOC-Monitoring,OU=SecurityGroups,DC=corp,DC=internal',
-      cn: 'NOC-Monitoring',
-      description: 'تیم پایش و مانیتورینگ مرکز عملیات شبکه (فقط مشاهده)',
-      memberCount: 6,
-    },
-    {
-      dn: 'CN=Security-Auditors,OU=SecurityGroups,DC=corp,DC=internal',
-      cn: 'Security-Auditors',
-      description: 'حسابرسان امنیتی و ممیزی پورت سکیوریتی و مک آدرس‌ها',
-      memberCount: 3,
-    },
-  ],
-  syncedUsers: [
-    {
-      dn: 'CN=Masoud Shahbazi,OU=Staff,DC=corp,DC=internal',
-      samAccountName: 'm.shahbazi',
-      displayName: 'مسعود شهبازی (Network Lead)',
-      email: 'm.shahbazi@corp.internal',
-      department: 'زیرساخت و شبکه',
-      title: 'Senior Network Architect',
-      groups: ['NetOps-Engineers'],
-      enabled: true,
-    },
-    {
-      dn: 'CN=Ali Rezaei,OU=Staff,DC=corp,DC=internal',
-      samAccountName: 'a.rezaei',
-      displayName: 'علی رضایی (Helpdesk L1)',
-      email: 'a.rezaei@corp.internal',
-      department: 'پشتیبانی فنی (Helpdesk)',
-      title: 'Helpdesk Specialist',
-      groups: ['Helpdesk-Admins'],
-      enabled: true,
-    },
-    {
-      dn: 'CN=Sara Karimi,OU=Staff,DC=corp,DC=internal',
-      samAccountName: 's.karimi',
-      displayName: 'سارا کریمی (NOC Operator)',
-      email: 's.karimi@corp.internal',
-      department: 'مرکز عملیات شبکه',
-      title: 'NOC Tier-1 Analyst',
-      groups: ['NOC-Monitoring'],
-      enabled: true,
-    },
-    {
-      dn: 'CN=Reza Mohammadi,OU=Staff,DC=corp,DC=internal',
-      samAccountName: 'r.mohammadi',
-      displayName: 'رضا محمدی (Security Auditor)',
-      email: 'r.mohammadi@corp.internal',
-      department: 'امنیت اطلاعات',
-      title: 'Infosec Compliance Officer',
-      groups: ['Security-Auditors'],
-      enabled: true,
-    },
-  ],
+  role_mappings: {},
+  lastSyncStatus: 'idle',
+  last_sync_status: 'idle',
+  lastSyncMessage: '',
+  lastSyncTime: null,
+  last_sync: null,
+  status: 'unconfigured',
+  syncedGroups: [],
+  syncedUsers: [],
 };
+
+function isLegacyMockAdSeed(cfg: any): boolean {
+  if (!cfg || typeof cfg !== 'object') return false;
+  const server = String(cfg.server || cfg.host || '').trim().toLowerCase();
+  const domain = String(cfg.domain || '').trim().toLowerCase();
+  const bindUser = String(cfg.bindUser || cfg.bind_user || '').trim().toLowerCase();
+  const bindPass = String(cfg.bindPassword || cfg.bind_password || '');
+  if (server !== '192.168.1.10' || domain !== 'corp.internal' || bindUser !== 'svc-netops@corp.internal') {
+    return false;
+  }
+  if (bindPass && bindPass !== '••••••••••••') {
+    return false;
+  }
+  const users = Array.isArray(cfg.syncedUsers) ? cfg.syncedUsers : [];
+  if (users.length === 0) return true;
+  const demoSams = new Set(['m.shahbazi', 'a.rezaei', 's.karimi', 'r.mohammadi']);
+  return users.every((u: any) => demoSams.has(String(u?.samAccountName || '').toLowerCase()));
+}
 
 export const DEFAULT_SERVER_CATEGORIES: ServerCategory[] = [
   {
@@ -1819,18 +1767,31 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
     `);
     const adRes = await client.query("SELECT config_data FROM ad_config WHERE id = 'primary' LIMIT 1");
     if (adRes.rows.length === 0) {
-      const adToSeed = initialData.ad_config || DEFAULT_AD_CONFIG;
+      const seedCandidate = initialData.ad_config;
+      const adToSeed =
+        seedCandidate && !isLegacyMockAdSeed(seedCandidate)
+          ? normalizeADConfig(seedCandidate)
+          : DEFAULT_AD_CONFIG;
       await client.query(
         `INSERT INTO ad_config (id, config_data) VALUES ('primary', $1) ON CONFLICT (id) DO NOTHING`,
         [JSON.stringify(adToSeed)]
       );
+      initialData.ad_config = adToSeed;
     } else {
       // PostgreSQL is authoritative: keep memory and fallback in sync with database
       try {
         const rawCfg = adRes.rows[0].config_data;
         const parsedCfg = typeof rawCfg === 'string' ? JSON.parse(rawCfg) : rawCfg;
         if (parsedCfg && typeof parsedCfg === 'object') {
-          initialData.ad_config = parsedCfg;
+          if (isLegacyMockAdSeed(parsedCfg)) {
+            await client.query(
+              `UPDATE ad_config SET config_data = $1, updated_at = CURRENT_TIMESTAMP WHERE id = 'primary'`,
+              [JSON.stringify(DEFAULT_AD_CONFIG)]
+            );
+            initialData.ad_config = DEFAULT_AD_CONFIG;
+          } else {
+            initialData.ad_config = parsedCfg;
+          }
         }
       } catch {}
     }
@@ -5732,46 +5693,89 @@ export async function saveDeviceGroups(groups: any[]): Promise<void> {
 // -------------------------------------------------------------
 // Active Directory Config & LDAP Persistence Engine
 // -------------------------------------------------------------
-export function normalizeADConfig(cfg: any, existingFallback?: any): any {
-  const base = existingFallback || DEFAULT_AD_CONFIG;
+function resolveAdBindPasswordForServer(rawPass: any): string {
+  const s = typeof rawPass === 'string' ? rawPass : '';
+  if (!s || s === '••••••••••••') return '';
+  if (s.startsWith('enc:v1:')) {
+    return decryptServerSecret(s);
+  }
+  return s;
+}
+
+export function sanitizeAdConfigForClient(cfg: any): any {
   if (!cfg || typeof cfg !== 'object') {
-    return { ...base };
+    return { ...DEFAULT_AD_CONFIG, bindPasswordSet: false };
   }
-  const useSsl = Boolean(cfg.useSsl ?? cfg.use_ssl ?? (Number(cfg.port) === 636));
+  const hasPassword = Boolean(
+    (typeof cfg.bindPassword === 'string' && cfg.bindPassword.length > 0 && cfg.bindPassword !== '••••••••••••') ||
+    (typeof cfg.bind_password === 'string' && cfg.bind_password.length > 0 && cfg.bind_password !== '••••••••••••') ||
+    cfg.bindPasswordSet
+  );
+  return {
+    ...cfg,
+    bindPassword: hasPassword ? '••••••••••••' : '',
+    bind_password: hasPassword ? '••••••••••••' : '',
+    bindPasswordSet: hasPassword,
+  };
+}
+
+export function normalizeADConfig(cfg: any, existingFallback?: any): any {
+  const cleanExisting = existingFallback && !isLegacyMockAdSeed(existingFallback) ? existingFallback : null;
+  const base = cleanExisting || DEFAULT_AD_CONFIG;
+
+  if (!cfg || typeof cfg !== 'object' || isLegacyMockAdSeed(cfg)) {
+    return cleanExisting ? { ...cleanExisting } : { ...DEFAULT_AD_CONFIG };
+  }
+
+  const useSsl = cfg.useSsl !== undefined
+    ? Boolean(cfg.useSsl)
+    : (cfg.use_ssl !== undefined ? Boolean(cfg.use_ssl) : (Number(cfg.port) === 636));
   const port = Number(cfg.port) || (useSsl ? 636 : 389);
-  const domain = (cfg.domain !== undefined && cfg.domain !== null && String(cfg.domain).trim() !== ''
-    ? String(cfg.domain).trim()
-    : base.domain) || 'corp.internal';
-  const server = (cfg.server !== undefined && cfg.server !== null && String(cfg.server).trim() !== ''
-    ? String(cfg.server).trim()
-    : (cfg.host || base.server)) || '192.168.1.10';
-  const baseDn = (cfg.baseDn || cfg.base_dn || base.baseDn || base.base_dn || 'DC=corp,DC=internal');
-  const bindUser = (cfg.bindUser !== undefined && cfg.bindUser !== null
-    ? String(cfg.bindUser).trim()
-    : (cfg.bind_user !== undefined ? String(cfg.bind_user).trim() : base.bindUser)) || '';
-  let bindPassword = cfg.bindPassword !== undefined
-    ? cfg.bindPassword
-    : (cfg.bind_password !== undefined ? cfg.bind_password : base.bindPassword);
-  if (!bindPassword || bindPassword === '••••••••••••') {
-    bindPassword = base.bindPassword || '••••••••••••';
+
+  const pickString = (primary: any, secondary: any, fallbackVal: any): string => {
+    if (primary !== undefined && primary !== null) return String(primary).trim();
+    if (secondary !== undefined && secondary !== null) return String(secondary).trim();
+    if (fallbackVal !== undefined && fallbackVal !== null) return String(fallbackVal).trim();
+    return '';
+  };
+
+  const domain = pickString(cfg.domain, undefined, base.domain);
+  const server = pickString(cfg.server, cfg.host, base.server);
+  const baseDn = pickString(cfg.baseDn, cfg.base_dn, base.baseDn ?? base.base_dn);
+  const bindUser = pickString(cfg.bindUser, cfg.bind_user, base.bindUser ?? base.bind_user);
+  const userSearchBase = pickString(cfg.userSearchBase, cfg.user_search_base, base.userSearchBase ?? base.user_search_base);
+  const groupSearchBase = pickString(cfg.groupSearchBase, cfg.group_search_base, base.groupSearchBase ?? base.group_search_base);
+
+  const incomingPass = cfg.bindPassword !== undefined
+    ? String(cfg.bindPassword)
+    : (cfg.bind_password !== undefined ? String(cfg.bind_password) : undefined);
+
+  let bindPassword = '';
+  if (incomingPass === undefined || incomingPass === '••••••••••••') {
+    bindPassword = resolveAdBindPasswordForServer(base.bindPassword ?? base.bind_password);
+  } else if (incomingPass === '') {
+    // Allow clearing password if user intentionally cleared bindUser or set clearBindPassword; otherwise preserve existing
+    if (cfg.clearBindPassword === true || bindUser === '') {
+      bindPassword = '';
+    } else {
+      bindPassword = resolveAdBindPasswordForServer(base.bindPassword ?? base.bind_password);
+    }
+  } else {
+    bindPassword = resolveAdBindPasswordForServer(incomingPass);
   }
 
-  const syncedGroups = Array.isArray(cfg.syncedGroups) && cfg.syncedGroups.length > 0
+  const syncedGroups = Array.isArray(cfg.syncedGroups)
     ? cfg.syncedGroups
-    : (Array.isArray(base.syncedGroups) && base.syncedGroups.length > 0
-      ? base.syncedGroups
-      : (Array.isArray(DEFAULT_AD_CONFIG?.syncedGroups) ? DEFAULT_AD_CONFIG.syncedGroups : []));
+    : (Array.isArray(base.syncedGroups) ? base.syncedGroups : []);
 
-  const syncedUsers = Array.isArray(cfg.syncedUsers) && cfg.syncedUsers.length > 0
+  const syncedUsers = Array.isArray(cfg.syncedUsers)
     ? cfg.syncedUsers
-    : (Array.isArray(base.syncedUsers) && base.syncedUsers.length > 0
-      ? base.syncedUsers
-      : (Array.isArray(DEFAULT_AD_CONFIG?.syncedUsers) ? DEFAULT_AD_CONFIG.syncedUsers : []));
+    : (Array.isArray(base.syncedUsers) ? base.syncedUsers : []);
 
   return {
     ...base,
     ...cfg,
-    enabled: cfg.enabled !== undefined ? Boolean(cfg.enabled) : true,
+    enabled: cfg.enabled !== undefined ? Boolean(cfg.enabled) : Boolean(base.enabled),
     domain,
     server,
     port,
@@ -5783,22 +5787,27 @@ export function normalizeADConfig(cfg: any, existingFallback?: any): any {
     bind_user: bindUser,
     bindPassword,
     bind_password: bindPassword,
-    userSearchBase: cfg.userSearchBase || cfg.user_search_base || base.userSearchBase || 'OU=Staff,DC=corp,DC=internal',
-    groupSearchBase: cfg.groupSearchBase || cfg.group_search_base || base.groupSearchBase || 'OU=SecurityGroups,DC=corp,DC=internal',
+    userSearchBase,
+    user_search_base: userSearchBase,
+    groupSearchBase,
+    group_search_base: groupSearchBase,
     syncIntervalMinutes: Number(cfg.syncIntervalMinutes ?? cfg.sync_interval_min) || base.syncIntervalMinutes || 15,
     sync_interval_min: Number(cfg.syncIntervalMinutes ?? cfg.sync_interval_min) || base.syncIntervalMinutes || 15,
     autoSync: cfg.autoSync !== undefined ? Boolean(cfg.autoSync) : (cfg.auto_sync !== undefined ? Boolean(cfg.auto_sync) : true),
     auto_sync: cfg.autoSync !== undefined ? Boolean(cfg.autoSync) : (cfg.auto_sync !== undefined ? Boolean(cfg.auto_sync) : true),
     lastSyncStatus: cfg.lastSyncStatus || cfg.last_sync_status || base.lastSyncStatus || 'idle',
-    lastSyncMessage: cfg.lastSyncMessage || cfg.last_sync_message || base.lastSyncMessage || '',
-    lastSyncTime: cfg.lastSyncTime || cfg.last_sync_time || cfg.last_sync || base.lastSyncTime || null,
+    lastSyncMessage: cfg.lastSyncMessage !== undefined ? String(cfg.lastSyncMessage || '') : (cfg.last_sync_message !== undefined ? String(cfg.last_sync_message || '') : (base.lastSyncMessage || '')),
+    lastSyncTime: cfg.lastSyncTime !== undefined ? cfg.lastSyncTime : (cfg.last_sync_time !== undefined ? cfg.last_sync_time : (base.lastSyncTime || null)),
     syncedGroups,
     syncedUsers,
   };
 }
 
 export async function getActiveDirectoryConfig(): Promise<any> {
+  await ensurePostgresConnection();
   let loadedCfg: any = null;
+  let loadedFromPostgres = false;
+
   if (isPostgresReady && pool) {
     try {
       await pool.query(`
@@ -5812,48 +5821,97 @@ export async function getActiveDirectoryConfig(): Promise<any> {
       if (res.rows.length > 0) {
         const raw = res.rows[0].config_data;
         loadedCfg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        loadedFromPostgres = true;
       }
     } catch (e: any) {
       console.error('[DB Query Error getActiveDirectoryConfig]', e?.message || e);
+      throw new Error(`PostgreSQL error while reading Active Directory configuration: ${e?.message || e}`);
     }
   }
 
-  if (!loadedCfg) {
-    loadedCfg = loadFallbackStore().ad_config;
+  if (!loadedFromPostgres) {
+    const store = loadFallbackStore();
+    if (store.ad_config && !isLegacyMockAdSeed(store.ad_config)) {
+      loadedCfg = store.ad_config;
+    }
   }
+
+  if (!loadedCfg || isLegacyMockAdSeed(loadedCfg)) {
+    return { ...DEFAULT_AD_CONFIG };
+  }
+
   return normalizeADConfig(loadedCfg);
 }
 
-export async function saveActiveDirectoryConfig(config: any): Promise<any> {
-  const existing = await getActiveDirectoryConfig().catch(() => DEFAULT_AD_CONFIG);
-  const normalized = normalizeADConfig(config, existing);
+export async function saveActiveDirectoryConfig(
+  config: any,
+  options?: { preserveSyncedObjects?: boolean }
+): Promise<any> {
+  await ensurePostgresConnection();
+  const existing = await getActiveDirectoryConfig().catch(() => null);
 
-  if (isPostgresReady && pool) {
-    try {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS ad_config (
-          id VARCHAR(64) PRIMARY KEY,
-          config_data JSONB NOT NULL,
-          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      await pool.query(
-        `INSERT INTO ad_config (id, config_data, updated_at)
-         VALUES ('primary', $1, CURRENT_TIMESTAMP)
-         ON CONFLICT (id) DO UPDATE SET
-           config_data = EXCLUDED.config_data,
-           updated_at = CURRENT_TIMESTAMP`,
-        [JSON.stringify(normalized)]
-      );
-    } catch (e: any) {
-      console.error('[DB Query Error saveActiveDirectoryConfig]', e?.message || e);
+  let payloadToNormalize = config && typeof config === 'object' ? { ...config } : {};
+  if (options?.preserveSyncedObjects && existing && !isLegacyMockAdSeed(existing)) {
+    payloadToNormalize.syncedGroups = Array.isArray(existing.syncedGroups) ? existing.syncedGroups : [];
+    payloadToNormalize.syncedUsers = Array.isArray(existing.syncedUsers) ? existing.syncedUsers : [];
+    if (payloadToNormalize.lastSyncTime === undefined || payloadToNormalize.lastSyncTime === null) {
+      payloadToNormalize.lastSyncTime = existing.lastSyncTime ?? null;
+    }
+    if (!payloadToNormalize.lastSyncStatus || payloadToNormalize.lastSyncStatus === 'idle') {
+      payloadToNormalize.lastSyncStatus = existing.lastSyncStatus || 'idle';
+    }
+    if (!payloadToNormalize.lastSyncMessage) {
+      payloadToNormalize.lastSyncMessage = existing.lastSyncMessage || '';
     }
   }
 
-  // Also persist to database_store.json
-  const store = loadFallbackStore();
-  store.ad_config = normalized;
-  saveFallbackStore(store);
+  const normalized = normalizeADConfig(payloadToNormalize, existing);
+
+  // Encrypt bindPassword before persisting to PostgreSQL / disk store
+  const plainBindPassword = normalized.bindPassword || '';
+  const encryptedBindPassword = plainBindPassword
+    ? (plainBindPassword.startsWith('enc:v1:') ? plainBindPassword : encryptServerSecret(plainBindPassword))
+    : '';
+
+  const storagePayload = {
+    ...normalized,
+    bindPassword: encryptedBindPassword,
+    bind_password: encryptedBindPassword,
+  };
+
+  const postgresConfiguredInEnv = Boolean(
+    process.env.DATABASE_URL ||
+    process.env.DB_HOST ||
+    process.env.DB_NAME ||
+    process.env.DB_USER
+  );
+
+  if (isPostgresReady && pool) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ad_config (
+        id VARCHAR(64) PRIMARY KEY,
+        config_data JSONB NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(
+      `INSERT INTO ad_config (id, config_data, updated_at)
+       VALUES ('primary', $1, CURRENT_TIMESTAMP)
+       ON CONFLICT (id) DO UPDATE SET
+         config_data = EXCLUDED.config_data,
+         updated_at = CURRENT_TIMESTAMP`,
+      [JSON.stringify(storagePayload)]
+    );
+  } else if (postgresConfiguredInEnv) {
+    throw new Error('PostgreSQL connection is not available; Active Directory configuration could not be persisted.');
+  }
+
+  // Keep local fallback store synchronized with encrypted storage payload
+  try {
+    const store = loadFallbackStore();
+    store.ad_config = storagePayload;
+    saveFallbackStore(store);
+  } catch {}
 
   // Also persist to network_data.json so Python backend stays in sync
   try {
@@ -5861,7 +5919,7 @@ export async function saveActiveDirectoryConfig(config: any): Promise<any> {
     if (fs.existsSync(netDataPath)) {
       const raw = fs.readFileSync(netDataPath, 'utf-8');
       const netData = JSON.parse(raw);
-      netData.active_directory = normalized;
+      netData.active_directory = storagePayload;
       fs.writeFileSync(netDataPath, JSON.stringify(netData, null, 2), 'utf-8');
     }
   } catch {}
