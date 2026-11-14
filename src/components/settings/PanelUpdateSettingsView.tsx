@@ -418,7 +418,7 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
             </div>
 
             {/* 6 Step Indicators */}
-            <div className="grid grid-cols-6 gap-2 pt-1">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 pt-1">
               {[
                 { step: 1, label_en: '1. Init', label_fa: '۱. آغاز' },
                 { step: 2, label_en: '2. Sync', label_fa: '۲. گیت' },
@@ -500,7 +500,7 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
                 <Sparkles className="w-6 h-6 animate-pulse" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-base font-bold text-white">
                     {isEn ? `New Version v${updateInfo?.latestVersion} Published on GitHub` : `نسخه جدید v${updateInfo?.latestVersion} در گیت‌هاب منتشر شد`}
                   </h3>
@@ -516,7 +516,7 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -622,7 +622,7 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
           {/* Filters, Page Size & Search */}
           <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 flex-wrap">
             {/* Left: Type Filters */}
-            <div className={`flex items-center gap-1 p-1 rounded-xl border text-xs overflow-x-auto ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-white/10'}`}>
+            <div className={`flex flex-wrap items-center gap-1 p-1 rounded-xl border text-xs max-w-full ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-white/10'}`}>
               {(['all', 'major', 'minor', 'patch'] as const).map((t) => (
                 <button
                   key={t}
@@ -643,11 +643,11 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
             {/* Right: Page Size Selector & Search Box */}
             <div className="flex items-center gap-2.5 flex-wrap">
               {/* Page Size Switcher (10, 50, 200) */}
-              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-white/10'}`}>
+              <div className={`flex flex-wrap items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-white/10'}`}>
                 <span className={`text-[11px] font-medium ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                   {isEn ? 'Per Page:' : 'در هر صفحه:'}
                 </span>
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                   {[10, 50, 200].map((size) => (
                     <button
                       key={size}
@@ -669,7 +669,7 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
               </div>
 
               {/* Search Box */}
-              <div className="relative flex-1 sm:w-56 min-w-[180px]">
+              <div className="relative flex-1 w-full sm:w-56 min-w-0 sm:min-w-[180px]">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 rtl:left-auto rtl:right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"

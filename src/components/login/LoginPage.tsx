@@ -1004,7 +1004,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       setAuthType('local');
                       setErrorMsg(null);
                     }}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                    className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-2 py-2 rounded-lg text-[11px] sm:text-xs font-semibold transition cursor-pointer ${
                       authType === 'local'
                         ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md'
                         : isLight
@@ -1022,7 +1022,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       setAuthType('ad');
                       setErrorMsg(null);
                     }}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                    className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-2 py-2 rounded-lg text-[11px] sm:text-xs font-semibold transition cursor-pointer ${
                       authType === 'ad'
                         ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md'
                         : isLight

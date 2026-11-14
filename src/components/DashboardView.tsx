@@ -126,8 +126,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span>{t('dashboard_kpi_total_devices')}</span>
             <Server className="w-4 h-4 text-slate-400 group-hover:text-indigo-400 transition" />
           </div>
-          <div className="text-3xl font-bold text-white font-mono glow-text-cyan">{devices.length}</div>
-          <div className="text-[11px] text-slate-400 mt-2 flex items-center gap-1.5 font-mono">
+          <div className="text-2xl sm:text-3xl font-bold text-white font-mono glow-text-cyan">{devices.length}</div>
+          <div className="text-[11px] text-slate-400 mt-2 flex flex-wrap items-center gap-1.5 font-mono">
             <span>{switches.length} {isEn ? 'Switches' : 'سوییچ'}</span> • <span>{routers.length} {isEn ? 'Routers' : 'روتر'}</span> •{' '}
             <span>{aps.length} {isEn ? 'APs' : 'AP'}</span>
           </div>
@@ -139,8 +139,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span>{t('dashboard_kpi_online_devices')}</span>
             <Activity className="w-4 h-4 text-emerald-400" />
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-emerald-400 font-mono shadow-[0_0_15px_rgba(52,211,153,0.3)]">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-bold text-emerald-400 font-mono shadow-[0_0_15px_rgba(52,211,153,0.3)]">
               {onlineDevices.length}
             </span>
             <span className="text-slate-400 text-xs font-mono">

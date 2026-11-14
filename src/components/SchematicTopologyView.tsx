@@ -5887,8 +5887,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {(!isFullMode || showToolbarInFullMode) && (
         <div className="p-2 sm:px-4 spatial-glass border-b border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs z-20 shadow-xl backdrop-blur-xl">
           {/* View Switcher */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center bg-slate-900/60 rounded-xl p-1 border border-white/10">
+          <div className="flex flex-wrap items-center gap-2 max-w-full">
+            <div className="flex flex-wrap items-center gap-1 bg-slate-900/60 rounded-xl p-1 border border-white/10 max-w-full">
               <button
                 onClick={() => setViewMode('schematic')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
@@ -5956,13 +5956,13 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             )}
 
             {/* Search */}
-            <div className="relative">
+            <div className="relative w-full sm:w-auto min-w-0 flex-1 sm:flex-initial">
               <input
                 type="text"
                 placeholder={t('topology_search_placeholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className={`px-3 py-1.5 ${isRtl ? 'pr-8' : 'pl-8'} rounded-xl bg-slate-900/70 border border-white/15 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-indigo-400 w-44 sm:w-52`}
+                className={`px-3 py-1.5 ${isRtl ? 'pr-8' : 'pl-8'} rounded-xl bg-slate-900/70 border border-white/15 text-slate-100 text-xs placeholder-slate-500 focus:outline-none focus:border-indigo-400 w-full sm:w-52 max-w-full`}
               />
               <Search className={`w-3.5 h-3.5 text-slate-400 absolute ${isRtl ? 'right-2.5' : 'left-2.5'} top-2`} />
             </div>
@@ -5971,7 +5971,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             <select
               value={filterBuilding}
               onChange={(e) => setFilterBuilding(e.target.value)}
-              className="px-3 py-1.5 rounded-xl bg-slate-900/70 border border-white/15 text-slate-200 text-xs focus:outline-none focus:border-indigo-400"
+              className="px-3 py-1.5 rounded-xl bg-slate-900/70 border border-white/15 text-slate-200 text-xs focus:outline-none focus:border-indigo-400 max-w-full min-w-0 w-full sm:w-auto"
             >
               <option value="all">{t('topology_all_buildings')}</option>
               {topology?.buildings?.map((b: any, index: number) => {
@@ -6131,7 +6131,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               <select
                 value={activeMapId}
                 onChange={(e) => handleSelectMap(e.target.value)}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-800 border border-white/15 text-slate-100 text-xs font-medium focus:outline-none focus:border-indigo-400"
+                className="px-2.5 py-1.5 rounded-xl bg-slate-800 border border-white/15 text-slate-100 text-xs font-medium focus:outline-none focus:border-indigo-400 max-w-full min-w-0 w-full sm:w-auto"
               >
                 {customMaps.length === 0 ? (
                   <option value="" disabled>
@@ -6226,7 +6226,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             {/* Custom Map Tools: Select Tool, Cable Tool, Add Device, Clear Links */}
             {currentCustomMap && (
               <div className="flex items-center flex-wrap gap-2">
-                <div className="flex items-center bg-slate-800/90 rounded-xl p-1 border border-white/15 shadow-inner toolbar-dark-pill force-white-text">
+                <div className="flex flex-wrap items-center gap-1 bg-slate-800/90 rounded-xl p-1 border border-white/15 shadow-inner toolbar-dark-pill force-white-text max-w-full">
                   <button
                     type="button"
                     onClick={() => {
@@ -6288,7 +6288,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 )}
 
                 {/* Global Device Display Mode: Card (Cabling) vs Physical (Chassis/Rackmount) */}
-                <div data-component="device-view-mode-toggle" className="flex items-center bg-slate-800/90 rounded-xl p-1 border border-white/15 shadow-inner">
+                <div data-component="device-view-mode-toggle" className="flex flex-wrap items-center gap-1 bg-slate-800/90 rounded-xl p-1 border border-white/15 shadow-inner max-w-full">
                   <button
                     type="button"
                     onClick={() => setGlobalDeviceViewMode('card')}
@@ -6325,7 +6325,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 </div>
 
                 {/* Sticky Notes Toggle & Add Note */}
-                <div data-component="sticky-note-controls" className="flex items-center gap-1.5 bg-slate-800/90 rounded-xl px-2.5 py-1 border border-white/15">
+                <div data-component="sticky-note-controls" className="flex flex-wrap items-center gap-1.5 bg-slate-800/90 rounded-xl px-2.5 py-1 border border-white/15 max-w-full">
                   <label className="flex items-center gap-1.5 cursor-pointer text-xs select-none">
                     <input
                       type="checkbox"
@@ -6368,7 +6368,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
         {/* Persistent Guided Cabling Banner */}
           {activeTool === 'cable' && currentCustomMap && (
-            <div className="px-4 py-2 bg-gradient-to-r from-purple-900/90 to-indigo-900/90 border-t border-purple-500/30 flex items-center justify-between text-xs text-white shadow-inner">
+            <div className="px-4 py-2 bg-gradient-to-r from-purple-900/90 to-indigo-900/90 border-t border-purple-500/30 flex flex-wrap items-center justify-between gap-2 text-xs text-white shadow-inner">
               <div className="flex items-center gap-2">
                 <div className="p-1 rounded bg-purple-500/30 animate-pulse">
                   <Cable className="w-4 h-4 text-purple-300" />

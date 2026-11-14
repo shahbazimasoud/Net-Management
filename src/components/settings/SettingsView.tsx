@@ -253,7 +253,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     <div className="space-y-6 max-w-7xl mx-auto px-2 sm:px-4 py-3 animate-fadeIn">
       {/* Dynamic Sub-Menu Top Banner */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-r from-slate-900/90 via-indigo-950/40 to-slate-900/90 border border-white/10 shadow-xl backdrop-blur-xl">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="p-3 rounded-2xl bg-gradient-to-tr from-indigo-600 to-cyan-500 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)] border border-white/20">
             <CurrentIcon className="w-6 h-6" />
           </div>
@@ -292,7 +292,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* Sub-Menu Bar: Synchronized with Sidebar */}
-      <div className="settings-subtab-bar flex items-center gap-2 p-1.5 rounded-2xl bg-white/[0.03] border border-white/10 backdrop-blur-md overflow-x-auto custom-scrollbar">
+      <div className="settings-subtab-bar flex flex-wrap items-center gap-2 p-1.5 rounded-2xl bg-white/[0.03] border border-white/10 backdrop-blur-md max-w-full">
         {/* Sub-menu 1: Device Groups */}
         <button
           type="button"

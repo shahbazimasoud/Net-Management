@@ -960,7 +960,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
             : 'bg-slate-950/70 border-white/10 shadow-black/40'
         }`}
       >
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+        <div className="flex flex-wrap items-center gap-1.5 py-0.5">
           {SETTINGS_TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -1060,7 +1060,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   : 'bg-slate-950/60 border-white/10'
               }`}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
                 <div className="flex items-center gap-2.5">
                   <div className="p-2 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
                     <Sparkles className="w-4 h-4" />
@@ -1164,7 +1164,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
 
               {/* Logo Selection: Presets vs Custom URL/Upload */}
               <div className="space-y-2.5 pt-2">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <label className={`text-xs font-semibold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                     <span>{isEn ? 'Logo Icon / Graphic' : 'نشان و لوگوی گرافیکی پنل'}</span>
                     <FieldInfoTooltip
@@ -1221,7 +1221,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 {formData.logoType === 'custom_url' ? (
                   /* Custom URL / Upload Box with PNG & Auto-scaling */
                   <div className={`p-4 rounded-xl border space-y-3 ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-white/10'}`}>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <input
                         type="text"
                         value={formData.logoCustomUrl || ''}
@@ -1233,7 +1233,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                           }
                         }}
                         placeholder={isEn ? 'Enter Image URL (PNG, SVG, HTTPS...)' : 'آدرس اینترنتی مستقیم لوگو (PNG، SVG، HTTPS...)'}
-                        className={`flex-1 px-3 py-1.5 rounded-lg text-xs border focus:outline-none focus:border-indigo-500 ${
+                        className={`flex-1 min-w-0 w-full sm:w-auto px-3 py-1.5 rounded-lg text-xs border focus:outline-none focus:border-indigo-500 ${
                           isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-white/10 text-white'
                         }`}
                       />
@@ -1306,7 +1306,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                         </div>
 
                         {/* Dual Viewport Preview Mockup */}
-                        <div className="pt-2 border-t border-white/5 flex items-center gap-4 text-[11px] text-slate-400">
+                        <div className="pt-2 border-t border-white/5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-slate-400">
                           <span className="text-slate-500 font-mono text-[10px]">{isEn ? 'Display Previews:' : 'پیش‌نمایش در سامانه:'}</span>
                           <div className="flex items-center gap-1.5">
                             <span className="text-[10px] text-slate-400">{isEn ? 'Navbar (32px):' : 'هدر (۳۲px):'}</span>
@@ -1380,7 +1380,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   </label>
 
                   {/* Mode Selector Buttons */}
-                  <div className="flex items-center gap-1 p-0.5 rounded-lg bg-slate-900 border border-white/10 text-[11px] overflow-x-auto">
+                  <div className="flex flex-wrap items-center gap-1 p-0.5 rounded-lg bg-slate-900 border border-white/10 text-[11px] max-w-full">
                     <button
                       type="button"
                       onClick={() => {
@@ -1478,7 +1478,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 {/* Content based on faviconType */}
                 {formData.faviconType === 'custom_url' && (
                   <div className={`p-4 rounded-xl border space-y-3 ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-white/10'}`}>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <input
                         type="text"
                         value={formData.faviconCustomUrl || ''}
@@ -1488,7 +1488,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                           updateDocumentFavicon(next);
                         }}
                         placeholder={isEn ? 'Enter Favicon URL (ICO, PNG, SVG)' : 'آدرس اینترنتی مستقیم فاو‌آیکون (ICO, PNG, SVG)'}
-                        className={`flex-1 px-3 py-1.5 rounded-lg text-xs border focus:outline-none focus:border-indigo-500 ${
+                        className={`flex-1 min-w-0 w-full sm:w-auto px-3 py-1.5 rounded-lg text-xs border focus:outline-none focus:border-indigo-500 ${
                           isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-white/10 text-white'
                         }`}
                       />
@@ -1593,7 +1593,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   : 'bg-slate-950/60 border-white/10'
               }`}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
                 <div className="flex items-center gap-2.5">
                   <div className="p-2 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400">
                     <Globe className="w-4 h-4" />
@@ -1717,7 +1717,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                     {Number(formData.telemetryRefreshIntervalSec || 0) === 0 ? (isEn ? 'Off (Manual)' : 'غیرفعال (دستی)') : `${formData.telemetryRefreshIntervalSec}s`}
                   </span>
                 </div>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[0, 15, 30, 60].map((sec) => {
                     const isSelected = Number(formData.telemetryRefreshIntervalSec || 0) === sec;
                     return (
@@ -1751,7 +1751,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   : 'bg-slate-950/60 border-white/10'
               }`}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
                 <div className="flex items-center gap-2.5">
                   <div className="p-2 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-400">
                     <Palette className="w-4 h-4" />
@@ -1813,7 +1813,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   : 'bg-slate-950/60 border-white/10'
               }`}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
                 <div className="flex items-center gap-2.5">
                   <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
                     <ShieldCheck className="w-4 h-4" />
@@ -1907,7 +1907,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                       : `${formData.sessionInactivityTimeoutMin} min`}
                   </span>
                 </div>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[15, 30, 60, 240].map((mins) => {
                     const isSelected = formData.sessionInactivityTimeoutMin === mins;
                     return (
@@ -1962,7 +1962,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   : 'bg-slate-950/60 border-white/10'
               }`}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
                 <div className="flex items-center gap-2.5">
                   <div className="p-2 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
                     <KeyRound className="w-4 h-4" />
@@ -3092,7 +3092,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   <select
                     value={formData.serverTimezone || 'Asia/Tehran'}
                     onChange={(e) => handleTimezoneChange(e.target.value)}
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm border transition focus:outline-none focus:border-cyan-500 font-sans cursor-pointer ${
+                    className={`w-full max-w-full min-w-0 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm border transition focus:outline-none focus:border-cyan-500 font-sans cursor-pointer ${
                       isLightMode
                         ? 'bg-slate-50 border-slate-300 text-slate-900'
                         : 'bg-slate-900 border-white/10 text-white'
@@ -3115,13 +3115,13 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                     })}
                   </select>
                 ) : (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <input
                       type="text"
                       value={customTimezoneInput || formData.serverTimezone || ''}
                       onChange={(e) => setCustomTimezoneInput(e.target.value)}
                       placeholder={isEn ? 'e.g. Asia/Tehran, Europe/Berlin, UTC' : 'مثال: Asia/Tehran یا Europe/Berlin یا UTC'}
-                      className={`flex-1 px-3.5 py-2 rounded-xl text-xs sm:text-sm border transition focus:outline-none focus:border-cyan-500 font-mono ${
+                      className={`flex-1 min-w-0 px-3.5 py-2 rounded-xl text-xs sm:text-sm border transition focus:outline-none focus:border-cyan-500 font-mono ${
                         isLightMode
                           ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400'
                           : 'bg-slate-900 border-white/10 text-white placeholder:text-slate-500'
@@ -3159,7 +3159,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   />
                 </label>
 
-                <div className="grid grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     onClick={() => setFormData({ ...formData, timeFormat: '24h' })}
@@ -3252,13 +3252,13 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                       </label>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <input
                         type="text"
                         value={formData.serverNtpServer || 'ir.pool.ntp.org'}
                         onChange={(e) => setFormData({ ...formData, serverNtpServer: e.target.value })}
                         placeholder="e.g. ir.pool.ntp.org or pool.ntp.org"
-                        className={`flex-1 px-3.5 py-2 rounded-xl text-xs font-mono border transition focus:outline-none focus:border-cyan-500 ${
+                        className={`flex-1 min-w-0 px-3.5 py-2 rounded-xl text-xs font-mono border transition focus:outline-none focus:border-cyan-500 ${
                           isLightMode
                             ? 'bg-slate-50 border-slate-300 text-slate-900'
                             : 'bg-slate-900 border-white/10 text-white'
@@ -3291,7 +3291,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
               </div>
 
               {/* Manual Time Button */}
-              <div className="pt-2 border-t border-white/10 flex items-center justify-between">
+              <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs text-slate-400">
                   {isEn ? 'Need custom time without NTP?' : 'نیاز به تنظیم دلخواه ساعت و تاریخ بدون اینترنت؟'}
                 </span>
@@ -3370,7 +3370,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
             }`}
           >
             <div>
-              <div className="flex items-center justify-between pb-4 border-b border-white/10">
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/10">
                 <div className="flex items-center gap-2.5">
                   <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
                     <Activity className="w-5 h-5" />
@@ -3426,7 +3426,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
               </div>
             </div>
 
-            <div className={`mt-6 pt-4 border-t text-[11px] font-mono flex items-center justify-between ${isLightMode ? 'border-slate-200 text-slate-500' : 'border-white/10 text-slate-400'}`}>
+            <div className={`mt-6 pt-4 border-t text-[11px] font-mono flex flex-wrap items-center justify-between gap-2 ${isLightMode ? 'border-slate-200 text-slate-500' : 'border-white/10 text-slate-400'}`}>
               <span>{isEn ? 'Execution: Authentic Hardware Mode' : 'حالت اجرا: تجهیزات واقعی و استاندارد'}</span>
               <span>{isEn ? 'Version: ' : 'نسخه: '}v{APP_VERSION}</span>
             </div>
@@ -3517,7 +3517,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
               </div>
 
               {/* Phase 2: LDAP */}
-              <div className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
+              <div className={`flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
                 <div className="flex items-center gap-3">
                   <div className="w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center text-xs font-bold shrink-0">
                     <Check className="w-4 h-4" />
@@ -3543,7 +3543,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
               </div>
 
               {/* Phase 3: Updates */}
-              <div className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
+              <div className={`flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
                 <div className="flex items-center gap-3">
                   <div className="w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center text-xs font-bold shrink-0">
                     <Check className="w-4 h-4" />
@@ -3569,7 +3569,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
               </div>
 
               {/* Phase 4: General Panel Settings */}
-              <div className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
+              <div className={`flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
                 <div className="flex items-center gap-3">
                   <div className="w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center text-xs font-bold shrink-0">
                     <Check className="w-4 h-4" />
@@ -3593,7 +3593,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
               </div>
 
               {/* Phase 5: Host Services Manager */}
-              <div className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
+              <div className={`flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
                 <div className="flex items-center gap-3">
                   <div className="w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center text-xs font-bold shrink-0">
                     <Check className="w-4 h-4" />
@@ -3619,7 +3619,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
               </div>
 
               {/* Enterprise Backup & Disaster Recovery Portal */}
-              <div className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
+              <div className={`flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
                 <div className="flex items-center gap-3">
                   <div className="w-7 h-7 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 flex items-center justify-center text-xs font-bold shrink-0">
                     <Check className="w-4 h-4" />
@@ -3645,7 +3645,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
               </div>
 
               {/* Outgoing Mail (SMTP) Gateway */}
-              <div className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
+              <div className={`flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
                 <div className="flex items-center gap-3">
                   <div className="w-7 h-7 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-400 flex items-center justify-center text-xs font-bold shrink-0">
                     <Check className="w-4 h-4" />
@@ -3702,7 +3702,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
             }`}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 shrink-0">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-4 border-b border-white/10 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400">
                   <Calendar className="w-4 h-4" />

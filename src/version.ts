@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.5';
+export const APP_VERSION = '1.425.6';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.6',
+    releaseDate: '2026-11-14',
+    type: 'patch',
+    title: 'رفع کامل سرریز افقی و خروج دکمه‌ها، فیلترها و نوارهای ابزار از کادر صفحه در حالت موبایل در تمامی صفحات پنل',
+    title_en: 'Comprehensive Mobile & Tablet Responsive Overflow Fixes Across All Remaining Panel Views and Settings Pages',
+    changes: [
+      'افزودن چیدمان چندخطی (flex-wrap)، محدودیت عرض متناسب با صفحه و مهار منوهای آبشاری (select) در صفحات مدیریت پورت‌ها، اسکنر CDP/LLDP، توپولوژی شماتیک، مدیریت تمپلیت‌ها، لایسنس‌ها و قراردادها جهت جلوگیری از خروج دکمه‌ها و فیلترها از کادر در موبایل.',
+      'اصلاح نوارهای ابزار، فیلترهای جستجو، جدول‌ها، دکمه‌های هدر و تب‌های ناوبری در صفحه لاگ‌های ممیزی (Audit & Command Logs) و لاگ دستورات سرورها.',
+      'بهینه‌سازی کامل ریسپانسیو تمامی تب‌های تنظیمات شامل تنظیمات عمومی، سرویس‌های هاست، اتصال LDAP، اکتیو دایرکتوری، کنترل دسترسی RBAC، کاربران محلی، گروه‌بندی تجهیزات، پورتال بکاپ و بازیابی، آپدیت پنل، تنظیمات ایمیل، تلگرام و نگهداری لاگ‌ها.',
+      'اصلاح نمایش کارت‌های KPI داشبورد، دکمه‌های انتخاب روش ورود در صفحه لاگین، کادر اصلی نمای برنامه (overflow-x-hidden) و نوتیفیکیشن‌های شناور (Toast) در نمایشگرهای موبایل.'
+    ],
+    changes_en: [
+      'Added responsive flex-wrap rules, min-w-0 flex bounds, and viewport-safe select widths across PortManagementView, CdpLldpScannerView, SchematicTopologyView, TemplateManagementView, LicensesView, and ContractsView.',
+      'Updated filter strips, search inputs, timeframe selectors, grouping bars, and action buttons in AuditLogsView and ServerCommandLogsSection so controls wrap cleanly inside narrow screens.',
+      'Resolved horizontal overflow across Settings sub-views (GeneralSettingsView, PanelServicesView, LdapConnectionSettingsView, ActiveDirectoryTab, AccessControlTab, LocalUsersTab, DeviceGroupingTab, BackupPortalTab, PanelUpdateSettingsView, EmailSettingsView, TelegramAlertsSettingsView, and LogRetentionSettingsView), including fixing col-span grid overflow on single-column mobile layouts.',
+      'Refined DashboardView KPI card wrapping, LoginPage auth mode buttons, main container horizontal overflow protection, and mobile toast positioning bounds.'
+    ]
+  },
   {
     version: '1.425.5',
     releaseDate: '2026-11-14',

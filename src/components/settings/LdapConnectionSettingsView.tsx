@@ -317,7 +317,7 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
               : 'bg-slate-950/60 border-white/10'
           }`}
         >
-          <div className="border-b border-white/10 pb-3 flex items-center justify-between">
+          <div className="border-b border-white/10 pb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Server className="w-4 h-4 text-sky-400" />
               <h3 className="font-bold text-sm text-white">
@@ -591,7 +591,7 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
               : 'bg-slate-950/80 border-white/10'
           }`}
         >
-          <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3 mb-4">
             <div className="flex items-center gap-2">
               <Terminal className="w-4 h-4 text-sky-400" />
               <h3 className="font-bold text-xs text-sky-300 font-mono">
@@ -651,7 +651,7 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
 
             {testResult && (
               <div
-                className={`p-3.5 rounded-xl border text-xs flex items-center justify-between shadow-xs ${
+                className={`p-3.5 rounded-xl border text-xs flex flex-wrap items-center justify-between gap-2 shadow-xs ${
                   testResult.success
                     ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
                     : 'bg-rose-950/40 border-rose-500/30 text-rose-300'

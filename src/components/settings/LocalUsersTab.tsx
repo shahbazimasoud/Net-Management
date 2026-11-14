@@ -653,11 +653,11 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
         </div>
 
         {/* Sub-tabs: Users vs Groups */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-950/80 rounded-xl border border-white/10 self-start sm:self-auto">
+        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-950/80 rounded-xl border border-white/10 self-stretch sm:self-auto w-full sm:w-auto">
           <button
             type="button"
             onClick={() => setActiveSection('users')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+            className={`flex flex-1 sm:flex-initial justify-center items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
               activeSection === 'users'
                 ? 'bg-cyan-500 text-slate-950 shadow-md'
                 : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -673,7 +673,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
           <button
             type="button"
             onClick={() => setActiveSection('groups')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+            className={`flex flex-1 sm:flex-initial justify-center items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
               activeSection === 'groups'
                 ? 'bg-indigo-500 text-white shadow-md'
                 : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -750,8 +750,8 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
 
       {/* Action Bar (Search, Filters, Create Button) */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-2 w-full sm:w-auto flex-1 max-w-md">
-          <div className="relative w-full">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto flex-1 max-w-md">
+          <div className="relative w-full sm:flex-1 min-w-[160px]">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 rtl:right-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -774,7 +774,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="px-3 py-2 rounded-xl bg-slate-900/80 border border-white/10 text-xs text-slate-300 focus:outline-none focus:border-cyan-400 shrink-0"
+              className="w-full sm:w-auto max-w-full min-w-0 px-3 py-2 rounded-xl bg-slate-900/80 border border-white/10 text-xs text-slate-300 focus:outline-none focus:border-cyan-400"
             >
               <option value="all">{isEn ? 'All Status' : 'همه وضعیت‌ها'}</option>
               <option value="active">{isEn ? 'Active Only' : 'فقط فعال'}</option>
@@ -830,7 +830,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                 >
                   <div className="space-y-3">
                     {/* Card Top: Avatar, Name & Status */}
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="flex items-center gap-3">
                         <div
                           className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm border ${
@@ -919,7 +919,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                   </div>
 
                   {/* Card Bottom Actions */}
-                  <div className="flex items-center justify-between pt-3 mt-3 border-t border-white/10 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-3 mt-3 border-t border-white/10 text-xs">
                     <span className="text-[10px] text-slate-400 font-mono">
                       {isEn ? 'Last:' : 'آخرین ورود:'} {user.lastLogin || '-'}
                     </span>
@@ -971,7 +971,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                   className="p-4 rounded-2xl bg-slate-900/70 border border-white/10 hover:border-indigo-500/40 transition-all flex flex-col justify-between"
                 >
                   <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5">
                         <div className={`p-2.5 rounded-xl border ${c.bg} ${c.text} ${c.border}`}>
                           <FolderTree className="w-4 h-4" />
@@ -1023,7 +1023,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                   </div>
 
                   {/* Card Bottom Actions */}
-                  <div className="flex items-center justify-between pt-3 mt-3 border-t border-white/10 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-3 mt-3 border-t border-white/10 text-xs">
                     <span className="text-[10px] text-slate-500 font-mono">
                       {isEn ? 'Created:' : 'ایجاد:'} {group.createdAt?.substring(0, 10) || '-'}
                     </span>
@@ -1285,7 +1285,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
               </div>
 
               {/* Actions */}
-              <div className="flex justify-end gap-2 pt-2 border-t border-white/10">
+              <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-white/10">
                 <button
                   type="button"
                   onClick={() => setUserModalOpen(false)}

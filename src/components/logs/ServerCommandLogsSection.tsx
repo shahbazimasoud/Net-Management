@@ -535,7 +535,7 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
       {/* Sub-toolbar: Grouping Mode Switcher & Filter Toolbar */}
       <div className="flex flex-col xl:flex-row gap-3 items-stretch xl:items-center justify-between p-3 sm:p-3.5 rounded-2xl audit-glass-panel border border-white/10 w-full max-w-full overflow-hidden">
         {/* Dual-Perspective Grouping mode buttons */}
-        <div className="flex items-center gap-1.5 p-1 bg-black/25 rounded-xl border border-white/5 overflow-x-auto custom-scrollbar shrink-0 max-w-full">
+        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-black/25 rounded-xl border border-white/5 max-w-full">
           <button
             onClick={() => setGroupMode('server')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
@@ -613,7 +613,7 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
           <select
             value={selectedChannel}
             onChange={(e) => setSelectedChannel(e.target.value)}
-            className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0 max-w-full"
+            className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-w-0 flex-1 sm:flex-initial max-w-full"
           >
             <option value="all" className="bg-slate-900 text-white">{isEn ? 'All Channels' : 'همه کانال‌ها'}</option>
             <option value="SSH_SHELL" className="bg-slate-900 text-white">SSH Shell</option>
@@ -627,7 +627,7 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
           <select
             value={selectedOs}
             onChange={(e) => setSelectedOs(e.target.value)}
-            className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0 max-w-full"
+            className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-w-0 flex-1 sm:flex-initial max-w-full"
           >
             <option value="all" className="bg-slate-900 text-white">{isEn ? 'All OS' : 'همه سیستم‌عامل‌ها'}</option>
             <option value="linux" className="bg-slate-900 text-white">Linux</option>
@@ -638,7 +638,7 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
           <select
             value={selectedRisk}
             onChange={(e) => setSelectedRisk(e.target.value)}
-            className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0 max-w-full"
+            className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-w-0 flex-1 sm:flex-initial max-w-full"
           >
             <option value="all" className="bg-slate-900 text-white">{isEn ? 'All Risks' : 'همه سطوح ریسک'}</option>
             <option value="critical" className="bg-slate-900 text-white">{isEn ? 'Critical' : 'بحرانی'}</option>
@@ -1175,8 +1175,8 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
             }`}
           >
             {/* Modal Header with Required 3-Button Controls: Close, Minimize, Fullscreen */}
-            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-black/40">
-              <div className="flex items-center gap-2.5">
+            <div className="p-4 border-b border-white/10 flex flex-wrap items-center justify-between gap-2 bg-black/40">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
                 <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/20">
                   <Server className="w-5 h-5" />
                 </div>
@@ -1219,7 +1219,7 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
             {/* Modal Body */}
             <div className="p-5 overflow-y-auto space-y-4 text-xs custom-scrollbar flex-1">
               {/* Target Server and Operator Details Grid */}
-              <div className="grid grid-cols-2 gap-3 p-3.5 rounded-xl bg-white/[0.03] border border-white/10 font-sans">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-white/[0.03] border border-white/10 font-sans">
                 <div>
                   <span className="text-slate-400 block text-[11px]">{isEn ? 'Target Server:' : 'سرور مقصد:'}</span>
                   <span className="font-bold text-white font-mono">{inspectedLog.serverName} ({inspectedLog.serverIp})</span>
@@ -1254,7 +1254,7 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
               </div>
 
               {/* Status and Risk */}
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-black/25 border border-white/5">
+              <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl bg-black/25 border border-white/5">
                 <div>
                   <span className="text-[10px] text-slate-400 block mb-0.5">{isEn ? 'Execution Status:' : 'وضعیت اجرا:'}</span>
                   {getStatusBadge(inspectedLog.status)}

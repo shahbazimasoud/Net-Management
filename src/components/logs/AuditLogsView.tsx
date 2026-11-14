@@ -1231,7 +1231,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
         </div>
 
         {/* Timeframe Presets */}
-        <div className="flex items-center gap-1.5 self-center sm:self-auto text-xs px-2 py-1 bg-black/20 rounded-xl border border-white/5">
+        <div className="flex flex-wrap items-center justify-center gap-1.5 self-stretch sm:self-auto text-xs px-2 py-1 bg-black/20 rounded-xl border border-white/5 max-w-full">
           <span className="text-slate-400 text-[11px] hidden md:inline px-1 flex items-center gap-1">
             <Clock className="w-3 h-3" />
             <span>{isEn ? 'Timeframe:' : 'بازه:'}</span>
@@ -1264,7 +1264,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
           {/* Sub-toolbar: Grouping Mode Switcher & Filter Toolbar */}
           <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between p-3.5 rounded-2xl audit-glass-panel border border-white/10">
             {/* Grouping mode buttons */}
-            <div className="flex items-center gap-1.5 p-1 bg-black/25 rounded-xl border border-white/5 overflow-x-auto shrink-0">
+            <div className="flex flex-wrap items-center gap-1.5 p-1 bg-black/25 rounded-xl border border-white/5 max-w-full">
               <button
                 onClick={() => setCommandGroupMode('device')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
@@ -1309,8 +1309,8 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
             </div>
 
             {/* Search and Filters */}
-            <div className="flex items-center gap-2 flex-1 max-w-xl">
-              <div className="relative flex-1">
+            <div className="flex flex-wrap items-center gap-2 flex-1 w-full max-w-full xl:max-w-xl min-w-0">
+              <div className="relative w-full sm:flex-1 min-w-0 sm:min-w-[160px]">
                 <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 text-slate-400 ltr:left-3 rtl:right-3" />
                 <input
                   type="text"
@@ -1339,7 +1339,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
               <select
                 value={selectedUser}
                 onChange={(e) => setSelectedUser(e.target.value)}
-                className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0"
+                className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 max-w-full min-w-0 flex-1 sm:flex-initial"
               >
                 <option value="all" className="bg-slate-900 text-white">{isEn ? 'All Users' : 'همه کاربران'}</option>
                 {uniqueUsers.map((u) => (
@@ -1351,7 +1351,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
               <select
                 value={selectedVendor}
                 onChange={(e) => setSelectedVendor(e.target.value)}
-                className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0"
+                className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 max-w-full min-w-0 flex-1 sm:flex-initial"
               >
                 <option value="all" className="bg-slate-900 text-white">{isEn ? 'All Vendors' : 'همه سازندگان'}</option>
                 <option value="cisco" className="bg-slate-900 text-white">Cisco</option>
@@ -1477,7 +1477,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <div className="text-left rtl:text-right">
                             <span className="text-[10px] text-slate-400 block">{isEn ? 'Total Commands' : 'مجموع فرامین'}</span>
                             <span className="font-mono font-bold text-white text-sm">{activeDeviceGroup.totalCommands}</span>
@@ -1499,7 +1499,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                     </div>
 
                     {/* Section Title */}
-                    <div className="flex items-center justify-between pt-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                       <div className="flex items-center gap-2">
                         <User className="w-4 h-4 text-indigo-400" />
                         <h3 className="text-sm font-bold text-white">
@@ -1694,7 +1694,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <div className="text-left rtl:text-right">
                           <span className="text-[10px] text-slate-400 block">{isEn ? 'Devices Operated' : 'دیوایس‌های مدیریت‌شده'}</span>
                           <span className="font-mono font-bold text-white text-sm">{activeUserGroup.devices.length}</span>
@@ -1707,7 +1707,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                       <div className="flex items-center gap-2">
                         <Server className="w-4 h-4 text-cyan-400" />
                         <h3 className="text-sm font-bold text-white">
@@ -1980,12 +1980,12 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
               )}
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap w-full md:w-auto max-w-full">
               {/* User filter */}
               <select
                 value={selectedUser}
                 onChange={(e) => setSelectedUser(e.target.value)}
-                className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 max-w-full min-w-0 flex-1 sm:flex-initial"
               >
                 <option value="all" className="bg-slate-900 text-white">{isEn ? 'All Users' : 'همه کاربران'}</option>
                 {uniqueUsers.map((u) => (
@@ -1996,7 +1996,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 max-w-full min-w-0 flex-1 sm:flex-initial"
               >
                 <option value="all" className="bg-slate-900 text-white">{isEn ? 'All Categories' : 'تمام دسته‌بندی‌ها'}</option>
                 <option value="device_inventory" className="bg-slate-900 text-white">{isEn ? 'Device Inventory & Locations' : 'موجودی تجهیزات و رک‌ها'}</option>
@@ -2009,7 +2009,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
               <select
                 value={selectedSeverity}
                 onChange={(e) => setSelectedSeverity(e.target.value)}
-                className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 max-w-full min-w-0 flex-1 sm:flex-initial"
               >
                 <option value="all" className="bg-slate-900 text-white">{isEn ? 'All Severities' : 'همه سطوح اهمیت'}</option>
                 <option value="critical" className="bg-slate-900 text-white">{isEn ? 'Critical' : 'بحرانی'}</option>
@@ -2022,7 +2022,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
 
           {/* Portal Records Table */}
           <div className="audit-glass-panel rounded-2xl border border-white/10 overflow-hidden shadow-lg">
-            <div className="p-4 bg-white/[0.03] border-b border-white/10 flex items-center justify-between">
+            <div className="p-4 bg-white/[0.03] border-b border-white/10 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Layers className="w-4 h-4 text-emerald-400" />
                 <h2 className="text-xs md:text-sm font-bold text-white">
@@ -2535,7 +2535,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                         )}
                       </button>
 
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <button
                           onClick={() => {
                             setSelectedReportForEdit(report);
@@ -2585,7 +2585,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
         <div className="fixed top-0 left-0 right-0 bottom-8 z-50 modal-glass-backdrop flex items-center justify-center p-3 sm:p-5">
           <div className="audit-glass-panel border border-white/15 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-white/10 bg-black/30 flex items-start justify-between gap-4">
+            <div className="p-4 sm:p-5 border-b border-white/10 bg-black/30 flex flex-wrap items-start justify-between gap-4">
               <div className="flex items-start gap-3.5">
                 <div className="p-2.5 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-400 text-white shadow-lg shrink-0">
                   <Terminal className="w-6 h-6" />

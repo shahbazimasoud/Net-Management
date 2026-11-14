@@ -694,7 +694,7 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
                 <select
                   value={activePolicy.id}
                   onChange={(e) => onSelectSimulatedPolicy(e.target.value)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border focus:outline-none cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border focus:outline-none cursor-pointer max-w-full min-w-0 w-full sm:w-auto ${
                     isLightMode
                       ? 'bg-white border-slate-300 text-slate-800'
                       : 'bg-slate-800 border-white/20 text-white'
@@ -716,7 +716,7 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
           Portal Sub-Tab Navigation Bar (Phase 3 Core Feature)
       ------------------------------------------------------------- */}
       <div
-        className={`flex items-center gap-2 p-1.5 rounded-2xl border overflow-x-auto ${
+        className={`flex flex-wrap items-center gap-1.5 sm:gap-2 p-1.5 rounded-2xl border max-w-full ${
           isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-white/10'
         }`}
       >
@@ -1233,13 +1233,13 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
                           <Lock className="w-4 h-4" />
                           <span>{isEn ? 'Encrypted Package Detected' : 'این فایل پشتیبان رمزنگاری شده است'}</span>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           <input
                             type="password"
                             placeholder="••••••••"
                             value={importPassphrase}
                             onChange={(e) => setImportPassphrase(e.target.value)}
-                            className="flex-1 px-3 py-1.5 rounded-lg bg-slate-900 border border-white/20 text-white text-xs focus:outline-none"
+                            className="flex-1 min-w-0 px-3 py-1.5 rounded-lg bg-slate-900 border border-white/20 text-white text-xs focus:outline-none"
                           />
                           <button
                             type="button"
@@ -1415,7 +1415,7 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
                 </button>
 
                 {hasSnapshot && (
-                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between">
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2 text-xs text-amber-200">
                       <RotateCcw className="w-4 h-4 text-amber-400" />
                       <div>
@@ -1534,7 +1534,7 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
                 >
                   <div className="space-y-3">
                     {/* Card Header: Name & Enable Toggle */}
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2">
                           <h4 className="font-bold text-sm text-cyan-400">{job.name}</h4>
@@ -1619,7 +1619,7 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
                   </div>
 
                   {/* Actions Footer */}
-                  <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                  <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
                     <button
                       type="button"
                       disabled={isRunning || !canExport}
@@ -1657,7 +1657,7 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
             })}
 
             {schedules.length === 0 && !isLoadingSchedules && (
-              <div className="col-span-2 p-10 rounded-2xl border text-center border-dashed border-white/10 bg-slate-900/40 text-slate-400">
+              <div className="md:col-span-2 p-6 sm:p-10 rounded-2xl border text-center border-dashed border-white/10 bg-slate-900/40 text-slate-400">
                 <Calendar className="w-10 h-10 mx-auto text-slate-500 mb-2 opacity-50" />
                 <div className="font-bold text-sm text-white">
                   {isEn ? 'No Automated Schedules Configured' : 'هیچ زمانبندی پشتیبان‌گیری فعالی تعریف نشده است'}
@@ -1990,11 +1990,11 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                 <select
                   value={logFilter}
                   onChange={(e) => setLogFilter(e.target.value)}
-                  className={`px-2.5 py-1 rounded-lg text-xs border focus:outline-none ${
+                  className={`px-2.5 py-1 rounded-lg text-xs border focus:outline-none max-w-full min-w-0 flex-1 sm:flex-initial ${
                     isLightMode ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-slate-800 border-white/15 text-white'
                   }`}
                 >

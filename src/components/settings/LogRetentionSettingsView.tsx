@@ -715,7 +715,7 @@ export const LogRetentionSettingsView: React.FC<LogRetentionSettingsViewProps> =
               </div>
 
               {/* Custom Days Input */}
-              <div className="mt-3.5 flex items-center gap-3">
+              <div className="mt-3.5 flex flex-wrap items-center gap-3">
                 <span className={`text-xs ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                   {isEn ? 'Or specify custom days:' : 'یا وارد کردن تعداد روز سفارشی:'}
                 </span>
@@ -975,7 +975,7 @@ export const LogRetentionSettingsView: React.FC<LogRetentionSettingsViewProps> =
               <Flame className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h3 className={`text-base font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
                   {isEn ? 'Immediate Manual Log Purge' : 'پاکسازی فوری و دستی لاگ‌های پایگاه داده'}
                 </h3>
@@ -992,14 +992,14 @@ export const LogRetentionSettingsView: React.FC<LogRetentionSettingsViewProps> =
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <span className={`text-xs ${isLightMode ? 'text-slate-700 font-medium' : 'text-slate-300'}`}>
                 {isEn ? 'Purge older than:' : 'حذف لاگ‌های قدیمی‌تر از:'}
               </span>
               <select
                 value={manualPurgeDays}
                 onChange={(e) => setManualPurgeDays(Number(e.target.value))}
-                className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold border transition cursor-pointer ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold border transition cursor-pointer max-w-full min-w-0 flex-1 sm:flex-initial ${
                   isLightMode
                     ? 'bg-white border-slate-300 text-slate-800 focus:border-rose-500'
                     : 'bg-slate-900 border-slate-700 text-white focus:border-rose-400'
@@ -1062,7 +1062,7 @@ export const LogRetentionSettingsView: React.FC<LogRetentionSettingsViewProps> =
       {isPurgeModalOpen && (
         <div className="fixed top-0 left-0 right-0 bottom-8 z-[999990] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
           <div
-            className={`w-full max-w-lg rounded-2xl border shadow-2xl p-6 space-y-5 transition-all transform scale-100 ${
+            className={`w-full max-w-lg max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border shadow-2xl p-6 space-y-5 transition-all transform scale-100 ${
               isLightMode
                 ? 'bg-white border-rose-300 shadow-rose-900/20 text-slate-900'
                 : 'bg-slate-900 border-rose-500/40 shadow-2xl text-white'

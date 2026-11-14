@@ -878,7 +878,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   {isEn ? 'Color Tag' : 'رنگ نمادین گروه'}
                 </label>
-                <div className="flex items-center gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-2 pt-1">
                   {(['amber', 'indigo', 'cyan', 'emerald', 'rose', 'purple', 'blue'] as GroupColor[]).map((c) => (
                     <button
                       key={c}
@@ -1031,7 +1031,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
         >
           {/* Header */}
           <div className="space-y-2 border-b border-white/10 pb-3 mb-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <div className={`p-1.5 rounded-lg border ${COLOR_MAP[selectedGroup?.color || 'amber'].badge}`}>
                   <Layers className="w-4 h-4" />
@@ -1054,7 +1054,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
 
             {/* Sub-Filters and Batch Actions */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-1">
-              <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900/80 border border-white/10 text-xs overflow-x-auto">
+              <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-900/80 border border-white/10 text-xs max-w-full">
                 <button
                   type="button"
                   onClick={() => setMemberCategoryFilter('all')}
@@ -1106,8 +1106,8 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
             </div>
 
             {/* Search inside members */}
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[150px]">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 rtl:left-auto rtl:right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
@@ -1296,7 +1296,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
         <div className="lg:col-span-6 rounded-2xl p-4 bg-white/[0.02] border border-white/10 flex flex-col">
           {/* Header with Search and Role/OS Filters */}
           <div className="space-y-2.5 border-b border-white/10 pb-3 mb-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="font-bold text-sm text-white flex items-center gap-2">
                 <Network className="w-4 h-4 text-cyan-400" />
                 <span>{isEn ? 'Available Equipment & Servers' : 'تجهیزات و سرورهای آماده تخصیص'}</span>
@@ -1329,11 +1329,11 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
             </div>
 
             {/* Category Filter Buttons (All / Devices / Servers) */}
-            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/80 border border-white/10 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-xl bg-slate-900/80 border border-white/10 text-xs max-w-full">
               <button
                 type="button"
                 onClick={() => setAvailableCategoryFilter('all')}
-                className={`flex-1 py-1 rounded-lg text-xs font-semibold transition cursor-pointer text-center ${
+                className={`flex-1 min-w-[95px] py-1 rounded-lg text-xs font-semibold transition cursor-pointer text-center ${
                   availableCategoryFilter === 'all'
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                     : 'text-slate-400 hover:text-white'
@@ -1344,7 +1344,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
               <button
                 type="button"
                 onClick={() => setAvailableCategoryFilter('devices')}
-                className={`flex-1 py-1 rounded-lg text-xs font-semibold transition cursor-pointer text-center flex items-center justify-center gap-1 ${
+                className={`flex-1 min-w-[95px] py-1 rounded-lg text-xs font-semibold transition cursor-pointer text-center flex items-center justify-center gap-1 ${
                   availableCategoryFilter === 'devices'
                     ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
                     : 'text-slate-400 hover:text-white'
@@ -1356,7 +1356,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
               <button
                 type="button"
                 onClick={() => setAvailableCategoryFilter('servers')}
-                className={`flex-1 py-1 rounded-lg text-xs font-semibold transition cursor-pointer text-center flex items-center justify-center gap-1 ${
+                className={`flex-1 min-w-[95px] py-1 rounded-lg text-xs font-semibold transition cursor-pointer text-center flex items-center justify-center gap-1 ${
                   availableCategoryFilter === 'servers'
                     ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
                     : 'text-slate-400 hover:text-white'
@@ -1368,8 +1368,8 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
             </div>
 
             {/* Search & Sub-Filter controls */}
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[150px]">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 rtl:left-auto rtl:right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
@@ -1388,7 +1388,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                 <select
                   value={deviceRoleFilter}
                   onChange={(e) => setDeviceRoleFilter(e.target.value as any)}
-                  className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs focus:outline-none focus:border-cyan-400"
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs focus:outline-none focus:border-cyan-400 max-w-full min-w-0 w-full sm:w-auto"
                 >
                   <option value="all">{isEn ? 'All Types' : 'همه دیوایس‌ها'}</option>
                   <option value="switch">{isEn ? 'Switches' : 'سوئیچ‌ها'}</option>
@@ -1401,7 +1401,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                 <select
                   value={serverOsFilter}
                   onChange={(e) => setServerOsFilter(e.target.value as any)}
-                  className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs focus:outline-none focus:border-indigo-400"
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs focus:outline-none focus:border-indigo-400 max-w-full min-w-0 w-full sm:w-auto"
                 >
                   <option value="all">{isEn ? 'All OS' : 'همه سیستم‌عامل‌ها'}</option>
                   <option value="linux">Linux</option>
@@ -1429,7 +1429,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
 
             {/* Tag Quick Filter Chips */}
             {allUniqueTags.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar text-[11px]">
+              <div className="flex flex-wrap items-center gap-1.5 pb-1 text-[11px]">
                 <span className="text-slate-400 flex items-center gap-1 shrink-0 font-medium">
                   <Tag className="w-3 h-3 text-cyan-400" />
                   <span>{isEn ? 'Tags:' : 'برچسب‌ها:'}</span>

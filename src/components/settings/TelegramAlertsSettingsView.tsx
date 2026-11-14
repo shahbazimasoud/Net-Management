@@ -380,18 +380,18 @@ export const TelegramAlertsSettingsView: React.FC<TelegramAlertsSettingsViewProp
             : 'bg-slate-900/80 border-sky-500/30 backdrop-blur-md shadow-2xl'
         }`}>
           {/* Guide Header */}
-          <div className={`p-4 border-b flex items-center justify-between ${
+          <div className={`p-4 border-b flex flex-wrap items-center justify-between gap-3 ${
             isLightMode ? 'bg-sky-50/70 border-sky-100' : 'bg-sky-950/20 border-white/5'
           }`}>
             <div className="flex items-center gap-2.5">
-              <Bot className="w-5 h-5 text-sky-400" />
+              <Bot className="w-5 h-5 text-sky-400 shrink-0" />
               <h2 className={`text-sm font-bold ${isLightMode ? 'text-sky-950' : 'text-sky-300'}`}>
                 {isEn
                   ? '📖 Step-by-Step Telegram Bot & Destination Setup Guide'
                   : '📖 راهنمای گام‌به‌گام ساخت ربات، کانال و اتصال به تلگرام'}
               </h2>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               {([1, 2, 3] as const).map((step) => (
                 <button
                   key={step}
@@ -429,8 +429,8 @@ export const TelegramAlertsSettingsView: React.FC<TelegramAlertsSettingsViewProp
                         : 'در تلگرام وارد ربات رسمی BotFather@ شوید و دکمه Start را بزنید. سپس دستور زیر را ارسال کنید:'}
                     </p>
 
-                    <div className="flex items-center gap-2 max-w-md">
-                      <code className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-mono border ${
+                    <div className="flex flex-wrap items-center gap-2 max-w-md">
+                      <code className={`flex-1 min-w-0 break-all px-3 py-1.5 rounded-lg text-xs font-mono border ${
                         isLightMode ? 'bg-slate-100 border-slate-200 text-slate-800' : 'bg-slate-950 border-white/10 text-sky-300'
                       }`}>
                         /newbot
@@ -587,7 +587,7 @@ export const TelegramAlertsSettingsView: React.FC<TelegramAlertsSettingsViewProp
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* Field 1: Bot Token */}
             <div className="space-y-1.5 md:col-span-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className={`text-xs font-bold flex items-center gap-1.5 ${isLightMode ? 'text-slate-800' : 'text-slate-200'}`}>
                   <span>{isEn ? 'Telegram Bot Token' : 'توکن ربات تلگرام (Bot Token)'}</span>
                   <FieldInfoTooltip
@@ -612,7 +612,7 @@ export const TelegramAlertsSettingsView: React.FC<TelegramAlertsSettingsViewProp
               </div>
 
               {formData.has_token && !isChangingToken ? (
-                <div className={`flex items-center justify-between p-2.5 rounded-xl border ${
+                <div className={`flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl border ${
                   isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-white/5'
                 }`}>
                   <div className="flex items-center gap-2">
@@ -739,7 +739,7 @@ export const TelegramAlertsSettingsView: React.FC<TelegramAlertsSettingsViewProp
 
             {/* Field 4: Anti-Flap Damping Window */}
             <div className="space-y-1.5 md:col-span-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className={`text-xs font-bold flex items-center gap-1.5 ${isLightMode ? 'text-slate-800' : 'text-slate-200'}`}>
                   <Zap className="w-4 h-4 text-amber-400" />
                   <span>{isEn ? 'Anti-Flap & Flood Damping Window (Seconds)' : 'بازه زمانی ضد رگبار و مهار نوسان پورت (Anti-Flap Damping)'}</span>
@@ -783,7 +783,7 @@ export const TelegramAlertsSettingsView: React.FC<TelegramAlertsSettingsViewProp
             ? 'bg-white border-slate-200 shadow-sm'
             : 'bg-slate-900/60 border-slate-800 backdrop-blur-md'
         }`}>
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/5">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-white/5">
             <div className="flex items-center gap-2.5">
               <Activity className="w-5 h-5 text-sky-400" />
               <div>

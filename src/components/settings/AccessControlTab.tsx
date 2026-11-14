@@ -1101,15 +1101,15 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         </div>
 
         {/* Live Simulator Role Selector */}
-        <div className="flex items-center gap-2 p-1.5 rounded-xl bg-slate-900/80 border border-white/10 self-start md:self-auto">
+        <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-xl bg-slate-900/80 border border-white/10 self-stretch md:self-auto w-full md:w-auto max-w-full">
           <span className="text-[11px] font-semibold text-amber-300 pl-2 rtl:pr-2 flex items-center gap-1.5">
-            <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+            <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span>{isEn ? 'Active Test Role:' : 'نقش تستی فعال:'}</span>
           </span>
           <select
             value={activeSimulatedPolicyId}
             onChange={(e) => onSelectSimulatedPolicy(e.target.value)}
-            className="px-3 py-1 rounded-lg bg-slate-800 border border-white/15 text-white text-xs font-semibold focus:outline-none focus:border-cyan-400 cursor-pointer"
+            className="px-3 py-1 rounded-lg bg-slate-800 border border-white/15 text-white text-xs font-semibold focus:outline-none focus:border-cyan-400 cursor-pointer max-w-full min-w-0 flex-1 sm:flex-initial truncate"
           >
             <option value="actual-user">
               {isEn ? '🔒 Authentic Database Policy (Live Token Session)' : '🔒 سطح دسترسی واقعی از دیتابیس (سشن معتبر توکن)'}
@@ -1145,7 +1145,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
           <button
             type="button"
             onClick={refreshDatabaseData}
@@ -1178,9 +1178,9 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           : 'bg-slate-900/60 border-white/10'
       }`}>
         {/* Left Side: Search & Filter Inputs */}
-        <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[260px]">
+        <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0 w-full sm:w-auto">
           {/* Search Input */}
-          <div className="relative flex-1 min-w-[180px] max-w-sm">
+          <div className="relative min-w-0 w-full sm:flex-1 sm:min-w-[180px] max-w-sm">
             <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 ${
               isRtl ? 'right-3' : 'left-3'
             } text-slate-400 pointer-events-none`} />
@@ -1214,7 +1214,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           <select
             value={subjectTypeFilter}
             onChange={(e) => setSubjectTypeFilter(e.target.value as any)}
-            className={`px-2.5 py-1.5 text-xs rounded-xl border cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-500 ${
+            className={`px-2.5 py-1.5 text-xs rounded-xl border cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-500 max-w-full min-w-0 flex-1 sm:flex-initial ${
               isLight
                 ? 'bg-white border-slate-300 text-slate-700'
                 : 'bg-slate-950/80 border-white/15 text-slate-300'
@@ -1231,7 +1231,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           <select
             value={scopeFilter}
             onChange={(e) => setScopeFilter(e.target.value as any)}
-            className={`px-2.5 py-1.5 text-xs rounded-xl border cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-500 ${
+            className={`px-2.5 py-1.5 text-xs rounded-xl border cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-500 max-w-full min-w-0 flex-1 sm:flex-initial ${
               isLight
                 ? 'bg-white border-slate-300 text-slate-700'
                 : 'bg-slate-950/80 border-white/15 text-slate-300'
@@ -1245,7 +1245,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         </div>
 
         {/* Right Side: View Mode Switcher & Column Picker */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
           {/* View Mode Switcher (List, Table, Grid) */}
           <div
             className={`flex items-center p-0.5 rounded-xl border ${
@@ -1732,7 +1732,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                 }`}
               >
                 <div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <div className="p-1.5 rounded-lg bg-white/5 border border-white/10">
                         {policy.subjectType === 'ad_group' ? (
@@ -1768,7 +1768,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                   <p className="text-[11px] text-slate-400 mt-2 line-clamp-2">{policy.description}</p>
 
                   {/* Target Scope Pill */}
-                  <div className="mt-2.5 flex items-center justify-between gap-1 text-[10px] font-mono text-slate-300">
+                  <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-slate-300">
                     <div className="flex items-center gap-1.5">
                       <FolderTree className="w-3.5 h-3.5 text-amber-400" />
                       <span>{isEn ? 'Target:' : 'محدوده:'}</span>
@@ -1799,7 +1799,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                 </div>
 
                 {/* Footer Actions */}
-                <div className="pt-2 mt-3 border-t border-white/10 flex items-center justify-between">
+                <div className="pt-2 mt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
                   {renderSimulationButton(policy)}
                   {renderActionButtons(policy)}
                 </div>

@@ -953,12 +953,12 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
 
         {/* Switch Selector & Action Controls */}
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto min-w-0">
             <span className="text-xs text-slate-300 font-medium">{t('ports_select_device')}</span>
             <select
               value={selectedDeviceId}
               onChange={(e) => setSelectedDeviceId(e.target.value)}
-              className="px-3 py-1.5 rounded-xl bg-black/30 border border-white/15 text-indigo-300 font-mono text-xs focus:outline-none focus:border-indigo-400 font-semibold shadow-inner"
+              className="px-3 py-1.5 rounded-xl bg-black/30 border border-white/15 text-indigo-300 font-mono text-xs focus:outline-none focus:border-indigo-400 font-semibold shadow-inner max-w-full min-w-0 flex-1 sm:flex-initial"
             >
               {devices.map((d) => (
                 <option key={d.id} value={d.id} className="bg-slate-900 text-white">
@@ -1057,7 +1057,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
             </div>
           </div>
 
-          <div className="flex items-center gap-5 text-xs">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-5 text-xs">
             <div className="text-center">
               <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">{t('ports_active_ports')}</div>
               <div className="text-emerald-400 font-bold font-mono text-base">{activeCount}</div>
@@ -1224,7 +1224,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => setSelectedPortIds(ports.map((p) => p.port_id))}
@@ -1378,7 +1378,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
                 <Cable className="w-5 h-5" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <h4 className="text-sm font-bold text-white font-mono">{selectedPort.name}</h4>
                   <span
                     data-badge={selectedPort.mode === 'trunk' ? 'port-mode-trunk' : 'port-mode-access'}
@@ -1417,7 +1417,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
                 <span>{isEn ? 'Edit Port Settings' : 'ویرایش تنظیمات پورت'}</span>
               </button>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => setIsEditing(false)}
                   className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs transition active:scale-95 cursor-pointer"
@@ -1710,7 +1710,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
                           {editPortSecMaxMac} {isEn ? 'MAC(s)' : 'آدرس'}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <input
                           type="number"
                           min={1}
@@ -1720,7 +1720,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
                           className="w-20 px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/15 text-white text-xs font-mono text-center font-bold focus:border-indigo-400"
                           dir="ltr"
                         />
-                        <div className="flex items-center gap-1 text-[10px]">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
                           <button
                             type="button"
                             onClick={() => setEditPortSecMaxMac(1)}
@@ -1787,7 +1787,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
 
                   {editPortSecMode === 'configured' && (
                     <div className="p-3 rounded-xl bg-indigo-950/30 border border-indigo-500/30 flex flex-wrap items-center gap-3">
-                      <div className="flex-1 min-w-[260px]">
+                      <div className="flex-1 min-w-0 w-full sm:min-w-[240px]">
                         <label className="block text-white font-bold mb-1 text-[11px]">
                           {isEn ? 'Configured Static MAC:' : 'مک آدرس مجاز استاتیک (Configured Static MAC):'}
                         </label>
@@ -1800,7 +1800,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
                           dir="ltr"
                         />
                       </div>
-                      <div className="pt-4 flex items-center gap-2">
+                      <div className="sm:pt-4 flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           onClick={() => setEditPortSecConfiguredMac(generateSamplePortSecurityMac())}
@@ -1852,16 +1852,16 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
             <h4 className="font-bold text-white font-mono">{t('ports_table_title', { count: filteredPorts.length })}</h4>
           </div>
 
-          <div className="flex items-center flex-wrap gap-2">
+          <div className="flex items-center flex-wrap gap-2 w-full sm:w-auto">
             <input
               type="text"
               placeholder={t('ports_search_placeholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="px-3 py-1.5 rounded-xl bg-black/30 border border-white/15 text-slate-100 placeholder-slate-400 text-xs focus:outline-none focus:border-indigo-400 w-44 shadow-inner"
+              className="px-3 py-1.5 rounded-xl bg-black/30 border border-white/15 text-slate-100 placeholder-slate-400 text-xs focus:outline-none focus:border-indigo-400 w-full sm:w-48 max-w-full shadow-inner"
             />
 
-            <div className="flex items-center bg-black/20 rounded-xl p-1 border border-white/10">
+            <div className="flex flex-wrap items-center gap-1 bg-black/20 rounded-xl p-1 border border-white/10 w-full sm:w-auto max-w-full">
               <button
                 onClick={() => setFilterMode('all')}
                 className={`px-2.5 py-1 rounded-lg text-xs transition cursor-pointer ${

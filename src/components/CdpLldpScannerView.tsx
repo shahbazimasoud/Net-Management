@@ -77,7 +77,7 @@ export const CdpLldpScannerView: React.FC<CdpLldpScannerViewProps> = ({
       {/* Header */}
       <div className="spatial-glass p-3.5 rounded-xl border border-white/10 shadow-lg backdrop-blur-xl flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center flex-wrap gap-2">
             <h2 className="text-base font-bold text-white font-mono flex items-center gap-2">
               <Radar className="w-5 h-5 text-indigo-400" />
               <span>{t('scanner_title')}</span>
@@ -91,7 +91,7 @@ export const CdpLldpScannerView: React.FC<CdpLldpScannerViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <button
             onClick={handleRunScan}
             disabled={scanning}
@@ -113,7 +113,7 @@ export const CdpLldpScannerView: React.FC<CdpLldpScannerViewProps> = ({
 
       {/* Live Scan Notification */}
       {scanMessage && (
-        <div className="p-3 rounded-xl bg-indigo-500/20 border border-indigo-500/30 text-indigo-200 text-xs flex items-center justify-between shadow-md">
+        <div className="p-3 rounded-xl bg-indigo-500/20 border border-indigo-500/30 text-indigo-200 text-xs flex flex-wrap items-center justify-between gap-2 shadow-md">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-cyan-400 flex-shrink-0" />
             <span className="font-mono">{scanMessage}</span>
@@ -196,7 +196,7 @@ export const CdpLldpScannerView: React.FC<CdpLldpScannerViewProps> = ({
           </div>
 
           {/* Filter by Protocol */}
-          <div className="flex items-center bg-black/20 rounded-xl p-1 border border-white/10">
+          <div className="flex flex-wrap items-center gap-1 bg-black/20 rounded-xl p-1 border border-white/10 max-w-full">
             <button
               onClick={() => setProtocolFilter('all')}
               className={`px-3 py-1 rounded-lg text-xs transition cursor-pointer ${

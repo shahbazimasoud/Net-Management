@@ -1364,7 +1364,7 @@ export default function App() {
         )}
 
         {/* View Port */}
-        <main className={`flex-1 min-h-0 min-w-0 ${isTopologyFullscreen ? 'overflow-hidden h-full w-full p-0 m-0' : 'overflow-y-auto'}`}>
+        <main className={`flex-1 min-h-0 min-w-0 ${isTopologyFullscreen ? 'overflow-hidden h-full w-full p-0 m-0' : 'overflow-y-auto overflow-x-hidden'}`}>
           {activeTab === 'dashboard' && (
             <DashboardView
               devices={authorizedDevices}
@@ -1650,7 +1650,7 @@ export default function App() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className={`fixed bottom-10 ${isRtl ? 'left-6' : 'right-6'} z-50 spatial-glass border border-indigo-500/50 text-indigo-100 px-4 py-2.5 rounded-xl shadow-[0_0_30px_rgba(99,102,241,0.4)] text-xs flex items-center gap-3 backdrop-blur-2xl animate-fadeIn`}>
+        <div className={`fixed bottom-10 ${isRtl ? 'left-3 sm:left-6' : 'right-3 sm:right-6'} max-w-[calc(100vw-1.5rem)] z-50 spatial-glass border border-indigo-500/50 text-indigo-100 px-4 py-2.5 rounded-xl shadow-[0_0_30px_rgba(99,102,241,0.4)] text-xs flex items-center gap-3 backdrop-blur-2xl animate-fadeIn`}>
           <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
           <span>{toastMessage}</span>
           <button

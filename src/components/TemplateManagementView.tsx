@@ -365,8 +365,8 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
     <div className={`p-4 sm:p-6 space-y-4 max-w-7xl mx-auto ${isRtl ? 'text-right' : 'text-left'} text-slate-100 animate-fadeIn`}>
       {/* Toast Notification */}
       {toastMessage && (
-        <div className={`fixed bottom-6 ${isRtl ? 'left-6' : 'right-6'} z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-slate-900 border border-emerald-500/40 text-emerald-300 text-xs shadow-[0_0_25px_rgba(16,185,129,0.3)] animate-fadeIn`}>
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+        <div className={`fixed bottom-10 ${isRtl ? 'left-4 sm:left-6' : 'right-4 sm:right-6'} z-50 max-w-[calc(100vw-2rem)] flex items-center gap-2.5 px-4 py-3 rounded-xl bg-slate-900 border border-emerald-500/40 text-emerald-300 text-xs shadow-[0_0_25px_rgba(16,185,129,0.3)] animate-fadeIn`}>
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{toastMessage}</span>
         </div>
       )}
@@ -578,9 +578,9 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           {/* Vendor Filter */}
-          <div className="flex items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-white/10 text-xs template-filter-group">
+          <div className="flex flex-wrap items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-white/10 text-xs template-filter-group max-w-full">
             <span className="text-[11px] text-slate-400 px-2 font-medium">
               {isEn ? 'Vendor:' : 'سازنده:'}
             </span>
@@ -617,7 +617,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
           </div>
 
           {/* Type Filter */}
-          <div className="flex items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-white/10 text-xs template-filter-group">
+          <div className="flex flex-wrap items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-white/10 text-xs template-filter-group max-w-full">
             <span className="text-[11px] text-slate-400 px-2 font-medium">
               {isEn ? 'Type:' : 'تجهیز:'}
             </span>
@@ -654,7 +654,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
           </div>
 
           {/* Category Filter: All | Standard | Snapshots */}
-          <div className="flex items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-white/10 text-xs template-filter-group">
+          <div className="flex flex-wrap items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-white/10 text-xs template-filter-group max-w-full">
             <span className="text-[11px] text-slate-400 px-2 font-medium">
               {isEn ? 'Category:' : 'دسته‌بندی:'}
             </span>
@@ -720,7 +720,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
               >
                 <div>
                   {/* Card Header & Badges */}
-                  <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span
                         className={`text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-lg border transition-all shadow-sm ${
@@ -747,7 +747,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition">
+                    <div className="flex flex-wrap items-center gap-1 opacity-80 group-hover:opacity-100 transition">
                       <button
                         onClick={() => handleOpenClone(tmpl)}
                         title={isEn ? 'Clone with a new name (Clone)' : 'کلون‌گیری با نام جدید برای تجهیز دیگر (Clone)'}
@@ -849,12 +849,12 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                 </div>
 
                 {/* Card Footer Actions */}
-                <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between relative z-20">
+                <div className="mt-4 pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 relative z-20">
                   <span className="text-[11px] text-slate-400 font-mono">
                     {commandLines.length} {isEn ? 'CLI lines' : 'خط دستور CLI'}
                   </span>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {(() => {
                       const isSuperAdmin =
                         effectivePolicy?.id === 'policy-super-admin' ||

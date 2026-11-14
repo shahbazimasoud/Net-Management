@@ -389,7 +389,7 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
           <form onSubmit={handleSave} className={`p-5 rounded-2xl border shadow-xl space-y-5 ${
             isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-white/10'
           }`}>
-            <div className="flex items-center justify-between border-b pb-3 border-white/10">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3 border-white/10">
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-cyan-400" />
                 <h2 className="font-bold text-sm">
@@ -473,7 +473,7 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
                   isLightMode={isLightMode}
                 />
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {[
                   { id: 'tls', label: 'STARTTLS (TLS 1.2+)', sub: 'Port 587' },
                   { id: 'ssl', label: 'SSL / TLS Direct', sub: 'Port 465' },
@@ -502,7 +502,7 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
             <div className={`p-4 rounded-xl border space-y-4 ${
               isLightMode ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-950/60 border-white/10'
             }`}>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-bold flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5 text-indigo-400" />
                   <span>{isEn ? 'Authentication Credentials' : 'اعتبارنامه‌های ورود به اکانت (Authentication):'}</span>
@@ -608,7 +608,7 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
                     <select
                       value={formData.auth_method || 'auto'}
                       onChange={(e) => handleInputChange('auth_method', e.target.value)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-mono border focus:outline-none transition ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-mono border focus:outline-none transition max-w-full min-w-0 w-full sm:w-auto ${
                         isLightMode ? 'bg-white border-slate-300 text-slate-800 focus:border-cyan-500' : 'bg-slate-900 border-white/20 text-white focus:border-cyan-400'
                       }`}
                     >
@@ -691,7 +691,7 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
                   className="rounded accent-cyan-500 cursor-pointer mt-0.5"
                 />
                 <div>
-                  <div className="font-semibold flex items-center gap-2">
+                  <div className="font-semibold flex flex-wrap items-center gap-2">
                     <span>{isEn ? 'Allow Self-Signed / Untrusted TLS Certificates' : 'پذیرش سرتیفیکیت‌های خودامضا و CA داخلی (میل‌سرورهای سازمانی)'}</span>
                     <span className="text-[10px] px-1.5 py-0.2 rounded font-normal bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                       {isEn ? 'Recommended for Exchange' : 'ضروری برای اکسچنج سازمانی'}
@@ -852,7 +852,7 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
                   ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200'
                   : 'bg-rose-950/30 border-rose-500/40 text-rose-200'
               }`}>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 font-bold">
                     {testResult.success ? (
                       <>
