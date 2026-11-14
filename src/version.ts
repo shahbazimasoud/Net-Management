@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.4';
+export const APP_VERSION = '1.425.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.5',
+    releaseDate: '2026-11-14',
+    type: 'patch',
+    title: 'رفع کامل خروج دکمه‌ها و نوارهای ابزار از کادر صفحه در حالت موبایل در بخش‌های مدیریت تجهیزات شبکه و ناوگان سرورهای ریموت',
+    title_en: 'Fix Mobile Toolbar & Button Overflow in Network Equipment Inventory and Remote Servers & Automation Fleet Views',
+    changes: [
+      'اصلاح کامل ردیف دکمه‌های عملیات در صفحات Remote Servers & Automation Fleet و Network Equipment Inventory & Management (شامل دیسکاوری، ایمپورت، اکسپورت، افزودن دیوایس، ثبت سرور و پیکربندی گروهی) با قابلیت چیدمان چندخطی (flex-wrap) جهت جلوگیری از خروج دکمه‌ها از کادر صفحه در موبایل.',
+      'بهینه‌سازی نوار عملیات دسته‌ای انتخاب‌شده‌ها (Multi-Selection Action Bar)، نوار جستجو و فیلترهای آبشاری جهت جلوگیری از سرریز افقی در نمایشگرهای کوچک.',
+      'تنظیم عرض و ارتفاع پویا برای منوی آبشاری ثبت سرور/سرویس و انتخابگر ستون‌های جدول متناسب با عرض صفحه موبایل.'
+    ],
+    changes_en: [
+      'Added responsive flex-wrap and full-width mobile layouts to header action toolbars in RemoteServersView and DeviceListView so Discovery, Import, Export, Bulk Config, Add Device, and Add Remote Server buttons stay cleanly inside the viewport.',
+      'Fixed mobile overflow in multi-selection bulk action bars, search inputs, filter selects, and grid card bottom action groups.',
+      'Constrained floating Add Server submenu and column picker dropdown dimensions to viewport bounds on narrow mobile screens.'
+    ]
+  },
   {
     version: '1.425.4',
     releaseDate: '2026-11-14',

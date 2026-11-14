@@ -207,9 +207,9 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
   const updateColumnPickerPosition = useCallback(() => {
     if (!columnPickerBtnRef.current || typeof window === 'undefined') return;
     const rect = columnPickerBtnRef.current.getBoundingClientRect();
-    const dropdownWidth = 264; // ~16.5rem
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
+    const dropdownWidth = Math.min(264, Math.max(200, viewportWidth - 20)); // ~16.5rem clamped
 
     let top = rect.bottom + 6;
     if (top + 320 > viewportHeight && rect.top > 320) {
@@ -612,16 +612,16 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
   const offlineCount = devices.filter((d) => !d.is_online).length;
 
   return (
-    <div className={`p-4 sm:p-6 space-y-4 max-w-7xl mx-auto ${isRtl ? 'text-right' : 'text-left'} text-slate-100`}>
+    <div className={`p-3 sm:p-6 space-y-4 max-w-7xl mx-auto w-full min-w-0 ${isRtl ? 'text-right' : 'text-left'} text-slate-100`}>
       {/* Page Header (Sticky header so Register New Device remains fixed on scroll) */}
-      <div className="sticky top-0 z-20 -mt-2 pt-2 pb-2 bg-transparent -mx-4 sm:-mx-6 px-4 sm:px-6 transition-all">
-        <div className="flex flex-wrap items-center justify-between gap-3 spatial-glass p-4 sm:p-5 rounded-2xl border border-white/10 shadow-xl backdrop-blur-xl">
-          <div>
-            <div className="flex items-center gap-2.5">
+      <div className="sticky top-0 z-20 -mt-2 pt-2 pb-2 bg-transparent -mx-3 sm:-mx-6 px-3 sm:px-6 transition-all">
+        <div className="flex flex-wrap items-center justify-between gap-3 spatial-glass p-3.5 sm:p-5 rounded-2xl border border-white/10 shadow-xl backdrop-blur-xl">
+          <div className="min-w-0 flex-1 basis-full md:basis-auto">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
               <h2 className="text-base sm:text-lg font-bold text-white glow-text-cyan">
                 {t('devicelist_title')}
               </h2>
-              <span className="text-xs font-mono px-2 py-0.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">
+              <span className="text-xs font-mono px-2 py-0.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold shrink-0">
                 {t('status_devices_count', { count: devices.length })}
               </span>
             </div>
@@ -630,7 +630,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
             {onOpenBulkConfig && (
               canBulkConfigure ? (
                 <button
@@ -846,7 +846,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
       {/* Filter and Search Bar */}
       <div className="p-3.5 rounded-xl spatial-glass border border-white/10 shadow-lg flex flex-wrap items-center justify-between gap-3 text-xs backdrop-blur-xl">
         {/* Search */}
-        <div className="relative flex-1 min-w-[240px]">
+        <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[240px]">
           <input
             type="text"
             placeholder={isEn ? 'Search by name, IP, model, building or unit...' : 'جستجوی نام، آدرس IP، مدل، ساختمان یا واحد...'}
@@ -858,12 +858,12 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
         </div>
 
         {/* Filters */}
-        <div className="flex items-center flex-wrap gap-2">
+        <div className="flex items-center flex-wrap gap-2 w-full lg:w-auto">
           {/* Type Filter */}
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as any)}
-            className="px-3 py-2 rounded-xl bg-slate-900/70 border border-white/15 text-slate-200 text-xs focus:outline-none focus:border-indigo-400 cursor-pointer"
+            className="px-3 py-2 rounded-xl bg-slate-900/70 border border-white/15 text-slate-200 text-xs focus:outline-none focus:border-indigo-400 cursor-pointer max-w-full min-w-0 flex-1 sm:flex-initial"
           >
             <option value="all">{isEn ? 'All Equipment Types' : 'همه انواع تجهیزات'}</option>
             <option value="switch">{isEn ? 'Switches Only' : 'فقط سوئیچ‌ها (Switches)'}</option>
@@ -875,7 +875,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as any)}
-            className="px-3 py-2 rounded-xl bg-slate-900/70 border border-white/15 text-slate-200 text-xs focus:outline-none focus:border-indigo-400 cursor-pointer"
+            className="px-3 py-2 rounded-xl bg-slate-900/70 border border-white/15 text-slate-200 text-xs focus:outline-none focus:border-indigo-400 cursor-pointer max-w-full min-w-0 flex-1 sm:flex-initial"
           >
             <option value="all">{isEn ? 'All Statuses' : 'همه وضعیت‌ها'}</option>
             <option value="online">{isEn ? 'Online (Reachable)' : 'آنلاین (Online)'}</option>
@@ -889,7 +889,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
           <select
             value={buildingFilter}
             onChange={(e) => setBuildingFilter(e.target.value)}
-            className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer ${
+            className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer max-w-full min-w-0 flex-1 sm:flex-initial ${
               isLightMode
                 ? 'bg-white border-slate-300 text-slate-800'
                 : 'bg-slate-900/70 border-white/15 text-slate-200'
@@ -934,7 +934,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                     position: 'fixed',
                     top: `${columnPickerCoords.top}px`,
                     left: `${columnPickerCoords.left}px`,
-                    width: '16.5rem',
+                    width: 'min(16.5rem, calc(100vw - 20px))',
                   }}
                   className={`z-[9999] rounded-2xl shadow-2xl p-3 border font-sans backdrop-blur-2xl animate-in fade-in zoom-in-95 ${
                     isEn ? 'text-left' : 'text-right'
@@ -1004,7 +1004,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
             ? 'bg-cyan-50 border-cyan-300 text-cyan-950'
             : 'bg-cyan-950/40 border-cyan-500/40 text-cyan-200'
         }`}>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
             <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold border ${
               isLightMode
                 ? 'bg-cyan-100 border-cyan-300 text-cyan-900'
@@ -1065,7 +1065,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setSelectedDeviceIds(new Set())}
@@ -2171,8 +2171,8 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
       {minimizedWriteDevice && (
         <div
           dir={isEn ? 'ltr' : 'rtl'}
-          className={`fixed bottom-10 z-[1100] ${
-            isRtl ? 'right-6' : 'left-6'
+          className={`fixed bottom-10 z-[1100] max-w-[calc(100vw-2rem)] ${
+            isRtl ? 'right-3 sm:right-6' : 'left-3 sm:left-6'
           } flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-slate-900/95 border border-amber-500/60 shadow-2xl shadow-amber-500/20 text-xs backdrop-blur-xl animate-in slide-in-from-bottom-2 text-slate-100`}
         >
           <div className="p-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-400 shrink-0">

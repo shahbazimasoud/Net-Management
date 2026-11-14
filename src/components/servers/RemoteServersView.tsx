@@ -184,9 +184,9 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const updateColumnPickerPosition = useCallback(() => {
     if (!columnPickerBtnRef.current || typeof window === 'undefined') return;
     const rect = columnPickerBtnRef.current.getBoundingClientRect();
-    const dropdownWidth = 264; // ~16.5rem
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
+    const dropdownWidth = Math.min(264, Math.max(200, viewportWidth - 20)); // ~16.5rem clamped
 
     let top = rect.bottom + 6;
     // If not enough room below (e.g. within 320px of bottom), open above
@@ -348,9 +348,9 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const updateAddMenuPosition = useCallback(() => {
     if (!addBtnRef.current || typeof window === 'undefined') return;
     const rect = addBtnRef.current.getBoundingClientRect();
-    const dropdownWidth = 320; // 20rem (w-80)
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
+    const dropdownWidth = Math.min(320, Math.max(220, viewportWidth - 20)); // 20rem (w-80) clamped
 
     let top = rect.bottom + 8;
     const estimatedHeight = 390;
@@ -1733,24 +1733,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
   return (
     <div
-      className={`p-4 sm:p-6 space-y-4 max-w-7xl mx-auto transition-colors duration-200 ${
+      className={`p-3 sm:p-6 space-y-4 max-w-7xl mx-auto w-full min-w-0 transition-colors duration-200 ${
         isEn ? 'text-left' : 'text-right'
       } ${isLightMode ? 'text-slate-800' : 'text-slate-100'}`}
       dir={isEn ? 'ltr' : 'rtl'}
     >
       {/* 1. Sticky Top Bar (Matching DeviceListView spatial-glass styling) */}
-      <div className="sticky top-0 z-30 -mt-2 pt-2 pb-2 bg-transparent -mx-4 sm:-mx-6 px-4 sm:px-6 transition-all">
+      <div className="sticky top-0 z-30 -mt-2 pt-2 pb-2 bg-transparent -mx-3 sm:-mx-6 px-3 sm:px-6 transition-all">
         <div
-          className={`flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5 rounded-2xl border shadow-xl backdrop-blur-xl ${
+          className={`flex flex-wrap items-center justify-between gap-3 p-3.5 sm:p-5 rounded-2xl border shadow-xl backdrop-blur-xl ${
             isLightMode
               ? 'bg-white/95 border-slate-200 text-slate-900 shadow-slate-200/50'
               : 'spatial-glass border-white/10 text-white'
           }`}
         >
-          <div>
-            <div className="flex items-center gap-2.5">
+          <div className="min-w-0 flex-1 basis-full md:basis-auto">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
               <div
-                className={`p-2 rounded-xl border ${
+                className={`p-2 rounded-xl border shrink-0 ${
                   isLightMode
                     ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-700'
                     : 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
@@ -1799,7 +1799,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
             {/* Bulk Action Button (When servers selected) */}
             {selectedServerIds.size > 0 && (
               <button
@@ -1950,7 +1950,9 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                         position: 'fixed',
                         top: `${addMenuCoords.top}px`,
                         left: `${addMenuCoords.left}px`,
-                        width: '20rem',
+                        width: 'min(20rem, calc(100vw - 20px))',
+                        maxHeight: 'calc(100dvh - 80px)',
+                        overflowY: 'auto',
                       }}
                       className={`z-[9999] rounded-2xl border shadow-2xl p-1.5 font-sans transition-all animate-in fade-in zoom-in-95 ${
                         isEn ? 'text-left' : 'text-right'
@@ -2213,7 +2215,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         }`}
       >
         {/* Search Input */}
-        <div className="relative flex-1 min-w-[220px]">
+        <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[220px]">
           <input
             type="text"
             placeholder={
@@ -2235,12 +2237,12 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         </div>
 
         {/* Dropdown Filters & Controls */}
-        <div className="flex items-center flex-wrap gap-2">
+        <div className="flex items-center flex-wrap gap-2 w-full lg:w-auto">
           {/* OS Type Filter */}
           <select
             value={activeTabFilter}
             onChange={(e) => setActiveTabFilter(e.target.value as any)}
-            className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer ${
+            className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer max-w-full min-w-0 flex-1 sm:flex-initial ${
               isLightMode
                 ? 'bg-slate-50 border-slate-300 text-slate-700'
                 : 'bg-slate-900/70 border-white/15 text-slate-200'
@@ -2255,7 +2257,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           <select
             value={selectedEnv}
             onChange={(e) => setSelectedEnv(e.target.value)}
-            className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer ${
+            className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer max-w-full min-w-0 flex-1 sm:flex-initial ${
               isLightMode
                 ? 'bg-slate-50 border-slate-300 text-slate-700'
                 : 'bg-slate-900/70 border-white/15 text-slate-200'
@@ -2269,12 +2271,12 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           </select>
 
           {/* Category Filter */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap max-w-full min-w-0">
             <select
               id="server-category-filter-select"
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer ${
+              className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer max-w-full min-w-0 flex-1 sm:flex-initial ${
                 isLightMode
                   ? 'bg-slate-50 border-slate-300 text-slate-700'
                   : 'bg-slate-900/70 border-white/15 text-slate-200'
@@ -2310,7 +2312,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           <select
             value={selectedTag || 'all'}
             onChange={(e) => setSelectedTag(e.target.value === 'all' ? null : e.target.value)}
-            className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer ${
+            className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer max-w-full min-w-0 flex-1 sm:flex-initial ${
               selectedTag
                 ? 'bg-purple-950/60 border-purple-500/50 text-purple-300 font-bold'
                 : isLightMode
@@ -2407,7 +2409,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                     position: 'fixed',
                     top: `${columnPickerCoords.top}px`,
                     left: `${columnPickerCoords.left}px`,
-                    width: '16.5rem',
+                    width: 'min(16.5rem, calc(100vw - 20px))',
                   }}
                   className={`z-[9999] rounded-2xl shadow-2xl p-3 border font-sans backdrop-blur-2xl animate-in fade-in zoom-in-95 ${
                     isEn ? 'text-left' : 'text-right'
@@ -2479,7 +2481,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
               : 'bg-cyan-950/40 border-cyan-500/40 text-cyan-200'
           }`}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
             <span
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold border ${
                 isLightMode
@@ -2530,7 +2532,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setSelectedServerIds(new Set())}
@@ -3449,7 +3451,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
                 {/* Bottom Action Section */}
                 <div
-                  className={`pt-3 mt-3 border-t flex items-center justify-between gap-2 ${
+                  className={`pt-3 mt-3 border-t flex flex-wrap items-center justify-between gap-2 ${
                     isLightMode ? 'border-slate-200' : 'border-white/10'
                   }`}
                 >
@@ -3620,7 +3622,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                         );
                       }
                       return (
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           {canMon && (
                             <button
                               type="button"
