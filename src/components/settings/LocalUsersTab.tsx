@@ -788,7 +788,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
             <button
               type="button"
               onClick={handleOpenCreateUser}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs shadow-md transition cursor-pointer w-full sm:w-auto justify-center"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-md transition cursor-pointer w-full sm:w-auto justify-center"
             >
               <UserPlus className="w-4 h-4" />
               <span>{isEn ? 'Add Local User' : 'تعریف کاربر محلی جدید'}</span>
@@ -1296,7 +1296,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                 <button
                   type="submit"
                   disabled={isSavingUser}
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-bold text-xs shadow-md transition cursor-pointer"
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs shadow-md transition cursor-pointer"
                 >
                   <Save className={`w-4 h-4 ${isSavingUser ? 'animate-spin' : ''}`} />
                   <span>

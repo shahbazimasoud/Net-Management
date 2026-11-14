@@ -653,8 +653,8 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
             <button
               type="submit"
               disabled={saving}
-              className={`px-5 py-2 rounded-xl text-slate-950 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50 shadow-sm ${
-                editMode ? 'bg-cyan-500 hover:bg-cyan-400' : 'bg-purple-500 hover:bg-purple-400'
+              className={`px-5 py-2 rounded-xl text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50 shadow-sm ${
+                editMode ? 'bg-cyan-600 hover:bg-cyan-500' : 'bg-purple-600 hover:bg-purple-500'
               }`}
             >
               {editMode ? (

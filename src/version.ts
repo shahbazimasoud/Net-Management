@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.10';
+export const APP_VERSION = '1.425.11';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.11',
+    releaseDate: '2026-11-14',
+    type: 'patch',
+    title: 'رفع ریشه‌ای تداخل اختصاص‌پذیری CSS و اصلاح خوانایی دکمه‌های رنگی، گرادینت‌ها، پورت‌های گرافیکی و بج‌های Trunk/Access در تم روشن',
+    title_en: 'Fix Light Mode CSS Specificity Overrides & Contrast Across Colored/Gradient Buttons, Switch Ports, Terminal Button, and Trunk/Access Badges',
+    changes: [
+      'رفع ریشه‌ای باگ اختصاص‌پذیری (CSS Specificity) در قواعد پایه متن تم روشن با استفاده از :where() به‌طوری‌که قوانین پایه رنگ‌های تیره دیگر بر دکمه‌های رنگی، دکمه‌های گرادینت، بج‌های جدول و المان‌های فیس‌پلیت سوئیچ غلبه نکنند.',
+      'تضمین خوانایی و کنتراست کامل (فونت سفید شفاف) برای پورت‌های گرافیکی فیس‌پلیت مودال پورت (برچسب‌های TRK، شماره پورت، برچسب‌های VLAN و تولتیپ هاور)، دکمه ترمینال سیسکو در هدر مودال پورت و بج‌های TRUNK / ACCESS در جدول و ویرایشگر پورت‌ها.',
+      'اصلاح تمامی دکمه‌ها و بج‌های آبی، بنفش، نیلی، فیروزه‌ای، سبز و گرادینت‌دار (-500 تا -700 و حالت‌های شفاف /40) در تمامی مودال‌ها و صفحات پنل جهت جلوگیری قطعی از نمایش متن مشکی یا ناخوانا روی رنگ‌های اشباع‌شده و گرادینت‌ها در تم روشن.'
+    ],
+    changes_en: [
+      'Resolved the root-cause CSS specificity conflict in Light Mode base text and surface selectors using low-specificity :where() wrappers so global dark text rules never override colored buttons, gradient CTAs, table badges, or dark switch faceplates.',
+      'Restored crisp white typography and border contrast across graphical switch ports (TRK, port names, VLAN tags, hover tooltips, and disabled port wrappers), the Port Modal Cisco Terminal header button, and TRUNK / ACCESS mode badges in tables and port editors.',
+      'Fixed all saturated solid (-500/-600/-700), translucent (/40), and gradient buttons/badges across modals and views so dark or black text never renders over blue, purple, indigo, cyan, emerald, or gradient fills in Light Mode.'
+    ]
+  },
   {
     version: '1.425.10',
     releaseDate: '2026-11-14',

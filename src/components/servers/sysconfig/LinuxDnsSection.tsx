@@ -312,7 +312,7 @@ export const LinuxDnsSection: React.FC<LinuxDnsSectionProps> = ({
             id="btn-add-dns-ip"
             onClick={handleAddServer}
             disabled={!newServerIp.trim()}
-            className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs transition cursor-pointer flex items-center gap-1 disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs transition cursor-pointer flex items-center gap-1 disabled:opacity-50"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>{isEn ? 'Add' : 'افزودن'}</span>

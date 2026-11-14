@@ -2145,7 +2145,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                 <button
                   onClick={() => setShowWriteConfirm(true)}
                   disabled={isWritingMemory}
-                  className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-[10px] transition flex items-center gap-1 cursor-pointer"
+                  className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] transition flex items-center gap-1 cursor-pointer"
                   title={isEn ? "Review pending changes & write to memory (NVRAM)" : "مشاهده تغییرات و ذخیره در NVRAM"}
                 >
                   <Save className="w-3 h-3" />

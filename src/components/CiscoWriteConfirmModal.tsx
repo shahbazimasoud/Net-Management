@@ -536,16 +536,20 @@ export const CiscoWriteConfirmModal: React.FC<CiscoWriteConfirmModalProps> = ({
               type="button"
               onClick={onConfirm}
               disabled={isWriting}
-              className="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 hover:from-amber-500 hover:to-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-sans cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-md shadow-amber-500/20 font-sans cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                isLight
+                  ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white'
+                  : 'bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 hover:from-amber-500 hover:to-amber-500 text-slate-950'
+              }`}
             >
               {isWriting ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-950" />
+                  <Loader2 className={`w-3.5 h-3.5 animate-spin ${isLight ? 'text-white' : 'text-slate-950'}`} />
                   <span>{isEn ? 'Writing to NVRAM...' : 'در حال ذخیره در NVRAM...'}</span>
                 </>
               ) : (
                 <>
-                  <Save className="w-3.5 h-3.5 text-slate-950" />
+                  <Save className={`w-3.5 h-3.5 ${isLight ? 'text-white' : 'text-slate-950'}`} />
                   <span className="font-bold">
                     {isEn ? 'Confirm & Write to NVRAM' : 'تایید و ذخیره در استارتاپ'}
                   </span>

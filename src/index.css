@@ -909,21 +909,12 @@
     #f1f5f9 !important;
 }
 
-/* Light Theme Text Contrast Fixes (excluding live terminal consoles, xterm, and dark hardware widgets) */
-.theme-light h1,
-.theme-light h2,
-.theme-light h3,
-.theme-light h4,
-.theme-light h5,
-.theme-light h6,
-.theme-light .text-white:not(.xterm *):not(.cisco-terminal-screen *):not(.xterm-terminal-container *),
-.theme-light .text-slate-100:not(.xterm *):not(.cisco-terminal-screen *):not(.xterm-terminal-container *) {
+/* Light Theme Text Contrast Fixes (low specificity so badges, CTAs, and hardware widgets always win cleanly) */
+.theme-light :where(h1, h2, h3, h4, h5, h6, .text-white, .text-slate-100):not(:where(.xterm *, .cisco-terminal-screen *, .xterm-terminal-container *, .rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *)) {
   color: #0f172a !important;
 }
 
-.theme-light p:not(.xterm *):not(.cisco-terminal-screen *):not(.xterm-terminal-container *),
-.theme-light span:not(.xterm *):not(.cisco-terminal-screen *):not(.xterm-terminal-container *),
-.theme-light label {
+.theme-light :where(p, span, label):not(:where(.xterm *, .cisco-terminal-screen *, .xterm-terminal-container *, .rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *)) {
   color: #334155 !important;
 }
 
@@ -1515,13 +1506,7 @@
   color: #ffffff !important;
 }
 
-.theme-light .bg-black:not([class*="fixed"]):not([class*="backdrop"]):not([class*="inset-0"]):not(pre):not(.cisco-terminal-screen):not(.switch-faceplate-chassis):not(.dark-terminal-box):not(.template-code-preview),
-.theme-light .bg-black\/40:not([class*="fixed"]):not([class*="backdrop"]):not([class*="inset-0"]):not(pre):not(.cisco-terminal-screen):not(.switch-faceplate-chassis):not(.dark-terminal-box):not(.template-code-preview),
-.theme-light .bg-black\/50:not([class*="fixed"]):not([class*="backdrop"]):not([class*="inset-0"]):not(pre):not(.cisco-terminal-screen):not(.switch-faceplate-chassis):not(.dark-terminal-box):not(.template-code-preview),
-.theme-light .bg-black\/60:not([class*="fixed"]):not([class*="backdrop"]):not([class*="inset-0"]):not(pre):not(.cisco-terminal-screen):not(.switch-faceplate-chassis):not(.dark-terminal-box):not(.template-code-preview),
-.theme-light .bg-black\/70:not([class*="fixed"]):not([class*="backdrop"]):not([class*="inset-0"]):not(pre):not(.cisco-terminal-screen):not(.switch-faceplate-chassis):not(.dark-terminal-box):not(.template-code-preview),
-.theme-light .bg-black\/80:not([class*="fixed"]):not([class*="backdrop"]):not([class*="inset-0"]):not(pre):not(.cisco-terminal-screen):not(.switch-faceplate-chassis):not(.dark-terminal-box):not(.template-code-preview),
-.theme-light .bg-black\/90:not([class*="fixed"]):not([class*="backdrop"]):not([class*="inset-0"]):not(pre):not(.cisco-terminal-screen):not(.switch-faceplate-chassis):not(.dark-terminal-box):not(.template-code-preview) {
+.theme-light :where(.bg-black, .bg-black\/40, .bg-black\/50, .bg-black\/60, .bg-black\/70, .bg-black\/80, .bg-black\/90):not(:where([class*="fixed"], [class*="backdrop"], [class*="inset-0"], pre, .cisco-terminal-screen, .switch-faceplate-chassis, .switch-faceplate-chassis *, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .template-code-preview)) {
   background-color: #f1f5f9 !important;
   border-color: #cbd5e1 !important;
   color: #0f172a !important;
@@ -1550,27 +1535,19 @@
 }
 
 /* Light Theme Overrides for ALL Slate / Gray / Zinc Dark Backgrounds */
-.theme-light [class*="bg-slate-950"]:not([class*="inset-0"]):not([data-modal-backdrop="true"]):not(.modal-backdrop-blur):not(.modal-glass-backdrop):not([id$="-modal-overlay"]):not(pre):not(.xterm):not(.xterm-terminal-container):not(.cisco-terminal-screen):not(.switch-faceplate-chassis):not(.switch-faceplate-grid):not(.rack-cabinet-dark):not(.tower-cabinet-dark):not(.dark-terminal-box):not(.template-code-preview),
-.theme-light [class*="bg-gray-950"]:not([class*="inset-0"]):not([data-modal-backdrop="true"]):not(pre),
-.theme-light [class*="bg-zinc-950"]:not([class*="inset-0"]):not([data-modal-backdrop="true"]):not(pre) {
+.theme-light :where([class*="bg-slate-950"], [class*="bg-gray-950"], [class*="bg-zinc-950"]):not(:where([class*="inset-0"], [data-modal-backdrop="true"], .modal-backdrop-blur, .modal-glass-backdrop, [id$="-modal-overlay"], pre, .xterm, .xterm-terminal-container, .cisco-terminal-screen, .cisco-terminal-screen *, .switch-faceplate-chassis, .switch-faceplate-chassis *, .switch-faceplate-grid, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .template-code-preview)) {
   background-color: #ffffff !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
 }
 
-.theme-light [class*="bg-slate-900"]:not([class*="inset-0"]):not([data-modal-backdrop="true"]):not(.modal-backdrop-blur):not(.modal-glass-backdrop):not([id$="-modal-overlay"]):not(pre):not(.xterm):not(.xterm-terminal-container):not(.cisco-terminal-screen):not(.switch-faceplate-chassis):not(.switch-faceplate-grid):not(.rack-cabinet-dark):not(.tower-cabinet-dark):not(.dark-terminal-box):not(.template-code-preview),
-.theme-light [class*="bg-gray-900"]:not([class*="inset-0"]):not([data-modal-backdrop="true"]):not(pre),
-.theme-light [class*="bg-zinc-900"]:not([class*="inset-0"]):not([data-modal-backdrop="true"]):not(pre) {
+.theme-light :where([class*="bg-slate-900"], [class*="bg-gray-900"], [class*="bg-zinc-900"]):not(:where([class*="inset-0"], [data-modal-backdrop="true"], .modal-backdrop-blur, .modal-glass-backdrop, [id$="-modal-overlay"], pre, .xterm, .xterm-terminal-container, .cisco-terminal-screen, .cisco-terminal-screen *, .switch-faceplate-chassis, .switch-faceplate-chassis *, .switch-faceplate-grid, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .template-code-preview)) {
   background-color: #f8fafc !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
 }
 
-.theme-light [class*="bg-slate-850"]:not(.switch-faceplate-chassis):not(.rack-cabinet-dark):not(.tower-cabinet-dark):not(.dark-terminal-box):not(pre),
-.theme-light [class*="bg-slate-800"]:not(.switch-faceplate-chassis):not(.switch-faceplate-grid):not(.rack-cabinet-dark):not(.tower-cabinet-dark):not(.cisco-terminal-screen):not(.dark-terminal-box):not(.template-code-preview):not(pre),
-.theme-light [class*="bg-slate-700"]:not(.switch-faceplate-chassis):not(.rack-cabinet-dark):not(.tower-cabinet-dark):not(.dark-terminal-box):not(pre),
-.theme-light [class*="bg-gray-800"]:not(pre),
-.theme-light [class*="bg-zinc-800"]:not(pre) {
+.theme-light :where([class*="bg-slate-850"], [class*="bg-slate-800"], [class*="bg-slate-700"], [class*="bg-gray-800"], [class*="bg-zinc-800"]):not(:where(pre, .xterm, .xterm-terminal-container, .cisco-terminal-screen, .cisco-terminal-screen *, .switch-faceplate-chassis, .switch-faceplate-chassis *, .switch-faceplate-grid, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .template-code-preview)) {
   background-color: #f1f5f9 !important;
   color: #1e293b !important;
   border-color: #cbd5e1 !important;
@@ -1650,16 +1627,13 @@
 }
 
 /* Lighten dark Tailwind v4 gradient banners cleanly while keeping hardware chassis dark */
-.theme-light [class*="from-slate-9"]:not(.rack-cabinet-dark *):not(.tower-cabinet-dark *):not(.switch-faceplate-chassis *),
-.theme-light [class*="from-slate-8"]:not(.rack-cabinet-dark *):not(.tower-cabinet-dark *):not(.switch-faceplate-chassis *) {
+.theme-light :where([class*="from-slate-9"], [class*="from-slate-8"]):not(:where(.rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *)) {
   --tw-gradient-from: #ffffff !important;
 }
-.theme-light [class*="via-slate-9"]:not(.rack-cabinet-dark *):not(.tower-cabinet-dark *):not(.switch-faceplate-chassis *),
-.theme-light [class*="via-slate-8"]:not(.rack-cabinet-dark *):not(.tower-cabinet-dark *):not(.switch-faceplate-chassis *) {
+.theme-light :where([class*="via-slate-9"], [class*="via-slate-8"]):not(:where(.rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *)) {
   --tw-gradient-via: #f8fafc !important;
 }
-.theme-light [class*="to-slate-9"]:not(.rack-cabinet-dark *):not(.tower-cabinet-dark *):not(.switch-faceplate-chassis *),
-.theme-light [class*="to-slate-8"]:not(.rack-cabinet-dark *):not(.tower-cabinet-dark *):not(.switch-faceplate-chassis *) {
+.theme-light :where([class*="to-slate-9"], [class*="to-slate-8"]):not(:where(.rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *)) {
   --tw-gradient-to: #f1f5f9 !important;
 }
 .theme-light [class*="from-indigo-9"] { --tw-gradient-from: #eef2ff !important; }
@@ -1684,14 +1658,8 @@
 .theme-light [class*="via-amber-9"] { --tw-gradient-via: #fffbeb !important; }
 .theme-light [class*="to-amber-9"] { --tw-gradient-to: #fef3c7 !important; }
 
-/* Specifically for badges, pills, and spans with dark slate in light theme */
-.theme-light span.bg-slate-900,
-.theme-light span[class*="bg-slate-900"],
-.theme-light span.bg-slate-950,
-.theme-light span[class*="bg-slate-950"],
-.theme-light span.bg-slate-800,
-.theme-light span[class*="bg-slate-800"],
-.theme-light .sidebar-badge {
+/* Specifically for badges, pills, and spans with dark slate in light theme (excluding hardware chassis & terminals) */
+.theme-light :where(span.bg-slate-900, span[class*="bg-slate-900"], span.bg-slate-950, span[class*="bg-slate-950"], span.bg-slate-800, span[class*="bg-slate-800"], .sidebar-badge):not(:where(.switch-faceplate-chassis *, .rack-cabinet-dark *, .tower-cabinet-dark *, .cisco-terminal-screen *, .dark-terminal-box *)) {
   background-color: #e2e8f0 !important;
   color: #334155 !important;
   border: 1px solid #cbd5e1 !important;
@@ -1828,19 +1796,9 @@
   font-weight: 700 !important;
 }
 
-/* Solid Saturated Buttons & Gradient CTAs -> Preserve Crisp #FFFFFF Text in Light Mode */
-.theme-light .bg-indigo-600,
-.theme-light .bg-purple-600,
-.theme-light .bg-indigo-500,
-.theme-light .bg-purple-500,
-.theme-light .bg-indigo-700,
-.theme-light .bg-purple-700,
-.theme-light button[class*="bg-gradient-to"][class*="from-indigo-6"],
-.theme-light button[class*="bg-gradient-to"][class*="from-indigo-5"],
-.theme-light button[class*="bg-gradient-to"][class*="from-purple-6"],
-.theme-light button[class*="bg-gradient-to"][class*="from-purple-5"],
-.theme-light [class*="bg-gradient-to"][class*="from-indigo-6"],
-.theme-light [class*="bg-gradient-to"][class*="from-purple-6"] {
+/* Solid Saturated Buttons & Gradient CTAs -> Preserve Crisp #FFFFFF Text in Light Mode ((0,2,0) beats child .text-* utilities) */
+.theme-light.theme-light :where(.bg-indigo-600, .bg-purple-600, .bg-indigo-500, .bg-purple-500, .bg-indigo-700, .bg-purple-700, .bg-indigo-800, .bg-purple-800),
+.theme-light.theme-light [class*="bg-gradient-to"]:where([class*="from-indigo-500"]:not([class*="from-indigo-500/"]), [class*="from-indigo-600"]:not([class*="from-indigo-600/"]), [class*="from-indigo-700"]:not([class*="from-indigo-700/"]), [class*="from-purple-500"]:not([class*="from-purple-500/"]), [class*="from-purple-600"]:not([class*="from-purple-600/"]), [class*="from-purple-700"]:not([class*="from-purple-700/"])) {
   background-color: #6366f1 !important;
   background-image: linear-gradient(135deg, #6366f1 0%, #7c3aed 100%) !important;
   color: #ffffff !important;
@@ -1848,269 +1806,132 @@
   box-shadow: 0 4px 14px rgba(99, 102, 241, 0.28) !important;
 }
 
-.theme-light .bg-cyan-600:not(.text-slate-950):not(.text-slate-900):not(.text-black),
-.theme-light .bg-sky-600:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-blue-600:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-blue-500:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-emerald-600:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-emerald-500:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-teal-600:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-green-600:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-rose-600:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-rose-500:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-red-600:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-red-500:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-amber-600:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-orange-600:not(.text-slate-950):not(.text-slate-900),
-.theme-light .bg-violet-600:not(.text-slate-950):not(.text-slate-900),
-.theme-light [class*="from-cyan-600"]:not([class*="/"]):not(.text-slate-950),
-.theme-light [class*="from-sky-600"]:not([class*="/"]):not(.text-slate-950),
-.theme-light [class*="from-blue-600"]:not([class*="/"]):not(.text-slate-950),
-.theme-light [class*="from-emerald-600"]:not([class*="/"]):not(.text-slate-950),
-.theme-light [class*="from-teal-600"]:not([class*="/"]):not(.text-slate-950),
-.theme-light [class*="from-rose-600"]:not([class*="/"]):not(.text-slate-950),
-.theme-light [class*="from-red-600"]:not([class*="/"]):not(.text-slate-950),
-.theme-light [class*="from-amber-600"]:not([class*="/"]):not(.text-slate-950),
-.theme-light [class*="from-orange-600"]:not([class*="/"]):not(.text-slate-950),
-.theme-light [class*="from-violet-600"]:not([class*="/"]):not(.text-slate-950),
-.theme-light .bg-cyan-500.text-white,
-.theme-light .bg-amber-500.text-white,
-.theme-light .bg-orange-500.text-white,
-.theme-light .bg-indigo-600 *,
-.theme-light .bg-purple-600 *,
-.theme-light .bg-indigo-500 *,
-.theme-light .bg-purple-500 *,
-.theme-light .bg-indigo-700 *,
-.theme-light .bg-purple-700 *,
-.theme-light .bg-cyan-600:not(.text-slate-950):not(.text-slate-900):not(.text-black) *,
-.theme-light .bg-sky-600:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-blue-600:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-blue-500:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-emerald-600:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-emerald-500:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-teal-600:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-green-600:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-rose-600:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-rose-500:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-red-600:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-red-500:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-amber-600:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-orange-600:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light .bg-violet-600:not(.text-slate-950):not(.text-slate-900) *,
-.theme-light [class*="from-indigo-6"] *,
-.theme-light [class*="from-purple-6"] *,
-.theme-light [class*="from-cyan-600"]:not([class*="/"]) *,
-.theme-light [class*="from-sky-600"]:not([class*="/"]) *,
-.theme-light [class*="from-blue-600"]:not([class*="/"]) *,
-.theme-light [class*="from-emerald-600"]:not([class*="/"]) *,
-.theme-light [class*="from-teal-600"]:not([class*="/"]) *,
-.theme-light [class*="from-rose-600"]:not([class*="/"]) *,
-.theme-light [class*="from-red-600"]:not([class*="/"]) *,
-.theme-light [class*="from-amber-600"]:not([class*="/"]) *,
-.theme-light [class*="from-orange-600"]:not([class*="/"]) *,
-.theme-light [class*="from-violet-600"]:not([class*="/"]) * {
+.theme-light.theme-light :where(.bg-indigo-600, .bg-purple-600, .bg-indigo-500, .bg-purple-500, .bg-indigo-700, .bg-purple-700, .bg-indigo-800, .bg-purple-800) *,
+.theme-light.theme-light [class*="bg-gradient-to"]:where([class*="from-indigo-500"]:not([class*="from-indigo-500/"]), [class*="from-indigo-600"]:not([class*="from-indigo-600/"]), [class*="from-indigo-700"]:not([class*="from-indigo-700/"]), [class*="from-purple-500"]:not([class*="from-purple-500/"]), [class*="from-purple-600"]:not([class*="from-purple-600/"]), [class*="from-purple-700"]:not([class*="from-purple-700/"])) * {
   color: #ffffff !important;
 }
 
+/* Deepen saturated 500 buttons & dark-text badges in Light Mode so rich background pairs with crisp white text */
+.theme-light.theme-light button:where(.bg-cyan-500, .bg-cyan-600, .bg-cyan-700),
+.theme-light.theme-light :where(.bg-cyan-500.text-slate-950, .bg-cyan-500.text-black) {
+  background-color: #0891b2 !important;
+  border-color: #0e7490 !important;
+}
+.theme-light.theme-light button:where(.bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-green-500, .bg-green-600),
+.theme-light.theme-light :where(.bg-emerald-500.text-slate-950, .bg-emerald-500.text-black, .bg-green-500.text-slate-950, .bg-green-500.text-black) {
+  background-color: #059669 !important;
+  border-color: #047857 !important;
+}
+.theme-light.theme-light button:where(.bg-amber-500, .bg-amber-600, .bg-amber-700),
+.theme-light.theme-light :where(.bg-amber-500.text-slate-950, .bg-amber-500.text-black) {
+  background-color: #d97706 !important;
+  border-color: #b45309 !important;
+}
+.theme-light.theme-light button:where(.bg-orange-500, .bg-orange-600, .bg-orange-700),
+.theme-light.theme-light :where(.bg-orange-500.text-slate-950, .bg-orange-500.text-black) {
+  background-color: #ea580c !important;
+  border-color: #c2410c !important;
+}
+
+/* Force crisp #FFFFFF text on all saturated solid buttons/badges AND all 500/600/700 gradient CTAs in Light Mode */
+.theme-light.theme-light :where(.bg-cyan-600, .bg-cyan-700, .bg-sky-500, .bg-sky-600, .bg-sky-700, .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-emerald-600, .bg-emerald-700, .bg-teal-500, .bg-teal-600, .bg-teal-700, .bg-green-600, .bg-green-700, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-red-500, .bg-red-600, .bg-red-700, .bg-pink-500, .bg-pink-600, .bg-fuchsia-600, .bg-amber-600, .bg-amber-700, .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-violet-500, .bg-violet-600, .bg-violet-700, button.bg-cyan-500, button.bg-emerald-500, button.bg-green-500, button.bg-amber-500, .bg-cyan-500.text-white, .bg-cyan-500.text-slate-950, .bg-cyan-500.text-black, .bg-emerald-500.text-white, .bg-emerald-500.text-slate-950, .bg-emerald-500.text-black, .bg-green-500.text-slate-950, .bg-amber-500.text-white, .bg-amber-500.text-slate-950, .bg-amber-500.text-black),
+.theme-light.theme-light [class*="bg-gradient-to"]:where([class*="from-blue-500"]:not([class*="from-blue-500/"]), [class*="from-blue-600"]:not([class*="from-blue-600/"]), [class*="from-blue-700"]:not([class*="from-blue-700/"]), [class*="from-sky-500"]:not([class*="from-sky-500/"]), [class*="from-sky-600"]:not([class*="from-sky-600/"]), [class*="from-cyan-500"]:not([class*="from-cyan-500/"]), [class*="from-cyan-600"]:not([class*="from-cyan-600/"]), [class*="from-teal-500"]:not([class*="from-teal-500/"]), [class*="from-teal-600"]:not([class*="from-teal-600/"]), [class*="from-emerald-500"]:not([class*="from-emerald-500/"]), [class*="from-emerald-600"]:not([class*="from-emerald-600/"]), [class*="from-green-500"]:not([class*="from-green-500/"]), [class*="from-green-600"]:not([class*="from-green-600/"]), [class*="from-rose-500"]:not([class*="from-rose-500/"]), [class*="from-rose-600"]:not([class*="from-rose-600/"]), [class*="from-red-500"]:not([class*="from-red-500/"]), [class*="from-red-600"]:not([class*="from-red-600/"]), [class*="from-pink-500"]:not([class*="from-pink-500/"]), [class*="from-pink-600"]:not([class*="from-pink-600/"]), [class*="from-fuchsia-600"]:not([class*="from-fuchsia-600/"]), [class*="from-amber-500"]:not([class*="from-amber-500/"]), [class*="from-amber-600"]:not([class*="from-amber-600/"]), [class*="from-orange-500"]:not([class*="from-orange-500/"]), [class*="from-orange-600"]:not([class*="from-orange-600/"]), [class*="from-violet-500"]:not([class*="from-violet-500/"]), [class*="from-violet-600"]:not([class*="from-violet-600/"])) {
+  color: #ffffff !important;
+}
+
+.theme-light.theme-light :where(.bg-cyan-600, .bg-cyan-700, .bg-sky-500, .bg-sky-600, .bg-sky-700, .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-emerald-600, .bg-emerald-700, .bg-teal-500, .bg-teal-600, .bg-teal-700, .bg-green-600, .bg-green-700, .bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-red-500, .bg-red-600, .bg-red-700, .bg-pink-500, .bg-pink-600, .bg-fuchsia-600, .bg-amber-600, .bg-amber-700, .bg-orange-500, .bg-orange-600, .bg-orange-700, .bg-violet-500, .bg-violet-600, .bg-violet-700, button.bg-cyan-500, button.bg-emerald-500, button.bg-green-500, button.bg-amber-500, .bg-cyan-500.text-white, .bg-cyan-500.text-slate-950, .bg-cyan-500.text-black, .bg-emerald-500.text-white, .bg-emerald-500.text-slate-950, .bg-emerald-500.text-black, .bg-green-500.text-slate-950, .bg-amber-500.text-white, .bg-amber-500.text-slate-950, .bg-amber-500.text-black) *,
+.theme-light.theme-light [class*="bg-gradient-to"]:where([class*="from-blue-500"]:not([class*="from-blue-500/"]), [class*="from-blue-600"]:not([class*="from-blue-600/"]), [class*="from-blue-700"]:not([class*="from-blue-700/"]), [class*="from-sky-500"]:not([class*="from-sky-500/"]), [class*="from-sky-600"]:not([class*="from-sky-600/"]), [class*="from-cyan-500"]:not([class*="from-cyan-500/"]), [class*="from-cyan-600"]:not([class*="from-cyan-600/"]), [class*="from-teal-500"]:not([class*="from-teal-500/"]), [class*="from-teal-600"]:not([class*="from-teal-600/"]), [class*="from-emerald-500"]:not([class*="from-emerald-500/"]), [class*="from-emerald-600"]:not([class*="from-emerald-600/"]), [class*="from-green-500"]:not([class*="from-green-500/"]), [class*="from-green-600"]:not([class*="from-green-600/"]), [class*="from-rose-500"]:not([class*="from-rose-500/"]), [class*="from-rose-600"]:not([class*="from-rose-600/"]), [class*="from-red-500"]:not([class*="from-red-500/"]), [class*="from-red-600"]:not([class*="from-red-600/"]), [class*="from-pink-500"]:not([class*="from-pink-500/"]), [class*="from-pink-600"]:not([class*="from-pink-600/"]), [class*="from-fuchsia-600"]:not([class*="from-fuchsia-600/"]), [class*="from-amber-500"]:not([class*="from-amber-500/"]), [class*="from-amber-600"]:not([class*="from-amber-600/"]), [class*="from-orange-500"]:not([class*="from-orange-500/"]), [class*="from-orange-600"]:not([class*="from-orange-600/"]), [class*="from-violet-500"]:not([class*="from-violet-500/"]), [class*="from-violet-600"]:not([class*="from-violet-600/"])) * {
+  color: #ffffff !important;
+}
+
+/* Deepen bright 500 gradient endpoints cleanly when inside a Light Mode gradient CTA button */
+.theme-light.theme-light button[class*="bg-gradient-to"]:where([class*="from-cyan-500"]:not([class*="from-cyan-500/"]), [class*="from-emerald-500"]:not([class*="from-emerald-500/"]), [class*="from-amber-500"]:not([class*="from-amber-500/"])) {
+  filter: brightness(0.88) saturate(1.12);
+}
+
 /* Keep translucent dark pill counters readable inside solid colored buttons */
-.theme-light .bg-indigo-600 [class*="bg-black/"],
-.theme-light .bg-purple-600 [class*="bg-black/"],
-.theme-light .bg-blue-600 [class*="bg-black/"],
-.theme-light .bg-cyan-600 [class*="bg-black/"],
-.theme-light .bg-emerald-600 [class*="bg-black/"],
-.theme-light .bg-teal-600 [class*="bg-black/"],
-.theme-light .bg-rose-600 [class*="bg-black/"],
-.theme-light .bg-red-600 [class*="bg-black/"],
-.theme-light .bg-amber-600 [class*="bg-black/"],
-.theme-light [class*="bg-gradient-to"][class*="from-indigo-6"] [class*="bg-black/"],
-.theme-light [class*="bg-gradient-to"][class*="from-purple-6"] [class*="bg-black/"] {
+.theme-light.theme-light :where(.bg-indigo-600, .bg-purple-600, .bg-blue-600, .bg-cyan-600, .bg-emerald-600, .bg-teal-600, .bg-rose-600, .bg-red-600, .bg-amber-600, [class*="bg-gradient-to"][class*="from-indigo-6"], [class*="bg-gradient-to"][class*="from-purple-6"]) [class*="bg-black/"] {
   background-color: rgba(0, 0, 0, 0.24) !important;
   border-color: rgba(255, 255, 255, 0.22) !important;
   color: #ffffff !important;
 }
 
-/* Preserve dark slate text on bright amber/yellow CTAs explicitly styled with text-slate-950/900/black */
-.theme-light .bg-amber-500.text-slate-950,
-.theme-light .bg-amber-500.text-slate-950 *,
-.theme-light .bg-amber-400.text-slate-950,
-.theme-light .bg-amber-400.text-slate-950 *,
-.theme-light .text-slate-950,
-.theme-light .text-slate-950 * {
+/* Preserve dark slate text ONLY on genuinely bright amber-400 / yellow pills */
+.theme-light.theme-light :where(.bg-amber-400, .bg-yellow-400, .bg-yellow-300).text-slate-950,
+.theme-light.theme-light :where(.bg-amber-400, .bg-yellow-400, .bg-yellow-300).text-slate-950 * {
   color: #0f172a !important;
 }
 
-/* Subtle / Soft Purple & Indigo Buttons & Badges in Light Mode */
-.theme-light .bg-purple-500\/5,
-.theme-light .bg-purple-500\/10,
-.theme-light .bg-purple-500\/15,
-.theme-light .bg-purple-500\/20,
-.theme-light .bg-purple-600\/15,
-.theme-light .bg-purple-600\/20,
-.theme-light .bg-purple-600\/25,
-.theme-light .bg-purple-600\/30,
-.theme-light .bg-violet-500\/10,
-.theme-light .bg-violet-500\/15,
-.theme-light .bg-violet-500\/20 {
+/* Subtle / Soft Purple, Violet & Indigo Buttons, Tabs & Badges in Light Mode */
+.theme-light.theme-light :where(.bg-purple-500\/5, .bg-purple-500\/10, .bg-purple-500\/15, .bg-purple-500\/20, .bg-purple-500\/30, .bg-purple-600\/15, .bg-purple-600\/20, .bg-purple-600\/25, .bg-purple-600\/30, .bg-purple-600\/40, .bg-violet-500\/10, .bg-violet-500\/15, .bg-violet-500\/20, .bg-violet-600\/15, .bg-violet-600\/20, .bg-violet-600\/30) {
   background-color: #f3e8ff !important;
   border-color: #d8b4fe !important;
   color: #6b21a8 !important;
 }
 
-.theme-light .bg-purple-500\/5 *,
-.theme-light .bg-purple-500\/10 *,
-.theme-light .bg-purple-500\/15 *,
-.theme-light .bg-purple-500\/20 *,
-.theme-light .bg-purple-600\/15 *,
-.theme-light .bg-purple-600\/20 *,
-.theme-light .bg-purple-600\/25 *,
-.theme-light .bg-purple-600\/30 *,
-.theme-light .bg-violet-500\/10 *,
-.theme-light .bg-violet-500\/15 *,
-.theme-light .bg-violet-500\/20 * {
+.theme-light.theme-light :where(.bg-purple-500\/5, .bg-purple-500\/10, .bg-purple-500\/15, .bg-purple-500\/20, .bg-purple-500\/30, .bg-purple-600\/15, .bg-purple-600\/20, .bg-purple-600\/25, .bg-purple-600\/30, .bg-purple-600\/40, .bg-violet-500\/10, .bg-violet-500\/15, .bg-violet-500\/20, .bg-violet-600\/15, .bg-violet-600\/20, .bg-violet-600\/30) * {
   color: #6b21a8 !important;
 }
 
-.theme-light .bg-indigo-500\/5,
-.theme-light .bg-indigo-500\/10,
-.theme-light .bg-indigo-500\/15,
-.theme-light .bg-indigo-500\/20,
-.theme-light .bg-indigo-500\/25,
-.theme-light .bg-indigo-600\/15,
-.theme-light .bg-indigo-600\/20,
-.theme-light .bg-indigo-600\/25,
-.theme-light .bg-indigo-600\/30 {
+.theme-light.theme-light :where(.bg-indigo-500\/5, .bg-indigo-500\/10, .bg-indigo-500\/15, .bg-indigo-500\/20, .bg-indigo-500\/25, .bg-indigo-500\/30, .bg-indigo-600\/15, .bg-indigo-600\/20, .bg-indigo-600\/25, .bg-indigo-600\/30, .bg-indigo-600\/40) {
   background-color: #e0e7ff !important;
-  border-color: #c7d2fe !important;
+  border-color: #a5b4fc !important;
   color: #3730a3 !important;
 }
 
-.theme-light .bg-indigo-500\/5 *,
-.theme-light .bg-indigo-500\/10 *,
-.theme-light .bg-indigo-500\/15 *,
-.theme-light .bg-indigo-500\/20 *,
-.theme-light .bg-indigo-500\/25 *,
-.theme-light .bg-indigo-600\/15 *,
-.theme-light .bg-indigo-600\/20 *,
-.theme-light .bg-indigo-600\/25 *,
-.theme-light .bg-indigo-600\/30 * {
+.theme-light.theme-light :where(.bg-indigo-500\/5, .bg-indigo-500\/10, .bg-indigo-500\/15, .bg-indigo-500\/20, .bg-indigo-500\/25, .bg-indigo-500\/30, .bg-indigo-600\/15, .bg-indigo-600\/20, .bg-indigo-600\/25, .bg-indigo-600\/30, .bg-indigo-600\/40) * {
   color: #3730a3 !important;
 }
 
 /* Subtle / Soft Cyan, Sky, Blue & Teal Badges in Light Mode */
-.theme-light .bg-cyan-500\/5,
-.theme-light .bg-cyan-500\/10,
-.theme-light .bg-cyan-500\/15,
-.theme-light .bg-cyan-500\/20,
-.theme-light .bg-cyan-500\/25,
-.theme-light .bg-cyan-500\/30,
-.theme-light .bg-sky-500\/10,
-.theme-light .bg-sky-500\/15,
-.theme-light .bg-sky-500\/20 {
+.theme-light.theme-light :where(.bg-cyan-500\/5, .bg-cyan-500\/10, .bg-cyan-500\/15, .bg-cyan-500\/20, .bg-cyan-500\/25, .bg-cyan-500\/30, .bg-cyan-600\/15, .bg-cyan-600\/20, .bg-cyan-600\/30, .bg-cyan-600\/40, .bg-sky-500\/10, .bg-sky-500\/15, .bg-sky-500\/20, .bg-sky-600\/20, .bg-sky-600\/30) {
   background-color: #e0f2fe !important;
   border-color: #7dd3fc !important;
   color: #0369a1 !important;
 }
 
-.theme-light .bg-cyan-500\/5 *,
-.theme-light .bg-cyan-500\/10 *,
-.theme-light .bg-cyan-500\/15 *,
-.theme-light .bg-cyan-500\/20 *,
-.theme-light .bg-cyan-500\/25 *,
-.theme-light .bg-cyan-500\/30 *,
-.theme-light .bg-sky-500\/10 *,
-.theme-light .bg-sky-500\/15 *,
-.theme-light .bg-sky-500\/20 * {
+.theme-light.theme-light :where(.bg-cyan-500\/5, .bg-cyan-500\/10, .bg-cyan-500\/15, .bg-cyan-500\/20, .bg-cyan-500\/25, .bg-cyan-500\/30, .bg-cyan-600\/15, .bg-cyan-600\/20, .bg-cyan-600\/30, .bg-cyan-600\/40, .bg-sky-500\/10, .bg-sky-500\/15, .bg-sky-500\/20, .bg-sky-600\/20, .bg-sky-600\/30) * {
   color: #0369a1 !important;
 }
 
-.theme-light .bg-blue-500\/10,
-.theme-light .bg-blue-500\/15,
-.theme-light .bg-blue-500\/20 {
+.theme-light.theme-light :where(.bg-blue-500\/10, .bg-blue-500\/15, .bg-blue-500\/20, .bg-blue-600\/15, .bg-blue-600\/20, .bg-blue-600\/30, .bg-blue-600\/40) {
   background-color: #dbeafe !important;
   border-color: #93c5fd !important;
   color: #1e40af !important;
 }
-.theme-light .bg-blue-500\/10 *,
-.theme-light .bg-blue-500\/15 *,
-.theme-light .bg-blue-500\/20 * {
+.theme-light.theme-light :where(.bg-blue-500\/10, .bg-blue-500\/15, .bg-blue-500\/20, .bg-blue-600\/15, .bg-blue-600\/20, .bg-blue-600\/30, .bg-blue-600\/40) * {
   color: #1e40af !important;
 }
 
 /* Subtle / Soft Emerald, Green & Teal Badges in Light Mode */
-.theme-light .bg-emerald-500\/5,
-.theme-light .bg-emerald-500\/10,
-.theme-light .bg-emerald-500\/15,
-.theme-light .bg-emerald-500\/20,
-.theme-light .bg-teal-500\/10,
-.theme-light .bg-teal-500\/15,
-.theme-light .bg-teal-500\/20,
-.theme-light .bg-green-500\/10,
-.theme-light .bg-green-500\/15,
-.theme-light .bg-green-500\/20 {
+.theme-light.theme-light :where(.bg-emerald-500\/5, .bg-emerald-500\/10, .bg-emerald-500\/15, .bg-emerald-500\/20, .bg-emerald-500\/30, .bg-emerald-600\/15, .bg-emerald-600\/20, .bg-emerald-600\/30, .bg-emerald-600\/40, .bg-teal-500\/10, .bg-teal-500\/15, .bg-teal-500\/20, .bg-teal-600\/20, .bg-teal-600\/30, .bg-green-500\/10, .bg-green-500\/15, .bg-green-500\/20) {
   background-color: #dcfce7 !important;
   border-color: #86efac !important;
   color: #15803d !important;
 }
 
-.theme-light .bg-emerald-500\/5 *,
-.theme-light .bg-emerald-500\/10 *,
-.theme-light .bg-emerald-500\/15 *,
-.theme-light .bg-emerald-500\/20 *,
-.theme-light .bg-teal-500\/10 *,
-.theme-light .bg-teal-500\/15 *,
-.theme-light .bg-teal-500\/20 *,
-.theme-light .bg-green-500\/10 *,
-.theme-light .bg-green-500\/15 *,
-.theme-light .bg-green-500\/20 * {
+.theme-light.theme-light :where(.bg-emerald-500\/5, .bg-emerald-500\/10, .bg-emerald-500\/15, .bg-emerald-500\/20, .bg-emerald-500\/30, .bg-emerald-600\/15, .bg-emerald-600\/20, .bg-emerald-600\/30, .bg-emerald-600\/40, .bg-teal-500\/10, .bg-teal-500\/15, .bg-teal-500\/20, .bg-teal-600\/20, .bg-teal-600\/30, .bg-green-500\/10, .bg-green-500\/15, .bg-green-500\/20) * {
   color: #15803d !important;
 }
 
 /* Subtle / Soft Rose, Red, Amber & Orange Badges in Light Mode */
-.theme-light .bg-rose-500\/10,
-.theme-light .bg-rose-500\/15,
-.theme-light .bg-rose-500\/20,
-.theme-light .bg-rose-500\/25,
-.theme-light .bg-rose-600\/15,
-.theme-light .bg-rose-600\/20,
-.theme-light .bg-red-500\/10,
-.theme-light .bg-red-500\/15,
-.theme-light .bg-red-500\/20 {
+.theme-light.theme-light :where(.bg-rose-500\/10, .bg-rose-500\/15, .bg-rose-500\/20, .bg-rose-500\/25, .bg-rose-500\/30, .bg-rose-600\/15, .bg-rose-600\/20, .bg-rose-600\/30, .bg-rose-600\/40, .bg-red-500\/10, .bg-red-500\/15, .bg-red-500\/20, .bg-red-600\/20) {
   background-color: #ffe4e6 !important;
   border-color: #fda4af !important;
   color: #9f1239 !important;
 }
 
-.theme-light .bg-rose-500\/10 *,
-.theme-light .bg-rose-500\/15 *,
-.theme-light .bg-rose-500\/20 *,
-.theme-light .bg-rose-500\/25 *,
-.theme-light .bg-rose-600\/15 *,
-.theme-light .bg-rose-600\/20 *,
-.theme-light .bg-red-500\/10 *,
-.theme-light .bg-red-500\/15 *,
-.theme-light .bg-red-500\/20 * {
+.theme-light.theme-light :where(.bg-rose-500\/10, .bg-rose-500\/15, .bg-rose-500\/20, .bg-rose-500\/25, .bg-rose-500\/30, .bg-rose-600\/15, .bg-rose-600\/20, .bg-rose-600\/30, .bg-rose-600\/40, .bg-red-500\/10, .bg-red-500\/15, .bg-red-500\/20, .bg-red-600\/20) * {
   color: #9f1239 !important;
 }
 
-.theme-light .bg-amber-500\/10,
-.theme-light .bg-amber-500\/15,
-.theme-light .bg-amber-500\/20,
-.theme-light .bg-amber-500\/25,
-.theme-light .bg-orange-500\/10,
-.theme-light .bg-orange-500\/15,
-.theme-light .bg-orange-500\/20 {
+.theme-light.theme-light :where(.bg-amber-500\/10, .bg-amber-500\/15, .bg-amber-500\/20, .bg-amber-500\/25, .bg-amber-500\/30, .bg-amber-600\/20, .bg-orange-500\/10, .bg-orange-500\/15, .bg-orange-500\/20, .bg-orange-600\/20) {
   background-color: #fef3c7 !important;
   border-color: #fcd34d !important;
   color: #92400e !important;
 }
 
-.theme-light .bg-amber-500\/10 *,
-.theme-light .bg-amber-500\/15 *,
-.theme-light .bg-amber-500\/20 *,
-.theme-light .bg-amber-500\/25 *,
-.theme-light .bg-orange-500\/10 *,
-.theme-light .bg-orange-500\/15 *,
-.theme-light .bg-orange-500\/20 * {
+.theme-light.theme-light :where(.bg-amber-500\/10, .bg-amber-500\/15, .bg-amber-500\/20, .bg-amber-500\/25, .bg-amber-500\/30, .bg-amber-600\/20, .bg-orange-500\/10, .bg-orange-500\/15, .bg-orange-500\/20, .bg-orange-600\/20) * {
   color: #92400e !important;
 }
 
@@ -2182,32 +2003,21 @@
   color: #f3e8ff !important;
 }
 
-.theme-light .switch-faceplate-chassis .bg-emerald-500\/20,
-.theme-light .switch-faceplate-chassis .bg-emerald-500\/20 * {
+.theme-light .switch-faceplate-chassis .bg-emerald-500\/20 {
   background-color: rgba(16, 185, 129, 0.2) !important;
   border-color: rgba(16, 185, 129, 0.5) !important;
   color: #6ee7b7 !important;
 }
 
-.theme-light .switch-faceplate-chassis .bg-amber-500\/20,
-.theme-light .switch-faceplate-chassis .bg-amber-500\/20 * {
+.theme-light .switch-faceplate-chassis .bg-amber-500\/20 {
   background-color: rgba(245, 158, 11, 0.2) !important;
   border-color: rgba(245, 158, 11, 0.5) !important;
   color: #fcd34d !important;
 }
 
-.theme-light .rack-cabinet-dark span,
-.theme-light .rack-cabinet-dark p,
-.theme-light .rack-cabinet-dark h1,
-.theme-light .rack-cabinet-dark h2,
-.theme-light .rack-cabinet-dark h3,
-.theme-light .rack-cabinet-dark h4,
-.theme-light .tower-cabinet-dark span,
-.theme-light .tower-cabinet-dark p,
-.theme-light .switch-faceplate-chassis span,
-.theme-light .switch-faceplate-chassis p,
-.theme-light .switch-faceplate-chassis h3,
-.theme-light .switch-faceplate-chassis h4 {
+.theme-light .rack-cabinet-dark :where(span, p, h1, h2, h3, h4),
+.theme-light .tower-cabinet-dark :where(span, p),
+.theme-light .switch-faceplate-chassis :where(span, p, h3, h4) {
   color: #f1f5f9 !important;
 }
 
@@ -2888,9 +2698,12 @@
 [data-badge="port-mode-trunk"],
 .theme-dark .port-mode-badge-trunk,
 .theme-dark [data-badge="port-mode-trunk"],
-.theme-light .port-mode-badge-trunk,
-.theme-light [data-badge="port-mode-trunk"] {
+.theme-light.theme-light .port-mode-badge-trunk,
+.theme-light.theme-light span.port-mode-badge-trunk,
+.theme-light.theme-light [data-badge="port-mode-trunk"],
+.theme-light.theme-light span[data-badge="port-mode-trunk"] {
   background-color: #7c3aed !important;
+  background-image: none !important;
   border: 1px solid #6d28d9 !important;
   color: #ffffff !important;
   font-weight: 700 !important;
@@ -2898,8 +2711,9 @@
 
 .port-mode-badge-trunk *,
 [data-badge="port-mode-trunk"] *,
-.theme-light .port-mode-badge-trunk *,
-.theme-light [data-badge="port-mode-trunk"] * {
+.theme-light.theme-light .port-mode-badge-trunk *,
+.theme-light.theme-light span.port-mode-badge-trunk *,
+.theme-light.theme-light [data-badge="port-mode-trunk"] * {
   color: #ffffff !important;
   font-weight: 700 !important;
 }
@@ -2908,9 +2722,12 @@
 [data-badge="port-mode-access"],
 .theme-dark .port-mode-badge-access,
 .theme-dark [data-badge="port-mode-access"],
-.theme-light .port-mode-badge-access,
-.theme-light [data-badge="port-mode-access"] {
+.theme-light.theme-light .port-mode-badge-access,
+.theme-light.theme-light span.port-mode-badge-access,
+.theme-light.theme-light [data-badge="port-mode-access"],
+.theme-light.theme-light span[data-badge="port-mode-access"] {
   background-color: #4f46e5 !important;
+  background-image: none !important;
   border: 1px solid #4338ca !important;
   color: #ffffff !important;
   font-weight: 700 !important;
@@ -2918,8 +2735,9 @@
 
 .port-mode-badge-access *,
 [data-badge="port-mode-access"] *,
-.theme-light .port-mode-badge-access *,
-.theme-light [data-badge="port-mode-access"] * {
+.theme-light.theme-light .port-mode-badge-access *,
+.theme-light.theme-light span.port-mode-badge-access *,
+.theme-light.theme-light [data-badge="port-mode-access"] * {
   color: #ffffff !important;
   font-weight: 700 !important;
 }
@@ -2928,19 +2746,20 @@
 .switch-faceplate-chassis .bg-purple-600,
 .switch-faceplate-chassis .bg-purple-500,
 .switch-faceplate-chassis [data-badge="vlan-tag"],
-.theme-light .switch-faceplate-chassis .bg-purple-600,
-.theme-light .switch-faceplate-chassis .bg-purple-500,
-.theme-light .switch-faceplate-chassis [data-badge="vlan-tag"],
+.theme-light.theme-light .switch-faceplate-chassis .bg-purple-600,
+.theme-light.theme-light .switch-faceplate-chassis .bg-purple-500,
+.theme-light.theme-light .switch-faceplate-chassis [data-badge="vlan-tag"],
+.theme-light.theme-light .switch-faceplate-chassis span[data-badge="vlan-tag"],
 .theme-dark .switch-faceplate-chassis .bg-purple-600,
 .theme-dark .switch-faceplate-chassis .bg-purple-500,
 .theme-dark .switch-faceplate-chassis [data-badge="vlan-tag"],
 [data-badge="vlan-tag"],
-.theme-light [data-badge="vlan-tag"],
+.theme-light.theme-light [data-badge="vlan-tag"],
 .theme-dark [data-badge="vlan-tag"],
-.theme-light [data-badge="vlan-tag"] *,
+.theme-light.theme-light [data-badge="vlan-tag"] *,
 .theme-dark [data-badge="vlan-tag"] *,
 .port-inspector-modal [data-badge="vlan-tag"],
-.theme-light .port-inspector-modal [data-badge="vlan-tag"],
+.theme-light.theme-light .port-inspector-modal [data-badge="vlan-tag"],
 .theme-dark .port-inspector-modal [data-badge="vlan-tag"] {
   color: #ffffff !important;
   font-weight: 700 !important;
@@ -2948,8 +2767,8 @@
 
 .switch-faceplate-chassis .bg-purple-600 *,
 .switch-faceplate-chassis .bg-purple-500 *,
-.theme-light .switch-faceplate-chassis .bg-purple-600 *,
-.theme-light .switch-faceplate-chassis .bg-purple-500 * {
+.theme-light.theme-light .switch-faceplate-chassis .bg-purple-600 *,
+.theme-light.theme-light .switch-faceplate-chassis .bg-purple-500 * {
   color: #ffffff !important;
   font-weight: 700 !important;
 }

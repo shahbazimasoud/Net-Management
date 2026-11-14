@@ -294,7 +294,7 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
               <button
                 type="button"
                 onClick={handleOpenAddModal}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-500 hover:bg-purple-400 text-slate-950 transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition cursor-pointer flex items-center gap-1.5 shadow-sm"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>{isEn ? 'Add Rule' : 'افزودن قانون'}</span>
@@ -622,7 +622,7 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
                   <button
                     type="button"
                     onClick={handleOpenAddModal}
-                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-purple-500 hover:bg-purple-400 text-slate-950 transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition cursor-pointer flex items-center gap-1.5 shadow-sm"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>{isEn ? 'Add' : 'افزودن'}</span>
