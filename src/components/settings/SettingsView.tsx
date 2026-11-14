@@ -252,26 +252,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-2 sm:px-4 py-3 animate-fadeIn">
       {/* Dynamic Sub-Menu Top Banner */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-r from-slate-900/90 via-indigo-950/40 to-slate-900/90 border border-white/10 shadow-xl backdrop-blur-xl">
+      <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-2xl border shadow-xl backdrop-blur-xl ${
+        isLightMode
+          ? 'bg-gradient-to-r from-white via-indigo-50/70 to-slate-50 border-slate-200'
+          : 'bg-gradient-to-r from-slate-900/90 via-indigo-950/40 to-slate-900/90 border-white/10'
+      }`}>
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="p-3 rounded-2xl bg-gradient-to-tr from-indigo-600 to-cyan-500 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)] border border-white/20">
-            <CurrentIcon className="w-6 h-6" />
+            <CurrentIcon className="w-6 h-6 text-white" />
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1">
+              <span className={`text-[11px] font-mono flex items-center gap-1 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                 <Settings className="w-3 h-3" />
                 <span>{isEn ? 'Settings' : 'تنظیمات'}</span>
                 <ChevronRight className="w-3 h-3 rtl:rotate-180 text-slate-500" />
               </span>
-              <h1 className="text-base sm:text-lg font-bold text-white tracking-tight font-mono">
+              <h1 className={`text-base sm:text-lg font-bold tracking-tight font-mono ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
                 {currentMeta.title}
               </h1>
               <span className={`text-[10px] font-sans font-semibold px-2 py-0.5 rounded-full border ${currentMeta.badgeColor}`}>
                 {currentMeta.badge}
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-1 max-w-3xl">
+            <p className={`text-xs mt-1 max-w-3xl ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
               {currentMeta.desc}
             </p>
           </div>
@@ -292,18 +296,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* Sub-Menu Bar: Synchronized with Sidebar */}
-      <div className="settings-subtab-bar flex flex-wrap items-center gap-2 p-1.5 rounded-2xl bg-white/[0.03] border border-white/10 backdrop-blur-md max-w-full">
+      <div className={`settings-subtab-bar flex flex-wrap items-center gap-2 p-1.5 rounded-2xl border backdrop-blur-md max-w-full ${
+        isLightMode
+          ? 'bg-slate-100/90 border-slate-200 shadow-xs'
+          : 'bg-white/[0.03] border-white/10'
+      }`}>
         {/* Sub-menu 1: Device Groups */}
         <button
           type="button"
           onClick={() => handleSwitchTab('groups')}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold text-xs transition-all duration-200 shrink-0 cursor-pointer ${
             activeTab === 'groups'
-              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-lg ring-1 ring-amber-400/30'
+              ? isLightMode
+                ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-xs'
+                : 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-lg ring-1 ring-amber-400/30'
+              : isLightMode
+              ? 'text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent'
               : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
           }`}
         >
-          <FolderTree className="w-3.5 h-3.5 text-amber-400" />
+          <FolderTree className={`w-3.5 h-3.5 ${isLightMode ? 'text-amber-600' : 'text-amber-400'}`} />
           <span>{isEn ? 'Device Grouping & Tagging' : 'گروه‌بندی و تگینگ دیوایس‌ها و سرورها'}</span>
           <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
             {deviceGroups.length}
@@ -316,11 +328,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           onClick={() => handleSwitchTab('users')}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold text-xs transition-all duration-200 shrink-0 cursor-pointer ${
             activeTab === 'users'
-              ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-lg ring-1 ring-purple-400/30'
+              ? isLightMode
+                ? 'bg-purple-100 text-purple-900 border border-purple-300 shadow-xs'
+                : 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-lg ring-1 ring-purple-400/30'
+              : isLightMode
+              ? 'text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent'
               : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
           }`}
         >
-          <Users className="w-3.5 h-3.5 text-purple-400" />
+          <Users className={`w-3.5 h-3.5 ${isLightMode ? 'text-purple-600' : 'text-purple-400'}`} />
           <span>{isEn ? 'Local Users & Groups' : 'کاربران و گروه‌های محلی'}</span>
           <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
             {localUsers.length}
@@ -333,11 +349,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           onClick={() => handleSwitchTab('rbac')}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold text-xs transition-all duration-200 shrink-0 cursor-pointer ${
             activeTab === 'rbac'
-              ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-lg ring-1 ring-indigo-400/30'
+              ? isLightMode
+                ? 'bg-indigo-100 text-indigo-900 border border-indigo-300 shadow-xs'
+                : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-lg ring-1 ring-indigo-400/30'
+              : isLightMode
+              ? 'text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent'
               : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
           }`}
         >
-          <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+          <ShieldCheck className={`w-3.5 h-3.5 ${isLightMode ? 'text-indigo-600' : 'text-indigo-400'}`} />
           <span>{isEn ? 'Access Control (RBAC)' : 'سطوح دسترسی (RBAC)'}</span>
           <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
             {policies.length}
@@ -350,11 +370,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           onClick={() => handleSwitchTab('backup')}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold text-xs transition-all duration-200 shrink-0 cursor-pointer ${
             activeTab === 'backup'
-              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-lg ring-1 ring-cyan-400/30'
+              ? isLightMode
+                ? 'bg-cyan-100 text-cyan-900 border border-cyan-300 shadow-xs'
+                : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-lg ring-1 ring-cyan-400/30'
+              : isLightMode
+              ? 'text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent'
               : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
           }`}
         >
-          <Archive className="w-3.5 h-3.5 text-cyan-400" />
+          <Archive className={`w-3.5 h-3.5 ${isLightMode ? 'text-cyan-600' : 'text-cyan-400'}`} />
           <span>{isEn ? 'Backup Portal' : 'پورتال بکاپ و بازیابی'}</span>
           <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
             DR
@@ -367,11 +391,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           onClick={() => handleSwitchTab('alerts')}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold text-xs transition-all duration-200 shrink-0 cursor-pointer ${
             activeTab === 'alerts'
-              ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-lg ring-1 ring-sky-400/30'
+              ? isLightMode
+                ? 'bg-sky-100 text-sky-900 border border-sky-300 shadow-xs'
+                : 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-lg ring-1 ring-sky-400/30'
+              : isLightMode
+              ? 'text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent'
               : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
           }`}
         >
-          <BellRing className="w-3.5 h-3.5 text-sky-400" />
+          <BellRing className={`w-3.5 h-3.5 ${isLightMode ? 'text-sky-600' : 'text-sky-400'}`} />
           <span>{isEn ? 'Alerting & Telegram' : 'اعلان‌ها و هشدارها'}</span>
           <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
             NOC

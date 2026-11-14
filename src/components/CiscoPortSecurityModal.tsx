@@ -79,7 +79,12 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
   const isLightMode = useMemo(() => {
     if (propIsLightMode !== undefined) return propIsLightMode;
     if (typeof document !== 'undefined') {
-      return document.documentElement.classList.contains('light') || document.body.classList.contains('light');
+      return (
+        document.documentElement.classList.contains('theme-light') ||
+        document.body.classList.contains('theme-light') ||
+        document.documentElement.classList.contains('light') ||
+        document.body.classList.contains('light')
+      );
     }
     return false;
   }, [propIsLightMode]);
@@ -847,16 +852,24 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
           {/* Err-Disabled Alert & Immediate Recovery */}
           {isErrDisabled && (
-            <div className="p-4 rounded-xl bg-gradient-to-r from-rose-950/80 to-amber-950/60 border border-rose-500/50 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+            <div className={`p-4 rounded-xl border flex flex-wrap items-center justify-between gap-3 shadow-lg ${
+              isLightMode
+                ? 'bg-gradient-to-r from-rose-50 to-amber-50 border-rose-300'
+                : 'bg-gradient-to-r from-rose-950/80 to-amber-950/60 border-rose-500/50'
+            }`}>
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                <div className={`p-2 rounded-lg border ${
+                  isLightMode
+                    ? 'bg-rose-100 text-rose-700 border-rose-300'
+                    : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                }`}>
                   <AlertTriangle className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="text-rose-200 font-bold text-xs sm:text-sm">
+                  <h4 className={`font-bold text-xs sm:text-sm ${isLightMode ? 'text-rose-900' : 'text-rose-200'}`}>
                     {isEn ? 'Interface in Err-Disabled State' : 'اینترفیس به دلیل تخلف پورت سکیوریتی مسدود (Err-Disabled) شده است'}
                   </h4>
-                  <p className="text-slate-300 text-[11px] mt-0.5">
+                  <p className={`text-[11px] mt-0.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                     {isEn
                       ? 'The port was automatically shut down due to unauthorized MAC address activity or exceeding MAC limit.'
                       : 'پورت به دلیل عبور از سقف مجاز مک یا اتصال آدرس غیرمجاز متوقف شده است. جهت بازگشایی نیازمند shutdown و no shutdown است.'}
@@ -868,7 +881,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
                 type="button"
                 onClick={handleRecoverErrDisable}
                 disabled={isRecovering}
-                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-950/50 transition cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-950/30 transition cursor-pointer disabled:opacity-50"
               >
                 {isRecovering ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
@@ -998,13 +1011,21 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
                         <td className="px-4 py-3 text-slate-500 text-[11px]">{idx + 1}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-white text-xs bg-slate-900/90 border border-slate-700 px-2 py-0.5 rounded tracking-wide">
+                            <span className={`font-bold text-xs border px-2 py-0.5 rounded tracking-wide ${
+                              isLightMode
+                                ? 'text-slate-900 bg-slate-100 border-slate-300'
+                                : 'text-white bg-slate-900/90 border-slate-700'
+                            }`}>
                               {entry.mac}
                             </span>
                             <button
                               type="button"
                               onClick={() => handleCopyMac(entry.mac)}
-                              className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition"
+                              className={`p-1 rounded transition ${
+                                isLightMode
+                                  ? 'text-slate-500 hover:text-cyan-700 hover:bg-slate-200'
+                                  : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800'
+                              }`}
                               title={isEn ? 'Copy MAC' : 'کپی مک'}
                             >
                               {copiedMac === entry.mac ? (
@@ -1276,15 +1297,19 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
 
               {/* Static Configured MAC Address Input (Shown when mode is 'configured' or user wants to specify) */}
               {mode === 'configured' && enabled && (
-                <div className="mt-4 p-4 rounded-xl bg-cyan-950/20 border border-cyan-500/30 space-y-2">
+                <div className={`mt-4 p-4 rounded-xl border space-y-2 ${
+                  isLightMode ? 'bg-cyan-50 border-cyan-200' : 'bg-cyan-950/20 border-cyan-500/30'
+                }`}>
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-cyan-200">
+                    <label className={`text-xs font-bold ${isLightMode ? 'text-cyan-900' : 'text-cyan-200'}`}>
                       {isEn ? 'Static Permitted MAC Address:' : 'مک‌آدرس استاتیک مجاز (Configured MAC):'}
                     </label>
                     <button
                       type="button"
                       onClick={() => setConfiguredMac(generateSamplePortSecurityMac())}
-                      className="inline-flex items-center gap-1 text-[11px] font-mono text-cyan-300 hover:text-cyan-200 underline cursor-pointer"
+                      className={`inline-flex items-center gap-1 text-[11px] font-mono underline cursor-pointer ${
+                        isLightMode ? 'text-cyan-700 hover:text-cyan-900' : 'text-cyan-300 hover:text-cyan-200'
+                      }`}
                     >
                       <Sparkles className="w-3 h-3" />
                       <span>{isEn ? 'Generate sample MAC' : 'تولید مک نمونه'}</span>
@@ -1295,10 +1320,14 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
                     value={configuredMac}
                     onChange={(e) => setConfiguredMac(e.target.value)}
                     placeholder="0000.0000.0001 or 00:11:22:33:44:55"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono focus:outline-none focus:border-cyan-400"
+                    className={`w-full px-3 py-2 rounded-xl border text-xs font-mono focus:outline-none focus:border-cyan-400 ${
+                      isLightMode
+                        ? 'bg-white border-slate-300 text-slate-900'
+                        : 'bg-slate-900 border-slate-700 text-white'
+                    }`}
                     dir="ltr"
                   />
-                  <p className="text-[10px] text-slate-400">
+                  <p className={`text-[10px] ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                     {isEn
                       ? 'Only this hardware address will be accepted through this interface.'
                       : 'فقط فریم‌های با مبدأ این آدرس مک اجازه عبور از پورت را خواهند داشت.'}
@@ -1315,8 +1344,8 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-cyan-400" />
-                  <h4 className="font-bold text-xs sm:text-sm text-slate-200">
+                  <Terminal className={`w-4 h-4 ${isLightMode ? 'text-cyan-600' : 'text-cyan-400'}`} />
+                  <h4 className={`font-bold text-xs sm:text-sm ${isLightMode ? 'text-slate-900' : 'text-slate-200'}`}>
                     {isEn ? 'Live Cisco IOS Running-Config Preview' : 'پیش‌نمایش زنده دستورات سیسکو (Cisco CLI)'}
                   </h4>
                 </div>
@@ -1324,7 +1353,11 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
                 <button
                   type="button"
                   onClick={handleCopyCli}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 transition cursor-pointer"
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono border transition cursor-pointer ${
+                    isLightMode
+                      ? 'text-slate-700 bg-slate-100 hover:bg-slate-200 border-slate-300'
+                      : 'text-slate-300 bg-slate-800 hover:bg-slate-700 border-slate-700'
+                  }`}
                   title={isEn ? 'Copy Cisco CLI' : 'کپی دستورات سیسکو'}
                 >
                   {copiedCli ? (
@@ -1338,7 +1371,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
 
               {/* CLI terminal code box */}
               <pre
-                className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-cyan-300 font-mono text-xs overflow-x-auto leading-relaxed select-all"
+                className="dark-terminal-box p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-cyan-300 font-mono text-xs overflow-x-auto leading-relaxed select-all"
                 dir="ltr"
               >
                 {liveCliCommand}

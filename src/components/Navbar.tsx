@@ -82,6 +82,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const profileRef = useRef<HTMLDivElement>(null);
 
   const isThemeCustomized = typeof window !== 'undefined' && localStorage.getItem('user_customized_theme') === 'true';
+  const isLightMode = panelTheme === 'light';
 
   const displayName = user?.fullName || user?.username || (isEn ? 'Admin' : 'مدیر');
   const displayRole = user?.role || (isEn ? 'Super Administrator' : 'مدیر ارشد سیستم');
@@ -131,23 +132,31 @@ export const Navbar: React.FC<NavbarProps> = ({
   const dynamicInitials = getTitleInitials(activeTitle);
 
   return (
-    <header className="h-14 spatial-glass text-white flex items-center justify-between px-2.5 sm:px-4 lg:px-6 gap-2 shrink-0 border-b border-white/10 sticky top-0 z-50 shadow-xl backdrop-blur-xl">
+    <header className={`h-14 spatial-glass flex items-center justify-between px-2.5 sm:px-4 lg:px-6 gap-2 shrink-0 border-b sticky top-0 z-50 backdrop-blur-xl ${
+      isLightMode
+        ? 'text-slate-900 border-slate-200 shadow-sm'
+        : 'text-white border-white/10 shadow-xl'
+    }`}>
       {/* Brand & Identity + Mobile/Tablet Menu Toggle */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
         {onToggleMobileMenu && (
           <button
             type="button"
             onClick={onToggleMobileMenu}
-            className="lg:hidden p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-white/15 border border-white/15 text-slate-200 hover:text-white transition active:scale-95 cursor-pointer shrink-0"
+            className={`lg:hidden p-1.5 sm:p-2 rounded-xl border transition active:scale-95 cursor-pointer shrink-0 ${
+              isLightMode
+                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700 hover:text-slate-900'
+                : 'bg-white/5 hover:bg-white/15 border-white/15 text-slate-200 hover:text-white'
+            }`}
             title={isMobileMenuOpen ? (isEn ? 'Close navigation menu' : 'بستن منوی دسترسی') : (isEn ? 'Open navigation menu' : 'باز کردن منوی دسترسی')}
             aria-label={isMobileMenuOpen ? (isEn ? 'Close navigation menu' : 'بستن منوی دسترسی') : (isEn ? 'Open navigation menu' : 'باز کردن منوی دسترسی')}
             aria-expanded={Boolean(isMobileMenuOpen)}
             id="navbar-mobile-menu-btn"
           >
             {isMobileMenuOpen ? (
-              <X className="w-4 h-4 text-cyan-400" />
+              <X className={`w-4 h-4 ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`} />
             ) : (
-              <Menu className="w-4 h-4 text-cyan-400" />
+              <Menu className={`w-4 h-4 ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`} />
             )}
           </button>
         )}
@@ -216,10 +225,14 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button
           onClick={onRefreshAll}
           disabled={isRefreshing}
-          className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs transition disabled:opacity-50 shadow-xs active:scale-95 cursor-pointer"
+          className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border text-xs transition disabled:opacity-50 shadow-xs active:scale-95 cursor-pointer ${
+            isLightMode
+              ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+              : 'bg-white/5 hover:bg-white/10 text-slate-200 border-white/10'
+          }`}
           title={t('action_live_ping_title')}
         >
-          <RefreshCw className={`w-3.5 h-3.5 sm:w-3 sm:h-3 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 sm:w-3 sm:h-3 ${isRefreshing ? 'animate-spin text-indigo-500' : ''}`} />
           <span className="hidden lg:inline">{t('action_live_ping')}</span>
         </button>
 
@@ -227,57 +240,69 @@ export const Navbar: React.FC<NavbarProps> = ({
         {onOpenPasswordVault && (
           <button
             onClick={onOpenPasswordVault}
-            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/15 text-slate-200 hover:text-cyan-300 font-medium text-xs shadow-xs transition active:scale-95 cursor-pointer"
+            className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border font-medium text-xs shadow-xs transition active:scale-95 cursor-pointer ${
+              isLightMode
+                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800 hover:text-cyan-700'
+                : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200 hover:text-cyan-300'
+            }`}
             title={isEn ? 'Personal Password Vault' : 'کیف امن گذرواژه‌ها (ولت)'}
             id="navbar-password-vault-btn"
           >
-            <Lock className="w-3.5 h-3.5 text-cyan-400" />
+            <Lock className={`w-3.5 h-3.5 ${isLightMode ? 'text-cyan-600' : 'text-cyan-400'}`} />
             <span className="hidden md:inline">{isEn ? 'Vault' : 'ولت پسورد'}</span>
           </button>
         )}
 
 
         {/* Separator */}
-        <div className="hidden sm:block h-5 w-px bg-white/10"></div>
+        <div className={`hidden sm:block h-5 w-px ${isLightMode ? 'bg-slate-300' : 'bg-white/10'}`}></div>
 
         {/* Unified Profile & Preferences Button */}
         <div className="relative" ref={profileRef}>
           <button
             onClick={() => setProfileOpen(!profileOpen)}
-            className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-slate-200 transition shadow-xs cursor-pointer active:scale-95"
+            className={`flex items-center gap-2 p-1 sm:px-2.5 sm:py-1 rounded-xl border transition shadow-xs cursor-pointer active:scale-95 ${
+              isLightMode
+                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+                : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
+            }`}
             title={t('profile_menu_title')}
             id="profile-dropdown-btn"
           >
             {/* Avatar Circle with Status Dot or Pulsating Update Dot */}
             <div className="relative flex items-center justify-center w-7 h-7 rounded-lg bg-gradient-to-tr from-indigo-500 to-cyan-500 text-white font-bold text-xs shadow-inner">
-              <User className="w-4 h-4" />
+              <User className="w-4 h-4 text-white" />
               {hasUpdate ? (
                 <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 z-10" title={t('update_available_title')}>
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
-                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500 border-2 border-slate-950 shadow-[0_0_10px_rgba(244,63,94,1)]"></span>
+                  <span className={`relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500 border-2 shadow-[0_0_10px_rgba(244,63,94,1)] ${isLightMode ? 'border-white' : 'border-slate-950'}`}></span>
                 </span>
               ) : (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-slate-900 shadow-[0_0_4px_rgba(52,211,153,0.9)]"></span>
+                <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border shadow-[0_0_4px_rgba(52,211,153,0.9)] ${isLightMode ? 'border-white' : 'border-slate-900'}`}></span>
               )}
             </div>
 
             {/* Language & Theme Micro Indicators on Button */}
             <div className="hidden sm:flex flex-col text-left text-[10px] leading-tight max-w-[120px]">
-              <span className="font-bold text-white text-[11px] flex items-center gap-1 truncate">
+              <span className={`font-bold text-[11px] flex items-center gap-1 truncate ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
                 {displayName}
                 {hasUpdate ? (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full bg-rose-500/25 border border-rose-500/40 text-[9px] font-bold text-rose-300 animate-pulse">
-                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full border text-[9px] font-bold animate-pulse ${
+                    isLightMode
+                      ? 'bg-rose-100 border-rose-300 text-rose-700'
+                      : 'bg-rose-500/25 border-rose-500/40 text-rose-300'
+                  }`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
                     <span>v{updateInfo?.latestVersion}</span>
                   </span>
                 ) : (
                   <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: currentThemeObj.color }}></span>
                 )}
               </span>
-              <span className="text-slate-400 font-mono text-[9px] uppercase tracking-wider">{language.toUpperCase()}</span>
+              <span className={`font-mono text-[9px] uppercase tracking-wider ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>{language.toUpperCase()}</span>
             </div>
 
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 ml-0.5" />
+            <ChevronDown className={`w-3.5 h-3.5 ml-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`} />
           </button>
 
           {/* Profile & Settings Dropdown Menu */}
@@ -289,10 +314,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               ></div>
 
               <div
-                className={`absolute ${isRtl ? 'left-0 text-right' : 'right-0 text-left'} mt-2 w-[min(20rem,calc(100vw-1rem))] max-h-[calc(100dvh-4.5rem)] overflow-y-auto custom-scrollbar rounded-2xl bg-slate-900/95 border border-white/15 p-3.5 shadow-2xl z-50 backdrop-blur-2xl ring-1 ring-white/10`}
+                className={`absolute ${isRtl ? 'left-0 text-right' : 'right-0 text-left'} mt-2 w-[min(20rem,calc(100vw-1rem))] max-h-[calc(100dvh-4.5rem)] overflow-y-auto custom-scrollbar rounded-2xl border p-3.5 shadow-2xl z-50 backdrop-blur-2xl ${
+                  isLightMode
+                    ? 'bg-white border-slate-200 ring-1 ring-slate-200/80 text-slate-900'
+                    : 'bg-slate-900/95 border-white/15 ring-1 ring-white/10'
+                }`}
               >
                 {/* Profile Header Card */}
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.04] border border-white/10 mb-3 shadow-inner">
+                <div className={`flex items-center gap-3 p-3 rounded-xl border mb-3 shadow-inner ${
+                  isLightMode
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-white/[0.04] border-white/10'
+                }`}>
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-md relative shrink-0">
                     <ShieldCheck className="w-5 h-5 text-cyan-200" />
                     {hasUpdate && (
@@ -304,11 +337,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1.5">
-                      <span className="font-bold text-white text-xs truncate">
+                      <span className={`font-bold text-xs truncate ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
                         {displayName}
                       </span>
                       <span
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 shrink-0 text-[9px] font-medium"
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border shrink-0 text-[9px] font-medium ${
+                          isLightMode
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                            : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                        }`}
                         title={t('profile_active_session')}
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)] animate-pulse" />
@@ -316,11 +353,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </span>
                     </div>
                     <div className="mt-1 flex items-center gap-1.5">
-                      <span className="text-[10px] text-indigo-300 font-mono px-1.5 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 truncate">
+                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md border truncate ${
+                        isLightMode
+                          ? 'text-indigo-700 bg-indigo-50 border-indigo-200'
+                          : 'text-indigo-300 bg-indigo-500/10 border-indigo-500/20'
+                      }`}>
                         {displayRole}
                       </span>
                     </div>
-                    <p className="text-[9px] text-slate-400 font-mono mt-1 truncate">
+                    <p className={`text-[9px] font-mono mt-1 truncate ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                       {displayEmail}
                     </p>
                   </div>
@@ -328,16 +369,16 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                 {/* Section 1: Language Switcher */}
                 <div className="space-y-1.5">
-                  <div className="px-1 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                  <div className={`px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-between ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                     <div className="flex items-center gap-1.5">
-                      <Globe className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <Globe className={`w-3.5 h-3.5 shrink-0 ${isLightMode ? 'text-cyan-600' : 'text-cyan-400'}`} />
                       <span>{t('profile_language_title')}</span>
                       {isCustomizedByUser ? (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-normal">
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal ${isLightMode ? 'bg-cyan-100 text-cyan-800 border border-cyan-200' : 'bg-cyan-500/20 text-cyan-300'}`}>
                           {t('profile_custom_badge')}
                         </span>
                       ) : (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-slate-400 font-normal">
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal ${isLightMode ? 'bg-slate-100 text-slate-600 border border-slate-200' : 'bg-white/10 text-slate-400'}`}>
                           {t('profile_default_badge')}
                         </span>
                       )}
@@ -346,7 +387,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <button
                         type="button"
                         onClick={() => resetToDefaultLanguage()}
-                        className="text-[9px] text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
+                        className={`text-[9px] underline cursor-pointer ${isLightMode ? 'text-cyan-700 hover:text-cyan-900' : 'text-cyan-400 hover:text-cyan-300'}`}
                         title={isEn ? 'Reset to system default language' : 'بازنشانی به زبان پیش‌فرض سامانه'}
                       >
                         {t('profile_reset_to_default')}
@@ -360,15 +401,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                       onClick={() => setLanguage('en')}
                       className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all duration-150 cursor-pointer ${
                         language === 'en'
-                          ? 'bg-cyan-500/20 text-white font-bold border border-cyan-400/50 shadow-[0_0_12px_rgba(6,182,212,0.25)]'
+                          ? isLightMode
+                            ? 'bg-cyan-50 text-cyan-900 font-bold border border-cyan-400 shadow-xs'
+                            : 'bg-cyan-500/20 text-white font-bold border border-cyan-400/50 shadow-[0_0_12px_rgba(6,182,212,0.25)]'
+                          : isLightMode
+                          ? 'bg-slate-50 text-slate-700 hover:text-slate-900 hover:bg-slate-100 border border-slate-200'
                           : 'bg-white/[0.03] text-slate-300 hover:text-white hover:bg-white/[0.08] border border-white/5'
                       }`}
                     >
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="font-mono font-bold text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-cyan-300 border border-cyan-400/20">EN</span>
+                        <span className={`font-mono font-bold text-[10px] px-1.5 py-0.5 rounded border ${
+                          isLightMode
+                            ? 'bg-cyan-100 text-cyan-800 border-cyan-300'
+                            : 'bg-white/10 text-cyan-300 border-cyan-400/20'
+                        }`}>EN</span>
                         <span className="truncate">English</span>
                       </div>
-                      {language === 'en' && <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
+                      {language === 'en' && <Check className={`w-3.5 h-3.5 shrink-0 ${isLightMode ? 'text-cyan-600' : 'text-cyan-400'}`} />}
                     </button>
 
                     <button
@@ -376,34 +425,42 @@ export const Navbar: React.FC<NavbarProps> = ({
                       onClick={() => setLanguage('fa')}
                       className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all duration-150 cursor-pointer ${
                         language === 'fa'
-                          ? 'bg-cyan-500/20 text-white font-bold border border-cyan-400/50 shadow-[0_0_12px_rgba(6,182,212,0.25)]'
+                          ? isLightMode
+                            ? 'bg-cyan-50 text-cyan-900 font-bold border border-cyan-400 shadow-xs'
+                            : 'bg-cyan-500/20 text-white font-bold border border-cyan-400/50 shadow-[0_0_12px_rgba(6,182,212,0.25)]'
+                          : isLightMode
+                          ? 'bg-slate-50 text-slate-700 hover:text-slate-900 hover:bg-slate-100 border border-slate-200'
                           : 'bg-white/[0.03] text-slate-300 hover:text-white hover:bg-white/[0.08] border border-white/5'
                       }`}
                     >
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="font-mono font-bold text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-cyan-300 border border-cyan-400/20">FA</span>
+                        <span className={`font-mono font-bold text-[10px] px-1.5 py-0.5 rounded border ${
+                          isLightMode
+                            ? 'bg-cyan-100 text-cyan-800 border-cyan-300'
+                            : 'bg-white/10 text-cyan-300 border-cyan-400/20'
+                        }`}>FA</span>
                         <span className="truncate">فارسی</span>
                       </div>
-                      {language === 'fa' && <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
+                      {language === 'fa' && <Check className={`w-3.5 h-3.5 shrink-0 ${isLightMode ? 'text-cyan-600' : 'text-cyan-400'}`} />}
                     </button>
                   </div>
                 </div>
 
                 {/* Divider between Language and Theme */}
-                <div className="my-3 border-t border-white/10" />
+                <div className={`my-3 border-t ${isLightMode ? 'border-slate-200' : 'border-white/10'}`} />
 
                 {/* Section 2: Theme Switcher */}
                 <div className="space-y-1.5">
-                  <div className="px-1 py-0.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                  <div className={`px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-between ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                     <div className="flex items-center gap-1.5">
-                      <Palette className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                      <Palette className={`w-3.5 h-3.5 shrink-0 ${isLightMode ? 'text-indigo-600' : 'text-indigo-400'}`} />
                       <span>{t('profile_theme_title')}</span>
                       {isThemeCustomized ? (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-normal">
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal ${isLightMode ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' : 'bg-indigo-500/20 text-indigo-300'}`}>
                           {t('profile_custom_badge')}
                         </span>
                       ) : (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-slate-400 font-normal">
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-normal ${isLightMode ? 'bg-slate-100 text-slate-600 border border-slate-200' : 'bg-white/10 text-slate-400'}`}>
                           {t('profile_default_badge')}
                         </span>
                       )}
@@ -412,7 +469,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <button
                         type="button"
                         onClick={() => onResetThemeToDefault()}
-                        className="text-[9px] text-indigo-400 hover:text-indigo-300 underline cursor-pointer"
+                        className={`text-[9px] underline cursor-pointer ${isLightMode ? 'text-indigo-600 hover:text-indigo-800' : 'text-indigo-400 hover:text-indigo-300'}`}
                         title={isEn ? 'Reset to system default theme' : 'بازنشانی به تم پیش‌فرض سامانه'}
                       >
                         {t('profile_reset_to_default')}
@@ -434,20 +491,30 @@ export const Navbar: React.FC<NavbarProps> = ({
                             isFullWidth ? 'col-span-2 justify-between' : ''
                           } ${
                             isSelected
-                              ? 'bg-indigo-600/30 text-white font-bold border border-indigo-400/50 shadow-[0_0_12px_rgba(99,102,241,0.25)]'
+                              ? isLightMode
+                                ? 'bg-indigo-50 text-indigo-900 font-bold border border-indigo-400 shadow-xs'
+                                : 'bg-indigo-600/30 text-white font-bold border border-indigo-400/50 shadow-[0_0_12px_rgba(99,102,241,0.25)]'
+                              : isLightMode
+                              ? 'bg-slate-50 text-slate-700 hover:text-slate-900 hover:bg-slate-100 border border-slate-200'
                               : 'bg-white/[0.03] text-slate-300 hover:text-white hover:bg-white/[0.08] border border-white/5'
                           }`}
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span
                               className={`w-3.5 h-3.5 rounded-full shrink-0 shadow-xs border ${
-                                isSelected ? 'ring-2 ring-white/50 border-transparent' : 'border-white/20'
+                                isSelected
+                                  ? isLightMode
+                                    ? 'ring-2 ring-indigo-300 border-transparent'
+                                    : 'ring-2 ring-white/50 border-transparent'
+                                  : isLightMode
+                                  ? 'border-slate-300'
+                                  : 'border-white/20'
                               }`}
                               style={{ backgroundColor: opt.color }}
                             />
                             <span className="truncate text-[11px]">{isEn ? opt.nameEn : opt.nameFa}</span>
                           </div>
-                          {isSelected && <Check className="w-3.5 h-3.5 text-indigo-300 shrink-0 ml-auto" />}
+                          {isSelected && <Check className={`w-3.5 h-3.5 shrink-0 ml-auto ${isLightMode ? 'text-indigo-600' : 'text-indigo-300'}`} />}
                         </button>
                       );
                     })}
@@ -457,7 +524,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {/* Section 3: Check for Updates & Release Notes (Super Admin Only) */}
                 {isSuperAdmin && (
                   <>
-                    <div className="my-3 border-t border-white/10" />
+                    <div className={`my-3 border-t ${isLightMode ? 'border-slate-200' : 'border-white/10'}`} />
                     <div>
                       <button
                         onClick={() => {
@@ -468,16 +535,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                             onOpenReleaseNotes();
                           }
                         }}
-                        className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500/15 to-indigo-500/15 hover:from-purple-500/25 hover:to-indigo-500/25 border border-purple-500/25 text-purple-200 text-xs font-semibold transition cursor-pointer shadow-xs active:scale-98"
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-semibold transition cursor-pointer shadow-xs active:scale-98 ${
+                          isLightMode
+                            ? 'bg-purple-50 hover:bg-purple-100 border-purple-200 text-purple-800'
+                            : 'bg-gradient-to-r from-purple-500/15 to-indigo-500/15 hover:from-purple-500/25 hover:to-indigo-500/25 border-purple-500/25 text-purple-200'
+                        }`}
                         title={isEn ? 'Open Panel Updates and Release Notes in Settings' : 'باز کردن صفحه ارتقا و به‌روزرسانی پنل در سیتینگ'}
                       >
                         <div className="flex items-center gap-2">
-                          <ArrowUpCircle className="w-4 h-4 text-purple-400" />
+                          <ArrowUpCircle className={`w-4 h-4 ${isLightMode ? 'text-purple-600' : 'text-purple-400'}`} />
                           <span>{isEn ? 'Check for Updates' : 'بررسی نسخه جدید و آپدیت'}</span>
                         </div>
 
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">
+                          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                            isLightMode
+                              ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                              : 'bg-purple-500/20 text-purple-300'
+                          }`}>
                             v{APP_VERSION}
                           </span>
                           {hasUpdate && (
@@ -493,15 +568,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
 
                 {/* Section 4: Log Out Action */}
-                <div className="my-3 border-t border-white/10" />
+                <div className={`my-3 border-t ${isLightMode ? 'border-slate-200' : 'border-white/10'}`} />
                 <button
                   onClick={() => {
                     setProfileOpen(false);
                     logout();
                   }}
-                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/25 hover:border-rose-500/40 text-xs font-semibold transition cursor-pointer active:scale-98"
+                  className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-98 ${
+                    isLightMode
+                      ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 border-rose-200 hover:border-rose-300'
+                      : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border-rose-500/25 hover:border-rose-500/40'
+                  }`}
                 >
-                  <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                  <LogOut className={`w-3.5 h-3.5 ${isLightMode ? 'text-rose-600' : 'text-rose-400'}`} />
                   <span>{isEn ? 'Log Out of Account' : 'خروج از حساب کاربری'}</span>
                 </button>
               </div>

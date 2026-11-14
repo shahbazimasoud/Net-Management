@@ -248,7 +248,7 @@ export const RackCabinetSvg: React.FC<RackCabinetSvgProps> = ({
 
   return (
     <div
-      className="flex flex-col rounded-2xl bg-slate-950/90 border border-slate-700/80 shadow-2xl backdrop-blur-xl overflow-hidden select-none transition-all hover:border-cyan-500/50"
+      className="rack-cabinet-dark flex flex-col rounded-2xl bg-slate-950/90 border border-slate-700/80 shadow-2xl backdrop-blur-xl overflow-hidden select-none transition-all hover:border-cyan-500/50"
       style={{ width: RACK_WIDTH + 24 }}
       dir={isRtl ? 'rtl' : 'ltr'}
     >

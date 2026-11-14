@@ -201,7 +201,7 @@ export const CdpLldpScannerView: React.FC<CdpLldpScannerViewProps> = ({
               onClick={() => setProtocolFilter('all')}
               className={`px-3 py-1 rounded-lg text-xs transition cursor-pointer ${
                 protocolFilter === 'all'
-                  ? 'bg-indigo-600/40 text-white font-bold border border-indigo-500/40 shadow-xs'
+                  ? 'bg-indigo-600 text-white font-bold border border-indigo-500 shadow-xs'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
@@ -211,7 +211,7 @@ export const CdpLldpScannerView: React.FC<CdpLldpScannerViewProps> = ({
               onClick={() => setProtocolFilter('CDP')}
               className={`px-3 py-1 rounded-lg text-xs transition cursor-pointer ${
                 protocolFilter === 'CDP'
-                  ? 'bg-indigo-600/40 text-white font-bold border border-indigo-500/40 shadow-xs'
+                  ? 'bg-indigo-600 text-white font-bold border border-indigo-500 shadow-xs'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
@@ -221,7 +221,7 @@ export const CdpLldpScannerView: React.FC<CdpLldpScannerViewProps> = ({
               onClick={() => setProtocolFilter('LLDP')}
               className={`px-3 py-1 rounded-lg text-xs transition cursor-pointer ${
                 protocolFilter === 'LLDP'
-                  ? 'bg-purple-600/40 text-white font-bold border border-purple-500/40 shadow-xs'
+                  ? 'bg-purple-600 text-white font-bold border border-purple-500 shadow-xs'
                   : 'text-slate-400 hover:text-white'
               }`}
             >

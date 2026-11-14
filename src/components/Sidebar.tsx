@@ -540,14 +540,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
           effectiveCollapsed ? 'justify-center px-2' : isRtl ? 'justify-between pr-3 pl-2.5 text-right' : 'justify-between pl-3 pr-2.5 text-left'
         } py-2 rounded-xl text-xs transition-all duration-200 group relative shrink-0 cursor-pointer ${
           isActive
-            ? 'active bg-indigo-600/25 text-white font-semibold border border-indigo-500/40'
+            ? isLightMode
+              ? 'active bg-indigo-50 text-indigo-800 font-semibold border border-indigo-300'
+              : 'active bg-indigo-600/25 text-white font-semibold border border-indigo-500/40'
+            : isLightMode
+            ? 'text-slate-700 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
             : 'text-slate-300 hover:bg-white/5 hover:text-white border border-transparent'
         }`}
       >
         <div className={`flex items-center gap-2.5 min-w-0 ${effectiveCollapsed ? 'justify-center' : ''}`}>
           <Icon
             className={`w-4 h-4 shrink-0 transition-transform duration-200 ${
-              isActive ? 'text-cyan-400 scale-110' : 'text-slate-400 group-hover:text-slate-200'
+              isActive
+                ? isLightMode
+                  ? 'text-indigo-600 scale-110'
+                  : 'text-cyan-400 scale-110'
+                : isLightMode
+                ? 'text-slate-500 group-hover:text-slate-800'
+                : 'text-slate-400 group-hover:text-slate-200'
             }`}
           />
           {!effectiveCollapsed && (
@@ -561,7 +571,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span
             className={`shrink-0 text-[10px] font-mono px-2 py-0.5 rounded-full border transition-colors ${
               isActive
-                ? 'bg-indigo-500/25 text-indigo-200 border-indigo-500/50 font-bold'
+                ? isLightMode
+                  ? 'bg-indigo-100 text-indigo-800 border-indigo-300 font-bold'
+                  : 'bg-indigo-500/25 text-indigo-200 border-indigo-500/50 font-bold'
+                : isLightMode
+                ? 'bg-slate-100 text-slate-600 border-slate-200'
                 : 'bg-slate-900/60 text-slate-400 border-white/10'
             }`}
           >
@@ -615,11 +629,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div
           className={`flex items-center ${
             effectiveCollapsed ? 'justify-center' : 'justify-between'
-          } pb-2 mb-2 border-b border-white/10 shrink-0`}
+          } pb-2 mb-2 border-b ${isLightMode ? 'border-slate-200' : 'border-white/10'} shrink-0`}
         >
           {!effectiveCollapsed && (
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-[11px] font-bold text-slate-300 tracking-wider truncate">
+              <span className={`text-[11px] font-bold tracking-wider truncate ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                 {t('sidebar_menu_title')}
               </span>
             </div>
@@ -630,7 +644,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               type="button"
               onClick={onCloseMobile}
-              className="lg:hidden p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition cursor-pointer shrink-0"
+              className={`lg:hidden p-1.5 rounded-lg transition cursor-pointer shrink-0 ${
+                isLightMode
+                  ? 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                  : 'hover:bg-white/10 text-slate-400 hover:text-white'
+              }`}
               title={isEn ? 'Close menu' : 'بستن منو'}
               aria-label={isEn ? 'Close menu' : 'بستن منو'}
             >
@@ -642,13 +660,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={onToggleCollapse}
-            className="hidden lg:inline-flex p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition cursor-pointer shrink-0"
+            className={`hidden lg:inline-flex p-1.5 rounded-lg transition cursor-pointer shrink-0 ${
+              isLightMode
+                ? 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                : 'hover:bg-white/10 text-slate-400 hover:text-white'
+            }`}
             title={effectiveCollapsed ? t('sidebar_expand_tooltip') : t('sidebar_collapse_tooltip')}
           >
             {effectiveCollapsed ? (
-              isRtl ? <ChevronLeft className="w-4 h-4 text-cyan-400" /> : <ChevronRight className="w-4 h-4 text-cyan-400" />
+              isRtl ? <ChevronLeft className={`w-4 h-4 ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`} /> : <ChevronRight className={`w-4 h-4 ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`} />
             ) : (
-              isRtl ? <ChevronRight className="w-4 h-4 text-slate-400" /> : <ChevronLeft className="w-4 h-4 text-slate-400" />
+              isRtl ? <ChevronRight className={`w-4 h-4 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`} /> : <ChevronLeft className={`w-4 h-4 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`} />
             )}
           </button>
         </div>
@@ -743,16 +765,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <div
                 key={group.id}
-                className="rounded-2xl transition-all duration-200 border border-white/10 bg-white/[0.02] p-1"
+                className={`rounded-2xl transition-all duration-200 border p-1 ${
+                  isLightMode
+                    ? 'border-slate-200 bg-slate-50/70'
+                    : 'border-white/10 bg-white/[0.02]'
+                }`}
               >
                 {/* Accordion Parent Header Button */}
                 <button
                   onClick={() => handleParentClick(group.id)}
                   className={`w-full flex items-center justify-between p-2 rounded-xl text-xs font-semibold transition-all cursor-pointer select-none ${
                     isExpanded
-                      ? 'bg-white/10 text-white border border-white/10'
+                      ? isLightMode
+                        ? 'bg-white text-slate-900 border border-slate-200 shadow-xs'
+                        : 'bg-white/10 text-white border border-white/10'
                       : hasActiveChild
-                      ? 'bg-indigo-600/15 text-slate-200 hover:bg-white/10'
+                      ? isLightMode
+                        ? 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100/80 border border-indigo-200'
+                        : 'bg-indigo-600/15 text-slate-200 hover:bg-white/10'
+                      : isLightMode
+                      ? 'text-slate-700 hover:text-slate-900 hover:bg-white border border-transparent'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
                   }`}
                 >
@@ -766,12 +798,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10">
+                    <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded border ${
+                      isLightMode
+                        ? 'bg-slate-100 text-slate-600 border-slate-200'
+                        : 'bg-white/5 text-slate-400 border-white/10'
+                    }`}>
                       {t(group.tagKey as any)}
                     </span>
                     <ChevronDown
                       className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                        isExpanded ? 'rotate-180 text-cyan-400' : isRtl ? '-rotate-90 text-slate-500' : 'rotate-0 text-slate-500'
+                        isExpanded
+                          ? `rotate-180 ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`
+                          : isRtl
+                          ? '-rotate-90 text-slate-500'
+                          : 'rotate-0 text-slate-500'
                       }`}
                     />
                   </div>
@@ -780,7 +820,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {/* Children Items Container (Accordion Collapsible) */}
                 {isExpanded && (
                   <div
-                    className={`${isRtl ? 'pr-2 mr-1 border-r' : 'pl-2 ml-1 border-l'} border-white/10 mt-1 space-y-1 animate-fadeIn`}
+                    className={`${isRtl ? 'pr-2 mr-1 border-r' : 'pl-2 ml-1 border-l'} ${
+                      isLightMode ? 'border-slate-200' : 'border-white/10'
+                    } mt-1 space-y-1 animate-fadeIn`}
                   >
                     {group.items.map(renderChildItem)}
                   </div>
@@ -791,28 +833,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* System Status / Telemetry in Footer */}
-        <div className="shrink-0 mt-auto pt-2 border-t border-white/5">
+        <div className={`shrink-0 mt-auto pt-2 border-t ${isLightMode ? 'border-slate-200' : 'border-white/5'}`}>
           {!effectiveCollapsed ? (
-            <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 space-y-1.5 backdrop-blur-md shadow-xs">
-              <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+            <div className={`p-2.5 rounded-xl border space-y-1.5 backdrop-blur-md shadow-xs ${
+              isLightMode
+                ? 'bg-slate-50 border-slate-200'
+                : 'bg-white/5 border-white/10'
+            }`}>
+              <div className={`flex items-center justify-between text-[10px] font-mono ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                 <span>{t('sidebar_backend_version')}</span>
-                <span className="text-cyan-400 font-bold">FastAPI</span>
+                <span className={`font-bold ${isLightMode ? 'text-indigo-700' : 'text-cyan-400'}`}>FastAPI</span>
               </div>
-              <p className="text-[10px] text-emerald-400 leading-tight flex items-center gap-1.5 font-medium">
+              <p className={`text-[10px] leading-tight flex items-center gap-1.5 font-medium ${isLightMode ? 'text-emerald-700' : 'text-emerald-400'}`}>
                 <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse"></span>
                 <span>{t('sidebar_telemetry_live')}</span>
               </p>
-              <div className="text-[9px] text-slate-500 font-mono pt-1 border-t border-white/5 flex items-center justify-between">
+              <div className={`text-[9px] font-mono pt-1 border-t flex items-center justify-between ${
+                isLightMode ? 'text-slate-600 border-slate-200' : 'text-slate-500 border-white/5'
+              }`}>
                 <button
                   onClick={() => {
                     onOpenReleaseNotes?.();
                     if (isMobileOpen && onCloseMobile) onCloseMobile();
                   }}
-                  className="text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 cursor-pointer"
+                  className={`hover:underline flex items-center gap-1 cursor-pointer ${
+                    isLightMode ? 'text-indigo-600 hover:text-indigo-800' : 'text-indigo-400 hover:text-indigo-300'
+                  }`}
                 >
                   <span>{t('sidebar_release_notes')}</span>
                 </button>
-                <span className="text-emerald-400">{t('sidebar_system_nominal')}</span>
+                <span className={isLightMode ? 'text-emerald-700 font-semibold' : 'text-emerald-400'}>{t('sidebar_system_nominal')}</span>
               </div>
             </div>
           ) : (

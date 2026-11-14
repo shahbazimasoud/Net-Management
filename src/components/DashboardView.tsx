@@ -226,7 +226,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               className={`p-3.5 rounded-xl border transition text-xs spatial-glass spatial-glass-hover ${
                 dev.is_online
                   ? 'border-white/10 hover:border-indigo-500/40'
-                  : 'border-rose-500/40 bg-rose-950/20'
+                  : 'border-rose-500/50 bg-rose-950/20'
               }`}
             >
               <div className="flex items-center justify-between mb-2">

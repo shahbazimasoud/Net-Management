@@ -99,7 +99,7 @@ export const TowerStructureSvg: React.FC<TowerStructureSvgProps> = ({
 
   return (
     <div
-      className={`relative rounded-3xl bg-slate-950/95 border transition-all duration-300 shadow-2xl backdrop-blur-md overflow-visible ${
+      className={`tower-cabinet-dark relative rounded-3xl bg-slate-950/95 border transition-all duration-300 shadow-2xl backdrop-blur-md overflow-visible ${
         isHighlighted
           ? 'border-amber-400 ring-4 ring-amber-500/40 shadow-amber-500/20 shadow-2xl'
           : 'border-slate-800 hover:border-slate-700'

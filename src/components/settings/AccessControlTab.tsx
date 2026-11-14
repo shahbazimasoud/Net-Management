@@ -1078,21 +1078,33 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   return (
     <div className="space-y-5 animate-fadeIn">
       {/* Role Simulator Header Banner */}
-      <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-900/40 via-purple-900/30 to-cyan-900/30 border border-indigo-500/30 shadow-lg backdrop-blur-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className={`p-4 rounded-2xl border shadow-lg backdrop-blur-md flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+        isLight
+          ? 'bg-gradient-to-r from-indigo-50 via-purple-50/70 to-cyan-50 border-indigo-200'
+          : 'bg-gradient-to-r from-indigo-900/40 via-purple-900/30 to-cyan-900/30 border-indigo-500/30'
+      }`}>
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-inner">
-            <Sparkles className="w-5 h-5 text-indigo-400" />
+          <div className={`p-2.5 rounded-xl border shadow-inner ${
+            isLight
+              ? 'bg-indigo-100 text-indigo-700 border-indigo-200'
+              : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+          }`}>
+            <Sparkles className={`w-5 h-5 ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`} />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold text-sm text-white">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className={`font-bold text-sm ${isLight ? 'text-slate-900' : 'text-white'}`}>
                 {isEn ? 'Multi-Vendor Granular RBAC Engine' : 'موتور کنترل دسترسی مبتنی بر نقش (RBAC چند وندوری)'}
               </h3>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono border ${
+                isLight
+                  ? 'bg-cyan-100 text-cyan-800 border-cyan-300 font-semibold'
+                  : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+              }`}>
                 {isEn ? 'Cisco • MikroTik • Linux' : 'سیسکو • میکروتیک • لینوکس'}
               </span>
             </div>
-            <p className="text-xs text-slate-300 mt-0.5">
+            <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
               {isEn
                 ? 'Control exact CLI commands, port states, and modal privileges per vendor across network nodes.'
                 : 'مدیریت تفکیک‌شده اختیارات ترمینال، تغییرات پورت، ویلن و کانفیگ برای تجهیزات سیسکو، میکروتیک و لینوکس'}
@@ -1101,15 +1113,25 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         </div>
 
         {/* Live Simulator Role Selector */}
-        <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-xl bg-slate-900/80 border border-white/10 self-stretch md:self-auto w-full md:w-auto max-w-full">
-          <span className="text-[11px] font-semibold text-amber-300 pl-2 rtl:pr-2 flex items-center gap-1.5">
-            <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+        <div className={`flex flex-wrap items-center gap-2 p-1.5 rounded-xl border self-stretch md:self-auto w-full md:w-auto max-w-full ${
+          isLight
+            ? 'bg-white border-slate-300 shadow-xs'
+            : 'bg-slate-900/80 border-white/10'
+        }`}>
+          <span className={`text-[11px] font-semibold pl-2 rtl:pr-2 flex items-center gap-1.5 ${
+            isLight ? 'text-amber-700' : 'text-amber-300'
+          }`}>
+            <ShieldAlert className={`w-3.5 h-3.5 shrink-0 ${isLight ? 'text-amber-600' : 'text-amber-400'}`} />
             <span>{isEn ? 'Active Test Role:' : 'نقش تستی فعال:'}</span>
           </span>
           <select
             value={activeSimulatedPolicyId}
             onChange={(e) => onSelectSimulatedPolicy(e.target.value)}
-            className="px-3 py-1 rounded-lg bg-slate-800 border border-white/15 text-white text-xs font-semibold focus:outline-none focus:border-cyan-400 cursor-pointer max-w-full min-w-0 flex-1 sm:flex-initial truncate"
+            className={`px-3 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:border-cyan-400 cursor-pointer max-w-full min-w-0 flex-1 sm:flex-initial truncate ${
+              isLight
+                ? 'bg-slate-50 border-slate-300 text-slate-900'
+                : 'bg-slate-800 border-white/15 text-white'
+            }`}
           >
             <option value="actual-user">
               {isEn ? '🔒 Authentic Database Policy (Live Token Session)' : '🔒 سطح دسترسی واقعی از دیتابیس (سشن معتبر توکن)'}
@@ -1163,7 +1185,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
 
           <button
             onClick={handleStartCreate}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs shadow-md transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-md transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>{isEn ? 'Create Access Policy' : 'تعریف پالیسی جدید'}</span>

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.9';
+export const APP_VERSION = '1.425.10';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.10',
+    releaseDate: '2026-11-14',
+    type: 'patch',
+    title: 'رفع کامل تداخل رنگ پس‌زمینه‌های تیره و خوانایی فونت‌ها در تم روشن (Light Mode)',
+    title_en: 'Comprehensive Light Mode Font Contrast & Dark Surface Overlap Fix',
+    changes: [
+      'رفع مشکل خوانایی فونت در کادرها، گرادینت‌ها، کارت‌ها، بنرها، تب‌ها و جداول دارای رنگ تیره در تم روشن؛ روشن‌سازی اصولی سطوح تیره (slate/gray/zinc 700-950 و پس‌زمینه‌های رنگی 900/950) با حفظ کنتراست بالای متن و حاشیه‌ها.',
+      'حفظ فونت سفید شفاف (#FFFFFF) روی دکمه‌ها و بج‌های رنگی اشباع‌شده (Indigo/Purple/Cyan/Blue/Emerald/Rose/Amber) و رفع تداخل رنگ سفید روی پس‌زمینه‌های روشن در فیلترها، سرتیترها و شمارنده‌های درون دکمه‌ها.',
+      'رفع باگ اعمال اجباری رنگ متن تیره داخل مودال‌های دارای پس‌زمینه نیمه‌شفاف و اصلاح نوار جداکننده و نشانگرهای منوی ناوبری بالایی (Navbar)، سایدبار، تنظیمات و RBAC در تم روشن.',
+      'محافظت اختصاصی از المان‌های ذاتاً تیره شامل شاسی فیس‌پلیت سوئیچ‌ها، کابینت‌های رک و تاور و کادرهای ترمینال/کد CLI تا در تم روشن ظاهر واقعی و خوانایی کامل خود را حفظ کنند.'
+    ],
+    changes_en: [
+      'Resolved Light Mode readability overlaps across dark containers, gradients, cards, banners, tabs, and tables by normalizing dark slate/gray/zinc and 900/950 tinted surfaces cleanly with high-contrast typography and borders.',
+      'Preserved crisp white text on solid saturated CTA buttons and gradient controls while converting translucent pastel badges, navigation pills, Navbar profile controls, Sidebar accordions, Settings sub-tabs, and RBAC banners to Light Mode.',
+      'Removed overly broad modal overlay rules that forced dark text inside modal dialogs and protected translucent dark counters nested inside solid buttons.',
+      'Added explicit Light Mode dark-contrast protection for intentionally dark hardware widgets (switch faceplates, rack cabinets, tower enclosures) and CLI/code terminal blocks.'
+    ]
+  },
   {
     version: '1.425.9',
     releaseDate: '2026-11-14',
