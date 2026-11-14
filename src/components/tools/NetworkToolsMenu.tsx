@@ -279,7 +279,7 @@ export const NetworkToolsMenu: React.FC<NetworkToolsMenuProps> = ({
       </div>
 
       {/* Tool Items List */}
-      <div className="p-2 space-y-1 max-h-[460px] overflow-y-auto custom-scrollbar">
+      <div className="p-2 space-y-1 max-h-[min(460px,calc(100dvh-135px))] overflow-y-auto custom-scrollbar">
         {TOOL_ITEMS.map((item) => {
           const Icon = item.icon;
           return (

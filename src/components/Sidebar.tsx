@@ -27,7 +27,8 @@ import {
   Mail,
   BellRing,
   Database,
-  FileCheck
+  FileCheck,
+  X
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { AccessPolicy } from '../types';
@@ -71,6 +72,8 @@ interface SidebarProps {
   offlineCount: number;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  isMobileOpen?: boolean;
+  onCloseMobile?: () => void;
   onOpenReleaseNotes?: () => void;
   effectivePolicy?: AccessPolicy;
   user?: AuthUser | null;
@@ -99,16 +102,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
   offlineCount,
   isCollapsed,
   onToggleCollapse,
+  isMobileOpen = false,
+  onCloseMobile,
   onOpenReleaseNotes,
   effectivePolicy,
   user,
 }) => {
-  const { t, isRtl } = useLanguage();
+  const { t, isRtl, isEn } = useLanguage();
   const { updateInfo } = useUpdate();
   const { user: authUser } = useAuth();
   const currentUser = user || authUser;
   const isSuper = isUserSuperAdmin(currentUser, effectivePolicy);
   const hasUpdate = Boolean(updateInfo?.hasUpdate);
+
+  // On mobile/tablet drawer, always render expanded navigation labels even if desktop rail was collapsed
+  const effectiveCollapsed = isMobileOpen ? false : isCollapsed;
+
+  // Close mobile/tablet drawer on Escape
+  useEffect(() => {
+    if (!isMobileOpen || !onCloseMobile) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onCloseMobile();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMobileOpen, onCloseMobile]);
 
   const navGroups: NavParentGroup[] = useMemo(() => [
     {
@@ -355,8 +375,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return; // Denied to non-superadmin
     }
 
-    if (isCollapsed) {
-      onToggleCollapse(); // Auto expand sidebar if collapsed
+    if (effectiveCollapsed) {
+      onToggleCollapse(); // Auto expand sidebar if collapsed on desktop
     }
 
     const isCurrentlyOpen = expandedGroupIds.includes(groupId);
@@ -387,30 +407,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return (
       <button
         key={item.id}
-        onClick={() => setActiveTab(item.id)}
-        title={isCollapsed ? label : undefined}
+        onClick={() => {
+          setActiveTab(item.id);
+          if (isMobileOpen && onCloseMobile) {
+            onCloseMobile();
+          }
+        }}
+        title={effectiveCollapsed ? label : undefined}
         className={`sidebar-nav-item w-full flex items-center ${
-          isCollapsed ? 'justify-center px-2' : isRtl ? 'justify-between pr-3 pl-2.5 text-right' : 'justify-between pl-3 pr-2.5 text-left'
+          effectiveCollapsed ? 'justify-center px-2' : isRtl ? 'justify-between pr-3 pl-2.5 text-right' : 'justify-between pl-3 pr-2.5 text-left'
         } py-2 rounded-xl text-xs transition-all duration-200 group relative shrink-0 cursor-pointer ${
           isActive
             ? 'active bg-indigo-600/25 text-white font-semibold border border-indigo-500/40'
             : 'text-slate-300 hover:bg-white/5 hover:text-white border border-transparent'
         }`}
       >
-        <div className={`flex items-center gap-2.5 min-w-0 ${isCollapsed ? 'justify-center' : ''}`}>
+        <div className={`flex items-center gap-2.5 min-w-0 ${effectiveCollapsed ? 'justify-center' : ''}`}>
           <Icon
             className={`w-4 h-4 shrink-0 transition-transform duration-200 ${
               isActive ? 'text-cyan-400 scale-110' : 'text-slate-400 group-hover:text-slate-200'
             }`}
           />
-          {!isCollapsed && (
+          {!effectiveCollapsed && (
             <span className="truncate font-medium text-[12px] leading-none select-none">
               {label}
             </span>
           )}
         </div>
 
-        {!isCollapsed && item.badge && (
+        {!effectiveCollapsed && item.badge && (
           <span
             className={`shrink-0 text-[10px] font-mono px-2 py-0.5 rounded-full border transition-colors ${
               isActive
@@ -423,7 +448,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {/* Collapsed Tooltip on Hover */}
-        {isCollapsed && (
+        {effectiveCollapsed && (
           <div
             className={`hidden group-hover:flex absolute ${
               isRtl ? 'right-full mr-2' : 'left-full ml-2'
@@ -442,153 +467,188 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <aside
-      className={`spatial-glass text-slate-300 flex flex-col p-2.5 shrink-0 border-b lg:border-b-0 ${
-        isRtl ? 'lg:border-l' : 'lg:border-r'
-      } border-white/10 backdrop-blur-2xl transition-all duration-300 z-20 sticky top-14 lg:sticky lg:top-14 lg:self-start h-auto lg:h-full lg:max-h-full overflow-hidden ${
-        isCollapsed ? 'w-full lg:w-16' : 'w-full lg:w-64'
-      }`}
-    >
-      {/* Collapse Toggle Button Header */}
-      <div
-        className={`flex items-center ${
-          isCollapsed ? 'justify-center' : 'justify-between'
-        } pb-2 mb-2 border-b border-white/10 shrink-0`}
+    <>
+      {/* Mobile & Tablet Backdrop Overlay (< lg) */}
+      {isMobileOpen && (
+        <div
+          className="fixed inset-x-0 top-14 bottom-8 bg-slate-950/65 backdrop-blur-xs z-[150] lg:hidden animate-fadeIn"
+          onClick={onCloseMobile}
+          aria-hidden="true"
+        />
+      )}
+
+      <aside
+        className={`spatial-glass text-slate-300 flex-col p-2.5 shrink-0 border-white/10 backdrop-blur-2xl transition-all duration-300 overflow-hidden ${
+          isMobileOpen
+            ? `flex fixed top-14 bottom-8 ${
+                isRtl ? 'right-0 border-l' : 'left-0 border-r'
+              } z-[160] w-[272px] max-w-[82vw] sm:w-72 shadow-2xl`
+            : 'hidden'
+        } lg:flex lg:static lg:top-auto lg:bottom-auto lg:left-auto lg:right-auto lg:z-20 lg:self-stretch lg:h-full lg:max-h-full lg:shadow-none ${
+          isRtl ? 'lg:border-l' : 'lg:border-r'
+        } ${effectiveCollapsed ? 'lg:w-16' : 'lg:w-64'}`}
+        aria-label={t('sidebar_menu_title')}
       >
-        {!isCollapsed && (
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold text-slate-300 tracking-wider">
-              {t('sidebar_menu_title')}
-            </span>
-          </div>
-        )}
-        <button
-          onClick={onToggleCollapse}
-          className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition cursor-pointer"
-          title={isCollapsed ? t('sidebar_expand_tooltip') : t('sidebar_collapse_tooltip')}
+        {/* Collapse Toggle / Mobile Close Header */}
+        <div
+          className={`flex items-center ${
+            effectiveCollapsed ? 'justify-center' : 'justify-between'
+          } pb-2 mb-2 border-b border-white/10 shrink-0`}
         >
-          {isCollapsed ? (
-            isRtl ? <ChevronLeft className="w-4 h-4 text-cyan-400" /> : <ChevronRight className="w-4 h-4 text-cyan-400" />
-          ) : (
-            isRtl ? <ChevronRight className="w-4 h-4 text-slate-400" /> : <ChevronLeft className="w-4 h-4 text-slate-400" />
+          {!effectiveCollapsed && (
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-[11px] font-bold text-slate-300 tracking-wider truncate">
+                {t('sidebar_menu_title')}
+              </span>
+            </div>
           )}
-        </button>
-      </div>
 
-      {/* Scrollable Navigation Area with Interactive Accordion Parents */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-2 py-1 custom-scrollbar">
-        {visibleNavGroups.map((group) => {
-          const isExpanded = expandedGroupIds.includes(group.id);
-          const GroupIcon = group.icon;
-          const hasActiveChild = group.items.some((i) => i.id === activeTab);
-
-          return (
-            <div
-              key={group.id}
-              className={`rounded-2xl transition-all duration-200 ${
-                isCollapsed
-                  ? 'space-y-1'
-                  : 'border border-white/10 bg-white/[0.02] p-1'
-              }`}
+          {/* Mobile & Tablet Drawer Close Button */}
+          {onCloseMobile && (
+            <button
+              type="button"
+              onClick={onCloseMobile}
+              className="lg:hidden p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition cursor-pointer shrink-0"
+              title={isEn ? 'Close menu' : 'بستن منو'}
+              aria-label={isEn ? 'Close menu' : 'بستن منو'}
             >
-              {/* Accordion Parent Header Button */}
-              {!isCollapsed ? (
-                <button
-                  onClick={() => handleParentClick(group.id)}
-                  className={`w-full flex items-center justify-between p-2 rounded-xl text-xs font-semibold transition-all cursor-pointer select-none ${
-                    isExpanded
-                      ? 'bg-white/10 text-white border border-white/10'
-                      : hasActiveChild
-                      ? 'bg-indigo-600/15 text-slate-200 hover:bg-white/10'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Desktop Collapse Toggle Button */}
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="hidden lg:inline-flex p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition cursor-pointer shrink-0"
+            title={effectiveCollapsed ? t('sidebar_expand_tooltip') : t('sidebar_collapse_tooltip')}
+          >
+            {effectiveCollapsed ? (
+              isRtl ? <ChevronLeft className="w-4 h-4 text-cyan-400" /> : <ChevronRight className="w-4 h-4 text-cyan-400" />
+            ) : (
+              isRtl ? <ChevronRight className="w-4 h-4 text-slate-400" /> : <ChevronLeft className="w-4 h-4 text-slate-400" />
+            )}
+          </button>
+        </div>
+
+        {/* Scrollable Navigation Area with Interactive Accordion Parents */}
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-2 py-1 custom-scrollbar">
+          {visibleNavGroups.map((group) => {
+            const isExpanded = expandedGroupIds.includes(group.id);
+            const GroupIcon = group.icon;
+            const hasActiveChild = group.items.some((i) => i.id === activeTab);
+
+            return (
+              <div
+                key={group.id}
+                className={`rounded-2xl transition-all duration-200 ${
+                  effectiveCollapsed
+                    ? 'space-y-1'
+                    : 'border border-white/10 bg-white/[0.02] p-1'
+                }`}
+              >
+                {/* Accordion Parent Header Button */}
+                {!effectiveCollapsed ? (
+                  <button
+                    onClick={() => handleParentClick(group.id)}
+                    className={`w-full flex items-center justify-between p-2 rounded-xl text-xs font-semibold transition-all cursor-pointer select-none ${
+                      isExpanded
+                        ? 'bg-white/10 text-white border border-white/10'
+                        : hasActiveChild
+                        ? 'bg-indigo-600/15 text-slate-200 hover:bg-white/10'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`p-1.5 rounded-lg border ${group.colorClass}`}>
+                        <GroupIcon className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="font-bold text-[12px] truncate">
+                        {t(group.titleKey as any)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10">
+                        {t(group.tagKey as any)}
+                      </span>
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                          isExpanded ? 'rotate-180 text-cyan-400' : isRtl ? '-rotate-90 text-slate-500' : 'rotate-0 text-slate-500'
+                        }`}
+                      />
+                    </div>
+                  </button>
+                ) : (
+                  /* Collapsed Icon-only parent indicator */
+                  <div
+                    className="flex justify-center py-1 cursor-pointer"
+                    onClick={() => handleParentClick(group.id)}
+                    title={t(group.titleKey as any)}
+                  >
                     <div className={`p-1.5 rounded-lg border ${group.colorClass}`}>
                       <GroupIcon className="w-3.5 h-3.5" />
                     </div>
-                    <span className="font-bold text-[12px] truncate">
-                      {t(group.titleKey as any)}
-                    </span>
                   </div>
+                )}
 
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10">
-                      {t(group.tagKey as any)}
-                    </span>
-                    <ChevronDown
-                      className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                        isExpanded ? 'rotate-180 text-cyan-400' : isRtl ? '-rotate-90 text-slate-500' : 'rotate-0 text-slate-500'
-                      }`}
-                    />
+                {/* Children Items Container (Accordion Collapsible) */}
+                {(!effectiveCollapsed ? isExpanded : true) && (
+                  <div
+                    className={`${
+                      !effectiveCollapsed
+                        ? `${isRtl ? 'pr-2 mr-1 border-r' : 'pl-2 ml-1 border-l'} border-white/10 mt-1 space-y-1 animate-fadeIn`
+                        : 'space-y-1'
+                    }`}
+                  >
+                    {group.items.map(renderChildItem)}
                   </div>
+                )}
+              </div>
+            );
+          })}
+
+        </div>
+
+        {/* System Status / Telemetry in Footer */}
+        <div className="shrink-0 mt-auto pt-2 border-t border-white/5">
+          {!effectiveCollapsed ? (
+            <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 space-y-1.5 backdrop-blur-md shadow-xs">
+              <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                <span>{t('sidebar_backend_version')}</span>
+                <span className="text-cyan-400 font-bold">FastAPI</span>
+              </div>
+              <p className="text-[10px] text-emerald-400 leading-tight flex items-center gap-1.5 font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse"></span>
+                <span>{t('sidebar_telemetry_live')}</span>
+              </p>
+              <div className="text-[9px] text-slate-500 font-mono pt-1 border-t border-white/5 flex items-center justify-between">
+                <button
+                  onClick={() => {
+                    onOpenReleaseNotes?.();
+                    if (isMobileOpen && onCloseMobile) onCloseMobile();
+                  }}
+                  className="text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <span>{t('sidebar_release_notes')}</span>
                 </button>
-              ) : (
-                /* Collapsed Icon-only parent indicator */
-                <div
-                  className="flex justify-center py-1 cursor-pointer"
-                  onClick={() => handleParentClick(group.id)}
-                  title={t(group.titleKey as any)}
-                >
-                  <div className={`p-1.5 rounded-lg border ${group.colorClass}`}>
-                    <GroupIcon className="w-3.5 h-3.5" />
-                  </div>
-                </div>
-              )}
-
-              {/* Children Items Container (Accordion Collapsible) */}
-              {(!isCollapsed ? isExpanded : true) && (
-                <div
-                  className={`${
-                    !isCollapsed
-                      ? `${isRtl ? 'pr-2 mr-1 border-r' : 'pl-2 ml-1 border-l'} border-white/10 mt-1 space-y-1 animate-fadeIn`
-                      : 'space-y-1'
-                  }`}
-                >
-                  {group.items.map(renderChildItem)}
-                </div>
-              )}
+                <span className="text-emerald-400">{t('sidebar_system_nominal')}</span>
+              </div>
             </div>
-          );
-        })}
-
-      </div>
-
-      {/* System Status / Telemetry in Footer */}
-      <div className="shrink-0 mt-auto pt-2 border-t border-white/5">
-        {!isCollapsed ? (
-          <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 space-y-1.5 backdrop-blur-md shadow-xs">
-            <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-              <span>{t('sidebar_backend_version')}</span>
-              <span className="text-cyan-400 font-bold">FastAPI</span>
-            </div>
-            <p className="text-[10px] text-emerald-400 leading-tight flex items-center gap-1.5 font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse"></span>
-              <span>{t('sidebar_telemetry_live')}</span>
-            </p>
-            <div className="text-[9px] text-slate-500 font-mono pt-1 border-t border-white/5 flex items-center justify-between">
+          ) : (
+            <div className="flex flex-col items-center gap-2 py-1">
               <button
                 onClick={onOpenReleaseNotes}
-                className="text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 cursor-pointer"
+                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-400 border border-white/10 transition cursor-pointer"
+                title={t('sidebar_release_notes')}
               >
-                <span>{t('sidebar_release_notes')}</span>
+                <Activity className="w-4 h-4 text-cyan-400" />
               </button>
-              <span className="text-emerald-400">{t('sidebar_system_nominal')}</span>
+              <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse" />
             </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-2 py-1">
-            <button
-              onClick={onOpenReleaseNotes}
-              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-400 border border-white/10 transition cursor-pointer"
-              title={t('sidebar_release_notes')}
-            >
-              <Activity className="w-4 h-4 text-cyan-400" />
-            </button>
-            <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse" />
-          </div>
-        )}
-      </div>
-    </aside>
+          )}
+        </div>
+      </aside>
+    </>
   );
 };

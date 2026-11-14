@@ -601,6 +601,22 @@ export default function App() {
     });
   };
 
+  // Mobile & tablet (< lg) navigation drawer state (always starts closed so content fills screen)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handleResize = (e: MediaQueryListEvent | MediaQueryList) => {
+      if (e.matches) {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    handleResize(mq);
+    mq.addEventListener('change', handleResize);
+    return () => mq.removeEventListener('change', handleResize);
+  }, []);
+
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
@@ -1290,7 +1306,7 @@ export default function App() {
 
   return (
     <div
-      className={`h-screen min-h-screen max-h-screen relative flex flex-col justify-between theme-${panelTheme} ${
+      className={`h-[100dvh] min-h-[100dvh] max-h-[100dvh] relative flex flex-col justify-between theme-${panelTheme} ${
         isRtl ? 'dir-rtl text-right' : 'dir-ltr text-left'
       } font-sans selection:bg-indigo-500 selection:text-white transition-colors duration-300 overflow-hidden`}
       dir={isRtl ? 'rtl' : 'ltr'}
@@ -1320,12 +1336,14 @@ export default function App() {
           logoType={generalSettings.logoType}
           logoPreset={generalSettings.logoPreset}
           logoCustomUrl={generalSettings.logoCustomUrl}
+          isMobileMenuOpen={isMobileMenuOpen}
+          onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
         />
       )}
 
       {/* Main Layout (Sidebar + Content View) */}
       <div className={`flex-1 flex flex-col lg:flex-row overflow-hidden relative min-h-0 ${isTopologyFullscreen ? 'z-50 h-full w-full p-0 m-0' : 'z-10'}`}>
-        {/* Sidebar (Hidden in Full Mode) */}
+        {/* Sidebar (Hidden in Full Mode; Drawer on < lg, Docked Rail on >= lg) */}
         {!isTopologyFullscreen && (
           <Sidebar
             activeTab={activeTab}
@@ -1337,6 +1355,8 @@ export default function App() {
             offlineCount={authorizedDevices.filter((d) => !d.is_online).length}
             isCollapsed={isSidebarCollapsed}
             onToggleCollapse={toggleSidebarCollapse}
+            isMobileOpen={isMobileMenuOpen}
+            onCloseMobile={() => setIsMobileMenuOpen(false)}
             onOpenReleaseNotes={handleOpenReleaseNotes}
             effectivePolicy={effectivePolicy}
             user={user}
@@ -1571,23 +1591,23 @@ export default function App() {
 
       {/* High Density Cyber Spatial Footer Status Bar (Hidden in Full Mode) */}
       {!isTopologyFullscreen && (
-        <footer className="h-8 spatial-glass text-slate-300 flex items-center px-4 lg:px-6 shrink-0 justify-between text-[11px] border-t border-white/10 select-none relative z-[10000] backdrop-blur-xl">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1.5">
+        <footer className="h-8 spatial-glass text-slate-300 flex items-center px-2.5 sm:px-4 lg:px-6 gap-2 shrink-0 justify-between text-[11px] border-t border-white/10 select-none relative z-[10000] backdrop-blur-xl">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0 truncate">
+            <span className="flex items-center gap-1.5 shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse"></span>
-              {t('footer_network_status')} <b className="text-emerald-400 font-mono font-bold">{t('footer_status_nominal')}</b>
+              <span className="hidden xs:inline sm:inline">{t('footer_network_status')}</span> <b className="text-emerald-400 font-mono font-bold">{t('footer_status_nominal')}</b>
             </span>
-            <span className="hidden sm:inline text-slate-400">
+            <span className="hidden sm:inline text-slate-400 shrink-0">
               {t('footer_core_latency')} <b className="text-cyan-400 font-mono">1.2ms</b>
             </span>
-            <span>
+            <span className="shrink-0">
               {t('footer_connected_devices')} <b className="text-indigo-400 font-mono font-bold">{onlineCount}</b>/{authorizedDevices.length}
             </span>
-            <span className="hidden md:inline text-slate-400">
+            <span className="hidden md:inline text-slate-400 shrink-0">
               {t('footer_neighbor_engine')} <b className="text-purple-400 font-mono">CDP v2 / LLDP Matrix</b>
             </span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {/* Tools Menu Button */}
             <div className="relative">
               <button

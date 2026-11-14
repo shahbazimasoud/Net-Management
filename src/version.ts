@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.3';
+export const APP_VERSION = '1.425.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.4',
+    releaseDate: '2026-11-14',
+    type: 'patch',
+    title: 'بهینه‌سازی کامل ساختار ریسپانسیو منو، نوار ناوبری بالا (Navbar) و سایدبار کشویی در گوشی موبایل و تبلت',
+    title_en: 'Responsive Mobile & Tablet Navigation Overhaul: Slide-Over Sidebar Drawer and Adaptive Navbar Layout',
+    changes: [
+      'تبدیل سایدبار (Sidebar) در ابعاد موبایل و تبلت (زیر ۱۰۲۴ پیکسل) از حالت ثابت تمام‌عرض به منوی کشویی شناور (Slide-Over Drawer) با پس‌زمینه نیمه‌شفاف و بستن خودکار پس از انتخاب هر بخش.',
+      'رفع کامل مشکل اشغال تمام صفحه توسط سایدبار هنگام باز کردن پنل در گوشی و تبلت؛ محتوای اصلی بلافاصله تمام فضای صفحه را در اختیار می‌گیرد.',
+      'افزودن دکمه همبرگری باز/بسته کردن منو در نوار ناوبری بالا (Navbar) برای صفحات موبایل و تبلت، به همراه دکمه بستن در هدر منو و پشتیبانی از کلید Escape.',
+      'تضمین نمایش کامل عناوین و برچسب‌های منو در حالت موبایل/تبلت حتی در صورت جمع‌شده بودن سایدبار دسکتاپ و مهار ارتفاع منو دقیقاً بین هدر و فوتر.',
+      'بهبود ریسپانسیو هدر بالا، پاپ‌آپ پروفایل کاربر، منوی ابزارهای پایین و فوتر با استفاده از ارتفاع پویای viewport (100dvh) جهت جلوگیری از بریدگی یا سرریز در نمایشگرهای کوچک.'
+    ],
+    changes_en: [
+      'Refactored the Sidebar into a clean, compact slide-over overlay drawer on mobile and tablet viewports (< 1024px) with backdrop dismissal and auto-close upon selecting a menu item.',
+      'Resolved the issue where opening the panel on phones or tablets caused the expanded sidebar to occupy the entire viewport and push main content off-screen.',
+      'Added a dedicated responsive hamburger menu toggle button in the top Navbar for mobile and tablet screens, paired with a drawer close button and Escape key support.',
+      'Ensured the mobile/tablet drawer always renders full readable menu labels regardless of desktop rail collapse state while keeping strict clearance between Navbar and Footer.',
+      'Refined Navbar spacing, profile dropdown dimensions, NetworkToolsMenu max-height, and footer responsiveness using dynamic viewport height (100dvh) for seamless phone and tablet usability.'
+    ]
+  },
   {
     version: '1.425.3',
     releaseDate: '2026-11-09',

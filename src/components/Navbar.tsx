@@ -16,7 +16,9 @@ import {
   Network,
   Router,
   Server,
-  Cpu
+  Cpu,
+  Menu,
+  X
 } from 'lucide-react';
 import { APP_VERSION } from '../version';
 import { useLanguage } from '../i18n';
@@ -46,6 +48,8 @@ interface NavbarProps {
   logoType?: 'default' | 'preset' | 'custom_url';
   logoPreset?: string;
   logoCustomUrl?: string;
+  isMobileMenuOpen?: boolean;
+  onToggleMobileMenu?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -65,6 +69,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   logoType = 'default',
   logoPreset = 'network',
   logoCustomUrl,
+  isMobileMenuOpen = false,
+  onToggleMobileMenu,
 }) => {
   const { t, language, setLanguage, resetToDefaultLanguage, isCustomizedByUser, isRtl, isEn } = useLanguage();
   const { updateInfo, checking, checkUpdate, checkFeedback, dismissFeedback } = useUpdate();
@@ -125,9 +131,27 @@ export const Navbar: React.FC<NavbarProps> = ({
   const dynamicInitials = getTitleInitials(activeTitle);
 
   return (
-    <header className="h-14 spatial-glass text-white flex items-center justify-between px-4 lg:px-6 shrink-0 border-b border-white/10 sticky top-0 z-50 shadow-xl backdrop-blur-xl">
-      {/* Brand & Identity */}
-      <div className="flex items-center gap-3">
+    <header className="h-14 spatial-glass text-white flex items-center justify-between px-2.5 sm:px-4 lg:px-6 gap-2 shrink-0 border-b border-white/10 sticky top-0 z-50 shadow-xl backdrop-blur-xl">
+      {/* Brand & Identity + Mobile/Tablet Menu Toggle */}
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        {onToggleMobileMenu && (
+          <button
+            type="button"
+            onClick={onToggleMobileMenu}
+            className="lg:hidden p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-white/15 border border-white/15 text-slate-200 hover:text-white transition active:scale-95 cursor-pointer shrink-0"
+            title={isMobileMenuOpen ? (isEn ? 'Close navigation menu' : 'بستن منوی دسترسی') : (isEn ? 'Open navigation menu' : 'باز کردن منوی دسترسی')}
+            aria-label={isMobileMenuOpen ? (isEn ? 'Close navigation menu' : 'بستن منوی دسترسی') : (isEn ? 'Open navigation menu' : 'باز کردن منوی دسترسی')}
+            aria-expanded={Boolean(isMobileMenuOpen)}
+            id="navbar-mobile-menu-btn"
+          >
+            {isMobileMenuOpen ? (
+              <X className="w-4 h-4 text-cyan-400" />
+            ) : (
+              <Menu className="w-4 h-4 text-cyan-400" />
+            )}
+          </button>
+        )}
+
         {logoType === 'custom_url' && logoCustomUrl ? (
           <img
             src={logoCustomUrl}
@@ -156,30 +180,30 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         )}
 
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-sm sm:text-base font-bold tracking-tight text-white font-mono glow-text-cyan flex items-center gap-1.5">
-              <span>{activeTitle}</span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <h1 className="text-xs sm:text-base font-bold tracking-tight text-white font-mono glow-text-cyan flex items-center gap-1.5 min-w-0">
+              <span className="truncate">{activeTitle}</span>
               {!customTitle && (
-                <span className="text-indigo-400 text-[11px] font-semibold px-1.5 py-0.2 rounded bg-indigo-500/20 border border-indigo-500/30">
+                <span className="hidden sm:inline-block text-indigo-400 text-[11px] font-semibold px-1.5 py-0.2 rounded bg-indigo-500/20 border border-indigo-500/30 shrink-0">
                   {t('app_edition')}
                 </span>
               )}
             </h1>
           </div>
-          <p className="text-[10px] text-slate-400 hidden sm:block font-sans truncate max-w-[320px]">
+          <p className="text-[10px] text-slate-400 hidden md:block font-sans truncate max-w-[320px]">
             {customSubtitle || t('app_subtitle')}
           </p>
         </div>
       </div>
 
       {/* Clean Uncluttered Header Controls */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
         {/* Quick CDP/LLDP Scan Button */}
         <button
           onClick={onQuickScan}
           disabled={isScanning}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-medium text-xs shadow-[0_0_15px_rgba(99,102,241,0.35)] transition disabled:opacity-50 border border-white/10 active:scale-95 cursor-pointer"
+          className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-medium text-xs shadow-[0_0_15px_rgba(99,102,241,0.35)] transition disabled:opacity-50 border border-white/10 active:scale-95 cursor-pointer"
           title={t('action_quick_scan_title')}
         >
           <Zap className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
@@ -192,10 +216,10 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button
           onClick={onRefreshAll}
           disabled={isRefreshing}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs transition disabled:opacity-50 shadow-xs active:scale-95 cursor-pointer"
+          className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs transition disabled:opacity-50 shadow-xs active:scale-95 cursor-pointer"
           title={t('action_live_ping_title')}
         >
-          <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 sm:w-3 sm:h-3 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
           <span className="hidden lg:inline">{t('action_live_ping')}</span>
         </button>
 
@@ -203,7 +227,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         {onOpenPasswordVault && (
           <button
             onClick={onOpenPasswordVault}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/15 text-slate-200 hover:text-cyan-300 font-medium text-xs shadow-xs transition active:scale-95 cursor-pointer"
+            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/15 text-slate-200 hover:text-cyan-300 font-medium text-xs shadow-xs transition active:scale-95 cursor-pointer"
             title={isEn ? 'Personal Password Vault' : 'کیف امن گذرواژه‌ها (ولت)'}
             id="navbar-password-vault-btn"
           >
@@ -214,7 +238,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
 
         {/* Separator */}
-        <div className="h-5 w-px bg-white/10"></div>
+        <div className="hidden sm:block h-5 w-px bg-white/10"></div>
 
         {/* Unified Profile & Preferences Button */}
         <div className="relative" ref={profileRef}>
@@ -265,7 +289,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               ></div>
 
               <div
-                className={`absolute ${isRtl ? 'left-0 text-right' : 'right-0 text-left'} mt-2 w-80 rounded-2xl bg-slate-900/95 border border-white/15 p-3.5 shadow-2xl z-50 backdrop-blur-2xl ring-1 ring-white/10`}
+                className={`absolute ${isRtl ? 'left-0 text-right' : 'right-0 text-left'} mt-2 w-[min(20rem,calc(100vw-1rem))] max-h-[calc(100dvh-4.5rem)] overflow-y-auto custom-scrollbar rounded-2xl bg-slate-900/95 border border-white/15 p-3.5 shadow-2xl z-50 backdrop-blur-2xl ring-1 ring-white/10`}
               >
                 {/* Profile Header Card */}
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.04] border border-white/10 mb-3 shadow-inner">
