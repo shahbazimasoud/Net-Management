@@ -428,12 +428,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (isRtl) {
       setFlyoutCoords({
         top: clampedTop,
-        right: Math.max(72, window.innerWidth - anchorRect.left + 10),
+        right: Math.max(82, window.innerWidth - anchorRect.left + 10),
       });
     } else {
       setFlyoutCoords({
         top: clampedTop,
-        left: Math.max(72, anchorRect.right + 10),
+        left: Math.max(82, anchorRect.right + 10),
       });
     }
   }, [activeFlyoutGroupId, effectiveCollapsed, isRtl, activeFlyoutGroup?.items.length]);
@@ -608,7 +608,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             : 'hidden'
         } lg:flex lg:static lg:top-auto lg:bottom-auto lg:left-auto lg:right-auto lg:z-20 lg:self-stretch lg:h-full lg:max-h-full lg:shadow-none ${
           isRtl ? 'lg:border-l' : 'lg:border-r'
-        } ${effectiveCollapsed ? 'lg:w-16' : 'lg:w-64'}`}
+        } ${effectiveCollapsed ? 'lg:w-[74px]' : 'lg:w-64'}`}
         aria-label={t('sidebar_menu_title')}
       >
         {/* Collapse Toggle / Mobile Close Header */}
@@ -863,11 +863,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             style={{
               top: flyoutCoords ? `${flyoutCoords.top}px` : '-9999px',
               ...(isRtl
-                ? { right: flyoutCoords?.right ? `${flyoutCoords.right}px` : '74px' }
-                : { left: flyoutCoords?.left ? `${flyoutCoords.left}px` : '74px' }),
+                ? { right: flyoutCoords?.right ? `${flyoutCoords.right}px` : '84px' }
+                : { left: flyoutCoords?.left ? `${flyoutCoords.left}px` : '84px' }),
               visibility: flyoutCoords ? 'visible' : 'hidden',
             }}
-            className={`fixed z-[220] w-64 max-w-[calc(100vw-88px)] rounded-2xl border backdrop-blur-2xl shadow-2xl animate-fadeIn ${
+            className={`fixed z-[220] w-64 max-w-[calc(100vw-98px)] rounded-2xl border backdrop-blur-2xl shadow-2xl animate-fadeIn ${
               isLightMode
                 ? 'bg-white/95 border-slate-200 text-slate-800 shadow-[0_20px_45px_rgba(15,23,42,0.16)]'
                 : 'bg-slate-900/95 border-white/15 text-slate-200 shadow-[0_20px_50px_rgba(0,0,0,0.65)] ring-1 ring-white/10'

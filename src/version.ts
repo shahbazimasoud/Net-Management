@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.8';
+export const APP_VERSION = '1.425.9';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.9',
+    releaseDate: '2026-11-14',
+    type: 'patch',
+    title: 'افزایش ۱۰ پیکسلی عرض سایدبار در حالت جمع‌شده (بسته) دسکتاپ',
+    title_en: 'Increase Desktop Collapsed Sidebar Width by 10px',
+    changes: [
+      'افزایش عرض ریل سایدبار دسکتاپ در حالت جمع‌شده از ۶۴ پیکسل به ۷۴ پیکسل برای تنفس بصری بهتر و نمایش متعادل‌تر آیکون‌ها و نشانگر بخش فعال.',
+      'هم‌ترازی خودکار فاصله زیرمنوی شناور (Flyout) با عرض جدید ۷۴ پیکسلی سایدبار در هر دو حالت راست‌به‌چپ و چپ‌به‌راست.'
+    ],
+    changes_en: [
+      'Expanded the collapsed desktop sidebar rail width by 10px (from 64px to 74px) for balanced spacing around category icons and active indicators.',
+      'Aligned floating flyout submenu horizontal offsets and viewport max-width calculations with the 74px collapsed rail in both RTL and LTR layouts.'
+    ]
+  },
   {
     version: '1.425.8',
     releaseDate: '2026-11-14',
