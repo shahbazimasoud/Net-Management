@@ -1360,6 +1360,7 @@ export default function App() {
             onOpenReleaseNotes={handleOpenReleaseNotes}
             effectivePolicy={effectivePolicy}
             user={user}
+            isLightMode={isLightMode}
           />
         )}
 

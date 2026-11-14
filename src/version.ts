@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.6';
+export const APP_VERSION = '1.425.7';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.7',
+    releaseDate: '2026-11-14',
+    type: 'patch',
+    title: 'بازطراحی کامل حالت جمع‌شونده سایدبار دسکتاپ با ریل منظم دسته‌بندی‌ها و زیرمنوی شناور (Flyout) بدون باز شدن ناخواسته منو',
+    title_en: 'Redesigned Desktop Collapsed Sidebar Rail with Orderly Category Icons and Floating Flyout Submenus',
+    changes: [
+      'حذف چیدمان نامنظم زیرآیتم‌ها در حالت جمع‌شده سایدبار دسکتاپ و نمایش ریل متقارن و تمیز شامل آیکون‌های دسته‌بندی اصلی همراه با نشانگر بخش فعال، نقطه هشدار آپدیت و تجهیزات آفلاین.',
+      'افزودن زیرمنوی شناور هوشمند (Floating Flyout Menu با رندر Portal) در کنار ریل جمع‌شده هنگام هاور یا کلیک روی هر دسته‌بندی؛ با مهار خودکار موقعیت عمودی بین نوار بالا و فوتر در هر دو حالت راست‌به‌چپ و چپ‌به‌راست.',
+      'رفع مشکل باز شدن خودکار و کامل سایدبار هنگام انتخاب دسته‌بندی‌ها در حالت جمع‌شده؛ اکنون کاربر می‌تواند در حالت جمع‌شده بین تمامی صفحات جابه‌جا شود و سایدبار همچنان جمع بماند.',
+      'تطبیق کامل ظاهر ریل جمع‌شده و کارت زیرمنوی شناور با تم روشن (Light Mode) و تم‌های تیره پنل.'
+    ],
+    changes_en: [
+      'Replaced the cluttered stacked sub-items in desktop collapsed sidebar mode with a clean, symmetrical category icon rail featuring active group edge indicators and status dots.',
+      'Added a portal-rendered Floating Flyout Submenu triggered on hover or click beside collapsed category buttons, with viewport-safe clamping between Navbar and Footer in both RTL and LTR layouts.',
+      'Removed forced full-sidebar expansion when clicking categories in collapsed mode, allowing seamless navigation across all sections while keeping the desktop sidebar collapsed.',
+      'Ensured crisp styling and contrast compatibility for both Light Mode and Dark/Colored panel themes.'
+    ]
+  },
   {
     version: '1.425.6',
     releaseDate: '2026-11-14',
