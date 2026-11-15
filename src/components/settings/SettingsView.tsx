@@ -414,6 +414,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             groups={deviceGroups}
             devices={devices}
             onSaveGroups={handleSaveDeviceGroups}
+            isLightMode={isLightMode}
           />
         )}
 

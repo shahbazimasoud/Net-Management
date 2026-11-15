@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.16';
+export const APP_VERSION = '1.425.17';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.17',
+    releaseDate: '2026-11-15',
+    type: 'patch',
+    title: 'افزودن کانتینر و پس‌زمینه سفید لایه‌بندی‌شده تم روشن در صفحات Device Grouping & Network Zones و Local Identity: Users & Groups همسان با صفحه اکتیو دایرکتوری',
+    title_en: 'Align Light Mode Card Container & Surface Layering in Device Grouping & Network Zones and Local Identity: Users & Groups with Active Directory View',
+    changes: [
+      'افزودن کانتینر اصلی سفید و کادر تفکیک‌شده (bg-white/90 با حاشیه slate-200 و سایه) در زیر عناصر، فیلترها، کارت‌ها و جداول دو صفحه «Device Grouping & Network Zones» و «Local Identity: Users & Groups» دقیقاً همسان با ساختار استاندارد صفحه «Active Directory Users, Groups & Panel Access Control» در تم روشن.',
+      'رفع مشکل ادغام پس‌زمینه ستون‌ها، کارت‌های گروه، کارت‌های کاربران/گروه‌ها و ورودی‌های جستجو با پس‌زمینه کلی صفحه در تم روشن و اعمال لایه‌بندی شفاف (bg-white/90 > bg-slate-50 > bg-white) همراه با ارسال وضعیت تم روشن (isLightMode) به کامپوننت DeviceGroupingTab.'
+    ],
+    changes_en: [
+      'Added the crisp Light Mode outer backing container (bg-white/90 with border-slate-200 and shadow elevation) beneath controls, filters, cards, and lists on Device Grouping & Network Zones and Local Identity: Users & Groups to match Active Directory Users, Groups & Panel Access Control.',
+      'Resolved background blending against the Light Mode page canvas by passing isLightMode to DeviceGroupingTab, detecting .theme-light reliably in LocalUsersTab, and layering inner columns, inputs, filter bars, and item cards with distinct slate-50/white/slate-200 surfaces and dark-ink contrast.'
+    ]
+  },
   {
     version: '1.425.16',
     releaseDate: '2026-11-15',

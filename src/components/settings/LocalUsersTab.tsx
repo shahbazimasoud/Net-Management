@@ -60,7 +60,10 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
   isLightMode = false,
 }) => {
   const resolvedLightMode = Boolean(
-    isLightMode || (typeof document !== 'undefined' && document.documentElement.classList.contains('light'))
+    isLightMode ||
+      (typeof document !== 'undefined' &&
+        (document.documentElement.classList.contains('light') ||
+          document.querySelector('.theme-light') !== null))
   );
 
   const [activeSection, setActiveSection] = useState<'users' | 'groups'>('users');
@@ -633,17 +636,23 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
   return (
     <div className="space-y-5">
       {/* Header & Section Switcher */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-slate-900/80 border border-white/10 backdrop-blur-md">
+      <div
+        className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border backdrop-blur-xl shadow-xl ${
+          resolvedLightMode
+            ? 'bg-white/90 border-slate-200'
+            : 'bg-slate-950/70 border-white/10'
+        }`}
+      >
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+            <div className="p-2 rounded-xl bg-cyan-500/15 text-cyan-500 border border-cyan-500/30">
               <UserCog className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">
+              <h2 className={`text-base font-bold ${resolvedLightMode ? 'text-slate-900' : 'text-white'}`}>
                 {isEn ? 'Local Identity & Account Management' : 'مدیریت کاربران و گروه‌های محلی'}
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className={`text-xs ${resolvedLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                 {isEn
                   ? 'Define local accounts and security groups for role-based network administration.'
                   : 'تعریف و مدیریت حساب‌های کاربری و گروه‌های محلی جهت اعمال اختیارات و کنترل دسترسی'}
@@ -653,19 +662,39 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
         </div>
 
         {/* Sub-tabs: Users vs Groups */}
-        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-950/80 rounded-xl border border-white/10 self-stretch sm:self-auto w-full sm:w-auto">
+        <div
+          className={`flex flex-wrap items-center gap-1.5 p-1 rounded-xl border self-stretch sm:self-auto w-full sm:w-auto ${
+            resolvedLightMode
+              ? 'bg-slate-100 border-slate-200'
+              : 'bg-slate-950/80 border-white/10'
+          }`}
+        >
           <button
             type="button"
             onClick={() => setActiveSection('users')}
             className={`flex flex-1 sm:flex-initial justify-center items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
               activeSection === 'users'
-                ? 'bg-cyan-500 text-slate-950 shadow-md'
+                ? resolvedLightMode
+                  ? 'bg-cyan-600 text-white shadow-sm'
+                  : 'bg-cyan-500 text-slate-950 shadow-md'
+                : resolvedLightMode
+                ? 'text-slate-600 hover:text-slate-900 hover:bg-white'
                 : 'text-slate-400 hover:text-white hover:bg-white/5'
             }`}
           >
             <Users className="w-4 h-4" />
             <span>{isEn ? 'Local Users' : 'کاربران محلی'}</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-black/25 font-mono">
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
+                activeSection === 'users'
+                  ? resolvedLightMode
+                    ? 'bg-white/20 text-white'
+                    : 'bg-black/25'
+                  : resolvedLightMode
+                  ? 'bg-slate-200 text-slate-700'
+                  : 'bg-black/25'
+              }`}
+            >
               {users.length}
             </span>
           </button>
@@ -675,13 +704,25 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
             onClick={() => setActiveSection('groups')}
             className={`flex flex-1 sm:flex-initial justify-center items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
               activeSection === 'groups'
-                ? 'bg-indigo-500 text-white shadow-md'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : resolvedLightMode
+                ? 'text-slate-600 hover:text-slate-900 hover:bg-white'
                 : 'text-slate-400 hover:text-white hover:bg-white/5'
             }`}
           >
             <FolderTree className="w-4 h-4" />
             <span>{isEn ? 'Local Groups' : 'گروه‌های کاربری'}</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-black/25 font-mono">
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
+                activeSection === 'groups'
+                  ? resolvedLightMode
+                    ? 'bg-white/20 text-white'
+                    : 'bg-black/25'
+                  : resolvedLightMode
+                  ? 'bg-slate-200 text-slate-700'
+                  : 'bg-black/25'
+              }`}
+            >
               {groups.length}
             </span>
           </button>
@@ -705,45 +746,77 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
         </div>
       )}
 
+      {/* Main Container: Local Identity Stats, Filters & Explorer (Matches ActiveDirectoryTab) */}
+      <div
+        className={`p-5 sm:p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-5 ${
+          resolvedLightMode
+            ? 'bg-white/90 border-slate-200'
+            : 'bg-slate-950/60 border-white/10'
+        }`}
+      >
       {/* Stats Summary Ribbon */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/10 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-blue-500/15 text-blue-400">
+        <div
+          className={`p-3.5 rounded-xl border flex items-center gap-3 ${
+            resolvedLightMode
+              ? 'bg-slate-50 border-slate-200'
+              : 'bg-slate-900/60 border-white/10'
+          }`}
+        >
+          <div className="p-2 rounded-lg bg-blue-500/15 text-blue-500">
             <Users className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-[11px] text-slate-400">{isEn ? 'Total Local Users' : 'کل کاربران محلی'}</div>
-            <div className="text-lg font-bold text-white font-mono">{totalUsers}</div>
+            <div className={`text-[11px] ${resolvedLightMode ? 'text-slate-600' : 'text-slate-400'}`}>{isEn ? 'Total Local Users' : 'کل کاربران محلی'}</div>
+            <div className={`text-lg font-bold font-mono ${resolvedLightMode ? 'text-slate-900' : 'text-white'}`}>{totalUsers}</div>
           </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/10 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-emerald-500/15 text-emerald-400">
+        <div
+          className={`p-3.5 rounded-xl border flex items-center gap-3 ${
+            resolvedLightMode
+              ? 'bg-slate-50 border-slate-200'
+              : 'bg-slate-900/60 border-white/10'
+          }`}
+        >
+          <div className="p-2 rounded-lg bg-emerald-500/15 text-emerald-500">
             <CheckCircle className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-[11px] text-slate-400">{isEn ? 'Active Accounts' : 'حساب‌های فعال'}</div>
-            <div className="text-lg font-bold text-emerald-400 font-mono">{activeUsersCount}</div>
+            <div className={`text-[11px] ${resolvedLightMode ? 'text-slate-600' : 'text-slate-400'}`}>{isEn ? 'Active Accounts' : 'حساب‌های فعال'}</div>
+            <div className="text-lg font-bold text-emerald-500 font-mono">{activeUsersCount}</div>
           </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/10 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-rose-500/15 text-rose-400">
+        <div
+          className={`p-3.5 rounded-xl border flex items-center gap-3 ${
+            resolvedLightMode
+              ? 'bg-slate-50 border-slate-200'
+              : 'bg-slate-900/60 border-white/10'
+          }`}
+        >
+          <div className="p-2 rounded-lg bg-rose-500/15 text-rose-500">
             <XCircle className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-[11px] text-slate-400">{isEn ? 'Disabled / Inactive' : 'غیرفعال / مسدود'}</div>
-            <div className="text-lg font-bold text-rose-400 font-mono">{disabledUsersCount}</div>
+            <div className={`text-[11px] ${resolvedLightMode ? 'text-slate-600' : 'text-slate-400'}`}>{isEn ? 'Disabled / Inactive' : 'غیرفعال / مسدود'}</div>
+            <div className="text-lg font-bold text-rose-500 font-mono">{disabledUsersCount}</div>
           </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/10 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-purple-500/15 text-purple-400">
+        <div
+          className={`p-3.5 rounded-xl border flex items-center gap-3 ${
+            resolvedLightMode
+              ? 'bg-slate-50 border-slate-200'
+              : 'bg-slate-900/60 border-white/10'
+          }`}
+        >
+          <div className="p-2 rounded-lg bg-purple-500/15 text-purple-500">
             <Shield className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-[11px] text-slate-400">{isEn ? 'Local Groups' : 'گروه‌های امنیتی'}</div>
-            <div className="text-lg font-bold text-purple-300 font-mono">{totalGroupsCount}</div>
+            <div className={`text-[11px] ${resolvedLightMode ? 'text-slate-600' : 'text-slate-400'}`}>{isEn ? 'Local Groups' : 'گروه‌های امنیتی'}</div>
+            <div className="text-lg font-bold text-purple-500 font-mono">{totalGroupsCount}</div>
           </div>
         </div>
       </div>
@@ -752,7 +825,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto flex-1 max-w-md">
           <div className="relative w-full sm:flex-1 min-w-[160px]">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 rtl:right-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
@@ -766,7 +839,11 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                   ? 'Search groups by name or description...'
                   : 'جستجوی گروه بر اساس نام یا شرح...'
               }
-              className="w-full pl-9 pr-4 rtl:pl-4 rtl:pr-9 py-2 rounded-xl bg-slate-900/80 border border-white/10 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-400"
+              className={`w-full pl-9 pr-4 rtl:pl-4 rtl:pr-9 py-2 rounded-xl border text-xs focus:outline-none focus:border-cyan-400 ${
+                resolvedLightMode
+                  ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                  : 'bg-slate-900/80 border-white/10 text-white placeholder:text-slate-500'
+              }`}
             />
           </div>
 
@@ -774,7 +851,11 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="w-full sm:w-auto max-w-full min-w-0 px-3 py-2 rounded-xl bg-slate-900/80 border border-white/10 text-xs text-slate-300 focus:outline-none focus:border-cyan-400"
+              className={`w-full sm:w-auto max-w-full min-w-0 px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-cyan-400 ${
+                resolvedLightMode
+                  ? 'bg-white border-slate-300 text-slate-800'
+                  : 'bg-slate-900/80 border-white/10 text-slate-300'
+              }`}
             >
               <option value="all">{isEn ? 'All Status' : 'همه وضعیت‌ها'}</option>
               <option value="active">{isEn ? 'Active Only' : 'فقط فعال'}</option>
@@ -810,7 +891,13 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
       {activeSection === 'users' && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
           {filteredUsers.length === 0 ? (
-            <div className="col-span-full p-8 text-center rounded-2xl bg-slate-900/40 border border-white/10 text-slate-400">
+            <div
+              className={`col-span-full p-8 text-center rounded-2xl border ${
+                resolvedLightMode
+                  ? 'bg-slate-50 border-slate-200 text-slate-500'
+                  : 'bg-slate-900/40 border-white/10 text-slate-400'
+              }`}
+            >
               <Users className="w-8 h-8 mx-auto mb-2 opacity-40 text-slate-500" />
               <p className="text-xs">{isEn ? 'No users found matching your search.' : 'هیچ کاربری با این مشخصات یافت نشد.'}</p>
             </div>
@@ -824,7 +911,11 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                   key={user.id}
                   className={`p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between ${
                     isActive
-                      ? 'bg-slate-900/70 border-white/10 hover:border-cyan-500/40'
+                      ? resolvedLightMode
+                        ? 'bg-slate-50 border-slate-200 hover:border-cyan-500/50 text-slate-900 shadow-xs'
+                        : 'bg-slate-900/70 border-white/10 hover:border-cyan-500/40'
+                      : resolvedLightMode
+                      ? 'bg-rose-50/50 border-rose-200 text-slate-700'
                       : 'bg-slate-900/40 border-rose-500/20 opacity-75'
                   }`}
                 >
@@ -927,7 +1018,11 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                       <button
                         type="button"
                         onClick={() => handleOpenEditUser(user)}
-                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition cursor-pointer"
+                        className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                          resolvedLightMode
+                            ? 'bg-white border-slate-200 hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                            : 'bg-white/5 border-transparent hover:bg-white/10 text-slate-300 hover:text-white'
+                        }`}
                         title={isEn ? 'Edit user' : 'ویرایش کاربر'}
                       >
                         <Edit2 className="w-3.5 h-3.5" />
@@ -956,7 +1051,13 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
       {activeSection === 'groups' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {filteredGroups.length === 0 ? (
-            <div className="col-span-full p-8 text-center rounded-2xl bg-slate-900/40 border border-white/10 text-slate-400">
+            <div
+              className={`col-span-full p-8 text-center rounded-2xl border ${
+                resolvedLightMode
+                  ? 'bg-slate-50 border-slate-200 text-slate-500'
+                  : 'bg-slate-900/40 border-white/10 text-slate-400'
+              }`}
+            >
               <FolderTree className="w-8 h-8 mx-auto mb-2 opacity-40 text-slate-500" />
               <p className="text-xs">{isEn ? 'No groups found.' : 'هیچ گروه کاربری یافت نشد.'}</p>
             </div>
@@ -968,7 +1069,11 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
               return (
                 <div
                   key={group.id}
-                  className="p-4 rounded-2xl bg-slate-900/70 border border-white/10 hover:border-indigo-500/40 transition-all flex flex-col justify-between"
+                  className={`p-4 rounded-2xl border hover:border-indigo-500/40 transition-all flex flex-col justify-between ${
+                    resolvedLightMode
+                      ? 'bg-slate-50 border-slate-200 text-slate-900 shadow-xs'
+                      : 'bg-slate-900/70 border-white/10'
+                  }`}
                 >
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -989,7 +1094,13 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                         </div>
                       </div>
 
-                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/5 border border-white/10 text-slate-300 font-mono">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] border font-mono ${
+                          resolvedLightMode
+                            ? 'bg-white border-slate-200 text-slate-700'
+                            : 'bg-white/5 border-white/10 text-slate-300'
+                        }`}
+                      >
                         {group.memberUserIds.length} {isEn ? 'members' : 'عضو'}
                       </span>
                     </div>
@@ -1012,7 +1123,11 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                           members.map((m) => (
                             <span
                               key={m.id}
-                              className="px-2 py-0.5 rounded-lg text-[10px] bg-slate-800 border border-white/10 text-slate-300 font-medium"
+                              className={`px-2 py-0.5 rounded-lg text-[10px] border font-medium ${
+                                resolvedLightMode
+                                  ? 'bg-white border-slate-200 text-slate-700'
+                                  : 'bg-slate-800 border-white/10 text-slate-300'
+                              }`}
                             >
                               {m.fullName}
                             </span>
@@ -1041,7 +1156,11 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                       <button
                         type="button"
                         onClick={() => handleOpenEditGroup(group)}
-                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition cursor-pointer"
+                        className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                          resolvedLightMode
+                            ? 'bg-white border-slate-200 hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                            : 'bg-white/5 border-transparent hover:bg-white/10 text-slate-300 hover:text-white'
+                        }`}
                         title={isEn ? 'Edit group' : 'ویرایش گروه'}
                       >
                         <Edit2 className="w-3.5 h-3.5" />
@@ -1065,6 +1184,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
           )}
         </div>
       )}
+      </div>
 
       {/* MODAL: CREATE / EDIT LOCAL USER */}
       {userModalOpen && editingUser && (

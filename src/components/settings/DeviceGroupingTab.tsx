@@ -37,6 +37,7 @@ interface DeviceGroupingTabProps {
   devices: Device[];
   servers?: RemoteServer[];
   onSaveGroups: (groups: DeviceGroup[]) => void;
+  isLightMode?: boolean;
 }
 
 const COLOR_MAP: Record<GroupColor, { bg: string; border: string; text: string; badge: string; dot: string }> = {
@@ -108,8 +109,12 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
   devices,
   servers: initialServers,
   onSaveGroups,
+  isLightMode = false,
 }) => {
   const { isEn } = useLanguage();
+  const resolvedLightMode = Boolean(
+    isLightMode || (typeof document !== 'undefined' && document.querySelector('.theme-light') !== null)
+  );
 
   // Internal groups state to allow smooth editing and explicit database save
   const [groups, setGroups] = useState<DeviceGroup[]>(() =>
@@ -720,7 +725,13 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
   return (
     <div className="space-y-5 animate-fadeIn" dir={isEn ? 'ltr' : 'rtl'}>
       {/* Header Description & Persistent Save Action */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-4 sm:p-5 rounded-2xl bg-white/[0.02] border border-white/10 backdrop-blur-md shadow-xl">
+      <div
+        className={`flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-4 sm:p-5 rounded-2xl border backdrop-blur-xl shadow-xl ${
+          resolvedLightMode
+            ? 'bg-white/90 border-slate-200'
+            : 'bg-slate-950/70 border-white/10'
+        }`}
+      >
         <div>
           <div className="flex items-center gap-3">
             <div className="p-3 rounded-2xl bg-gradient-to-tr from-amber-500/20 to-orange-500/10 border border-amber-500/30 text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
@@ -728,7 +739,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                <h2 className={`text-base sm:text-lg font-bold tracking-tight flex items-center gap-2 ${resolvedLightMode ? 'text-slate-900' : 'text-white'}`}>
                   <span>{isEn ? 'Device Grouping & Tagging' : 'گروه‌بندی و برچسب‌گذاری (Device Grouping & Tagging)'}</span>
                 </h2>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono border border-cyan-500/30">
@@ -744,7 +755,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                   {servers.length} {isEn ? 'Servers' : 'سرور'}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-1 max-w-3xl leading-relaxed">
+              <p className={`text-xs mt-1 max-w-3xl leading-relaxed ${resolvedLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                 {isEn
                   ? 'Organize switches, routers, and remote servers (Linux & Windows) into unified operational groups and security zones with custom tagging, and persist them securely into the database.'
                   : 'تجهیزات شبکه (سوئیچ‌ها و روترها) و سرورهای ریموت (لینوکس و ویندوز) را در گروه‌های عملیاتی مشترک و زون‌های کاری قرار داده، برچسب‌گذاری کرده و در دیتابیس ذخیره نمایید.'}
@@ -758,9 +769,13 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
           <button
             type="button"
             onClick={() => setIsCreatingGroup(true)}
-            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white font-semibold text-xs border border-white/15 transition active:scale-95 cursor-pointer shrink-0"
+            className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl font-semibold text-xs border transition active:scale-95 cursor-pointer shrink-0 ${
+              resolvedLightMode
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                : 'bg-white/5 hover:bg-white/10 text-white border-white/15'
+            }`}
           >
-            <Plus className="w-4 h-4 text-amber-400" />
+            <Plus className="w-4 h-4 text-amber-500" />
             <span>{isEn ? 'Create Group' : 'ایجاد گروه جدید'}</span>
           </button>
 
@@ -950,87 +965,108 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
         </div>
       )}
 
-      {/* Horizontal Group Selector Carousel */}
-      <div className="flex items-center gap-2.5 overflow-x-auto pb-2 custom-scrollbar">
-        {groups.map((group) => {
-          const isSelected = group.id === selectedGroupId;
-          const colorStyles = COLOR_MAP[group.color] || COLOR_MAP.amber;
-          const devCount = group.deviceIds?.length || 0;
-          const srvCount = group.serverIds?.length || 0;
-          const totalMembers = devCount + srvCount;
+      {/* Main Container Card: Group Selector Carousel & Dual Column Workspace */}
+      <div
+        className={`p-5 sm:p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-5 ${
+          resolvedLightMode
+            ? 'bg-white/90 border-slate-200'
+            : 'bg-slate-950/60 border-white/10'
+        }`}
+      >
+        {/* Horizontal Group Selector Carousel */}
+        <div className="flex items-center gap-2.5 overflow-x-auto pb-2 custom-scrollbar">
+          {groups.map((group) => {
+            const isSelected = group.id === selectedGroupId;
+            const colorStyles = COLOR_MAP[group.color] || COLOR_MAP.amber;
+            const devCount = group.deviceIds?.length || 0;
+            const srvCount = group.serverIds?.length || 0;
+            const totalMembers = devCount + srvCount;
 
-          return (
-            <div
-              key={group.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => setSelectedGroupId(group.id)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  setSelectedGroupId(group.id);
-                }
-              }}
-              className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl border transition-all duration-200 shrink-0 cursor-pointer text-left rtl:text-right select-none ${
-                isSelected
-                  ? `${colorStyles.bg} ${colorStyles.border} shadow-lg ring-1 ring-white/20`
-                  : 'bg-white/[0.02] border-white/10 hover:bg-white/5 hover:border-white/20'
-              }`}
-            >
-              <span className={`w-3 h-3 rounded-full ${colorStyles.dot} shrink-0`} />
-              <div>
-                <div className="text-xs font-bold text-white flex items-center gap-2">
-                  <span>{group.name}</span>
-                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full border ${colorStyles.badge}`}>
-                    {totalMembers} {isEn ? 'Members' : 'عضو'}
-                  </span>
-                </div>
-                <div className="text-[10px] text-slate-400 truncate max-w-[200px] flex items-center gap-1.5 mt-0.5 font-mono">
-                  <span className="text-cyan-400">{devCount} {isEn ? 'Dev' : 'دیوایس'}</span>
-                  <span>•</span>
-                  <span className="text-indigo-400">{srvCount} {isEn ? 'Srv' : 'سرور'}</span>
-                </div>
-                {Array.isArray(group.tags) && group.tags.length > 0 && (
-                  <div className="flex items-center gap-1 mt-1 flex-wrap">
-                    {group.tags.slice(0, 3).map((tg) => (
-                      <span key={tg} className="text-[9px] px-1 py-0.1 rounded bg-white/5 text-slate-300 font-mono">
-                        #{tg}
-                      </span>
-                    ))}
+            return (
+              <div
+                key={group.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedGroupId(group.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setSelectedGroupId(group.id);
+                  }
+                }}
+                className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl border transition-all duration-200 shrink-0 cursor-pointer text-left rtl:text-right select-none ${
+                  isSelected
+                    ? `${colorStyles.bg} ${colorStyles.border} shadow-md ${resolvedLightMode ? 'ring-1 ring-slate-300' : 'ring-1 ring-white/20 shadow-lg'}`
+                    : resolvedLightMode
+                    ? 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
+                    : 'bg-white/[0.02] border-white/10 hover:bg-white/5 hover:border-white/20'
+                }`}
+              >
+                <span className={`w-3 h-3 rounded-full ${colorStyles.dot} shrink-0`} />
+                <div>
+                  <div className={`text-xs font-bold flex items-center gap-2 ${resolvedLightMode ? 'text-slate-900' : 'text-white'}`}>
+                    <span>{group.name}</span>
+                    <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full border ${colorStyles.badge}`}>
+                      {totalMembers} {isEn ? 'Members' : 'عضو'}
+                    </span>
                   </div>
+                  <div className="text-[10px] text-slate-400 truncate max-w-[200px] flex items-center gap-1.5 mt-0.5 font-mono">
+                    <span className="text-cyan-400">{devCount} {isEn ? 'Dev' : 'دیوایس'}</span>
+                    <span>•</span>
+                    <span className="text-indigo-400">{srvCount} {isEn ? 'Srv' : 'سرور'}</span>
+                  </div>
+                  {Array.isArray(group.tags) && group.tags.length > 0 && (
+                    <div className="flex items-center gap-1 mt-1 flex-wrap">
+                      {group.tags.slice(0, 3).map((tg) => (
+                        <span
+                          key={tg}
+                          className={`text-[9px] px-1 py-0.1 rounded font-mono ${
+                            resolvedLightMode
+                              ? 'bg-white border border-slate-200 text-slate-600'
+                              : 'bg-white/5 text-slate-300'
+                          }`}
+                        >
+                          #{tg}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {groups.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteGroup(group.id, e)}
+                    className="p-1 rounded-md text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition ml-1 cursor-pointer"
+                    title={isEn ? 'Delete Group' : 'حذف گروه'}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 )}
               </div>
+            );
+          })}
+        </div>
 
-              {groups.length > 1 && (
-                <button
-                  type="button"
-                  onClick={(e) => handleDeleteGroup(group.id, e)}
-                  className="p-1 rounded-md text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition ml-1 cursor-pointer"
-                  title={isEn ? 'Delete Group' : 'حذف گروه'}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Dual Column Workspace */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left Column: Group Members (Target Dropzone) */}
-        <div
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`lg:col-span-6 rounded-2xl p-4 transition-all duration-200 border flex flex-col ${
-            isDragOverGroup
-              ? 'bg-indigo-600/15 border-indigo-400 ring-2 ring-indigo-400/50 shadow-[0_0_25px_rgba(99,102,241,0.3)]'
-              : 'bg-white/[0.02] border-white/10'
-          }`}
-        >
-          {/* Header */}
-          <div className="space-y-2 border-b border-white/10 pb-3 mb-3">
+        {/* Dual Column Workspace */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* Left Column: Group Members (Target Dropzone) */}
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`lg:col-span-6 rounded-2xl p-4 transition-all duration-200 border flex flex-col ${
+              isDragOverGroup
+                ? resolvedLightMode
+                  ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-400/50 shadow-lg'
+                  : 'bg-indigo-600/15 border-indigo-400 ring-2 ring-indigo-400/50 shadow-[0_0_25px_rgba(99,102,241,0.3)]'
+                : resolvedLightMode
+                ? 'bg-slate-50/90 border-slate-200'
+                : 'bg-white/[0.02] border-white/10'
+            }`}
+          >
+            {/* Header */}
+            <div className={`space-y-2 border-b pb-3 mb-3 ${resolvedLightMode ? 'border-slate-200' : 'border-white/10'}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <div className={`p-1.5 rounded-lg border ${COLOR_MAP[selectedGroup?.color || 'amber'].badge}`}>
@@ -1054,13 +1090,21 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
 
             {/* Sub-Filters and Batch Actions */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-1">
-              <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-900/80 border border-white/10 text-xs max-w-full">
+              <div
+                className={`flex flex-wrap items-center gap-1 p-1 rounded-xl border text-xs max-w-full ${
+                  resolvedLightMode
+                    ? 'bg-slate-100 border-slate-200'
+                    : 'bg-slate-900/80 border-white/10'
+                }`}
+              >
                 <button
                   type="button"
                   onClick={() => setMemberCategoryFilter('all')}
                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
                     memberCategoryFilter === 'all'
                       ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      : resolvedLightMode
+                      ? 'text-slate-600 hover:text-slate-900 hover:bg-white'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
@@ -1072,6 +1116,8 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                     memberCategoryFilter === 'devices'
                       ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                      : resolvedLightMode
+                      ? 'text-slate-600 hover:text-slate-900 hover:bg-white'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
@@ -1084,6 +1130,8 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                     memberCategoryFilter === 'servers'
                       ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                      : resolvedLightMode
+                      ? 'text-slate-600 hover:text-slate-900 hover:bg-white'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
@@ -1114,7 +1162,11 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                   value={memberSearchFilter}
                   onChange={(e) => setMemberSearchFilter(e.target.value)}
                   placeholder={isEn ? 'Search inside this group...' : 'جستجو در اعضای این گروه...'}
-                  className="w-full pl-8 pr-3 rtl:pl-3 rtl:pr-8 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-indigo-400"
+                  className={`w-full pl-8 pr-3 rtl:pl-3 rtl:pr-8 py-1.5 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 ${
+                    resolvedLightMode
+                      ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                      : 'bg-white/5 border-white/10 text-white placeholder:text-slate-500'
+                  }`}
                 />
               </div>
 
@@ -1122,7 +1174,11 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                 <button
                   type="button"
                   onClick={handleSelectAllMembers}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold border border-white/10 transition cursor-pointer shrink-0"
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer shrink-0 ${
+                    resolvedLightMode
+                      ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                      : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                  }`}
                 >
                   {selectedMemberIds.length > 0 ? (
                     <CheckSquare className="w-3.5 h-3.5 text-amber-400" />
@@ -1137,9 +1193,15 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
 
           {/* Group Member List */}
           {totalAssignedCount === 0 ? (
-            <div className="py-14 flex flex-col items-center justify-center text-center p-4 border border-dashed border-white/15 rounded-xl bg-white/[0.01]">
+            <div
+              className={`py-14 flex flex-col items-center justify-center text-center p-4 border border-dashed rounded-xl ${
+                resolvedLightMode
+                  ? 'border-slate-300 bg-white/80'
+                  : 'border-white/15 bg-white/[0.01]'
+              }`}
+            >
               <GripVertical className="w-8 h-8 text-slate-500 mb-2 opacity-60" />
-              <p className="text-xs font-semibold text-slate-300">
+              <p className={`text-xs font-semibold ${resolvedLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                 {isEn ? 'No devices or servers assigned to this group yet' : 'هنوز هیچ دیوایس یا سروری در این گروه قرار نگرفته است'}
               </p>
               <p className="text-[11px] text-slate-500 max-w-sm mt-1">
@@ -1159,7 +1221,11 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                       key={`dev-${dev.id}`}
                       className={`group flex items-center justify-between p-3 rounded-xl border transition-all shadow-xs ${
                         isChecked
-                          ? 'bg-cyan-950/40 border-cyan-400/60 ring-1 ring-cyan-400/30'
+                          ? resolvedLightMode
+                            ? 'bg-cyan-50 border-cyan-400 ring-1 ring-cyan-400/40'
+                            : 'bg-cyan-950/40 border-cyan-400/60 ring-1 ring-cyan-400/30'
+                          : resolvedLightMode
+                          ? 'bg-white hover:bg-slate-50/90 border-slate-200 hover:border-cyan-400'
                           : 'bg-slate-900/60 hover:bg-slate-900/90 border-white/10 hover:border-cyan-400/50'
                       }`}
                     >
@@ -1226,7 +1292,11 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                       key={`srv-${srv.id}`}
                       className={`group flex items-center justify-between p-3 rounded-xl border transition-all shadow-xs ${
                         isChecked
-                          ? 'bg-indigo-950/40 border-indigo-400/60 ring-1 ring-indigo-400/30'
+                          ? resolvedLightMode
+                            ? 'bg-indigo-50 border-indigo-400 ring-1 ring-indigo-400/40'
+                            : 'bg-indigo-950/40 border-indigo-400/60 ring-1 ring-indigo-400/30'
+                          : resolvedLightMode
+                          ? 'bg-white hover:bg-slate-50/90 border-slate-200 hover:border-indigo-400'
                           : 'bg-slate-900/60 hover:bg-slate-900/90 border-white/10 hover:border-indigo-400/50'
                       }`}
                     >
@@ -1293,9 +1363,15 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
         </div>
 
         {/* Right Column: Available Devices & Servers Palette */}
-        <div className="lg:col-span-6 rounded-2xl p-4 bg-white/[0.02] border border-white/10 flex flex-col">
+        <div
+          className={`lg:col-span-6 rounded-2xl p-4 border flex flex-col ${
+            resolvedLightMode
+              ? 'bg-slate-50/90 border-slate-200'
+              : 'bg-white/[0.02] border-white/10'
+          }`}
+        >
           {/* Header with Search and Role/OS Filters */}
-          <div className="space-y-2.5 border-b border-white/10 pb-3 mb-3">
+          <div className={`space-y-2.5 border-b pb-3 mb-3 ${resolvedLightMode ? 'border-slate-200' : 'border-white/10'}`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="font-bold text-sm text-white flex items-center gap-2">
                 <Network className="w-4 h-4 text-cyan-400" />
@@ -1329,13 +1405,21 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
             </div>
 
             {/* Category Filter Buttons (All / Devices / Servers) */}
-            <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-xl bg-slate-900/80 border border-white/10 text-xs max-w-full">
+            <div
+              className={`flex flex-wrap items-center gap-1.5 p-1 rounded-xl border text-xs max-w-full ${
+                resolvedLightMode
+                  ? 'bg-slate-100 border-slate-200'
+                  : 'bg-slate-900/80 border-white/10'
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => setAvailableCategoryFilter('all')}
                 className={`flex-1 min-w-[95px] py-1 rounded-lg text-xs font-semibold transition cursor-pointer text-center ${
                   availableCategoryFilter === 'all'
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    : resolvedLightMode
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-white'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -1347,6 +1431,8 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                 className={`flex-1 min-w-[95px] py-1 rounded-lg text-xs font-semibold transition cursor-pointer text-center flex items-center justify-center gap-1 ${
                   availableCategoryFilter === 'devices'
                     ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                    : resolvedLightMode
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-white'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -1359,6 +1445,8 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                 className={`flex-1 min-w-[95px] py-1 rounded-lg text-xs font-semibold transition cursor-pointer text-center flex items-center justify-center gap-1 ${
                   availableCategoryFilter === 'servers'
                     ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                    : resolvedLightMode
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-white'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -1380,7 +1468,11 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                       ? 'Filter by name, IP, model, OS, tag, or role...'
                       : 'جستجو در نام، IP، مدل، سیستم‌عامل، برچسب یا نقش...'
                   }
-                  className="w-full pl-8 pr-3 rtl:pl-3 rtl:pr-8 py-1.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-cyan-400"
+                  className={`w-full pl-8 pr-3 rtl:pl-3 rtl:pr-8 py-1.5 rounded-xl border text-xs focus:outline-none focus:border-cyan-400 ${
+                    resolvedLightMode
+                      ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                      : 'bg-white/5 border-white/10 text-white placeholder:text-slate-500'
+                  }`}
                 />
               </div>
 
@@ -1388,7 +1480,11 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                 <select
                   value={deviceRoleFilter}
                   onChange={(e) => setDeviceRoleFilter(e.target.value as any)}
-                  className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs focus:outline-none focus:border-cyan-400 max-w-full min-w-0 w-full sm:w-auto"
+                  className={`px-2.5 py-1.5 rounded-xl border text-xs focus:outline-none focus:border-cyan-400 max-w-full min-w-0 w-full sm:w-auto ${
+                    resolvedLightMode
+                      ? 'bg-white border-slate-300 text-slate-800'
+                      : 'bg-slate-900 border-white/10 text-white'
+                  }`}
                 >
                   <option value="all">{isEn ? 'All Types' : 'همه دیوایس‌ها'}</option>
                   <option value="switch">{isEn ? 'Switches' : 'سوئیچ‌ها'}</option>
@@ -1401,7 +1497,11 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                 <select
                   value={serverOsFilter}
                   onChange={(e) => setServerOsFilter(e.target.value as any)}
-                  className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-white/10 text-white text-xs focus:outline-none focus:border-indigo-400 max-w-full min-w-0 w-full sm:w-auto"
+                  className={`px-2.5 py-1.5 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 max-w-full min-w-0 w-full sm:w-auto ${
+                    resolvedLightMode
+                      ? 'bg-white border-slate-300 text-slate-800'
+                      : 'bg-slate-900 border-white/10 text-white'
+                  }`}
                 >
                   <option value="all">{isEn ? 'All OS' : 'همه سیستم‌عامل‌ها'}</option>
                   <option value="linux">Linux</option>
@@ -1414,7 +1514,11 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                 <button
                   type="button"
                   onClick={handleSelectAllAvailable}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold border border-white/10 transition cursor-pointer shrink-0"
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer shrink-0 ${
+                    resolvedLightMode
+                      ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                      : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                  }`}
                   title={isEn ? 'Select All Available' : 'انتخاب همه آماده‌ها'}
                 >
                   {selectedAvailableIds.length > 0 ? (
@@ -1484,7 +1588,11 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                       onDragStart={(e) => handleDragStart(e, { type: 'device', id: dev.id })}
                       className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-grab active:cursor-grabbing shadow-xs group ${
                         isChecked
-                          ? 'bg-cyan-950/40 border-cyan-400/60 ring-1 ring-cyan-400/30'
+                          ? resolvedLightMode
+                            ? 'bg-cyan-50 border-cyan-400 ring-1 ring-cyan-400/40'
+                            : 'bg-cyan-950/40 border-cyan-400/60 ring-1 ring-cyan-400/30'
+                          : resolvedLightMode
+                          ? 'bg-white hover:bg-slate-50/90 border-slate-200 hover:border-cyan-400'
                           : 'bg-slate-900/40 hover:bg-slate-900/80 border-white/10 hover:border-cyan-400/50'
                       }`}
                     >
@@ -1546,7 +1654,11 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                       onDragStart={(e) => handleDragStart(e, { type: 'server', id: srv.id })}
                       className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-grab active:cursor-grabbing shadow-xs group ${
                         isChecked
-                          ? 'bg-indigo-950/40 border-indigo-400/60 ring-1 ring-indigo-400/30'
+                          ? resolvedLightMode
+                            ? 'bg-indigo-50 border-indigo-400 ring-1 ring-indigo-400/40'
+                            : 'bg-indigo-950/40 border-indigo-400/60 ring-1 ring-indigo-400/30'
+                          : resolvedLightMode
+                          ? 'bg-white hover:bg-slate-50/90 border-slate-200 hover:border-indigo-400'
                           : 'bg-slate-900/40 hover:bg-slate-900/80 border-white/10 hover:border-indigo-400/50'
                       }`}
                     >
@@ -1607,6 +1719,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
                 })}
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>
