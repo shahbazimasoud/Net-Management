@@ -38,6 +38,25 @@ import { useUpdate } from '../context/UpdateContext';
 import { useAuth, AuthUser } from '../context/AuthContext';
 import { isUserSuperAdmin } from '../utils/rbac';
 
+// Custom person-inside-security-triangle icon for System & Security category
+const SystemSecurityTriangleIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden="true"
+  >
+    <path d="M11.16 4.09Q12 2.5 12.84 4.09L20.36 18.21Q21.2 19.8 19.4 19.8L4.6 19.8Q2.8 19.8 3.64 18.21Z" />
+    <circle cx="12" cy="11.1" r="2" />
+    <path d="M8.3 17.7a3.7 3.7 0 0 1 7.4 0" />
+  </svg>
+);
+
 export type ActiveTab =
   | 'dashboard'
   | 'devices'
@@ -256,7 +275,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'system',
       titleKey: 'parent_system_title',
       tagKey: 'parent_system_tag',
-      icon: Settings,
+      icon: SystemSecurityTriangleIcon,
       colorClass: 'text-amber-400 border-amber-500/30 bg-amber-500/10',
       items: [
         {

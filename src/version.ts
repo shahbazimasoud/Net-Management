@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.12';
+export const APP_VERSION = '1.425.13';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.13',
+    releaseDate: '2026-11-15',
+    type: 'patch',
+    title: 'تغییر آیکون بخش System & Security در سایدبار به آیکون اختصاصی آدمک درون مثلث امن',
+    title_en: 'Update System & Security Sidebar Category Icon to Custom User-in-Security-Triangle Vector Icon',
+    changes: [
+      'جایگزینی آیکون چرخ‌دنده بخش «سیستم و امنیت» (System & Security) در سایدبار با آیکون وکتور اختصاصی آدمک درون مثلث امن (SystemSecurityTriangleIcon) برای تفکیک بصری شفاف از بخش تنظیمات و نمایش هویت و امنیت سیستم.',
+      'هماهنگی کامل آیکون جدید با حالت باز، ریل جمع‌شده دسکتاپ، زیرمنوی شناور (Flyout) و تم‌های روشن و تاریک پنل.'
+    ],
+    changes_en: [
+      'Replaced the Settings gear icon on the System & Security sidebar category with a custom vector icon depicting a user silhouette inside a security triangle (SystemSecurityTriangleIcon) for clearer visual distinction from general settings.',
+      'Ensured seamless rendering across the expanded accordion, collapsed desktop rail, floating flyout submenu, and both Light and Dark themes.'
+    ]
+  },
   {
     version: '1.425.12',
     releaseDate: '2026-11-15',
