@@ -377,7 +377,7 @@
 
 > [!CRITICAL]
 > **قانون الزام یکپارچگی بصری، خوانایی مطلق و سلسله‌مراتب CSS در تم روشن (MANDATORY LIGHT MODE CONTRAST & CSS ARCHITECTURE RULE)**
-> هر هوش مصنوعی یا توسعه‌دهنده‌ای که کامپوننت، صفحه، مودال، جدول، تب، دکمه، بج یا استایل جدیدی به سامانه اضافه یا ویرایش می‌کند، **موظف است بدون استثنا تمامی اصول ۵گانه طراحی تم روشن (`.theme-light`) در `src/index.css` و فایل‌های TSX را رعایت نماید**:
+> هر هوش مصنوعی یا توسعه‌دهنده‌ای که کامپوننت، صفحه، مودال، جدول، تب، دکمه، بج یا استایل جدیدی به سامانه اضافه یا ویرایش می‌کند، **موظف است بدون استثنا تمامی اصول ۶گانه طراحی تم روشن (`.theme-light`) در `src/index.css` و فایل‌های TSX را رعایت نماید**:
 > 
 > 1. **انضباط اختصاص‌پذیری CSS با `:where()` (Strict `:where()` Specificity Hygiene in `src/index.css`)**:
 >    - قوانین پایه تم روشن برای متن‌ها و سطوح تیره (`.theme-light :where(h1..h6, p, span, label, .text-white, .text-slate-100):not(:where(...))`) باید **همواره** در بلوک کم‌وزن `:where()` و `:not(:where())` نوشته شوند (وزن `(0,1,0)`).
@@ -400,6 +400,11 @@
 > 5. **بج‌های معنایی و انطباق دوتمی (Semantic Port/Vendor Badges)**:
 >    - بج‌های مشخصات پورت و جدول (`.port-mode-badge-trunk` / `[data-badge="port-mode-trunk"]` به رنگ بنفش `#7c3aed`، `.port-mode-badge-access` / `[data-badge="port-mode-access"]` به رنگ نیلی `#4f46e5`، `[data-badge="vlan-tag"]` و `.vendor-badge-*`) باید استایل صریح و کنتراست کامل (فونت سفید بولد روی بج‌های جامد و متن تیره روی بج‌های وندور پاستلی) در هر دو تم تیره و روشن داشته باشند.
 > 
+> 6. **دکمه‌های سوییچ، تاگل‌های چک‌باکس، نوارهای انتخاب دو/چندحالته و ممنوعیت فونت سفید هاردکد (Segmented Switchers, Toggle Pills, Checkboxes & Zero Hardcoded Inline White)**:
+>    - تمامی دکمه‌های سوییچ، فیلترها و کنترل‌های چندحالته دارای پس‌زمینه خنثی (`Card` / `Physical`، `Select` / `Cable`، `Schematic` / `Physical Topology`، تب‌های فیلتر `All / Up / Down` و نظایر آن) و دکمه‌ها/چک‌باکس‌های کنترلی (`Data Flow`، `Notes`، `Add Note`، `Show/Hide Toolbar` و چک‌باکس‌های فرم‌ها) **باید در تم روشن برای حالت غیرفعال و سطوح روشن/پاستلی همواره دارای متن و آیکون کاملاً تیره/مشکی (`#0f172a` / `#000000` یا هم‌خانواده بسیار تیره نظیر `#451a03` روی آمبر پاستلی `Add Note`) باشند** تا روی زمینه روشن زیرشان کاملاً خوانا و شارپ دیده شوند؛ متن سفید `#FFFFFF` فقط روی گزینه‌ی فعالِ دارای گرادینت یا رنگ اشباع‌شده (`-500`/`-600`/`-700`) مجاز است.
+>    - درج `style={{ color: '#ffffff' }}`، کلاس اجباری `!text-white`، کلاس `text-white` ثابت روی حالت غیرفعال، یا اعمال `.force-white-text` / `.toolbar-dark-*` سفیدکننده درون `.theme-light` بر روی دکمه‌ها، سوییچ‌ها و چک‌باکس‌های سازگار با تم **اکیداً ممنوع** است (این روش فقط در ویجت‌های سخت‌افزاری ذاتاً تیره نظیر `NetworkPortSvg` و `RackCabinetSvg` مجاز است).
+>    - در تم روشن، هاور دکمه‌های سوییچ غیرفعال دارای `hover:text-white` یا `hover:bg-white/10` نباید باعث سفید شدن متن روی زمینه روشن شود و باید با زمینه هاور ملایم (`#e2e8f0`) و متن مشکی/تیره (`#0f172a`) رندر شود.
+> 
 > ---
 > 
 > **English Directive:**
@@ -408,6 +413,7 @@
 > 3. **Light Pastel Conversion for Translucent Surfaces (`/5`–`/40`)**: Translucent tinted pills, filter tabs, and alert banners (`bg-*-500/10`..`bg-*-600/40`) must resolve in Light Mode to crisp light pastel fills paired with deep matching foreground text and clear borders.
 > 4. **Protected Dark Hardware Widgets & Zero Wildcard Background Bleed**: While normal dark containers (`slate`/`gray`/`zinc` & `-900`/`-950`) flatten to Light Mode surfaces, intentionally dark widgets (`.switch-faceplate-chassis`, `NetworkPortSvg`, `.rack-cabinet-dark`, `.tower-cabinet-dark`, `.cisco-terminal-header-btn`, `.cisco-terminal-screen`, `.xterm`, `.dark-terminal-box`, `.template-code-preview`) MUST preserve dark backgrounds and bright/white typography. Never apply `background-color` to `*` descendants inside container rules.
 > 5. **Explicit Dual-Theme Semantic Badges**: Structural badges (`.port-mode-badge-trunk`, `.port-mode-badge-access`, `[data-badge="vlan-tag"]`, `.vendor-badge-*`) must enforce explicit, high-contrast background, border, and font rules in both Dark and Light modes.
+> 6. **Segmented Switchers, Toggle Pills, Checkboxes & Ban on Inline `#ffffff` / `!text-white` in Light Mode**: Inactive segmented switch buttons (`Card` / `Physical`, `Select` / `Cable`, `Schematic` / `Physical Topology`, filter pill bars), checkbox toggle pills (`Data Flow`, `Notes`), pastel toggle buttons (`Add Note`), and neutral toolbar toggles (`Show/Hide Toolbar`) sitting on light/lightened backgrounds MUST ALWAYS render crisp dark/black text & icons (`#0f172a` / `#000000`, or deep `#451a03` on pastel amber) in Light Mode — while ONLY active solid/gradient switched buttons keep `#FFFFFF`. Inline `style={{ color: '#ffffff' }}`, `!text-white`, unconditional `text-white` on inactive pills, and Light Mode white-forcing `.force-white-text` / `.toolbar-dark-*` overrides are STRICTLY FORBIDDEN on theme-adaptive controls (permitted only inside protected dark hardware widgets). Neutral `hover:text-white` on inactive pills must resolve to `#0f172a` on hover in `.theme-light`, and `<input type="checkbox">` must never be stripped of its checked fill by dark input overrides.
 
 
 

@@ -5888,37 +5888,55 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         <div className="p-2 sm:px-4 spatial-glass border-b border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs z-20 shadow-xl backdrop-blur-xl">
           {/* View Switcher */}
           <div className="flex flex-wrap items-center gap-2 max-w-full">
-            <div className="flex flex-wrap items-center gap-1 bg-slate-900/60 rounded-xl p-1 border border-white/10 max-w-full">
+            <div
+              className={`flex flex-wrap items-center gap-1 rounded-xl p-1 border max-w-full ${
+                isLightMode
+                  ? 'bg-slate-100 border-slate-300 shadow-inner'
+                  : 'bg-slate-900/60 border-white/10'
+              }`}
+            >
               <button
                 onClick={() => setViewMode('schematic')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
                   viewMode === 'schematic'
                     ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md font-semibold'
-                    : 'text-white hover:text-white hover:bg-white/10'
+                    : isLightMode
+                    ? 'text-slate-900 hover:text-black hover:bg-slate-200/80'
+                    : 'text-slate-200 hover:text-white hover:bg-white/10'
                 }`}
               >
-                <Layers className="w-3.5 h-3.5 text-white" />
-                <span className="text-white">{t('topology_tab_schematic')}</span>
+                <Layers className="w-3.5 h-3.5" />
+                <span>{t('topology_tab_schematic')}</span>
               </button>
               <button
                 onClick={() => setViewMode('physical')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
                   viewMode === 'physical'
                     ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md font-semibold'
-                    : 'text-white hover:text-white hover:bg-white/10'
+                    : isLightMode
+                    ? 'text-slate-900 hover:text-black hover:bg-slate-200/80'
+                    : 'text-slate-200 hover:text-white hover:bg-white/10'
                 }`}
               >
-                <Building2 className="w-3.5 h-3.5 text-white" />
-                <span className="text-white">{t('topology_tab_physical')}</span>
+                <Building2 className="w-3.5 h-3.5" />
+                <span>{t('topology_tab_physical')}</span>
               </button>
             </div>
 
-            <label className="hidden md:flex items-center gap-1.5 text-slate-300 text-xs cursor-pointer mx-2">
+            <label
+              className={`hidden md:flex items-center gap-1.5 text-xs cursor-pointer mx-2 ${
+                isLightMode ? 'text-slate-900 font-medium' : 'text-slate-300'
+              }`}
+            >
               <input
                 type="checkbox"
                 checked={showPortLabels}
                 onChange={(e) => setShowPortLabels(e.target.checked)}
-                className="w-3.5 h-3.5 rounded text-indigo-500 bg-slate-900 border-white/20 focus:ring-indigo-500"
+                className={`w-3.5 h-3.5 rounded focus:ring-indigo-500 cursor-pointer ${
+                  isLightMode
+                    ? 'text-indigo-600 accent-indigo-600 bg-white border-slate-400'
+                    : 'text-indigo-500 bg-slate-900 border-white/20'
+                }`}
               />
               <span>{t('topology_show_ports')}</span>
             </label>
@@ -5926,19 +5944,30 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             {/* Live Data Traffic Flow Animation Toggle */}
             <label
               data-component="data-flow-toggle"
-              className="hidden sm:flex items-center gap-1.5 text-xs cursor-pointer mx-1 select-none px-2.5 py-1.5 rounded-lg bg-slate-800/90 hover:bg-slate-800 border border-white/20 transition shadow-xs"
-              style={{ color: '#ffffff' }}
+              className={`hidden sm:flex items-center gap-1.5 text-xs cursor-pointer mx-1 select-none px-2.5 py-1.5 rounded-lg border transition shadow-xs ${
+                isLightMode
+                  ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-900 font-semibold'
+                  : 'bg-slate-800/90 hover:bg-slate-800 border-white/20 text-white font-medium'
+              }`}
               title={isEn ? 'Toggle live animated data flow packets between connected devices' : 'فعال/غیرفعال‌سازی انیمیشن انتقال زنده داده بین تجهیزات متصل'}
             >
               <input
                 type="checkbox"
                 checked={showTrafficAnimation}
                 onChange={(e) => setShowTrafficAnimation(e.target.checked)}
-                className="w-3.5 h-3.5 rounded text-cyan-400 bg-slate-900 border-white/30 focus:ring-cyan-400 cursor-pointer"
+                className={`w-3.5 h-3.5 rounded focus:ring-cyan-500 cursor-pointer ${
+                  isLightMode
+                    ? 'text-cyan-600 accent-cyan-600 bg-white border-slate-400'
+                    : 'text-cyan-400 bg-slate-900 border-white/30'
+                }`}
               />
-              <span className="flex items-center gap-1.5" style={{ color: '#ffffff' }}>
-                <Activity className={`w-3.5 h-3.5 text-white ${showTrafficAnimation ? 'animate-pulse' : ''}`} style={{ color: '#ffffff' }} />
-                <span className="text-white font-medium !text-white" style={{ color: '#ffffff' }}>
+              <span className="flex items-center gap-1.5">
+                <Activity
+                  className={`w-3.5 h-3.5 ${
+                    isLightMode ? 'text-cyan-700' : 'text-white'
+                  } ${showTrafficAnimation ? 'animate-pulse' : ''}`}
+                />
+                <span className={isLightMode ? 'text-slate-900 font-semibold' : 'text-white font-medium'}>
                   {isEn ? 'Data Flow' : 'جریان داده'}
                 </span>
               </span>
@@ -6226,7 +6255,13 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             {/* Custom Map Tools: Select Tool, Cable Tool, Add Device, Clear Links */}
             {currentCustomMap && (
               <div className="flex items-center flex-wrap gap-2">
-                <div className="flex flex-wrap items-center gap-1 bg-slate-800/90 rounded-xl p-1 border border-white/15 shadow-inner toolbar-dark-pill force-white-text max-w-full">
+                <div
+                  className={`flex flex-wrap items-center gap-1 rounded-xl p-1 border shadow-inner max-w-full ${
+                    isLightMode
+                      ? 'bg-slate-100 border-slate-300'
+                      : 'bg-slate-800/90 border-white/15'
+                  }`}
+                >
                   <button
                     type="button"
                     onClick={() => {
@@ -6236,11 +6271,13 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
                       activeTool === 'select'
                         ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-xs font-semibold'
-                        : 'text-white hover:text-white hover:bg-white/15'
+                        : isLightMode
+                        ? 'text-slate-900 hover:text-black hover:bg-slate-200/80'
+                        : 'text-slate-200 hover:text-white hover:bg-white/15'
                     }`}
                   >
-                    <MousePointer className="w-3.5 h-3.5 text-white" />
-                    <span className="text-white font-medium" style={{ color: '#ffffff' }}>{t('topology_tool_select')}</span>
+                    <MousePointer className="w-3.5 h-3.5" />
+                    <span className="font-medium">{t('topology_tool_select')}</span>
                   </button>
                   {globalDeviceViewMode === 'card' && (
                     <button
@@ -6252,11 +6289,13 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                       className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
                         activeTool === 'cable'
                           ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-xs font-bold animate-pulse'
-                          : 'text-white hover:text-white hover:bg-white/15'
+                          : isLightMode
+                          ? 'text-slate-900 hover:text-black hover:bg-slate-200/80'
+                          : 'text-slate-200 hover:text-white hover:bg-white/15'
                       }`}
                     >
-                      <Cable className="w-3.5 h-3.5 text-white" />
-                      <span className="text-white font-medium" style={{ color: '#ffffff' }}>{t('topology_tool_cable')}</span>
+                      <Cable className="w-3.5 h-3.5" />
+                      <span className="font-medium">{t('topology_tool_cable')}</span>
                     </button>
                   )}
                 </div>
@@ -6288,20 +6327,28 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 )}
 
                 {/* Global Device Display Mode: Card (Cabling) vs Physical (Chassis/Rackmount) */}
-                <div data-component="device-view-mode-toggle" className="flex flex-wrap items-center gap-1 bg-slate-800/90 rounded-xl p-1 border border-white/15 shadow-inner max-w-full">
+                <div
+                  data-component="device-view-mode-toggle"
+                  className={`flex flex-wrap items-center gap-1 rounded-xl p-1 border shadow-inner max-w-full ${
+                    isLightMode
+                      ? 'bg-slate-100 border-slate-300'
+                      : 'bg-slate-800/90 border-white/15'
+                  }`}
+                >
                   <button
                     type="button"
                     onClick={() => setGlobalDeviceViewMode('card')}
                     className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
                       globalDeviceViewMode === 'card'
                         ? 'bg-gradient-to-r from-sky-600 to-indigo-600 text-white shadow-xs font-semibold'
-                        : 'text-white hover:text-white hover:bg-white/15 opacity-90 hover:opacity-100'
+                        : isLightMode
+                        ? 'text-slate-900 hover:text-black hover:bg-slate-200/80'
+                        : 'text-slate-200 hover:text-white hover:bg-white/15 opacity-90 hover:opacity-100'
                     }`}
-                    style={{ color: '#ffffff' }}
                     title={isEn ? 'Card Mode (For port cabling & connections)' : 'نمای کارتی (برای کابل‌کشی و اتصالات پورت‌ها)'}
                   >
-                    <CreditCard className="w-3.5 h-3.5 text-white" style={{ color: '#ffffff' }} />
-                    <span className="!text-white font-medium" style={{ color: '#ffffff' }}>{isEn ? 'Card' : 'کارت'}</span>
+                    <CreditCard className="w-3.5 h-3.5" />
+                    <span className="font-medium">{isEn ? 'Card' : 'کارت'}</span>
                   </button>
                   <button
                     type="button"
@@ -6314,38 +6361,59 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
                       globalDeviceViewMode === 'physical'
                         ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-xs font-semibold'
-                        : 'text-white hover:text-white hover:bg-white/15 opacity-90 hover:opacity-100'
+                        : isLightMode
+                        ? 'text-slate-900 hover:text-black hover:bg-slate-200/80'
+                        : 'text-slate-200 hover:text-white hover:bg-white/15 opacity-90 hover:opacity-100'
                     }`}
-                    style={{ color: '#ffffff' }}
                     title={isEn ? 'Physical Mode (Photorealistic chassis for rack mounting)' : 'نمای سخت‌افزار (شاسی واقعی جهت نصب در رک)'}
                   >
-                    <Server className="w-3.5 h-3.5 text-white" style={{ color: '#ffffff' }} />
-                    <span className="!text-white font-medium" style={{ color: '#ffffff' }}>{isEn ? 'Physical' : 'فیزیکی'}</span>
+                    <Server className="w-3.5 h-3.5" />
+                    <span className="font-medium">{isEn ? 'Physical' : 'فیزیکی'}</span>
                   </button>
                 </div>
 
                 {/* Sticky Notes Toggle & Add Note */}
-                <div data-component="sticky-note-controls" className="flex flex-wrap items-center gap-1.5 bg-slate-800/90 rounded-xl px-2.5 py-1 border border-white/15 max-w-full">
-                  <label className="flex items-center gap-1.5 cursor-pointer text-xs select-none">
+                <div
+                  data-component="sticky-note-controls"
+                  className={`flex flex-wrap items-center gap-1.5 rounded-xl px-2.5 py-1 border max-w-full ${
+                    isLightMode
+                      ? 'bg-slate-100 border-slate-300'
+                      : 'bg-slate-800/90 border-white/15'
+                  }`}
+                >
+                  <label
+                    className={`flex items-center gap-1.5 cursor-pointer text-xs select-none ${
+                      isLightMode ? 'text-slate-900 font-semibold' : 'text-white font-medium'
+                    }`}
+                  >
                     <input
                       type="checkbox"
                       checked={showStickyNotes}
                       onChange={toggleShowStickyNotes}
-                      className="w-3.5 h-3.5 rounded text-amber-500 bg-slate-900 border-white/20 focus:ring-amber-500 cursor-pointer"
+                      className={`w-3.5 h-3.5 rounded focus:ring-amber-500 cursor-pointer ${
+                        isLightMode
+                          ? 'text-amber-600 accent-amber-600 bg-white border-slate-400'
+                          : 'text-amber-500 bg-slate-900 border-white/20'
+                      }`}
                     />
-                    <StickyNote className="w-3.5 h-3.5 text-amber-400" />
-                    <span className="!text-white font-medium" style={{ color: '#ffffff' }}>{isEn ? 'Notes' : 'یادداشت‌ها'}</span>
+                    <StickyNote className={`w-3.5 h-3.5 ${isLightMode ? 'text-amber-600' : 'text-amber-400'}`} />
+                    <span className={isLightMode ? 'text-slate-900 font-semibold' : 'text-white font-medium'}>
+                      {isEn ? 'Notes' : 'یادداشت‌ها'}
+                    </span>
                   </label>
                   {showStickyNotes && (
                     <button
                       type="button"
                       onClick={handleAddStickyNote}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/30 hover:bg-amber-500/40 text-white hover:text-white border border-amber-400/40 transition text-[11px] active:scale-95 font-medium ml-1 cursor-pointer"
-                      style={{ color: '#ffffff' }}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border transition text-[11px] active:scale-95 font-semibold ml-1 cursor-pointer ${
+                        isLightMode
+                          ? 'bg-amber-100 hover:bg-amber-200 text-amber-950 border-amber-400'
+                          : 'bg-amber-500/30 hover:bg-amber-500/40 text-white hover:text-white border-amber-400/40'
+                      }`}
                       title={isEn ? 'Add new sticky note on canvas' : 'افزودن یادداشت استیکی جدید روی نقشه'}
                     >
-                      <Plus className="w-3 h-3 text-white" style={{ color: '#ffffff' }} />
-                      <span className="!text-white font-medium" style={{ color: '#ffffff' }}>{isEn ? 'Add Note' : 'افزودن'}</span>
+                      <Plus className="w-3 h-3" />
+                      <span>{isEn ? 'Add Note' : 'افزودن'}</span>
                     </button>
                   )}
                 </div>
@@ -6504,10 +6572,14 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowToolbarInFullMode((prev) => !prev)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-white/25 hover:border-white/40 text-xs text-white font-medium shadow-xl backdrop-blur-xl transition active:scale-95 cursor-pointer toolbar-dark-btn force-white-text"
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold shadow-xl backdrop-blur-xl transition active:scale-95 cursor-pointer ${
+                      isLightMode
+                        ? 'bg-white/95 hover:bg-slate-100 border-slate-300 text-slate-900'
+                        : 'bg-slate-900/90 hover:bg-slate-800 border-white/25 hover:border-white/40 text-white'
+                    }`}
                     title={showToolbarInFullMode ? t('topology_hide_toolbar') : t('topology_show_toolbar')}
                   >
-                    <span className="text-white font-medium" style={{ color: '#ffffff' }}>{showToolbarInFullMode ? t('topology_hide_toolbar') : t('topology_show_toolbar')}</span>
+                    <span>{showToolbarInFullMode ? t('topology_hide_toolbar') : t('topology_show_toolbar')}</span>
                   </button>
 
                   <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-mono backdrop-blur-md">
@@ -7504,12 +7576,16 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsLegendOpen(true)}
-                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-white/20 hover:border-cyan-400/50 text-slate-200 hover:text-white shadow-2xl backdrop-blur-2xl text-xs font-medium transition active:scale-95 group"
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border shadow-2xl backdrop-blur-2xl text-xs font-medium transition active:scale-95 group cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white/95 hover:bg-slate-100 border-slate-300 hover:border-cyan-500 text-slate-900 hover:text-black'
+                      : 'bg-slate-900/90 hover:bg-slate-800 border-white/20 hover:border-cyan-400/50 text-slate-200 hover:text-white'
+                  }`}
                   title={t('topology_legend_expand')}
                 >
-                  <Info className="w-4 h-4 text-cyan-400 group-hover:rotate-12 transition-transform" />
+                  <Info className={`w-4 h-4 group-hover:rotate-12 transition-transform ${isLightMode ? 'text-cyan-600' : 'text-cyan-400'}`} />
                   <span>{t('topology_legend_title')}</span>
-                  <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                  <ChevronUp className={`w-3.5 h-3.5 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`} />
                 </button>
               ) : (
                 <div className="spatial-glass border border-white/15 backdrop-blur-2xl rounded-2xl p-3 sm:p-3.5 shadow-[0_10px_35px_rgba(0,0,0,0.6)] text-xs text-slate-200 min-w-[280px] sm:min-w-[340px] max-w-sm transition-all duration-200">

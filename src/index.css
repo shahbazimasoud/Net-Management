@@ -961,29 +961,46 @@
 .theme-light .text-orange-300,
 .theme-light .text-orange-400 { color: #c2410c !important; }
 
-/* Preserve white text for dark buttons, pills, and toolbars in light theme */
-.theme-light .toolbar-dark-pill,
-.theme-light .toolbar-dark-pill button,
-.theme-light .toolbar-dark-pill button span,
-.theme-light .toolbar-dark-pill button svg,
+/* Light Theme Segmented Switchers, Toolbars & Neutral Hover Contrast */
+.theme-light .toolbar-dark-pill {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.theme-light .toolbar-dark-pill button:not(:where([class*="from-"], [class*="bg-gradient"], [class*="bg-indigo-5"], [class*="bg-indigo-6"], [class*="bg-indigo-7"], [class*="bg-purple-5"], [class*="bg-purple-6"], [class*="bg-purple-7"], [class*="bg-cyan-5"], [class*="bg-cyan-6"], [class*="bg-sky-5"], [class*="bg-sky-6"], [class*="bg-blue-5"], [class*="bg-blue-6"], [class*="bg-emerald-5"], [class*="bg-emerald-6"], [class*="bg-teal-5"], [class*="bg-teal-6"])),
+.theme-light .toolbar-dark-pill button:not(:where([class*="from-"], [class*="bg-gradient"], [class*="bg-indigo-5"], [class*="bg-indigo-6"], [class*="bg-indigo-7"], [class*="bg-purple-5"], [class*="bg-purple-6"], [class*="bg-purple-7"], [class*="bg-cyan-5"], [class*="bg-cyan-6"], [class*="bg-sky-5"], [class*="bg-sky-6"], [class*="bg-blue-5"], [class*="bg-blue-6"], [class*="bg-emerald-5"], [class*="bg-emerald-6"], [class*="bg-teal-5"], [class*="bg-teal-6"])) *,
 .theme-light .toolbar-dark-btn,
 .theme-light .toolbar-dark-btn span,
-.theme-light .toolbar-dark-btn svg,
-.theme-light .force-white-text,
-.theme-light .force-white-text * {
+.theme-light .toolbar-dark-btn svg {
+  color: #0f172a !important;
+}
+
+.theme-light .toolbar-dark-btn {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+.theme-light .toolbar-dark-btn:hover,
+.theme-light .toolbar-dark-pill button:not(:where([class*="from-"], [class*="bg-gradient"], [class*="bg-indigo-5"], [class*="bg-indigo-6"], [class*="bg-indigo-7"], [class*="bg-purple-5"], [class*="bg-purple-6"], [class*="bg-purple-7"], [class*="bg-cyan-5"], [class*="bg-cyan-6"], [class*="bg-sky-5"], [class*="bg-sky-6"], [class*="bg-blue-5"], [class*="bg-blue-6"], [class*="bg-emerald-5"], [class*="bg-emerald-6"], [class*="bg-teal-5"], [class*="bg-teal-6"])):hover {
+  background-color: #e2e8f0 !important;
+  color: #000000 !important;
+}
+
+.theme-light .toolbar-dark-pill button:where([class*="from-"], [class*="bg-gradient"], [class*="bg-indigo-6"], [class*="bg-purple-6"], [class*="bg-cyan-6"], [class*="bg-sky-6"], [class*="bg-blue-6"], [class*="bg-emerald-6"], [class*="bg-teal-6"]),
+.theme-light .toolbar-dark-pill button:where([class*="from-"], [class*="bg-gradient"], [class*="bg-indigo-6"], [class*="bg-purple-6"], [class*="bg-cyan-6"], [class*="bg-sky-6"], [class*="bg-blue-6"], [class*="bg-emerald-6"], [class*="bg-teal-6"]) * {
   color: #ffffff !important;
 }
 
-.theme-light .toolbar-dark-pill button:not([class*="from-"]):not([class*="bg-indigo-"]):not([class*="bg-gradient"]) {
-  color: #ffffff !important;
+/* Protect neutral/inactive switch & filter buttons from turning white-on-light on hover in Light Mode */
+.theme-light :where(button, a, label).hover\:text-white:not(:where([class*="from-"], [class*="bg-gradient"], [class*="bg-indigo-5"], [class*="bg-indigo-6"], [class*="bg-indigo-7"], [class*="bg-purple-5"], [class*="bg-purple-6"], [class*="bg-purple-7"], [class*="bg-violet-5"], [class*="bg-violet-6"], [class*="bg-blue-5"], [class*="bg-blue-6"], [class*="bg-blue-7"], [class*="bg-sky-5"], [class*="bg-sky-6"], [class*="bg-cyan-5"], [class*="bg-cyan-6"], [class*="bg-cyan-7"], [class*="bg-teal-5"], [class*="bg-teal-6"], [class*="bg-emerald-5"], [class*="bg-emerald-6"], [class*="bg-green-5"], [class*="bg-green-6"], [class*="bg-rose-5"], [class*="bg-rose-6"], [class*="bg-red-5"], [class*="bg-red-6"], [class*="bg-amber-5"], [class*="bg-amber-6"], [class*="bg-orange-5"], [class*="bg-orange-6"], [class*="hover:bg-indigo-"], [class*="hover:bg-purple-"], [class*="hover:bg-blue-"], [class*="hover:bg-cyan-"], [class*="hover:bg-emerald-"], [class*="hover:bg-green-"], [class*="hover:bg-rose-"], [class*="hover:bg-red-"], [class*="hover:bg-amber-"], [class*="hover:bg-orange-"], [class*="hover:bg-slate-9"], .rack-btn-props, .rack-btn-config, .rack-btn-cli, .fixed.bottom-6 *, .switch-faceplate-chassis *, .rack-cabinet-dark *, .tower-cabinet-dark *)):hover,
+.theme-light :where(button, a, label).hover\:text-white:not(:where([class*="from-"], [class*="bg-gradient"], [class*="bg-indigo-5"], [class*="bg-indigo-6"], [class*="bg-indigo-7"], [class*="bg-purple-5"], [class*="bg-purple-6"], [class*="bg-purple-7"], [class*="bg-violet-5"], [class*="bg-violet-6"], [class*="bg-blue-5"], [class*="bg-blue-6"], [class*="bg-blue-7"], [class*="bg-sky-5"], [class*="bg-sky-6"], [class*="bg-cyan-5"], [class*="bg-cyan-6"], [class*="bg-cyan-7"], [class*="bg-teal-5"], [class*="bg-teal-6"], [class*="bg-emerald-5"], [class*="bg-emerald-6"], [class*="bg-green-5"], [class*="bg-green-6"], [class*="bg-rose-5"], [class*="bg-rose-6"], [class*="bg-red-5"], [class*="bg-red-6"], [class*="bg-amber-5"], [class*="bg-amber-6"], [class*="bg-orange-5"], [class*="bg-orange-6"], [class*="hover:bg-indigo-"], [class*="hover:bg-purple-"], [class*="hover:bg-blue-"], [class*="hover:bg-cyan-"], [class*="hover:bg-emerald-"], [class*="hover:bg-green-"], [class*="hover:bg-rose-"], [class*="hover:bg-red-"], [class*="hover:bg-amber-"], [class*="hover:bg-orange-"], [class*="hover:bg-slate-9"], .rack-btn-props, .rack-btn-config, .rack-btn-cli, .fixed.bottom-6 *, .switch-faceplate-chassis *, .rack-cabinet-dark *, .tower-cabinet-dark *)):hover * {
+  color: #0f172a !important;
 }
 
-.theme-light .toolbar-dark-pill button:not([class*="from-"]):not([class*="bg-indigo-"]):not([class*="bg-gradient"]) span {
-  color: #ffffff !important;
-}
-
-.theme-light .toolbar-dark-pill button:not([class*="from-"]):not([class*="bg-indigo-"]):not([class*="bg-gradient"]) svg {
-  color: #ffffff !important;
+.theme-light :where(.hover\:bg-slate-800, .hover\:bg-slate-700, .hover\:bg-white\/10, .hover\:bg-white\/15):not(:where([class*="from-"], [class*="bg-gradient"], [class*="bg-indigo-5"], [class*="bg-indigo-6"], [class*="bg-purple-5"], [class*="bg-purple-6"], [class*="bg-blue-5"], [class*="bg-blue-6"], [class*="bg-cyan-5"], [class*="bg-cyan-6"], [class*="bg-emerald-5"], [class*="bg-emerald-6"], [class*="bg-rose-5"], [class*="bg-rose-6"], [class*="bg-amber-5"], [class*="bg-amber-6"], .fixed.bottom-6 *, .switch-faceplate-chassis *, .rack-cabinet-dark *, .tower-cabinet-dark *, .cisco-terminal-header-btn)):hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
 }
 
 /* Rack Cabinet Light Mode Overrides */
@@ -1698,9 +1715,9 @@
   border-color: #cbd5e1 !important;
 }
 
-.theme-light input[class*="bg-slate-900"],
-.theme-light input[class*="bg-slate-950"],
-.theme-light input[class*="bg-slate-800"],
+.theme-light input:not([type="checkbox"]):not([type="radio"])[class*="bg-slate-900"],
+.theme-light input:not([type="checkbox"]):not([type="radio"])[class*="bg-slate-950"],
+.theme-light input:not([type="checkbox"]):not([type="radio"])[class*="bg-slate-800"],
 .theme-light select[class*="bg-slate-900"],
 .theme-light select[class*="bg-slate-950"],
 .theme-light select[class*="bg-slate-800"],
@@ -1710,6 +1727,10 @@
   background-color: #ffffff !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
+}
+
+.theme-light input[type="checkbox"] {
+  border-color: #94a3b8 !important;
 }
 
 .theme-light input[class*="bg-slate-900"]::placeholder,
@@ -2797,38 +2818,85 @@
   transform: scale(1.04);
 }
 
-/* Force White Text on Dark Badges / Pills in Light Mode */
-.force-white-text,
-.force-white-text * {
+/* Force White Text Only in Dark Themes or on Saturated Solid Pills */
+:not(.theme-light) .force-white-text,
+:not(.theme-light) .force-white-text * {
   color: #ffffff !important;
 }
 
-/* Data Flow Toggle - White Icon and White Text */
-.theme-light [data-component="data-flow-toggle"],
-.theme-light [data-component="data-flow-toggle"] *,
-[data-component="data-flow-toggle"],
-[data-component="data-flow-toggle"] * {
+/* Data Flow Toggle - White in Dark Mode, Crisp Dark Ink on Light Surface in Light Mode */
+:not(.theme-light) [data-component="data-flow-toggle"],
+:not(.theme-light) [data-component="data-flow-toggle"] * {
   color: #ffffff !important;
 }
 
-/* Device View Mode Switcher (Card / Physical) in Light Mode */
-.theme-light [data-component="device-view-mode-toggle"] button,
-.theme-light [data-component="device-view-mode-toggle"] button *,
-[data-component="device-view-mode-toggle"] button,
-[data-component="device-view-mode-toggle"] button * {
+.theme-light [data-component="data-flow-toggle"] {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.theme-light [data-component="data-flow-toggle"] span,
+.theme-light [data-component="data-flow-toggle"] svg {
+  color: #0f172a !important;
+}
+
+.theme-light [data-component="data-flow-toggle"]:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* Device View Mode Switcher (Card / Physical) - Dark Ink on Inactive Pill, White ONLY on Active Gradient in Light Mode */
+:not(.theme-light) [data-component="device-view-mode-toggle"] button,
+:not(.theme-light) [data-component="device-view-mode-toggle"] button * {
   color: #ffffff !important;
 }
 
-/* Sticky Note Controls & Add Note Button in Light Mode */
-.theme-light [data-component="sticky-note-controls"] button,
-.theme-light [data-component="sticky-note-controls"] button *,
+.theme-light [data-component="device-view-mode-toggle"] {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+.theme-light [data-component="device-view-mode-toggle"] button:not([class*="from-"]):not([class*="bg-gradient"]),
+.theme-light [data-component="device-view-mode-toggle"] button:not([class*="from-"]):not([class*="bg-gradient"]) * {
+  color: #0f172a !important;
+}
+
+.theme-light [data-component="device-view-mode-toggle"] button:not([class*="from-"]):not([class*="bg-gradient"]):hover,
+.theme-light [data-component="device-view-mode-toggle"] button:not([class*="from-"]):not([class*="bg-gradient"]):hover * {
+  background-color: #e2e8f0 !important;
+  color: #000000 !important;
+}
+
+.theme-light [data-component="device-view-mode-toggle"] button[class*="from-"],
+.theme-light [data-component="device-view-mode-toggle"] button[class*="from-"] * {
+  color: #ffffff !important;
+}
+
+/* Sticky Note Controls (Notes Checkbox & Add Note Button) - High-Contrast Dark Ink in Light Mode */
+:not(.theme-light) [data-component="sticky-note-controls"] button,
+:not(.theme-light) [data-component="sticky-note-controls"] button *,
+:not(.theme-light) [data-component="sticky-note-controls"] label,
+:not(.theme-light) [data-component="sticky-note-controls"] label * {
+  color: #ffffff !important;
+}
+
+.theme-light [data-component="sticky-note-controls"] {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
 .theme-light [data-component="sticky-note-controls"] label,
-.theme-light [data-component="sticky-note-controls"] label *,
-[data-component="sticky-note-controls"] button,
-[data-component="sticky-note-controls"] button *,
-[data-component="sticky-note-controls"] label,
-[data-component="sticky-note-controls"] label * {
-  color: #ffffff !important;
+.theme-light [data-component="sticky-note-controls"] label span {
+  color: #0f172a !important;
+}
+
+.theme-light [data-component="sticky-note-controls"] label svg {
+  color: #b45309 !important;
+}
+
+.theme-light [data-component="sticky-note-controls"] button,
+.theme-light [data-component="sticky-note-controls"] button * {
+  color: #451a03 !important;
 }
 
 /* Release Notes Modal Header and Typography in Light Mode */

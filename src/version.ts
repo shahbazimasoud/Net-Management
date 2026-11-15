@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.13';
+export const APP_VERSION = '1.425.14';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.14',
+    releaseDate: '2026-11-15',
+    type: 'patch',
+    title: 'اصلاح کنتراست و خوانایی دکمه‌های سوییچ و تاگل‌ها (Card/Physical، Notes/Add Note، Data Flow و فیلترها) در تم روشن + تدوین قانون رسمی',
+    title_en: 'Fix Light Mode Dark Ink Contrast on Segmented Switchers, Checkboxes & Toggle Pills (Card/Physical, Notes/Add Note, Data Flow) and Codify Rule',
+    changes: [
+      'رفع مشکل ناخوانایی و نمایش فونت سفید روی زمینه روشن برای دکمه‌های سوییچ و تاگل‌های کنترلی توپولوژی و صفحات پنل در تم روشن شامل دکمه‌های سوییچ Card / Physical، Select / Cable، Schematic / Physical Topology، تاگل‌های چک‌باکس Data Flow و Notes، دکمه Add Note، دکمه Show/Hide Toolbar و Legend.',
+      'حذف کامل استایل‌های هاردکدشده سفید (inline style color: #ffffff و کلاس !text-white) و اصلاح قواعد .toolbar-dark-pill، .toolbar-dark-btn، .force-white-text و هاور دکمه‌های غیرفعال (hover:text-white) در src/index.css به‌گونه‌ای که گزینه‌های غیرفعال و چک‌باکس‌ها روی پس‌زمینه روشن همیشه متن و آیکون کاملاً تیره/مشکی (#0f172a / #451a03) داشته باشند و فقط دکمه فعال رنگی/گرادینت‌دار متن سفید حفظ کند.',
+      'اصلاح محافظت چک‌باکس‌های فرم (input[type="checkbox"]) در تم روشن تا حالت تیک‌خورده و کادر آن‌ها کاملاً واضح بماند.',
+      'تدوین و افزودن اصل ۶ در قانون شماره ۲۰ فایل‌های AGENTS.md، GEMINI.md، MODAL_GUIDELINES.md و AI_INSTRUCTIONS.md برای الزام رعایت فونت مشکی/تیره در دکمه‌های سوییچ غیرفعال، تاگل‌ها و پاستلی‌های تم روشن و ممنوعیت درج فونت سفید هاردکد.'
+    ],
+    changes_en: [
+      'Fixed unreadable white-on-light text in Light Mode across segmented switch controls, checkbox toggle pills, and neutral toolbar buttons including Card / Physical, Select / Cable, Schematic / Physical Topology, Data Flow, Notes, Add Note, Show/Hide Toolbar, and Legend toggles.',
+      'Removed hardcoded inline color: #ffffff and !text-white overrides and updated .toolbar-dark-pill, .toolbar-dark-btn, .force-white-text, [data-component] rules, and neutral hover:text-white selectors in src/index.css so inactive switches, checkbox labels, and pastel toggles always use crisp dark ink (#0f172a / #451a03) in Light Mode while active gradient pills keep #FFFFFF.',
+      'Excluded checkboxes and radios from Light Mode dark-input background flattening so checkbox checkmarks and borders remain sharp.',
+      'Codified Principle 6 in Rule 20 across AGENTS.md, GEMINI.md, MODAL_GUIDELINES.md, and AI_INSTRUCTIONS.md enforcing dark ink typography on Light Mode toggle/switch controls and banning inline #ffffff / !text-white overrides on theme-adaptive UI buttons.'
+    ]
+  },
   {
     version: '1.425.13',
     releaseDate: '2026-11-15',
