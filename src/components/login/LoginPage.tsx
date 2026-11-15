@@ -1312,17 +1312,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       {/* RIGHT 3/4 (70-75%): Interactive 3D Network Globe Animation or Custom Uploaded Image */}
       {/* Animation section preserves authentic dark cyber aesthetic */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex-1 h-full relative overflow-hidden hidden md:block bg-slate-950">
+      <div className="flex-1 h-full relative overflow-hidden hidden md:block bg-slate-950 login-showcase-panel">
         {(generalSettings?.loginVisualMode || 'animation') === 'image' ? (
           activeShowcaseImage ? (
-            <div className="relative w-full h-full bg-slate-950 overflow-hidden">
+            <div className="relative w-full h-full bg-slate-950 overflow-hidden login-showcase-image-wrap">
               <img
                 src={activeShowcaseImage.dataUrl}
                 alt={activeShowcaseImage.name || 'Login Showcase'}
                 className="w-full h-full object-cover object-center select-none"
                 draggable={false}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-slate-950/30 pointer-events-none" />
+              {!isLight && (
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-slate-950/30 pointer-events-none" />
+              )}
             </div>
           ) : (
             <div className="relative w-full h-full bg-slate-950 overflow-hidden flex items-center justify-center">

@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.14';
+export const APP_VERSION = '1.425.15';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.15',
+    releaseDate: '2026-11-15',
+    type: 'patch',
+    title: 'حذف هاله سفید و محافظت از نمایش اصلی تصویر صفحه لاگین در تم روشن (Light Mode)',
+    title_en: 'Remove Light Mode White Gradient Haze Over Login Showcase Image',
+    changes: [
+      'حذف لایه گرادینت سفید ناشی از قواعد .theme-light (from-slate-950/60 و to-slate-950/30) بر روی تصویر پس‌زمینه صفحه لاگین در حالت تم روشن تا تصویر آپلودشده بدون هیچ هاله، فیلتر یا تغییر رنگ و با شفافیت کامل نمایش داده شود.',
+      'افزودن کلاس .login-showcase-panel و استثنا کردن آن از بازنویسی رنگ پس‌زمینه و گرادینت‌های تم روشن در src/index.css.'
+    ],
+    changes_en: [
+      'Removed the gradient overlay on the login showcase image in Light Mode so Light Theme gradient variable overrides (from-slate-9/to-slate-9) no longer cast a white haze over uploaded login photos.',
+      'Added .login-showcase-panel isolation in src/index.css to keep image filters, opacity, blend mode, and canvas backdrop completely untouched in Light Mode.'
+    ]
+  },
   {
     version: '1.425.14',
     releaseDate: '2026-11-15',

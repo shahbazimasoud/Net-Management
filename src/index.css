@@ -1552,7 +1552,7 @@
 }
 
 /* Light Theme Overrides for ALL Slate / Gray / Zinc Dark Backgrounds */
-.theme-light :where([class*="bg-slate-950"], [class*="bg-gray-950"], [class*="bg-zinc-950"]):not(:where([class*="inset-0"], [data-modal-backdrop="true"], .modal-backdrop-blur, .modal-glass-backdrop, [id$="-modal-overlay"], pre, .xterm, .xterm-terminal-container, .cisco-terminal-screen, .cisco-terminal-screen *, .switch-faceplate-chassis, .switch-faceplate-chassis *, .switch-faceplate-grid, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .template-code-preview)) {
+.theme-light :where([class*="bg-slate-950"], [class*="bg-gray-950"], [class*="bg-zinc-950"]):not(:where([class*="inset-0"], [data-modal-backdrop="true"], .modal-backdrop-blur, .modal-glass-backdrop, [id$="-modal-overlay"], pre, .xterm, .xterm-terminal-container, .cisco-terminal-screen, .cisco-terminal-screen *, .switch-faceplate-chassis, .switch-faceplate-chassis *, .switch-faceplate-grid, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .template-code-preview, .login-showcase-panel, .login-showcase-panel *)) {
   background-color: #ffffff !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
@@ -1644,13 +1644,13 @@
 }
 
 /* Lighten dark Tailwind v4 gradient banners cleanly while keeping hardware chassis dark */
-.theme-light :where([class*="from-slate-9"], [class*="from-slate-8"]):not(:where(.rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *)) {
+.theme-light :where([class*="from-slate-9"], [class*="from-slate-8"]):not(:where(.rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *, .login-showcase-panel *)) {
   --tw-gradient-from: #ffffff !important;
 }
-.theme-light :where([class*="via-slate-9"], [class*="via-slate-8"]):not(:where(.rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *)) {
+.theme-light :where([class*="via-slate-9"], [class*="via-slate-8"]):not(:where(.rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *, .login-showcase-panel *)) {
   --tw-gradient-via: #f8fafc !important;
 }
-.theme-light :where([class*="to-slate-9"], [class*="to-slate-8"]):not(:where(.rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *)) {
+.theme-light :where([class*="to-slate-9"], [class*="to-slate-8"]):not(:where(.rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *, .login-showcase-panel *)) {
   --tw-gradient-to: #f1f5f9 !important;
 }
 .theme-light [class*="from-indigo-9"] { --tw-gradient-from: #eef2ff !important; }
@@ -3436,4 +3436,16 @@ body.is-canvas-dragging .schematic-canvas * {
 .port-led-down {
   opacity: 0.45;
   filter: none !important;
+}
+
+/* Preserve untouched login showcase photo & dark canvas in Light Mode */
+.theme-light .login-showcase-panel,
+.theme-light .login-showcase-panel .login-showcase-image-wrap {
+  background-color: #020617 !important;
+}
+
+.theme-light .login-showcase-panel img {
+  filter: none !important;
+  opacity: 1 !important;
+  mix-blend-mode: normal !important;
 }
