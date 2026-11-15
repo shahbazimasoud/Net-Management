@@ -371,5 +371,44 @@
 > 3. **Decouple Heavy Network Probes**: Live telemetry checks (such as ping, port probes, SSH connections) must never block the rendering of entity specs. They must execute in non-blocking staggered batches.
 > 4. **Mutation-Driven Cache Invalidation**: Whenever an entity is added, updated, renewed, or deleted, agents must immediately call `appDataCache.invalidate(key)` to prevent stale data representation.
 
+---
+
+## 20. Mandatory Light Mode UI Contrast, CSS Specificity & Color Architecture Rule (قانون قطعی و اجباری استاندارد طراحی تم روشن، کنتراست فونت‌ها، دکمه‌ها و سلسله‌مراتب اختصاص‌پذیری CSS)
+
+> [!CRITICAL]
+> **قانون الزام یکپارچگی بصری، خوانایی مطلق و سلسله‌مراتب CSS در تم روشن (MANDATORY LIGHT MODE CONTRAST & CSS ARCHITECTURE RULE)**
+> هر هوش مصنوعی یا توسعه‌دهنده‌ای که کامپوننت، صفحه، مودال، جدول، تب، دکمه، بج یا استایل جدیدی به سامانه اضافه یا ویرایش می‌کند، **موظف است بدون استثنا تمامی اصول ۵گانه طراحی تم روشن (`.theme-light`) در `src/index.css` و فایل‌های TSX را رعایت نماید**:
+> 
+> 1. **انضباط اختصاص‌پذیری CSS با `:where()` (Strict `:where()` Specificity Hygiene in `src/index.css`)**:
+>    - قوانین پایه تم روشن برای متن‌ها و سطوح تیره (`.theme-light :where(h1..h6, p, span, label, .text-white, .text-slate-100):not(:where(...))`) باید **همواره** در بلوک کم‌وزن `:where()` و `:not(:where())` نوشته شوند (وزن `(0,1,0)`).
+>    - زنجیره‌سازی مستقیم `:not(...)`های متعدد که وزن سلکتور را به `(0,4,0)+` افزایش می‌دهد و باعث مغلوب شدن استایل دکمه‌ها، بج‌ها و فیس‌پلیت سوئیچ‌ها می‌شود **اکیداً ممنوع** است.
+>    - قوانین اولویت‌دار تم روشن (دکمه‌های اشباع‌شده، گرادینت‌ها، بج‌های پاستلی و بج‌های حالت پورت) باید با وزن بالاتر (نظیر `.theme-light.theme-light :where(...)` پس از قوانین `.text-*`) تعریف شوند تا کلاس‌های رنگی فرزندان (`text-slate-300`, `text-cyan-300`) متن یا آیکون درون دکمه را تیره نکنند.
+> 
+> 2. **دکمه‌ها و گرادینت‌های رنگی اشباع‌شده (Saturated Solid `-500/-600/-700` & Gradient CTAs -> Always Crisp `#FFFFFF`)**:
+>    - کلیه دکمه‌ها و بج‌های رنگی اشباع‌شده (`indigo`, `purple`, `violet`, `blue`, `sky`, `cyan-600/700`, `teal`, `emerald-600/700`, `green-600/700`, `rose`, `red`, `pink`, `fuchsia`, `amber-600/700`, `orange`) و کلیه دکمه‌های گرادینت جامد (`bg-gradient-to-*` با `from-*-500/600/700` بدون شفافیت `/`) باید در تم روشن دارای **متن و آیکون کاملاً سفید شفاف (`#FFFFFF`)** باشند.
+>    - نوشتن کلاس‌های متن تیره (`text-slate-950`, `text-slate-900`, `text-black`) روی دکمه‌ها یا بج‌های رنگی/گرادینت (`-500` تا `-700`) **ممنوع** است؛ استفاده از متن تیره فقط روی سطوح واقعاً روشن مثل `bg-amber-400`، `bg-yellow-300/400` یا بج‌های پاستلی مجاز است.
+>    - شمارنده‌های نیمه‌شفاف تیره درون دکمه‌های اصلی (`[class*="bg-black/"]`) باید ظاهری نیمه‌شفاف با متن سفید حفظ کنند.
+> 
+> 3. **بج‌ها، فیلترها، تب‌ها و بنرهای نیمه‌شفاف (`/5` تا `/40` Translucent Pastel Rules)**:
+>    - المان‌های دارای پس‌زمینه نیمه‌شفاف رنگی (مثل `bg-purple-500/20`، `bg-indigo-600/30`، `bg-cyan-500/10`، `bg-blue-600/40`، `bg-emerald-500/20`، `bg-rose-500/20`، `bg-amber-500/15`) باید در تم روشن به **پس‌زمینه پاستلی روشن همراه با بردر متمایز و متن تیره هم‌خانواده با کنتراست بالا** (مانند `#6b21a8`, `#3730a3`, `#0369a1`, `#1e40af`, `#15803d`, `#9f1239`, `#92400e`) تبدیل شوند. هرگز نباید متن سفید یا محو روی سطح پاستلی باقی بماند.
+> 
+> 4. **نرمال‌سازی سطوح تیره و محافظت قطعی از ویجت‌های سخت‌افزاری و ترمینال (Dark Surfaces vs. Protected Dark Widgets)**:
+>    - سطوح معمولی پنل (`slate`/`gray`/`zinc` و `-900`/`-950` در کارت‌ها، جداول، دراپ‌داون‌ها، تب‌ها و بنرهای `from-slate-9*`) در تم روشن به سطوح روشن استاندارد (`#ffffff` / `#f8fafc` / `#f1f5f9`) با متن تیره (`#0f172a` / `#334155`) تبدیل می‌شوند.
+>    - **ویجت‌های ذاتاً تیره** شامل فیس‌پلیت سوئیچ و پورت‌های گرافیکی (`.switch-faceplate-chassis`, `.switch-faceplate-grid`, `NetworkPortSvg`، برچسب‌های `TRK`، `[data-badge="vlan-tag"]`، تولتیپ `bg-slate-950`)، کابینت رک و تاور (`.rack-cabinet-dark`, `.tower-cabinet-dark`) و کادرها/دکمه‌های ترمینال و کد (`.xterm`, `.cisco-terminal-screen`, `.cisco-terminal-header-btn`, `.dark-terminal-box`, `.template-code-preview`, `pre[class*="bg-slate-9"]`) باید در تم روشن **همیشه ظاهر تیره اصیل و فونت روشن/سفید خود را حفظ کنند**.
+>    - تعریف قوانین کلان با سلکتور `*` برای `background-color` (مانند `.bg-amber-500/20 *`) درون کانتینرها اکیداً ممنوع است تا رنگ پس‌زمینه روی بج‌ها و SVGهای فرزند نشت نکند.
+> 
+> 5. **بج‌های معنایی و انطباق دوتمی (Semantic Port/Vendor Badges)**:
+>    - بج‌های مشخصات پورت و جدول (`.port-mode-badge-trunk` / `[data-badge="port-mode-trunk"]` به رنگ بنفش `#7c3aed`، `.port-mode-badge-access` / `[data-badge="port-mode-access"]` به رنگ نیلی `#4f46e5`، `[data-badge="vlan-tag"]` و `.vendor-badge-*`) باید استایل صریح و کنتراست کامل (فونت سفید بولد روی بج‌های جامد و متن تیره روی بج‌های وندور پاستلی) در هر دو تم تیره و روشن داشته باشند.
+> 
+> ---
+> 
+> **English Directive:**
+> 1. **CSS Specificity Hygiene (`:where()` Mandate)**: All global `.theme-light` dark-text and dark-surface fallback selectors in `src/index.css` MUST keep low specificity using `:where(...)` / `:not(:where(...))` (`(0,1,0)`). Never stack raw `:not(...)` chains on base rules, and use `.theme-light.theme-light :where(...)` after `.text-*` rules for intentional CTA/badge overrides so child text classes never darken white button labels or icons.
+> 2. **Crisp `#FFFFFF` on Saturated Solid & Gradient CTAs**: Every solid saturated button/badge (`500`/`600`/`700` indigo, purple, violet, blue, sky, cyan-600/700, teal, emerald-600/700, green-600/700, rose, red, pink, amber-600/700, orange) and every solid `bg-gradient-to-*` (`from-*-500/600/700` without `/` opacity) MUST render `#FFFFFF` text and icons in Light Mode. Never hardcode `text-slate-950`, `text-slate-900`, or `text-black` on `-500`..`-700` CTAs/gradients (only on genuinely bright `bg-amber-400` / `bg-yellow-*` or light pastel fills).
+> 3. **Light Pastel Conversion for Translucent Surfaces (`/5`–`/40`)**: Translucent tinted pills, filter tabs, and alert banners (`bg-*-500/10`..`bg-*-600/40`) must resolve in Light Mode to crisp light pastel fills paired with deep matching foreground text and clear borders.
+> 4. **Protected Dark Hardware Widgets & Zero Wildcard Background Bleed**: While normal dark containers (`slate`/`gray`/`zinc` & `-900`/`-950`) flatten to Light Mode surfaces, intentionally dark widgets (`.switch-faceplate-chassis`, `NetworkPortSvg`, `.rack-cabinet-dark`, `.tower-cabinet-dark`, `.cisco-terminal-header-btn`, `.cisco-terminal-screen`, `.xterm`, `.dark-terminal-box`, `.template-code-preview`) MUST preserve dark backgrounds and bright/white typography. Never apply `background-color` to `*` descendants inside container rules.
+> 5. **Explicit Dual-Theme Semantic Badges**: Structural badges (`.port-mode-badge-trunk`, `.port-mode-badge-access`, `[data-badge="vlan-tag"]`, `.vendor-badge-*`) must enforce explicit, high-contrast background, border, and font rules in both Dark and Light modes.
+
+
 
 

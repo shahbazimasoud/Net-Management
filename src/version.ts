@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.11';
+export const APP_VERSION = '1.425.12';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.12',
+    releaseDate: '2026-11-15',
+    type: 'patch',
+    title: 'تدوین و تثبیت قانون جامع معماری و استاندارد طراحی تم روشن (Light Mode) در قوانین پروژه',
+    title_en: 'Codify Mandatory Light Mode Contrast, CSS Specificity & Color Architecture Rule in Repository Guidelines',
+    changes: [
+      'افزودن قانون رسمی شماره ۲۰ در فایل‌های AGENTS.md و GEMINI.md (دوزبانه فارسی و انگلیسی) جهت الزام رعایت انضباط اختصاص‌پذیری CSS با :where()، حفظ فونت سفید شفاف (#FFFFFF) روی تمامی دکمه‌ها و گرادینت‌های رنگی اشباع‌شده، و تبدیل اصولی سطوح نیمه‌شفاف (/5 تا /40) به پاستل خوانا در تم روشن.',
+      'تثبیت قانون محافظت قطعی از ویجت‌های ذاتاً تیره (فیس‌پلیت سوئیچ و پورت‌های گرافیکی، رک/تاور، دکمه‌ها و کادرهای ترمینال) و ممنوعیت اعمال رنگ پس‌زمینه کلان روی فرزندان (*) یا درج متن تیره روی دکمه‌های رنگی.',
+      'به‌روزرسانی چک‌لیست استاندارد مودال‌ها (MODAL_GUIDELINES.md) و راهنمای عوامل هوش مصنوعی (AI_INSTRUCTIONS.md) جهت پیروی قطعی تمامی کامپوننت‌ها، مودال‌ها و بج‌های آینده از استاندارد تم روشن.'
+    ],
+    changes_en: [
+      'Added Rule 20 across AGENTS.md and GEMINI.md codifying mandatory Light Mode standards: low-specificity :where() base rules, crisp #FFFFFF labels/icons on all saturated (-500/-600/-700) buttons and gradients, and high-contrast pastel conversion for translucent (/5-/40) surfaces.',
+      'Enforced strict Light Mode dark-contrast protection for hardware/terminal widgets (switch faceplates, NetworkPortSvg, rack/tower enclosures, Cisco terminal header button, and CLI screens) and prohibited wildcard (*) background bleed or dark-text classes on saturated CTAs.',
+      'Updated MODAL_GUIDELINES.md and AI_INSTRUCTIONS.md with the Light Mode design rules and pre-completion contrast checklist for all future views, modals, and semantic badges.'
+    ]
+  },
   {
     version: '1.425.11',
     releaseDate: '2026-11-14',
