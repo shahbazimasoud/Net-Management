@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.17';
+export const APP_VERSION = '1.425.18';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.18',
+    releaseDate: '2026-11-15',
+    type: 'patch',
+    title: 'جایگزینی لیست اسکرول افقی گروه‌ها در صفحه Device Grouping & Network Zones با منوی انتخاب کشویی (Dropdown) شفاف و قابل جستجو',
+    title_en: 'Replace Horizontal Group Carousel with Clear Searchable Group Selector Dropdown in Device Grouping & Network Zones',
+    changes: [
+      'حذف نوار کاروسل اسکرول‌پذیر افقی گروه‌ها در بالای صفحه «Device Grouping & Network Zones» و جایگزینی آن با یک منوی انتخاب کشویی (Dropdown) اختصاصی با عنوان واضح «انتخاب گروه / زون جهت مدیریت اعضا».',
+      'نمایش نام گروه انتخاب‌شده، رنگ شاخص، تعداد کل اعضا، تفکیک تعداد دیوایس و سرور، تگ‌ها و دکمه حذف مستقیم گروه انتخاب‌شده در نوار بالایی همراه با قابلیت جستجو درون لیست کشویی هنگام زیاد بودن تعداد گروه‌ها و انطباق کامل با تم روشن و تاریک.'
+    ],
+    changes_en: [
+      'Replaced the horizontal scrollable group card carousel in Device Grouping & Network Zones with a dedicated, clearly labeled Group/Zone Selector Dropdown.',
+      'Displays the active group color dot, name, total member count, device/server breakdown, tags, inline search filter inside the dropdown menu, and direct Delete action with full Light and Dark Mode contrast.'
+    ]
+  },
   {
     version: '1.425.17',
     releaseDate: '2026-11-15',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   FolderTree,
   Plus,
@@ -26,6 +26,7 @@ import {
   Square,
   SlidersHorizontal,
   ChevronRight,
+  ChevronDown,
   ShieldCheck
 } from 'lucide-react';
 import { Device, DeviceGroup, GroupColor, RemoteServer } from '../../types';
@@ -132,8 +133,29 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Selected Group
+  // Selected Group & Dropdown Selector State
   const [selectedGroupId, setSelectedGroupId] = useState<string>(initialGroups[0]?.id || '');
+  const [isGroupDropdownOpen, setIsGroupDropdownOpen] = useState<boolean>(false);
+  const [groupDropdownSearch, setGroupDropdownSearch] = useState<string>('');
+  const groupDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isGroupDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (groupDropdownRef.current && !groupDropdownRef.current.contains(e.target as Node)) {
+        setIsGroupDropdownOpen(false);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsGroupDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isGroupDropdownOpen]);
 
   // Remote servers list from database fleet
   const [servers, setServers] = useState<RemoteServer[]>(initialServers || []);
@@ -206,6 +228,17 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
   }, []);
 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) || groups[0];
+
+  const filteredDropdownGroups = useMemo(() => {
+    const q = groupDropdownSearch.trim().toLowerCase();
+    if (!q) return groups;
+    return groups.filter(
+      (g) =>
+        g.name.toLowerCase().includes(q) ||
+        (g.description && g.description.toLowerCase().includes(q)) ||
+        (Array.isArray(g.tags) && g.tags.some((t) => t.toLowerCase().includes(q)))
+    );
+  }, [groups, groupDropdownSearch]);
 
   // Helper: device icon
   const getDeviceIcon = (type: string) => {
@@ -973,79 +1006,295 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
             : 'bg-slate-950/60 border-white/10'
         }`}
       >
-        {/* Horizontal Group Selector Carousel */}
-        <div className="flex items-center gap-2.5 overflow-x-auto pb-2 custom-scrollbar">
-          {groups.map((group) => {
-            const isSelected = group.id === selectedGroupId;
-            const colorStyles = COLOR_MAP[group.color] || COLOR_MAP.amber;
-            const devCount = group.deviceIds?.length || 0;
-            const srvCount = group.serverIds?.length || 0;
-            const totalMembers = devCount + srvCount;
-
-            return (
-              <div
-                key={group.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => setSelectedGroupId(group.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setSelectedGroupId(group.id);
-                  }
-                }}
-                className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl border transition-all duration-200 shrink-0 cursor-pointer text-left rtl:text-right select-none ${
-                  isSelected
-                    ? `${colorStyles.bg} ${colorStyles.border} shadow-md ${resolvedLightMode ? 'ring-1 ring-slate-300' : 'ring-1 ring-white/20 shadow-lg'}`
-                    : resolvedLightMode
-                    ? 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
-                    : 'bg-white/[0.02] border-white/10 hover:bg-white/5 hover:border-white/20'
-                }`}
-              >
-                <span className={`w-3 h-3 rounded-full ${colorStyles.dot} shrink-0`} />
-                <div>
-                  <div className={`text-xs font-bold flex items-center gap-2 ${resolvedLightMode ? 'text-slate-900' : 'text-white'}`}>
-                    <span>{group.name}</span>
-                    <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full border ${colorStyles.badge}`}>
-                      {totalMembers} {isEn ? 'Members' : 'عضو'}
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-slate-400 truncate max-w-[200px] flex items-center gap-1.5 mt-0.5 font-mono">
-                    <span className="text-cyan-400">{devCount} {isEn ? 'Dev' : 'دیوایس'}</span>
-                    <span>•</span>
-                    <span className="text-indigo-400">{srvCount} {isEn ? 'Srv' : 'سرور'}</span>
-                  </div>
-                  {Array.isArray(group.tags) && group.tags.length > 0 && (
-                    <div className="flex items-center gap-1 mt-1 flex-wrap">
-                      {group.tags.slice(0, 3).map((tg) => (
-                        <span
-                          key={tg}
-                          className={`text-[9px] px-1 py-0.1 rounded font-mono ${
-                            resolvedLightMode
-                              ? 'bg-white border border-slate-200 text-slate-600'
-                              : 'bg-white/5 text-slate-300'
-                          }`}
-                        >
-                          #{tg}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {groups.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteGroup(group.id, e)}
-                    className="p-1 rounded-md text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition ml-1 cursor-pointer"
-                    title={isEn ? 'Delete Group' : 'حذف گروه'}
+        {/* Clear Group / Zone Dropdown Selector Bar */}
+        <div
+          className={`p-3.5 sm:p-4 rounded-2xl border ${
+            resolvedLightMode
+              ? 'bg-slate-50/90 border-slate-200'
+              : 'bg-slate-900/50 border-white/10'
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="p-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-500">
+                <FolderTree className="w-4 h-4" />
+              </span>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-xs sm:text-sm font-bold ${resolvedLightMode ? 'text-slate-900' : 'text-white'}`}>
+                    {isEn ? 'Select Target Group / Network Zone' : 'انتخاب گروه / زون جهت مدیریت اعضا'}
+                  </span>
+                  <span
+                    className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                      resolvedLightMode
+                        ? 'bg-white border-slate-200 text-slate-700'
+                        : 'bg-white/5 border-white/10 text-slate-300'
+                    }`}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                    {groups.length} {isEn ? 'Groups Available' : 'گروه تعریف‌شده'}
+                  </span>
+                </div>
+                <p className={`text-[11px] mt-0.5 ${resolvedLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                  {isEn
+                    ? 'Choose any group from the dropdown to inspect, add, or remove devices & servers in the two panels below.'
+                    : 'گروه مورد نظر خود را از کشو انتخاب کنید تا تجهیزات و سرورهای آن در دو لیست پایین مدیریت شوند.'}
+                </p>
               </div>
-            );
-          })}
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+            <div className="relative flex-1 min-w-0" ref={groupDropdownRef}>
+              {(() => {
+                const activeColor = COLOR_MAP[selectedGroup?.color || 'amber'] || COLOR_MAP.amber;
+                const activeDevCount = selectedGroup?.deviceIds?.length || 0;
+                const activeSrvCount = selectedGroup?.serverIds?.length || 0;
+                const activeTotal = activeDevCount + activeSrvCount;
+
+                return (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsGroupDropdownOpen((prev) => !prev);
+                        setGroupDropdownSearch('');
+                      }}
+                      aria-expanded={isGroupDropdownOpen}
+                      aria-haspopup="listbox"
+                      className={`w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl border transition-all cursor-pointer text-left rtl:text-right ${
+                        isGroupDropdownOpen
+                          ? resolvedLightMode
+                            ? 'bg-white border-indigo-500 ring-2 ring-indigo-500/20 shadow-md'
+                            : 'bg-slate-900 border-cyan-400 ring-2 ring-cyan-400/20 shadow-lg'
+                          : resolvedLightMode
+                          ? 'bg-white border-slate-300 hover:border-indigo-400 shadow-xs'
+                          : 'bg-slate-950/70 border-white/15 hover:border-cyan-400/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <span className={`w-3 h-3 rounded-full ${activeColor.dot} shrink-0 ring-2 ring-offset-1 ${resolvedLightMode ? 'ring-slate-200 ring-offset-white' : 'ring-white/15 ring-offset-slate-900'}`} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-xs sm:text-sm font-bold truncate ${resolvedLightMode ? 'text-slate-900' : 'text-white'}`}>
+                              {selectedGroup?.name || (isEn ? 'Select a group...' : 'یک گروه انتخاب کنید...')}
+                            </span>
+                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border shrink-0 ${activeColor.badge}`}>
+                              {activeTotal} {isEn ? 'Members' : 'عضو'}
+                            </span>
+                            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 ${
+                              resolvedLightMode
+                                ? 'bg-cyan-50 border-cyan-200 text-cyan-700'
+                                : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+                            }`}>
+                              {activeDevCount} {isEn ? 'Dev' : 'دیوایس'}
+                            </span>
+                            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 ${
+                              resolvedLightMode
+                                ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                                : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300'
+                            }`}>
+                              {activeSrvCount} {isEn ? 'Srv' : 'سرور'}
+                            </span>
+                          </div>
+                          {(selectedGroup?.description || (Array.isArray(selectedGroup?.tags) && selectedGroup.tags.length > 0)) && (
+                            <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px]">
+                              {selectedGroup?.description && (
+                                <span className={`truncate max-w-md ${resolvedLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                                  {selectedGroup.description}
+                                </span>
+                              )}
+                              {Array.isArray(selectedGroup?.tags) &&
+                                selectedGroup.tags.slice(0, 3).map((tg) => (
+                                  <span
+                                    key={tg}
+                                    className={`text-[9px] px-1.5 py-0.2 rounded font-mono shrink-0 ${
+                                      resolvedLightMode
+                                        ? 'bg-slate-100 border border-slate-200 text-slate-600'
+                                        : 'bg-white/5 border border-white/10 text-slate-300'
+                                    }`}
+                                  >
+                                    #{tg}
+                                  </span>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className={`hidden md:inline text-[10px] font-semibold ${resolvedLightMode ? 'text-indigo-600' : 'text-cyan-300'}`}>
+                          {isEn ? 'Change Group' : 'تغییر گروه'}
+                        </span>
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform duration-200 ${
+                            isGroupDropdownOpen ? 'rotate-180' : ''
+                          } ${resolvedLightMode ? 'text-slate-600' : 'text-slate-300'}`}
+                        />
+                      </div>
+                    </button>
+
+                    {/* Dropdown Panel */}
+                    {isGroupDropdownOpen && (
+                      <div
+                        role="listbox"
+                        className={`absolute left-0 right-0 top-full mt-2 z-40 rounded-2xl border shadow-2xl overflow-hidden animate-fadeIn ${
+                          resolvedLightMode
+                            ? 'bg-white border-slate-200'
+                            : 'bg-slate-900 border-white/15'
+                        }`}
+                      >
+                        {groups.length > 4 && (
+                          <div
+                            className={`p-2.5 border-b ${
+                              resolvedLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-white/10'
+                            }`}
+                          >
+                            <div className="relative">
+                              <Search className="w-3.5 h-3.5 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                              <input
+                                type="text"
+                                autoFocus
+                                value={groupDropdownSearch}
+                                onChange={(e) => setGroupDropdownSearch(e.target.value)}
+                                placeholder={isEn ? 'Filter groups by name, tag, or description...' : 'جستجوی گروه بر اساس نام، برچسب یا توضیحات...'}
+                                className={`w-full pl-8 pr-3 rtl:pl-3 rtl:pr-8 py-1.5 rounded-xl border text-xs focus:outline-none ${
+                                  resolvedLightMode
+                                    ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500'
+                                    : 'bg-slate-900 border-white/15 text-white placeholder:text-slate-500 focus:border-cyan-400'
+                                }`}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="max-h-72 overflow-y-auto p-1.5 space-y-1 custom-scrollbar">
+                          {filteredDropdownGroups.length === 0 ? (
+                            <div className="py-6 text-center text-xs text-slate-400">
+                              {isEn ? 'No groups match your search.' : 'هیچ گروهی با عبارت واردشده یافت نشد.'}
+                            </div>
+                          ) : (
+                            filteredDropdownGroups.map((group) => {
+                              const isSelected = group.id === selectedGroup?.id;
+                              const colorStyles = COLOR_MAP[group.color] || COLOR_MAP.amber;
+                              const devCount = group.deviceIds?.length || 0;
+                              const srvCount = group.serverIds?.length || 0;
+                              const totalMembers = devCount + srvCount;
+
+                              return (
+                                <div
+                                  key={group.id}
+                                  role="option"
+                                  aria-selected={isSelected}
+                                  onClick={() => {
+                                    setSelectedGroupId(group.id);
+                                    setIsGroupDropdownOpen(false);
+                                    setSelectedMemberIds([]);
+                                  }}
+                                  className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border transition-all cursor-pointer ${
+                                    isSelected
+                                      ? resolvedLightMode
+                                        ? 'bg-indigo-50/90 border-indigo-300 shadow-xs'
+                                        : `${colorStyles.bg} ${colorStyles.border}`
+                                      : resolvedLightMode
+                                      ? 'bg-white border-transparent hover:bg-slate-50 hover:border-slate-200'
+                                      : 'bg-transparent border-transparent hover:bg-white/5 hover:border-white/10'
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                                    <span className={`w-2.5 h-2.5 rounded-full ${colorStyles.dot} shrink-0 mt-1.5`} />
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className={`text-xs font-bold truncate ${resolvedLightMode ? 'text-slate-900' : 'text-white'}`}>
+                                          {group.name}
+                                        </span>
+                                        <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full border ${colorStyles.badge}`}>
+                                          {totalMembers} {isEn ? 'Members' : 'عضو'}
+                                        </span>
+                                        <span className={`text-[10px] font-mono ${resolvedLightMode ? 'text-cyan-700' : 'text-cyan-400'}`}>
+                                          {devCount} {isEn ? 'Dev' : 'دیوایس'}
+                                        </span>
+                                        <span className="text-slate-400 text-[10px]">•</span>
+                                        <span className={`text-[10px] font-mono ${resolvedLightMode ? 'text-indigo-700' : 'text-indigo-400'}`}>
+                                          {srvCount} {isEn ? 'Srv' : 'سرور'}
+                                        </span>
+                                      </div>
+                                      {group.description && (
+                                        <p className={`text-[10px] truncate mt-0.5 ${resolvedLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                                          {group.description}
+                                        </p>
+                                      )}
+                                      {Array.isArray(group.tags) && group.tags.length > 0 && (
+                                        <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                          {group.tags.slice(0, 4).map((tg) => (
+                                            <span
+                                              key={tg}
+                                              className={`text-[9px] px-1 py-0.1 rounded font-mono ${
+                                                resolvedLightMode
+                                                  ? 'bg-slate-100 border border-slate-200 text-slate-600'
+                                                  : 'bg-white/5 text-slate-300'
+                                              }`}
+                                            >
+                                              #{tg}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {isSelected && (
+                                      <span
+                                        className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                          resolvedLightMode
+                                            ? 'bg-indigo-600 text-white border-indigo-600'
+                                            : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                                        }`}
+                                      >
+                                        <Check className="w-3 h-3" />
+                                        <span>{isEn ? 'Selected' : 'انتخاب‌شده'}</span>
+                                      </span>
+                                    )}
+
+                                    {groups.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleDeleteGroup(group.id, e)}
+                                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
+                                        title={isEn ? 'Delete Group' : 'حذف گروه'}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+
+            {groups.length > 1 && selectedGroup && (
+              <button
+                type="button"
+                onClick={(e) => handleDeleteGroup(selectedGroup.id, e)}
+                className={`flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition cursor-pointer shrink-0 ${
+                  resolvedLightMode
+                    ? 'bg-white hover:bg-rose-50 text-rose-600 border-slate-300 hover:border-rose-300'
+                    : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border-rose-500/30'
+                }`}
+                title={isEn ? 'Delete Selected Group' : 'حذف گروه انتخاب‌شده'}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Delete Group' : 'حذف گروه'}</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Dual Column Workspace */}
