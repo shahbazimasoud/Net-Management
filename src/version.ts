@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.18';
+export const APP_VERSION = '1.425.19';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.19',
+    releaseDate: '2026-11-15',
+    type: 'patch',
+    title: 'تجهیز فرآیند حذف گروه در صفحه Device Grouping & Network Zones به مودال استاندارد تایید حذف (DeleteConfirmModal) و حذف کامل window.confirm/alert',
+    title_en: 'Enforce Standard DeleteConfirmModal for Group Deletion in Device Grouping & Network Zones and Eliminate Native window.confirm/alert Prompts',
+    changes: [
+      'افزودن تارگت اختصاصی «device_group» به کامپوننت استاندارد DeleteConfirmModal با هدر و آیکون FolderTree، نمایش نام دقیق گروه، توضیحات، چیپ‌های تعداد تجهیزات و سرورها، تگ‌ها و هشدار دائمی بودن عملیات.',
+      'جایگزینی کامل window.confirm و window.alert در بخش «Delete Group» صفحه Device Grouping & Network Zones با مودال استاندارد DeleteConfirmModal و پیام وضعیت درون‌صفحه‌ای همراه با انطباق کامل با تم روشن و تاریک و رعایت حریم فوتر (bottom-8).'
+    ],
+    changes_en: [
+      'Added dedicated device_group target support to the standard DeleteConfirmModal featuring FolderTree icon, group name, description, device/server count chips, tags, Escape dismissal, and non-reversible deletion disclaimer.',
+      'Eliminated native browser window.confirm and window.alert in DeviceGroupingTab group deletion, replacing them with the portal-rendered DeleteConfirmModal (z-[999995], bottom-8 footer clearance) with full Light and Dark Mode contrast and PostgreSQL sync.'
+    ]
+  },
   {
     version: '1.425.18',
     releaseDate: '2026-11-15',

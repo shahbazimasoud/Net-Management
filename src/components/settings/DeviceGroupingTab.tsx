@@ -32,6 +32,7 @@ import {
 import { Device, DeviceGroup, GroupColor, RemoteServer } from '../../types';
 import { useLanguage } from '../../i18n';
 import { fetchRemoteServers, saveDeviceGroupsApi, fetchDeviceGroups } from '../../services/api';
+import { DeleteConfirmModal } from '../DeleteConfirmModal';
 
 interface DeviceGroupingTabProps {
   groups: DeviceGroup[];
@@ -137,6 +138,7 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
   const [selectedGroupId, setSelectedGroupId] = useState<string>(initialGroups[0]?.id || '');
   const [isGroupDropdownOpen, setIsGroupDropdownOpen] = useState<boolean>(false);
   const [groupDropdownSearch, setGroupDropdownSearch] = useState<string>('');
+  const [groupToDelete, setGroupToDelete] = useState<DeviceGroup | null>(null);
   const groupDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -323,26 +325,74 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
     setNewGroupTags('core, infrastructure');
   };
 
-  // Delete group
+  // Request group deletion confirmation (Rule 18 / MODAL_GUIDELINES §6: Mandatory DeleteConfirmModal, zero window.confirm)
   const handleDeleteGroup = (groupId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (groups.length <= 1) {
-      alert(isEn ? 'At least one group must remain.' : 'حداقل یک گروه باید در سیستم باقی بماند.');
+      setSaveStatus('error');
+      setStatusMessage(
+        isEn
+          ? 'At least one group must remain in the system.'
+          : 'حداقل یک گروه باید در سیستم باقی بماند.'
+      );
       return;
     }
-    const confirmed = window.confirm(
-      isEn
-        ? 'Are you sure you want to delete this group?'
-        : 'آیا از حذف این گروه تجهیزات و سرورها اطمینان دارید؟'
-    );
-    if (!confirmed) return;
+    const targetGroup = groups.find((g) => g.id === groupId);
+    if (!targetGroup) return;
+    setIsGroupDropdownOpen(false);
+    setGroupToDelete(targetGroup);
+  };
 
-    const updated = groups.filter((g) => g.id !== groupId);
+  // Confirmed group deletion handler
+  const handleConfirmDeleteGroup = async (groupId: string) => {
+    if (groups.length <= 1) {
+      setGroupToDelete(null);
+      return;
+    }
+    const targetGroup = groups.find((g) => g.id === groupId);
+    const deletedName = targetGroup?.name || groupId;
+    const nowStamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const updated = groups
+      .filter((g) => g.id !== groupId)
+      .map((g) => {
+        const dIds = Array.isArray(g.deviceIds) ? g.deviceIds : (Array.isArray(g.device_ids) ? g.device_ids : []);
+        const sIds = Array.isArray(g.serverIds) ? g.serverIds : (Array.isArray(g.server_ids) ? g.server_ids : []);
+        return {
+          ...g,
+          deviceIds: dIds,
+          device_ids: dIds,
+          serverIds: sIds,
+          server_ids: sIds,
+          tags: Array.isArray(g.tags) ? g.tags : [],
+          updatedAt: nowStamp,
+        };
+      });
+
     setGroups(updated);
-    setHasUnsavedChanges(true);
-    onSaveGroups(updated);
     if (selectedGroupId === groupId) {
       setSelectedGroupId(updated[0]?.id || '');
+      setSelectedMemberIds([]);
+    }
+    onSaveGroups(updated);
+    setGroupToDelete(null);
+
+    try {
+      await saveDeviceGroupsApi(updated);
+      setHasUnsavedChanges(false);
+      setSaveStatus('success');
+      setStatusMessage(
+        isEn
+          ? `Group "${deletedName}" was permanently deleted and saved to the database.`
+          : `گروه «${deletedName}» با موفقیت حذف و در پایگاه داده ثبت شد.`
+      );
+    } catch {
+      setHasUnsavedChanges(true);
+      setSaveStatus('success');
+      setStatusMessage(
+        isEn
+          ? `Group "${deletedName}" removed from list. Click "Save to Database" to finalize.`
+          : `گروه «${deletedName}» حذف شد؛ برای اطمینان از ثبت نهایی روی «ذخیره در دیتابیس» کلیک کنید.`
+      );
     }
   };
 
@@ -1971,6 +2021,35 @@ export const DeviceGroupingTab: React.FC<DeviceGroupingTabProps> = ({
         </div>
         </div>
       </div>
+
+      {/* Standard Delete Confirmation Modal (Rule 18 / MODAL_GUIDELINES §6) */}
+      <DeleteConfirmModal
+        isOpen={!!groupToDelete}
+        onClose={() => setGroupToDelete(null)}
+        target={
+          groupToDelete
+            ? {
+                type: 'device_group',
+                id: groupToDelete.id,
+                name: groupToDelete.name,
+                description: groupToDelete.description,
+                deviceCount: Array.isArray(groupToDelete.deviceIds)
+                  ? groupToDelete.deviceIds.length
+                  : Array.isArray(groupToDelete.device_ids)
+                  ? groupToDelete.device_ids.length
+                  : 0,
+                serverCount: Array.isArray(groupToDelete.serverIds)
+                  ? groupToDelete.serverIds.length
+                  : Array.isArray(groupToDelete.server_ids)
+                  ? groupToDelete.server_ids.length
+                  : 0,
+                tags: Array.isArray(groupToDelete.tags) ? groupToDelete.tags : [],
+              }
+            : null
+        }
+        onConfirmDeleteGroup={(id) => handleConfirmDeleteGroup(id)}
+        isLightMode={resolvedLightMode}
+      />
     </div>
   );
 };

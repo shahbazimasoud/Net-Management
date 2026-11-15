@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Trash2, Box, Server, ShieldCheck, X, AlertCircle, StickyNote, Paperclip, FileText, ScrollText, KeyRound } from 'lucide-react';
+import { AlertTriangle, Trash2, Box, Server, ShieldCheck, X, AlertCircle, StickyNote, Paperclip, FolderTree } from 'lucide-react';
 import { MountedHardwareDevice } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -67,6 +67,16 @@ export interface DeleteLicenseTarget {
   vendor?: string;
 }
 
+export interface DeleteDeviceGroupTarget {
+  type: 'device_group';
+  id: string;
+  name: string;
+  description?: string;
+  deviceCount?: number;
+  serverCount?: number;
+  tags?: string[];
+}
+
 export interface DeleteGenericTarget {
   type: 'generic';
   id: string;
@@ -83,6 +93,7 @@ export type DeleteTarget =
   | DeleteAttachmentTarget
   | DeleteContractTarget
   | DeleteLicenseTarget
+  | DeleteDeviceGroupTarget
   | DeleteGenericTarget;
 
 interface DeleteConfirmModalProps {
@@ -96,6 +107,7 @@ interface DeleteConfirmModalProps {
   onConfirmDeleteAttachment?: (attachmentId: string) => void;
   onConfirmDeleteContract?: (contractId: string) => void;
   onConfirmDeleteLicense?: (licenseId: string) => void;
+  onConfirmDeleteGroup?: (groupId: string) => void;
   onConfirm?: () => void;
   isLightMode?: boolean;
 }
@@ -111,17 +123,30 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   onConfirmDeleteAttachment,
   onConfirmDeleteContract,
   onConfirmDeleteLicense,
+  onConfirmDeleteGroup,
   onConfirm,
   isLightMode: propIsLightMode,
 }) => {
   const { isEn } = useLanguage();
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen || !target) return null;
 
   const isLightMode =
     propIsLightMode ??
     (typeof document !== 'undefined' &&
-      (document.documentElement.classList.contains('light') ||
+      (document.querySelector('.theme-light') !== null ||
+        document.documentElement.classList.contains('light') ||
         document.body.classList.contains('light') ||
         localStorage.getItem('nettopology_theme') === 'light'));
 
@@ -129,10 +154,12 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   const isRackDevice = target.type === 'rack_device';
   const isNote = target.type === 'note';
   const isAttachment = target.type === 'attachment';
+  const isDeviceGroup = target.type === 'device_group';
   const rackTarget = isRack ? (target as DeleteRackTarget) : null;
   const rackDeviceTarget = isRackDevice ? (target as DeleteRackDeviceTarget) : null;
   const noteTarget = isNote ? (target as DeleteStickyNoteTarget) : null;
   const attachmentTarget = isAttachment ? (target as DeleteAttachmentTarget) : null;
+  const groupTarget = isDeviceGroup ? (target as DeleteDeviceGroupTarget) : null;
   const deviceTarget = target.type === 'device' ? (target as DeleteDeviceTarget) : null;
   const hasMountedDevices = (rackTarget?.devices?.length || 0) > 0;
 
@@ -152,6 +179,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
       }}
     >
       <div
+        dir={isEn ? 'ltr' : 'rtl'}
         className={`relative w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border animate-scale-up ${
           isLightMode
             ? 'bg-white border-slate-200 text-slate-900'
@@ -173,6 +201,8 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                 ? 'bg-rose-500/15 border-rose-500/30 text-rose-400'
                 : isAttachment
                 ? 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                : isDeviceGroup
+                ? 'bg-rose-500/15 border-rose-500/30 text-rose-500'
                 : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
             }`}>
               {isRack ? (
@@ -183,6 +213,8 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                 <Server className="w-5 h-5" />
               ) : isAttachment ? (
                 <Paperclip className="w-5 h-5" />
+              ) : isDeviceGroup ? (
+                <FolderTree className="w-5 h-5" />
               ) : (
                 <AlertTriangle className="w-5 h-5" />
               )}
@@ -205,6 +237,10 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   ? isEn
                     ? `Delete Attachment ("${target.name}")`
                     : `حذف فایل پیوست («${target.name}»)`
+                  : isDeviceGroup
+                  ? isEn
+                    ? `Delete Group ("${target.name}")`
+                    : `حذف گروه («${target.name}»)`
                   : isEn
                   ? `Delete Device (${target.name})`
                   : `حذف تجهیز («${target.name}»)`}
@@ -230,6 +266,10 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   ? isEn
                     ? `${attachmentTarget?.parentTitle ? `${attachmentTarget.parentTitle} • ` : ''}${formatFileSize(attachmentTarget?.fileSize)}`
                     : `${attachmentTarget?.parentTitle ? `مربوط به: «${attachmentTarget.parentTitle}» • ` : ''}${formatFileSize(attachmentTarget?.fileSize)}`
+                  : isDeviceGroup
+                  ? isEn
+                    ? `Network Zone & Resource Group • ${(groupTarget?.deviceCount || 0) + (groupTarget?.serverCount || 0)} Members`
+                    : `گروه تجهیزات و زون شبکه • ${(groupTarget?.deviceCount || 0) + (groupTarget?.serverCount || 0)} عضو`
                   : deviceTarget?.model || deviceTarget?.ip || (isEn ? 'Network Hardware' : 'تجهیز شبکه')}
               </p>
             </div>
@@ -401,6 +441,54 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   : 'توجه: این سند از پیوست‌های این بخش حذف خواهد شد. لطفاً جهت تکمیل فرآیند تایید نمایید.'}
               </p>
             </div>
+          ) : isDeviceGroup ? (
+            /* Device Group Deletion Content */
+            <div className="space-y-3">
+              <div className={`p-3.5 rounded-xl border text-xs space-y-2.5 ${
+                isLightMode
+                  ? 'bg-rose-50 border-rose-200 text-rose-900'
+                  : 'bg-rose-950/25 border-rose-500/40 text-rose-200'
+              }`}>
+                <div className={`flex items-center gap-2 font-bold ${isLightMode ? 'text-rose-700' : 'text-rose-300'}`}>
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>
+                    {isEn ? 'Confirm Group & Network Zone Deletion' : 'تایید حذف گروه تجهیزات و زون شبکه'}
+                  </span>
+                </div>
+                <p className={`leading-relaxed ${isLightMode ? 'text-slate-700' : 'text-slate-200'}`}>
+                  {isEn
+                    ? `Are you sure you want to permanently delete the group "${groupTarget?.name}"?`
+                    : `آیا از حذف دائمی گروه «${groupTarget?.name}» اطمینان دارید؟`}
+                </p>
+                {groupTarget?.description && (
+                  <p className={`text-[11px] leading-relaxed ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                    {groupTarget.description}
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono pt-1">
+                  <span className={`px-2 py-0.5 rounded ${isLightMode ? 'bg-cyan-100 text-cyan-800 border border-cyan-200' : 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'}`}>
+                    {isEn ? 'Devices' : 'تجهیزات'}: <strong>{groupTarget?.deviceCount ?? 0}</strong>
+                  </span>
+                  <span className={`px-2 py-0.5 rounded ${isLightMode ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' : 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30'}`}>
+                    {isEn ? 'Servers' : 'سرورها'}: <strong>{groupTarget?.serverCount ?? 0}</strong>
+                  </span>
+                  {Array.isArray(groupTarget?.tags) &&
+                    groupTarget.tags.slice(0, 4).map((tg) => (
+                      <span
+                        key={tg}
+                        className={`px-2 py-0.5 rounded ${isLightMode ? 'bg-slate-200 text-slate-800' : 'bg-slate-800 text-slate-300'}`}
+                      >
+                        #{tg}
+                      </span>
+                    ))}
+                </div>
+              </div>
+              <p className={`text-[11px] leading-relaxed ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                {isEn
+                  ? 'This action cannot be undone. Removing this group deletes the zone definition from the database; all member devices and servers will remain safely preserved in the system inventory.'
+                  : 'توجه: این عملیات غیرقابل بازگشت است و ساختار این گروه از پایگاه داده حذف می‌شود؛ با این حال تمام تجهیزات و سرورهای عضو در فهرست کل تجهیزات سامانه باقی خواهند ماند.'}
+              </p>
+            </div>
           ) : (
             /* Device Deletion Content */
             <div className="space-y-3">
@@ -533,6 +621,23 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
             >
               <Trash2 className="w-4 h-4" />
               <span>{isEn ? 'Delete Attachment' : 'حذف فایل پیوست'}</span>
+            </button>
+          ) : isDeviceGroup ? (
+            <button
+              type="button"
+              id="confirm-delete-group-btn"
+              onClick={() => {
+                if (groupTarget && onConfirmDeleteGroup) {
+                  onConfirmDeleteGroup(groupTarget.id);
+                } else if (onConfirm) {
+                  onConfirm();
+                }
+                onClose();
+              }}
+              className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold border border-rose-500/50 shadow-lg transition active:scale-95 cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>{isEn ? 'Delete Group' : 'حذف گروه'}</span>
             </button>
           ) : (
             <button
