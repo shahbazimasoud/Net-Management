@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.15';
+export const APP_VERSION = '1.425.16';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.425.16',
+    releaseDate: '2026-11-15',
+    type: 'patch',
+    title: 'تشخیص خودکار نوع کاربر (دامین با فرمت UPN / @ / NetBIOS یا حساب محلی) در صفحه لاگین بدون خطای تب',
+    title_en: 'Auto-Detect Domain (UPN / @ / NetBIOS) vs. Local Accounts on Login Without Requiring Tab Switch',
+    changes: [
+      'تشخیص خودکار نام کاربری دامینی با فرمت UPN (مانند user@domain.com) یا NetBIOS (مانند DOMAIN\\user) در صفحه لاگین به‌محض تایپ یا ارسال فرم، حتی زمانی که کاربر روی تب حساب محلی قرار دارد، و جابه‌جایی خودکار و نمایش باکس تایید دامنه استخراج‌شده.',
+      'ارتقای مسیر POST /api/auth/login در بک‌اند برای تشخیص هوشمند نوع احراز هویت (دامین اکتیو دایرکتوری یا دیتابیس محلی PostgreSQL) بر اساس فرمت UPN/NetBIOS و تطبیق موجودیت حساب کاربری در حالت ترکیب مجاز (both) بدون خطای عدم انطباق تب.'
+    ],
+    changes_en: [
+      'Added automatic detection of UPN (user@domain.com) and NetBIOS (DOMAIN\\user) domain usernames on the login form so entering domain credentials while on the Local Account tab automatically selects Active Directory authentication without tab mismatch errors.',
+      'Enhanced POST /api/auth/login on the backend to inspect UPN/NetBIOS username syntax and store membership to automatically route between Active Directory and local PostgreSQL accounts when both authentication methods are enabled.'
+    ]
+  },
   {
     version: '1.425.15',
     releaseDate: '2026-11-15',

@@ -619,7 +619,11 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
     const ip = getClientIp(req);
     let username = (req.body?.username || '').trim();
     const password = (req.body?.password || '').trim();
-    const authType = (req.body?.authType || 'local').toLowerCase(); // 'local' | 'ad'
+    const requestedAuthType = (req.body?.authType || 'local').toLowerCase(); // 'local' | 'ad'
+    let authType: 'local' | 'ad' = requestedAuthType === 'ad' ? 'ad' : 'local';
+    const isUpnUsername = /^[^\\@\s]+@[^\\@\s]+$/.test(username);
+    const isNetBiosUsername = /^[^\\@\s]+\\[^\\@\s]+$/.test(username);
+    const hasDomainSyntax = isUpnUsername || isNetBiosUsername;
     let domain = (req.body?.domain || '').trim();
     const rememberMe = Boolean(req.body?.rememberMe);
     const candidateTrustedDeviceToken = (
@@ -656,6 +660,16 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
     // Check allowed authentication methods policy configured by Super Administrator
     const generalSettings = await getGeneralSettings();
     const allowedAuth = generalSettings.allowedAuthMethods || 'both';
+
+    // Auto-detect domain account vs local account from username syntax (UPN user@domain or DOMAIN\user)
+    if (hasDomainSyntax) {
+      if (allowedAuth === 'ad_only') {
+        authType = 'ad';
+      } else {
+        const literalLocalMatch = await findUserByUsername(username);
+        authType = literalLocalMatch ? 'local' : 'ad';
+      }
+    }
 
     if (authType === 'local' && allowedAuth === 'ad_only') {
       await addAuditLog({
@@ -726,6 +740,45 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         error: `Too many failed attempts. Account locked for ${rateLimitStatus.remainingSec} seconds.`,
         message: `تعداد تلاش‌های ناموفق بیش از حد مجاز بود. لطفاً ${rateLimitStatus.remainingSec} ثانیه دیگر مجدداً تلاش فرمایید.`,
       });
+    }
+
+    // Smart store routing when both auth methods are enabled: resolve plain usernames cleanly across Local DB and AD
+    if (allowedAuth === 'both') {
+      if (authType === 'local') {
+        const localCandidate = await findUserByUsername(username);
+        if (!localCandidate) {
+          const adCfg = (await getActiveDirectoryConfig()) || {};
+          const hasAdServer = Boolean(adCfg.server && adCfg.server.trim());
+          const syncedList: any[] = Array.isArray(adCfg.syncedUsers) ? adCfg.syncedUsers : [];
+          const uLower = username.toLowerCase();
+          const hasSyncedMatch = syncedList.some(
+            (u) =>
+              u?.samAccountName?.toLowerCase() === uLower ||
+              u?.email?.toLowerCase() === uLower ||
+              u?.dn?.toLowerCase() === uLower
+          );
+          if (hasAdServer || hasSyncedMatch || hasDomainSyntax) {
+            authType = 'ad';
+          }
+        }
+      } else if (authType === 'ad' && !hasDomainSyntax) {
+        const localCandidate = await findUserByUsername(username);
+        if (localCandidate) {
+          const adCfg = (await getActiveDirectoryConfig()) || {};
+          const hasAdServer = Boolean(adCfg.server && adCfg.server.trim());
+          const syncedList: any[] = Array.isArray(adCfg.syncedUsers) ? adCfg.syncedUsers : [];
+          const uLower = username.toLowerCase();
+          const hasSyncedMatch = syncedList.some(
+            (u) =>
+              u?.samAccountName?.toLowerCase() === uLower ||
+              u?.email?.toLowerCase() === uLower ||
+              u?.dn?.toLowerCase() === uLower
+          );
+          if (!hasAdServer && !hasSyncedMatch) {
+            authType = 'local';
+          }
+        }
+      }
     }
 
     // --- 1. LOCAL AUTHENTICATION ---

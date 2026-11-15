@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../../i18n';
 import { useAuth, AuthUser } from '../../context/AuthContext';
 import { NetworkGlobe3D, GlobeThemeType } from './NetworkGlobe3D';
@@ -180,17 +180,36 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     const initial = propSettings || loadGeneralSettings();
     return initial?.allowedAuthMethods === 'ad_only' ? 'ad' : 'local';
   });
+  const autoSwitchedFromLocalRef = useRef(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [domain, setDomain] = useState('corp.internal');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
 
+  const handleUsernameChange = (nextValue: string) => {
+    setUsername(nextValue);
+    if (allowedAuth === 'both') {
+      const hasDomainSyntax = nextValue.includes('@') || nextValue.includes('\\');
+      if (hasDomainSyntax && authType === 'local') {
+        autoSwitchedFromLocalRef.current = true;
+        setAuthType('ad');
+        setErrorMsg(null);
+      } else if (!hasDomainSyntax && autoSwitchedFromLocalRef.current && authType === 'ad') {
+        autoSwitchedFromLocalRef.current = false;
+        setAuthType('local');
+        setErrorMsg(null);
+      }
+    }
+  };
+
   // Sync authType if allowedAuth changes
   useEffect(() => {
     if (allowedAuth === 'ad_only') {
+      autoSwitchedFromLocalRef.current = false;
       setAuthType('ad');
     } else if (allowedAuth === 'local_only') {
+      autoSwitchedFromLocalRef.current = false;
       setAuthType('local');
     }
   }, [allowedAuth]);
@@ -247,17 +266,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
-    const hasDomainInUsername = username.includes('@') || username.includes('\\');
+    const trimmedUsername = username.trim();
+    const hasDomainInUsername = trimmedUsername.includes('@') || trimmedUsername.includes('\\');
     let extractedDomain = '';
-    if (username.includes('@')) {
-      extractedDomain = username.split('@')[1]?.trim() || '';
-    } else if (username.includes('\\')) {
-      extractedDomain = username.split('\\')[0]?.trim() || '';
+    if (trimmedUsername.includes('@')) {
+      extractedDomain = trimmedUsername.split('@')[1]?.trim() || '';
+    } else if (trimmedUsername.includes('\\')) {
+      extractedDomain = trimmedUsername.split('\\')[0]?.trim() || '';
+    }
+
+    // Automatically classify domain (UPN / NetBIOS) vs local account without blocking on the active tab
+    const effectiveAuthType: 'local' | 'ad' =
+      allowedAuth === 'ad_only'
+        ? 'ad'
+        : allowedAuth === 'local_only'
+        ? 'local'
+        : hasDomainInUsername
+        ? 'ad'
+        : authType;
+
+    if (effectiveAuthType !== authType && allowedAuth === 'both') {
+      autoSwitchedFromLocalRef.current = effectiveAuthType === 'ad';
+      setAuthType(effectiveAuthType);
     }
 
     const effectiveDomain = extractedDomain || domain.trim() || 'corp.internal';
 
-    if (authType === 'ad' && !hasDomainInUsername && !domain.trim()) {
+    if (effectiveAuthType === 'ad' && !hasDomainInUsername && !domain.trim()) {
       setErrorMsg(
         isEn
           ? 'Please enter your domain name or include it in your username (e.g. user@domain.com).'
@@ -271,7 +306,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setSuccessFeedback(null);
 
     try {
-      const cleanUsername = username.trim().toLowerCase();
+      const cleanUsername = trimmedUsername.toLowerCase();
       const userSpecificToken = cleanUsername
         ? localStorage.getItem(`nettopology_trusted_device_${cleanUsername}`)
         : null;
@@ -289,9 +324,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       }
 
       const loginPayload = JSON.stringify({
-        username: username.trim(),
+        username: trimmedUsername,
         password: password.trim(),
-        authType,
+        authType: effectiveAuthType,
         domain: effectiveDomain,
         rememberMe,
         trustedDeviceToken: candidateTrustedDeviceToken,
@@ -1001,6 +1036,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      autoSwitchedFromLocalRef.current = false;
                       setAuthType('local');
                       setErrorMsg(null);
                     }}
@@ -1019,6 +1055,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      autoSwitchedFromLocalRef.current = false;
                       setAuthType('ad');
                       setErrorMsg(null);
                     }}
@@ -1102,7 +1139,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       isLight ? 'text-slate-700' : 'text-slate-300'
                     }`}
                   >
-                    {authType === 'local'
+                    {allowedAuth === 'both'
+                      ? isEn
+                        ? 'Username or Domain UPN'
+                        : 'نام کاربری یا نام کاربری دامین (UPN)'
+                      : authType === 'local'
                       ? isEn
                         ? 'Username'
                         : 'نام کاربری'
@@ -1117,8 +1158,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     <input
                       type="text"
                       value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      placeholder={authType === 'local' ? 'admin' : (isEn ? 'user@domain.com or username' : 'user@domain.com یا نام کاربری')}
+                      onChange={(e) => handleUsernameChange(e.target.value)}
+                      placeholder={
+                        allowedAuth === 'both' && authType === 'local'
+                          ? isEn
+                            ? 'admin or user@domain.com'
+                            : 'admin یا user@domain.com'
+                          : authType === 'local'
+                          ? 'admin'
+                          : isEn
+                          ? 'user@domain.com or username'
+                          : 'user@domain.com یا نام کاربری'
+                      }
                       className={`w-full rounded-xl py-2.5 pl-10 pr-3 text-xs transition font-mono focus:outline-none ${
                         isLight
                           ? 'bg-slate-50 border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-indigo-600 focus:bg-white focus:ring-1 focus:ring-indigo-600'
@@ -1129,22 +1180,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     />
                   </div>
 
-                  {/* In AD mode: Show auto-detected domain confirmation when @ or \ is used */}
-                  {authType === 'ad' && (username.includes('@') || username.includes('\\')) && (
-                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[11px] font-mono mt-1.5">
+                  {/* Show auto-detected domain confirmation when @ or \ is used */}
+                  {allowedAuth !== 'local_only' && (username.includes('@') || username.includes('\\')) && (
+                    <div
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-mono mt-1.5 ${
+                        isLight
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                      }`}
+                    >
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                       <span>
                         {isEn
-                          ? `Domain extracted: ${
+                          ? `Domain detected (${
                               username.includes('@')
-                                ? username.split('@')[1]?.trim() || ''
-                                : username.split('\\')[0]?.trim() || ''
-                            } (No separate domain entry required)`
-                          : `دامین از نام کاربری استخراج شد: ${
+                                ? username.split('@')[1]?.trim() || '...'
+                                : username.split('\\')[0]?.trim() || '...'
+                            }) — Active Directory authentication selected`
+                          : `دامین تشخیص داده شد (${
                               username.includes('@')
-                                ? username.split('@')[1]?.trim() || ''
-                                : username.split('\\')[0]?.trim() || ''
-                            } (نیازی به ورود مجدد دامنه نیست)`}
+                                ? username.split('@')[1]?.trim() || '...'
+                                : username.split('\\')[0]?.trim() || '...'
+                            }) — احراز هویت اکتیو دایرکتوری انتخاب شد`}
                       </span>
                     </div>
                   )}
