@@ -61,7 +61,7 @@ interface NavbarProps {
   isMobileMenuOpen?: boolean;
   onToggleMobileMenu?: () => void;
   unreadCommsCount?: number;
-  onOpenCommunications?: () => void;
+  onOpenCommunications?: (notificationId?: string) => void;
   onUnreadCountSync?: (count: number) => void;
   onOpenProfileSecurity?: () => void;
 }
@@ -374,19 +374,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
                   ) : (
                     commsPreview.map((item) => (
-                      <button
+                      <div
                         key={item.id}
-                        type="button"
+                        role="button"
+                        tabIndex={0}
                         onClick={async () => {
                           if (!item.isRead) {
-                            markCommsNotificationRead(item.id, true)
-                              .then((res) => onUnreadCountSync?.(res.unreadCount))
-                              .catch(() => {});
+                            setCommsPreview((prev) =>
+                              prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
+                            );
+                            onUnreadCountSync?.(Math.max(0, unreadCommsCount - 1));
+                            try {
+                              const res = await markCommsNotificationRead(item.id, true);
+                              onUnreadCountSync?.(res.unreadCount);
+                            } catch {}
                           }
                           setCommsOpen(false);
-                          onOpenCommunications();
+                          onOpenCommunications(item.id);
                         }}
-                        className={`w-full px-3.5 py-2.5 flex items-start gap-2.5 text-start transition cursor-pointer ${
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            (e.currentTarget as HTMLDivElement).click();
+                          }
+                        }}
+                        className={`group w-full px-3.5 py-2.5 flex items-start gap-2.5 text-start transition cursor-pointer ${
                           !item.isRead
                             ? isLightMode
                               ? 'bg-indigo-50/50 hover:bg-indigo-50'
@@ -420,7 +432,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                             })}
                           </div>
                         </div>
-                      </button>
+                        {!item.isRead && (
+                          <button
+                            type="button"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              setCommsPreview((prev) =>
+                                prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
+                              );
+                              onUnreadCountSync?.(Math.max(0, unreadCommsCount - 1));
+                              try {
+                                const res = await markCommsNotificationRead(item.id, true);
+                                onUnreadCountSync?.(res.unreadCount);
+                              } catch {}
+                            }}
+                            title={isEn ? 'Mark as seen' : 'علامت به‌عنوان دیده شده'}
+                            className={`p-1 rounded-md opacity-70 group-hover:opacity-100 shrink-0 transition cursor-pointer ${
+                              isLightMode
+                                ? 'hover:bg-indigo-100 text-indigo-700'
+                                : 'hover:bg-white/10 text-indigo-300'
+                            }`}
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     ))
                   )}
                 </div>

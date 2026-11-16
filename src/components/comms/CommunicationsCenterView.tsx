@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Bell,
@@ -75,6 +75,8 @@ interface CommunicationsCenterViewProps {
   onNavigateToTab?: (tab: ActiveTab) => void;
   onUnreadCountSync?: (unreadCount: number, countsByFolder?: CommsCountsByFolder) => void;
   liveRevision?: number;
+  initialSelectedId?: string | null;
+  onConsumeInitialSelectedId?: () => void;
 }
 
 const DEFAULT_COUNTS: CommsCountsByFolder = {
@@ -94,6 +96,8 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   onNavigateToTab,
   onUnreadCountSync,
   liveRevision = 0,
+  initialSelectedId = null,
+  onConsumeInitialSelectedId,
 }) => {
   const { isEn, isRtl } = useLanguage();
   const { user, effectivePolicy } = useAuth();
@@ -160,11 +164,15 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(
-    optimistic?.items?.[0]?.id || null
+    initialSelectedId || optimistic?.items?.[0]?.id || null
   );
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
+
+  // Track IDs explicitly marked unread by the user so auto-read doesn't override manual toggles
+  const manualUnreadIdsRef = useRef<Set<string>>(new Set());
+  const autoReadInFlightRef = useRef<Set<string>>(new Set());
 
   // Compose Modal States (RBAC gated)
   const [composeOpen, setComposeOpen] = useState(false);
@@ -219,9 +227,15 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
         setCountsByFolder(nextCounts);
         onUnreadCountSync?.(res.unreadCount ?? nextCounts.unread ?? 0, nextCounts);
         setSelectedId((prev) => {
+          if (initialSelectedId && (res.items || []).some((i) => i.id === initialSelectedId)) {
+            return initialSelectedId;
+          }
           if (prev && (res.items || []).some((i) => i.id === prev)) return prev;
           return res.items?.[0]?.id || null;
         });
+        if (initialSelectedId) {
+          onConsumeInitialSelectedId?.();
+        }
       } catch (err: any) {
         setErrorMsg(
           err?.message ||
@@ -234,6 +248,15 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
     },
     [activeFolder, severityFilter, debouncedQuery, isEn, onUnreadCountSync]
   );
+
+  useEffect(() => {
+    if (initialSelectedId) {
+      manualUnreadIdsRef.current.delete(initialSelectedId);
+      setViewMode('inbox');
+      setSelectedId(initialSelectedId);
+      onConsumeInitialSelectedId?.();
+    }
+  }, [initialSelectedId, onConsumeInitialSelectedId]);
 
   useEffect(() => {
     loadNotifications(liveRevision > 0);
@@ -367,11 +390,13 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
     }
   };
 
-  const handleSelectItem = async (item: CommsNotificationItem) => {
-    setSelectedId(item.id);
-    if (!item.isRead) {
+  const markItemViewedAsRead = useCallback(
+    async (item: CommsNotificationItem) => {
+      if (item.isRead || autoReadInFlightRef.current.has(item.id)) return;
+      autoReadInFlightRef.current.add(item.id);
+      manualUnreadIdsRef.current.delete(item.id);
+
       const nowIso = new Date().toISOString();
-      // Optimistic read state update
       setItems((prev) =>
         prev.map((row) => (row.id === item.id ? { ...row, isRead: true, readAt: nowIso } : row))
       );
@@ -389,7 +414,25 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
         }
       } catch {
         loadNotifications(true);
+      } finally {
+        autoReadInFlightRef.current.delete(item.id);
       }
+    },
+    [loadNotifications, onUnreadCountSync]
+  );
+
+  // Automatically mark the currently opened / displayed notification as seen/read in Inbox view
+  useEffect(() => {
+    if (viewMode !== 'inbox' || !selectedItem || selectedItem.isRead) return;
+    if (manualUnreadIdsRef.current.has(selectedItem.id)) return;
+    void markItemViewedAsRead(selectedItem);
+  }, [viewMode, selectedItem, markItemViewedAsRead]);
+
+  const handleSelectItem = async (item: CommsNotificationItem) => {
+    manualUnreadIdsRef.current.delete(item.id);
+    setSelectedId(item.id);
+    if (!item.isRead) {
+      await markItemViewedAsRead(item);
     }
   };
 
@@ -397,6 +440,11 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
     e?.stopPropagation();
     setActionBusyId(item.id);
     const nextRead = !item.isRead;
+    if (!nextRead) {
+      manualUnreadIdsRef.current.add(item.id);
+    } else {
+      manualUnreadIdsRef.current.delete(item.id);
+    }
     try {
       const res = await markCommsNotificationRead(item.id, nextRead);
       setItems((prev) => prev.map((r) => (r.id === item.id ? res.notification : r)));
@@ -437,6 +485,9 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   const handleAcknowledge = async (item: CommsNotificationItem) => {
     setActionBusyId(item.id);
     try {
+      if (!item.isRead) {
+        await markItemViewedAsRead(item);
+      }
       const res = await acknowledgeCommsNotification(item.id);
       setItems((prev) => prev.map((r) => (r.id === item.id ? res.notification : r)));
       if (res.countsByFolder) {
@@ -1388,7 +1439,13 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                           )}
                         </span>
 
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                        <div
+                          className={`flex items-center gap-1 transition-opacity shrink-0 ${
+                            !item.isRead
+                              ? 'opacity-80 group-hover:opacity-100'
+                              : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                        >
                           <button
                             type="button"
                             disabled={actionBusyId === item.id}

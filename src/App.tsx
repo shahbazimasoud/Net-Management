@@ -112,6 +112,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [unreadCommsCount, setUnreadCommsCount] = useState<number>(0);
   const [commsLiveRevision, setCommsLiveRevision] = useState<number>(0);
+  const [focusedCommsNotificationId, setFocusedCommsNotificationId] = useState<string | null>(null);
 
   // RBAC Access Control States (Synchronized directly with PostgreSQL database via Bearer Token)
   const [policies, setPolicies] = useState<AccessPolicy[]>([]);
@@ -1409,8 +1410,11 @@ export default function App() {
           isMobileMenuOpen={isMobileMenuOpen}
           onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
           unreadCommsCount={unreadCommsCount}
-          onOpenCommunications={() => {
+          onOpenCommunications={(notificationId) => {
             setIsTopologyFullscreen(false);
+            if (notificationId) {
+              setFocusedCommsNotificationId(notificationId);
+            }
             setActiveTab('communications');
           }}
           onOpenProfileSecurity={() => {
@@ -1532,6 +1536,8 @@ export default function App() {
               onNavigateToTab={(tab) => setActiveTab(tab)}
               onUnreadCountSync={(cnt) => setUnreadCommsCount(cnt)}
               liveRevision={commsLiveRevision}
+              initialSelectedId={focusedCommsNotificationId}
+              onConsumeInitialSelectedId={() => setFocusedCommsNotificationId(null)}
             />
           )}
 

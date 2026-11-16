@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.429.0';
+export const APP_VERSION = '1.429.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.429.1',
+    releaseDate: '2026-11-16',
+    type: 'patch',
+    title: 'اصلاح ثبت خودکار وضعیت دیده‌شدن اعلانات در صندوق پیام و منوی زنگوله هدر',
+    title_en: 'Fix Automatic Read-on-View Sync & Bell Popover Race Condition in Inbox & Notifications',
+    changes: [
+      'ثبت خودکار وضعیت «خوانده‌شده» برای اعلان بازشده و نمایش‌داده‌شده در پنل جزئیات صندوق اعلانات (Inbox) بلافاصله پس از ورود یا انتخاب، ضمن حفظ امکان تغییر دستی به «خوانده‌نشده».',
+      'رفع تداخل زمانی (Race Condition) هنگام کلیک روی اعلان در منوی زنگوله نوار بالا پیش از باز شدن صفحه صندوق اعلانات و هدایت دقیق به همان اعلان انتخابی.',
+      'افزودن دکمه سریع ثبت «دیده شده» به صورت مستقیم روی هر ردیف اعلان خوانده‌نشده در منوی زنگوله نوار بالا و لیست صندوق پیام.'
+    ],
+    changes_en: [
+      'Automatically mark the currently displayed Inbox notification as read once viewed in the Detail Pane while preserving explicit manual Mark Unread toggles.',
+      'Fixed the async race condition between the Navbar Bell popover mark-read request and CommunicationsCenterView mount, navigating directly to the clicked notification ID.',
+      'Added a one-click Mark as Seen action button directly on unread items in the Navbar Bell dropdown and improved visibility of inline read controls in the Inbox feed list.'
+    ]
+  },
   {
     version: '1.429.0',
     releaseDate: '2026-11-16',
