@@ -432,25 +432,25 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
             }`}
           >
             {canSend && (
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
                   onClick={openDirectModal}
-                  className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+                  className={`flex-1 min-w-[105px] flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium whitespace-nowrap cursor-pointer transition ${
                     isLightMode
                       ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-800'
                       : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-100'
                   }`}
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus className="w-3.5 h-3.5 shrink-0" />
                   <span>{isEn ? 'Direct Chat' : 'گفتگوی مستقیم'}</span>
                 </button>
                 <button
                   type="button"
                   onClick={openGroupModal}
-                  className="flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap cursor-pointer transition"
+                  className="flex-1 min-w-[105px] flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap cursor-pointer transition"
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus className="w-3.5 h-3.5 shrink-0" />
                   <span>{isEn ? 'New Channel' : 'کانال گروهی'}</span>
                 </button>
               </div>
@@ -672,11 +672,11 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
             <>
               {/* Thread Header */}
               <div
-                className={`px-4 py-3 border-b flex items-center justify-between gap-3 ${
+                className={`px-4 py-3 border-b flex flex-wrap items-center justify-between gap-2.5 ${
                   isLightMode ? 'border-slate-200 bg-slate-50/40' : 'border-white/10 bg-white/[0.02]'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   <div
                     className={`w-8 h-8 rounded-lg flex items-center justify-center border shrink-0 ${
                       isLightMode
@@ -699,7 +699,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                       {isEn ? activeChannel.nameEn || activeChannel.name : activeChannel.name}
                     </h3>
                     <div
-                      className={`flex items-center gap-2 text-[11px] ${
+                      className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] ${
                         isLightMode ? 'text-slate-500' : 'text-slate-400'
                       }`}
                     >
@@ -728,7 +728,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center flex-wrap gap-1.5">
                   <button
                     type="button"
                     onClick={() => setShowMembersStrip((v) => !v)}

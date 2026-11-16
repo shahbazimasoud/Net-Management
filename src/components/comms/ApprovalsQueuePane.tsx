@@ -450,13 +450,13 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
   return (
     <div className="flex flex-col gap-4 flex-1 min-h-0">
       {/* Top Toolbar & Summary Strip */}
-      <div className={`rounded-2xl border p-4 flex flex-col gap-4 ${surfaceCls}`}>
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0" />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm sm:text-base font-bold truncate">
+      <div className={`rounded-2xl border p-4 flex flex-col gap-4 w-full min-w-0 overflow-hidden ${surfaceCls}`}>
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 min-w-0">
+          <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+            <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0 mt-0.5 sm:mt-0" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-bold break-words">
                   {isEn
                     ? 'Two-Step Approval & Change Authorization Queue'
                     : 'صف تایید دو مرحله‌ای عملیات حساس و تغییرات شبکه'}
@@ -497,8 +497,8 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center flex-wrap gap-2 shrink-0">
-            <div className="relative w-48 sm:w-56">
+          <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto xl:justify-end min-w-0 max-w-full">
+            <div className="relative flex-1 min-w-[160px] sm:flex-initial sm:w-52 max-w-full">
               <Search
                 className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 ${
                   isRtl ? 'right-3' : 'left-3'
@@ -519,7 +519,7 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
               type="button"
               onClick={() => loadApprovals(true)}
               disabled={refreshing}
-              className={`p-2 rounded-lg border text-xs cursor-pointer transition ${
+              className={`p-2 rounded-lg border text-xs shrink-0 cursor-pointer transition ${
                 isLightMode
                   ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
                   : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-300'
@@ -532,7 +532,7 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
             <button
               type="button"
               onClick={openNewRequestModal}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap cursor-pointer transition"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer transition"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>{isEn ? 'New Approval Request' : 'ثبت درخواست تایید'}</span>
@@ -541,8 +541,8 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
         </div>
 
         {/* Status Filter Segmented Controls + Scope Toggle */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-3 border-t border-slate-200/70 dark:border-white/10">
-          <div className="flex items-center gap-1 flex-wrap">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 pt-3 border-t border-slate-200/70 dark:border-white/10 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
             {(
               [
                 { id: 'all', labelEn: 'All', labelFa: 'همه' },
@@ -573,11 +573,11 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
           </div>
 
           {canApprove && (
-            <div className="flex items-center gap-1 p-1 rounded-lg border border-slate-200 dark:border-white/10">
+            <div className="flex items-center flex-wrap gap-1 p-1 rounded-lg border border-slate-200 dark:border-white/10 self-start xl:self-auto max-w-full">
               <button
                 type="button"
                 onClick={() => setScopeFilter('all')}
-                className={`px-2.5 py-1 rounded text-xs font-medium cursor-pointer ${
+                className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap cursor-pointer ${
                   scopeFilter === 'all'
                     ? 'bg-indigo-600 text-white'
                     : isLightMode
@@ -590,7 +590,7 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
               <button
                 type="button"
                 onClick={() => setScopeFilter('mine')}
-                className={`px-2.5 py-1 rounded text-xs font-medium cursor-pointer ${
+                className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap cursor-pointer ${
                   scopeFilter === 'mine'
                     ? 'bg-indigo-600 text-white'
                     : isLightMode

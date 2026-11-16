@@ -770,62 +770,88 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
 
   return (
     <div
-      className="flex flex-col gap-4 h-full min-h-[calc(100vh-11rem)]"
+      className="flex flex-col gap-4 h-full min-h-[calc(100vh-11rem)] w-full min-w-0"
       dir={isRtl ? 'rtl' : 'ltr'}
     >
-      {/* Top Action & Filter Header */}
+      {/* Top Action & Filter Header (2-Tier Responsive Containment for 14" & Desktop Viewports) */}
       <div
-        className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 px-4 py-3.5 rounded-2xl border ${
+        className={`flex flex-col gap-3 px-4 py-3.5 rounded-2xl border w-full min-w-0 overflow-hidden ${
           isLightMode
             ? 'bg-white border-slate-200 shadow-xs'
             : 'bg-slate-900/75 border-white/10'
         }`}
       >
-        <div className="flex items-center gap-3 min-w-0">
-          <div
-            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-              isLightMode
-                ? 'bg-indigo-50 border-indigo-200 text-indigo-600'
-                : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300'
-            }`}
-          >
-            <Bell className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <h2
-                className={`text-base sm:text-lg font-bold tracking-tight ${
-                  isLightMode ? 'text-slate-900' : 'text-white'
-                }`}
-              >
-                {isEn ? 'Inbox & Notifications Center' : 'مرکز پیام‌ها و اعلانات'}
-              </h2>
-              <span
-                className={`text-xs font-medium tabular-nums ${
-                  isLightMode ? 'text-slate-600' : 'text-slate-400'
-                }`}
-              >
-                {countsByFolder.unread > 0
-                  ? isEn
-                    ? `${countsByFolder.unread} unread`
-                    : `${countsByFolder.unread} مورد خوانده‌نشده`
-                  : isEn
-                  ? 'All caught up'
-                  : 'همه موارد مطالعه شده'}
-              </span>
+        {/* Tier 1: Identity & Primary Compose CTA */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                isLightMode
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-600'
+                  : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300'
+              }`}
+            >
+              <Bell className="w-5 h-5" />
             </div>
-            <p className={`text-xs truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-              {isEn
-                ? 'Unified real-time feed for system alerts, security events, team messages, and announcements'
-                : 'صندوق متمرکز و زنده هشدارهای سیستم، رویدادهای امنیتی، مکاتبات تیمی و اطلاعیه‌های مدیر'}
-            </p>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h2
+                  className={`text-base sm:text-lg font-bold tracking-tight ${
+                    isLightMode ? 'text-slate-900' : 'text-white'
+                  }`}
+                >
+                  {isEn ? 'Inbox & Notifications Center' : 'مرکز پیام‌ها و اعلانات'}
+                </h2>
+                <span
+                  className={`text-xs font-medium tabular-nums ${
+                    isLightMode ? 'text-slate-600' : 'text-slate-400'
+                  }`}
+                >
+                  {countsByFolder.unread > 0
+                    ? isEn
+                      ? `${countsByFolder.unread} unread`
+                      : `${countsByFolder.unread} مورد خوانده‌نشده`
+                    : isEn
+                    ? 'All caught up'
+                    : 'همه موارد مطالعه شده'}
+                </span>
+              </div>
+              <p
+                className={`text-xs mt-0.5 line-clamp-1 ${
+                  isLightMode ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
+                {isEn
+                  ? 'Unified real-time feed for system alerts, security events, team messages, and announcements'
+                  : 'صندوق متمرکز و زنده هشدارهای سیستم، رویدادهای امنیتی، مکاتبات تیمی و اطلاعیه‌های مدیر'}
+              </p>
+            </div>
           </div>
+
+          {/* RBAC-Gated Compose Button */}
+          {canSend && (
+            <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+              <button
+                type="button"
+                onClick={openComposeModal}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-semibold shadow-sm whitespace-nowrap transition cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>{isEn ? 'New Message' : 'ارسال پیام / اطلاعیه'}</span>
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center flex-wrap gap-2 shrink-0">
+        {/* Tier 2: Sub-View Navigation Tabs & Search/Actions Toolbar */}
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t min-w-0 ${
+            isLightMode ? 'border-slate-200/80' : 'border-white/10'
+          }`}
+        >
           {/* Sub-View Segmented Switcher */}
           <div
-            className={`flex items-center gap-1 p-1 rounded-xl border ${
+            className={`flex items-center flex-wrap gap-1 p-1 rounded-xl border max-w-full min-w-0 ${
               isLightMode
                 ? 'bg-slate-100 border-slate-200'
                 : 'bg-slate-950/70 border-white/10'
@@ -834,7 +860,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
             <button
               type="button"
               onClick={() => setViewMode('inbox')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
                 viewMode === 'inbox'
                   ? isLightMode
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -844,7 +870,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                   : 'text-slate-300 hover:text-white'
               }`}
             >
-              <Inbox className="w-3.5 h-3.5" />
+              <Inbox className="w-3.5 h-3.5 shrink-0" />
               <span>{isEn ? 'Inbox Feed' : 'صندوق اعلانات'}</span>
               {countsByFolder.unread > 0 && (
                 <span className="font-mono tabular-nums text-[10px] opacity-85">
@@ -856,7 +882,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
             <button
               type="button"
               onClick={() => setViewMode('channels')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
                 viewMode === 'channels'
                   ? isLightMode
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -866,7 +892,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                   : 'text-slate-300 hover:text-white'
               }`}
             >
-              <Hash className="w-3.5 h-3.5" />
+              <Hash className="w-3.5 h-3.5 shrink-0" />
               <span>{isEn ? 'Team Chat & Channels' : 'گفتگوی تیمی و کانال‌ها'}</span>
               {channelUnreadCount > 0 && (
                 <span className="px-1.5 py-0.5 rounded-full bg-indigo-500 text-white font-mono tabular-nums text-[10px]">
@@ -878,7 +904,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
             <button
               type="button"
               onClick={() => setViewMode('approvals')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
                 viewMode === 'approvals'
                   ? isLightMode
                     ? 'bg-white text-slate-900 shadow-xs'
@@ -888,7 +914,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                   : 'text-slate-300 hover:text-white'
               }`}
             >
-              <ShieldCheck className="w-3.5 h-3.5" />
+              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
               <span>{isEn ? 'Approvals Queue' : 'صف تاییدیه‌ها'}</span>
               {pendingApprovalsCount > 0 && (
                 <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white font-mono tabular-nums text-[10px]">
@@ -901,7 +927,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
               <button
                 type="button"
                 onClick={() => setViewMode('tracker')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
                   viewMode === 'tracker'
                     ? isLightMode
                       ? 'bg-white text-slate-900 shadow-xs'
@@ -911,16 +937,16 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                     : 'text-slate-300 hover:text-white'
                 }`}
               >
-                <BarChart3 className="w-3.5 h-3.5" />
+                <BarChart3 className="w-3.5 h-3.5 shrink-0" />
                 <span>{isEn ? 'Read Tracker' : 'رهگیری اطلاعیه‌ها'}</span>
               </button>
             )}
           </div>
 
-          {/* Live Search (Inbox view) */}
+          {/* Live Search & Actions (Inbox view) */}
           {viewMode === 'inbox' && (
-            <>
-              <div className="relative min-w-[180px] sm:w-48">
+            <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[260px] sm:justify-end max-w-full">
+              <div className="relative flex-1 min-w-[160px] sm:max-w-[240px]">
                 <Search
                   className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 ${
                     isRtl ? 'right-3' : 'left-3'
@@ -957,7 +983,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                 type="button"
                 onClick={handleMarkAllRead}
                 disabled={markingAll || countsByFolder.unread === 0}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium whitespace-nowrap transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium whitespace-nowrap shrink-0 transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
                   isLightMode
                     ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
                     : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
@@ -972,7 +998,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                 type="button"
                 onClick={() => loadNotifications(true)}
                 disabled={refreshing}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition cursor-pointer ${
+                className={`flex items-center justify-center p-1.5 rounded-lg border text-xs font-medium shrink-0 transition cursor-pointer ${
                   isLightMode
                     ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
                     : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
@@ -981,19 +1007,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
               </button>
-            </>
-          )}
-
-          {/* RBAC-Gated Compose Button */}
-          {canSend && (
-            <button
-              type="button"
-              onClick={openComposeModal}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-semibold shadow-sm whitespace-nowrap transition cursor-pointer"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>{isEn ? 'New Message' : 'ارسال پیام / اطلاعیه'}</span>
-            </button>
+            </div>
           )}
         </div>
       </div>
@@ -1537,8 +1551,8 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                   isLightMode ? 'border-slate-200' : 'border-white/10'
                 }`}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex flex-wrap items-start justify-between gap-2.5">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
                     {(() => {
                       const sevMeta = getSeverityMeta(selectedItem.severity);
                       const SevIcon = sevMeta.icon;
@@ -1562,7 +1576,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center flex-wrap gap-1.5 shrink-0">
                     <button
                       type="button"
                       disabled={actionBusyId === selectedItem.id}
@@ -1922,7 +1936,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                       </div>
                     )}
 
-                    <form onSubmit={handleQuickReplySubmit} className="flex items-end gap-2">
+                    <form onSubmit={handleQuickReplySubmit} className="flex flex-col sm:flex-row sm:items-end gap-2">
                       <textarea
                         rows={2}
                         value={quickReplyBody}

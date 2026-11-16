@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.430.2';
+export const APP_VERSION = '1.430.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.430.3',
+    releaseDate: '2026-11-16',
+    type: 'patch',
+    title: 'اصلاح چیدمان ریسپانسیو هدر، تب‌ها، فیلترها و نوار جستجوی مرکز پیام‌ها و اعلانات در نمایشگرهای ۱۴ اینچ',
+    title_en: 'Fix Responsive Header, Tabs, Filters, and Search Bar Layout in Inbox & Notifications Center on 14-Inch Displays',
+    changes: [
+      'بازطراحی هدر بالای صفحه مرکز پیام‌ها و اعلانات به ساختار دو‌ردیفه منظم با قابلیت شکست خودکار ایمن (wrap) جهت جلوگیری از بیرون‌زدگی دکمه‌ها و نوار جستجو از کادر در مانیتورهای ۱۴ اینچ و ابعاد کوچک‌تر.',
+      'رفع تداخل و به‌هم‌ریختگی نوار تب‌های جابه‌جایی نما، باکس جستجو و دکمه‌های عملیاتی در نماهای صندوق اعلانات، صف تاییدیه‌ها و گفتگوی تیمی.'
+    ],
+    changes_en: [
+      'Refactored the Inbox & Notifications Center top header into a balanced two-tier responsive layout with safe flex wrapping and min-width containment to prevent tabs, search inputs, and action buttons from overflowing on 14-inch laptop displays.',
+      'Improved responsive toolbar wrapping across Inbox Feed, Approvals Queue filters/scope controls, and Team Chat rail action buttons to eliminate horizontal clipping in both RTL and LTR modes.'
+    ]
+  },
   {
     version: '1.430.2',
     releaseDate: '2026-11-16',
