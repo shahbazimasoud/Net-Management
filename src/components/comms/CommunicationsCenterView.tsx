@@ -254,6 +254,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
     if (initialSelectedId) {
       manualUnreadIdsRef.current.delete(initialSelectedId);
       setViewMode('inbox');
+      setActiveFolder('all');
       setSelectedId(initialSelectedId);
       onConsumeInitialSelectedId?.();
     }

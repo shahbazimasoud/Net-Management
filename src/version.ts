@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.430.0';
+export const APP_VERSION = '1.430.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.430.1',
+    releaseDate: '2026-11-16',
+    type: 'patch',
+    title: 'تفکیک مهندسی لیست اعلانات هدر (فقط خوانده‌نشده و پاک‌سازی سریع) از آرشیو کامل مرکز پیام‌ها و اعلانات',
+    title_en: 'Separate Header Unread Notification Tray & Clear All from Full Inbox Center Archive',
+    changes: [
+      'تبدیل منوی زنگوله نوار بالا (Inbox & Notifications) به صف زنده اعلانات خوانده‌نشده (Unread Tray) همراه با دکمه «پاک‌سازی همه» و دکمه حذف تکی از هدر، بدون حذف پیام‌ها از تاریخچه کامل مرکز پیام‌ها و اعلانات.',
+      'همگام‌سازی خودکار بازگشت اعلان به لیست هدر در صورتی که کاربر مجدداً آن را در مرکز پیام‌ها به حالت «خوانده‌نشده» (Mark Unread) تغییر دهد.',
+      'اطمینان از بارگذاری دقیق اعلان انتخابی در پوشه «همه موارد» هنگام ورود از لیست هدر و به‌روزرسانی آنی منوی زنگوله با رویدادهای WebSocket.'
+    ],
+    changes_en: [
+      'Scoped the top Navbar Bell popover to active unread notifications only with Clear All and single-item clear controls that dismiss entries from the header tray while preserving them in Inbox & Notifications Center.',
+      'Preserved round-trip visibility so any message toggled back to Mark Unread in Inbox & Notifications Center automatically reappears in the Header Bell tray.',
+      'Added live WebSocket synchronization when the header Bell tray is open and ensured navigating from a notification item opens All Inbox focused on that exact message.'
+    ]
+  },
   {
     version: '1.430.0',
     releaseDate: '2026-11-16',

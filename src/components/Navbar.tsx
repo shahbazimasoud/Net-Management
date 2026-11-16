@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   RefreshCw,
   Zap,
@@ -61,6 +61,7 @@ interface NavbarProps {
   isMobileMenuOpen?: boolean;
   onToggleMobileMenu?: () => void;
   unreadCommsCount?: number;
+  commsLiveRevision?: number;
   onOpenCommunications?: (notificationId?: string) => void;
   onUnreadCountSync?: (count: number) => void;
   onOpenProfileSecurity?: () => void;
@@ -86,6 +87,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   isMobileMenuOpen = false,
   onToggleMobileMenu,
   unreadCommsCount = 0,
+  commsLiveRevision = 0,
   onOpenCommunications,
   onUnreadCountSync,
   onOpenProfileSecurity,
@@ -134,20 +136,30 @@ export const Navbar: React.FC<NavbarProps> = ({
     };
   }, [profileOpen, commsOpen]);
 
+  const loadCommsTrayPreview = useCallback(async () => {
+    setCommsPreviewLoading(true);
+    try {
+      const res = await fetchCommsNotifications({ folder: 'unread', limit: 12, forceRefresh: true });
+      setCommsPreview(res.items || []);
+      onUnreadCountSync?.(res.unreadCount ?? 0);
+    } catch {}
+    setCommsPreviewLoading(false);
+  }, [onUnreadCountSync]);
+
   const handleToggleCommsPopover = async () => {
     const nextState = !commsOpen;
     setCommsOpen(nextState);
     if (nextState) {
       setProfileOpen(false);
-      setCommsPreviewLoading(true);
-      try {
-        const res = await fetchCommsNotifications({ folder: 'all', limit: 6, forceRefresh: true });
-        setCommsPreview(res.items || []);
-        onUnreadCountSync?.(res.unreadCount ?? 0);
-      } catch {}
-      setCommsPreviewLoading(false);
+      await loadCommsTrayPreview();
     }
   };
+
+  useEffect(() => {
+    if (commsOpen && commsLiveRevision > 0) {
+      void loadCommsTrayPreview();
+    }
+  }, [commsOpen, commsLiveRevision, loadCommsTrayPreview]);
 
   const themeOptions: { id: ThemeType; nameKey: string; color: string; bgClass: string; nameEn: string; nameFa: string }[] = [
     { id: 'obsidian', nameKey: 'theme_obsidian', color: '#6366f1', bgClass: 'bg-indigo-600', nameEn: 'Obsidian', nameFa: 'آبسیدین' },
@@ -341,24 +353,30 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </span>
                     )}
                   </div>
-                  {unreadCommsCount > 0 && (
+                  {(unreadCommsCount > 0 || commsPreview.length > 0) && (
                     <button
                       type="button"
                       onClick={async () => {
+                        setCommsPreview([]);
+                        onUnreadCountSync?.(0);
                         try {
                           const res = await markAllCommsNotificationsRead('all');
-                          setCommsPreview((prev) => prev.map((n) => ({ ...n, isRead: true })));
                           onUnreadCountSync?.(res.unreadCount);
                         } catch {}
                       }}
-                      className={`flex items-center gap-1 text-[11px] font-medium cursor-pointer ${
+                      title={
+                        isEn
+                          ? 'Mark all read & clear header tray (items remain in Inbox Center)'
+                          : 'خواندن و پاک‌سازی لیست هدر (اعلانات در مرکز پیام‌ها باقی می‌مانند)'
+                      }
+                      className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer ${
                         isLightMode
-                          ? 'text-indigo-700 hover:text-indigo-900'
-                          : 'text-indigo-400 hover:text-indigo-300'
+                          ? 'bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-50'
+                          : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/25'
                       }`}
                     >
                       <CheckCheck className="w-3.5 h-3.5" />
-                      <span>{isEn ? 'Mark all read' : 'خواندن همه'}</span>
+                      <span>{isEn ? 'Clear All' : 'پاک‌سازی همه'}</span>
                     </button>
                   )}
                 </div>
@@ -369,8 +387,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {isEn ? 'Loading feed...' : 'در حال دریافت...'}
                     </div>
                   ) : commsPreview.length === 0 ? (
-                    <div className="p-5 text-center text-xs text-slate-400">
-                      {isEn ? 'No notifications in inbox yet.' : 'هیچ پیام یا اعلانی در صندوق وجود ندارد.'}
+                    <div className="p-5 text-center space-y-1">
+                      <div className={`text-xs font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-200'}`}>
+                        {isEn ? 'No unread notifications' : 'اعلان خوانده‌نشده‌ای وجود ندارد'}
+                      </div>
+                      <div className={`text-[11px] leading-relaxed ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {isEn
+                          ? 'Previously read alerts remain accessible inside Inbox & Notifications Center.'
+                          : 'پیام‌ها و اعلانات قبلی همچنان در مرکز پیام‌ها و اعلانات نگهداری می‌شوند.'}
+                      </div>
                     </div>
                   ) : (
                     commsPreview.map((item) => (
@@ -379,10 +404,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                         role="button"
                         tabIndex={0}
                         onClick={async () => {
+                          setCommsPreview((prev) => prev.filter((n) => n.id !== item.id));
                           if (!item.isRead) {
-                            setCommsPreview((prev) =>
-                              prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
-                            );
                             onUnreadCountSync?.(Math.max(0, unreadCommsCount - 1));
                             try {
                               const res = await markCommsNotificationRead(item.id, true);
@@ -399,22 +422,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                           }
                         }}
                         className={`group w-full px-3.5 py-2.5 flex items-start gap-2.5 text-start transition cursor-pointer ${
-                          !item.isRead
-                            ? isLightMode
-                              ? 'bg-indigo-50/50 hover:bg-indigo-50'
-                              : 'bg-indigo-500/10 hover:bg-indigo-500/15'
-                            : isLightMode
-                            ? 'hover:bg-slate-50'
-                            : 'hover:bg-white/5'
+                          isLightMode
+                            ? 'bg-indigo-50/40 hover:bg-indigo-50'
+                            : 'bg-indigo-500/10 hover:bg-indigo-500/15'
                         }`}
                       >
                         <span
                           className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${
-                            !item.isRead
-                              ? item.severity === 'critical'
-                                ? 'bg-rose-500'
-                                : 'bg-indigo-500'
-                              : 'bg-transparent'
+                            item.severity === 'critical' ? 'bg-rose-500' : 'bg-indigo-500'
                           }`}
                         />
                         <div className="flex-1 min-w-0">
@@ -432,30 +447,32 @@ export const Navbar: React.FC<NavbarProps> = ({
                             })}
                           </div>
                         </div>
-                        {!item.isRead && (
-                          <button
-                            type="button"
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              setCommsPreview((prev) =>
-                                prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
-                              );
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            setCommsPreview((prev) => prev.filter((n) => n.id !== item.id));
+                            if (!item.isRead) {
                               onUnreadCountSync?.(Math.max(0, unreadCommsCount - 1));
                               try {
                                 const res = await markCommsNotificationRead(item.id, true);
                                 onUnreadCountSync?.(res.unreadCount);
                               } catch {}
-                            }}
-                            title={isEn ? 'Mark as seen' : 'علامت به‌عنوان دیده شده'}
-                            className={`p-1 rounded-md opacity-70 group-hover:opacity-100 shrink-0 transition cursor-pointer ${
-                              isLightMode
-                                ? 'hover:bg-indigo-100 text-indigo-700'
-                                : 'hover:bg-white/10 text-indigo-300'
-                            }`}
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                            }
+                          }}
+                          title={
+                            isEn
+                              ? 'Clear from header tray (stays in Inbox Center)'
+                              : 'حذف از لیست هدر (در مرکز پیام‌ها باقی می‌ماند)'
+                          }
+                          className={`p-1 rounded-md opacity-70 group-hover:opacity-100 shrink-0 transition cursor-pointer ${
+                            isLightMode
+                              ? 'hover:bg-indigo-100 text-indigo-700'
+                              : 'hover:bg-white/10 text-indigo-300'
+                          }`}
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     ))
                   )}

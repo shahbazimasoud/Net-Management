@@ -1410,6 +1410,7 @@ export default function App() {
           isMobileMenuOpen={isMobileMenuOpen}
           onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
           unreadCommsCount={unreadCommsCount}
+          commsLiveRevision={commsLiveRevision}
           onOpenCommunications={(notificationId) => {
             setIsTopologyFullscreen(false);
             if (notificationId) {
