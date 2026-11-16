@@ -498,11 +498,34 @@ export TMPDIR="$APP_DIR/.tmp"
 export NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB}"
 rm -rf "$APP_DIR/dist" "$APP_DIR/node_modules/.vite" /tmp/esbuild* "$APP_DIR/.tmp"/* 2>/dev/null || true
 
-# Run npm install
-if [ -n "$SUDO_USER" ]; then
-  su - "$SUDO_USER" -c "cd '$APP_DIR' && export TMPDIR='$APP_DIR/.tmp' && npm install"
-else
-  npm install
+# Release open file handles on existing node_modules and clean orphaned npm staging dirs (prevents ENOTEMPTY)
+systemctl stop nettopology.service 2>/dev/null || true
+pkill -f "dist/server.cjs" 2>/dev/null || true
+pkill -f "tsx server.ts" 2>/dev/null || true
+if [ -d "$APP_DIR/node_modules" ]; then
+  find "$APP_DIR/node_modules" -maxdepth 3 -type d -name '.*-*' \
+    ! -name '.bin' ! -name '.vite' ! -name '.cache' \
+    -exec rm -rf {} + 2>/dev/null || true
+  rm -rf "$APP_DIR/node_modules/.staging" 2>/dev/null || true
+fi
+
+run_npm_install_cmd() {
+  local extra_flags="$1"
+  if [ -n "$SUDO_USER" ]; then
+    su - "$SUDO_USER" -c "cd '$APP_DIR' && export TMPDIR='$APP_DIR/.tmp' && npm install --no-audit --no-fund $extra_flags"
+  else
+    npm install --no-audit --no-fund $extra_flags
+  fi
+}
+
+if ! run_npm_install_cmd ""; then
+  echo -e "${YELLOW}خطا در نصب افزایشی npm (احتمال تداخل ENOTEMPTY). در حال پاک‌سازی کامل node_modules و نصب تمیز مجدد...${NC}"
+  rm -rf "$APP_DIR/node_modules" "$APP_DIR/.tmp"/* 2>/dev/null || true
+  if ! run_npm_install_cmd ""; then
+    echo -e "${YELLOW}نصب از مخزن اصلی ناموفق بود. تلاش مجدد با رجیستری کمکی (registry.npmmirror.com)...${NC}"
+    rm -rf "$APP_DIR/node_modules" "$APP_DIR/.tmp"/* 2>/dev/null || true
+    run_npm_install_cmd "--registry=https://registry.npmmirror.com"
+  fi
 fi
 
 # Provision dedicated SSH Virtual Environments (Legacy: Paramiko 2.12.x, Modern: Paramiko >=3.4.0)

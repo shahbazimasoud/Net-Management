@@ -30,7 +30,7 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-PANEL_VERSION="1.430.1"
+PANEL_VERSION="1.430.2"
 
 # ==============================================================================
 # Enterprise Package Manager & DPKG Lock Guard
@@ -662,15 +662,33 @@ fi
 # Guard memory, expand ulimits and allocate swap/shm to prevent 'Bus error (core dumped)' on VPS
 ensure_system_resources
 
-log_step "Installing NPM dependencies..."
-npm config set fetch-retry-maxtimeout 180000
-npm config set fetch-retry-mintimeout 30000
-npm config set fetch-retries 10
+log_step "Preparing clean dependency staging environment..."
+# Release any open file handles on existing node_modules held by previous panel processes
+systemctl stop nettopology.service 2>/dev/null || true
+pkill -f "dist/server.cjs" 2>/dev/null || true
+pkill -f "tsx server.ts" 2>/dev/null || true
 
 # Configure isolated project-local TMPDIR on root filesystem to prevent /tmp noexec/size issues
 mkdir -p "$INSTALL_DIR/.tmp"
 export TMPDIR="$INSTALL_DIR/.tmp"
 chmod 777 "$INSTALL_DIR/.tmp" 2>/dev/null || true
+rm -rf "$INSTALL_DIR/.tmp"/* 2>/dev/null || true
+
+# Clean orphaned npm temporary rename directories (prevents ENOTEMPTY: rename ... -> .pkg-xxxxxxxx)
+if [ -d "$INSTALL_DIR/node_modules" ]; then
+  log_info "Purging leftover npm temporary staging directories in node_modules..."
+  find "$INSTALL_DIR/node_modules" -maxdepth 3 -type d -name '.*-*' \
+    ! -name '.bin' ! -name '.vite' ! -name '.cache' \
+    -exec rm -rf {} + 2>/dev/null || true
+  rm -rf "$INSTALL_DIR/node_modules/.staging" 2>/dev/null || true
+fi
+
+log_step "Installing NPM dependencies..."
+npm config set fetch-retry-maxtimeout 180000
+npm config set fetch-retry-mintimeout 30000
+npm config set fetch-retries 10
+# Remove any leftover custom registry override from aborted earlier runs
+npm config delete registry 2>/dev/null || true
 
 # Dynamic memory sizing based on detected system RAM
 SYS_MEM_MB=0
@@ -691,11 +709,38 @@ fi
 export NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB}"
 log_info "Node.js execution environment: Heap ${NODE_HEAP_MB}MB | OS Stack Limit: 64MB | System RAM: ${SYS_MEM_MB}MB"
 
-if ! npm install; then
-  log_warning "Standard npm install failed. Retrying with mirror registry (registry.npmmirror.com)..."
-  npm config set registry https://registry.npmmirror.com
-  npm install || { log_error "NPM installation failed."; exit 1; }
-  npm config delete registry
+NPM_OK=false
+if npm install --no-audit --no-fund; then
+  NPM_OK=true
+else
+  log_warning "Incremental npm install failed (possible ENOTEMPTY / corrupted node_modules tree). Purging node_modules and retrying clean install..."
+  rm -rf "$INSTALL_DIR/node_modules" "$INSTALL_DIR/.tmp"/* 2>/dev/null || true
+  if npm install --no-audit --no-fund; then
+    NPM_OK=true
+  fi
+fi
+
+if [ "$NPM_OK" = false ]; then
+  log_warning "Primary npm install failed after clean purge. Retrying with mirror registry (registry.npmmirror.com)..."
+  rm -rf "$INSTALL_DIR/node_modules" "$INSTALL_DIR/.tmp"/* 2>/dev/null || true
+  if npm install --registry=https://registry.npmmirror.com --no-audit --no-fund; then
+    NPM_OK=true
+  fi
+fi
+
+if [ "$NPM_OK" = false ]; then
+  log_warning "Retrying with clean npm cache and legacy peer dependency resolution..."
+  rm -rf "$INSTALL_DIR/node_modules" "$INSTALL_DIR/.tmp"/* 2>/dev/null || true
+  npm cache clean --force 2>/dev/null || true
+  if npm install --legacy-peer-deps --no-audit --no-fund || \
+     npm install --registry=https://registry.npmmirror.com --legacy-peer-deps --no-audit --no-fund; then
+    NPM_OK=true
+  fi
+fi
+
+if [ "$NPM_OK" = false ]; then
+  log_error "NPM installation failed after clean node_modules recovery and mirror fallback."
+  exit 1
 fi
 
 log_step "Provisioning Dedicated SSH Virtual Environments (Legacy: Paramiko 2.12.x, Modern: Paramiko >=3.4.0)..."

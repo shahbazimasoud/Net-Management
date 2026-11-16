@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.430.1';
+export const APP_VERSION = '1.430.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.430.2',
+    releaseDate: '2026-11-16',
+    type: 'patch',
+    title: 'رفع قطعی خطای ENOTEMPTY هنگام نصب و ارتقای وابستگی‌های NPM در اسکریپت‌های راه‌اندازی',
+    title_en: 'Fix npm install ENOTEMPTY Failure During Upgrade & Reinstall in Setup Scripts',
+    changes: [
+      'متوقف‌سازی پیش‌دستانه سرویس nettopology و پردازش‌های باز روی فایل‌های node_modules پیش از اجرای npm install در اسکریپت‌های setup-panel.sh و install.sh.',
+      'پاک‌سازی خودکار پوشه‌های موقت باقی‌مانده npm (.*-xxxxxxxx) درون node_modules پیش از نصب افزایشی برای جلوگیری از خطای rename ENOTEMPTY.',
+      'افزودن مکانیزم خودترمیم‌گر چندمرحله‌ای: در صورت بروز خطا در نصب افزایشی، حذف کامل node_modules آسیب‌دیده و اجرای نصب تمیز پیش از استفاده از رجیستری جایگزین (بدون باقی‌گذاشتن تنظیمات موقت رجیستری در .npmrc).'
+    ],
+    changes_en: [
+      'Preemptively stop running nettopology.service and active Node processes holding handles in node_modules prior to npm install in setup-panel.sh and install.sh.',
+      'Automatically purge orphaned npm temporary staging directories (.*-xxxxxxxx) inside node_modules before incremental installs to prevent rename ENOTEMPTY errors.',
+      'Added multi-stage self-healing recovery that removes corrupted node_modules cleanly before retrying primary install, per-command mirror registry (--registry), and cache-clean fallback without mutating global npm config.'
+    ]
+  },
   {
     version: '1.430.1',
     releaseDate: '2026-11-16',
