@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.427.0';
+export const APP_VERSION = '1.428.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.428.0',
+    releaseDate: '2026-11-16',
+    type: 'minor',
+    title: 'تکمیل فاز ۳: صفحه پروفایل و امنیت شخصی کاربر، احراز هویت دو مرحله‌ای TOTP با QR، کدهای پشتیبان، مدیریت دستگاه‌های مورد اعتماد و ساعات سکوت',
+    title_en: 'Phase 3 Complete: User Profile & Security Center, Personal TOTP 2FA with QR Setup, Backup Recovery Codes, Trusted Devices & Quiet Hours',
+    changes: [
+      'افزودن صفحه اختصاصی «پروفایل و امنیت حساب» قابل دسترس برای تمامی کاربران (محلی و اکتیو دایرکتوری) از منوی سایدبار و منوی پروفایل در هدر بالا (Navbar).',
+      'پشتیبانی کامل از راه‌اندازی احراز هویت دو مرحله‌ای با اپلیکیشن‌های Authenticator (استاندارد RFC 6238 TOTP) همراه با نمایش کد QR واقعی، کلید دستی Base32 رمزنگاری‌شده با AES-256-GCM در PostgreSQL و تولید ۸ کد پشتیبان یک‌بارمصرف هش‌شده (SHA-256).',
+      'به‌روزرسانی صفحه ورود (LoginPage) و سرویس دو مرحله‌ای سرور برای پشتیبانی یکپارچه از کد ۶ رقمی TOTP، ورود با کد پشتیبان بازیابی و گزینه ارسال کد اضطراری به ایمیل.',
+      'افزودن بخش مدیریت و لغو دسترسی از راه دور دستگاه‌ها و مرورگرهای مورد اعتماد ۳۰ روزه (Trusted Devices) همراه با تغییر رمز عبور حساب محلی و ویرایش مشخصات عملیاتی کاربر.',
+      'افزودن کنترل ترجیحات کانال‌های اعلان و زمان‌بندی ساعات سکوت (Quiet Hours) متصل به هاب بلادرنگ ارتباطات بدون مسدودسازی هشدارهای بحرانی و امنیتی.'
+    ],
+    changes_en: [
+      'Added the dedicated Profile & 2FA Security workspace accessible to every authenticated Local and Active Directory user from both the Sidebar and Navbar profile dropdown.',
+      'Implemented personal RFC 6238 TOTP Authenticator enrollment with real QR code generation, AES-256-GCM encrypted secret storage in PostgreSQL, and 8 salted SHA-256 single-use recovery backup codes.',
+      'Extended the LoginPage 2FA challenge and server verification pipeline to accept live 6-digit TOTP tokens, one-time backup recovery codes, and optional Email OTP fallback.',
+      'Added remote 30-day Trusted Devices inspection and single/bulk revocation alongside self-service local password changes and operational contact metadata.',
+      'Integrated per-category Inbox notification toggles and timezone-aware Quiet Hours scheduling directly into the live WebSocket and Communications delivery engine while guaranteeing critical security/audit delivery.'
+    ]
+  },
   {
     version: '1.427.0',
     releaseDate: '2026-11-16',

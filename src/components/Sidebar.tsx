@@ -30,6 +30,7 @@ import {
   Bell,
   Database,
   FileCheck,
+  UserCog,
   X
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
@@ -71,6 +72,7 @@ export type ActiveTab =
   | 'scanner'
   | 'logs'
   | 'communications'
+  | 'profile-security'
   | 'licenses'
   | 'contracts'
   | 'settings'
@@ -278,6 +280,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_communications',
           icon: Bell,
           badge: unreadCommsCount > 0 ? String(unreadCommsCount) : null,
+        },
+        {
+          id: 'profile-security',
+          labelKey: 'tab_profile_security',
+          icon: UserCog,
+          badge: null,
         },
       ],
     },

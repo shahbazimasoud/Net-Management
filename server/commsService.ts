@@ -34,6 +34,7 @@ import {
   broadcastCommsEventToUser,
   registerCommsSyncProvider,
 } from './commsWs';
+import { evaluateNotificationDeliveryForUser } from './profileService';
 
 export interface CommsActor {
   userId: string;
@@ -984,41 +985,55 @@ export async function dispatchCommunication(
     created_at: nowIso,
   };
 
-  const notificationRecords = recipients.map((rec) => ({
-    id: makeId('notif'),
-    recipient_user_id: rec.userId,
-    recipient_username: rec.username,
-    source_message_id: messageId,
-    channel_id: null,
-    category: payload.category,
-    severity: payload.severity || 'info',
-    sender_name: senderDisplay,
-    sender_role: senderUser.role || 'Operator',
-    title,
-    title_en: titleEn,
-    summary,
-    summary_en: summaryEn,
-    body,
-    body_en: bodyEn,
-    linked_entity_type: payload.linkedEntityType || null,
-    linked_entity_id: payload.linkedEntityId || null,
-    linked_entity_name: payload.linkedEntityName || null,
-    action_tab: payload.actionTab || null,
-    is_read: false,
-    is_archived: false,
-    requires_acknowledgment: Boolean(payload.requiresAcknowledgment),
-    metadata: {
-      sourceMessageId: messageId,
-      targetType: payload.targetType,
-      senderUsername: senderUser.username,
-    },
-    created_at: nowIso,
-  }));
+  const notificationRecords: any[] = [];
+  const activeRecipients: ResolvedRecipient[] = [];
+  for (const rec of recipients) {
+    const pref = await evaluateNotificationDeliveryForUser(
+      rec,
+      payload.category,
+      payload.severity || 'info',
+      Boolean(payload.requiresAcknowledgment)
+    );
+    if (!pref.deliverInboxNotification) continue;
+    activeRecipients.push(rec);
+    notificationRecords.push({
+      id: makeId('notif'),
+      recipient_user_id: rec.userId,
+      recipient_username: rec.username,
+      source_message_id: messageId,
+      channel_id: null,
+      category: payload.category,
+      severity: payload.severity || 'info',
+      sender_name: senderDisplay,
+      sender_role: senderUser.role || 'Operator',
+      title,
+      title_en: titleEn,
+      summary,
+      summary_en: summaryEn,
+      body,
+      body_en: bodyEn,
+      linked_entity_type: payload.linkedEntityType || null,
+      linked_entity_id: payload.linkedEntityId || null,
+      linked_entity_name: payload.linkedEntityName || null,
+      action_tab: payload.actionTab || null,
+      is_read: false,
+      is_archived: false,
+      requires_acknowledgment: Boolean(payload.requiresAcknowledgment),
+      metadata: {
+        sourceMessageId: messageId,
+        targetType: payload.targetType,
+        senderUsername: senderUser.username,
+        quietHoursMuted: pref.quietHoursMuted,
+        playSound: pref.playSound,
+      },
+      created_at: nowIso,
+    });
+  }
 
   const notifications = await persistMessageAndNotifications(
     messageRecord,
     notificationRecords,
-    recipients
+    activeRecipients
   );
 
   await addPortalAuditLog({
@@ -1107,34 +1122,51 @@ export async function emitSystemNotification(params: {
     const summaryEn =
       params.bodyEn.length > 140 ? `${params.bodyEn.slice(0, 137)}...` : params.bodyEn;
 
-    const notificationRecords = recipients.map((rec) => ({
-      id: makeId('notif'),
-      recipient_user_id: rec.userId,
-      recipient_username: rec.username,
-      source_message_id: null,
-      channel_id: null,
-      category: params.category || 'system_alert',
-      severity: params.severity || 'warning',
-      sender_name: params.senderName || 'System Monitor',
-      sender_role: params.senderRole || 'System Engine',
-      title: params.title,
-      title_en: params.titleEn,
-      summary,
-      summary_en: summaryEn,
-      body: params.body,
-      body_en: params.bodyEn,
-      linked_entity_type: params.linkedEntityType || null,
-      linked_entity_id: params.linkedEntityId || null,
-      linked_entity_name: params.linkedEntityName || null,
-      action_tab: params.actionTab || null,
-      is_read: false,
-      is_archived: false,
-      requires_acknowledgment: Boolean(params.requiresAcknowledgment),
-      metadata: params.metadata || {},
-      created_at: nowIso,
-    }));
+    const notificationRecords: any[] = [];
+    const activeRecipients: ResolvedRecipient[] = [];
+    const resolvedCat = params.category || 'system_alert';
+    const resolvedSev = params.severity || 'warning';
+    const reqAck = Boolean(params.requiresAcknowledgment);
 
-    await persistMessageAndNotifications(null, notificationRecords, recipients);
+    for (const rec of recipients) {
+      const pref = await evaluateNotificationDeliveryForUser(rec, resolvedCat, resolvedSev, reqAck);
+      if (!pref.deliverInboxNotification) continue;
+      activeRecipients.push(rec);
+      notificationRecords.push({
+        id: makeId('notif'),
+        recipient_user_id: rec.userId,
+        recipient_username: rec.username,
+        source_message_id: null,
+        channel_id: null,
+        category: resolvedCat,
+        severity: resolvedSev,
+        sender_name: params.senderName || 'System Monitor',
+        sender_role: params.senderRole || 'System Engine',
+        title: params.title,
+        title_en: params.titleEn,
+        summary,
+        summary_en: summaryEn,
+        body: params.body,
+        body_en: params.bodyEn,
+        linked_entity_type: params.linkedEntityType || null,
+        linked_entity_id: params.linkedEntityId || null,
+        linked_entity_name: params.linkedEntityName || null,
+        action_tab: params.actionTab || null,
+        is_read: false,
+        is_archived: false,
+        requires_acknowledgment: reqAck,
+        metadata: {
+          ...(params.metadata || {}),
+          quietHoursMuted: pref.quietHoursMuted,
+          playSound: pref.playSound,
+        },
+        created_at: nowIso,
+      });
+    }
+
+    if (notificationRecords.length > 0) {
+      await persistMessageAndNotifications(null, notificationRecords, activeRecipients);
+    }
   } catch (err: any) {
     console.warn('[CommsService] emitSystemNotification notice:', err?.message || err);
   }
@@ -2123,43 +2155,57 @@ export async function postChannelMessage(
   const summary = body.length > 140 ? `${body.slice(0, 137)}...` : body;
   const summaryEn = bodyEn.length > 140 ? `${bodyEn.slice(0, 137)}...` : bodyEn;
 
-  const notificationRecords = notifyMembers.map((m) => ({
-    id: makeId('notif'),
-    recipient_user_id: m.userId,
-    recipient_username: m.username,
-    source_message_id: msgId,
-    channel_id: channelId,
-    category: msgType,
-    severity: payload.priority || 'info',
-    sender_name: senderDisplay,
-    sender_role: senderUser.role || 'Operator',
-    title,
-    title_en: titleEn,
-    summary,
-    summary_en: summaryEn,
-    body,
-    body_en: bodyEn,
-    linked_entity_type: payload.linkedEntityType || null,
-    linked_entity_id: payload.linkedEntityId || null,
-    linked_entity_name: payload.linkedEntityName || null,
-    action_tab: 'communications',
-    is_read: false,
-    is_archived: false,
-    requires_acknowledgment: false,
-    metadata: {
-      channelId,
-      channelType: channel.channelType,
-      sourceMessageId: msgId,
-      senderUsername: senderUser.username,
-      replyToMessageId: payload.replyToMessageId || null,
-    },
-    created_at: nowIso,
-  }));
+  const notificationRecords: any[] = [];
+  const activeRecipients: ResolvedRecipient[] = [];
+  for (const m of notifyMembers) {
+    const pref = await evaluateNotificationDeliveryForUser(
+      m,
+      msgType as CommsCategory,
+      payload.priority || 'info',
+      false
+    );
+    if (!pref.deliverInboxNotification) continue;
+    activeRecipients.push({ userId: m.userId, username: m.username });
+    notificationRecords.push({
+      id: makeId('notif'),
+      recipient_user_id: m.userId,
+      recipient_username: m.username,
+      source_message_id: msgId,
+      channel_id: channelId,
+      category: msgType,
+      severity: payload.priority || 'info',
+      sender_name: senderDisplay,
+      sender_role: senderUser.role || 'Operator',
+      title,
+      title_en: titleEn,
+      summary,
+      summary_en: summaryEn,
+      body,
+      body_en: bodyEn,
+      linked_entity_type: payload.linkedEntityType || null,
+      linked_entity_id: payload.linkedEntityId || null,
+      linked_entity_name: payload.linkedEntityName || null,
+      action_tab: 'communications',
+      is_read: false,
+      is_archived: false,
+      requires_acknowledgment: false,
+      metadata: {
+        channelId,
+        channelType: channel.channelType,
+        sourceMessageId: msgId,
+        senderUsername: senderUser.username,
+        replyToMessageId: payload.replyToMessageId || null,
+        quietHoursMuted: pref.quietHoursMuted,
+        playSound: pref.playSound,
+      },
+      created_at: nowIso,
+    });
+  }
 
   await persistMessageAndNotifications(
     messageRecord,
     notificationRecords,
-    notifyMembers.map((m) => ({ userId: m.userId, username: m.username }))
+    activeRecipients
   );
 
   // Also update PG channel updated_at and sender last_read

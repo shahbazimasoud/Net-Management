@@ -32,6 +32,7 @@ import {
   ArrowRight,
   KeyRound,
   Laptop,
+  Smartphone,
 } from 'lucide-react';
 
 interface LoginPageProps {
@@ -221,6 +222,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   // 2-Step Verification (2FA) State
   const [requires2FA, setRequires2FA] = useState(false);
+  const [twoFactorMethod, setTwoFactorMethod] = useState<'email' | 'totp'>('email');
+  const [backupCodesAvailable, setBackupCodesAvailable] = useState(false);
+  const [emailFallbackAvailable, setEmailFallbackAvailable] = useState(true);
+  const [usingBackupCode, setUsingBackupCode] = useState(false);
   const [challengeToken, setChallengeToken] = useState<string | null>(null);
   const [maskedEmail, setMaskedEmail] = useState<string>('');
   const [otpCode, setOtpCode] = useState<string>('');
@@ -367,21 +372,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       if (res.ok && data.success) {
         if (data.requires2FA) {
           // Intercept and launch Two-Step Verification challenge
+          const method: 'email' | 'totp' = data.twoFactorMethod === 'totp' ? 'totp' : 'email';
           setRequires2FA(true);
+          setTwoFactorMethod(method);
+          setBackupCodesAvailable(Boolean(data.backupCodesAvailable));
+          setEmailFallbackAvailable(data.emailFallbackAvailable !== false);
+          setUsingBackupCode(false);
           setChallengeToken(data.challengeToken);
           setMaskedEmail(data.emailMasked || '');
           setOtpExpiresIn(data.expiresIn || 300);
           setAllowRememberDevice(data.allowRememberDevice !== false);
           setTrustDevice(true);
-          setResendCooldown(45);
-          setEmailSentNotice(data.emailSent !== false);
+          setResendCooldown(method === 'totp' ? 0 : 45);
+          setEmailSentNotice(method === 'totp' ? true : data.emailSent !== false);
           setEmailErrorMessage(data.emailError || null);
           setOtpCode('');
           setErrorMsg(null);
           setSuccessFeedback(
             isEn
-              ? (data.message_en || data.message || 'Two-Step Verification code dispatched to your email.')
-              : (data.message || 'کد تایید دو مرحله‌ای به آدرس ایمیل شما ارسال شد.')
+              ? (data.message_en || data.message || 'Two-Step Verification code required.')
+              : (data.message || 'کد تایید دو مرحله‌ای الزامی است.')
           );
           return;
         }
@@ -497,7 +507,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   const handleVerify2FASubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!otpCode.trim() || otpCode.trim().length !== 6) {
+    const cleaned = otpCode.trim();
+    if (usingBackupCode) {
+      if (cleaned.length < 6) {
+        setErrorMsg(
+          isEn
+            ? 'Please enter a valid 8-character recovery backup code.'
+            : 'لطفاً کد پشتیبان ۸ کاراکتری را به صورت کامل وارد نمایید.'
+        );
+        return;
+      }
+      triggerVerify2FA(cleaned);
+      return;
+    }
+    if (!cleaned || cleaned.length !== 6) {
       setErrorMsg(
         isEn
           ? 'Please enter the complete 6-digit verification code.'
@@ -505,10 +528,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       );
       return;
     }
-    triggerVerify2FA(otpCode.trim());
+    triggerVerify2FA(cleaned);
   };
 
   const handleOtpChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (usingBackupCode) {
+      const cleaned = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 9);
+      setOtpCode(cleaned);
+      setErrorMsg(null);
+      return;
+    }
     const numeric = e.target.value.replace(/\D/g, '').slice(0, 6);
     setOtpCode(numeric);
     setErrorMsg(null);
@@ -532,6 +561,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       });
       const data = await res.json();
       if (res.ok && data.success) {
+        setTwoFactorMethod('email');
+        setUsingBackupCode(false);
+        setOtpCode('');
         setOtpExpiresIn(data.expiresIn || 300);
         setResendCooldown(45);
         if (data.emailMasked) setMaskedEmail(data.emailMasked);
@@ -560,6 +592,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   const handleCancel2FA = () => {
     setRequires2FA(false);
+    setTwoFactorMethod('email');
+    setUsingBackupCode(false);
     setChallengeToken(null);
     setOtpCode('');
     setErrorMsg(null);
@@ -745,24 +779,40 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               {/* Form Title & Badge */}
               <div>
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 mb-2.5">
-                  <KeyRound className="w-3.5 h-3.5" />
-                  <span>{isEn ? '2-STEP VERIFICATION' : 'احراز هویت دو مرحله‌ای'}</span>
+                  {twoFactorMethod === 'totp' ? <Smartphone className="w-3.5 h-3.5" /> : <KeyRound className="w-3.5 h-3.5" />}
+                  <span>
+                    {twoFactorMethod === 'totp'
+                      ? isEn ? 'AUTHENTICATOR APP (TOTP)' : 'برنامه احراز هویت (TOTP)'
+                      : isEn ? '2-STEP VERIFICATION' : 'احراز هویت دو مرحله‌ای'}
+                  </span>
                 </div>
                 <h2
                   className={`text-xl font-bold mb-1 tracking-tight ${
                     isLight ? 'text-slate-900' : 'text-white'
                   }`}
                 >
-                  {isEn ? 'Security Code Required' : 'کد تایید امنیتی را وارد کنید'}
+                  {usingBackupCode
+                    ? isEn ? 'Enter Recovery Backup Code' : 'کد پشتیبان بازیابی را وارد کنید'
+                    : twoFactorMethod === 'totp'
+                    ? isEn ? 'Enter Authenticator Code' : 'کد برنامه احراز هویت را وارد کنید'
+                    : isEn ? 'Security Code Required' : 'کد تایید امنیتی را وارد کنید'}
                 </h2>
                 <p className={`text-xs ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-                  {isEn
+                  {usingBackupCode
+                    ? isEn
+                      ? 'Enter one of your single-use 8-character recovery codes saved during setup.'
+                      : 'یکی از کدهای پشتیبان ۸ کاراکتری یک‌بارمصرف خود را وارد فرمایید.'
+                    : twoFactorMethod === 'totp'
+                    ? isEn
+                      ? 'Open your Authenticator app (Google/Microsoft Authenticator) and enter the current 6-digit code.'
+                      : 'برنامه Authenticator خود را باز کرده و کد ۶ رقمی فعلی را وارد فرمایید.'
+                    : isEn
                     ? 'A 6-digit one-time passcode was dispatched to your registered email. Enter it below to complete sign-in.'
                     : 'کد تایید ۶ رقمی یک‌بار مصرف به آدرس ایمیل شما ارسال شد. جهت تکمیل ورود آن را وارد فرمایید.'}
                 </p>
               </div>
 
-              {/* Masked Email Badge */}
+              {/* Channel Indicator Card */}
               <div
                 className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
                   isLight
@@ -772,24 +822,30 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className="p-2 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 shrink-0">
-                    <Mail className="w-4 h-4" />
+                    {twoFactorMethod === 'totp' ? <Smartphone className="w-4 h-4" /> : <Mail className="w-4 h-4" />}
                   </div>
                   <div className="min-w-0">
                     <span className="text-[10px] uppercase font-mono block text-slate-400">
-                      {isEn ? 'Dispatched to:' : 'ارسال به آدرس ایمیل:'}
+                      {twoFactorMethod === 'totp'
+                        ? isEn ? 'Verification Channel:' : 'کانال تایید هویت:'
+                        : isEn ? 'Dispatched to:' : 'ارسال به آدرس ایمیل:'}
                     </span>
-                    <span className="font-mono text-xs font-bold text-slate-200 truncate block">
-                      {maskedEmail}
+                    <span className={`font-mono text-xs font-bold truncate block ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                      {twoFactorMethod === 'totp'
+                        ? (usingBackupCode
+                            ? isEn ? 'Single-Use Recovery Code' : 'کد پشتیبان بازیابی'
+                            : isEn ? 'RFC 6238 TOTP Authenticator' : 'اپلیکیشن احراز هویت (TOTP)')
+                        : maskedEmail}
                     </span>
                   </div>
                 </div>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold shrink-0">
-                  OTP Active
+                  {twoFactorMethod === 'totp' ? 'TOTP Active' : 'OTP Active'}
                 </span>
               </div>
 
               {/* SMTP Warning Notice if mail sending had issue */}
-              {!emailSentNotice && (
+              {twoFactorMethod === 'email' && !emailSentNotice && (
                 <div className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs ${
                   isLight
                     ? 'bg-amber-50 border-amber-300 text-amber-900'
@@ -851,7 +907,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                         isLight ? 'text-slate-700' : 'text-slate-300'
                       }`}
                     >
-                      {isEn ? '6-Digit Verification Code' : 'کد تایید ۶ رقمی یک‌بار مصرف'}
+                      {usingBackupCode
+                        ? isEn ? 'Recovery Backup Code (XXXX-XXXX)' : 'کد پشتیبان بازیابی (XXXX-XXXX)'
+                        : twoFactorMethod === 'totp'
+                        ? isEn ? '6-Digit Authenticator Code' : 'کد ۶ رقمی Authenticator'
+                        : isEn ? '6-Digit Verification Code' : 'کد تایید ۶ رقمی یک‌بار مصرف'}
                     </label>
                     <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-amber-400">
                       <Clock className="w-3.5 h-3.5" />
@@ -862,24 +922,45 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <div className="relative">
                     <input
                       type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={6}
+                      inputMode={usingBackupCode ? 'text' : 'numeric'}
+                      pattern={usingBackupCode ? undefined : '[0-9]*'}
+                      maxLength={usingBackupCode ? 9 : 6}
                       autoFocus
                       value={otpCode}
                       onChange={handleOtpChange}
-                      placeholder="••••••"
+                      placeholder={usingBackupCode ? 'XXXX-XXXX' : '••••••'}
                       disabled={verifying2FA || otpExpiresIn <= 0}
-                      className={`w-full py-3.5 px-4 text-center text-3xl font-mono font-bold tracking-[0.4em] rounded-xl border transition focus:outline-none ${
+                      className={`w-full py-3.5 px-4 text-center font-mono font-bold rounded-xl border transition focus:outline-none ${
+                        usingBackupCode ? 'text-xl tracking-[0.2em] uppercase' : 'text-3xl tracking-[0.4em]'
+                      } ${
                         isLight
                           ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400 focus:border-indigo-600 focus:bg-white focus:ring-2 focus:ring-indigo-600/20'
                           : 'bg-slate-950/80 border-indigo-500/40 text-cyan-300 placeholder-slate-600 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/30'
                       }`}
                     />
                   </div>
+                  {twoFactorMethod === 'totp' && backupCodesAvailable && (
+                    <div className="flex justify-end mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUsingBackupCode((prev) => !prev);
+                          setOtpCode('');
+                          setErrorMsg(null);
+                        }}
+                        className={`text-[11px] font-medium underline cursor-pointer ${
+                          isLight ? 'text-indigo-600 hover:text-indigo-800' : 'text-cyan-400 hover:text-cyan-300'
+                        }`}
+                      >
+                        {usingBackupCode
+                          ? isEn ? 'Use 6-digit Authenticator code instead' : 'استفاده از کد ۶ رقمی برنامه Authenticator'
+                          : isEn ? 'Use a single-use backup recovery code' : 'استفاده از کد پشتیبان یک‌بارمصرف'}
+                      </button>
+                    </div>
+                  )}
                   {otpExpiresIn <= 0 && (
                     <p className="text-[11px] text-rose-400 font-mono mt-1 text-center">
-                      {isEn ? 'Code has expired. Please click Resend Code.' : 'کد تایید منقضی شده است. لطفاً گزینه ارسال مجدد را بزنید.'}
+                      {isEn ? 'Session expired. Please sign in again.' : 'مهلت نشست تایید منقضی شده است. لطفاً مجدداً وارد شوید.'}
                     </p>
                   )}
                 </div>
@@ -935,7 +1016,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 {/* Verify Submit Button */}
                 <button
                   type="submit"
-                  disabled={verifying2FA || otpCode.trim().length !== 6 || otpExpiresIn <= 0}
+                  disabled={
+                    verifying2FA ||
+                    otpExpiresIn <= 0 ||
+                    (usingBackupCode ? otpCode.trim().length < 6 : otpCode.trim().length !== 6)
+                  }
                   className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white font-bold text-xs shadow-[0_0_20px_rgba(99,102,241,0.4)] transition active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
                 >
                   {verifying2FA ? (
@@ -954,33 +1039,41 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   </span>
                 </button>
 
-                {/* Resend & Cancel / Back actions */}
+                {/* Resend / Email Fallback & Cancel / Back actions */}
                 <div className="flex items-center justify-between pt-2">
-                  <button
-                    type="button"
-                    onClick={handleResend2FA}
-                    disabled={resendCooldown > 0 || resending}
-                    className={`flex items-center gap-1.5 text-xs font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                      isLight
-                        ? 'text-indigo-600 hover:text-indigo-800'
-                        : 'text-indigo-400 hover:text-indigo-300'
-                    }`}
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${resending ? 'animate-spin' : ''}`} />
-                    <span>
-                      {resending
-                        ? isEn
-                          ? 'Sending...'
-                          : 'در حال ارسال...'
-                        : resendCooldown > 0
-                        ? isEn
-                          ? `Resend Code (${resendCooldown}s)`
-                          : `ارسال مجدد (${resendCooldown} ثانیه)`
-                        : isEn
-                        ? 'Resend Code'
-                        : 'ارسال مجدد کد'}
-                    </span>
-                  </button>
+                  {(twoFactorMethod === 'email' || emailFallbackAvailable) ? (
+                    <button
+                      type="button"
+                      onClick={handleResend2FA}
+                      disabled={resendCooldown > 0 || resending}
+                      className={`flex items-center gap-1.5 text-xs font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                        isLight
+                          ? 'text-indigo-600 hover:text-indigo-800'
+                          : 'text-indigo-400 hover:text-indigo-300'
+                      }`}
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${resending ? 'animate-spin' : ''}`} />
+                      <span>
+                        {resending
+                          ? isEn
+                            ? 'Sending...'
+                            : 'در حال ارسال...'
+                          : resendCooldown > 0
+                          ? isEn
+                            ? `Resend Code (${resendCooldown}s)`
+                            : `ارسال مجدد (${resendCooldown} ثانیه)`
+                          : twoFactorMethod === 'totp'
+                          ? isEn
+                            ? 'Send Code to Email'
+                            : 'ارسال کد به ایمیل'
+                          : isEn
+                          ? 'Resend Code'
+                          : 'ارسال مجدد کد'}
+                      </span>
+                    </button>
+                  ) : (
+                    <span />
+                  )}
 
                   <button
                     type="button"

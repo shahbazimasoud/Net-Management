@@ -1,12 +1,19 @@
 import crypto from 'crypto';
 import { sendTwoFactorAuthEmail } from './emailService';
-import { getPgPool, isPostgresConnected } from './db';
+import { getPgPool, isPostgresConnected, loadFallbackStore, saveFallbackStore } from './db';
+import {
+  resolveProfileIdentifiers,
+  verifyAndConsumeBackupCode,
+  verifyUserTotpForLogin,
+} from './profileService';
+import { TrustedDeviceEntry } from '../src/types';
 
 export interface TwoFactorChallenge {
   token: string;
   userId: string;
   username: string;
   userEmail: string;
+  method?: 'email' | 'totp';
   codeHash: string;
   codeSalt: string;
   effectivePolicy: any;
@@ -69,15 +76,18 @@ export async function createTwoFactorChallenge(
   rememberMe: boolean,
   ip: string,
   userAgent?: string,
-  lang: 'fa' | 'en' = 'fa'
+  lang: 'fa' | 'en' = 'fa',
+  options: { method?: 'email' | 'totp' } = {}
 ): Promise<{
   token: string;
+  method: 'email' | 'totp';
   emailMasked: string;
   expiresInSec: number;
   emailSent: boolean;
   emailError?: string;
 }> {
-  // Generate cryptographically secure 6-digit verification code
+  const method: 'email' | 'totp' = options.method === 'totp' ? 'totp' : 'email';
+  // Generate cryptographically secure 6-digit verification code (also kept for email fallback)
   const code = crypto.randomInt(100000, 999999).toString();
   const token = crypto.randomBytes(32).toString('hex');
   const salt = crypto.randomBytes(16).toString('hex');
@@ -93,6 +103,7 @@ export async function createTwoFactorChallenge(
     userId: user.id,
     username: user.username,
     userEmail: targetEmail,
+    method,
     codeHash,
     codeSalt: salt,
     effectivePolicy,
@@ -101,7 +112,7 @@ export async function createTwoFactorChallenge(
     maxAttempts: 5,
     expiresAt,
     createdAt: now,
-    lastResentAt: now,
+    lastResentAt: method === 'totp' ? 0 : now,
     ip,
     userAgent,
     userPayload: {
@@ -154,7 +165,17 @@ export async function createTwoFactorChallenge(
     console.warn('[Two-Factor Challenge DB Notice]', dbErr.message);
   }
 
-  // 3. Dispatch the beautiful HTML email
+  // 3. Dispatch Email OTP only when Email method is primary (TOTP uses user's Authenticator app)
+  if (method === 'totp') {
+    return {
+      token,
+      method: 'totp',
+      emailMasked: maskEmail(targetEmail),
+      expiresInSec: 300,
+      emailSent: true,
+    };
+  }
+
   const mailResult = await sendTwoFactorAuthEmail(targetEmail, code, {
     username: user.username,
     ip,
@@ -165,6 +186,7 @@ export async function createTwoFactorChallenge(
 
   return {
     token,
+    method: 'email',
     emailMasked: maskEmail(targetEmail),
     expiresInSec: 300,
     emailSent: mailResult.success,
@@ -281,9 +303,32 @@ export async function verifyTwoFactorChallenge(
     };
   }
 
-  // Timing-safe Hash Comparison
-  const computedHash = hashCode(cleanCode, challenge.codeSalt);
-  const isMatch = computedHash === challenge.codeHash;
+  // Timing-safe Hash Comparison OR Authenticator TOTP / Single-Use Backup Code
+  let isMatch = false;
+  if (challenge.method === 'totp') {
+    const actor = { userId: challenge.userId, username: challenge.username };
+    if (/^\d{6}$/.test(cleanCode)) {
+      isMatch = await verifyUserTotpForLogin(actor, cleanCode);
+    }
+    if (!isMatch && cleanCode.length >= 6) {
+      isMatch = await verifyAndConsumeBackupCode(actor, cleanCode);
+    }
+    // Also allow fallback email code if user clicked Send Email Code
+    if (!isMatch && challenge.lastResentAt > 0) {
+      const computedHash = hashCode(cleanCode, challenge.codeSalt);
+      isMatch = computedHash === challenge.codeHash;
+    }
+  } else {
+    const computedHash = hashCode(cleanCode, challenge.codeSalt);
+    isMatch = computedHash === challenge.codeHash;
+    // Allow TOTP/backup code even during Email challenge if enrolled
+    if (!isMatch && /^\d{6}$/.test(cleanCode)) {
+      isMatch = await verifyUserTotpForLogin(
+        { userId: challenge.userId, username: challenge.username },
+        cleanCode
+      );
+    }
+  }
 
   if (!isMatch) {
     challenge.attempts += 1;
@@ -361,9 +406,9 @@ export async function resendTwoFactorChallenge(
     };
   }
 
-  // 45-second resend cooldown
+  // 45-second resend cooldown (allow immediate first fallback email send when switching from TOTP)
   const now = Date.now();
-  const timeSinceLastResend = now - (challenge.lastResentAt || challenge.createdAt);
+  const timeSinceLastResend = challenge.lastResentAt > 0 ? now - challenge.lastResentAt : 60000;
   if (timeSinceLastResend < 45000) {
     const remainingCooldownSec = Math.ceil((45000 - timeSinceLastResend) / 1000);
     return {
@@ -448,7 +493,33 @@ export async function issueTrustedDeviceToken(
   // 1. Save in memory map
   trustedDevicesMap.set(tokenHash, deviceRecord);
 
-  // 2. Persist to PostgreSQL if available
+  // 2. Persist to fallback store
+  try {
+    const store = loadFallbackStore();
+    if (!Array.isArray(store.two_factor_trusted_devices)) {
+      store.two_factor_trusted_devices = [];
+    }
+    store.two_factor_trusted_devices = store.two_factor_trusted_devices.filter(
+      (d: any) => d && d.tokenHash !== tokenHash && d.token_hash !== tokenHash
+    );
+    store.two_factor_trusted_devices.unshift({
+      id,
+      token_hash: tokenHash,
+      user_id: userId,
+      username,
+      ip,
+      user_agent: userAgent || null,
+      expires_at: new Date(expiresAt).toISOString(),
+      created_at: new Date(now).toISOString(),
+      last_used_at: new Date(now).toISOString(),
+    });
+    if (store.two_factor_trusted_devices.length > 500) {
+      store.two_factor_trusted_devices = store.two_factor_trusted_devices.slice(0, 500);
+    }
+    saveFallbackStore(store);
+  } catch {}
+
+  // 3. Persist to PostgreSQL if available
   try {
     if (isPostgresConnected()) {
       const pool = getPgPool();
@@ -528,13 +599,49 @@ export async function validateTrustedDeviceToken(
     }
   }
 
+  // Also check fallback store if missing in PG & memory
+  if (!device) {
+    try {
+      const store = loadFallbackStore();
+      const match = (store.two_factor_trusted_devices || []).find(
+        (row: any) => (row.token_hash || row.tokenHash) === tokenHash
+      );
+      if (match) {
+        device = {
+          id: match.id,
+          tokenHash: match.token_hash || match.tokenHash,
+          userId: match.user_id || match.userId,
+          username: match.username,
+          ip: match.ip,
+          userAgent: match.user_agent || match.userAgent,
+          expiresAt: new Date(match.expires_at || match.expiresAt).getTime(),
+          createdAt: new Date(match.created_at || match.createdAt).getTime(),
+          lastUsedAt: new Date(match.last_used_at || match.lastUsedAt).getTime(),
+        };
+        trustedDevicesMap.set(tokenHash, device);
+      }
+    } catch {}
+  }
+
   if (!device) {
     return false;
   }
 
   // Ensure user ID matches and token has not expired
-  if (device.userId !== userId || Date.now() > device.expiresAt) {
+  const userIds = new Set(resolveProfileIdentifiers({ userId }));
+  const deviceMatchesUser =
+    device.userId === userId || userIds.has((device.userId || '').toLowerCase());
+  if (!deviceMatchesUser || Date.now() > device.expiresAt) {
     trustedDevicesMap.delete(tokenHash);
+    try {
+      const store = loadFallbackStore();
+      if (Array.isArray(store.two_factor_trusted_devices)) {
+        store.two_factor_trusted_devices = store.two_factor_trusted_devices.filter(
+          (d: any) => (d.token_hash || d.tokenHash) !== tokenHash
+        );
+        saveFallbackStore(store);
+      }
+    } catch {}
     try {
       if (isPostgresConnected()) {
         const pool = getPgPool();
@@ -552,6 +659,18 @@ export async function validateTrustedDeviceToken(
   if (userAgent) device.userAgent = userAgent;
 
   try {
+    const store = loadFallbackStore();
+    const rec = (store.two_factor_trusted_devices || []).find(
+      (d: any) => (d.token_hash || d.tokenHash) === tokenHash
+    );
+    if (rec) {
+      rec.last_used_at = new Date().toISOString();
+      rec.ip = ip;
+      saveFallbackStore(store);
+    }
+  } catch {}
+
+  try {
     if (isPostgresConnected()) {
       const pool = getPgPool();
       if (pool) {
@@ -567,19 +686,180 @@ export async function validateTrustedDeviceToken(
 }
 
 /**
- * Revokes all trusted devices for a user (e.g. upon password reset or security revocation)
+ * Lists all active (non-expired) trusted devices for the current user
  */
-export async function revokeTrustedDevicesForUser(userId: string): Promise<void> {
-  for (const [tokenHash, td] of trustedDevicesMap.entries()) {
-    if (td.userId === userId) {
-      trustedDevicesMap.delete(tokenHash);
-    }
-  }
+export async function listTrustedDevicesForUser(
+  actor: { userId?: string; username?: string },
+  currentRawToken?: string
+): Promise<TrustedDeviceEntry[]> {
+  const identifiers = resolveProfileIdentifiers(actor);
+  if (identifiers.length === 0) return [];
+  const idSet = new Set(identifiers);
+  const currentHash = currentRawToken
+    ? crypto.createHash('sha256').update(currentRawToken.trim()).digest('hex')
+    : '';
+  const now = Date.now();
+  const byId = new Map<string, TrustedDeviceEntry>();
+
+  const pushRow = (row: any) => {
+    if (!row || !row.id) return;
+    const expMs = new Date(row.expires_at ?? row.expiresAt ?? 0).getTime();
+    if (!expMs || expMs <= now) return;
+    const rowHash = row.token_hash ?? row.tokenHash ?? '';
+    byId.set(row.id, {
+      id: row.id,
+      userId: row.user_id ?? row.userId ?? '',
+      username: row.username ?? '',
+      ip: row.ip ?? '',
+      userAgent: row.user_agent ?? row.userAgent ?? null,
+      createdAt: new Date(row.created_at ?? row.createdAt ?? now).toISOString(),
+      lastUsedAt: new Date(row.last_used_at ?? row.lastUsedAt ?? now).toISOString(),
+      expiresAt: new Date(expMs).toISOString(),
+      isCurrent: Boolean(currentHash && rowHash && currentHash === rowHash),
+    });
+  };
+
   try {
     if (isPostgresConnected()) {
       const pool = getPgPool();
       if (pool) {
-        await pool.query('DELETE FROM two_factor_trusted_devices WHERE user_id = $1', [userId]);
+        const res = await pool.query(
+          `SELECT * FROM two_factor_trusted_devices
+           WHERE (LOWER(user_id) = ANY($1::text[]) OR LOWER(username) = ANY($1::text[]))
+             AND expires_at > CURRENT_TIMESTAMP
+           ORDER BY last_used_at DESC`,
+          [identifiers]
+        );
+        for (const r of res.rows) pushRow(r);
+      }
+    }
+  } catch (err: any) {
+    console.warn('[TrustedDevices] PG list notice:', err?.message || err);
+  }
+
+  // Merge fallback store and memory map
+  try {
+    const store = loadFallbackStore();
+    for (const r of store.two_factor_trusted_devices || []) {
+      const match =
+        idSet.has(String(r.user_id ?? r.userId ?? '').toLowerCase()) ||
+        idSet.has(String(r.username ?? '').toLowerCase());
+      if (match && !byId.has(r.id)) pushRow(r);
+    }
+  } catch {}
+
+  for (const td of trustedDevicesMap.values()) {
+    const match =
+      idSet.has((td.userId || '').toLowerCase()) ||
+      idSet.has((td.username || '').toLowerCase());
+    if (match && !byId.has(td.id)) pushRow(td);
+  }
+
+  return Array.from(byId.values()).sort(
+    (a, b) => new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime()
+  );
+}
+
+/**
+ * Revokes a single trusted device owned by the given user
+ */
+export async function revokeTrustedDeviceById(
+  actor: { userId?: string; username?: string },
+  deviceId: string
+): Promise<boolean> {
+  const identifiers = resolveProfileIdentifiers(actor);
+  if (identifiers.length === 0 || !deviceId) return false;
+  const idSet = new Set(identifiers);
+  let removed = false;
+
+  for (const [tokenHash, td] of trustedDevicesMap.entries()) {
+    if (
+      td.id === deviceId &&
+      (idSet.has((td.userId || '').toLowerCase()) ||
+        idSet.has((td.username || '').toLowerCase()))
+    ) {
+      trustedDevicesMap.delete(tokenHash);
+      removed = true;
+    }
+  }
+
+  try {
+    const store = loadFallbackStore();
+    if (Array.isArray(store.two_factor_trusted_devices)) {
+      const before = store.two_factor_trusted_devices.length;
+      store.two_factor_trusted_devices = store.two_factor_trusted_devices.filter((d: any) => {
+        if (d.id !== deviceId) return true;
+        const owned =
+          idSet.has(String(d.user_id ?? d.userId ?? '').toLowerCase()) ||
+          idSet.has(String(d.username ?? '').toLowerCase());
+        return !owned;
+      });
+      if (store.two_factor_trusted_devices.length !== before) {
+        saveFallbackStore(store);
+        removed = true;
+      }
+    }
+  } catch {}
+
+  try {
+    if (isPostgresConnected()) {
+      const pool = getPgPool();
+      if (pool) {
+        const res = await pool.query(
+          `DELETE FROM two_factor_trusted_devices
+           WHERE id = $1
+             AND (LOWER(user_id) = ANY($2::text[]) OR LOWER(username) = ANY($2::text[]))`,
+          [deviceId, identifiers]
+        );
+        if ((res.rowCount || 0) > 0) removed = true;
+      }
+    }
+  } catch {}
+
+  return removed;
+}
+
+/**
+ * Revokes all trusted devices for a user (e.g. upon password reset or security revocation)
+ */
+export async function revokeTrustedDevicesForUser(
+  userOrActor: string | { userId?: string; username?: string }
+): Promise<void> {
+  const identifiers =
+    typeof userOrActor === 'string'
+      ? resolveProfileIdentifiers({ userId: userOrActor, username: userOrActor })
+      : resolveProfileIdentifiers(userOrActor);
+  if (identifiers.length === 0) return;
+  const idSet = new Set(identifiers);
+
+  for (const [tokenHash, td] of trustedDevicesMap.entries()) {
+    if (
+      idSet.has((td.userId || '').toLowerCase()) ||
+      idSet.has((td.username || '').toLowerCase())
+    ) {
+      trustedDevicesMap.delete(tokenHash);
+    }
+  }
+  try {
+    const store = loadFallbackStore();
+    if (Array.isArray(store.two_factor_trusted_devices)) {
+      store.two_factor_trusted_devices = store.two_factor_trusted_devices.filter(
+        (d: any) =>
+          !idSet.has(String(d.user_id ?? d.userId ?? '').toLowerCase()) &&
+          !idSet.has(String(d.username ?? '').toLowerCase())
+      );
+      saveFallbackStore(store);
+    }
+  } catch {}
+  try {
+    if (isPostgresConnected()) {
+      const pool = getPgPool();
+      if (pool) {
+        await pool.query(
+          `DELETE FROM two_factor_trusted_devices
+           WHERE LOWER(user_id) = ANY($1::text[]) OR LOWER(username) = ANY($1::text[])`,
+          [identifiers]
+        );
       }
     }
   } catch {}

@@ -1380,6 +1380,8 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
       return policy?.canViewContracts !== undefined ? Boolean(policy?.canViewContracts) : true;
     case 'communications':
       return policy?.canViewCommunications !== undefined ? Boolean(policy?.canViewCommunications) : true;
+    case 'profile-security':
+      return true;
     case 'settings':
     case 'general-settings':
     case 'settings-services':

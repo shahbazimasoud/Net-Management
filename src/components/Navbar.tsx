@@ -21,7 +21,8 @@ import {
   X,
   Bell,
   CheckCheck,
-  ArrowUpRight
+  ArrowUpRight,
+  UserCog
 } from 'lucide-react';
 import { APP_VERSION } from '../version';
 import { useLanguage } from '../i18n';
@@ -62,6 +63,7 @@ interface NavbarProps {
   unreadCommsCount?: number;
   onOpenCommunications?: () => void;
   onUnreadCountSync?: (count: number) => void;
+  onOpenProfileSecurity?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -86,6 +88,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   unreadCommsCount = 0,
   onOpenCommunications,
   onUnreadCountSync,
+  onOpenProfileSecurity,
 }) => {
   const { t, language, setLanguage, resetToDefaultLanguage, isCustomizedByUser, isRtl, isEn } = useLanguage();
   const { updateInfo, checking, checkUpdate, checkFeedback, dismissFeedback } = useUpdate();
@@ -559,6 +562,27 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </p>
                   </div>
                 </div>
+
+                {onOpenProfileSecurity && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      onOpenProfileSecurity();
+                    }}
+                    className={`w-full mb-3 flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-semibold transition cursor-pointer shadow-xs ${
+                      isLightMode
+                        ? 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-800'
+                        : 'bg-gradient-to-r from-indigo-500/15 to-cyan-500/15 hover:from-indigo-500/25 hover:to-cyan-500/25 border-indigo-500/30 text-cyan-200'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <UserCog className={`w-4 h-4 ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`} />
+                      <span>{isEn ? 'Profile, 2FA & Preferences' : 'پروفایل، امنیت 2FA و تنظیمات'}</span>
+                    </span>
+                    <ArrowUpRight className="w-3.5 h-3.5 opacity-80" />
+                  </button>
+                )}
 
                 {/* Section 1: Language Switcher */}
                 <div className="space-y-1.5">

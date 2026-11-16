@@ -318,6 +318,7 @@ import {
   issueTrustedDeviceToken,
   validateTrustedDeviceToken,
 } from './twoFactorService';
+import { getUserTotpStatusForLogin } from './profileService';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole, parseShowInterfacesStatus } from './sshDiscovery';
 import {
   startDiscoveryJob,
@@ -859,7 +860,16 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       const effectivePolicy = await getEffectivePolicyForUser(user);
 
       // Two-Step Verification (2FA / Two-Factor Authentication) Enforcement
-      if (generalSettings.twoFactorEnabled) {
+      const user2faStatus = await getUserTotpStatusForLogin({
+        userId: user.id,
+        username: user.username,
+      });
+      const shouldRequire2FA =
+        Boolean(generalSettings.twoFactorEnabled) ||
+        user2faStatus.totpEnabled ||
+        user2faStatus.preferredMethod === 'email';
+
+      if (shouldRequire2FA) {
         const isDeviceTrustEnabled = generalSettings.twoFactorRememberDeviceEnabled !== false;
         let isDeviceTrusted = false;
         if (isDeviceTrustEnabled && candidateTrustedDeviceToken) {
@@ -917,22 +927,30 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         }
 
         const lang = (req.headers['accept-language']?.includes('en') ? 'en' : 'fa') as 'fa' | 'en';
+        const challengeMethod: 'totp' | 'email' = user2faStatus.totpEnabled ? 'totp' : 'email';
         const challenge = await createTwoFactorChallenge(
           user,
           effectivePolicy,
           rememberMe,
           ip,
           req.headers['user-agent'] as string,
-          lang
+          lang,
+          { method: challengeMethod }
         );
 
         await addAuditLog({
           userName: user.username,
-          action: 'Two-Factor Challenge Initiated',
+          action:
+            challenge.method === 'totp'
+              ? 'Two-Factor TOTP Challenge Initiated'
+              : 'Two-Factor Challenge Initiated',
           category: 'security',
           target: 'Auth Gateway',
           status: 'success',
-          details: `Password validated for user "${user.username}" from IP ${ip}. 2FA verification code dispatched to ${user.email || 'user email'}.`,
+          details:
+            challenge.method === 'totp'
+              ? `Password validated for user "${user.username}" from IP ${ip}. Prompted for Authenticator TOTP verification.`
+              : `Password validated for user "${user.username}" from IP ${ip}. 2FA verification code dispatched to ${user.email || 'user email'}.`,
           ipAddress: ip,
           userAgent: req.headers['user-agent'] as string,
         });
@@ -940,12 +958,23 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         return res.json({
           success: true,
           requires2FA: true,
+          twoFactorMethod: challenge.method,
+          backupCodesAvailable: user2faStatus.backupCodesCount > 0,
+          emailFallbackAvailable: Boolean(user.email),
           challengeToken: challenge.token,
           emailMasked: challenge.emailMasked,
           expiresIn: challenge.expiresInSec,
           allowRememberDevice: isDeviceTrustEnabled,
-          message: 'کد تایید دو مرحله‌ای به آدرس ایمیل شما ارسال شد.',
-          message_en: 'A two-step verification code has been sent to your email address.',
+          emailSent: challenge.emailSent,
+          emailError: challenge.emailError,
+          message:
+            challenge.method === 'totp'
+              ? 'لطفاً کد ۶ رقمی برنامه احراز هویت (Authenticator) خود را وارد نمایید.'
+              : 'کد تایید دو مرحله‌ای به آدرس ایمیل شما ارسال شد.',
+          message_en:
+            challenge.method === 'totp'
+              ? 'Enter the 6-digit verification code from your Authenticator app.'
+              : 'A two-step verification code has been sent to your email address.',
         });
       }
 
@@ -1220,7 +1249,16 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       }
 
       // Two-Step Verification (2FA) Enforcement for Active Directory
-      if (generalSettings.twoFactorEnabled) {
+      const adUser2faStatus = await getUserTotpStatusForLogin({
+        userId: adUser.id,
+        username: adUser.username,
+      });
+      const shouldRequireAd2FA =
+        Boolean(generalSettings.twoFactorEnabled) ||
+        adUser2faStatus.totpEnabled ||
+        adUser2faStatus.preferredMethod === 'email';
+
+      if (shouldRequireAd2FA) {
         const isDeviceTrustEnabled = generalSettings.twoFactorRememberDeviceEnabled !== false;
         let isDeviceTrusted = false;
         if (isDeviceTrustEnabled && candidateTrustedDeviceToken) {
@@ -1279,22 +1317,30 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         }
 
         const lang = (req.headers['accept-language']?.includes('en') ? 'en' : 'fa') as 'fa' | 'en';
+        const challengeMethod: 'totp' | 'email' = adUser2faStatus.totpEnabled ? 'totp' : 'email';
         const challenge = await createTwoFactorChallenge(
           adUser,
           effectivePolicy,
           rememberMe,
           ip,
           req.headers['user-agent'] as string,
-          lang
+          lang,
+          { method: challengeMethod }
         );
 
         await addAuditLog({
           userName: adUser.username,
-          action: 'Two-Factor Challenge Initiated (AD)',
+          action:
+            challenge.method === 'totp'
+              ? 'Two-Factor TOTP Challenge Initiated (AD)'
+              : 'Two-Factor Challenge Initiated (AD)',
           category: 'security',
           target: `AD DC (${domain})`,
           status: 'success',
-          details: `Active Directory credentials validated for "${adUser.username}" from IP ${ip}. 2FA challenge dispatched to ${adUser.email}.`,
+          details:
+            challenge.method === 'totp'
+              ? `Active Directory credentials validated for "${adUser.username}" from IP ${ip}. Prompted for Authenticator TOTP verification.`
+              : `Active Directory credentials validated for "${adUser.username}" from IP ${ip}. 2FA challenge dispatched to ${adUser.email}.`,
           ipAddress: ip,
           userAgent: req.headers['user-agent'] as string,
         });
@@ -1302,12 +1348,23 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         return res.json({
           success: true,
           requires2FA: true,
+          twoFactorMethod: challenge.method,
+          backupCodesAvailable: adUser2faStatus.backupCodesCount > 0,
+          emailFallbackAvailable: Boolean(adUser.email),
           challengeToken: challenge.token,
           emailMasked: challenge.emailMasked,
           expiresIn: challenge.expiresInSec,
           allowRememberDevice: isDeviceTrustEnabled,
-          message: 'کد تایید دو مرحله‌ای به آدرس ایمیل شما ارسال شد.',
-          message_en: 'A two-step verification code has been sent to your email address.',
+          emailSent: challenge.emailSent,
+          emailError: challenge.emailError,
+          message:
+            challenge.method === 'totp'
+              ? 'لطفاً کد ۶ رقمی برنامه احراز هویت (Authenticator) خود را وارد نمایید.'
+              : 'کد تایید دو مرحله‌ای به آدرس ایمیل شما ارسال شد.',
+          message_en:
+            challenge.method === 'totp'
+              ? 'Enter the 6-digit verification code from your Authenticator app.'
+              : 'A two-step verification code has been sent to your email address.',
         });
       }
 

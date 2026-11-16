@@ -132,6 +132,7 @@ export const translations = {
     tab_contracts: 'Contracts & SLA',
     tab_logs: 'Audit & Command Logs',
     tab_communications: 'Inbox & Notifications',
+    tab_profile_security: 'Profile & 2FA Security',
 
     // Footer
     footer_network_status: 'Network Status:',
@@ -831,6 +832,7 @@ export const translations = {
     tab_contracts: 'مدیریت قراردادها',
     tab_logs: 'لاگ',
     tab_communications: 'مرکز پیام‌ها و اعلانات',
+    tab_profile_security: 'پروفایل و امنیت حساب',
 
     // Footer
     footer_network_status: 'وضعیت شبکه:',

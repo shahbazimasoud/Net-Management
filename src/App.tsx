@@ -30,6 +30,7 @@ import { TelegramAlertsSettingsView } from './components/settings/TelegramAlerts
 import { LogRetentionSettingsView } from './components/settings/LogRetentionSettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
 import { CommunicationsCenterView } from './components/comms/CommunicationsCenterView';
+import { UserProfileSecurityView } from './components/profile/UserProfileSecurityView';
 import { RemoteServersView } from './components/servers/RemoteServersView';
 import { LicensesView } from './components/licenses/LicensesView';
 import { ContractsView } from './components/licenses/ContractsView';
@@ -344,6 +345,8 @@ export default function App() {
         'scanner',
         'templates',
         'logs',
+        'communications',
+        'profile-security',
       ];
       const firstAllowed = candidateTabs.find((t) => isTabAllowed(t, effectivePolicy, user)) || 'dashboard';
       if (firstAllowed !== activeTab) {
@@ -1408,6 +1411,10 @@ export default function App() {
             setIsTopologyFullscreen(false);
             setActiveTab('communications');
           }}
+          onOpenProfileSecurity={() => {
+            setIsTopologyFullscreen(false);
+            setActiveTab('profile-security');
+          }}
           onUnreadCountSync={setUnreadCommsCount}
         />
       )}
@@ -1523,6 +1530,13 @@ export default function App() {
               onNavigateToTab={(tab) => setActiveTab(tab)}
               onUnreadCountSync={(cnt) => setUnreadCommsCount(cnt)}
               liveRevision={commsLiveRevision}
+            />
+          )}
+
+          {activeTab === 'profile-security' && (
+            <UserProfileSecurityView
+              isLightMode={isLightMode}
+              onNavigateToCommunications={() => setActiveTab('communications')}
             />
           )}
 

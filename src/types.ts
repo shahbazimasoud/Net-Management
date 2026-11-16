@@ -1217,6 +1217,65 @@ export interface CommsAnnouncementTrackerResponse {
   recipients: CommsAnnouncementReadReceipt[];
 }
 
+export type TwoFactorMethod = 'none' | 'email' | 'totp';
+
+export interface UserNotifyChannelPrefs {
+  system_alert: boolean;
+  security_2fa: boolean;
+  direct_message: boolean;
+  channel_message: boolean;
+  announcement: boolean;
+  approval_request: boolean;
+  desktop_sound: boolean;
+}
+
+export interface UserQuietHours {
+  enabled: boolean;
+  startHour: string; // "HH:MM"
+  endHour: string;   // "HH:MM"
+  timezone: string;
+}
+
+export interface TrustedDeviceEntry {
+  id: string;
+  userId: string;
+  username: string;
+  ip: string;
+  userAgent?: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  isCurrent?: boolean;
+}
+
+export interface UserSecurityProfile {
+  userId: string;
+  username: string;
+  fullName: string;
+  email: string;
+  role: string;
+  userType: 'local' | 'ad' | string;
+  displayTitle: string;
+  phoneExt: string;
+  preferred2faMethod: TwoFactorMethod;
+  totpVerified: boolean;
+  totpPendingEnrollment: boolean;
+  backupCodesRemaining: number;
+  globalTwoFactorEnabled: boolean;
+  globalRememberDeviceEnabled: boolean;
+  notifyChannels: UserNotifyChannelPrefs;
+  quietHours: UserQuietHours;
+  updatedAt?: string | null;
+}
+
+export interface TotpEnrollmentPayload {
+  secretBase32: string;
+  otpauthUri: string;
+  qrSvg: string;
+  issuer: string;
+  accountName: string;
+}
+
 export type BackupScope = 'full' | 'devices_topology' | 'security_rbac' | 'servers_only' | 'templates_only';
 
 export interface BackupMetadata {
