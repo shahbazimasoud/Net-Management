@@ -1,5 +1,7 @@
 import {
   ActionApprovalRequest,
+  ApprovalExecutionGrant,
+  ApprovalExecutionMode,
   ApprovalQueueSummary,
   ApprovalTargetOption,
   CreateApprovalRequestPayload,
@@ -93,6 +95,66 @@ export async function fetchApprovalTargets(): Promise<ApprovalTargetOption[]> {
   );
 }
 
+export async function fetchActiveJitGrants(
+  options: {
+    entityType?: string;
+    entityId?: string;
+    status?: string;
+    onlyMine?: boolean;
+    limit?: number;
+    forceRefresh?: boolean;
+  } = {}
+): Promise<ApprovalExecutionGrant[]> {
+  const entityType = options.entityType || '';
+  const entityId = options.entityId || '';
+  const status = options.status || 'active';
+  const onlyMine = Boolean(options.onlyMine);
+  const limit = options.limit || 50;
+  const cacheKey = `approvals:grants:${entityType}:${entityId}:${status}:${onlyMine}:${limit}`;
+
+  return appDataCache.query<ApprovalExecutionGrant[]>(
+    cacheKey,
+    async () => {
+      const qs = new URLSearchParams({
+        status,
+        limit: String(limit),
+      });
+      if (entityType) qs.set('entityType', entityType);
+      if (entityId) qs.set('entityId', entityId);
+      if (onlyMine) qs.set('onlyMine', '1');
+
+      const res = await fetch(`/api/approvals/grants?${qs.toString()}`, {
+        headers: buildHeaders(),
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+      return Array.isArray(json.items) ? json.items : [];
+    },
+    { ttlMs: 8_000, forceRefresh: Boolean(options.forceRefresh) }
+  );
+}
+
+export async function revokeJitGrantApi(
+  grantId: string,
+  reason?: string
+): Promise<ApprovalExecutionGrant> {
+  const res = await fetch(`/api/approvals/grants/${encodeURIComponent(grantId)}/revoke`, {
+    method: 'POST',
+    headers: buildHeaders(),
+    body: JSON.stringify({ reason }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success || !json.grant) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate('approvals:');
+  appDataCache.invalidate('comms:');
+  return json.grant;
+}
+
 export async function submitApprovalRequest(
   payload: CreateApprovalRequestPayload
 ): Promise<ActionApprovalRequest> {
@@ -148,6 +210,24 @@ export async function cancelApprovalRequestApi(id: string): Promise<ActionApprov
   return json.approval;
 }
 
+export async function executeApprovalPayloadApi(
+  id: string,
+  executionNote?: string
+): Promise<ActionApprovalRequest> {
+  const res = await fetch(`/api/approvals/${encodeURIComponent(id)}/execute-payload`, {
+    method: 'POST',
+    headers: buildHeaders(),
+    body: JSON.stringify({ executionNote }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success || !json.approval) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate('approvals:');
+  appDataCache.invalidate('comms:');
+  return json.approval;
+}
+
 export async function markApprovalExecutedApi(
   id: string,
   executionNote?: string
@@ -172,6 +252,9 @@ export interface CheckActionApprovalResponse {
   approvalRequired: boolean;
   denied: boolean;
   approvedTicket?: ActionApprovalRequest | null;
+  activeGrant?: ApprovalExecutionGrant | null;
+  executionMode?: ApprovalExecutionMode;
+  supportsAutoExecute?: boolean;
   code?: 'APPROVAL_REQUIRED';
   actionKey?: string;
   actionLabelEn?: string;

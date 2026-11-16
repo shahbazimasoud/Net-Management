@@ -43,16 +43,19 @@ interface ApprovalGateModalProps {
   isLightMode?: boolean;
 }
 
-function formatRemainingWindow(expiresAtIso: string, isEn: boolean): string {
-  const diffMs = Date.parse(expiresAtIso) - Date.now();
+function formatRemainingWindow(expiresAtIso: string, isEn: boolean, nowMs = Date.now()): string {
+  const diffMs = Date.parse(expiresAtIso) - nowMs;
   if (!Number.isFinite(diffMs) || diffMs <= 0) return isEn ? 'Expired' : 'منقضی‌شده';
   const totalSec = Math.floor(diffMs / 1000);
   if (totalSec < 60) {
     return isEn ? `${totalSec}s left` : `${totalSec} ثانیه باقی‌مانده`;
   }
   const totalMin = Math.floor(totalSec / 60);
+  const remSec = totalSec % 60;
   if (totalMin < 60) {
-    return isEn ? `${totalMin}m left` : `${totalMin} دقیقه باقی‌مانده`;
+    return isEn
+      ? `${totalMin}m ${String(remSec).padStart(2, '0')}s left`
+      : `${totalMin} دقیقه و ${remSec} ثانیه`;
   }
   const hrs = Math.floor(totalMin / 60);
   const mins = totalMin % 60;
@@ -75,12 +78,14 @@ export const ApprovalGateModal: React.FC<ApprovalGateModalProps> = ({
   const [riskLevel, setRiskLevel] = useState<ApprovalRiskLevel>('high');
   const [ttlMinutes, setTtlMinutes] = useState<number>(60);
   const [reason, setReason] = useState('');
+  const [autoExecuteOnApprove, setAutoExecuteOnApprove] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [activeTicket, setActiveTicket] = useState<ActionApprovalRequest | null>(null);
   const [pendingTicket, setPendingTicket] = useState<ActionApprovalRequest | null>(null);
   const [forceNewForm, setForceNewForm] = useState(false);
   const [refreshingStatus, setRefreshingStatus] = useState(false);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
   // Ensure the caller's Promise resolves at most once
   const resolvedRef = useRef(false);
@@ -93,11 +98,19 @@ export const ApprovalGateModal: React.FC<ApprovalGateModalProps> = ({
     const firstTtl = payload.stagesPreview?.[0]?.ttlMinutes;
     setTtlMinutes(firstTtl && Number.isFinite(firstTtl) ? firstTtl : 60);
     setReason('');
+    setAutoExecuteOnApprove(Boolean(payload.supportsAutoExecute ?? Boolean(payload.actionParams?._httpExecution)));
     setSubmitError(null);
     setActiveTicket(payload.existingApprovedApproval || null);
     setPendingTicket(payload.existingPendingApproval || null);
     setForceNewForm(false);
   }, [payload]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setNowMs(Date.now());
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [isOpen]);
 
   const resolveCallerOnce = useCallback(
     (res: ApprovalGateResolution) => {
@@ -202,6 +215,12 @@ export const ApprovalGateModal: React.FC<ApprovalGateModalProps> = ({
           : 'device'
       ) as ApprovalTargetEntityType;
 
+      const supportsAuto = Boolean(
+        payload.supportsAutoExecute ?? Boolean(payload.actionParams?._httpExecution)
+      );
+      const effectiveExecutionMode =
+        payload.executionMode || (supportsAuto ? 'auto_command' : undefined);
+
       const created = await submitApprovalRequest({
         targetEntityType: entityType,
         targetEntityId: payload.targetEntityId || 'bulk',
@@ -216,6 +235,8 @@ export const ApprovalGateModal: React.FC<ApprovalGateModalProps> = ({
         reason: cleanReason,
         riskLevel,
         ttlMinutes: Math.min(43200, Math.max(5, Number(ttlMinutes) || 60)),
+        ...(effectiveExecutionMode ? { executionMode: effectiveExecutionMode } : {}),
+        ...(supportsAuto ? { autoExecuteOnApprove } : {}),
       });
 
       setPendingTicket(created);
@@ -241,9 +262,17 @@ export const ApprovalGateModal: React.FC<ApprovalGateModalProps> = ({
   const formattedActionParams = useMemo(() => {
     if (!payload?.actionParams || typeof payload.actionParams !== 'object') return [];
     return Object.entries(payload.actionParams).filter(
-      ([, v]) => v !== undefined && v !== null && v !== ''
+      ([k, v]) => k !== '_httpExecution' && v !== undefined && v !== null && v !== ''
     );
   }, [payload]);
+
+  const supportsAutoExec = Boolean(
+    payload?.supportsAutoExecute ?? Boolean(payload?.actionParams?._httpExecution)
+  );
+  const isJitSessionMode =
+    payload?.executionMode === 'jit_session' ||
+    activeTicket?.executionMode === 'jit_session' ||
+    Boolean(payload?.activeGrant || activeTicket?.activeGrant);
 
   if (!isOpen || !payload) return null;
 
@@ -378,19 +407,40 @@ export const ApprovalGateModal: React.FC<ApprovalGateModalProps> = ({
                   {payload.targetEntityType}
                 </span>
               </div>
-              <span
-                className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
-                  (payload.riskLevel || riskLevel) === 'critical'
-                    ? isLightMode
-                      ? 'bg-rose-50 text-rose-700 border-rose-200'
-                      : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
-                    : isLightMode
-                    ? 'bg-amber-50 text-amber-700 border-amber-200'
-                    : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                }`}
-              >
-                {payload.riskLevel || riskLevel}
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                    isJitSessionMode
+                      ? isLightMode
+                        ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                        : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                      : isLightMode
+                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                      : 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+                  }`}
+                >
+                  {isJitSessionMode
+                    ? isEn
+                      ? 'Time-Limited JIT Pass'
+                      : 'پاس زمانی (JIT)'
+                    : isEn
+                    ? 'Auto / Single Command'
+                    : 'اجرای خودکار / تک‌عملیاتی'}
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
+                    (payload.riskLevel || riskLevel) === 'critical'
+                      ? isLightMode
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                      : isLightMode
+                      ? 'bg-amber-50 text-amber-700 border-amber-200'
+                      : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                  }`}
+                >
+                  {payload.riskLevel || riskLevel}
+                </span>
+              </div>
             </div>
 
             {formattedActionParams.length > 0 && (
@@ -451,26 +501,38 @@ export const ApprovalGateModal: React.FC<ApprovalGateModalProps> = ({
                   <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
                   <div>
                     <div className="text-sm font-black">
-                      {isEn
-                        ? `Authorized JIT Ticket Found (${activeTicket.id})`
+                      {isJitSessionMode
+                        ? isEn
+                          ? `Active Time-Limited JIT Pass Ready (${activeTicket.id})`
+                          : `پاس زمانی فعال (JIT Pass) آماده ورود است (${activeTicket.id})`
+                        : isEn
+                        ? `Authorized Execution Ticket Found (${activeTicket.id})`
                         : `تیکت تاییدشده فعال یافت شد (${activeTicket.id})`}
                     </div>
                     <p className="text-xs opacity-85 mt-0.5">
-                      {isEn
-                        ? 'All required approval stages have signed off. You can execute this protected action once using this authorized ticket.'
-                        : 'تمامی مراحل زنجیره تایید امضا شده است. هم‌اکنون می‌توانید این عملیات را با مصرف تیکت تاییدشده اجرا کنید.'}
+                      {isJitSessionMode
+                        ? isEn
+                          ? 'All required approval stages have signed off. Your JIT Pass remains valid across reconnects until the TTL timer expires or an admin revokes it.'
+                          : 'تمامی مراحل تایید امضا شده است. این پاس زمانی تا پایان مهلت TTL یا لغو دستی مدیر برای اتصال مجدد نیز معتبر خواهد بود.'
+                        : isEn
+                        ? 'All required approval stages have signed off. You can execute this protected action immediately using this authorized ticket.'
+                        : 'تمامی مراحل زنجیره تایید امضا شده است. هم‌اکنون می‌توانید این عملیات را با استفاده از این تیکت تاییدشده اجرا کنید.'}
                     </p>
                   </div>
                 </div>
                 <span
-                  className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 shrink-0 border ${
+                  className={`px-2 py-1 rounded-lg text-[11px] font-bold font-mono tabular-nums flex items-center gap-1 shrink-0 border ${
                     isLightMode
                       ? 'bg-white border-emerald-300 text-emerald-800'
                       : 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
                   }`}
                 >
                   <Clock className="w-3.5 h-3.5" />
-                  {formatRemainingWindow(activeTicket.expiresAt, isEn)}
+                  {formatRemainingWindow(
+                    activeTicket.activeGrant?.expiresAt || activeTicket.expiresAt,
+                    isEn,
+                    nowMs
+                  )}
                 </span>
               </div>
 
@@ -481,7 +543,13 @@ export const ApprovalGateModal: React.FC<ApprovalGateModalProps> = ({
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/25 transition cursor-pointer"
                 >
                   <Play className="w-4 h-4 fill-current" />
-                  {isEn ? 'Execute Now Using Approved Ticket' : 'اجرای فوری عملیات با تیکت تاییدشده'}
+                  {isJitSessionMode
+                    ? isEn
+                      ? 'Launch Authorized Session (JIT Pass)'
+                      : 'شروع نشست با پاس زمانی فعال (JIT)'
+                    : isEn
+                    ? 'Execute Now Using Approved Ticket'
+                    : 'اجرای فوری عملیات با تیکت تاییدشده'}
                 </button>
                 <button
                   type="button"
@@ -541,14 +609,14 @@ export const ApprovalGateModal: React.FC<ApprovalGateModalProps> = ({
                 </div>
 
                 <span
-                  className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 border ${
+                  className={`px-2 py-1 rounded-lg text-[11px] font-bold font-mono tabular-nums flex items-center gap-1 border ${
                     isLightMode
                       ? 'bg-white border-amber-200 text-amber-800'
                       : 'bg-slate-900 border-slate-700 text-amber-300'
                   }`}
                 >
                   <Clock className="w-3.5 h-3.5" />
-                  {formatRemainingWindow(pendingTicket.expiresAt, isEn)}
+                  {formatRemainingWindow(pendingTicket.expiresAt, isEn, nowMs)}
                 </span>
               </div>
 
@@ -841,6 +909,66 @@ export const ApprovalGateModal: React.FC<ApprovalGateModalProps> = ({
                   }`}
                 />
               </div>
+
+              {/* Auto-Execute Upon Final Approval Option (Only when signed payload exists) */}
+              {supportsAutoExec && (
+                <div
+                  className={`p-3.5 rounded-xl border flex items-start justify-between gap-3 ${
+                    isLightMode
+                      ? 'bg-indigo-50/60 border-indigo-200 text-slate-800'
+                      : 'bg-indigo-950/20 border-indigo-500/30 text-slate-200'
+                  }`}
+                >
+                  <label className="flex items-start gap-2.5 cursor-pointer select-none flex-1">
+                    <input
+                      type="checkbox"
+                      checked={autoExecuteOnApprove}
+                      onChange={(e) => setAutoExecuteOnApprove(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded accent-indigo-600 cursor-pointer shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold flex items-center gap-1.5 flex-wrap">
+                        <span>
+                          {isEn
+                            ? 'Execute automatically upon final approval'
+                            : 'اجرای خودکار عملیات بلافاصله پس از تایید نهایی'}
+                        </span>
+                        <FieldInfoTooltip
+                          fieldName={
+                            isEn ? 'Auto-Execute Payload' : 'اجرای خودکار پس از تایید نهایی'
+                          }
+                          whatIsIt={
+                            isEn
+                              ? 'Instructs the backend to run the signed protected operation automatically as soon as the final stage approver signs off.'
+                              : 'به سرور دستور می‌دهد بلافاصله پس از امضای مرحله نهایی زنجیره تایید، عملیات امضاشده را به‌صورت خودکار اجرا کند.'
+                          }
+                          whyNeeded={
+                            isEn
+                              ? 'Eliminates manual follow-up for transactional actions like saving running-config, power controls, or port toggles during maintenance windows.'
+                              : 'نیاز به حضور و کلیک مجدد کاربر پس از تایید مدیران را برای عملیات‌هایی مثل ذخیره کانفیگ یا کنترل پورت‌ها از بین می‌برد.'
+                          }
+                          example={
+                            isEn
+                              ? 'Enabled: Stage 2 signs off -> Backend runs Write Memory -> Requester receives output.'
+                              : 'فعال: تایید مرحله پایانی -> اجرای خودکار دستور توسط سرور -> ارسال خروجی واقعی برای درخواست‌کننده.'
+                          }
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
+                      <p
+                        className={`text-[11px] mt-0.5 ${
+                          isLightMode ? 'text-slate-600' : 'text-slate-400'
+                        }`}
+                      >
+                        {isEn
+                          ? 'If unchecked, an active ticket is granted after final sign-off and can be launched via One-Click Execution.'
+                          : 'در صورت غیرفعال بودن، پس از تایید نهایی تیکت فعال صادر می‌شود و می‌توانید با یک کلیک آن را اجرا کنید.'}
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              )}
 
               {submitError && (
                 <div

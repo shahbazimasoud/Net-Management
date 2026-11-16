@@ -87,6 +87,9 @@ interface RemoteSessionConfig {
   clientIp?: string;
   createdAt: number;
   expiresAt: number;
+  jitGrantId?: string | null;
+  jitApprovalId?: string | null;
+  jitExpiresAtMs?: number;
 }
 
 interface ActiveSessionRecord {
@@ -110,6 +113,10 @@ interface ActiveSessionRecord {
   clientWs?: WebSocket;
   sessionEstablished?: boolean;
   hasLoggedClose?: boolean;
+  jitGrantId?: string | null;
+  jitApprovalId?: string | null;
+  jitExpiresAtMs?: number;
+  unregisterJitSession?: () => void;
 }
 
 // In-memory token and session store
@@ -779,7 +786,12 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     }
 
     // Authoritative check against user's permitted server scope and tri-state approval gate in PostgreSQL
-    let approvedRdpTicketCtx: { actor: any; ticketId: string } | null = null;
+    let approvedRdpTicketCtx: {
+      actor: any;
+      ticketId: string;
+      grantId?: string | null;
+      expiresAtMs?: number;
+    } | null = null;
     const rawReqClientIp = ((req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || req.ip || '127.0.0.1').split(',')[0].trim();
     if (user) {
       try {
@@ -852,9 +864,14 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
                 ...gateRes.gatePayload,
               });
             }
+            const expMs = Date.parse(
+              gateRes.activeGrant?.expiresAt || gateRes.approvedTicket.expiresAt || ''
+            );
             approvedRdpTicketCtx = {
               actor,
               ticketId: gateRes.approvedTicket.id,
+              grantId: gateRes.activeGrant?.id || null,
+              expiresAtMs: Number.isFinite(expMs) && expMs > 0 ? expMs : undefined,
             };
           }
         }
@@ -930,20 +947,23 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       clientIp,
       createdAt: Date.now(),
       expiresAt: Date.now() + TOKEN_TTL_MS,
+      jitGrantId: approvedRdpTicketCtx?.grantId || null,
+      jitApprovalId: approvedRdpTicketCtx?.ticketId || null,
+      jitExpiresAtMs: approvedRdpTicketCtx?.expiresAtMs,
     };
 
     pendingTokens.set(sessionToken, sessionConfig);
 
     if (approvedRdpTicketCtx) {
       try {
-        const { consumeApprovedTicketForExecution } = await import('./approvalService');
-        await consumeApprovedTicketForExecution(
-          approvedRdpTicketCtx.actor,
-          approvedRdpTicketCtx.ticketId,
-          `Issued ${chosenProtocol.toUpperCase()} remote desktop session token (${sessionId}) for ${serverRecord.name || serverRecord.id}`
-        );
-      } catch (consumeErr: any) {
-        console.warn('[RemoteDesktop] Ticket consumption notice:', consumeErr?.message);
+        const { recordJitGrantUsage } = await import('./approvalService');
+        await recordJitGrantUsage({
+          approvalId: approvedRdpTicketCtx.ticketId,
+          grantId: approvedRdpTicketCtx.grantId,
+          actor: approvedRdpTicketCtx.actor,
+        });
+      } catch (usageErr: any) {
+        console.warn('[RemoteDesktop] JIT grant usage notice:', usageErr?.message);
       }
     }
 
@@ -1070,9 +1090,19 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     }
 
     for (const [id, session] of activeSessions.entries()) {
-      if (now - session.lastActivity > IDLE_TIMEOUT_MS) {
-        console.log(`[RemoteDesktop] Session ${id} timed out due to 15m inactivity.`);
+      const jitExpired = Boolean(session.jitExpiresAtMs && now >= session.jitExpiresAtMs);
+      if (jitExpired || now - session.lastActivity > IDLE_TIMEOUT_MS) {
+        const reasonTag = jitExpired ? 'JIT_PASS_EXPIRED' : 'IDLE_TIMEOUT';
+        console.log(
+          `[RemoteDesktop] Session ${id} terminated (${reasonTag}).`
+        );
         session.hasLoggedClose = true;
+        if (session.unregisterJitSession) {
+          try {
+            session.unregisterJitSession();
+          } catch {}
+          session.unregisterJitSession = undefined;
+        }
         const durationMs = now - session.startTime;
         const durationSec = Math.round(durationMs / 1000);
 
@@ -1089,19 +1119,27 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
           serverEnvironment: session.serverEnvironment || 'production',
           channel: session.protocol === 'rdp' ? 'REMOTE_DESKTOP_RDP' : 'REMOTE_DESKTOP_VNC',
           actionModule: 'REMOTE_DESKTOP_SESSION',
-          actionName: `قطع نشست ریموت دسکتاپ به دلیل عدم فعالیت (${session.protocol.toUpperCase()})`,
-          actionNameEn: `Remote desktop session disconnected due to idle timeout (${session.protocol.toUpperCase()})`,
-          command: `IDLE TIMEOUT (15 minutes inactivity)`,
+          actionName: jitExpired
+            ? `پایان دسترسی موقت JIT ریموت دسکتاپ (${session.protocol.toUpperCase()})`
+            : `قطع نشست ریموت دسکتاپ به دلیل عدم فعالیت (${session.protocol.toUpperCase()})`,
+          actionNameEn: jitExpired
+            ? `Remote desktop session ended at JIT Pass expiry (${session.protocol.toUpperCase()})`
+            : `Remote desktop session disconnected due to idle timeout (${session.protocol.toUpperCase()})`,
+          command: jitExpired ? 'JIT PASS EXPIRED' : 'IDLE TIMEOUT (15 minutes inactivity)',
           parameters: {
             sessionId: id,
             protocol: session.protocol,
             durationSec,
-            event: 'IDLE_TIMEOUT',
+            event: reasonTag,
           },
-          riskLevel: 'low',
+          riskLevel: jitExpired ? 'medium' : 'low',
           status: 'TIMEOUT',
-          outputSummary: `نشست ریموت دسکتاپ کاربر ${session.userName} روی سرور ${session.serverName} به دلیل ۱۵ دقیقه عدم فعالیت قطع شد (طول نشست: ${durationSec} ثانیه).`,
-          outputSummaryEn: `Remote desktop session of user ${session.userName} on server ${session.serverName} disconnected after 15 minutes of inactivity (session duration: ${durationSec}s).`,
+          outputSummary: jitExpired
+            ? `نشست ریموت دسکتاپ کاربر ${session.userName} پس از پایان زمان مجاز گذرنامه موقت JIT بسته شد.`
+            : `نشست ریموت دسکتاپ کاربر ${session.userName} روی سرور ${session.serverName} به دلیل ۱۵ دقیقه عدم فعالیت قطع شد (طول نشست: ${durationSec} ثانیه).`,
+          outputSummaryEn: jitExpired
+            ? `Remote desktop session of user ${session.userName} on server ${session.serverName} closed upon JIT Pass expiry.`
+            : `Remote desktop session of user ${session.userName} on server ${session.serverName} disconnected after 15 minutes of inactivity (session duration: ${durationSec}s).`,
           durationMs,
           metadata: { sessionId: id, serverId: session.serverId },
           timestamp: new Date().toISOString(),
@@ -1109,11 +1147,11 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
         addAuditLog({
           userName: session.userName,
-          action: 'REMOTE_DESKTOP_IDLE_TIMEOUT',
+          action: jitExpired ? 'REMOTE_DESKTOP_JIT_EXPIRED' : 'REMOTE_DESKTOP_IDLE_TIMEOUT',
           category: 'remote_access',
           target: `${session.serverName} (${session.serverIp})`,
           status: 'warning',
-          details: { durationSec, reason: 'Inactivity idle timeout' },
+          details: { durationSec, reason: jitExpired ? 'JIT Pass expired' : 'Inactivity idle timeout' },
           ipAddress: session.clientIp,
         }).catch(() => {});
 
@@ -1122,11 +1160,13 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             session.clientWs.send(
               JSON.stringify({
                 type: 'session_terminated',
-                reason: 'IDLE_TIMEOUT',
-                message: 'Session disconnected due to 15 minutes of inactivity.',
+                reason: reasonTag,
+                message: jitExpired
+                  ? 'JIT Pass window expired. Remote desktop session has been closed.'
+                  : 'Session disconnected due to 15 minutes of inactivity.',
               })
             );
-            session.clientWs.close(1000, 'Idle timeout');
+            session.clientWs.close(jitExpired ? 4003 : 1000, jitExpired ? 'JIT Pass expired' : 'Idle timeout');
           }
           if (session.socket) {
             session.socket.destroy();
@@ -1205,7 +1245,39 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       clientWs,
       sessionEstablished: false,
       hasLoggedClose: false,
+      jitGrantId: config.jitGrantId || null,
+      jitApprovalId: config.jitApprovalId || null,
+      jitExpiresAtMs: config.jitExpiresAtMs,
     };
+
+    if (config.jitExpiresAtMs && config.jitExpiresAtMs > 0) {
+      const { registerActiveJitSession } = await import('./approvalSessionRegistry');
+      activeSession.unregisterJitSession = registerActiveJitSession({
+        sessionId: config.id,
+        grantId: config.jitGrantId || null,
+        approvalId: config.jitApprovalId || null,
+        expiresAtMs: config.jitExpiresAtMs,
+        terminate: (reasonEn, reasonFa) => {
+          activeSession.hasLoggedClose = true;
+          try {
+            if (clientWs.readyState === WebSocket.OPEN) {
+              const errPayload = {
+                category: 'JIT_PASS_ENDED',
+                message_en: reasonEn,
+                message_fa: reasonFa,
+                code: '519',
+              };
+              clientWs.send(encodeGuacInstruction('error', JSON.stringify(errPayload), '519'));
+              clientWs.close(4003, reasonEn);
+            }
+          } catch {}
+          try {
+            if (activeSession.socket) activeSession.socket.destroy();
+          } catch {}
+          activeSessions.delete(config.id);
+        },
+      });
+    }
 
     activeSessions.set(config.id, activeSession);
 
@@ -1689,6 +1761,12 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
           }
         } catch {}
       }, 150);
+      if (activeSession.unregisterJitSession) {
+        try {
+          activeSession.unregisterJitSession();
+        } catch {}
+        activeSession.unregisterJitSession = undefined;
+      }
       activeSessions.delete(config.id);
     });
 
@@ -1698,6 +1776,12 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
     clientWs.on('close', () => {
       clearInterval(keepaliveInterval);
+      if (activeSession.unregisterJitSession) {
+        try {
+          activeSession.unregisterJitSession();
+        } catch {}
+        activeSession.unregisterJitSession = undefined;
+      }
       try {
         if (guacdSocket.writable) {
           guacdSocket.end();

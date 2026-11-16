@@ -188,15 +188,22 @@ export default function App() {
         evt.type === 'channel:message' ||
         evt.type === 'channel:created' ||
         evt.type === 'channel:updated' ||
-        evt.type === 'approval:updated'
+        evt.type === 'approval:updated' ||
+        evt.type === 'jit_grant:updated'
       ) {
         appDataCache.invalidate('comms:');
         appDataCache.invalidate('approvals:');
         setCommsLiveRevision((r) => r + 1);
+        if (evt.type === 'approval:updated' || evt.type === 'jit_grant:updated') {
+          window.dispatchEvent(
+            new CustomEvent('nettop-jit-grants-updated', { detail: evt })
+          );
+        }
         if (
           nextUnread === undefined &&
           evt.type !== 'channel:created' &&
-          evt.type !== 'channel:updated'
+          evt.type !== 'channel:updated' &&
+          evt.type !== 'jit_grant:updated'
         ) {
           fetchUnreadCommsCounts(true)
             .then((res) => {

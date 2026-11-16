@@ -1375,6 +1375,46 @@ export interface ApprovalStageInstance {
   isOverride?: boolean;
 }
 
+export type ApprovalExecutionMode = 'auto_command' | 'jit_session';
+
+export type ApprovalGrantStatus = 'active' | 'revoked' | 'expired' | 'consumed';
+
+export type ApprovalExecutionStatus =
+  | 'pending'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'jit_active';
+
+export interface ApprovalExecutionGrant {
+  id: string;
+  approvalId: string;
+  requesterUserId: string;
+  requesterUsername: string;
+  requesterFullName?: string;
+  targetEntityType: ApprovalTargetEntityType | string;
+  targetEntityId: string;
+  targetEntityName?: string | null;
+  actionKey: string;
+  actionLabelEn?: string;
+  actionLabelFa?: string;
+  executionMode: ApprovalExecutionMode;
+  status: ApprovalGrantStatus;
+  grantedByUserId?: string | null;
+  grantedByUsername?: string | null;
+  revokedByUsername?: string | null;
+  revokeReason?: string | null;
+  grantedAt: string;
+  expiresAt: string;
+  revokedAt?: string | null;
+  lastUsedAt?: string | null;
+  useCount: number;
+  commandPreview?: string | null;
+  actionParams?: Record<string, any> | null;
+  isOwnGrant?: boolean;
+  canRevoke?: boolean;
+}
+
 export interface ActionApprovalRequest {
   id: string;
   requesterUserId: string;
@@ -1392,6 +1432,12 @@ export interface ActionApprovalRequest {
   riskLevel: ApprovalRiskLevel;
   reason: string;
   commandPreview?: string | null;
+  executionMode?: ApprovalExecutionMode;
+  autoExecuteOnApprove?: boolean;
+  supportsAutoExecute?: boolean;
+  grantId?: string | null;
+  executionOutput?: string | null;
+  executionStatus?: ApprovalExecutionStatus | null;
   executionNote?: string | null;
   status: ApprovalRequestStatus;
   approverUserId?: string | null;
@@ -1407,6 +1453,7 @@ export interface ActionApprovalRequest {
   totalStages?: number;
   stages?: ApprovalStageInstance[];
   isAssignedToCurrentActor?: boolean;
+  activeGrant?: ApprovalExecutionGrant | null;
 }
 
 export interface CreateApprovalRequestPayload {
@@ -1421,6 +1468,8 @@ export interface CreateApprovalRequestPayload {
   reason: string;
   commandPreview?: string;
   ttlMinutes?: number;
+  executionMode?: ApprovalExecutionMode;
+  autoExecuteOnApprove?: boolean;
 }
 
 export interface ApprovalQueueSummary {
@@ -1432,6 +1481,7 @@ export interface ApprovalQueueSummary {
   cancelled: number;
   myPendingRequests: number;
   awaitingMyDecision?: number;
+  activeJitGrants?: number;
 }
 
 export interface ApprovalTargetOption {
@@ -1463,12 +1513,15 @@ export interface ApprovalGatePayload {
   requestedAction?: string;
   commandPreview?: string | null;
   actionParams?: Record<string, any> | null;
+  executionMode?: ApprovalExecutionMode;
+  supportsAutoExecute?: boolean;
   riskLevel?: ApprovalRiskLevel;
   policyId?: string | null;
   policyName?: string | null;
   stagesPreview?: ApprovalGateStagePreview[];
   existingApprovedApproval?: ActionApprovalRequest | null;
   existingPendingApproval?: ActionApprovalRequest | null;
+  activeGrant?: ApprovalExecutionGrant | null;
   error?: string;
   errorFa?: string;
 }

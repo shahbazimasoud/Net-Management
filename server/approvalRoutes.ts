@@ -14,11 +14,15 @@ import {
   createApprovalRequest,
   decideApprovalRequest,
   evaluateApprovalGateForRequest,
+  executeApprovalTicketPayload,
   getApprovalRequestById,
+  listActiveJitGrants,
   listApprovalRequests,
   listApprovalTargets,
   markApprovalRequestExecuted,
+  revokeJitGrant,
 } from './approvalService';
+import { resolveExecutionModeForAction } from './approvalExecutor';
 
 export const approvalRouter = Router();
 
@@ -175,12 +179,16 @@ approvalRouter.get('/approvals/check-action', async (req: Request, res: Response
     });
 
     if (gateRes.allowed) {
+      const modeRes = resolveExecutionModeForAction(actionKey);
       return res.json({
         success: true,
         decision: 'require_approval',
         approvalRequired: false,
         denied: false,
-        approvedTicket: gateRes.approvedTicket,
+        approvedTicket: gateRes.approvedTicket || null,
+        activeGrant: gateRes.activeGrant || null,
+        executionMode: modeRes.executionMode,
+        supportsAutoExecute: modeRes.supportsAutoExecute,
       });
     }
 
@@ -193,6 +201,46 @@ approvalRouter.get('/approvals/check-action', async (req: Request, res: Response
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Failed to check action approval status' });
+  }
+});
+
+// GET /api/approvals/grants
+approvalRouter.get('/approvals/grants', async (req: Request, res: Response) => {
+  const auth = await authenticateApprovalRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const entityType = typeof req.query.entityType === 'string' ? req.query.entityType : undefined;
+    const entityId = typeof req.query.entityId === 'string' ? req.query.entityId : undefined;
+    const status = typeof req.query.status === 'string' ? req.query.status : 'active';
+    const onlyMine = req.query.onlyMine === 'true' || req.query.onlyMine === '1';
+
+    const grants = await listActiveJitGrants(auth.actor, {
+      entityType,
+      entityId,
+      status,
+      onlyMine,
+    });
+    return res.json({ success: true, grants });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to load JIT grants' });
+  }
+});
+
+// POST /api/approvals/grants/:grantId/revoke
+approvalRouter.post('/approvals/grants/:grantId/revoke', async (req: Request, res: Response) => {
+  const auth = await authenticateApprovalRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const updated = await revokeJitGrant(auth.actor, req.params.grantId, req.body?.reason);
+    return res.json({ success: true, grant: updated });
+  } catch (err: any) {
+    const msg = String(err?.message || '');
+    const code = msg.startsWith('ACCESS_DENIED') ? 403 : msg.includes('not found') ? 404 : 400;
+    return res.status(code).json({ success: false, error: msg || 'Failed to revoke JIT Pass' });
   }
 });
 
@@ -315,5 +363,24 @@ approvalRouter.post('/approvals/:id/execute', async (req: Request, res: Response
     const msg = String(err?.message || '');
     const code = msg.startsWith('ACCESS_DENIED') ? 403 : msg.includes('not found') ? 404 : 400;
     return res.status(code).json({ success: false, error: msg || 'Failed to record execution' });
+  }
+});
+
+// POST /api/approvals/:id/execute-payload
+approvalRouter.post('/approvals/:id/execute-payload', async (req: Request, res: Response) => {
+  const auth = await authenticateApprovalRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const updated = await executeApprovalTicketPayload(auth.actor, req.params.id, {
+      isAuto: false,
+      executionNote: req.body?.executionNote,
+    });
+    return res.json({ success: true, approval: updated });
+  } catch (err: any) {
+    const msg = String(err?.message || '');
+    const code = msg.startsWith('ACCESS_DENIED') ? 403 : msg.includes('not found') ? 404 : 400;
+    return res.status(code).json({ success: false, error: msg || 'Failed to execute approval payload' });
   }
 });

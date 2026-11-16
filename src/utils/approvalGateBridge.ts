@@ -76,8 +76,11 @@ export async function preflightActionApproval(params: {
       };
     }
 
-    if (check.decision === 'allow') {
-      return { proceed: true };
+    if (!check.approvalRequired && (check.decision === 'allow' || check.approvedTicket || check.activeGrant)) {
+      return {
+        proceed: true,
+        approvalRequestId: check.approvedTicket?.id || check.activeGrant?.approvalId,
+      };
     }
 
     const payload: ApprovalGatePayload = {
@@ -92,12 +95,15 @@ export async function preflightActionApproval(params: {
       requestedAction: check.requestedAction || params.requestedAction,
       commandPreview: check.commandPreview ?? params.commandPreview ?? null,
       actionParams: check.actionParams ?? params.actionParams ?? null,
+      executionMode: check.executionMode,
+      supportsAutoExecute: check.supportsAutoExecute,
       riskLevel: check.riskLevel || 'high',
       policyId: check.policyId || null,
       policyName: check.policyName || null,
       stagesPreview: check.stagesPreview || [],
       existingApprovedApproval: check.existingApprovedApproval || check.approvedTicket || null,
       existingPendingApproval: check.existingPendingApproval || null,
+      activeGrant: check.activeGrant || null,
       error: check.error,
       errorFa: check.errorFa,
     };

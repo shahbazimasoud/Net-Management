@@ -487,6 +487,15 @@ export type CommsWsEvent =
       approvalId: string;
       status: string;
     }
+  | {
+      type: 'jit_grant:updated';
+      grantId: string;
+      approvalId?: string;
+      status: string;
+      targetEntityType?: string;
+      targetEntityId?: string;
+      actionKey?: string;
+    }
   | { type: 'ping' | 'pong'; timestamp?: number };
 
 export function connectCommsWebSocket(

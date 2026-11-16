@@ -232,6 +232,12 @@ export function setupTerminalWebSocket(
 
     let srv: any = null;
     let dev: any = null;
+    let jitSessionAuth: {
+      grantId?: string | null;
+      approvalId: string;
+      expiresAtMs: number;
+    } | null = null;
+    let unregisterJitSession: (() => void) | null = null;
 
     // Authoritative lookup: First directly from PostgreSQL, then fallback to JSON stores
     try {
@@ -351,7 +357,7 @@ export function setupTerminalWebSocket(
                   return;
                 }
                 if (terminalDecision === 'require_approval') {
-                  const { evaluateApprovalGateForRequest, consumeApprovedTicketForExecution } = await import('./approvalService');
+                  const { evaluateApprovalGateForRequest, recordJitGrantUsage } = await import('./approvalService');
                   const actor = {
                     userId: String(payload.userId || payload.username || 'operator'),
                     username: String(payload.username || 'operator'),
@@ -390,11 +396,21 @@ export function setupTerminalWebSocket(
                     clientWs.close(4003, 'Approval Required');
                     return;
                   }
-                  await consumeApprovedTicketForExecution(
+                  await recordJitGrantUsage({
+                    approvalId: gateRes.approvedTicket.id,
+                    grantId: gateRes.activeGrant?.id || null,
                     actor,
-                    gateRes.approvedTicket.id,
-                    `Interactive WebSocket SSH session opened for server ${srv.name || srv.id}`
+                  });
+                  const expiresAtMs = Date.parse(
+                    gateRes.activeGrant?.expiresAt || gateRes.approvedTicket.expiresAt || ''
                   );
+                  if (expiresAtMs > Date.now()) {
+                    jitSessionAuth = {
+                      grantId: gateRes.activeGrant?.id || null,
+                      approvalId: gateRes.approvedTicket.id,
+                      expiresAtMs,
+                    };
+                  }
                 }
               }
             }
@@ -468,7 +484,7 @@ export function setupTerminalWebSocket(
                   return;
                 }
                 if (devTerminalDecision === 'require_approval') {
-                  const { evaluateApprovalGateForRequest, consumeApprovedTicketForExecution } = await import('./approvalService');
+                  const { evaluateApprovalGateForRequest, recordJitGrantUsage } = await import('./approvalService');
                   const actor = {
                     userId: String(payload.userId || payload.username || 'operator'),
                     username: String(payload.username || 'operator'),
@@ -507,11 +523,21 @@ export function setupTerminalWebSocket(
                     clientWs.close(4003, 'Approval Required');
                     return;
                   }
-                  await consumeApprovedTicketForExecution(
+                  await recordJitGrantUsage({
+                    approvalId: gateRes.approvedTicket.id,
+                    grantId: gateRes.activeGrant?.id || null,
                     actor,
-                    gateRes.approvedTicket.id,
-                    `Interactive WebSocket CLI session opened for device ${dev.name || dev.id}`
+                  });
+                  const expiresAtMs = Date.parse(
+                    gateRes.activeGrant?.expiresAt || gateRes.approvedTicket.expiresAt || ''
                   );
+                  if (expiresAtMs > Date.now()) {
+                    jitSessionAuth = {
+                      grantId: gateRes.activeGrant?.id || null,
+                      approvalId: gateRes.approvedTicket.id,
+                      expiresAtMs,
+                    };
+                  }
                 }
               }
             }
@@ -865,6 +891,12 @@ export function setupTerminalWebSocket(
       const cleanup = () => {
         if (!isCleanedUp) {
           isCleanedUp = true;
+          if (unregisterJitSession) {
+            try {
+              unregisterJitSession();
+            } catch {}
+            unregisterJitSession = null;
+          }
           logSessionClosed().catch(() => {});
           try {
             if (activeStream) {
@@ -885,6 +917,32 @@ export function setupTerminalWebSocket(
           activeStream = null;
         }
       };
+
+      if (jitSessionAuth) {
+        const { registerActiveJitSession } = await import('./approvalSessionRegistry');
+        unregisterJitSession = registerActiveJitSession({
+          sessionId,
+          grantId: jitSessionAuth.grantId,
+          approvalId: jitSessionAuth.approvalId,
+          expiresAtMs: jitSessionAuth.expiresAtMs,
+          terminate: (reasonEn, reasonFa) => {
+            const msgText = isEn ? reasonEn : reasonFa;
+            sendClient({
+              type: 'data',
+              data: `\r\n\x1b[31m[JIT Pass Ended]: ${msgText}\x1b[0m\r\n`,
+            });
+            sendClient({
+              type: 'status',
+              status: 'disconnected',
+              message: msgText,
+            });
+            try {
+              clientWs.close(4003, reasonEn);
+            } catch {}
+            cleanup();
+          },
+        });
+      }
 
       sshConn.on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
         const answers = prompts.map((p) => {

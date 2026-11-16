@@ -40,7 +40,13 @@ import {
   Download,
   Upload,
 } from 'lucide-react';
-import { RemoteServer, RemoteServerTagSummary, ServerCategory, ServerActionKey } from '../../types';
+import {
+  ApprovalExecutionGrant,
+  RemoteServer,
+  RemoteServerTagSummary,
+  ServerCategory,
+  ServerActionKey,
+} from '../../types';
 import {
   isServerActionAllowed,
   evaluateServerActionDecision,
@@ -74,6 +80,7 @@ import { ServerDiscoveryModal } from './ServerDiscoveryModal';
 import { ServerExportModal } from './ServerExportModal';
 import { ServerImportModal } from './ServerImportModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { ActiveJitPassBar } from '../common/ActiveJitPassBar';
 import { useModalDock } from '../../context/ModalDockContext';
 import { logServerCommandEvent } from '../../services/auditLogger';
 import { loadDeviceGroups } from '../../services/settingsStorage';
@@ -2164,6 +2171,28 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Active Time-Limited JIT Passes Bar */}
+      <ActiveJitPassBar
+        entityType="server"
+        isLightMode={isLightMode}
+        onLaunchGrant={(grant: ApprovalExecutionGrant) => {
+          const srv = servers.find((s) => s.id === grant.targetEntityId);
+          if (!srv) return;
+          if (grant.actionKey === 'file_explorer') {
+            handleOpenLinuxFileExplorer(srv);
+          } else if (
+            grant.actionKey === 'rdp' ||
+            grant.actionKey === 'vnc' ||
+            grant.actionKey === 'remote_desktop' ||
+            srv.os_type === 'windows'
+          ) {
+            handleOpenInBrowserRemote(srv, grant.actionKey === 'vnc' ? 'vnc' : 'rdp');
+          } else {
+            handleOpenLinuxTerminal(srv, 'bash');
+          }
+        }}
+      />
 
       {/* 2. Quick Summary Cards (4 stats - matching DeviceListView) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">

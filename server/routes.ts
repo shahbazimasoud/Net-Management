@@ -562,14 +562,19 @@ import {
   ApprovalActor,
   consumeApprovedTicketForExecution,
   evaluateApprovalGateForRequest,
+  recordJitGrantUsage,
   resolveActionMeta,
 } from './approvalService';
+import {
+  buildSignedHttpExecutionPayload,
+  isInteractiveJitAction,
+} from './approvalExecutor';
 
 export const apiRouter = Router();
 
-// Global Phase 3 Approval Gate & JIT Execution Wrapper on apiRouter:
+// Global Phase 3/4 Approval Gate & Hybrid Execution Wrapper on apiRouter:
 // 1) Enriches any 403 triggered by a policy require_approval block with structured APPROVAL_REQUIRED metadata
-// 2) Automatically consumes (marks executed) an authorized JIT approval ticket when the gated action succeeds
+// 2) Automatically consumes single-use transactional tickets OR records active JIT Pass usage for interactive actions
 apiRouter.use((req: Request, res: Response, next: NextFunction) => {
   const origJson = res.json.bind(res);
   res.json = ((body?: any) => {
@@ -594,20 +599,41 @@ apiRouter.use((req: Request, res: Response, next: NextFunction) => {
     }
 
     const ticketCtx = (req as any).__approvedTicketCtx as
-      | { actor: ApprovalActor; ticketId: string; executionNote: string; consumed?: boolean }
+      | {
+          actor: ApprovalActor;
+          ticketId: string;
+          grantId?: string | null;
+          actionKey?: string | null;
+          executionNote: string;
+          consumed?: boolean;
+        }
       | undefined;
+
+    const isInternalExec = req.headers['x-internal-approval-exec'] === '1';
 
     if (
       ticketCtx &&
       !ticketCtx.consumed &&
+      !isInternalExec &&
       res.statusCode >= 200 &&
       res.statusCode < 400 &&
       (!body || typeof body !== 'object' || body.success !== false)
     ) {
       ticketCtx.consumed = true;
-      consumeApprovedTicketForExecution(ticketCtx.actor, ticketCtx.ticketId, ticketCtx.executionNote)
-        .catch(() => {})
-        .finally(() => origJson(body));
+      const donePromise =
+        ticketCtx.actionKey && isInteractiveJitAction(ticketCtx.actionKey)
+          ? recordJitGrantUsage({
+              approvalId: ticketCtx.ticketId,
+              grantId: ticketCtx.grantId,
+              actor: ticketCtx.actor,
+            })
+          : consumeApprovedTicketForExecution(
+              ticketCtx.actor,
+              ticketCtx.ticketId,
+              ticketCtx.executionNote
+            );
+
+      donePromise.catch(() => {}).finally(() => origJson(body));
       return res;
     }
 
@@ -3612,6 +3638,20 @@ async function assertDeviceScopeAccess(
       if (!isBaselinePortCheckBeforeMutation) {
         const actor = buildApprovalActor(req, context);
         const meta = resolveActionMeta(action);
+        const rawActionParams: Record<string, any> | null =
+          req.body && typeof req.body === 'object' ? { ...req.body } : {};
+        const signedExec = buildSignedHttpExecutionPayload({
+          method: req.method || 'POST',
+          originalUrl: req.originalUrl || req.url || '',
+          body: req.body,
+          entityType: 'device',
+          entityId: device.id,
+          actionKey: action,
+          requesterUsername: actor.username,
+        });
+        if (signedExec && rawActionParams) {
+          rawActionParams._httpExecution = signedExec;
+        }
         const gateRes = await evaluateApprovalGateForRequest({
           actor,
           effectivePolicy,
@@ -3621,7 +3661,8 @@ async function assertDeviceScopeAccess(
           actionKey: action,
           requestedAction: `${meta.labelEn} (${device.name || device.ip || device.id})`,
           commandPreview: buildSafeCommandPreview(req),
-          actionParams: req.body && typeof req.body === 'object' ? req.body : null,
+          actionParams:
+            rawActionParams && Object.keys(rawActionParams).length > 0 ? rawActionParams : null,
           providedApprovalId: extractProvidedApprovalId(req),
         });
 
@@ -3643,6 +3684,8 @@ async function assertDeviceScopeAccess(
           (req as any).__approvedTicketCtx = {
             actor,
             ticketId: gateRes.approvedTicket.id,
+            grantId: gateRes.activeGrant?.id || null,
+            actionKey: action,
             executionNote: `Executed device action '${action}' on ${device.name || device.id} via JIT approval ${gateRes.approvedTicket.id}`,
           };
         }
@@ -7747,6 +7790,20 @@ async function assertServerScopeAccess(
     if (decision === 'require_approval' && isMutatingServerRequest(req, action)) {
       const actor = buildApprovalActor(req, context);
       const meta = resolveActionMeta(action);
+      const rawActionParams: Record<string, any> | null =
+        req.body && typeof req.body === 'object' ? { ...req.body } : {};
+      const signedExec = buildSignedHttpExecutionPayload({
+        method: req.method || 'POST',
+        originalUrl: req.originalUrl || req.url || '',
+        body: req.body,
+        entityType: 'server',
+        entityId: server.id,
+        actionKey: action,
+        requesterUsername: actor.username,
+      });
+      if (signedExec && rawActionParams) {
+        rawActionParams._httpExecution = signedExec;
+      }
       const gateRes = await evaluateApprovalGateForRequest({
         actor,
         effectivePolicy,
@@ -7756,7 +7813,8 @@ async function assertServerScopeAccess(
         actionKey: action,
         requestedAction: `${meta.labelEn} (${server.name || server.ip || server.id})`,
         commandPreview: buildSafeCommandPreview(req),
-        actionParams: req.body && typeof req.body === 'object' ? req.body : null,
+        actionParams:
+          rawActionParams && Object.keys(rawActionParams).length > 0 ? rawActionParams : null,
         providedApprovalId: extractProvidedApprovalId(req),
       });
 
@@ -7777,6 +7835,8 @@ async function assertServerScopeAccess(
       (req as any).__approvedTicketCtx = {
         actor,
         ticketId: gateRes.approvedTicket.id,
+        grantId: gateRes.activeGrant?.id || null,
+        actionKey: action,
         executionNote: `Executed server action '${action}' on ${server.name || server.id} via JIT approval ${gateRes.approvedTicket.id}`,
       };
       return {
@@ -16646,6 +16706,22 @@ apiRouter.post('/remote-servers/bulk-power', async (req: Request, res: Response)
         const actor = buildApprovalActor(req, context);
         const isSingle = approvalRequiredIds.length === 1;
         const primarySrv = isSingle ? await getRemoteServerById(approvalRequiredIds[0]) : null;
+        const bulkParams: Record<string, any> = {
+          serverIds: targetIds,
+          actionType,
+          delayMinutes,
+          force,
+        };
+        const signedExec = buildSignedHttpExecutionPayload({
+          method: req.method || 'POST',
+          originalUrl: req.originalUrl || req.url || '',
+          body: req.body,
+          entityType: 'server',
+          entityId: isSingle ? approvalRequiredIds[0] : 'bulk',
+          actionKey: 'power_control',
+          requesterUsername: actor.username,
+        });
+        if (signedExec) bulkParams._httpExecution = signedExec;
         const gateRes = await evaluateApprovalGateForRequest({
           actor,
           effectivePolicy,
@@ -16657,7 +16733,7 @@ apiRouter.post('/remote-servers/bulk-power', async (req: Request, res: Response)
           actionKey: 'power_control',
           requestedAction: `Bulk Power Control (${actionType || 'restart'} on ${targetIds.length} server(s))`,
           commandPreview: buildSafeCommandPreview(req),
-          actionParams: { serverIds: targetIds, actionType, delayMinutes, force },
+          actionParams: bulkParams,
           providedApprovalId: extractProvidedApprovalId(req),
         });
         if (!gateRes.allowed) {
@@ -16667,6 +16743,8 @@ apiRouter.post('/remote-servers/bulk-power', async (req: Request, res: Response)
         (req as any).__approvedTicketCtx = {
           actor,
           ticketId: gateRes.approvedTicket.id,
+          grantId: gateRes.activeGrant?.id || null,
+          actionKey: 'power_control',
           executionNote: `Executed bulk-power (${actionType || 'restart'}) on ${targetIds.length} server(s) via ${gateRes.approvedTicket.id}`,
         };
       }

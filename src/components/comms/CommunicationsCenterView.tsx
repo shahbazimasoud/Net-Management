@@ -62,8 +62,10 @@ import {
 } from '../../services/commsApi';
 import {
   decideApprovalRequestApi,
+  executeApprovalPayloadApi,
   fetchApprovalById,
   fetchApprovalRequests,
+  revokeJitGrantApi,
 } from '../../services/approvalApi';
 import { appDataCache } from '../../services/dataCache';
 import { ActiveTab } from '../Sidebar';
@@ -414,6 +416,67 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
         text:
           err?.message ||
           (isEn ? 'Failed to submit approval decision' : 'خطا در ثبت تصمیم تاییدیه'),
+      });
+    } finally {
+      setInlineApprovalBusy(false);
+    }
+  };
+
+  const handleInlineExecutePayload = async () => {
+    if (!linkedApproval || inlineApprovalBusy) return;
+    setInlineApprovalBusy(true);
+    setInlineApprovalFeedback(null);
+    try {
+      const updated = await executeApprovalPayloadApi(linkedApproval.id);
+      setLinkedApproval(updated);
+      const ok = updated.status === 'executed' || updated.executionStatus === 'succeeded';
+      setInlineApprovalFeedback({
+        type: ok ? 'success' : 'error',
+        text: ok
+          ? isEn
+            ? 'Approved payload executed cleanly on target asset.'
+            : 'عملیات امضاشده با موفقیت بر روی هدف اجرا شد.'
+          : isEn
+          ? `Execution ended with status: ${updated.executionStatus || 'failed'}.`
+          : `اجرای عملیات با وضعیت «${updated.executionStatus || 'ناموفق'}» پایان یافت.`,
+      });
+      window.dispatchEvent(new CustomEvent('nettop-jit-grants-updated'));
+      loadNotifications(true);
+    } catch (err: any) {
+      setInlineApprovalFeedback({
+        type: 'error',
+        text: err?.message || (isEn ? 'Execution failed' : 'اجرای عملیات ناموفق بود'),
+      });
+    } finally {
+      setInlineApprovalBusy(false);
+    }
+  };
+
+  const handleInlineRevokeGrant = async (grantId: string) => {
+    if (!grantId || inlineApprovalBusy) return;
+    setInlineApprovalBusy(true);
+    setInlineApprovalFeedback(null);
+    try {
+      await revokeJitGrantApi(
+        grantId,
+        isEn ? 'Revoked from Inbox Approval card' : 'لغو دستی از کارت اعلانات تاییدیه'
+      );
+      if (linkedApproval?.id) {
+        const refreshed = await fetchApprovalById(linkedApproval.id);
+        setLinkedApproval(refreshed);
+      }
+      setInlineApprovalFeedback({
+        type: 'success',
+        text: isEn
+          ? 'JIT Pass revoked and live terminal/RDP sessions terminated.'
+          : 'پاس زمانی لغو و نشست‌های زنده ترمینال/ریموت قطع شدند.',
+      });
+      window.dispatchEvent(new CustomEvent('nettop-jit-grants-updated'));
+      loadNotifications(true);
+    } catch (err: any) {
+      setInlineApprovalFeedback({
+        type: 'error',
+        text: err?.message || (isEn ? 'Revoke failed' : 'لغو پاس ناموفق بود'),
       });
     } finally {
       setInlineApprovalBusy(false);
@@ -1862,6 +1925,53 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                         >
                           {linkedApproval.commandPreview}
                         </pre>
+                      )}
+
+                      {linkedApproval.executionOutput && (
+                        <div className="space-y-1">
+                          <div className="text-[11px] font-bold">
+                            {isEn ? 'Execution Output:' : 'خروجی اجرای سرور:'}
+                          </div>
+                          <pre
+                            dir="ltr"
+                            className={`p-3 rounded-lg border font-mono text-[11px] leading-relaxed overflow-x-auto max-h-40 ${
+                              linkedApproval.executionStatus === 'failed'
+                                ? 'bg-rose-950/60 border-rose-500/40 text-rose-200'
+                                : isLightMode
+                                ? 'bg-slate-900 border-slate-700 text-emerald-300'
+                                : 'bg-black/70 border-white/10 text-emerald-300'
+                            }`}
+                          >
+                            {linkedApproval.executionOutput}
+                          </pre>
+                        </div>
+                      )}
+
+                      {linkedApproval.status === 'approved' && (
+                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                          {linkedApproval.supportsAutoExecute && (
+                            <button
+                              type="button"
+                              disabled={inlineApprovalBusy}
+                              onClick={handleInlineExecutePayload}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs cursor-pointer disabled:opacity-50 transition"
+                            >
+                              <span>
+                                {isEn ? 'Execute Approved Payload Now' : 'اجرای فوری عملیات تاییدشده'}
+                              </span>
+                            </button>
+                          )}
+                          {linkedApproval.activeGrant?.canRevoke && (
+                            <button
+                              type="button"
+                              disabled={inlineApprovalBusy}
+                              onClick={() => handleInlineRevokeGrant(linkedApproval.activeGrant!.id)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs cursor-pointer disabled:opacity-50 transition"
+                            >
+                              <span>{isEn ? 'Revoke JIT Pass' : 'لغو فوری JIT Pass'}</span>
+                            </button>
+                          )}
+                        </div>
                       )}
 
                       {inlineApprovalFeedback && (

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.433.0';
+export const APP_VERSION = '1.434.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.434.0',
+    releaseDate: '2026-11-16',
+    type: 'minor',
+    title: 'فاز ۴: پاس‌های زمانی هوشمند JIT، اجرای خودکار یا یک‌کلیکی پیلودهای تاییدشده، قطع آنی نشست و ممیزی کامل چرخه حیات',
+    title_en: 'Phase 4: Hybrid Time-Limited JIT Passes, Auto-Execute & One-Click Signed Payloads, Immediate Session Revocation & Lifecycle Audit',
+    changes: [
+      'راه‌اندازی جدول و سیستم صدور پاس‌های زمانی JIT (`action_approval_grants` و `ActiveJitPassBar`) برای دسترسی‌های تعاملی (ترمینال SSH/CLI، کاوشگر فایل SFTP، ریموت دسکتاپ Guacamole RDP/VNC و بازرسی پورت) تا اتصال مجدد و عملیات درون‌نشستی در طول بازه TTL بدون درخواست مجدد مجاز بماند.',
+      'افزودن رجیستری زنده نشست‌های فعال (`approvalSessionRegistry.ts`) و سرویس دوره‌ای انقضا (`startApprovalJitExpiryDaemon` با بازه ۱۵ ثانیه) برای قطع فوری و خودکار تمام وب‌سوکت‌های ترمینال و Guacamole RDP به محض پایان اعتبار یا لغو دستی پاس توسط مدیر (`POST /api/approvals/grants/:grantId/revoke`).',
+      'پشتیبانی از پیلودهای اجرایی امضاشده با HMAC-SHA256 (`approvalExecutor.ts`) بدون افشای رمز عبور تجهیزات؛ افزودن گزینه «اجرای خودکار پس از تایید نهایی» در `ApprovalGateModal` و دکمه «اجرای فوری عملیات امضاشده» (`POST /api/approvals/:id/execute-payload`) همراه با نمایش خروجی واقعی اجرا در `ApprovalsQueuePane` و `CommunicationsCenterView`.',
+      'همگام‌سازی زنده وضعیت پاس‌ها و تاییدیه‌ها از طریق رویداد `jit_grant:updated` در وب‌سوکت و ثبت گزارش‌های دوزبانه ممیزی (`JIT_PASS_ISSUED`، `JIT_PASS_REVOKED`، `JIT_PASS_EXPIRED`، `JIT_PASS_SESSION_TERMINATED`، `APPROVAL_PAYLOAD_EXECUTED`).'
+    ],
+    changes_en: [
+      'Introduced persisted time-limited JIT Access Passes (`action_approval_grants`) for interactive actions (SSH/CLI terminals, SFTP File Explorer, Guacamole RDP/VNC, Web Consoles, Port Inspector), preserving seamless reconnects across sessions until TTL expiry or early admin revocation.',
+      'Implemented live session registry (`approvalSessionRegistry.ts`) and 15-second expiry sweeper (`startApprovalJitExpiryDaemon`) integrated into `terminalWs.ts` and `remoteDesktopGateway.ts` to forcefully close active WS/RDP/SSH tunnels on pass expiry or manual revocation (`POST /api/approvals/grants/:grantId/revoke`).',
+      'Added HMAC-SHA256 signed, credential-stripped `_httpExecution` descriptors (`approvalExecutor.ts`), an `autoExecuteOnApprove` toggle in `ApprovalGateModal`, and one-click `POST /api/approvals/:id/execute-payload` controls with real server output consoles inside `ApprovalsQueuePane` and `CommunicationsCenterView`.',
+      'Added reusable `ActiveJitPassBar` (`tabular-nums` live countdowns, Open & Revoke actions) across `DeviceListView`, `RemoteServersView`, and `ApprovalsQueuePane`, synced in real time via `jit_grant:updated` WebSocket broadcasts and full bilingual audit events.'
+    ]
+  },
   {
     version: '1.433.0',
     releaseDate: '2026-11-16',

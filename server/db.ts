@@ -225,6 +225,7 @@ export interface FallbackStore {
   comms_notifications?: any[];
   user_security_profiles?: any[];
   action_approval_requests?: any[];
+  action_approval_grants?: any[];
 }
 
 export interface SystemSecurityKeysRecord {
@@ -1298,6 +1299,9 @@ export function loadFallbackStore(): FallbackStore {
   }
   if (!Array.isArray(store.action_approval_requests)) {
     store.action_approval_requests = [];
+  }
+  if (!Array.isArray(store.action_approval_grants)) {
+    store.action_approval_grants = [];
   }
 
   return store;
@@ -2652,7 +2656,40 @@ export async function initDatabase(): Promise<void> {
       await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS current_stage_order INTEGER DEFAULT 1");
       await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS total_stages INTEGER DEFAULT 1");
       await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS stages_json TEXT");
+      await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS execution_mode VARCHAR(32) DEFAULT 'jit_session'");
+      await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS auto_execute_on_approve BOOLEAN DEFAULT FALSE");
+      await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS grant_id VARCHAR(128)");
+      await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS execution_output TEXT");
+      await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS execution_status VARCHAR(32)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON action_approval_requests(status, created_at DESC)");
+
+      // 30. Time-Limited Just-In-Time (JIT) Execution Passes linked to Approved Requests
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS action_approval_grants (
+          id VARCHAR(128) PRIMARY KEY,
+          approval_id VARCHAR(128) NOT NULL,
+          requester_user_id VARCHAR(128) NOT NULL,
+          requester_username VARCHAR(128) NOT NULL,
+          target_entity_type VARCHAR(64) NOT NULL,
+          target_entity_id VARCHAR(128) NOT NULL,
+          target_entity_name VARCHAR(255),
+          action_key VARCHAR(128) NOT NULL,
+          execution_mode VARCHAR(32) NOT NULL DEFAULT 'jit_session',
+          status VARCHAR(24) NOT NULL DEFAULT 'active',
+          granted_by_user_id VARCHAR(128),
+          granted_by_username VARCHAR(128),
+          revoked_by_username VARCHAR(128),
+          revoke_reason TEXT,
+          granted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+          revoked_at TIMESTAMP WITH TIME ZONE,
+          last_used_at TIMESTAMP WITH TIME ZONE,
+          use_count INTEGER DEFAULT 0,
+          metadata_json TEXT
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_approval_grants_active ON action_approval_grants(status, requester_username, expires_at)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_approval_grants_approval_id ON action_approval_grants(approval_id)");
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL

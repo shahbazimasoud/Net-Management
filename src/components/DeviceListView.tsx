@@ -34,7 +34,14 @@ import {
   Radar,
   Lock,
 } from 'lucide-react';
-import { Device, DeviceType, CustomTopologyStickyNote, isCiscoDevice, isCiscoSwitchDevice } from '../types';
+import {
+  Device,
+  DeviceType,
+  CustomTopologyStickyNote,
+  ApprovalExecutionGrant,
+  isCiscoDevice,
+  isCiscoSwitchDevice,
+} from '../types';
 import { useLanguage } from '../i18n';
 import { updateDevice } from '../services/api';
 import { syncDeviceNotesFromDatabase } from '../services/settingsStorage';
@@ -46,6 +53,7 @@ import { DeviceExportModal } from './DeviceExportModal';
 import { DeviceImportModal } from './DeviceImportModal';
 import { DeviceDiscoveryModal } from './DeviceDiscoveryModal';
 import { CiscoDeviceConfigModal } from './cisco/CiscoDeviceConfigModal';
+import { ActiveJitPassBar } from './common/ActiveJitPassBar';
 import { useAuth } from '../context/AuthContext';
 import { useModalDock } from '../context/ModalDockContext';
 import {
@@ -843,6 +851,25 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Active Time-Limited JIT Passes Bar */}
+      <ActiveJitPassBar
+        entityType="device"
+        isLightMode={isLightMode}
+        onLaunchGrant={(grant: ApprovalExecutionGrant) => {
+          const target = devices.find((d) => d.id === grant.targetEntityId);
+          if (!target) return;
+          if (grant.actionKey === 'terminal' && onConnectTerminal) {
+            onConnectTerminal(target);
+          } else if (grant.actionKey === 'inspect_ports') {
+            onInspectPorts(target);
+          } else if (grant.actionKey === 'cisco_config_device') {
+            setCiscoConfigDevice(target);
+          } else if (onConnectTerminal) {
+            onConnectTerminal(target);
+          }
+        }}
+      />
 
       {/* Filter and Search Bar */}
       <div className="p-3.5 rounded-xl spatial-glass border border-white/10 shadow-lg flex flex-wrap items-center justify-between gap-3 text-xs backdrop-blur-xl">

@@ -45,6 +45,7 @@ import { commsRouter } from './server/commsRoutes';
 import { initCommsIntegration } from './server/commsService';
 import { profileRouter } from './server/profileRoutes';
 import { approvalRouter } from './server/approvalRoutes';
+import { startApprovalJitExpiryDaemon } from './server/approvalService';
 import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdServiceRunning } from './server/remoteDesktopGateway';
 import { registerCertConverterRoutes } from './server/certConverter';
 import { licenseContractRouter, startLicenseContractCronDaemon } from './server/licenseContractService';
@@ -101,7 +102,7 @@ app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 app.use((req: Request, res: Response, next: NextFunction) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Accept-Language, X-Trusted-Device-Token, x-operator-user');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Accept-Language, X-Trusted-Device-Token, x-operator-user, X-Approval-Request-Id, X-Internal-Approval-Exec');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(204);
   }
@@ -1550,6 +1551,8 @@ async function startServer() {
     startLogRetentionDaemon();
     // Start automated licenses and contracts expiry email alerting daemon
     startLicenseContractCronDaemon();
+    // Start Phase 4 Hybrid JIT & Approval expiry daemon
+    startApprovalJitExpiryDaemon();
   });
 }
 

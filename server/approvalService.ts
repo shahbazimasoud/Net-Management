@@ -21,9 +21,23 @@ import { decryptServerSecret, encryptServerSecret } from './vaultCrypto';
 import { emitSystemNotification, resolveUserIdentifiers } from './commsService';
 import { broadcastCommsEventToRecipients } from './commsWs';
 import {
+  executeApprovedPayloadOnBackend,
+  isInteractiveJitAction,
+  resolveExecutionModeForAction,
+  sanitizeActionParams,
+} from './approvalExecutor';
+import {
+  terminateActiveJitSessionsByGrantOrApproval,
+  terminateAllExpiredJitSessions,
+} from './approvalSessionRegistry';
+import {
   ActionApprovalRequest,
+  ApprovalExecutionGrant,
+  ApprovalExecutionMode,
+  ApprovalExecutionStatus,
   ApprovalGatePayload,
   ApprovalGateStagePreview,
+  ApprovalGrantStatus,
   ApprovalQueueSummary,
   ApprovalRequestStatus,
   ApprovalRiskLevel,
@@ -52,6 +66,11 @@ interface EncryptedApprovalPayload {
   commandPreview: string | null;
   ttlMinutes: number;
   actionParams?: Record<string, any> | null;
+  executionMode?: ApprovalExecutionMode;
+  autoExecuteOnApprove?: boolean;
+  grantId?: string | null;
+  executionOutput?: string | null;
+  executionStatus?: ApprovalExecutionStatus | null;
   requesterFullName?: string;
   requesterRole?: string;
   executionNote?: string | null;
@@ -107,6 +126,22 @@ function safeParseEncryptedPayload(rawEnc: string | null | undefined): Encrypted
         actionParams:
           parsed.actionParams && typeof parsed.actionParams === 'object'
             ? parsed.actionParams
+            : null,
+        executionMode:
+          parsed.executionMode === 'auto_command' || parsed.executionMode === 'jit_session'
+            ? parsed.executionMode
+            : undefined,
+        autoExecuteOnApprove: Boolean(parsed.autoExecuteOnApprove),
+        grantId: typeof parsed.grantId === 'string' ? parsed.grantId : null,
+        executionOutput:
+          typeof parsed.executionOutput === 'string' ? parsed.executionOutput : null,
+        executionStatus:
+          parsed.executionStatus === 'pending' ||
+          parsed.executionStatus === 'running' ||
+          parsed.executionStatus === 'succeeded' ||
+          parsed.executionStatus === 'failed' ||
+          parsed.executionStatus === 'jit_active'
+            ? parsed.executionStatus
             : null,
         requesterFullName:
           typeof parsed.requesterFullName === 'string' ? parsed.requesterFullName : undefined,
@@ -257,7 +292,17 @@ function parseStagesFromRow(
   };
 }
 
-function mapApprovalRow(row: any, includeSensitiveCommand = true): ActionApprovalRequest {
+function stripInternalActionParams(params: Record<string, any> | null | undefined): Record<string, any> | null {
+  if (!params || typeof params !== 'object') return null;
+  const { _httpExecution: _omitted, ...rest } = params;
+  return Object.keys(rest).length > 0 ? rest : null;
+}
+
+function mapApprovalRow(
+  row: any,
+  includeSensitiveCommand = true,
+  keepInternalExec = false
+): ActionApprovalRequest {
   const dec = safeParseEncryptedPayload(row.command_payload_enc ?? row.commandPayloadEnc);
   const expiresAtIso = row.expires_at
     ? new Date(row.expires_at).toISOString()
@@ -283,6 +328,22 @@ function mapApprovalRow(row: any, includeSensitiveCommand = true): ActionApprova
     decidedAtIso
   );
 
+  const actionKey = row.action_key ?? row.actionKey ?? null;
+  const resolvedModeInfo = resolveExecutionModeForAction(actionKey, dec.actionParams);
+  const rawExecMode = row.execution_mode ?? row.executionMode ?? dec.executionMode;
+  const executionMode: ApprovalExecutionMode =
+    rawExecMode === 'auto_command' || rawExecMode === 'jit_session'
+      ? rawExecMode
+      : resolvedModeInfo.executionMode;
+  const autoExecuteOnApprove = Boolean(
+    row.auto_execute_on_approve ?? row.autoExecuteOnApprove ?? dec.autoExecuteOnApprove
+  );
+  const grantId = row.grant_id ?? row.grantId ?? dec.grantId ?? null;
+  const executionOutput = row.execution_output ?? row.executionOutput ?? dec.executionOutput ?? null;
+  const executionStatus = (row.execution_status ?? row.executionStatus ?? dec.executionStatus ?? null) as
+    | ApprovalExecutionStatus
+    | null;
+
   return {
     id: row.id,
     requesterUserId: row.requester_user_id ?? row.requesterUserId ?? '',
@@ -293,13 +354,23 @@ function mapApprovalRow(row: any, includeSensitiveCommand = true): ActionApprova
     targetEntityId: row.target_entity_id ?? row.targetEntityId ?? '',
     targetEntityName: row.target_entity_name ?? row.targetEntityName ?? null,
     requestedAction: row.requested_action ?? row.requestedAction ?? '',
-    actionKey: row.action_key ?? row.actionKey ?? null,
-    actionParams: includeSensitiveCommand ? dec.actionParams || null : null,
+    actionKey,
+    actionParams: includeSensitiveCommand
+      ? keepInternalExec
+        ? dec.actionParams || null
+        : stripInternalActionParams(dec.actionParams)
+      : null,
     policyId: row.policy_id ?? row.policyId ?? null,
     policyName: row.policy_name ?? row.policyName ?? null,
     riskLevel: dec.riskLevel,
     reason: dec.reason,
     commandPreview: includeSensitiveCommand ? dec.commandPreview : null,
+    executionMode,
+    autoExecuteOnApprove,
+    supportsAutoExecute: resolvedModeInfo.supportsAutoExecute,
+    grantId,
+    executionOutput: includeSensitiveCommand ? executionOutput : null,
+    executionStatus,
     executionNote: dec.executionNote || null,
     status,
     approverUserId: row.approver_user_id ?? row.approverUserId ?? null,
@@ -336,32 +407,63 @@ function expireStagesJsonIfPresent(rawStagesJson: string | any[] | null | undefi
 
 async function expireStalePendingRequests(): Promise<void> {
   const nowIso = new Date().toISOString();
+  const expiredApprovals: Array<{ id: string; requesterUserId: string; requesterUsername: string; targetEntityType: string; targetEntityId: string; targetEntityName?: string | null; requestedAction: string }> = [];
+  const expiredGrants: Array<{ id: string; approvalId: string; requesterUserId: string; requesterUsername: string; targetEntityType: string; targetEntityId: string; targetEntityName?: string | null; actionKey: string }> = [];
 
-  // Fallback store sync
+  // 1. Fallback store sync (approvals + grants)
   const store = loadFallbackStore();
   let mutatedFallback = false;
   if (Array.isArray(store.action_approval_requests)) {
     for (const row of store.action_approval_requests) {
-      if (row && row.status === 'pending' && row.expires_at && Date.parse(row.expires_at) <= Date.now()) {
+      if (row && (row.status === 'pending' || row.status === 'approved') && row.expires_at && Date.parse(row.expires_at) <= Date.now()) {
         row.status = 'expired';
         row.decided_at = row.decided_at || nowIso;
         const nextStagesJson = expireStagesJsonIfPresent(row.stages_json);
         if (nextStagesJson) row.stages_json = nextStagesJson;
         mutatedFallback = true;
+        expiredApprovals.push({
+          id: row.id,
+          requesterUserId: row.requester_user_id || '',
+          requesterUsername: row.requester_username || '',
+          targetEntityType: row.target_entity_type || 'device',
+          targetEntityId: row.target_entity_id || '',
+          targetEntityName: row.target_entity_name || null,
+          requestedAction: row.requested_action || '',
+        });
       }
     }
-    if (mutatedFallback) {
-      saveFallbackStore(store);
+  }
+  if (Array.isArray(store.action_approval_grants)) {
+    for (const gr of store.action_approval_grants) {
+      if (gr && gr.status === 'active' && gr.expires_at && Date.parse(gr.expires_at) <= Date.now()) {
+        gr.status = 'expired';
+        mutatedFallback = true;
+        expiredGrants.push({
+          id: gr.id,
+          approvalId: gr.approval_id,
+          requesterUserId: gr.requester_user_id || '',
+          requesterUsername: gr.requester_username || '',
+          targetEntityType: gr.target_entity_type || 'device',
+          targetEntityId: gr.target_entity_id || '',
+          targetEntityName: gr.target_entity_name || null,
+          actionKey: gr.action_key || '',
+        });
+      }
     }
   }
+  if (mutatedFallback) {
+    saveFallbackStore(store);
+  }
 
+  // 2. PostgreSQL expiry sweep
   await ensurePostgresConnection();
   const pool = getPgPool();
   if (isPostgresConnected() && pool) {
     try {
       const staleRes = await pool.query(
-        `SELECT id, stages_json FROM action_approval_requests
-         WHERE status = 'pending' AND expires_at <= NOW()`
+        `SELECT id, requester_user_id, requester_username, target_entity_type, target_entity_id, target_entity_name, requested_action, stages_json
+         FROM action_approval_requests
+         WHERE status IN ('pending', 'approved') AND expires_at <= NOW()`
       );
       for (const r of staleRes.rows || []) {
         const nextStagesJson = expireStagesJsonIfPresent(r.stages_json);
@@ -371,7 +473,7 @@ async function expireStalePendingRequests(): Promise<void> {
              SET status = 'expired',
                  decided_at = COALESCE(decided_at, NOW()),
                  stages_json = $2
-             WHERE id = $1 AND status = 'pending'`,
+             WHERE id = $1 AND status IN ('pending', 'approved')`,
             [r.id, nextStagesJson]
           );
         } else {
@@ -379,14 +481,123 @@ async function expireStalePendingRequests(): Promise<void> {
             `UPDATE action_approval_requests
              SET status = 'expired',
                  decided_at = COALESCE(decided_at, NOW())
-             WHERE id = $1 AND status = 'pending'`,
+             WHERE id = $1 AND status IN ('pending', 'approved')`,
             [r.id]
           );
+        }
+        if (!expiredApprovals.some((x) => x.id === r.id)) {
+          expiredApprovals.push({
+            id: r.id,
+            requesterUserId: r.requester_user_id || '',
+            requesterUsername: r.requester_username || '',
+            targetEntityType: r.target_entity_type || 'device',
+            targetEntityId: r.target_entity_id || '',
+            targetEntityName: r.target_entity_name || null,
+            requestedAction: r.requested_action || '',
+          });
+        }
+      }
+
+      const staleGrantsRes = await pool.query(
+        `UPDATE action_approval_grants
+         SET status = 'expired'
+         WHERE status = 'active' AND expires_at <= NOW()
+         RETURNING id, approval_id, requester_user_id, requester_username, target_entity_type, target_entity_id, target_entity_name, action_key`
+      );
+      for (const gr of staleGrantsRes.rows || []) {
+        if (!expiredGrants.some((x) => x.id === gr.id)) {
+          expiredGrants.push({
+            id: gr.id,
+            approvalId: gr.approval_id,
+            requesterUserId: gr.requester_user_id || '',
+            requesterUsername: gr.requester_username || '',
+            targetEntityType: gr.target_entity_type || 'device',
+            targetEntityId: gr.target_entity_id || '',
+            targetEntityName: gr.target_entity_name || null,
+            actionKey: gr.action_key || '',
+          });
         }
       }
     } catch (err: any) {
       console.warn('[ApprovalService] Expiry sweep notice:', err?.message || err);
     }
+  }
+
+  // 3. Terminate active WS/RDP sessions tied to expired grants & record audit logs
+  terminateAllExpiredJitSessions();
+
+  for (const gr of expiredGrants) {
+    terminateActiveJitSessionsByGrantOrApproval({
+      grantId: gr.id,
+      approvalId: gr.approvalId,
+      reasonEn: 'JIT Pass expired automatically at end of approved TTL window.',
+      reasonFa: 'مهلت زمانی گذرنامه موقت (JIT Pass) به پایان رسید و دسترسی به‌صورت خودکار بسته شد.',
+    });
+
+    await addPortalAuditLog({
+      category: 'security',
+      action: 'JIT_PASS_EXPIRED',
+      title: `انقضای خودکار گذرنامه موقت JIT (${gr.actionKey})`,
+      title_en: `JIT Pass Expired Automatically (${gr.actionKey})`,
+      actor: {
+        username: 'system',
+        role: 'System',
+        ipAddress: '127.0.0.1',
+      },
+      target: {
+        type: gr.targetEntityType,
+        id: gr.targetEntityId,
+        name: gr.targetEntityName || gr.targetEntityId,
+      },
+      severity: 'info',
+      status: 'success',
+      details: `گذرنامه موقت ${gr.id} متعلق به ${gr.requesterUsername} پس از اتمام زمان مجاز منقضی شد.`,
+      details_en: `JIT Pass ${gr.id} for ${gr.requesterUsername} expired automatically after its approved TTL window.`,
+    }).catch(() => {});
+
+    broadcastCommsEventToRecipients(
+      [{ userId: gr.requesterUserId, username: gr.requesterUsername }],
+      undefined,
+      {
+        type: 'jit_grant:updated',
+        grantId: gr.id,
+        approvalId: gr.approvalId,
+        status: 'expired',
+      }
+    );
+  }
+
+  for (const ap of expiredApprovals) {
+    await addPortalAuditLog({
+      category: 'security',
+      action: 'APPROVAL_REQUEST_EXPIRED',
+      title: `انقضای تیکت تایید: ${ap.requestedAction}`,
+      title_en: `Approval Request Expired: ${ap.requestedAction}`,
+      actor: {
+        username: 'system',
+        role: 'System',
+        ipAddress: '127.0.0.1',
+      },
+      target: {
+        type: ap.targetEntityType,
+        id: ap.targetEntityId,
+        name: ap.targetEntityName || ap.targetEntityId,
+      },
+      severity: 'info',
+      status: 'success',
+      details: `درخواست ${ap.id} متعلق به ${ap.requesterUsername} منقضی شد.`,
+      details_en: `Approval request ${ap.id} submitted by ${ap.requesterUsername} expired.`,
+    }).catch(() => {});
+
+    broadcastCommsEventToRecipients(
+      [{ userId: ap.requesterUserId, username: ap.requesterUsername }],
+      undefined,
+      {
+        type: 'approval:updated',
+        approvalId: ap.id,
+        status: 'expired',
+      }
+    );
   }
 }
 
@@ -756,7 +967,8 @@ function isActorInAnyStage(
 
 function computeSummary(
   rows: ActionApprovalRequest[],
-  actor: ApprovalActor
+  actor: ApprovalActor,
+  activeJitGrantsCount = 0
 ): ApprovalQueueSummary {
   const summary: ApprovalQueueSummary = {
     pending: 0,
@@ -767,6 +979,7 @@ function computeSummary(
     cancelled: 0,
     myPendingRequests: 0,
     awaitingMyDecision: 0,
+    activeJitGrants: activeJitGrantsCount,
   };
 
   for (const r of rows) {
@@ -794,16 +1007,600 @@ function computeSummary(
 function annotateRowForActor(
   row: ActionApprovalRequest,
   actor: ApprovalActor,
-  snapshot: ApprovalDirectorySnapshot
+  snapshot: ApprovalDirectorySnapshot,
+  activeGrant?: ApprovalExecutionGrant | null
 ): ActionApprovalRequest {
-  const activeStage = (row.stages || []).find(
-    (s) => s.status === 'pending' && s.stageOrder === (row.currentStageOrder || 1)
-  ) || (row.stages || []).find((s) => s.status === 'pending');
+  const activeStage =
+    (row.stages || []).find(
+      (s) => s.status === 'pending' && s.stageOrder === (row.currentStageOrder || 1)
+    ) || (row.stages || []).find((s) => s.status === 'pending');
   return {
     ...row,
+    activeGrant: activeGrant !== undefined ? activeGrant : row.activeGrant || null,
     isAssignedToCurrentActor:
       row.status === 'pending' && isActorAssignedToStageWithSnapshot(actor, activeStage, snapshot),
   };
+}
+
+// =========================================================================
+// Phase 4: Time-Limited JIT Pass Grants & Hybrid Execution Persistence
+// =========================================================================
+
+function makeGrantId(): string {
+  return `jit-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+}
+
+function isGrantOwnedByActor(
+  grant: Pick<ApprovalExecutionGrant, 'requesterUserId' | 'requesterUsername'>,
+  actor: Pick<ApprovalActor, 'userId' | 'username'>
+): boolean {
+  const ids = new Set(
+    resolveUserIdentifiers({ userId: actor.userId, username: actor.username })
+  );
+  return (
+    ids.has((grant.requesterUserId || '').toLowerCase()) ||
+    ids.has((grant.requesterUsername || '').toLowerCase())
+  );
+}
+
+function mapGrantRow(row: any, actor?: ApprovalActor): ApprovalExecutionGrant {
+  const actionKey = String(row.action_key ?? row.actionKey ?? '');
+  const metaCatalog = resolveActionMeta(actionKey);
+  let metaJson: any = {};
+  const rawMeta = row.metadata_json ?? row.metadataJson;
+  if (rawMeta && typeof rawMeta === 'string') {
+    try {
+      metaJson = JSON.parse(rawMeta);
+    } catch {
+      metaJson = {};
+    }
+  } else if (rawMeta && typeof rawMeta === 'object') {
+    metaJson = rawMeta;
+  }
+
+  const expiresAtIso = row.expires_at
+    ? new Date(row.expires_at).toISOString()
+    : row.expiresAt || new Date().toISOString();
+  const grantedAtIso = row.granted_at
+    ? new Date(row.granted_at).toISOString()
+    : row.grantedAt || new Date().toISOString();
+  const revokedAtIso = row.revoked_at
+    ? new Date(row.revoked_at).toISOString()
+    : row.revokedAt || null;
+  const lastUsedAtIso = row.last_used_at
+    ? new Date(row.last_used_at).toISOString()
+    : row.lastUsedAt || null;
+
+  let status = (row.status || 'active') as ApprovalGrantStatus;
+  if (status === 'active' && Date.parse(expiresAtIso) <= Date.now()) {
+    status = 'expired';
+  }
+
+  const mapped: ApprovalExecutionGrant = {
+    id: String(row.id),
+    approvalId: String(row.approval_id ?? row.approvalId ?? ''),
+    requesterUserId: String(row.requester_user_id ?? row.requesterUserId ?? ''),
+    requesterUsername: String(row.requester_username ?? row.requesterUsername ?? ''),
+    requesterFullName: metaJson.requesterFullName || row.requester_username || undefined,
+    targetEntityType: String(row.target_entity_type ?? row.targetEntityType ?? 'device'),
+    targetEntityId: String(row.target_entity_id ?? row.targetEntityId ?? ''),
+    targetEntityName: row.target_entity_name ?? row.targetEntityName ?? null,
+    actionKey,
+    actionLabelEn: metaCatalog.labelEn,
+    actionLabelFa: metaCatalog.labelFa,
+    executionMode:
+      (row.execution_mode ?? row.executionMode) === 'auto_command'
+        ? 'auto_command'
+        : 'jit_session',
+    status,
+    grantedByUserId: row.granted_by_user_id ?? row.grantedByUserId ?? null,
+    grantedByUsername: row.granted_by_username ?? row.grantedByUsername ?? null,
+    revokedByUsername: row.revoked_by_username ?? row.revokedByUsername ?? null,
+    revokeReason: row.revoke_reason ?? row.revokeReason ?? null,
+    grantedAt: grantedAtIso,
+    expiresAt: expiresAtIso,
+    revokedAt: revokedAtIso,
+    lastUsedAt: lastUsedAtIso,
+    useCount: Number(row.use_count ?? row.useCount) || 0,
+    commandPreview: metaJson.commandPreview || null,
+    actionParams: metaJson.actionParams || null,
+  };
+
+  if (actor) {
+    const isOwn = isGrantOwnedByActor(mapped, actor);
+    mapped.isOwnGrant = isOwn;
+    mapped.canRevoke = Boolean(actor.isSuperAdmin || actor.canApproveActions || isOwn);
+  }
+  return mapped;
+}
+
+async function loadRawGrantRowsFast(actor?: ApprovalActor): Promise<ApprovalExecutionGrant[]> {
+  let rows: ApprovalExecutionGrant[] = [];
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const res = await pool.query(
+        `SELECT * FROM action_approval_grants ORDER BY granted_at DESC LIMIT 300`
+      );
+      rows = (res.rows || []).map((r) => mapGrantRow(r, actor));
+    } catch (err: any) {
+      console.warn('[ApprovalService] PG loadRawGrantRowsFast error:', err?.message || err);
+    }
+  }
+
+  if (rows.length === 0) {
+    const store = loadFallbackStore();
+    rows = (store.action_approval_grants || [])
+      .map((r: any) => mapGrantRow(r, actor))
+      .sort((a, b) => Date.parse(b.grantedAt) - Date.parse(a.grantedAt));
+  }
+
+  return rows;
+}
+
+async function loadRawApprovalRowById(approvalId: string): Promise<any | null> {
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const res = await pool.query(`SELECT * FROM action_approval_requests WHERE id = $1 LIMIT 1`, [
+        approvalId,
+      ]);
+      if (res.rows[0]) return res.rows[0];
+    } catch {}
+  }
+  const store = loadFallbackStore();
+  return (store.action_approval_requests || []).find((r: any) => r.id === approvalId) || null;
+}
+
+async function issueJitGrantForApproval(
+  approval: ActionApprovalRequest,
+  approver: { userId: string; username: string },
+  expiresAtIso: string,
+  executionMode: ApprovalExecutionMode
+): Promise<ApprovalExecutionGrant> {
+  const existingGrants = await loadRawGrantRowsFast();
+  const alreadyActive = existingGrants.find(
+    (g) =>
+      g.approvalId === approval.id &&
+      g.status === 'active' &&
+      Date.parse(g.expiresAt) > Date.now()
+  );
+  if (alreadyActive) return alreadyActive;
+
+  const id = makeGrantId();
+  const nowIso = new Date().toISOString();
+  const metaJson = JSON.stringify({
+    requesterFullName: approval.requesterFullName || approval.requesterUsername,
+    commandPreview: approval.commandPreview || null,
+    actionParams: stripInternalActionParams(approval.actionParams) || null,
+  });
+
+  const rawGrant = {
+    id,
+    approval_id: approval.id,
+    requester_user_id: approval.requesterUserId,
+    requester_username: approval.requesterUsername,
+    target_entity_type: approval.targetEntityType,
+    target_entity_id: approval.targetEntityId,
+    target_entity_name: approval.targetEntityName || null,
+    action_key: approval.actionKey || 'terminal',
+    execution_mode: executionMode,
+    status: 'active',
+    granted_by_user_id: approver.userId,
+    granted_by_username: approver.username,
+    revoked_by_username: null,
+    revoke_reason: null,
+    granted_at: nowIso,
+    expires_at: expiresAtIso,
+    revoked_at: null,
+    last_used_at: null,
+    use_count: 0,
+    metadata_json: metaJson,
+  };
+
+  // Fallback persistence
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.action_approval_grants)) store.action_approval_grants = [];
+  store.action_approval_grants.unshift(rawGrant);
+  if (store.action_approval_grants.length > 2000) {
+    store.action_approval_grants = store.action_approval_grants.slice(0, 2000);
+  }
+  if (Array.isArray(store.action_approval_requests)) {
+    const reqRow = store.action_approval_requests.find((r: any) => r.id === approval.id);
+    if (reqRow) {
+      reqRow.grant_id = id;
+      reqRow.execution_status = executionMode === 'jit_session' ? 'jit_active' : 'pending';
+    }
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO action_approval_grants (
+          id, approval_id, requester_user_id, requester_username,
+          target_entity_type, target_entity_id, target_entity_name,
+          action_key, execution_mode, status, granted_by_user_id, granted_by_username,
+          granted_at, expires_at, use_count, metadata_json
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'active',$10,$11,$12,$13,0,$14)`,
+        [
+          rawGrant.id,
+          rawGrant.approval_id,
+          rawGrant.requester_user_id,
+          rawGrant.requester_username,
+          rawGrant.target_entity_type,
+          rawGrant.target_entity_id,
+          rawGrant.target_entity_name,
+          rawGrant.action_key,
+          rawGrant.execution_mode,
+          rawGrant.granted_by_user_id,
+          rawGrant.granted_by_username,
+          rawGrant.granted_at,
+          rawGrant.expires_at,
+          rawGrant.metadata_json,
+        ]
+      );
+      await pool.query(
+        `UPDATE action_approval_requests SET grant_id = $2, execution_status = $3 WHERE id = $1`,
+        [approval.id, id, executionMode === 'jit_session' ? 'jit_active' : 'pending']
+      );
+    } catch (err: any) {
+      console.error('[ApprovalService] PG issueJitGrantForApproval error:', err?.message || err);
+    }
+  }
+
+  const mappedGrant = mapGrantRow(rawGrant);
+
+  await addPortalAuditLog({
+    category: 'security',
+    action: 'JIT_PASS_ISSUED',
+    title: `صدور گذرنامه موقت JIT (${approval.actionKey || approval.requestedAction})`,
+    title_en: `Time-Limited JIT Pass Issued (${approval.actionKey || approval.requestedAction})`,
+    actor: {
+      username: approver.username,
+      role: 'Approver',
+      ipAddress: '127.0.0.1',
+    },
+    target: {
+      type: approval.targetEntityType,
+      id: approval.targetEntityId,
+      name: approval.targetEntityName || approval.targetEntityId,
+    },
+    severity: 'info',
+    status: 'success',
+    details: `مجوز موقت ${id} برای کاربر ${approval.requesterUsername} تا زمان ${expiresAtIso} صادر شد.`,
+    details_en: `JIT Pass ${id} issued to ${approval.requesterUsername} for "${approval.requestedAction}" valid until ${expiresAtIso}.`,
+  }).catch(() => {});
+
+  const snapshot = await loadApprovalDirectorySnapshot();
+  broadcastCommsEventToRecipients(
+    [
+      ...snapshot.privilegedUsers.map((u) => ({ userId: u.userId, username: u.username })),
+      { userId: approval.requesterUserId, username: approval.requesterUsername },
+    ],
+    undefined,
+    {
+      type: 'jit_grant:updated',
+      grantId: id,
+      approvalId: approval.id,
+      status: 'active',
+    }
+  );
+
+  return mappedGrant;
+}
+
+export async function listActiveJitGrants(
+  actor: ApprovalActor,
+  options: {
+    entityType?: string;
+    entityId?: string;
+    status?: string;
+    onlyMine?: boolean;
+  } = {}
+): Promise<ApprovalExecutionGrant[]> {
+  await expireStalePendingRequests();
+  const canApprove = Boolean(actor.isSuperAdmin || actor.canApproveActions);
+  const allGrants = await loadRawGrantRowsFast(actor);
+  const statusFilter = (options.status || 'active').toLowerCase();
+  const entityTypeFilter = (options.entityType || '').trim().toLowerCase();
+  const entityIdFilter = (options.entityId || '').trim().toLowerCase();
+
+  return allGrants.filter((g) => {
+    if (!canApprove && !isGrantOwnedByActor(g, actor)) return false;
+    if (options.onlyMine && !isGrantOwnedByActor(g, actor)) return false;
+    if (statusFilter !== 'all' && g.status !== statusFilter) return false;
+    if (g.status === 'active' && Date.parse(g.expiresAt) <= Date.now()) return false;
+    if (entityTypeFilter && String(g.targetEntityType).toLowerCase() !== entityTypeFilter) {
+      return false;
+    }
+    if (entityIdFilter && String(g.targetEntityId).toLowerCase() !== entityIdFilter) {
+      return false;
+    }
+    return true;
+  });
+}
+
+export async function findActiveJitGrantForActor(
+  actor: ApprovalActor,
+  entityType: ApprovalTargetEntityType | string,
+  entityId: string,
+  actionKey: string,
+  entityName?: string,
+  providedGrantOrApprovalId?: string | null
+): Promise<ApprovalExecutionGrant | null> {
+  const grants = await loadRawGrantRowsFast(actor);
+  const nowMs = Date.now();
+  const cleanProvided = (providedGrantOrApprovalId || '').trim();
+
+  for (const g of grants) {
+    if (g.status !== 'active' || Date.parse(g.expiresAt) <= nowMs) continue;
+    if (!isGrantOwnedByActor(g, actor) && !actor.isSuperAdmin) continue;
+    if (cleanProvided && g.id !== cleanProvided && g.approvalId !== cleanProvided) {
+      continue;
+    }
+    const typeMatch = String(g.targetEntityType).toLowerCase() === String(entityType).toLowerCase();
+    if (!typeMatch) continue;
+    const gIdLow = String(g.targetEntityId || '').trim().toLowerCase();
+    const targetLow = String(entityId || '').trim().toLowerCase();
+    const nameLow = String(entityName || '').trim().toLowerCase();
+    const targetMatch =
+      gIdLow === 'bulk' ||
+      gIdLow === targetLow ||
+      (Boolean(nameLow) &&
+        (gIdLow === nameLow || String(g.targetEntityName || '').trim().toLowerCase() === nameLow));
+    if (!targetMatch) continue;
+
+    const cleanKey = (actionKey || '').trim().toLowerCase();
+    const gKey = (g.actionKey || '').trim().toLowerCase();
+    const actionMatch =
+      gKey === cleanKey ||
+      (cleanKey === 'power_control' && gKey === 'bulk_power') ||
+      (cleanKey === 'delete_device' && gKey === 'bulk_delete');
+    if (actionMatch) return g;
+  }
+
+  return null;
+}
+
+export async function recordJitGrantUsage(params: {
+  approvalId?: string | null;
+  grantId?: string | null;
+  actor: ApprovalActor;
+}): Promise<ApprovalExecutionGrant | null> {
+  const targetApprovalId = (params.approvalId || '').trim();
+  const targetGrantId = (params.grantId || '').trim();
+  if (!targetApprovalId && !targetGrantId) return null;
+
+  const nowIso = new Date().toISOString();
+  const store = loadFallbackStore();
+  let updatedRow: any = null;
+  if (Array.isArray(store.action_approval_grants)) {
+    const gr = store.action_approval_grants.find(
+      (g: any) =>
+        ((targetGrantId && g.id === targetGrantId) ||
+          (targetApprovalId && g.approval_id === targetApprovalId)) &&
+        g.status === 'active'
+    );
+    if (gr) {
+      gr.use_count = (Number(gr.use_count) || 0) + 1;
+      gr.last_used_at = nowIso;
+      updatedRow = gr;
+      saveFallbackStore(store);
+    }
+  }
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const res = await pool.query(
+        `UPDATE action_approval_grants
+         SET use_count = COALESCE(use_count, 0) + 1,
+             last_used_at = $1
+         WHERE status = 'active'
+           AND (($2 <> '' AND id = $2) OR ($3 <> '' AND approval_id = $3))
+         RETURNING *`,
+        [nowIso, targetGrantId, targetApprovalId]
+      );
+      if (res.rows[0]) updatedRow = res.rows[0];
+    } catch {}
+  }
+
+  return updatedRow ? mapGrantRow(updatedRow, params.actor) : null;
+}
+
+async function consumeGrantForApproval(approvalId: string): Promise<void> {
+  if (!approvalId) return;
+  const nowIso = new Date().toISOString();
+  const store = loadFallbackStore();
+  if (Array.isArray(store.action_approval_grants)) {
+    let changed = false;
+    for (const gr of store.action_approval_grants) {
+      if (gr && gr.approval_id === approvalId && gr.status === 'active') {
+        gr.status = 'consumed';
+        gr.last_used_at = nowIso;
+        gr.use_count = (Number(gr.use_count) || 0) + 1;
+        changed = true;
+      }
+    }
+    if (changed) saveFallbackStore(store);
+  }
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      await pool.query(
+        `UPDATE action_approval_grants
+         SET status = 'consumed', last_used_at = $2, use_count = COALESCE(use_count, 0) + 1
+         WHERE approval_id = $1 AND status = 'active'`,
+        [approvalId, nowIso]
+      );
+    } catch {}
+  }
+}
+
+export async function revokeJitGrant(
+  actor: ApprovalActor,
+  grantIdOrApprovalId: string,
+  reason?: string
+): Promise<ApprovalExecutionGrant> {
+  await expireStalePendingRequests();
+
+  const allGrants = await loadRawGrantRowsFast(actor);
+  const existing = allGrants.find(
+    (g) => g.id === grantIdOrApprovalId || g.approvalId === grantIdOrApprovalId
+  );
+  if (!existing) {
+    throw new Error('JIT Pass grant not found.');
+  }
+
+  const isOwner = isGrantOwnedByActor(existing, actor);
+  if (!actor.isSuperAdmin && !actor.canApproveActions && !isOwner) {
+    throw new Error('ACCESS_DENIED: Not authorized to revoke this JIT Pass.');
+  }
+  if (existing.status !== 'active') {
+    throw new Error(`Cannot revoke JIT Pass because status is "${existing.status}".`);
+  }
+
+  const nowIso = new Date().toISOString();
+  const cleanReason = (reason || '').trim() || 'Revoked manually before expiration';
+
+  const store = loadFallbackStore();
+  let updatedRaw: any = null;
+  if (Array.isArray(store.action_approval_grants)) {
+    const gr = store.action_approval_grants.find((g: any) => g.id === existing.id);
+    if (gr) {
+      gr.status = 'revoked';
+      gr.revoked_at = nowIso;
+      gr.revoked_by_username = actor.username;
+      gr.revoke_reason = cleanReason;
+      updatedRaw = gr;
+    }
+  }
+  if (Array.isArray(store.action_approval_requests)) {
+    const reqRow = store.action_approval_requests.find((r: any) => r.id === existing.approvalId);
+    if (reqRow && reqRow.status === 'approved') {
+      reqRow.status = 'cancelled';
+      reqRow.execution_status = 'failed';
+      reqRow.decision_note = reqRow.decision_note
+        ? `${reqRow.decision_note} · Revoked by ${actor.username}: ${cleanReason}`
+        : `JIT Pass revoked by ${actor.username}: ${cleanReason}`;
+    }
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const res = await pool.query(
+        `UPDATE action_approval_grants
+         SET status = 'revoked',
+             revoked_at = $2,
+             revoked_by_username = $3,
+             revoke_reason = $4
+         WHERE id = $1
+         RETURNING *`,
+        [existing.id, nowIso, actor.username, cleanReason]
+      );
+      if (res.rows[0]) updatedRaw = res.rows[0];
+      await pool.query(
+        `UPDATE action_approval_requests
+         SET status = CASE WHEN status = 'approved' THEN 'cancelled' ELSE status END,
+             execution_status = 'failed'
+         WHERE id = $1`,
+        [existing.approvalId]
+      );
+    } catch (err: any) {
+      console.error('[ApprovalService] PG revokeJitGrant error:', err?.message || err);
+    }
+  }
+
+  const terminatedSessions = terminateActiveJitSessionsByGrantOrApproval({
+    grantId: existing.id,
+    approvalId: existing.approvalId,
+    reasonEn: `JIT Pass revoked early by ${actor.username}: ${cleanReason}`,
+    reasonFa: `گذرنامه موقت (JIT Pass) توسط ${actor.username} لغو زودهنگام شد: ${cleanReason}`,
+  });
+
+  await addPortalAuditLog({
+    category: 'security',
+    action: terminatedSessions > 0 ? 'JIT_PASS_SESSION_TERMINATED' : 'JIT_PASS_REVOKED',
+    title: `لغو زودهنگام گذرنامه موقت JIT (${existing.actionKey})`,
+    title_en: `JIT Pass Revoked Early (${existing.actionKey})`,
+    actor: {
+      username: actor.username,
+      role: actor.role || 'Approver',
+      ipAddress: actor.clientIp || '127.0.0.1',
+    },
+    target: {
+      type: existing.targetEntityType,
+      id: existing.targetEntityId,
+      name: existing.targetEntityName || existing.targetEntityId,
+    },
+    severity: 'warning',
+    status: 'success',
+    details: `مجوز موقت ${existing.id} (متعلق به ${existing.requesterUsername}) توسط ${actor.username} لغو شد. نشست‌های بسته شده: ${terminatedSessions}. دلیل: ${cleanReason}`,
+    details_en: `JIT Pass ${existing.id} (owner: ${existing.requesterUsername}) revoked by ${actor.username}. Active sessions terminated: ${terminatedSessions}. Reason: ${cleanReason}`,
+  }).catch(() => {});
+
+  const snapshot = await loadApprovalDirectorySnapshot();
+  await emitSystemNotification({
+    category: 'system_alert',
+    severity: 'warning',
+    senderName: actor.fullName || actor.username,
+    senderRole: actor.role || 'Approver',
+    title: `لغو گذرنامه موقت JIT: ${existing.actionLabelFa || existing.actionKey}`,
+    titleEn: `JIT Pass Revoked: ${existing.actionLabelEn || existing.actionKey}`,
+    body: `مجوز موقت شما برای «${existing.targetEntityName || existing.targetEntityId}» توسط ${actor.username} لغو شد.${terminatedSessions > 0 ? `\nتعداد ${terminatedSessions} نشست فعال بلافاصله بسته شد.` : ''}\nدلیل: ${cleanReason}`,
+    bodyEn: `Your temporary JIT Pass for "${existing.targetEntityName || existing.targetEntityId}" was revoked by ${actor.username}.${terminatedSessions > 0 ? `\n${terminatedSessions} active session(s) terminated immediately.` : ''}\nReason: ${cleanReason}`,
+    linkedEntityType: existing.targetEntityType,
+    linkedEntityId: existing.targetEntityId,
+    linkedEntityName: existing.targetEntityName || existing.targetEntityId,
+    actionTab: 'communications',
+    recipients: [{ userId: existing.requesterUserId, username: existing.requesterUsername }],
+    metadata: {
+      approvalRequestId: existing.approvalId,
+      grantId: existing.id,
+      status: 'revoked',
+      terminatedSessions,
+    },
+  });
+
+  broadcastCommsEventToRecipients(
+    [
+      ...snapshot.privilegedUsers.map((u) => ({ userId: u.userId, username: u.username })),
+      { userId: existing.requesterUserId, username: existing.requesterUsername },
+    ],
+    undefined,
+    {
+      type: 'jit_grant:updated',
+      grantId: existing.id,
+      approvalId: existing.approvalId,
+      status: 'revoked',
+    }
+  );
+  broadcastCommsEventToRecipients(
+    [
+      ...snapshot.privilegedUsers.map((u) => ({ userId: u.userId, username: u.username })),
+      { userId: existing.requesterUserId, username: existing.requesterUsername },
+    ],
+    undefined,
+    {
+      type: 'approval:updated',
+      approvalId: existing.approvalId,
+      status: 'cancelled',
+    }
+  );
+
+  return mapGrantRow(updatedRaw || existing, actor);
 }
 
 export async function listApprovalRequests(
@@ -854,8 +1651,26 @@ export async function listApprovalRequests(
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   }
 
-  const snapshot = await loadApprovalDirectorySnapshot();
-  const annotated = allMapped.map((r) => annotateRowForActor(r, actor, snapshot));
+  const [snapshot, allGrants] = await Promise.all([
+    loadApprovalDirectorySnapshot(),
+    loadRawGrantRowsFast(actor),
+  ]);
+
+  const grantByApprovalId = new Map<string, ApprovalExecutionGrant>();
+  const grantById = new Map<string, ApprovalExecutionGrant>();
+  for (const g of allGrants) {
+    if (g.id) grantById.set(g.id, g);
+    const existingForAppr = grantByApprovalId.get(g.approvalId);
+    if (!existingForAppr || (g.status === 'active' && existingForAppr.status !== 'active')) {
+      grantByApprovalId.set(g.approvalId, g);
+    }
+  }
+
+  const annotated = allMapped.map((r) => {
+    const matchedGrant =
+      (r.grantId ? grantById.get(r.grantId) : undefined) || grantByApprovalId.get(r.id) || null;
+    return annotateRowForActor(r, actor, snapshot, matchedGrant);
+  });
 
   // Enforce RBAC visibility scope: Approvers see org queue; regular operators see only their own
   const visibleOrgRows = annotated.filter((r) => {
@@ -863,7 +1678,14 @@ export async function listApprovalRequests(
     return isRowOwnedByActor(r, actor);
   });
 
-  const summary = computeSummary(visibleOrgRows, actor);
+  const visibleActiveGrantCount = allGrants.filter(
+    (g) =>
+      g.status === 'active' &&
+      Date.parse(g.expiresAt) > Date.now() &&
+      (canApprove || isGrantOwnedByActor(g, actor))
+  ).length;
+
+  const summary = computeSummary(visibleOrgRows, actor, visibleActiveGrantCount);
 
   const scopeFiltered = visibleOrgRows.filter((r) => {
     if (effectiveScope === 'mine') return isRowOwnedByActor(r, actor);
@@ -911,33 +1733,23 @@ export async function getApprovalRequestById(
   await expireStalePendingRequests();
 
   const canApprove = Boolean(actor.isSuperAdmin || actor.canApproveActions);
-  let rawRow: any = null;
-
-  await ensurePostgresConnection();
-  const pool = getPgPool();
-  if (isPostgresConnected() && pool) {
-    try {
-      const res = await pool.query(`SELECT * FROM action_approval_requests WHERE id = $1 LIMIT 1`, [
-        approvalId,
-      ]);
-      if (res.rows[0]) rawRow = res.rows[0];
-    } catch (err: any) {
-      console.error('[ApprovalService] PG getApprovalRequestById error:', err?.message || err);
-    }
-  }
-
-  if (!rawRow) {
-    const store = loadFallbackStore();
-    rawRow = (store.action_approval_requests || []).find((r: any) => r.id === approvalId) || null;
-  }
-
+  const rawRow = await loadRawApprovalRowById(approvalId);
   if (!rawRow) return null;
+
   const mapped = mapApprovalRow(rawRow, true);
-  const snapshot = await loadApprovalDirectorySnapshot();
+  const [snapshot, allGrants] = await Promise.all([
+    loadApprovalDirectorySnapshot(),
+    loadRawGrantRowsFast(actor),
+  ]);
   if (!canApprove && !isRowOwnedByActor(mapped, actor) && !isActorInAnyStage(mapped, actor, snapshot)) {
     throw new Error('ACCESS_DENIED: You are not authorized to inspect this approval request.');
   }
-  return annotateRowForActor(mapped, actor, snapshot);
+  const matchedGrant =
+    (mapped.grantId ? allGrants.find((g) => g.id === mapped.grantId) : undefined) ||
+    allGrants.find((g) => g.approvalId === mapped.id) ||
+    null;
+
+  return annotateRowForActor(mapped, actor, snapshot, matchedGrant);
 }
 
 function excludeSelfIfOthersExist(
@@ -1069,13 +1881,24 @@ export async function createApprovalRequest(
   const stagesJson = JSON.stringify(stages);
   const id = makeApprovalId();
 
+  const sanitizedActionParams =
+    payload.actionParams && typeof payload.actionParams === 'object'
+      ? sanitizeActionParams(payload.actionParams)
+      : null;
+  const modeResolution = resolveExecutionModeForAction(actionKey, sanitizedActionParams);
+  const executionMode: ApprovalExecutionMode = modeResolution.executionMode;
+  const autoExecuteOnApprove =
+    modeResolution.supportsAutoExecute && Boolean(payload.autoExecuteOnApprove);
+
   const innerPayload: EncryptedApprovalPayload = {
     reason,
     riskLevel,
     commandPreview,
     ttlMinutes: stage1.ttlMinutes || defaultTtlMinutes,
-    actionParams:
-      payload.actionParams && typeof payload.actionParams === 'object' ? payload.actionParams : null,
+    actionParams: sanitizedActionParams,
+    executionMode,
+    autoExecuteOnApprove,
+    executionStatus: 'pending',
     requesterFullName: actor.fullName || actor.username,
     requesterRole: actor.role || 'Operator',
   };
@@ -1096,6 +1919,11 @@ export async function createApprovalRequest(
     total_stages: totalStages,
     stages_json: stagesJson,
     command_payload_enc: commandPayloadEnc,
+    execution_mode: executionMode,
+    auto_execute_on_approve: autoExecuteOnApprove,
+    grant_id: null,
+    execution_output: null,
+    execution_status: 'pending',
     status: 'pending',
     approver_user_id: null,
     approver_username: null,
@@ -1123,8 +1951,9 @@ export async function createApprovalRequest(
           id, requester_user_id, requester_username, target_entity_type, target_entity_id,
           target_entity_name, requested_action, action_key, policy_id, policy_name,
           current_stage_order, total_stages, stages_json,
-          command_payload_enc, status, expires_at, created_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',$15,$16)`,
+          command_payload_enc, execution_mode, auto_execute_on_approve, execution_status,
+          status, expires_at, created_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'pending','pending',$17,$18)`,
         [
           rawRecord.id,
           rawRecord.requester_user_id,
@@ -1140,6 +1969,8 @@ export async function createApprovalRequest(
           rawRecord.total_stages,
           rawRecord.stages_json,
           rawRecord.command_payload_enc,
+          rawRecord.execution_mode,
+          rawRecord.auto_execute_on_approve,
           rawRecord.expires_at,
           rawRecord.created_at,
         ]
@@ -1368,10 +2199,25 @@ export async function decideApprovalRequest(
       nextRequestStatus = 'pending';
       nextDecidedAtIso = null;
       nextStageActivated = nextCandidate;
+    } else {
+      // Final approval granted: start fresh execution/JIT TTL window from final sign-off
+      const finalWindowTtl = Math.min(
+        43200,
+        Math.max(1, Number(activeStage.ttlMinutes) || existing.ttlMinutes || 60)
+      );
+      nextExpiresAtIso = new Date(now.getTime() + finalWindowTtl * 60_000).toISOString();
     }
   }
 
   const stagesJson = JSON.stringify(stages);
+  const nextExecutionStatus: ApprovalExecutionStatus | null =
+    nextRequestStatus === 'approved'
+      ? existing.executionMode === 'jit_session'
+        ? 'jit_active'
+        : 'pending'
+      : nextRequestStatus === 'rejected'
+      ? 'failed'
+      : null;
 
   // Fallback persistence update
   const store = loadFallbackStore();
@@ -1388,6 +2234,7 @@ export async function decideApprovalRequest(
       row.approver_username = actor.username;
       row.decision_note = resolvedNote || null;
       row.decided_at = nextDecidedAtIso;
+      if (nextExecutionStatus) row.execution_status = nextExecutionStatus;
       updatedRaw = row;
       saveFallbackStore(store);
     }
@@ -1407,7 +2254,8 @@ export async function decideApprovalRequest(
              approver_user_id = $7,
              approver_username = $8,
              decision_note = $9,
-             decided_at = $10
+             decided_at = $10,
+             execution_status = COALESCE($11, execution_status)
          WHERE id = $1 AND status = 'pending'
          RETURNING *`,
         [
@@ -1421,6 +2269,7 @@ export async function decideApprovalRequest(
           actor.username,
           resolvedNote || null,
           nextDecidedAtIso,
+          nextExecutionStatus,
         ]
       );
       if (pgRes.rows[0]) {
@@ -1435,7 +2284,31 @@ export async function decideApprovalRequest(
     throw new Error('Failed to persist approval decision.');
   }
 
-  const mapped = annotateRowForActor(mapApprovalRow(updatedRaw, true), actor, snapshot);
+  // Keep internal _httpExecution intact for immediate auto-execute check
+  let mappedWithInternal = mapApprovalRow(updatedRaw, true, true);
+  let issuedGrant: ApprovalExecutionGrant | null = null;
+
+  if (nextRequestStatus === 'approved') {
+    if (
+      mappedWithInternal.executionMode === 'jit_session' ||
+      !mappedWithInternal.autoExecuteOnApprove
+    ) {
+      issuedGrant = await issueJitGrantForApproval(
+        mappedWithInternal,
+        { userId: actor.userId, username: actor.username },
+        nextExpiresAtIso,
+        mappedWithInternal.executionMode || 'jit_session'
+      );
+      updatedRaw.grant_id = issuedGrant.id;
+    }
+  }
+
+  const mapped = annotateRowForActor(
+    mapApprovalRow(updatedRaw, true, false),
+    actor,
+    snapshot,
+    issuedGrant
+  );
 
   // Dispatch targeted notifications according to workflow state
   if (nextStageActivated) {
@@ -1502,6 +2375,13 @@ export async function decideApprovalRequest(
     });
   } else {
     // Final approval OR Rejection -> notify requester
+    const jitLineFa = issuedGrant
+      ? `\nگذرنامه موقت JIT (${issuedGrant.id}) تا ${new Date(nextExpiresAtIso).toLocaleTimeString('en-GB', { hour12: false })} فعال شد.`
+      : '';
+    const jitLineEn = issuedGrant
+      ? `\nJIT Pass (${issuedGrant.id}) is active until ${new Date(nextExpiresAtIso).toISOString()}.`
+      : '';
+
     await emitSystemNotification({
       category: 'approval_request',
       severity: decision === 'approved' ? 'info' : 'warning',
@@ -1517,11 +2397,11 @@ export async function decideApprovalRequest(
           : `Approval Rejected at Stage ${activeStage.stageOrder}/${totalStages}: ${existing.requestedAction}`,
       body:
         decision === 'approved'
-          ? `درخواست شما برای «${existing.targetEntityName || existing.targetEntityId}» با تایید نهایی توسط ${actor.username} به تایید کامل رسید.${resolvedNote ? `\nتوضیحات تاییدکننده: ${resolvedNote}` : ''}`
+          ? `درخواست شما برای «${existing.targetEntityName || existing.targetEntityId}» با تایید نهایی توسط ${actor.username} به تایید کامل رسید.${jitLineFa}${resolvedNote ? `\nتوضیحات تاییدکننده: ${resolvedNote}` : ''}`
           : `درخواست شما برای «${existing.targetEntityName || existing.targetEntityId}» در مرحله ${activeStage.stageOrder} (${activeStage.titleFa}) توسط ${actor.username} رد شد.${resolvedNote ? `\nعلت رد: ${resolvedNote}` : ''}`,
       bodyEn:
         decision === 'approved'
-          ? `Your change request for "${existing.targetEntityName || existing.targetEntityId}" passed final approval by ${actor.username}.${resolvedNote ? `\nApprover note: ${resolvedNote}` : ''}`
+          ? `Your change request for "${existing.targetEntityName || existing.targetEntityId}" passed final approval by ${actor.username}.${jitLineEn}${resolvedNote ? `\nApprover note: ${resolvedNote}` : ''}`
           : `Your change request for "${existing.targetEntityName || existing.targetEntityId}" was rejected at Stage ${activeStage.stageOrder} (${activeStage.titleEn}) by ${actor.username}.${resolvedNote ? `\nReason: ${resolvedNote}` : ''}`,
       linkedEntityType: existing.targetEntityType,
       linkedEntityId: existing.targetEntityId,
@@ -1530,6 +2410,7 @@ export async function decideApprovalRequest(
       recipients: [{ userId: existing.requesterUserId, username: existing.requesterUsername }],
       metadata: {
         approvalRequestId: approvalId,
+        grantId: issuedGrant?.id || null,
         decision,
         status: nextRequestStatus,
         currentStageOrder: nextStageOrder,
@@ -1590,6 +2471,19 @@ export async function decideApprovalRequest(
     details: `درخواست ${approvalId} — مرحله ${activeStage.stageOrder} (${activeStage.titleFa}) توسط ${actor.username} با وضعیت ${decision} ثبت شد.${nextStageActivated ? ` مرحله ${nextStageActivated.stageOrder} (${nextStageActivated.titleFa}) فعال گردید.` : ''}${resolvedNote ? ` توضیحات: ${resolvedNote}` : ''}`,
     details_en: `Request ${approvalId} — Stage ${activeStage.stageOrder} (${activeStage.titleEn}) marked ${decision} by ${actor.username}.${nextStageActivated ? ` Activated Stage ${nextStageActivated.stageOrder} (${nextStageActivated.titleEn}).` : ''}${resolvedNote ? ` Note: ${resolvedNote}` : ''}`,
   }).catch(() => {});
+
+  // Phase 4 Hybrid Auto-Execute: trigger signed command immediately upon final approval
+  if (
+    nextRequestStatus === 'approved' &&
+    mappedWithInternal.executionMode === 'auto_command' &&
+    mappedWithInternal.autoExecuteOnApprove
+  ) {
+    try {
+      return await executeApprovalTicketPayload(actor, approvalId, { isAuto: true });
+    } catch (autoErr: any) {
+      console.warn('[ApprovalService] Auto-execute post-approval notice:', autoErr?.message || autoErr);
+    }
+  }
 
   return mapped;
 }
@@ -1693,6 +2587,184 @@ export async function cancelApprovalRequest(
   return annotateRowForActor(mapApprovalRow(updatedRaw, true), actor, snapshot);
 }
 
+export async function executeApprovalTicketPayload(
+  actor: ApprovalActor,
+  approvalId: string,
+  options?: { isAuto?: boolean; executionNote?: string }
+): Promise<ActionApprovalRequest> {
+  await expireStalePendingRequests();
+
+  const rawRow = await loadRawApprovalRowById(approvalId);
+  if (!rawRow) {
+    throw new Error('Approval request not found.');
+  }
+  const existingInternal = mapApprovalRow(rawRow, true, true);
+  const isOwner = isRowOwnedByActor(existingInternal, actor);
+  if (!isOwner && !actor.isSuperAdmin && !actor.canApproveActions) {
+    throw new Error('ACCESS_DENIED: Not authorized to execute this approval ticket.');
+  }
+  if (existingInternal.status !== 'approved') {
+    throw new Error(
+      `Approval ticket must be in "approved" state before payload execution (current: "${existingInternal.status}").`
+    );
+  }
+  if (Date.parse(existingInternal.expiresAt) <= Date.now()) {
+    throw new Error('Approval execution window has expired. Please submit a new approval request.');
+  }
+
+  const execResult = await executeApprovedPayloadOnBackend(existingInternal);
+  const nowIso = new Date().toISOString();
+  const nextStatus: ApprovalRequestStatus = execResult.success ? 'executed' : 'approved';
+  const nextExecStatus: ApprovalExecutionStatus = execResult.success ? 'succeeded' : 'failed';
+  const noteText =
+    (options?.executionNote || '').trim() ||
+    (options?.isAuto
+      ? `Auto-executed upon final approval by ${actor.username}`
+      : `One-click server execution triggered by ${actor.username}`);
+
+  const updatedPayload: EncryptedApprovalPayload = {
+    reason: existingInternal.reason,
+    riskLevel: existingInternal.riskLevel,
+    commandPreview: existingInternal.commandPreview || null,
+    ttlMinutes: existingInternal.ttlMinutes,
+    actionParams: execResult.success
+      ? stripInternalActionParams(existingInternal.actionParams)
+      : existingInternal.actionParams || null,
+    executionMode: existingInternal.executionMode,
+    autoExecuteOnApprove: existingInternal.autoExecuteOnApprove,
+    grantId: existingInternal.grantId || null,
+    executionOutput: execResult.output,
+    executionStatus: nextExecStatus,
+    requesterFullName: existingInternal.requesterFullName,
+    requesterRole: existingInternal.requesterRole,
+    executionNote: noteText,
+    executedAt: execResult.success ? nowIso : existingInternal.executedAt || null,
+    executedBy: actor.username,
+  };
+  const updatedEnc = encryptServerSecret(JSON.stringify(updatedPayload));
+
+  const store = loadFallbackStore();
+  let updatedRaw: any = null;
+  if (Array.isArray(store.action_approval_requests)) {
+    const row = store.action_approval_requests.find((r: any) => r.id === approvalId);
+    if (row) {
+      row.status = nextStatus;
+      row.execution_output = execResult.output;
+      row.execution_status = nextExecStatus;
+      row.command_payload_enc = updatedEnc;
+      updatedRaw = row;
+      saveFallbackStore(store);
+    }
+  }
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const res = await pool.query(
+        `UPDATE action_approval_requests
+         SET status = $2,
+             execution_output = $3,
+             execution_status = $4,
+             command_payload_enc = $5
+         WHERE id = $1
+         RETURNING *`,
+        [approvalId, nextStatus, execResult.output, nextExecStatus, updatedEnc]
+      );
+      if (res.rows[0]) updatedRaw = res.rows[0];
+    } catch (err: any) {
+      console.error('[ApprovalService] PG executeApprovalTicketPayload error:', err?.message || err);
+    }
+  }
+
+  if (execResult.success) {
+    await consumeGrantForApproval(approvalId);
+  }
+
+  const snapshot = await loadApprovalDirectorySnapshot();
+  const notifyRecipients = [
+    ...snapshot.privilegedUsers.map((u) => ({ userId: u.userId, username: u.username })),
+    { userId: existingInternal.requesterUserId, username: existingInternal.requesterUsername },
+  ];
+  const dedupedRecipients: Array<{ userId: string; username: string }> = [];
+  const seenUser = new Set<string>();
+  for (const r of notifyRecipients) {
+    const key = (r.username || r.userId).toLowerCase();
+    if (!key || seenUser.has(key)) continue;
+    seenUser.add(key);
+    dedupedRecipients.push(r);
+  }
+
+  await emitSystemNotification({
+    category: 'system_alert',
+    severity: execResult.success ? 'info' : 'critical',
+    senderName: actor.fullName || actor.username,
+    senderRole: actor.role || 'System',
+    title: execResult.success
+      ? `اجرای موفق دستور تاییدشده: ${existingInternal.requestedAction}`
+      : `خطا در اجرای دستور تاییدشده: ${existingInternal.requestedAction}`,
+    titleEn: execResult.success
+      ? `Approved Payload Executed: ${existingInternal.requestedAction}`
+      : `Approved Payload Execution Failed: ${existingInternal.requestedAction}`,
+    body: `عملیات برای «${existingInternal.targetEntityName || existingInternal.targetEntityId}» توسط ${actor.username} اجرا شد.\nنتیجه: ${execResult.summaryFa}`,
+    bodyEn: `Execution for "${existingInternal.targetEntityName || existingInternal.targetEntityId}" triggered by ${actor.username}.\nOutcome: ${execResult.summaryEn}`,
+    linkedEntityType: existingInternal.targetEntityType,
+    linkedEntityId: existingInternal.targetEntityId,
+    linkedEntityName: existingInternal.targetEntityName || existingInternal.targetEntityId,
+    actionTab: 'communications',
+    recipients: dedupedRecipients,
+    metadata: {
+      approvalRequestId: approvalId,
+      executionStatus: nextExecStatus,
+      status: nextStatus,
+    },
+  });
+
+  await addPortalAuditLog({
+    category: 'security',
+    action: execResult.success ? 'APPROVAL_PAYLOAD_EXECUTED' : 'APPROVAL_PAYLOAD_EXECUTION_FAILED',
+    title: execResult.success
+      ? `اجرای موفق پیلود تیکت تایید (${existingInternal.requestedAction})`
+      : `شکست در اجرای پیلود تیکت تایید (${existingInternal.requestedAction})`,
+    title_en: execResult.success
+      ? `Approved Ticket Payload Executed (${existingInternal.requestedAction})`
+      : `Approved Ticket Payload Execution Failed (${existingInternal.requestedAction})`,
+    actor: {
+      username: actor.username,
+      role: actor.role || 'Operator',
+      ipAddress: actor.clientIp || '127.0.0.1',
+    },
+    target: {
+      type: existingInternal.targetEntityType,
+      id: existingInternal.targetEntityId,
+      name: existingInternal.targetEntityName || existingInternal.targetEntityId,
+    },
+    severity: execResult.success ? 'info' : 'error',
+    status: execResult.success ? 'success' : 'failure',
+    details: `${execResult.summaryFa}\n${execResult.output.slice(0, 600)}`,
+    details_en: `${execResult.summaryEn}\n${execResult.output.slice(0, 600)}`,
+  }).catch(() => {});
+
+  broadcastCommsEventToRecipients(dedupedRecipients, undefined, {
+    type: 'approval:updated',
+    approvalId,
+    status: nextStatus,
+  });
+  broadcastCommsEventToRecipients(dedupedRecipients, undefined, {
+    type: 'jit_grant:updated',
+    approvalId,
+    grantId: existingInternal.grantId || undefined,
+    status: execResult.success ? 'consumed' : 'active',
+  });
+
+  return annotateRowForActor(
+    mapApprovalRow(updatedRaw || rawRow, true, false),
+    actor,
+    snapshot,
+    null
+  );
+}
+
 export async function markApprovalRequestExecuted(
   actor: ApprovalActor,
   approvalId: string,
@@ -1722,6 +2794,11 @@ export async function markApprovalRequestExecuted(
     commandPreview: existing.commandPreview || null,
     ttlMinutes: existing.ttlMinutes,
     actionParams: existing.actionParams || null,
+    executionMode: existing.executionMode,
+    autoExecuteOnApprove: existing.autoExecuteOnApprove,
+    grantId: existing.grantId || null,
+    executionOutput: cleanNote || existing.executionOutput || null,
+    executionStatus: 'succeeded',
     requesterFullName: existing.requesterFullName,
     requesterRole: existing.requesterRole,
     executionNote: cleanNote,
@@ -1736,6 +2813,8 @@ export async function markApprovalRequestExecuted(
     const row = store.action_approval_requests.find((r: any) => r.id === approvalId);
     if (row) {
       row.status = 'executed';
+      row.execution_status = 'succeeded';
+      if (cleanNote) row.execution_output = cleanNote;
       row.command_payload_enc = updatedEnc;
       updatedRaw = row;
       saveFallbackStore(store);
@@ -1748,10 +2827,13 @@ export async function markApprovalRequestExecuted(
     try {
       const res = await pool.query(
         `UPDATE action_approval_requests
-         SET status = 'executed', command_payload_enc = $2
+         SET status = 'executed',
+             execution_status = 'succeeded',
+             execution_output = COALESCE($3, execution_output),
+             command_payload_enc = $2
          WHERE id = $1 AND status = 'approved'
          RETURNING *`,
-        [approvalId, updatedEnc]
+        [approvalId, updatedEnc, cleanNote]
       );
       if (res.rows[0]) updatedRaw = res.rows[0];
     } catch (err: any) {
@@ -1762,6 +2844,8 @@ export async function markApprovalRequestExecuted(
   if (!updatedRaw) {
     throw new Error('Failed to mark approval request as executed.');
   }
+
+  await consumeGrantForApproval(approvalId);
 
   const snapshot = await loadApprovalDirectorySnapshot();
   broadcastCommsEventToRecipients(
@@ -1774,6 +2858,19 @@ export async function markApprovalRequestExecuted(
       type: 'approval:updated',
       approvalId,
       status: 'executed',
+    }
+  );
+  broadcastCommsEventToRecipients(
+    [
+      ...snapshot.privilegedUsers.map((u) => ({ userId: u.userId, username: u.username })),
+      { userId: existing.requesterUserId, username: existing.requesterUsername },
+    ],
+    undefined,
+    {
+      type: 'jit_grant:updated',
+      approvalId,
+      grantId: existing.grantId || undefined,
+      status: 'consumed',
     }
   );
 
@@ -1798,7 +2895,7 @@ export async function markApprovalRequestExecuted(
     details_en: `Approved ticket ${approvalId} completed by ${actor.username}.${cleanNote ? ` Note: ${cleanNote}` : ''}`,
   }).catch(() => {});
 
-  return annotateRowForActor(mapApprovalRow(updatedRaw, true), actor, snapshot);
+  return annotateRowForActor(mapApprovalRow(updatedRaw, true), actor, snapshot, null);
 }
 
 export async function listApprovalTargets(): Promise<ApprovalTargetOption[]> {
@@ -2200,6 +3297,7 @@ export async function evaluateApprovalGateForRequest(params: {
 }): Promise<{
   allowed: boolean;
   approvedTicket?: ActionApprovalRequest;
+  activeGrant?: ApprovalExecutionGrant;
   gatePayload?: ApprovalGatePayload;
 }> {
   const {
@@ -2218,10 +3316,27 @@ export async function evaluateApprovalGateForRequest(params: {
   const snapshot = await loadApprovalDirectorySnapshot();
   const cleanProvidedId = (providedApprovalId || '').trim();
   const meta = resolveActionMeta(actionKey, requestedAction);
+  const modeResolution = resolveExecutionModeForAction(actionKey, actionParams);
+  const interactiveJit = isInteractiveJitAction(actionKey);
+
+  // Check active JIT Grant first (matches explicit grantId/approvalId, or active interactive pass)
+  const activeGrant = await findActiveJitGrantForActor(
+    actor,
+    entityType,
+    entityId,
+    actionKey,
+    entityName,
+    cleanProvidedId || null
+  );
 
   if (cleanProvidedId) {
     const allRows = await loadRawApprovalRowsFast();
-    const ticket = allRows.find((r) => r.id === cleanProvidedId) || null;
+    const ticket =
+      allRows.find(
+        (r) =>
+          r.id === cleanProvidedId ||
+          (activeGrant && r.id === activeGrant.approvalId)
+      ) || null;
     if (
       ticket &&
       ticket.status === 'approved' &&
@@ -2232,7 +3347,21 @@ export async function evaluateApprovalGateForRequest(params: {
     ) {
       return {
         allowed: true,
-        approvedTicket: annotateRowForActor(ticket, actor, snapshot),
+        approvedTicket: annotateRowForActor(ticket, actor, snapshot, activeGrant),
+        activeGrant: activeGrant || undefined,
+      };
+    }
+  }
+
+  // Interactive JIT Pass allows seamless open/reconnect across endpoints & WS until expiry/revoke
+  if (interactiveJit && activeGrant) {
+    const allRows = await loadRawApprovalRowsFast();
+    const matchingTicket = allRows.find((r) => r.id === activeGrant.approvalId) || null;
+    if (matchingTicket && matchingTicket.status === 'approved') {
+      return {
+        allowed: true,
+        approvedTicket: annotateRowForActor(matchingTicket, actor, snapshot, activeGrant),
+        activeGrant,
       };
     }
   }
@@ -2262,12 +3391,17 @@ export async function evaluateApprovalGateForRequest(params: {
     requestedAction: requestedAction || `${meta.labelEn} (${targetDisplay})`,
     commandPreview: commandPreview ?? null,
     actionParams: actionParams ?? null,
+    executionMode: modeResolution.executionMode,
+    supportsAutoExecute: modeResolution.supportsAutoExecute,
     riskLevel: meta.riskLevel,
     policyId: effectivePolicy?.id || null,
     policyName: effectivePolicy?.name || null,
     stagesPreview,
-    existingApprovedApproval,
+    existingApprovedApproval: existingApprovedApproval
+      ? annotateRowForActor(existingApprovedApproval, actor, snapshot, activeGrant)
+      : null,
     existingPendingApproval,
+    activeGrant: activeGrant || null,
     error: existingApprovedApproval
       ? `Multi-stage approval ticket (${existingApprovedApproval.id}) is ready for "${meta.labelEn}" on ${targetDisplay}. Attach X-Approval-Request-Id to execute.`
       : existingPendingApproval
@@ -2303,5 +3437,16 @@ export async function consumeApprovedTicketForExecution(
     console.warn('[ApprovalService] consumeApprovedTicketForExecution notice:', err?.message || err);
     return null;
   }
+}
+
+let jitExpiryDaemonTimer: ReturnType<typeof setInterval> | null = null;
+
+export function startApprovalJitExpiryDaemon(): void {
+  if (jitExpiryDaemonTimer) return;
+  jitExpiryDaemonTimer = setInterval(() => {
+    expireStalePendingRequests().catch((err: any) => {
+      console.warn('[ApprovalService] Expiry daemon tick notice:', err?.message || err);
+    });
+  }, 15_000);
 }
 

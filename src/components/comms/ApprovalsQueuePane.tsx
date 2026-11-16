@@ -39,11 +39,14 @@ import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import {
   cancelApprovalRequestApi,
   decideApprovalRequestApi,
+  executeApprovalPayloadApi,
   fetchApprovalRequests,
   fetchApprovalTargets,
   markApprovalExecutedApi,
+  revokeJitGrantApi,
   submitApprovalRequest,
 } from '../../services/approvalApi';
+import { ActiveJitPassBar } from '../common/ActiveJitPassBar';
 import { ActiveTab } from '../Sidebar';
 
 interface ApprovalsQueuePaneProps {
@@ -65,14 +68,22 @@ const DEFAULT_SUMMARY: ApprovalQueueSummary = {
   cancelled: 0,
   myPendingRequests: 0,
   awaitingMyDecision: 0,
+  activeJitGrants: 0,
 };
 
-function formatRemainingWindow(expiresAtIso: string, isEn: boolean): string {
-  const diffMs = Date.parse(expiresAtIso) - Date.now();
-  if (diffMs <= 0) return isEn ? 'Expired' : 'منقضی‌شده';
-  const totalMin = Math.floor(diffMs / 60_000);
+function formatRemainingWindow(expiresAtIso: string, isEn: boolean, nowMs = Date.now()): string {
+  const diffMs = Date.parse(expiresAtIso) - nowMs;
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return isEn ? 'Expired' : 'منقضی‌شده';
+  const totalSec = Math.floor(diffMs / 1000);
+  if (totalSec < 60) {
+    return isEn ? `${totalSec}s left` : `${totalSec} ثانیه`;
+  }
+  const totalMin = Math.floor(totalSec / 60);
+  const remSec = totalSec % 60;
   if (totalMin < 60) {
-    return isEn ? `${totalMin}m left` : `${totalMin} دقیقه باقی‌مانده`;
+    return isEn
+      ? `${totalMin}m ${String(remSec).padStart(2, '0')}s left`
+      : `${totalMin} دق ${String(remSec).padStart(2, '0')} ث`;
   }
   const hrs = Math.floor(totalMin / 60);
   const mins = totalMin % 60;
@@ -114,6 +125,7 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
   const [executionNote, setExecutionNote] = useState('');
   const [actionBusy, setActionBusy] = useState(false);
   const [overrideUnlocked, setOverrideUnlocked] = useState(false);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
   // New Approval / JIT Request Modal
   const [newModalOpen, setNewModalOpen] = useState(false);
@@ -191,6 +203,11 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
     setFeedbackMsg(null);
     setOverrideUnlocked(false);
   }, [selectedId]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const openNewRequestModal = async () => {
     undockModal(REQUEST_MODAL_ID);
@@ -378,6 +395,66 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
     }
   };
 
+  const handleExecutePayload = async () => {
+    if (!selectedItem || actionBusy) return;
+    setActionBusy(true);
+    setFeedbackMsg(null);
+    try {
+      const updated = await executeApprovalPayloadApi(
+        selectedItem.id,
+        executionNote.trim() || undefined
+      );
+      setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      const succeeded = updated.status === 'executed' || updated.executionStatus === 'succeeded';
+      setFeedbackMsg({
+        type: succeeded ? 'success' : 'error',
+        text: succeeded
+          ? isEn
+            ? 'Signed payload executed cleanly against target device/server.'
+            : 'دستور یا عملیات امضاشده با موفقیت روی سرور/تجهیز هدف اجرا شد.'
+          : isEn
+          ? `Execution finished with status "${updated.executionStatus || 'failed'}". Inspect output log below.`
+          : `اجرای عملیات با وضعیت «${updated.executionStatus || 'ناموفق'}» پایان یافت؛ خروجی را بررسی کنید.`,
+      });
+      window.dispatchEvent(new CustomEvent('nettop-jit-grants-updated'));
+      await loadApprovals(true);
+    } catch (err: any) {
+      setFeedbackMsg({
+        type: 'error',
+        text: err?.message || (isEn ? 'Payload execution failed' : 'خطا در اجرای عملیات امضاشده'),
+      });
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleRevokeActiveGrant = async (grantId: string) => {
+    if (!grantId || actionBusy) return;
+    setActionBusy(true);
+    setFeedbackMsg(null);
+    try {
+      await revokeJitGrantApi(
+        grantId,
+        isEn ? 'Revoked by administrator from Approvals Queue' : 'لغو فوری توسط مدیر از صف تاییدیه‌ها'
+      );
+      setFeedbackMsg({
+        type: 'success',
+        text: isEn
+          ? 'JIT Pass revoked and all active terminal/RDP sessions terminated.'
+          : 'پاس زمانی (JIT) لغو و تمامی نشست‌های فعال ترمینال و ریموت دسکتاپ بلافاصله قطع شدند.',
+      });
+      window.dispatchEvent(new CustomEvent('nettop-jit-grants-updated'));
+      await loadApprovals(true);
+    } catch (err: any) {
+      setFeedbackMsg({
+        type: 'error',
+        text: err?.message || (isEn ? 'Failed to revoke JIT pass' : 'لغو پاس زمانی ناموفق بود'),
+      });
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const getStatusMeta = (st: ApprovalRequestStatus) => {
     switch (st) {
       case 'approved':
@@ -511,6 +588,12 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                 <span aria-hidden="true">·</span>
                 <span>
                   {isEn ? `Approved: ${summary.approved}` : `تایید شده: ${summary.approved}`}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span className={isLightMode ? 'text-emerald-700 font-semibold' : 'text-emerald-400 font-semibold'}>
+                  {isEn
+                    ? `Active JIT Passes: ${summary.activeJitGrants || 0}`
+                    : `پاس‌های JIT فعال: ${summary.activeJitGrants || 0}`}
                 </span>
                 <span aria-hidden="true">·</span>
                 <span>
@@ -675,6 +758,9 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
         </div>
       )}
 
+      {/* Active Time-Limited JIT Passes Bar across Fleet */}
+      <ActiveJitPassBar entityType="all" isLightMode={isLightMode} />
+
       {/* Main Master-Detail Grid */}
       <div className={`flex-1 grid grid-cols-1 lg:grid-cols-12 rounded-2xl border overflow-hidden min-h-[460px] ${surfaceCls}`}>
         {/* Left List */}
@@ -796,7 +882,13 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                         {item.requesterUsername} · {new Date(item.createdAt).toLocaleDateString(isEn ? 'en-US' : 'fa-IR')}
                       </span>
                       {item.status === 'pending' || item.status === 'approved' ? (
-                        <span>{formatRemainingWindow(item.expiresAt, isEn)}</span>
+                        <span>
+                          {formatRemainingWindow(
+                            item.activeGrant?.expiresAt || item.expiresAt,
+                            isEn,
+                            nowMs
+                          )}
+                        </span>
                       ) : null}
                     </div>
                   </button>
@@ -918,6 +1010,19 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                       {selectedItem.actionKey}
                     </span>
                   )}
+                  <span className="font-mono text-[11px] opacity-85">
+                    {selectedItem.executionMode === 'jit_session'
+                      ? isEn
+                        ? 'Mode: JIT Pass'
+                        : 'حالت: پاس زمانی JIT'
+                      : selectedItem.autoExecuteOnApprove
+                      ? isEn
+                        ? 'Mode: Auto-Execute'
+                        : 'حالت: اجرای خودکار'
+                      : isEn
+                      ? 'Mode: Ticket / One-Click'
+                      : 'حالت: تیکت / یک‌کلیکی'}
+                  </span>
                 </div>
               </div>
 
@@ -1056,8 +1161,8 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                               TTL: {st.ttlMinutes}m
                             </span>
                             {stStatus === 'pending' && st.expiresAt && (
-                              <span className={isLightMode ? 'text-amber-700 font-semibold' : 'text-amber-400 font-semibold'}>
-                                ({formatRemainingWindow(st.expiresAt, isEn)})
+                              <span className={`font-mono tabular-nums ${isLightMode ? 'text-amber-700 font-semibold' : 'text-amber-400 font-semibold'}`}>
+                                ({formatRemainingWindow(st.expiresAt, isEn, nowMs)})
                               </span>
                             )}
                           </div>
@@ -1107,7 +1212,7 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                 </p>
               </div>
 
-              {/* Active JIT Ticket Ready Notice */}
+              {/* Active JIT Ticket / Grant Ready Notice */}
               {selectedItem.status === 'approved' && (
                 <div
                   className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs ${
@@ -1116,61 +1221,130 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                       : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-100'
                   }`}
                 >
-                  <div className="flex items-start gap-2">
+                  <div className="flex items-start gap-2 min-w-0 flex-1">
                     <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                    <div>
+                    <div className="min-w-0">
                       <div className="font-bold">
-                        {isEn
-                          ? 'Approved JIT Execution Ticket Active'
-                          : 'تیکت اجرای فوری تاییدشده (JIT) فعال است'}
+                        {selectedItem.executionMode === 'jit_session'
+                          ? isEn
+                            ? `Active Time-Limited JIT Pass (${selectedItem.activeGrant?.id || selectedItem.grantId || selectedItem.id})`
+                            : `پاس زمانی فعال (JIT Pass) برای نشست‌های تعاملی`
+                          : isEn
+                          ? 'Approved Execution Ticket Active'
+                          : 'تیکت اجرای عملیات تاییدشده (JIT) فعال است'}
                       </div>
                       <div className="text-[11px] opacity-85 mt-0.5">
-                        {isEn
-                          ? 'Trigger the protected action again from its menu or terminal; this single-use ticket will authorize and execute it automatically.'
-                          : 'با اجرای مجدد عملیات از منوی تجهیز یا ترمینال، سیستم این تیکت یک‌بارمصرف را به‌صورت خودکار اعمال و مصرف می‌کند.'}
+                        {selectedItem.executionMode === 'jit_session'
+                          ? isEn
+                            ? `Session access stays open & reconnectable until timer expiry${selectedItem.activeGrant?.useCount ? ` · Uses recorded: ${selectedItem.activeGrant.useCount}` : ''}. Revoking immediately kills active SSH/RDP sessions.`
+                            : `دسترسی نشست تا پایان زمان اعتبار و در اتصال‌های مجدد فعال می‌ماند${selectedItem.activeGrant?.useCount ? ` · دفعات استفاده: ${selectedItem.activeGrant.useCount}` : ''}. لغو فوری تمام نشست‌های فعال را قطع می‌کند.`
+                          : isEn
+                          ? 'Use "Execute Approved Payload Now" below to trigger execution from the server, or repeat the action directly from the target device/server menu.'
+                          : 'می‌توانید از دکمه «اجرای فوری عملیات امضاشده» در پایین همین صفحه استفاده کنید یا عملیات را از منوی تجهیز تکرار نمایید.'}
                       </div>
                     </div>
                   </div>
-                  <span
-                    className={`px-2 py-1 rounded-lg font-mono text-[11px] font-bold border shrink-0 ${
-                      isLightMode
-                        ? 'bg-white border-emerald-300 text-emerald-800'
-                        : 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300'
-                    }`}
-                  >
-                    <Clock className="w-3 h-3 inline me-1" />
-                    {formatRemainingWindow(selectedItem.expiresAt, isEn)}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span
+                      className={`px-2 py-1 rounded-lg font-mono text-[11px] font-bold tabular-nums border shrink-0 ${
+                        isLightMode
+                          ? 'bg-white border-emerald-300 text-emerald-800'
+                          : 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300'
+                      }`}
+                    >
+                      <Clock className="w-3 h-3 inline me-1" />
+                      {formatRemainingWindow(
+                        selectedItem.activeGrant?.expiresAt || selectedItem.expiresAt,
+                        isEn,
+                        nowMs
+                      )}
+                    </span>
+                    {selectedItem.activeGrant?.canRevoke && (
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => handleRevokeActiveGrant(selectedItem.activeGrant!.id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50 transition"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Revoke JIT Pass' : 'لغو فوری JIT'}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
-              {/* Structured Action Parameters */}
+              {/* Structured Action Parameters (strip internal _httpExecution) */}
               {selectedItem.actionParams &&
                 typeof selectedItem.actionParams === 'object' &&
-                Object.keys(selectedItem.actionParams).length > 0 && (
+                Object.keys(selectedItem.actionParams).filter((k) => k !== '_httpExecution').length > 0 && (
                   <div className="space-y-1.5">
                     <div className="text-xs font-bold">
                       {isEn ? 'Action Parameters' : 'پارامترهای عملیات'}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {Object.entries(selectedItem.actionParams).map(([k, v]) => (
-                        <span
-                          key={k}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-mono ${
-                            isLightMode
-                              ? 'bg-slate-50 border-slate-200 text-slate-800'
-                              : 'bg-slate-900 border-white/10 text-slate-200'
-                          }`}
-                        >
-                          <span className="opacity-65">{k}:</span>
-                          <span className="font-semibold">
-                            {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                      {Object.entries(selectedItem.actionParams)
+                        .filter(([k]) => k !== '_httpExecution')
+                        .map(([k, v]) => (
+                          <span
+                            key={k}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-mono ${
+                              isLightMode
+                                ? 'bg-slate-50 border-slate-200 text-slate-800'
+                                : 'bg-slate-900 border-white/10 text-slate-200'
+                            }`}
+                          >
+                            <span className="opacity-65">{k}:</span>
+                            <span className="font-semibold">
+                              {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                            </span>
                           </span>
-                        </span>
-                      ))}
+                        ))}
                     </div>
                   </div>
                 )}
+
+              {/* Real Execution Output Console */}
+              {(selectedItem.executionOutput || selectedItem.executionStatus) && (
+                <div className="space-y-1.5">
+                  <div className="text-xs font-bold flex items-center justify-between gap-2 flex-wrap">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Terminal className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>{isEn ? 'Server Execution Output' : 'خروجی واقعی اجرا در سرور'}</span>
+                    </span>
+                    {selectedItem.executionStatus && (
+                      <span
+                        className={`font-mono text-[11px] font-bold ${
+                          selectedItem.executionStatus === 'succeeded' ||
+                          selectedItem.executionStatus === 'jit_active'
+                            ? 'text-emerald-500'
+                            : selectedItem.executionStatus === 'failed'
+                            ? 'text-rose-500'
+                            : 'text-amber-500'
+                        }`}
+                      >
+                        {selectedItem.executionStatus.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  {selectedItem.executionOutput && (
+                    <pre
+                      className={`p-3.5 rounded-xl border text-xs font-mono overflow-x-auto whitespace-pre-wrap max-h-56 overflow-y-auto ${
+                        selectedItem.executionStatus === 'failed'
+                          ? isLightMode
+                            ? 'bg-rose-950 border-rose-700 text-rose-200'
+                            : 'bg-rose-950/50 border-rose-500/40 text-rose-200'
+                          : isLightMode
+                          ? 'bg-slate-900 border-slate-800 text-emerald-300'
+                          : 'bg-black/70 border-white/10 text-emerald-300'
+                      }`}
+                      dir="ltr"
+                    >
+                      {selectedItem.executionOutput}
+                    </pre>
+                  )}
+                </div>
+              )}
 
               {/* Encrypted-at-Rest Command Preview */}
               {selectedItem.commandPreview && (
@@ -1396,13 +1570,27 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                     className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
                   />
                   <div className="flex items-center flex-wrap gap-2">
+                    {selectedItem.supportsAutoExecute && (
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={handleExecutePayload}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>
+                          {isEn ? 'Execute Approved Payload Now' : 'اجرای فوری عملیات امضاشده'}
+                        </span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       disabled={actionBusy}
                       onClick={handleMarkExecuted}
                       className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
                     >
-                      <Play className="w-3.5 h-3.5" />
+                      <CheckCircle2 className="w-3.5 h-3.5" />
                       <span>{isEn ? 'Confirm Execution Complete' : 'ثبت اتمام اجرا'}</span>
                     </button>
 
