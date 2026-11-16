@@ -70,7 +70,7 @@ import { logDeviceCommand } from '../services/auditLogger';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useModalDock } from '../context/ModalDockContext';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
-import { isDeviceActionPermitted } from '../utils/rbac';
+import { isDeviceActionPermitted, doesDeviceActionRequireApproval } from '../utils/rbac';
 import { VaultPasswordPickerModal } from './vault/VaultPasswordPickerModal';
 
 export interface DangerAnalysisItem {
@@ -1348,7 +1348,9 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
         onApplied(result.device);
       }
     } catch (err: any) {
-      setApplyError(err.message || 'خطا در اعمال تمپلیت روی تجهیز');
+      if (!err?.approvalHandled) {
+        setApplyError(err.message || (isEn ? 'Failed to apply template to device' : 'خطا در اعمال تمپلیت روی تجهیز'));
+      }
       setActiveStep('preview');
     } finally {
       setIsApplying(false);
@@ -2864,6 +2866,11 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                         ? (isEn ? 'Backup & Apply Template to Device' : 'تهیه بکاپ و اعمال قطعی تمپلیت بر روی تجهیز')
                         : (isEn ? 'Apply Template (Without Backup)' : 'اعمال قطعی تمپلیت (بدون بکاپ)')}
                     </span>
+                    {selectedDevice && doesDeviceActionRequireApproval(effectivePolicy, selectedDevice.id, 'apply_template') && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-950/60 text-amber-200 border border-amber-300/40">
+                        {isEn ? 'Approval' : 'تایید'}
+                      </span>
+                    )}
                   </button>
                 </div>
               </div>

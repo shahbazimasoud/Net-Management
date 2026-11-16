@@ -78,6 +78,9 @@ interface CommunicationsCenterViewProps {
   liveRevision?: number;
   initialSelectedId?: string | null;
   onConsumeInitialSelectedId?: () => void;
+  initialViewMode?: 'inbox' | 'channels' | 'tracker' | 'approvals' | null;
+  initialApprovalId?: string | null;
+  onConsumeInitialApprovalView?: () => void;
 }
 
 const DEFAULT_COUNTS: CommsCountsByFolder = {
@@ -99,6 +102,9 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   liveRevision = 0,
   initialSelectedId = null,
   onConsumeInitialSelectedId,
+  initialViewMode = null,
+  initialApprovalId = null,
+  onConsumeInitialApprovalView,
 }) => {
   const { isEn, isRtl } = useLanguage();
   const { user, effectivePolicy } = useAuth();
@@ -261,6 +267,16 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
       onConsumeInitialSelectedId?.();
     }
   }, [initialSelectedId, onConsumeInitialSelectedId]);
+
+  useEffect(() => {
+    if (initialViewMode || initialApprovalId) {
+      setViewMode(initialViewMode || 'approvals');
+      if (initialApprovalId) {
+        setFocusApprovalId(initialApprovalId);
+      }
+      onConsumeInitialApprovalView?.();
+    }
+  }, [initialViewMode, initialApprovalId, onConsumeInitialApprovalView]);
 
   useEffect(() => {
     loadNotifications(liveRevision > 0);

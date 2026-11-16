@@ -22,6 +22,8 @@ import { emitSystemNotification, resolveUserIdentifiers } from './commsService';
 import { broadcastCommsEventToRecipients } from './commsWs';
 import {
   ActionApprovalRequest,
+  ApprovalGatePayload,
+  ApprovalGateStagePreview,
   ApprovalQueueSummary,
   ApprovalRequestStatus,
   ApprovalRiskLevel,
@@ -1829,3 +1831,477 @@ export async function listApprovalTargets(): Promise<ApprovalTargetOption[]> {
 
   return options;
 }
+
+// =========================================================================
+// Phase 3: Runtime Policy-Driven Approval Gate & Approved JIT Ticket Engine
+// =========================================================================
+
+const ACTION_METADATA_CATALOG: Record<
+  string,
+  { labelEn: string; labelFa: string; riskLevel: ApprovalRiskLevel }
+> = {
+  terminal: {
+    labelEn: 'Interactive Terminal / Remote Desktop Shell',
+    labelFa: 'ترمینال تعاملی / نشست دسکتاپ ریموت',
+    riskLevel: 'high',
+  },
+  file_explorer: {
+    labelEn: 'Remote SFTP File Modification',
+    labelFa: 'تغییر فایل‌ها در کاوشگر SFTP',
+    riskLevel: 'high',
+  },
+  power_control: {
+    labelEn: 'Server Power Control (Restart / Shutdown)',
+    labelFa: 'کنترل برق سرور (راه‌اندازی مجدد / خاموش‌سازی)',
+    riskLevel: 'critical',
+  },
+  server_management: {
+    labelEn: 'Server System & Service Configuration Change',
+    labelFa: 'تغییر پیکربندی سیستم و سرویس‌های سرور',
+    riskLevel: 'high',
+  },
+  web_management: {
+    labelEn: 'Web Server (Nginx / Apache) Configuration Change',
+    labelFa: 'تغییر پیکربندی وب‌سرور (Nginx / Apache)',
+    riskLevel: 'high',
+  },
+  database_management: {
+    labelEn: 'Database Engine (PostgreSQL / MySQL) Change',
+    labelFa: 'تغییر عملیات و پیکربندی پایگاه داده',
+    riskLevel: 'critical',
+  },
+  edit_properties: {
+    labelEn: 'Edit Inventory Properties & Credentials',
+    labelFa: 'ویرایش مشخصات و اعتبارنامه‌های تجهیز/سرور',
+    riskLevel: 'high',
+  },
+  delete_server: {
+    labelEn: 'Delete Server from Inventory',
+    labelFa: 'حذف سرور از موجودی',
+    riskLevel: 'critical',
+  },
+  delete_device: {
+    labelEn: 'Delete Network Device from Inventory',
+    labelFa: 'حذف تجهیز شبکه از موجودی',
+    riskLevel: 'critical',
+  },
+  export_servers: {
+    labelEn: 'Export Remote Servers Package',
+    labelFa: 'استخراج اطلاعات سرورها (Export)',
+    riskLevel: 'high',
+  },
+  import_servers: {
+    labelEn: 'Import Remote Servers Package',
+    labelFa: 'ورود دسته‌ای سرورها (Import)',
+    riskLevel: 'high',
+  },
+  export_devices: {
+    labelEn: 'Export Network Devices Package',
+    labelFa: 'استخراج اطلاعات تجهیزات شبکه (Export)',
+    riskLevel: 'high',
+  },
+  import_devices: {
+    labelEn: 'Import Network Devices Package',
+    labelFa: 'ورود دسته‌ای تجهیزات شبکه (Import)',
+    riskLevel: 'high',
+  },
+  inspect_ports: {
+    labelEn: 'Inspect Switch Ports & Interfaces',
+    labelFa: 'مشاهده و پایش پورت‌ها و اینترفیس‌ها',
+    riskLevel: 'medium',
+  },
+  port_power: {
+    labelEn: 'Port Administrative Power Toggle (Shutdown / No Shutdown)',
+    labelFa: 'تغییر وضعیت روشن/خاموش پورت (Shutdown / No Shutdown)',
+    riskLevel: 'high',
+  },
+  port_mode: {
+    labelEn: 'Switchport Mode Change (Trunk / Access)',
+    labelFa: 'تغییر حالت پورت (Trunk / Access)',
+    riskLevel: 'high',
+  },
+  port_vlan: {
+    labelEn: 'Port VLAN & PVID Reassignment',
+    labelFa: 'تغییر و تخصیص VLAN پورت',
+    riskLevel: 'high',
+  },
+  port_description: {
+    labelEn: 'Port Description / Comment Update',
+    labelFa: 'به‌روزرسانی توضیحات یا کامنت پورت',
+    riskLevel: 'medium',
+  },
+  port_security: {
+    labelEn: 'Layer 2 Port Security & MAC Binding Change',
+    labelFa: 'تغییر تنظیمات امنیت لایه ۲ و MAC پورت',
+    riskLevel: 'high',
+  },
+  port_bridge: {
+    labelEn: 'MikroTik Bridge Port Membership Change',
+    labelFa: 'تغییر عضویت پورت در بریج میکروتیک',
+    riskLevel: 'high',
+  },
+  port_speed: {
+    labelEn: 'Interface Speed / Duplex Modification',
+    labelFa: 'تغییر سرعت و حالت دوبلکس پورت',
+    riskLevel: 'medium',
+  },
+  port_cable_test: {
+    labelEn: 'Run Interface TDR Cable Diagnostic Test',
+    labelFa: 'اجرای تست عیب‌یابی کابل (TDR)',
+    riskLevel: 'medium',
+  },
+  write_memory: {
+    labelEn: 'Save Running Configuration to NVRAM (Write Memory)',
+    labelFa: 'ذخیره کانفیگ در حافظه دائم (Write Memory)',
+    riskLevel: 'critical',
+  },
+  apply_template: {
+    labelEn: 'Deploy Configuration Template',
+    labelFa: 'استقرار قالب پیکربندی روی تجهیز',
+    riskLevel: 'high',
+  },
+  ping_keepalive: {
+    labelEn: 'Execute Ping / Keepalive Probe',
+    labelFa: 'اجرای تست Ping / Keepalive',
+    riskLevel: 'medium',
+  },
+  device_note: {
+    labelEn: 'Modify Device Operational Sticky Note',
+    labelFa: 'ویرایش یادداشت عملیاتی تجهیز',
+    riskLevel: 'medium',
+  },
+  web_configs: {
+    labelEn: 'Device Web Console Access',
+    labelFa: 'دسترسی به کنسول وب تجهیز',
+    riskLevel: 'high',
+  },
+  cisco_config_device: {
+    labelEn: 'Cisco Device Global Configuration',
+    labelFa: 'پیکربندی جامع تجهیز سیسکو',
+    riskLevel: 'high',
+  },
+  cisco_config_write_memory: {
+    labelEn: 'Save Cisco Device Configuration to NVRAM',
+    labelFa: 'ذخیره پیکربندی سیسکو در NVRAM',
+    riskLevel: 'critical',
+  },
+  mikrotik_vpn: {
+    labelEn: 'MikroTik VPN Tunnel Configuration Change',
+    labelFa: 'تغییر پیکربندی تانل‌های VPN میکروتیک',
+    riskLevel: 'high',
+  },
+  mikrotik_firewall: {
+    labelEn: 'MikroTik Firewall & NAT Rule Modification',
+    labelFa: 'تغییر قوانین فایروال و NAT میکروتیک',
+    riskLevel: 'critical',
+  },
+  mikrotik_backup: {
+    labelEn: 'MikroTik System Backup & Export',
+    labelFa: 'تهیه نسخه پشتیبان و Export میکروتیک',
+    riskLevel: 'high',
+  },
+  mikrotik_bridge_vlan: {
+    labelEn: 'MikroTik Bridge VLAN Filtering Modification',
+    labelFa: 'تغییر Bridge VLAN در میکروتیک',
+    riskLevel: 'high',
+  },
+  mikrotik_safe_mode: {
+    labelEn: 'MikroTik Safe Mode Toggle',
+    labelFa: 'تغییر حالت Safe Mode میکروتیک',
+    riskLevel: 'medium',
+  },
+  mikrotik_ip_pool: {
+    labelEn: 'MikroTik IP Pool & DHCP Change',
+    labelFa: 'تغییر رنج IP Pool و DHCP میکروتیک',
+    riskLevel: 'high',
+  },
+};
+
+export function resolveActionMeta(actionKey: string, fallbackLabel?: string): {
+  labelEn: string;
+  labelFa: string;
+  riskLevel: ApprovalRiskLevel;
+} {
+  const cleanKey = (actionKey || '').trim();
+  const known = ACTION_METADATA_CATALOG[cleanKey];
+  if (known) return known;
+  if (cleanKey.startsWith('cisco_config_')) {
+    const suffix = cleanKey.replace('cisco_config_', '').toUpperCase();
+    return {
+      labelEn: `Cisco Configuration Change (${suffix})`,
+      labelFa: `تغییر پیکربندی سیسکو (${suffix})`,
+      riskLevel: 'high',
+    };
+  }
+  return {
+    labelEn: fallbackLabel || cleanKey || 'Protected Operational Action',
+    labelFa: fallbackLabel || cleanKey || 'عملیات نیازمند تایید',
+    riskLevel: 'high',
+  };
+}
+
+function previewPolicyApprovalStages(
+  resolvedPolicy: any,
+  snapshot: ApprovalDirectorySnapshot,
+  defaultTtlMinutes = 60
+): ApprovalGateStagePreview[] {
+  const configuredStages: ApprovalWorkflowStageConfig[] = Array.isArray(
+    resolvedPolicy?.approvalWorkflowStages
+  )
+    ? [...resolvedPolicy.approvalWorkflowStages]
+        .filter((s: any) => s && typeof s === 'object')
+        .sort((a: any, b: any) => (Number(a.stageOrder) || 0) - (Number(b.stageOrder) || 0))
+    : [];
+
+  if (configuredStages.length > 0) {
+    return configuredStages.map((cfg, idx) => {
+      const stageOrder = idx + 1;
+      return {
+        stageOrder,
+        id: String((cfg as any).id || `stage-${stageOrder}`),
+        titleFa: String(cfg.titleFa || cfg.titleEn || `مرحله ${stageOrder}`),
+        titleEn: String(cfg.titleEn || cfg.titleFa || `Stage ${stageOrder}`),
+        approverTargetType: (cfg.approverTargetType || 'any_approver') as ApprovalStageApproverTargetType,
+        approverLabels: resolveStageApproverLabels(cfg, snapshot),
+        ttlMinutes: Math.min(43200, Math.max(1, Number(cfg.ttlMinutes) || defaultTtlMinutes)),
+      };
+    });
+  }
+
+  return [
+    {
+      stageOrder: 1,
+      id: 'default-stage-1',
+      titleFa: 'تایید سرپرست / مدیر مجاز',
+      titleEn: 'Supervisor / Authorized Approver Sign-off',
+      approverTargetType: 'any_approver',
+      approverLabels: [],
+      ttlMinutes: defaultTtlMinutes,
+    },
+  ];
+}
+
+async function loadRawApprovalRowsFast(): Promise<ActionApprovalRequest[]> {
+  await expireStalePendingRequests();
+  let rows: ActionApprovalRequest[] = [];
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const res = await pool.query(
+        `SELECT * FROM action_approval_requests ORDER BY created_at DESC LIMIT 300`
+      );
+      rows = (res.rows || []).map((r) => mapApprovalRow(r, true));
+    } catch (err: any) {
+      console.warn('[ApprovalService] PG loadRawApprovalRowsFast error:', err?.message || err);
+    }
+  }
+
+  if (rows.length === 0) {
+    const store = loadFallbackStore();
+    rows = (store.action_approval_requests || [])
+      .map((r: any) => mapApprovalRow(r, true))
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  }
+
+  return rows;
+}
+
+function doesRowMatchTarget(
+  row: ActionApprovalRequest,
+  entityType: ApprovalTargetEntityType | string,
+  entityId: string,
+  entityName?: string
+): boolean {
+  if (String(row.targetEntityType).toLowerCase() !== String(entityType).toLowerCase()) {
+    return false;
+  }
+  const rowTarget = String(row.targetEntityId || '').trim().toLowerCase();
+  const targetIdLow = String(entityId || '').trim().toLowerCase();
+  const targetNameLow = String(entityName || '').trim().toLowerCase();
+
+  if (!rowTarget) return false;
+  if (rowTarget === 'bulk') return true;
+  if (rowTarget === targetIdLow) return true;
+  if (targetNameLow && rowTarget === targetNameLow) return true;
+  if (
+    row.targetEntityName &&
+    targetNameLow &&
+    String(row.targetEntityName).trim().toLowerCase() === targetNameLow
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function doesRowMatchAction(row: ActionApprovalRequest, actionKey: string): boolean {
+  const cleanKey = (actionKey || '').trim().toLowerCase();
+  const rowKey = String(row.actionKey || '').trim().toLowerCase();
+  if (rowKey) {
+    if (rowKey === cleanKey) return true;
+    // Allow bulk_power or bulk_delete approval to satisfy per-entity checks if targeted
+    if (cleanKey === 'power_control' && rowKey === 'bulk_power') return true;
+    if (cleanKey === 'delete_device' && rowKey === 'bulk_delete') return true;
+    return false;
+  }
+  // Legacy rows created before actionKey was recorded
+  const meta = resolveActionMeta(cleanKey);
+  const reqActLow = String(row.requestedAction || '').toLowerCase();
+  return reqActLow.includes(cleanKey) || reqActLow.includes(meta.labelEn.toLowerCase());
+}
+
+export async function findMatchingActiveApprovalsForActor(
+  actor: ApprovalActor,
+  entityType: ApprovalTargetEntityType | string,
+  entityId: string,
+  actionKey: string,
+  entityName?: string,
+  snapshot?: ApprovalDirectorySnapshot
+): Promise<{
+  existingApprovedApproval: ActionApprovalRequest | null;
+  existingPendingApproval: ActionApprovalRequest | null;
+}> {
+  const [rows, dirSnapshot] = await Promise.all([
+    loadRawApprovalRowsFast(),
+    snapshot ? Promise.resolve(snapshot) : loadApprovalDirectorySnapshot(),
+  ]);
+
+  const nowMs = Date.now();
+  const matching = rows.filter(
+    (r) =>
+      (isRowOwnedByActor(r, actor) || actor.isSuperAdmin) &&
+      doesRowMatchTarget(r, entityType, entityId, entityName) &&
+      doesRowMatchAction(r, actionKey)
+  );
+
+  const approvedRow =
+    matching.find((r) => r.status === 'approved' && Date.parse(r.expiresAt) > nowMs) || null;
+  const pendingRow =
+    matching.find((r) => r.status === 'pending' && Date.parse(r.expiresAt) > nowMs) || null;
+
+  return {
+    existingApprovedApproval: approvedRow ? annotateRowForActor(approvedRow, actor, dirSnapshot) : null,
+    existingPendingApproval: pendingRow ? annotateRowForActor(pendingRow, actor, dirSnapshot) : null,
+  };
+}
+
+export async function evaluateApprovalGateForRequest(params: {
+  actor: ApprovalActor;
+  effectivePolicy: any;
+  entityType: ApprovalTargetEntityType | string;
+  entityId: string;
+  entityName?: string;
+  actionKey: string;
+  requestedAction?: string;
+  commandPreview?: string | null;
+  actionParams?: Record<string, any> | null;
+  providedApprovalId?: string | null;
+}): Promise<{
+  allowed: boolean;
+  approvedTicket?: ActionApprovalRequest;
+  gatePayload?: ApprovalGatePayload;
+}> {
+  const {
+    actor,
+    effectivePolicy,
+    entityType,
+    entityId,
+    entityName,
+    actionKey,
+    requestedAction,
+    commandPreview,
+    actionParams,
+    providedApprovalId,
+  } = params;
+
+  const snapshot = await loadApprovalDirectorySnapshot();
+  const cleanProvidedId = (providedApprovalId || '').trim();
+  const meta = resolveActionMeta(actionKey, requestedAction);
+
+  if (cleanProvidedId) {
+    const allRows = await loadRawApprovalRowsFast();
+    const ticket = allRows.find((r) => r.id === cleanProvidedId) || null;
+    if (
+      ticket &&
+      ticket.status === 'approved' &&
+      Date.parse(ticket.expiresAt) > Date.now() &&
+      (isRowOwnedByActor(ticket, actor) || actor.isSuperAdmin) &&
+      doesRowMatchTarget(ticket, entityType, entityId, entityName) &&
+      doesRowMatchAction(ticket, actionKey)
+    ) {
+      return {
+        allowed: true,
+        approvedTicket: annotateRowForActor(ticket, actor, snapshot),
+      };
+    }
+  }
+
+  const [{ existingApprovedApproval, existingPendingApproval }, stagesPreview] = await Promise.all([
+    findMatchingActiveApprovalsForActor(
+      actor,
+      entityType,
+      entityId,
+      actionKey,
+      entityName,
+      snapshot
+    ),
+    Promise.resolve(previewPolicyApprovalStages(effectivePolicy, snapshot)),
+  ]);
+
+  const targetDisplay = entityName || entityId;
+  const gatePayload: ApprovalGatePayload = {
+    code: 'APPROVAL_REQUIRED',
+    approvalRequired: true,
+    actionKey,
+    actionLabelEn: meta.labelEn,
+    actionLabelFa: meta.labelFa,
+    targetEntityType: entityType,
+    targetEntityId: entityId,
+    targetEntityName: targetDisplay,
+    requestedAction: requestedAction || `${meta.labelEn} (${targetDisplay})`,
+    commandPreview: commandPreview ?? null,
+    actionParams: actionParams ?? null,
+    riskLevel: meta.riskLevel,
+    policyId: effectivePolicy?.id || null,
+    policyName: effectivePolicy?.name || null,
+    stagesPreview,
+    existingApprovedApproval,
+    existingPendingApproval,
+    error: existingApprovedApproval
+      ? `Multi-stage approval ticket (${existingApprovedApproval.id}) is ready for "${meta.labelEn}" on ${targetDisplay}. Attach X-Approval-Request-Id to execute.`
+      : existingPendingApproval
+      ? `Action "${meta.labelEn}" on ${targetDisplay} requires approval. Request ${existingPendingApproval.id} is currently awaiting Stage ${existingPendingApproval.currentStageOrder || 1}/${existingPendingApproval.totalStages || 1}.`
+      : `RBAC Policy "${effectivePolicy?.name || 'Active Policy'}" requires multi-stage approval before executing "${meta.labelEn}" on ${targetDisplay}.`,
+    errorFa: existingApprovedApproval
+      ? `تیکت تاییدشده (${existingApprovedApproval.id}) برای «${meta.labelFa}» روی ${targetDisplay} آماده اجرا است.`
+      : existingPendingApproval
+      ? `عملیات «${meta.labelFa}» نیازمند تایید چندمرحله‌ای است؛ درخواست ${existingPendingApproval.id} در انتظار تایید مرحله ${existingPendingApproval.currentStageOrder || 1} از ${existingPendingApproval.totalStages || 1} است.`
+      : `طبق پالیسی «${effectivePolicy?.name || 'فعلی'}»، اجرای «${meta.labelFa}» روی ${targetDisplay} نیازمند تایید چندمرحله‌ای است.`,
+  };
+
+  return {
+    allowed: false,
+    gatePayload,
+  };
+}
+
+export async function consumeApprovedTicketForExecution(
+  actor: ApprovalActor,
+  ticketId: string,
+  executionNote?: string
+): Promise<ActionApprovalRequest | null> {
+  if (!ticketId) return null;
+  try {
+    return await markApprovalRequestExecuted(
+      actor,
+      ticketId,
+      executionNote || `Executed automatically via JIT approval gate (${ticketId})`
+    );
+  } catch (err: any) {
+    // Non-fatal if already marked executed in parallel
+    console.warn('[ApprovalService] consumeApprovedTicketForExecution notice:', err?.message || err);
+    return null;
+  }
+}
+

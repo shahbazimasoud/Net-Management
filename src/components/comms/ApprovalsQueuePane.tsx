@@ -1107,6 +1107,71 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                 </p>
               </div>
 
+              {/* Active JIT Ticket Ready Notice */}
+              {selectedItem.status === 'approved' && (
+                <div
+                  className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs ${
+                    isLightMode
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                      : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-100'
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-bold">
+                        {isEn
+                          ? 'Approved JIT Execution Ticket Active'
+                          : 'تیکت اجرای فوری تاییدشده (JIT) فعال است'}
+                      </div>
+                      <div className="text-[11px] opacity-85 mt-0.5">
+                        {isEn
+                          ? 'Trigger the protected action again from its menu or terminal; this single-use ticket will authorize and execute it automatically.'
+                          : 'با اجرای مجدد عملیات از منوی تجهیز یا ترمینال، سیستم این تیکت یک‌بارمصرف را به‌صورت خودکار اعمال و مصرف می‌کند.'}
+                      </div>
+                    </div>
+                  </div>
+                  <span
+                    className={`px-2 py-1 rounded-lg font-mono text-[11px] font-bold border shrink-0 ${
+                      isLightMode
+                        ? 'bg-white border-emerald-300 text-emerald-800'
+                        : 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300'
+                    }`}
+                  >
+                    <Clock className="w-3 h-3 inline me-1" />
+                    {formatRemainingWindow(selectedItem.expiresAt, isEn)}
+                  </span>
+                </div>
+              )}
+
+              {/* Structured Action Parameters */}
+              {selectedItem.actionParams &&
+                typeof selectedItem.actionParams === 'object' &&
+                Object.keys(selectedItem.actionParams).length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-bold">
+                      {isEn ? 'Action Parameters' : 'پارامترهای عملیات'}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(selectedItem.actionParams).map(([k, v]) => (
+                        <span
+                          key={k}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-mono ${
+                            isLightMode
+                              ? 'bg-slate-50 border-slate-200 text-slate-800'
+                              : 'bg-slate-900 border-white/10 text-slate-200'
+                          }`}
+                        >
+                          <span className="opacity-65">{k}:</span>
+                          <span className="font-semibold">
+                            {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
               {/* Encrypted-at-Rest Command Preview */}
               {selectedItem.commandPreview && (
                 <div className="space-y-1.5">

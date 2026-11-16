@@ -31,7 +31,7 @@ import { Device } from '../../types';
 import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
 import { useModalDock } from '../../context/ModalDockContext';
-import { isDeviceActionPermitted } from '../../utils/rbac';
+import { isDeviceActionPermitted, doesDeviceActionRequireApproval } from '../../utils/rbac';
 import { fetchCiscoConfig, saveCiscoConfigNvram } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { CiscoVtyTab } from './CiscoVtyTab';
@@ -301,6 +301,9 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
     setNvramFeedback(null);
     try {
       const res = await saveCiscoConfigNvram(device.id);
+      if ((res as any)?.approvalHandled) {
+        return;
+      }
       if (res.success) {
         setNvramFeedback({
           success: true,
@@ -450,6 +453,11 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
               >
                 <Save className={`w-3.5 h-3.5 ${isSavingNvram ? 'animate-pulse' : ''}`} />
                 <span className="hidden sm:inline">{isSavingNvram ? (isEn ? 'Writing...' : 'در حال ذخیره...') : (isEn ? 'Write Mem' : 'ذخیره NVRAM')}</span>
+                {doesDeviceActionRequireApproval(effectivePolicy, device.id, 'cisco_config_write_memory') && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/35">
+                    {isEn ? 'Approval' : 'تایید'}
+                  </span>
+                )}
               </button>
             )}
 
@@ -561,11 +569,15 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
               >
                 <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? (isLightMode ? 'text-cyan-700' : 'text-cyan-400') : 'text-slate-400'}`} />
                 <span>{isEn ? tab.labelEn : tab.labelFa}</span>
-                {!isPermitted && (
+                {!isPermitted ? (
                   <span title={isEn ? 'Restricted by RBAC Policy' : 'مسدود توسط پالیسی دسترسی'}>
                     <Lock className="w-3 h-3 text-amber-500 shrink-0" />
                   </span>
-                )}
+                ) : doesDeviceActionRequireApproval(effectivePolicy, device.id, tab.actionKey) ? (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/35 shrink-0">
+                    {isEn ? 'Approval' : 'تایید'}
+                  </span>
+                ) : null}
               </button>
             );
           })}

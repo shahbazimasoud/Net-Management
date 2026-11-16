@@ -46,7 +46,7 @@ import { MikroTikSystemResourcesTab } from './MikroTikSystemResourcesTab';
 import { DeviceTerminalLogsTab } from './ports/DeviceTerminalLogsTab';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useAuth } from '../context/AuthContext';
-import { isDeviceActionPermitted } from '../utils/rbac';
+import { isDeviceActionPermitted, doesDeviceActionRequireApproval } from '../utils/rbac';
 
 export interface MikroTikDeviceManageModalProps {
   device: Device | null;
@@ -510,6 +510,11 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
               >
                 <Terminal className={`w-4 h-4 ${isLightMode ? 'text-cyan-600' : 'text-cyan-400'}`} />
                 <span>{isEn ? 'CLI Terminal' : 'کنسول ترمینال'}</span>
+                {doesDeviceActionRequireApproval(effectivePolicy, device.id, 'terminal') && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/35">
+                    {isEn ? 'Approval' : 'تایید'}
+                  </span>
+                )}
               </button>
             )}
 
@@ -695,6 +700,11 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
             >
               <Shield className="w-4 h-4" />
               <span>{isEn ? 'VPN Suite' : 'مدیریت VPN'}</span>
+              {doesDeviceActionRequireApproval(effectivePolicy, device.id, 'mikrotik_vpn') && (
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/35">
+                  {isEn ? 'Approval' : 'تایید'}
+                </span>
+              )}
             </button>
             <button
               type="button"

@@ -318,14 +318,19 @@ export function setupTerminalWebSocket(
         }
         if (!devPlatform) devPlatform = 'generic_linux';
 
-        // Authoritative server scope check in PostgreSQL
+        // Authoritative server scope & tri-state approval gate check in PostgreSQL
         const token = parsedUrl.searchParams.get('token') || parsedUrl.searchParams.get('auth') || '';
+        const providedApprovalId = (
+          parsedUrl.searchParams.get('approvalRequestId') ||
+          parsedUrl.searchParams.get('approval_request_id') ||
+          ''
+        ).trim();
         if (token) {
           try {
             const { verifyToken } = await import('./auth');
             const payload = verifyToken(token);
             if (payload) {
-              const { getEffectivePolicyForUser, isServerActionPermitted } = await import('./db');
+              const { getEffectivePolicyForUser, evaluateServerActionDecision } = await import('./db');
               const eff = await getEffectivePolicyForUser(payload);
               const cleanU = (payload.username || '').toLowerCase();
               const cleanR = (payload.role || '').toLowerCase();
@@ -339,10 +344,57 @@ export function setupTerminalWebSocket(
                     return;
                   }
                 }
-                if (!isServerActionPermitted(eff, srv.id, 'terminal')) {
+                const terminalDecision = evaluateServerActionDecision(eff, srv.id, 'terminal');
+                if (terminalDecision === 'deny') {
                   clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: Terminal and remote shell access to this server is prohibited by your RBAC access policy.\x1b[0m\r\n' }));
                   clientWs.close(4003, 'Forbidden');
                   return;
+                }
+                if (terminalDecision === 'require_approval') {
+                  const { evaluateApprovalGateForRequest, consumeApprovedTicketForExecution } = await import('./approvalService');
+                  const actor = {
+                    userId: String(payload.userId || payload.username || 'operator'),
+                    username: String(payload.username || 'operator'),
+                    fullName: String((payload as any).fullName || payload.username || 'operator'),
+                    role: String(payload.role || 'Operator'),
+                    isSuperAdmin: false,
+                    canApproveActions: Boolean(eff.canApproveActions),
+                    clientIp,
+                  };
+                  const gateRes = await evaluateApprovalGateForRequest({
+                    actor,
+                    effectivePolicy: eff,
+                    entityType: 'server',
+                    entityId: srv.id,
+                    entityName: srv.name || srv.hostname || srv.id,
+                    actionKey: 'terminal',
+                    requestedAction: `Open SSH Terminal Session (${srv.name || srv.ip || srv.id})`,
+                    commandPreview: `ssh ${username || srv.ssh_username || 'root'}@${host || srv.ip}:${port} (shell=${shell})`,
+                    actionParams: {
+                      protocol: 'ssh',
+                      shell,
+                      host: host || srv.ip,
+                      port,
+                    },
+                    providedApprovalId,
+                  });
+                  if (gateRes.allowed === false) {
+                    const gp = gateRes.gatePayload;
+                    clientWs.send(JSON.stringify({ type: 'approval_required', ...gp }));
+                    clientWs.send(
+                      JSON.stringify({
+                        type: 'output',
+                        data: `\r\n\x1b[33m[Approval Required]: ${isEn ? gp.error : gp.errorFa}\x1b[0m\r\n`,
+                      })
+                    );
+                    clientWs.close(4003, 'Approval Required');
+                    return;
+                  }
+                  await consumeApprovedTicketForExecution(
+                    actor,
+                    gateRes.approvedTicket.id,
+                    `Interactive WebSocket SSH session opened for server ${srv.name || srv.id}`
+                  );
                 }
               }
             }
@@ -377,14 +429,19 @@ export function setupTerminalWebSocket(
           devSshVersion = dev.ssh_version || dev.sshVersion || (dev.platform?.includes('modern') ? 'modern' : 'legacy');
         }
 
-        // Authoritative network equipment scope & terminal permission check in PostgreSQL
+        // Authoritative network equipment scope & tri-state terminal approval check in PostgreSQL
         const token = parsedUrl.searchParams.get('token') || parsedUrl.searchParams.get('auth') || '';
+        const providedApprovalId = (
+          parsedUrl.searchParams.get('approvalRequestId') ||
+          parsedUrl.searchParams.get('approval_request_id') ||
+          ''
+        ).trim();
         if (token) {
           try {
             const { verifyToken } = await import('./auth');
             const payload = verifyToken(token);
             if (payload) {
-              const { getEffectivePolicyForUser, isDeviceActionPermitted } = await import('./db');
+              const { getEffectivePolicyForUser, evaluateDeviceActionDecision } = await import('./db');
               const eff = await getEffectivePolicyForUser(payload);
               const cleanU = (payload.username || '').toLowerCase();
               const cleanR = (payload.role || '').toLowerCase();
@@ -401,13 +458,60 @@ export function setupTerminalWebSocket(
                     return;
                   }
                 }
-                if (!isDeviceActionPermitted(eff, dev.id, 'terminal')) {
+                const devTerminalDecision = evaluateDeviceActionDecision(eff, dev.id, 'terminal');
+                if (devTerminalDecision === 'deny') {
                   clientWs.send(JSON.stringify({
                     type: 'output',
                     data: '\r\n\x1b[31m[Access Denied]: Terminal and interactive CLI access to this network device is prohibited by your RBAC access policy in PostgreSQL.\x1b[0m\r\n'
                   }));
                   clientWs.close(4003, 'Forbidden');
                   return;
+                }
+                if (devTerminalDecision === 'require_approval') {
+                  const { evaluateApprovalGateForRequest, consumeApprovedTicketForExecution } = await import('./approvalService');
+                  const actor = {
+                    userId: String(payload.userId || payload.username || 'operator'),
+                    username: String(payload.username || 'operator'),
+                    fullName: String((payload as any).fullName || payload.username || 'operator'),
+                    role: String(payload.role || 'Operator'),
+                    isSuperAdmin: false,
+                    canApproveActions: Boolean(eff.canApproveActions),
+                    clientIp,
+                  };
+                  const gateRes = await evaluateApprovalGateForRequest({
+                    actor,
+                    effectivePolicy: eff,
+                    entityType: 'device',
+                    entityId: dev.id,
+                    entityName: dev.name || dev.ip || dev.id,
+                    actionKey: 'terminal',
+                    requestedAction: `Open Interactive CLI Terminal (${dev.name || dev.ip || dev.id})`,
+                    commandPreview: `cli session ${username || dev.ssh_username || 'admin'}@${host || dev.ip}:${port} (platform=${devPlatform || 'network'})`,
+                    actionParams: {
+                      protocol: parsedUrl.searchParams.get('protocol') || 'ssh',
+                      host: host || dev.ip,
+                      port,
+                      platform: devPlatform,
+                    },
+                    providedApprovalId,
+                  });
+                  if (gateRes.allowed === false) {
+                    const gp = gateRes.gatePayload;
+                    clientWs.send(JSON.stringify({ type: 'approval_required', ...gp }));
+                    clientWs.send(
+                      JSON.stringify({
+                        type: 'output',
+                        data: `\r\n\x1b[33m[Approval Required]: ${isEn ? gp.error : gp.errorFa}\x1b[0m\r\n`,
+                      })
+                    );
+                    clientWs.close(4003, 'Approval Required');
+                    return;
+                  }
+                  await consumeApprovedTicketForExecution(
+                    actor,
+                    gateRes.approvedTicket.id,
+                    `Interactive WebSocket CLI session opened for device ${dev.name || dev.id}`
+                  );
                 }
               }
             }

@@ -165,3 +165,58 @@ export async function markApprovalExecutedApi(
   appDataCache.invalidate('comms:');
   return json.approval;
 }
+
+export interface CheckActionApprovalResponse {
+  success: boolean;
+  decision: 'allow' | 'require_approval' | 'deny';
+  approvalRequired: boolean;
+  denied: boolean;
+  approvedTicket?: ActionApprovalRequest | null;
+  code?: 'APPROVAL_REQUIRED';
+  actionKey?: string;
+  actionLabelEn?: string;
+  actionLabelFa?: string;
+  targetEntityType?: string;
+  targetEntityId?: string;
+  targetEntityName?: string;
+  requestedAction?: string;
+  commandPreview?: string | null;
+  actionParams?: Record<string, any> | null;
+  riskLevel?: import('../types').ApprovalRiskLevel;
+  policyId?: string | null;
+  policyName?: string | null;
+  stagesPreview?: import('../types').ApprovalGateStagePreview[];
+  existingApprovedApproval?: ActionApprovalRequest | null;
+  existingPendingApproval?: ActionApprovalRequest | null;
+  error?: string;
+  errorFa?: string;
+}
+
+export async function checkActionApprovalGate(params: {
+  entityType: 'server' | 'device';
+  entityId: string;
+  actionKey: string;
+  entityName?: string;
+  requestedAction?: string;
+  commandPreview?: string;
+}): Promise<CheckActionApprovalResponse> {
+  const qs = new URLSearchParams({
+    entityType: params.entityType,
+    entityId: params.entityId,
+    actionKey: params.actionKey,
+  });
+  if (params.entityName) qs.set('entityName', params.entityName);
+  if (params.requestedAction) qs.set('requestedAction', params.requestedAction);
+  if (params.commandPreview) qs.set('commandPreview', params.commandPreview);
+
+  const res = await fetch(`/api/approvals/check-action?${qs.toString()}`, {
+    headers: buildHeaders(),
+    cache: 'no-store',
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  return json as CheckActionApprovalResponse;
+}
+

@@ -778,10 +778,12 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       return res.status(404).json({ error: `Server not found with ID ${serverId}` });
     }
 
-    // Authoritative check against user's permitted server scope in PostgreSQL
+    // Authoritative check against user's permitted server scope and tri-state approval gate in PostgreSQL
+    let approvedRdpTicketCtx: { actor: any; ticketId: string } | null = null;
+    const rawReqClientIp = ((req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || req.ip || '127.0.0.1').split(',')[0].trim();
     if (user) {
       try {
-        const { getEffectivePolicyForUser, isServerActionPermitted } = await import('./db');
+        const { getEffectivePolicyForUser, evaluateServerActionDecision } = await import('./db');
         const eff = await getEffectivePolicyForUser(user);
         const cleanU = (user.username || '').toLowerCase();
         const cleanR = (user.role || '').toLowerCase();
@@ -793,14 +795,67 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
             const sname = (serverRecord.name || '').trim().toLowerCase();
             if (!allowedSet.has(sid) && !allowedSet.has(sname)) {
               return res.status(403).json({
+                code: 'RBAC_DENIED',
                 error: 'Access denied: You do not have permission to launch remote desktop on this server based on your assigned Device Groups in PostgreSQL.',
               });
             }
           }
-          if (!isServerActionPermitted(eff, serverRecord.id, 'terminal')) {
+          const rdpDecision = evaluateServerActionDecision(eff, serverRecord.id, 'terminal');
+          if (rdpDecision === 'deny') {
             return res.status(403).json({
+              code: 'RBAC_DENIED',
               error: 'Access denied: Remote desktop and terminal access to this server is prohibited by your RBAC access policy.',
             });
+          }
+          if (rdpDecision === 'require_approval') {
+            const { evaluateApprovalGateForRequest } = await import('./approvalService');
+            const rawHeaderId = req.headers['x-approval-request-id'];
+            const providedApprovalId = String(
+              (Array.isArray(rawHeaderId) ? rawHeaderId[0] : rawHeaderId) ||
+                req.body?.approvalRequestId ||
+                ''
+            ).trim();
+            const actor = {
+              userId: String(user.userId || user.username || 'operator'),
+              username: String(user.username || 'operator'),
+              fullName: String((user as any).fullName || user.username || 'operator'),
+              role: String(user.role || 'Operator'),
+              isSuperAdmin: false,
+              canApproveActions: Boolean(eff.canApproveActions),
+              clientIp: rawReqClientIp,
+            };
+            const targetPortPreview =
+              protocol === 'rdp' || serverRecord.os_type === 'windows'
+                ? serverRecord.win_port || 3389
+                : serverRecord.vnc_port || 5900;
+            const gateRes = await evaluateApprovalGateForRequest({
+              actor,
+              effectivePolicy: eff,
+              entityType: 'server',
+              entityId: serverRecord.id,
+              entityName: serverRecord.name || serverRecord.hostname || serverRecord.id,
+              actionKey: 'terminal',
+              requestedAction: `Launch ${String(protocol).toUpperCase()} Remote Desktop (${serverRecord.name || serverRecord.ip})`,
+              commandPreview: `${String(protocol).toUpperCase()} -> ${serverRecord.ip}:${targetPortPreview} (${width}x${height})`,
+              actionParams: {
+                protocol,
+                width,
+                height,
+                dpi,
+                targetPort: targetPortPreview,
+              },
+              providedApprovalId,
+            });
+            if (gateRes.allowed === false) {
+              return res.status(403).set('X-Approval-Required', 'true').json({
+                success: false,
+                ...gateRes.gatePayload,
+              });
+            }
+            approvedRdpTicketCtx = {
+              actor,
+              ticketId: gateRes.approvedTicket.id,
+            };
           }
         }
       } catch (err: any) {
@@ -850,7 +905,7 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const sessionId = `rdp-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
-    const clientIp = ((req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || req.ip || '127.0.0.1').split(',')[0].trim();
+    const clientIp = rawReqClientIp;
     const sessionConfig: RemoteSessionConfig = {
       id: sessionId,
       token: sessionToken,
@@ -879,6 +934,19 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
 
     pendingTokens.set(sessionToken, sessionConfig);
 
+    if (approvedRdpTicketCtx) {
+      try {
+        const { consumeApprovedTicketForExecution } = await import('./approvalService');
+        await consumeApprovedTicketForExecution(
+          approvedRdpTicketCtx.actor,
+          approvedRdpTicketCtx.ticketId,
+          `Issued ${chosenProtocol.toUpperCase()} remote desktop session token (${sessionId}) for ${serverRecord.name || serverRecord.id}`
+        );
+      } catch (consumeErr: any) {
+        console.warn('[RemoteDesktop] Ticket consumption notice:', consumeErr?.message);
+      }
+    }
+
     // Audit Log Entry
     await addAuditLog({
       userName: sessionConfig.userName,
@@ -890,6 +958,7 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
         protocol: chosenProtocol,
         resolution: `${sessionConfig.width}x${sessionConfig.height}@${sessionConfig.dpi}dpi`,
         concurrentSessionsOnTarget: concurrentCount,
+        approvalRequestId: approvedRdpTicketCtx?.ticketId || undefined,
       },
       ipAddress: clientIp,
     }).catch(() => {});

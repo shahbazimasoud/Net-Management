@@ -697,6 +697,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
         ssh_password: effectivePass,
         platform: devPlatform,
         ssh_version: devSshVersion,
+        approval_request_id: (curDev as any)?.approval_request_id,
       });
       const ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';

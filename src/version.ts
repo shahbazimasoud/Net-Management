@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.432.0';
+export const APP_VERSION = '1.433.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.433.0',
+    releaseDate: '2026-11-16',
+    type: 'minor',
+    title: 'فاز ۳: اعمال همه‌جانبه گیت تایید در زمان اجرا، مصرف بلیت یک‌بارمصرف JIT، رهگیری سراسری در رابط کاربری و نشانگرهای تایید',
+    title_en: 'Phase 3: Runtime Approval Gate Enforcement, Single-Use JIT Ticket Consumption, Global Frontend Gate & UI Approval Indicators',
+    changes: [
+      'اعمال کامل گیت `require_approval` و بررسی اسکوپ در سرور (`routes.ts`، `terminalWs.ts`، `remoteDesktopGateway.ts`، `approvalRoutes.ts`) برای اندپوینت‌های HTTP تجهیزات و سرورها، پروکسی VPN میکروتیک، خروجی/ورودی پیکربندی، عملیات گروهی، وب‌سوکت ترمینال لینوکس/شبکه و دروازه ریموت دسکتاپ همراه با مصرف یک‌بارمصرف بلیت تاییدشده (`X-Approval-Request-Id` / `approvalRequestId`).',
+      'رفع ریشه‌ای هیدراته‌شدن پالیسی کاربر در `getEffectivePolicyForUser` (`server/db.ts`) هنگام دریافت پیلود توکن JWT تا بررسی اسکوپ و پالیسی در دروازه RDP و وب‌سوکت ترمینال همیشه روی رکورد واقعی کاربر و گروه‌های او اعمال شود.',
+      'افزودن اندپوینت پیش‌بررسی `GET /api/approvals/check-action`، پنجره تعاملی `ApprovalGateModal` (با دکمه‌های کامل هدر، حفظ حریم فوتر `bottom-8` و لایه فوقانی `z-[999996]`) و رهگیر سراسری `fetch` در کلاینت (`approvalGateBridge.ts`) با اجرای مجدد خودکار پس از تایید بلیت.',
+      'افزودن هوک‌های پیش‌بررسی به ترمینال‌های لینوکس، سیسکو، میکروتیک و ریموت دسکتاپ، سرکوب خطاهای کاذب در عملیات مدیریت‌شده توسط گیت، و نمایش نشانگرهای کهربایی «تایید / Approval» روی دکمه‌ها و تب‌های نیازمند تایید در پنجره‌ها و لیست‌ها.'
+    ],
+    changes_en: [
+      'Enforced runtime `require_approval` gating and single-use JIT ticket consumption (`X-Approval-Request-Id` HTTP header / `approvalRequestId` WS param) across device & server HTTP APIs, MikroTik VPN proxy routes, export/import/bulk operations, SSH/CLI WebSockets (`terminalWs.ts`), and the Remote Desktop Gateway (`remoteDesktopGateway.ts`).',
+      'Fixed root-cause user hydration in `getEffectivePolicyForUser` (`server/db.ts`) for decoded JWT payloads (`userId` + group memberships) so RDP Gateway and Terminal WebSocket access checks always resolve against the authoritative user policy.',
+      'Added `GET /api/approvals/check-action` preflight endpoint, `ApprovalGateModal` (`z-[999996]` above device/server modals with `bottom-8` footer clearance), and global same-origin `/api/*` fetch interception (`approvalGateBridge.ts`) with automatic Bearer header injection and transparent JIT action replay.',
+      'Wired terminal & RDP preflight gates across `LinuxTerminalModal`, `CiscoTerminalModal`, `MikroTikTerminalModal`, and `InBrowserRemoteDesktopModal`, suppressed redundant error banners when `approvalHandled: true`, and added amber `Approval` pills across action menus and device/server config modals.'
+    ]
+  },
   {
     version: '1.432.0',
     releaseDate: '2026-11-16',

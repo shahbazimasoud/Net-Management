@@ -18,7 +18,7 @@ import { DeviceTerminalLogsTab } from './ports/DeviceTerminalLogsTab';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useModalDock } from '../context/ModalDockContext';
 import { useAuth } from '../context/AuthContext';
-import { isDeviceActionPermitted } from '../utils/rbac';
+import { isDeviceActionPermitted, doesDeviceActionRequireApproval } from '../utils/rbac';
 import { matchPortFlexible } from '../utils/portUtils';
 import { logDeviceCommand } from '../services/auditLogger';
 
@@ -1807,6 +1807,10 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
       if (onPortUpdated) onPortUpdated();
       setPortConfigConfirmModal(null);
     } catch (err: any) {
+      if (err?.approvalHandled) {
+        setPortConfigConfirmModal(null);
+        return;
+      }
       alert((isEn ? 'Error executing Cisco port configuration: ' : 'خطا در اجرای دستورات سیسکو و تنظیم پورت: ') + (err.message || err));
     } finally {
       setIsExecutingPortConfig(false);
@@ -1844,6 +1848,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
 
       if (onPortUpdated) onPortUpdated();
     } catch (err: any) {
+      if (err?.approvalHandled) return;
       alert((isEn ? 'Failed to save configuration to NVRAM: ' : 'خطا در ذخیره‌سازی در استارتاپ: ') + (err.message || err));
     } finally {
       setIsWritingMem(false);
@@ -1953,6 +1958,11 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                 >
                   <Save className="w-3 h-3" />
                   <span>{isWritingMem ? (isEn ? 'Writing...' : 'در حال رایت...') : 'Write'}</span>
+                  {doesDeviceActionRequireApproval(effectivePolicy, device.id, 'write_memory') && (
+                    <span className="px-1 py-0.2 rounded text-[9px] font-bold bg-amber-950/60 text-amber-200 border border-amber-300/40">
+                      {isEn ? 'Approval' : 'تایید'}
+                    </span>
+                  )}
                 </button>
               </div>
             )}
@@ -1966,6 +1976,11 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
               >
                 <Terminal className="w-4 h-4 text-emerald-400" />
                 <span className="font-sans font-bold">{isEn ? 'Cisco Terminal' : 'ترمینال سیسکو'}</span>
+                {doesDeviceActionRequireApproval(effectivePolicy, device.id, 'terminal') && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    {isEn ? 'Approval' : 'تایید'}
+                  </span>
+                )}
               </button>
             )}
 
@@ -2782,12 +2797,16 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-slate-300 font-medium">{isEn ? 'Port Mode:' : 'نوع پورت (Port Mode):'}</label>
-                        {!canMode && (
+                        {!canMode ? (
                           <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_mode' : 'نیازمند دسترسی port_mode'}>
                             <Lock className="w-2.5 h-2.5" />
                             <span>{isEn ? 'Locked' : 'قفل'}</span>
                           </span>
-                        )}
+                        ) : doesDeviceActionRequireApproval(effectivePolicy, device.id, 'port_mode') ? (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35">
+                            {isEn ? 'Approval' : 'تایید'}
+                          </span>
+                        ) : null}
                       </div>
                       <select
                         value={editMode}
@@ -2810,12 +2829,16 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-slate-300 font-medium">{isEn ? 'VLAN ID:' : 'شماره ویلن (VLAN ID):'}</label>
-                        {!canVlan && (
+                        {!canVlan ? (
                           <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_vlan' : 'نیازمند دسترسی port_vlan'}>
                             <Lock className="w-2.5 h-2.5" />
                             <span>{isEn ? 'Locked' : 'قفل'}</span>
                           </span>
-                        )}
+                        ) : doesDeviceActionRequireApproval(effectivePolicy, device.id, 'port_vlan') ? (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35">
+                            {isEn ? 'Approval' : 'تایید'}
+                          </span>
+                        ) : null}
                       </div>
                       <input
                         type="number"
@@ -2870,12 +2893,16 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-slate-300 font-medium">{isEn ? 'Admin Status (Shutdown / No Shutdown):' : 'وضعیت ادمین (Shutdown / No Shutdown):'}</label>
-                        {!canPower && (
+                        {!canPower ? (
                           <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_power' : 'نیازمند دسترسی port_power'}>
                             <Lock className="w-2.5 h-2.5" />
                             <span>{isEn ? 'Locked' : 'قفل'}</span>
                           </span>
-                        )}
+                        ) : doesDeviceActionRequireApproval(effectivePolicy, device.id, 'port_power') ? (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35">
+                            {isEn ? 'Approval' : 'تایید'}
+                          </span>
+                        ) : null}
                       </div>
                       <select
                         value={editAdminStatus}
@@ -2895,12 +2922,16 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-slate-300 font-medium">{isEn ? 'Port Description:' : 'توضیحات پورت (Description):'}</label>
-                        {!canDescription && (
+                        {!canDescription ? (
                           <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded" title={isEn ? 'Requires port_description' : 'نیازمند دسترسی port_description'}>
                             <Lock className="w-2.5 h-2.5" />
                             <span>{isEn ? 'Locked' : 'قفل'}</span>
                           </span>
-                        )}
+                        ) : doesDeviceActionRequireApproval(effectivePolicy, device.id, 'port_description') ? (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35">
+                            {isEn ? 'Approval' : 'تایید'}
+                          </span>
+                        ) : null}
                       </div>
                       <input
                         type="text"
@@ -2932,12 +2963,16 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                             <span className="layer2-security-badge text-[10px] font-mono px-2 py-0.5 rounded font-bold" data-badge="layer2-security">
                               Layer 2 Security
                             </span>
-                            {!canPortSecurity && (
+                            {!canPortSecurity ? (
                               <span className="text-[10px] font-mono text-amber-400 flex items-center gap-0.5 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/30">
                                 <Lock className="w-2.5 h-2.5" />
                                 <span>{isEn ? 'Locked (Requires port_security)' : 'قفل (نیازمند مجوز port_security)'}</span>
                               </span>
-                            )}
+                            ) : doesDeviceActionRequireApproval(effectivePolicy, device.id, 'port_security') ? (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35">
+                                {isEn ? 'Approval' : 'تایید'}
+                              </span>
+                            ) : null}
                           </div>
                           <p className="text-[11px] text-slate-300 mt-0.5">
                             {isEn ? 'Control and restrict MAC addresses on access ports to prevent MAC Flooding and unauthorized access' : 'محدودسازی و کنترل دسترسی مک آدرس‌های متصل به پورت به منظور جلوگیری از حملات MAC Flooding و نفوذ غیرمجاز'}

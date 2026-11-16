@@ -41,7 +41,12 @@ import {
   Upload,
 } from 'lucide-react';
 import { RemoteServer, RemoteServerTagSummary, ServerCategory, ServerActionKey } from '../../types';
-import { isServerActionAllowed } from '../../utils/rbac';
+import {
+  isServerActionAllowed,
+  evaluateServerActionDecision,
+  doesServerActionRequireApproval,
+} from '../../utils/rbac';
+import { preflightActionApproval } from '../../utils/approvalGateBridge';
 import {
   fetchRemoteServers,
   fetchRemoteServerTags,
@@ -987,25 +992,51 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       });
       setServerToDelete(null);
     } catch (err: any) {
+      if (err?.approvalHandled) {
+        setServerToDelete(null);
+        return;
+      }
       alert(err.message || (isEn ? 'Failed to delete server.' : 'خطا در حذف سرور.'));
     }
   };
 
-  // Handle Open Linux Terminal
-  const handleOpenLinuxTerminal = (server: RemoteServer, shell: 'bash' | 'zsh' = 'bash') => {
+  // Handle Open Linux Terminal (with Phase 3 policy approval gate preflight)
+  const handleOpenLinuxTerminal = async (server: RemoteServer, shell: 'bash' | 'zsh' = 'bash') => {
     setMenuAnchor(null);
-    if (!isServerActionAllowed(server, 'terminal', effectivePolicy)) {
+    const termDecision = evaluateServerActionDecision(effectivePolicy, server.id, 'terminal');
+    if (termDecision === 'deny') {
       return;
     }
+    let approvedServer: RemoteServer = server;
+    if (termDecision === 'require_approval') {
+      const pre = await preflightActionApproval({
+        entityType: 'server',
+        entityId: server.id,
+        entityName: server.name || server.ip || server.id,
+        actionKey: 'terminal',
+        requestedAction: `Open Linux SSH Terminal (${shell})`,
+        commandPreview: `ssh ${server.ssh_username || 'root'}@${server.ip}:${server.ssh_port || 22} (shell=${shell})`,
+        actionParams: {
+          protocol: 'ssh',
+          shell,
+          host: server.ip,
+          port: server.ssh_port || 22,
+        },
+      });
+      if (!pre.proceed) return;
+      if (pre.approvalRequestId) {
+        approvedServer = { ...server, approval_request_id: pre.approvalRequestId } as any;
+      }
+    }
     if (server.prompt_password_on_connect) {
-      setOnDemandServer(server);
+      setOnDemandServer(approvedServer);
       setOnDemandTarget('terminal');
       setOnDemandShell(shell);
       setIsOnDemandModalOpen(true);
       return;
     }
     setEphemeralTerminalPassword(undefined);
-    setTerminalServer(server);
+    setTerminalServer(approvedServer);
     setTerminalShell(shell);
     setIsTerminalModalOpen(true);
     undockModal(`linux_term_${server.id}`);
@@ -1193,10 +1224,23 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   };
 
   // Handle Open Windows Remote
-  const handleOpenWindowsRemote = (server: RemoteServer) => {
+  const handleOpenWindowsRemote = async (server: RemoteServer) => {
     setMenuAnchor(null);
-    if (!isServerActionAllowed(server, 'terminal', effectivePolicy)) {
+    const termDecision = evaluateServerActionDecision(effectivePolicy, server.id, 'terminal');
+    if (termDecision === 'deny') {
       return;
+    }
+    if (termDecision === 'require_approval') {
+      const pre = await preflightActionApproval({
+        entityType: 'server',
+        entityId: server.id,
+        entityName: server.name || server.ip || server.id,
+        actionKey: 'terminal',
+        requestedAction: `Open Native RDP / PowerShell Guide (${server.name || server.ip})`,
+        commandPreview: `mstsc /v:${server.ip}:${server.win_port || 3389}`,
+        actionParams: { protocol: 'rdp_native', host: server.ip, port: server.win_port || 3389 },
+      });
+      if (!pre.proceed) return;
     }
     setWindowsModalServer(server);
     setIsWindowsModalOpen(true);
@@ -1204,21 +1248,41 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   };
 
   // Handle Open In-Browser Remote Desktop (RDP / VNC via Guacamole Gateway)
-  const handleOpenInBrowserRemote = (server: RemoteServer, protocol: 'rdp' | 'vnc' = 'rdp') => {
+  const handleOpenInBrowserRemote = async (server: RemoteServer, protocol: 'rdp' | 'vnc' = 'rdp') => {
     setMenuAnchor(null);
-    if (!isServerActionAllowed(server, 'terminal', effectivePolicy)) {
+    const termDecision = evaluateServerActionDecision(effectivePolicy, server.id, 'terminal');
+    if (termDecision === 'deny') {
       return;
+    }
+    let approvedServer: RemoteServer = server;
+    if (termDecision === 'require_approval') {
+      const targetPort = protocol === 'rdp' ? (server.win_port || 3389) : (server.vnc_port || 5900);
+      const pre = await preflightActionApproval({
+        entityType: 'server',
+        entityId: server.id,
+        entityName: server.name || server.ip || server.id,
+        actionKey: 'terminal',
+        requestedAction: `Launch ${protocol.toUpperCase()} Remote Desktop (${server.name || server.ip})`,
+        commandPreview: `${protocol.toUpperCase()} -> ${server.ip}:${targetPort}`,
+        actionParams: { protocol, host: server.ip, port: targetPort },
+      });
+      if (!pre.proceed) return;
+      if (pre.approvalRequestId) {
+        approvedServer = { ...server, approval_request_id: pre.approvalRequestId } as any;
+      }
     }
     const existingSession = inBrowserSessions.find((s) => s.server.id === server.id);
     if (existingSession) {
       setInBrowserSessions((prev) =>
-        prev.map((s) => (s.server.id === server.id ? { ...s, isOpen: true } : s))
+        prev.map((s) =>
+          s.server.id === server.id ? { ...s, server: approvedServer, isOpen: true } : s
+        )
       );
       undockModal(`inbrowser_remote_${server.id}`);
       return;
     }
     if (server.prompt_password_on_connect) {
-      setOnDemandServer(server);
+      setOnDemandServer(approvedServer);
       setOnDemandTarget(protocol);
       setIsOnDemandModalOpen(true);
       return;
@@ -1226,7 +1290,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     setEphemeralRdpPassword(undefined);
     setInBrowserSessions((prev) => [
       ...prev,
-      { server, protocol, sessionPassword: undefined, isOpen: true },
+      { server: approvedServer, protocol, sessionPassword: undefined, isOpen: true },
     ]);
     undockModal(`inbrowser_remote_${server.id}`);
   };
@@ -4038,6 +4102,13 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                     canDeleteServer ||
                     canExportServer;
 
+                  const badgeFor = (actKey: ServerActionKey) =>
+                    doesServerActionRequireApproval(effectivePolicy, s.id, actKey) ? (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 border border-amber-500/40 text-[9px] font-bold shrink-0">
+                        {isEn ? 'Approval' : 'تایید'}
+                      </span>
+                    ) : null;
+
                   return (
                     <>
                       {/* Linux Specific Remote Options */}
@@ -4052,8 +4123,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               } ${isLightMode ? 'hover:bg-cyan-50' : 'hover:bg-cyan-500/15'}`}
                             >
                               <Activity className="w-4 h-4 text-cyan-400 shrink-0" />
-                              <div className="flex flex-col">
-                                <span>{isEn ? 'Server Management' : 'مدیریت سرور'}</span>
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <span className="truncate">{isEn ? 'Server Management' : 'مدیریت سرور'}</span>
+                                  {badgeFor('server_management')}
+                                </div>
                                 <span className="text-[10px] text-cyan-400/80 font-mono">Overview, Storage, Services & Config</span>
                               </div>
                             </button>
@@ -4069,8 +4143,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               } ${isLightMode ? 'hover:bg-emerald-50 text-emerald-700' : 'hover:bg-emerald-500/15 text-emerald-300'}`}
                             >
                               <Globe className="w-4 h-4 text-emerald-400 shrink-0" />
-                              <div className="flex flex-col">
-                                <span>{isEn ? 'Nginx Management' : 'مدیریت Nginx'}</span>
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <span className="truncate">{isEn ? 'Nginx Management' : 'مدیریت Nginx'}</span>
+                                  {badgeFor('web_management')}
+                                </div>
                                 <span className={`text-[10px] font-mono ${isLightMode ? 'text-emerald-600/80' : 'text-emerald-400/80'}`}>
                                   {isEn ? 'Web Server, Virtual Hosts & Proxy' : 'وب‌سرور، هاست‌های مجازی و پروکسی معکوس'}
                                 </span>
@@ -4088,8 +4165,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               } ${isLightMode ? 'hover:bg-amber-50 text-amber-700' : 'hover:bg-amber-500/15 text-amber-300'}`}
                             >
                               <Flame className="w-4 h-4 text-rose-400 shrink-0" />
-                              <div className="flex flex-col">
-                                <span>{isEn ? 'Apache Management' : 'مدیریت Apache'}</span>
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <span className="truncate">{isEn ? 'Apache Management' : 'مدیریت Apache'}</span>
+                                  {badgeFor('web_management')}
+                                </div>
                                 <span className={`text-[10px] font-mono ${isLightMode ? 'text-rose-600/80' : 'text-rose-400/80'}`}>
                                   {isEn ? 'HTTP Server, VirtualHosts & Modules' : 'وب‌سرور آپاچی، هاست‌های مجازی و ماژول‌ها'}
                                 </span>
@@ -4107,8 +4187,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               } ${isLightMode ? 'hover:bg-blue-50 text-blue-700' : 'hover:bg-blue-500/15 text-blue-300'}`}
                             >
                               <Database className="w-4 h-4 text-blue-400 shrink-0" />
-                              <div className="flex flex-col">
-                                <span>{isEn ? 'PostgreSQL Management' : 'مدیریت PostgreSQL'}</span>
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <span className="truncate">{isEn ? 'PostgreSQL Management' : 'مدیریت PostgreSQL'}</span>
+                                  {badgeFor('database_management')}
+                                </div>
                                 <span className={`text-[10px] font-mono ${isLightMode ? 'text-blue-600/80' : 'text-blue-400/80'}`}>
                                   {isEn ? 'Database Engine, Telemetry & Status' : 'پایگاه داده، پایش وضعیت و تلمتری'}
                                 </span>
@@ -4126,8 +4209,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               } ${isLightMode ? 'hover:bg-amber-50 text-amber-700' : 'hover:bg-amber-500/15 text-amber-300'}`}
                             >
                               <Database className="w-4 h-4 text-amber-400 shrink-0" />
-                              <div className="flex flex-col">
-                                <span>{isEn ? 'MySQL Management' : 'مدیریت MySQL'}</span>
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <span className="truncate">{isEn ? 'MySQL Management' : 'مدیریت MySQL'}</span>
+                                  {badgeFor('database_management')}
+                                </div>
                                 <span className={`text-[10px] font-mono ${isLightMode ? 'text-amber-600/80' : 'text-amber-400/80'}`}>
                                   {isEn ? `Port ${s.mysql_port || 3306} • Database Management` : `پورت ${s.mysql_port || 3306} • مدیریت پایگاه داده`}
                                 </span>
@@ -4145,8 +4231,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               } ${isLightMode ? 'hover:bg-amber-50' : 'hover:bg-amber-500/15'}`}
                             >
                               <FolderTree className="w-4 h-4 text-amber-400 shrink-0" />
-                              <div className="flex flex-col">
-                                <span>{isEn ? 'File Explorer' : 'کاوشگر فایل'}</span>
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <span className="truncate">{isEn ? 'File Explorer' : 'کاوشگر فایل'}</span>
+                                  {badgeFor('file_explorer')}
+                                </div>
                                 <span className="text-[10px] text-amber-400/80 font-mono">SFTP, Directory Tree & Editor</span>
                               </div>
                             </button>
@@ -4162,8 +4251,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               } ${isLightMode ? 'hover:bg-amber-50' : 'hover:bg-amber-500/15'}`}
                             >
                               <Monitor className="w-4 h-4 text-amber-400 shrink-0" />
-                              <div className="flex flex-col">
-                                <span>{isEn ? 'In-Browser VNC Console' : 'کنسول گرافیکی VNC مرورگر'}</span>
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <span className="truncate">{isEn ? 'In-Browser VNC Console' : 'کنسول گرافیکی VNC مرورگر'}</span>
+                                  {badgeFor('terminal')}
+                                </div>
                                 <span className="text-[10px] text-amber-400/80 font-mono">Web Desktop Stream</span>
                               </div>
                             </button>
@@ -4179,8 +4271,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               } ${isLightMode ? 'hover:bg-emerald-50' : 'hover:bg-emerald-500/15'}`}
                             >
                               <Terminal className="w-4 h-4 text-emerald-400 shrink-0" />
-                              <div className="flex flex-col">
-                                <span>{isEn ? 'SSH Terminal' : 'ترمینال SSH'}</span>
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1.5">
+                                  <span className="truncate">{isEn ? 'SSH Terminal' : 'ترمینال SSH'}</span>
+                                  {badgeFor('terminal')}
+                                </div>
                                 <span className="text-[10px] text-emerald-400/80 font-mono">/bin/bash</span>
                               </div>
                             </button>
@@ -4201,8 +4296,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                                 } ${isLightMode ? 'hover:bg-cyan-50' : 'hover:bg-cyan-500/15'}`}
                               >
                                 <Monitor className="w-4 h-4 text-cyan-400 shrink-0" />
-                                <div className="flex flex-col">
-                                  <span>{isEn ? 'In-Browser RDP' : 'ریموت دسکتاپ در مرورگر'}</span>
+                                <div className="flex flex-col flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-1.5">
+                                    <span className="truncate">{isEn ? 'In-Browser RDP' : 'ریموت دسکتاپ در مرورگر'}</span>
+                                    {badgeFor('terminal')}
+                                  </div>
                                   <span className="text-[10px] text-cyan-400/80 font-mono">HTML5 Guacamole Gateway</span>
                                 </div>
                               </button>
@@ -4215,8 +4313,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                                 } ${isLightMode ? 'hover:bg-blue-50' : 'hover:bg-blue-500/15'}`}
                               >
                                 <ExternalLink className="w-4 h-4 text-blue-400 shrink-0" />
-                                <div className="flex flex-col">
-                                  <span>{isEn ? 'Native RDP / PowerShell' : 'تنظیمات mstsc و پاورشل'}</span>
+                                <div className="flex flex-col flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-1.5">
+                                    <span className="truncate">{isEn ? 'Native RDP / PowerShell' : 'تنظیمات mstsc و پاورشل'}</span>
+                                    {badgeFor('terminal')}
+                                  </div>
                                   <span className="text-[10px] text-blue-400/80 font-mono">Desktop Client & PowerShell</span>
                                 </div>
                               </button>
@@ -4243,8 +4344,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           } ${isLightMode ? 'hover:bg-amber-50' : 'hover:bg-amber-500/15'}`}
                         >
                           <RotateCcw className="w-4 h-4 text-amber-400 shrink-0" />
-                          <div className="flex flex-col">
-                            <span>{isEn ? 'Restart Server' : 'راه‌اندازی مجدد (ری‌استارت)'}</span>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="truncate">{isEn ? 'Restart Server' : 'راه‌اندازی مجدد (ری‌استارت)'}</span>
+                              {badgeFor('power_control')}
+                            </div>
                             <span className="text-[10px] text-amber-400/80 font-mono">
                               {s.os_type === 'linux' ? 'Linux (reboot / shutdown -r)' : 'Windows (shutdown /r /t)'}
                             </span>
@@ -4265,8 +4369,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           } ${isLightMode ? 'hover:bg-rose-50' : 'hover:bg-rose-500/15'}`}
                         >
                           <Power className="w-4 h-4 text-rose-400 shrink-0" />
-                          <div className="flex flex-col">
-                            <span>{isEn ? 'Shutdown / Power Off' : 'خاموش کردن سرور (Shutdown)'}</span>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="truncate">{isEn ? 'Shutdown / Power Off' : 'خاموش کردن سرور (Shutdown)'}</span>
+                              {badgeFor('power_control')}
+                            </div>
                             <span className="text-[10px] text-rose-400/80 font-mono">
                               {s.os_type === 'linux' ? 'Linux (poweroff / shutdown -h)' : 'Windows (shutdown /s /t)'}
                             </span>
@@ -4284,8 +4391,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           } ${isLightMode ? 'hover:bg-amber-50' : 'hover:bg-amber-500/15'}`}
                         >
                           <Edit2 className="w-4 h-4 text-amber-400 shrink-0" />
-                          <div className="flex flex-col">
-                            <span>{isEn ? 'Edit Server Properties' : 'ویرایش مشخصات سرور'}</span>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="truncate">{isEn ? 'Edit Server Properties' : 'ویرایش مشخصات سرور'}</span>
+                              {badgeFor('edit_properties')}
+                            </div>
                             <span className="text-[10px] text-amber-400/80 font-mono">Host, IP, Credentials, Tags</span>
                           </div>
                         </button>
@@ -4308,8 +4418,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           }`}
                         >
                           <Download className="w-4 h-4 text-cyan-400 shrink-0" />
-                          <div className="flex flex-col">
-                            <span>{isEn ? 'Export Server Data' : 'خروجی اطلاعات سرور'}</span>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="truncate">{isEn ? 'Export Server Data' : 'خروجی اطلاعات سرور'}</span>
+                              {badgeFor('export_servers')}
+                            </div>
                             <span className="text-[10px] text-cyan-400/80 font-mono">JSON / CSV</span>
                           </div>
                         </button>
@@ -4323,12 +4436,15 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                             setMenuAnchor(null);
                             setServerToDelete(s);
                           }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 transition cursor-pointer ${
+                          className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 transition cursor-pointer ${
                             isEn ? 'text-left' : 'text-right'
                           } ${isLightMode ? 'hover:bg-rose-50' : 'hover:bg-rose-500/20'}`}
                         >
-                          <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
-                          <span>{isEn ? 'Delete Server from Fleet' : 'حذف سرور از ناوگان'}</span>
+                          <span className="flex items-center gap-2.5 min-w-0">
+                            <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
+                            <span className="truncate">{isEn ? 'Delete Server from Fleet' : 'حذف سرور از ناوگان'}</span>
+                          </span>
+                          {badgeFor('delete_server')}
                         </button>
                       )}
 

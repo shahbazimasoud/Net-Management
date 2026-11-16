@@ -52,7 +52,7 @@ import { VPNInspectModal } from './VPNInspectModal';
 import { FieldInfoTooltip } from './FieldInfoTooltip';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import { isDeviceActionPermitted } from '../../utils/rbac';
+import { isDeviceActionPermitted, doesDeviceActionRequireApproval } from '../../utils/rbac';
 
 interface MikroTikVPNSuiteProps {
   device: Device;
@@ -1442,6 +1442,11 @@ export const MikroTikVPNSuite: React.FC<MikroTikVPNSuiteProps> = ({
                 >
                   {isApplying ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
                   <span>{isEn ? 'Apply Configuration to Router' : 'اعمال کانفیگ روی روتر میکروتیک'}</span>
+                  {doesDeviceActionRequireApproval(effectivePolicy, device.id, 'mikrotik_vpn') && (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-950/60 text-amber-200 border border-amber-300/40">
+                      {isEn ? 'Approval' : 'تایید'}
+                    </span>
+                  )}
                 </button>
               </div>
             </div>

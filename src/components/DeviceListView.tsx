@@ -50,6 +50,7 @@ import { useAuth } from '../context/AuthContext';
 import { useModalDock } from '../context/ModalDockContext';
 import {
   isDeviceActionPermitted,
+  doesDeviceActionRequireApproval,
   hasAnyDeviceActionPermitted,
   canUserPerformDeviceAction,
 } from '../utils/rbac';
@@ -1655,8 +1656,15 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                         }`}
                       >
                         <Terminal className="w-4 h-4 text-emerald-500 group-hover/item:scale-110 transition shrink-0" />
-                        <div className="flex flex-col">
-                          <span>{isEn ? 'SSH Console Direct' : 'کانکت به ترمینال سیسکو'}</span>
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="truncate">{isEn ? 'SSH Console Direct' : 'کانکت به ترمینال سیسکو'}</span>
+                            {doesDeviceActionRequireApproval(effectivePolicy, dev.id, 'terminal') && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 border border-amber-500/40 text-[9px] font-bold shrink-0">
+                                {isEn ? 'Approval' : 'تایید'}
+                              </span>
+                            )}
+                          </div>
                           <span className={`text-[10px] font-mono ${isLightMode ? 'text-emerald-600/80' : 'text-emerald-500/80'}`}>CLI Terminal</span>
                         </div>
                       </button>
@@ -1680,8 +1688,15 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                           }`}
                         >
                           <Sliders className="w-4 h-4 text-cyan-500 group-hover/item:scale-110 transition shrink-0" />
-                          <div className="flex flex-col">
-                            <span className="font-semibold">{isEn ? 'Config Device' : 'پیکربندی تجهیز'}</span>
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="font-semibold truncate">{isEn ? 'Config Device' : 'پیکربندی تجهیز'}</span>
+                              {doesDeviceActionRequireApproval(effectivePolicy, dev.id, 'cisco_config_device') && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 border border-amber-500/40 text-[9px] font-bold shrink-0">
+                                  {isEn ? 'Approval' : 'تایید'}
+                                </span>
+                              )}
+                            </div>
                             <span className={`text-[10px] ${isLightMode ? 'text-cyan-600/80' : 'text-cyan-400/80'}`}>
                               {isEn ? 'VTY, NTP, SNMP, STP, VTP' : 'تنظیمات VTY، زمان، SNMP و...'}
                             </span>
@@ -1721,8 +1736,15 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                         }`}
                       >
                         <FileCode2 className="w-4 h-4 text-cyan-500 group-hover/item:scale-110 transition shrink-0" />
-                        <div className="flex flex-col">
-                          <span>{isEn ? 'Apply Config Template' : 'اعمال تمپلیت کانفیگ'}</span>
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="truncate">{isEn ? 'Apply Config Template' : 'اعمال تمپلیت کانفیگ'}</span>
+                            {doesDeviceActionRequireApproval(effectivePolicy, dev.id, 'apply_template') && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 border border-amber-500/40 text-[9px] font-bold shrink-0">
+                                {isEn ? 'Approval' : 'تایید'}
+                              </span>
+                            )}
+                          </div>
                           <span className={`text-[10px] ${isLightMode ? 'text-cyan-600/70' : 'text-cyan-400/70'}`}>{isEn ? 'Variables & Deploy' : 'تکمیل متغیرها و اجرا'}</span>
                         </div>
                       </button>
@@ -1779,8 +1801,15 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                         }`}
                       >
                         <Edit3 className={`w-4 h-4 group-hover/item:scale-110 transition shrink-0 ${isLightMode ? 'text-indigo-600' : 'text-amber-400'}`} />
-                        <div className="flex flex-col">
-                          <span>{isEn ? 'Edit Device Properties' : 'ویرایش مشخصات تجهیز'}</span>
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="truncate">{isEn ? 'Edit Device Properties' : 'ویرایش مشخصات تجهیز'}</span>
+                            {doesDeviceActionRequireApproval(effectivePolicy, dev.id, 'edit_properties') && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 border border-amber-500/40 text-[9px] font-bold shrink-0">
+                                {isEn ? 'Approval' : 'تایید'}
+                              </span>
+                            )}
+                          </div>
                           <span className={`text-[10px] font-mono ${isLightMode ? 'text-slate-500' : 'text-amber-400/80'}`}>Hostname, IP, Role & Location</span>
                         </div>
                       </button>
@@ -1849,8 +1878,15 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                         }`}
                       >
                         <Save className="w-4 h-4 text-amber-500 shrink-0" />
-                        <div className="flex flex-col">
-                          <span>{isEn ? 'Save to NVRAM (Write Memory)' : 'ذخیره در NVRAM (Write Memory)'}</span>
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="truncate">{isEn ? 'Save to NVRAM (Write Memory)' : 'ذخیره در NVRAM (Write Memory)'}</span>
+                            {doesDeviceActionRequireApproval(effectivePolicy, dev.id, 'write_memory') && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 border border-amber-500/40 text-[9px] font-bold shrink-0">
+                                {isEn ? 'Approval' : 'تایید'}
+                              </span>
+                            )}
+                          </div>
                           <span className={`text-[10px] font-mono ${isLightMode ? 'text-amber-600/80' : 'text-amber-400/80'}`}>Running &gt; Startup Config</span>
                         </div>
                       </button>
@@ -1873,8 +1909,15 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                         }`}
                       >
                         <Download className="w-4 h-4 text-cyan-500 shrink-0" />
-                        <div className="flex flex-col">
-                          <span>{isEn ? 'Export Device Data (JSON / CSV)' : 'خروجی گرفتن از اطلاعات تجهیز (Export)'}</span>
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="truncate">{isEn ? 'Export Device Data (JSON / CSV)' : 'خروجی گرفتن از اطلاعات تجهیز (Export)'}</span>
+                            {doesDeviceActionRequireApproval(effectivePolicy, dev.id, 'export_devices') && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 border border-amber-500/40 text-[9px] font-bold shrink-0">
+                                {isEn ? 'Approval' : 'تایید'}
+                              </span>
+                            )}
+                          </div>
                           <span className={`text-[10px] font-mono ${isLightMode ? 'text-cyan-700/80' : 'text-cyan-300/70'}`}>
                             {isEn ? 'Inventory Specs & Ports' : 'مشخصات سخت‌افزاری و پورت‌ها'}
                           </span>
@@ -1891,7 +1934,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                             setMenuAnchor(null);
                             setDeviceToDelete(dev);
                           }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition ${
+                          className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-medium transition ${
                             isRtl ? 'text-right' : 'text-left'
                           } cursor-pointer ${
                             isLightMode
@@ -1899,8 +1942,15 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                               : 'text-rose-400 hover:bg-rose-500/20 hover:text-rose-300'
                           }`}
                         >
-                          <Trash2 className="w-4 h-4 text-rose-500 shrink-0" />
-                          <span>{isEn ? 'Delete Device from System' : 'حذف تجهیز از سیستم'}</span>
+                          <span className="flex items-center gap-2.5 min-w-0">
+                            <Trash2 className="w-4 h-4 text-rose-500 shrink-0" />
+                            <span className="truncate">{isEn ? 'Delete Device from System' : 'حذف تجهیز از سیستم'}</span>
+                          </span>
+                          {doesDeviceActionRequireApproval(effectivePolicy, dev.id, 'delete_device') && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 border border-amber-500/40 text-[9px] font-bold shrink-0">
+                              {isEn ? 'Approval' : 'تایید'}
+                            </span>
+                          )}
                         </button>
                       </>
                     )}

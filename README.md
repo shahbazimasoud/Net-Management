@@ -260,6 +260,11 @@ npm start
 > ۳. **گیت و کامیت خودکار**: تمامی تغییرات باید خودکار همراه با پیام توصیفی دوزبانه روی برنچ `master` مخزن گیت‌هاب کامیت و پوش شوند. جزئیات بیشتر در فایل `AGENTS.md` درج شده است.
 
 ### تاریخچه نسخه‌ها و رفع مشکلات (Release Notes & Troubleshooting)
+- **نسخه ۱.۴۳۳.۰ (v1.433.0 - فاز ۳: اعمال همه‌جانبه گیت تایید در زمان اجرا، مصرف بلیت یک‌بارمصرف JIT و رهگیری سراسری رابط کاربری)**:
+  - **اعمال سمت سرور و مصرف یک‌بارمصرف بلیت تایید (`JIT`):** محافظت از تمامی اندپوینت‌های حساس تجهیزات و سرورها، پروکسی VPN میکروتیک، عملیات گروهی/خروجی/ورودی، وب‌سوکت ترمینال‌های لینوکس و تجهیزات شبکه (`terminalWs.ts`) و دروازه ریموت دسکتاپ (`remoteDesktopGateway.ts`) با صدور خطای استاندارد `403 APPROVAL_REQUIRED` یا کد وب‌سوکت `4003` و مصرف تک‌بار بلیت از طریق هدر `X-Approval-Request-Id`.
+  - **اصلاح هیدراته‌شدن پالیسی کاربر در `db.ts`:** همگام‌سازی کامل `getEffectivePolicyForUser` با پیلود توکن‌های JWT (`userId` و عضویت گروه‌ها) برای ارزیابی دقیق اسکوپ و قوانین در دروازه ریموت دسکتاپ و ترمینال.
+  - **گیت سراسری کلاینت و پیش‌بررسی تعاملی (`ApprovalGateModal` & `approvalGateBridge.ts`):** رهگیری یکپارچه درخواست‌های `/api/*`، پیش‌بررسی ترمینال و RDP با `GET /api/approvals/check-action`، ثبت مستقیم درخواست تایید، بازپخش خودکار عملیات پس از تایید، سرکوب پیغام‌های خطای کاذب و افزودن نشانگرهای کهربایی `تایید / Approval` بر روی اکشن‌های نیازمند تایید در مودال‌ها و منوها.
+
 - **نسخه ۱.۴۳۲.۰ (v1.432.0 - فاز ۲: موتور جریان کار تایید چندمرحله‌ای ترتیبی و ارتقای رابط Inbox و صف تاییدیه‌ها)**:
   - **موتور اجرای ترتیبی چندمرحله‌ای (`approvalService.ts`):** پیاده‌سازی کامل چرخه تایید ۱ تا ۳ مرحله‌ای متصل به پالیسی RBAC در PostgreSQL و fallback store با مهاجرت خودکار ستون‌های `action_key`، `policy_id`، `policy_name`، `current_stage_order`، `total_stages` و `stages_json`.
   - **مسیریابی اختصاصی اعلان و امنیت هر مرحله:** ارسال اعلان `approval_request` صرفاً به تاییدکنندگان مجاز مرحله فعال (کاربران خاص، گروه‌های کاربری محلی/AD و یا تاییدکنندگان مجاز)، اعمال کنترل عدم تایید خودکار (Four-Eyes) در سطح هر مرحله، و امکان تصمیم‌گیری اضطراری `Super Admin Override` با ثبت در لاگ ممیزی.
@@ -611,6 +616,11 @@ Any AI assistant, coding agent, or human contributor working on this repository 
 3. **Git Workflow:** Automatically commit all changes with descriptive commit messages and push to `origin master`.
 
 ### Release Notes & Bug Fixes
+- **Version 1.433.0 (Phase 3: Runtime Approval Gate Enforcement, Single-Use JIT Tickets & Global UI Gate Interception)**:
+  - **End-to-End Server Gate & Single-Use JIT Consumption:** Enforced tri-state `require_approval` gates across HTTP device/server endpoints, MikroTik VPN proxy routes, export/import/bulk operations, SSH/CLI WebSockets (`terminalWs.ts`), and the Remote Desktop Gateway (`remoteDesktopGateway.ts`), returning structured `403 APPROVAL_REQUIRED` (or WS `4003`) challenges and atomically consuming `X-Approval-Request-Id` / `approvalRequestId` tickets upon execution.
+  - **JWT Policy Hydration Fix (`db.ts`):** Fixed `getEffectivePolicyForUser` to resolve full local user records and group memberships from decoded JWT payloads (`userId`), ensuring consistent target scope and RBAC policy evaluation in WS and RDP gateways.
+  - **Global Frontend Gate & Approval Indicators (`ApprovalGateModal`, `approvalGateBridge.ts`):** Added `GET /api/approvals/check-action` preflight validation, same-origin fetch interception with automatic JIT replay, terminal/RDP preflight hooks, suppression of redundant error alerts on gated actions (`approvalHandled`), and amber `Approval` pills across action menus and modals.
+
 - **Version 1.432.0 (Phase 2: Policy-Driven Multi-Stage Sequential Approval Workflow Engine & Inbox/Queue UI Upgrade)**:
   - **Backend Multi-Stage Approval Engine (`approvalService.ts`):** Implemented 1–3 stage sequential workflow execution bound to the requester's effective `AccessPolicy` with idempotent PostgreSQL column migrations (`action_key`, `policy_id`, `policy_name`, `current_stage_order`, `total_stages`, `stages_json`) and full legacy 1-stage backward compatibility.
   - **Targeted Stage Routing & Per-Stage Enforcement:** Sends `approval_request` Inbox notifications strictly to authorized recipients of the currently active stage (`specific_users`, `user_groups` across Local/AD groups, or `any_approver`), enforces per-stage assignment and Four-Eyes checks, and supports audited `Super Admin Override` escalation.

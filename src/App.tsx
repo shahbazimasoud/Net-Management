@@ -97,8 +97,20 @@ import {
   loadGeneralSettings,
   syncGeneralSettingsFromDatabase,
 } from './services/settingsStorage';
-import { AccessPolicy, LocalGroup, DeviceGroup, ActiveDirectoryConfig, PanelGeneralSettings } from './types';
-import { isDeviceActionPermitted, isUserSuperAdmin, isTemplateApplyPermitted } from './utils/rbac';
+import { AccessPolicy, LocalGroup, DeviceGroup, ActiveDirectoryConfig, PanelGeneralSettings, ApprovalGatePayload } from './types';
+import {
+  isDeviceActionPermitted,
+  evaluateDeviceActionDecision,
+  isUserSuperAdmin,
+  isTemplateApplyPermitted,
+} from './utils/rbac';
+import { ApprovalGateModal } from './components/common/ApprovalGateModal';
+import {
+  ApprovalGateResolution,
+  installGlobalApprovalFetchInterceptor,
+  preflightActionApproval,
+  registerApprovalGateHandler,
+} from './utils/approvalGateBridge';
 
 export default function App() {
   const { t, isRtl, isEn, language, setLanguage } = useLanguage();
@@ -113,6 +125,13 @@ export default function App() {
   const [unreadCommsCount, setUnreadCommsCount] = useState<number>(0);
   const [commsLiveRevision, setCommsLiveRevision] = useState<number>(0);
   const [focusedCommsNotificationId, setFocusedCommsNotificationId] = useState<string | null>(null);
+  const [focusedCommsViewMode, setFocusedCommsViewMode] = useState<'inbox' | 'channels' | 'tracker' | 'approvals' | null>(null);
+  const [focusedApprovalId, setFocusedApprovalId] = useState<string | null>(null);
+  const [approvalGateState, setApprovalGateState] = useState<{
+    isOpen: boolean;
+    payload: ApprovalGatePayload | null;
+    resolveFn: ((resolution: ApprovalGateResolution) => void) | null;
+  }>({ isOpen: false, payload: null, resolveFn: null });
 
   // RBAC Access Control States (Synchronized directly with PostgreSQL database via Bearer Token)
   const [policies, setPolicies] = useState<AccessPolicy[]>([]);
@@ -364,6 +383,32 @@ export default function App() {
       setToastMessage(null);
     }, 5000);
   }, []);
+
+  // Install global Phase 3 same-origin /api/* fetch interceptor & Approval Gate host handler
+  useEffect(() => {
+    installGlobalApprovalFetchInterceptor();
+    const unregister = registerApprovalGateHandler(
+      (payload) =>
+        new Promise<ApprovalGateResolution>((resolve) => {
+          setApprovalGateState({
+            isOpen: true,
+            payload,
+            resolveFn: resolve,
+          });
+        })
+    );
+    const onApprovalNotice = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail) {
+        showToast(isEn ? detail.textEn : detail.textFa);
+      }
+    };
+    window.addEventListener('nettop-approval-notice', onApprovalNotice);
+    return () => {
+      unregister();
+      window.removeEventListener('nettop-approval-notice', onApprovalNotice);
+    };
+  }, [isEn, showToast]);
 
   // General Panel Configuration State
   const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
@@ -966,14 +1011,14 @@ export default function App() {
     }).catch(() => {});
   }, [isModalMinimized, activePortDevices, isEn, triggerDockAttention]);
 
-  const openTerminal = useCallback((dev: Device | null, initialPort?: string) => {
+  const openTerminal = useCallback(async (dev: Device | null, initialPort?: string) => {
     if (!dev) {
       setActiveTerminals([]);
       return;
     }
-    // Strict RBAC check: verify whether user is permitted to open CLI terminal on this device
-    const canTerminal = isDeviceActionPermitted(authEffectivePolicy, dev.id, 'terminal');
-    if (!canTerminal) {
+    // Strict tri-state RBAC check: allow | require_approval | deny
+    const terminalDecision = evaluateDeviceActionDecision(authEffectivePolicy, dev.id, 'terminal');
+    if (terminalDecision === 'deny') {
       showToast(
         isEn
           ? `Access Denied: You do not have permission to access terminal on ${dev.name || dev.ip || 'this device'}.`
@@ -981,10 +1026,38 @@ export default function App() {
       );
       return;
     }
+    let approvalRequestId: string | undefined;
+    if (terminalDecision === 'require_approval') {
+      const pre = await preflightActionApproval({
+        entityType: 'device',
+        entityId: dev.id,
+        entityName: dev.name || dev.ip || dev.id,
+        actionKey: 'terminal',
+        requestedAction: `Open Interactive CLI Terminal (${dev.name || dev.ip || dev.id})`,
+        commandPreview: `ssh ${dev.ssh_username || 'admin'}@${dev.ssh_host || dev.ip}:${dev.ssh_port || 22}`,
+        actionParams: {
+          protocol: 'ssh',
+          host: dev.ssh_host || dev.ip,
+          port: dev.ssh_port || 22,
+          ...(initialPort ? { initialPort } : {}),
+        },
+      });
+      if (!pre.proceed) {
+        if (pre.denied) {
+          showToast(isEn ? pre.error || 'Access denied' : pre.errorFa || 'عدم دسترسی');
+        }
+        return;
+      }
+      approvalRequestId = pre.approvalRequestId;
+    }
     if (isModalMinimized('terminal')) {
       handleRestoreStandardModal('terminal');
     }
-    const devWithPort = initialPort ? { ...dev, initial_port: initialPort } : dev;
+    const devWithPort = {
+      ...dev,
+      ...(initialPort ? { initial_port: initialPort } : {}),
+      ...(approvalRequestId ? { approval_request_id: approvalRequestId } : {}),
+    };
     setActiveTerminals([devWithPort]);
   }, [isModalMinimized, handleRestoreStandardModal, authEffectivePolicy, isEn, showToast]);
 
@@ -1296,13 +1369,14 @@ export default function App() {
   const handleDeleteDevice = async (id: string) => {
     try {
       const targetDev = devices.find((d) => d.id === id);
+      await deleteDevice(id);
       if (targetDev) {
         logDeviceDeletion(targetDev);
       }
-      await deleteDevice(id);
       await loadData();
       showToast(t('toast_device_deleted'));
     } catch (err: any) {
+      if (err?.approvalHandled) return;
       showToast(t('toast_device_delete_error', { error: err.message }));
     }
   };
@@ -1344,6 +1418,7 @@ export default function App() {
       }
       showToast(isEn ? ((res as any).message_en || t('toast_write_mem_success')) : (res.message || t('toast_write_mem_success')));
     } catch (err: any) {
+      if (err?.approvalHandled) return;
       showToast(t('toast_write_mem_error', { error: err.message }));
     }
   };
@@ -1539,6 +1614,12 @@ export default function App() {
               liveRevision={commsLiveRevision}
               initialSelectedId={focusedCommsNotificationId}
               onConsumeInitialSelectedId={() => setFocusedCommsNotificationId(null)}
+              initialViewMode={focusedCommsViewMode}
+              initialApprovalId={focusedApprovalId}
+              onConsumeInitialApprovalView={() => {
+                setFocusedCommsViewMode(null);
+                setFocusedApprovalId(null);
+              }}
             />
           )}
 
@@ -2067,6 +2148,28 @@ export default function App() {
         allDevices={devices}
         onOpenTerminal={(dev) => openTerminal(dev)}
         onOpenPortInspector={(dev) => handleInspectPorts(dev)}
+      />
+
+      {/* 12. Global Policy-Driven Multi-Stage Approval Gate Host */}
+      <ApprovalGateModal
+        isOpen={approvalGateState.isOpen}
+        payload={approvalGateState.payload}
+        onResolve={(res) => {
+          approvalGateState.resolveFn?.(res);
+          setApprovalGateState((prev) => ({ ...prev, resolveFn: null }));
+        }}
+        onCloseVisual={() =>
+          setApprovalGateState((prev) => ({ ...prev, isOpen: false }))
+        }
+        onRestoreVisual={() =>
+          setApprovalGateState((prev) => ({ ...prev, isOpen: true }))
+        }
+        onNavigateToApprovals={(approvalId) => {
+          setFocusedCommsViewMode('approvals');
+          if (approvalId) setFocusedApprovalId(approvalId);
+          setActiveTab('communications');
+        }}
+        isLightMode={isLightMode}
       />
     </div>
   );

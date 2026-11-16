@@ -82,6 +82,7 @@ import {
   updateDevice,
   deleteDevice,
   isDeviceActionPermitted,
+  evaluateDeviceActionDecision,
   getActiveDirectoryConfig,
   saveActiveDirectoryConfig,
   sanitizeAdConfigForClient,
@@ -126,6 +127,7 @@ import {
   updateRemoteServer,
   deleteRemoteServer,
   isServerActionPermitted,
+  evaluateServerActionDecision,
   isBulkConfigPermitted,
   isBulkServerConfigPermitted,
   RemoteServer,
@@ -556,8 +558,211 @@ import {
   abortNetworkDeviceDiscoveryScan,
 } from './networkDeviceDiscoveryEngine';
 import { testSnmpConnection, fetchCiscoSnmpSystemResources } from './snmpService';
+import {
+  ApprovalActor,
+  consumeApprovedTicketForExecution,
+  evaluateApprovalGateForRequest,
+  resolveActionMeta,
+} from './approvalService';
 
 export const apiRouter = Router();
+
+// Global Phase 3 Approval Gate & JIT Execution Wrapper on apiRouter:
+// 1) Enriches any 403 triggered by a policy require_approval block with structured APPROVAL_REQUIRED metadata
+// 2) Automatically consumes (marks executed) an authorized JIT approval ticket when the gated action succeeds
+apiRouter.use((req: Request, res: Response, next: NextFunction) => {
+  const origJson = res.json.bind(res);
+  res.json = ((body?: any) => {
+    const gatePayload = (req as any).__pendingApprovalGatePayload;
+    if (
+      res.statusCode === 403 &&
+      gatePayload &&
+      body &&
+      typeof body === 'object' &&
+      !body.code
+    ) {
+      delete (req as any).__pendingApprovalGatePayload;
+      if (!res.headersSent) {
+        res.setHeader('X-Approval-Required', 'true');
+      }
+      return origJson({
+        ...gatePayload,
+        ...body,
+        code: 'APPROVAL_REQUIRED',
+        approvalRequired: true,
+      });
+    }
+
+    const ticketCtx = (req as any).__approvedTicketCtx as
+      | { actor: ApprovalActor; ticketId: string; executionNote: string; consumed?: boolean }
+      | undefined;
+
+    if (
+      ticketCtx &&
+      !ticketCtx.consumed &&
+      res.statusCode >= 200 &&
+      res.statusCode < 400 &&
+      (!body || typeof body !== 'object' || body.success !== false)
+    ) {
+      ticketCtx.consumed = true;
+      consumeApprovedTicketForExecution(ticketCtx.actor, ticketCtx.ticketId, ticketCtx.executionNote)
+        .catch(() => {})
+        .finally(() => origJson(body));
+      return res;
+    }
+
+    return origJson(body);
+  }) as any;
+  next();
+});
+
+function extractProvidedApprovalId(req: Request): string | undefined {
+  const rawHeader = req.headers['x-approval-request-id'];
+  const fromHeader = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+  const fromBody = req.body && typeof req.body === 'object' ? req.body.approvalRequestId : undefined;
+  const fromQuery = typeof req.query?.approvalRequestId === 'string' ? req.query.approvalRequestId : undefined;
+  const clean = String(fromHeader || fromBody || fromQuery || '').trim();
+  return clean || undefined;
+}
+
+function buildApprovalActor(
+  req: Request,
+  context: { user?: any; effectivePolicy?: any; isSuperAdmin?: boolean }
+): ApprovalActor {
+  const user = context.user || {};
+  const cleanUsername = String(user.username || 'operator').trim();
+  const cleanRole = String(user.role || 'Operator').trim();
+  const isSuperAdmin = Boolean(context.isSuperAdmin);
+  return {
+    userId: String(user.id || user.userId || cleanUsername),
+    username: cleanUsername,
+    fullName: String(user.fullName || user.full_name || cleanUsername),
+    role: cleanRole,
+    isSuperAdmin,
+    canApproveActions: isSuperAdmin || Boolean(context.effectivePolicy?.canApproveActions),
+    clientIp: getClientIp(req),
+  };
+}
+
+function buildSafeCommandPreview(req: Request, extraSummary?: string): string {
+  const method = (req.method || 'POST').toUpperCase();
+  const urlPath = (req.originalUrl || req.url || '').split('?')[0];
+  const parts = [`${method} ${urlPath}`];
+  if (extraSummary) parts.push(extraSummary);
+  if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
+    const sanitized: Record<string, any> = {};
+    for (const [k, v] of Object.entries(req.body)) {
+      const kl = k.toLowerCase();
+      if (kl.includes('password') || kl.includes('secret') || kl.includes('token') || kl.includes('key')) {
+        sanitized[k] = '***';
+      } else {
+        sanitized[k] = v;
+      }
+    }
+    const serialized = JSON.stringify(sanitized);
+    parts.push(serialized.length > 500 ? serialized.slice(0, 500) + '...' : serialized);
+  }
+  return parts.join('\n');
+}
+
+function isMutatingDeviceRequest(req: Request, action: string): boolean {
+  const method = (req.method || 'GET').toUpperCase();
+  const rawUrl = req.originalUrl || req.url || '';
+  const urlPath = rawUrl.split('?')[0].replace(/\/+$/, '').toLowerCase();
+
+  // Read-only telemetry & capability checks pass unless explicitly set to 'deny'
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+    // Wait: explicit 'inspect_ports' on /ports/sync or /ports if gated? Let GET /ports obey inspect_ports if caller asked for it specifically
+    return action === 'inspect_ports';
+  }
+  if (urlPath.endsWith('/ports/sync') || urlPath.endsWith('/vpn/validate') || urlPath.endsWith('/vpn/preview') || urlPath.endsWith('/verify')) {
+    return false;
+  }
+  if (urlPath.endsWith('/operations')) {
+    const op = String(req.body?.operation || req.body?.action || '').trim().toLowerCase();
+    if (op === 'port_sec_query' || op === 'query') return false;
+  }
+  return true;
+}
+
+function isMutatingServerRequest(req: Request, action: string): boolean {
+  const method = (req.method || 'GET').toUpperCase();
+  const rawUrl = req.originalUrl || req.url || '';
+  const urlPath = rawUrl.split('?')[0].replace(/\/+$/, '').toLowerCase();
+
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+    return false;
+  }
+  if (method === 'DELETE' || method === 'PUT' || method === 'PATCH') {
+    return true;
+  }
+
+  // Known read-only POST telemetry / inspection endpoints across Server / PG / MySQL / Nginx / Apache / FS
+  const readOnlySuffixes = [
+    '/monitor',
+    '/services',
+    '/processes',
+    '/logs',
+    '/live-overview',
+    '/sysconfig',
+    '/network-stack',
+    '/firewall',
+    '/packages',
+    '/block-devices',
+    '/lvm-overview',
+    '/storage-overview',
+    '/lvm-rescan',
+    '/storage-rescan',
+    '/cron-jobs',
+    '/users',
+    '/users/info',
+    '/proxy-test',
+    '/test-connection',
+    '/postgres/overview',
+    '/postgres/databases',
+    '/postgres/schemas',
+    '/postgres/backups/validate-restore',
+    '/postgres/roles',
+    '/postgres/permissions',
+    '/postgres/database-tree',
+    '/postgres/table-structure',
+    '/postgres/table-data',
+    '/postgres/query/analyze',
+    '/mysql/audit-user-privileges',
+    '/nginx-config-topology',
+    '/nginx-sites',
+    '/nginx-proxy',
+    '/nginx-certificates',
+    '/nginx-logs-discovery',
+    '/nginx-logs-stream',
+    '/nginx-site-test',
+    '/nginx-file-read',
+    '/nginx-file-test',
+    '/nginx-file-backups',
+    '/nginx-security-audit',
+    '/apache-performance-report',
+    '/apache-rewrite-summary',
+    '/fs/list',
+    '/fs/read',
+    '/fs/stat',
+    '/fs/search',
+  ];
+
+  if (readOnlySuffixes.some((sfx) => urlPath.endsWith(sfx))) {
+    return false;
+  }
+  if (urlPath.includes('/mysql/databases/') && urlPath.endsWith('/data')) {
+    return false;
+  }
+  // Read-only SQL query check
+  if (urlPath.endsWith('/postgres/query') || urlPath.endsWith('/mysql/query')) {
+    const sql = String(req.body?.sql || req.body?.query || '').trim().toLowerCase();
+    if (/^(select|show|explain|describe|desc|with)\b/.test(sql) && !/\b(insert|update|delete|drop|alter|create|truncate|grant|revoke)\b/.test(sql)) {
+      return false;
+    }
+  }
+  return Boolean(action);
+}
 
 // Helper to get client IP
 function getClientIp(req: Request): string {
@@ -3318,8 +3523,18 @@ function inferDeviceActionKey(req: Request, deviceId: string): string | null {
 async function assertDeviceScopeAccess(
   req: Request,
   deviceId: string,
-  requiredAction?: string
-): Promise<{ allowed: boolean; device: any | null; error?: string; errorFa?: string; status?: number }> {
+  requiredAction?: string,
+  options?: { skipApprovalConsume?: boolean }
+): Promise<{
+  allowed: boolean;
+  device: any | null;
+  error?: string;
+  errorFa?: string;
+  status?: number;
+  code?: string;
+  gatePayload?: any;
+  approvedTicketId?: string;
+}> {
   const cleanId = (deviceId || '').trim();
   if (!cleanId) {
     return { allowed: false, device: null, error: 'Device ID is required', errorFa: 'شناسه تجهیز الزامی است', status: 400 };
@@ -3330,7 +3545,8 @@ async function assertDeviceScopeAccess(
     return { allowed: false, device: null, error: 'Device not found', errorFa: 'تجهیز شبکه یافت نشد', status: 404 };
   }
 
-  const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
+  const context = await resolveRequestContextPolicy(req);
+  const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = context;
 
   // If user is super admin, full unconstrained access is granted
   if (isSuperAdmin) {
@@ -3371,21 +3587,75 @@ async function assertDeviceScopeAccess(
     }
   }
 
-  // 3. Granular Device Action Check (Per-Device Override Matrix & Default Permissions)
+  // 3. Granular Device Action Check (Tri-State: allow / require_approval / deny)
   const action = requiredAction || inferDeviceActionKey(req, cleanId);
   if (action) {
-    const isPermitted = isDeviceActionPermitted(effectivePolicy, device.id, action);
-    if (!isPermitted) {
+    const decision = evaluateDeviceActionDecision(effectivePolicy, device.id, action);
+    if (decision === 'deny') {
       return {
         allowed: false,
         device,
+        code: 'RBAC_DENIED',
         error: `Access denied: You do not have permission to execute '${action}' on this device under your RBAC policy.`,
         errorFa: `عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز انجام عملیات «${action}» روی این تجهیز را ندارید.`,
         status: 403,
       };
     }
+
+    if (decision === 'require_approval' && isMutatingDeviceRequest(req, action)) {
+      // Allow read baseline inspect_ports middleware to defer to granular port action if caller is executing a port mutation
+      const isBaselinePortCheckBeforeMutation =
+        Boolean(options?.skipApprovalConsume) &&
+        action === 'inspect_ports' &&
+        (req.method || 'GET').toUpperCase() !== 'GET';
+
+      if (!isBaselinePortCheckBeforeMutation) {
+        const actor = buildApprovalActor(req, context);
+        const meta = resolveActionMeta(action);
+        const gateRes = await evaluateApprovalGateForRequest({
+          actor,
+          effectivePolicy,
+          entityType: 'device',
+          entityId: device.id,
+          entityName: device.name || device.ip || device.id,
+          actionKey: action,
+          requestedAction: `${meta.labelEn} (${device.name || device.ip || device.id})`,
+          commandPreview: buildSafeCommandPreview(req),
+          actionParams: req.body && typeof req.body === 'object' ? req.body : null,
+          providedApprovalId: extractProvidedApprovalId(req),
+        });
+
+        if (!gateRes.allowed) {
+          (req as any).__pendingApprovalGatePayload = gateRes.gatePayload;
+          return {
+            allowed: false,
+            device,
+            code: 'APPROVAL_REQUIRED',
+            gatePayload: gateRes.gatePayload,
+            error: gateRes.gatePayload.error,
+            errorFa: gateRes.gatePayload.errorFa,
+            status: 403,
+          };
+        }
+
+        delete (req as any).__pendingApprovalGatePayload;
+        if (!options?.skipApprovalConsume) {
+          (req as any).__approvedTicketCtx = {
+            actor,
+            ticketId: gateRes.approvedTicket.id,
+            executionNote: `Executed device action '${action}' on ${device.name || device.id} via JIT approval ${gateRes.approvedTicket.id}`,
+          };
+        }
+        return {
+          allowed: true,
+          device,
+          approvedTicketId: gateRes.approvedTicket.id,
+        };
+      }
+    }
   }
 
+  delete (req as any).__pendingApprovalGatePayload;
   return { allowed: true, device };
 }
 
@@ -3462,9 +3732,10 @@ apiRouter.post('/devices/export', async (req: Request, res: Response) => {
       });
     }
 
-    // Granular RBAC Check: Ensure user is authorized to export each device
+    // Granular Tri-State RBAC Check: deny blocks; require_approval enforces JIT approval ticket
+    const context = await resolveRequestContextPolicy(req);
     const unauthorized = targetDevices.filter(
-      (d: any) => !isSuperAdmin && !isDeviceActionPermitted(effectivePolicy, d.id, 'export_devices')
+      (d: any) => !isSuperAdmin && evaluateDeviceActionDecision(effectivePolicy, d.id, 'export_devices') === 'deny'
     );
 
     if (unauthorized.length > 0) {
@@ -3474,6 +3745,43 @@ apiRouter.post('/devices/export', async (req: Request, res: Response) => {
         errorFa: `عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز استخراج (Export) تعداد ${unauthorized.length} از تجهیزات درخواستی را ندارید.`,
         unauthorizedIds: unauthorized.map((d: any) => d.id),
       });
+    }
+
+    const approvalGatedDevices = isSuperAdmin
+      ? []
+      : targetDevices.filter(
+          (d: any) => evaluateDeviceActionDecision(effectivePolicy, d.id, 'export_devices') === 'require_approval'
+        );
+
+    let exportApprovedTicket: { actor: ApprovalActor; ticketId: string } | null = null;
+    if (approvalGatedDevices.length > 0 && effectivePolicy) {
+      const actor = buildApprovalActor(req, context);
+      const primaryDev = approvalGatedDevices[0];
+      const gateRes = await evaluateApprovalGateForRequest({
+        actor,
+        effectivePolicy,
+        entityType: 'device',
+        entityId: approvalGatedDevices.length === 1 ? primaryDev.id : 'bulk',
+        entityName:
+          approvalGatedDevices.length === 1
+            ? primaryDev.name || primaryDev.ip || primaryDev.id
+            : `${approvalGatedDevices.length} Network Devices`,
+        actionKey: 'export_devices',
+        requestedAction: `Export ${targetDevices.length} Network Device(s)`,
+        commandPreview: buildSafeCommandPreview(req, `format=${format}, count=${targetDevices.length}`),
+        actionParams: { deviceIds: targetDevices.map((d: any) => d.id), format },
+        providedApprovalId: extractProvidedApprovalId(req),
+      });
+      if (!gateRes.allowed) {
+        res.setHeader('X-Approval-Required', 'true');
+        return res.status(403).json({ success: false, ...gateRes.gatePayload });
+      }
+      exportApprovedTicket = { actor, ticketId: gateRes.approvedTicket.id };
+      (req as any).__approvedTicketCtx = {
+        actor,
+        ticketId: gateRes.approvedTicket.id,
+        executionNote: `Executed export_devices for ${targetDevices.length} device(s) via ${gateRes.approvedTicket.id}`,
+      };
     }
 
     // Sanitize credentials: Zero plaintext secrets leak
@@ -3534,6 +3842,13 @@ apiRouter.post('/devices/export', async (req: Request, res: Response) => {
       ].join(','));
 
       const csvContent = '\uFEFF' + [csvHeader, ...csvRows].join('\n');
+      if (exportApprovedTicket) {
+        await consumeApprovedTicketForExecution(
+          exportApprovedTicket.actor,
+          exportApprovedTicket.ticketId,
+          `Exported CSV of ${exportData.length} device(s)`
+        );
+      }
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="devices_export_${Date.now()}.csv"`);
       return res.send(csvContent);
@@ -3653,9 +3968,9 @@ apiRouter.post(['/devices/import', '/network-equipment/import'], async (req: Req
   try {
     const { effectivePolicy, isSuperAdmin, user } = await resolveRequestContextPolicy(req);
 
-    // Strict RBAC Enforcement: check if user is authorized to import network equipment
-    if (!isSuperAdmin) {
-      if (effectivePolicy && effectivePolicy.canManageDevices === false && effectivePolicy.canImportDevices === false) {
+    // Strict Tri-State RBAC Enforcement: check if user is authorized to import network equipment
+    if (!isSuperAdmin && effectivePolicy) {
+      if (effectivePolicy.canManageDevices === false && effectivePolicy.canImportDevices === false) {
         return res.status(403).json({
           success: false,
           error: 'Access denied: Your account policy prohibits importing network equipment.',
@@ -3663,19 +3978,41 @@ apiRouter.post(['/devices/import', '/network-equipment/import'], async (req: Req
         });
       }
 
-      const isImportPermitted = effectivePolicy
-        ? effectivePolicy.canImportDevices !== false &&
-          (effectivePolicy.canImportDevices === true ||
-            effectivePolicy.canManageDevices === true ||
-            effectivePolicy.defaultDevicePermissions?.import_devices === true)
-        : true;
+      const importDecision =
+        effectivePolicy.canImportDevices === false
+          ? 'deny'
+          : evaluateDeviceActionDecision(effectivePolicy, '__global_import__', 'import_devices');
 
-      if (!isImportPermitted) {
+      if (importDecision === 'deny' && effectivePolicy.canImportDevices !== true) {
         return res.status(403).json({
           success: false,
           error: 'Access denied: You do not have RBAC permission to import network equipment into inventory.',
           errorFa: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز ورود و بارگذاری (Import) تجهیزات شبکه را ندارید.',
         });
+      }
+
+      if (importDecision === 'require_approval') {
+        const actor = buildApprovalActor(req, { user, effectivePolicy, isSuperAdmin });
+        const gateRes = await evaluateApprovalGateForRequest({
+          actor,
+          effectivePolicy,
+          entityType: 'device',
+          entityId: 'bulk',
+          entityName: 'Network Equipment Import Package',
+          actionKey: 'import_devices',
+          requestedAction: 'Import Network Equipment into Inventory',
+          commandPreview: buildSafeCommandPreview(req),
+          providedApprovalId: extractProvidedApprovalId(req),
+        });
+        if (!gateRes.allowed) {
+          res.setHeader('X-Approval-Required', 'true');
+          return res.status(403).json({ success: false, ...gateRes.gatePayload });
+        }
+        (req as any).__approvedTicketCtx = {
+          actor,
+          ticketId: gateRes.approvedTicket.id,
+          executionNote: `Executed import_devices via JIT approval ${gateRes.approvedTicket.id}`,
+        };
       }
     }
 
@@ -4798,16 +5135,32 @@ function extractRequiredPortActions(body: any, urlPath: string): GranularPortAct
   return required;
 }
 
+// Guard for MikroTik VPN routes proxied to Python backend (mikrotik_vpn)
+apiRouter.use(['/devices/:id/vpn', '/devices/:id/vpn/*'], async (req: Request, res: Response, next: NextFunction) => {
+  const check = await assertDeviceScopeAccess(req, req.params.id, 'mikrotik_vpn');
+  if (!check.allowed) {
+    return res.status(check.status || 403).json({
+      success: false,
+      ...(check.gatePayload || {}),
+      error: check.error,
+      errorFa: check.errorFa,
+    });
+  }
+  next();
+});
+
 // Guards for ports, interfaces, vlans, unsaved-changes (inspect_ports and granular port RBAC)
 apiRouter.use(['/devices/:id/ports', '/devices/:id/ports/*'], async (req: Request, res: Response, next: NextFunction) => {
+  const method = (req.method || 'GET').toUpperCase();
   // 1. Baseline inspection permission check (inspect_ports)
-  const check = await assertDeviceScopeAccess(req, req.params.id, 'inspect_ports');
+  const check = await assertDeviceScopeAccess(req, req.params.id, 'inspect_ports', {
+    skipApprovalConsume: method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS',
+  });
   if (!check.allowed) {
     return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
   }
 
   // 2. Safe read-only operations pass through
-  const method = (req.method || 'GET').toUpperCase();
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
     return next();
   }
@@ -7258,21 +7611,40 @@ function inferServerActionKey(req: Request, serverId: string): string | null {
   if (
     urlPath.includes('/cron-jobs') ||
     urlPath.includes('/services') ||
+    urlPath.includes('/service-action') ||
+    urlPath.includes('/service-watchdogs') ||
     urlPath.includes('/processes') ||
+    urlPath.includes('/process-action') ||
     urlPath.includes('/metrics') ||
+    urlPath.includes('/monitor') ||
     urlPath.includes('/storage') ||
     urlPath.includes('/lvm') ||
+    urlPath.includes('/mount-action') ||
+    urlPath.includes('/unmount-action') ||
+    urlPath.includes('/disk-format-mount') ||
+    urlPath.includes('/block-devices') ||
     urlPath.includes('/network') ||
+    urlPath.includes('/interface-state') ||
+    urlPath.includes('/restart-network') ||
     urlPath.includes('/logs') ||
     urlPath.includes('/syslog') ||
     urlPath.includes('/live-overview') ||
+    urlPath.includes('/sysconfig') ||
     urlPath.includes('/tcp-wrappers') ||
     urlPath.includes('/dns') ||
     urlPath.includes('/fail2ban') ||
+    urlPath.includes('/firewall') ||
+    urlPath.includes('/proxy-action') ||
+    urlPath.includes('/packages') ||
+    urlPath.includes('/users') ||
+    urlPath.includes('/groups') ||
+    urlPath.includes('/send-message') ||
+    urlPath.includes('/logout-user') ||
     urlPath.includes('/time') ||
     urlPath.includes('/hosts') ||
     urlPath.includes('/hostname') ||
-    urlPath.includes('/ssh-config')
+    urlPath.includes('/ssh-config') ||
+    urlPath.includes('/ssh-port')
   ) {
     return 'server_management';
   }
@@ -7291,13 +7663,22 @@ function inferServerActionKey(req: Request, serverId: string): string | null {
 /**
  * Authoritative security guard for remote server endpoints.
  * Resolves token-authenticated user policy, verifies if the server is in user's PostgreSQL scope,
- * and validates whether the requested server action (ServerActionKey) is permitted.
+ * and validates whether the requested server action (ServerActionKey) evaluates to allow / require_approval / deny.
  */
 async function assertServerScopeAccess(
   req: Request,
   serverId: string,
   requiredAction?: string
-): Promise<{ allowed: boolean; server: any | null; error?: string; status?: number }> {
+): Promise<{
+  allowed: boolean;
+  server: any | null;
+  error?: string;
+  errorFa?: string;
+  status?: number;
+  code?: string;
+  gatePayload?: any;
+  approvedTicketId?: string;
+}> {
   const cleanId = (serverId || '').trim();
   if (!cleanId) {
     return { allowed: false, server: null, error: 'Server ID is required', status: 400 };
@@ -7308,7 +7689,8 @@ async function assertServerScopeAccess(
     return { allowed: false, server: null, error: 'Server not found', status: 404 };
   }
 
-  const { effectivePolicy, isSuperAdmin, allowedServerIds } = await resolveRequestContextPolicy(req);
+  const context = await resolveRequestContextPolicy(req);
+  const { effectivePolicy, isSuperAdmin, allowedServerIds } = context;
 
   // If user is super admin, full unconstrained access is granted
   if (isSuperAdmin) {
@@ -7347,20 +7729,65 @@ async function assertServerScopeAccess(
     }
   }
 
-  // 3. Granular Server Action Check (Per-Server Override Matrix & Default Permissions)
+  // 3. Granular Server Action Check (Tri-State: allow / require_approval / deny)
   const action = requiredAction || inferServerActionKey(req, cleanId);
   if (action) {
-    const isPermitted = isServerActionPermitted(effectivePolicy, server.id, action);
-    if (!isPermitted) {
+    const decision = evaluateServerActionDecision(effectivePolicy, server.id, action);
+    if (decision === 'deny') {
       return {
         allowed: false,
         server,
+        code: 'RBAC_DENIED',
         error: `Access denied: You do not have permission to execute '${action}' on this server under your RBAC policy.`,
+        errorFa: `عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز انجام عملیات «${action}» روی این سرور را ندارید.`,
         status: 403,
+      };
+    }
+
+    if (decision === 'require_approval' && isMutatingServerRequest(req, action)) {
+      const actor = buildApprovalActor(req, context);
+      const meta = resolveActionMeta(action);
+      const gateRes = await evaluateApprovalGateForRequest({
+        actor,
+        effectivePolicy,
+        entityType: 'server',
+        entityId: server.id,
+        entityName: server.name || server.ip || server.id,
+        actionKey: action,
+        requestedAction: `${meta.labelEn} (${server.name || server.ip || server.id})`,
+        commandPreview: buildSafeCommandPreview(req),
+        actionParams: req.body && typeof req.body === 'object' ? req.body : null,
+        providedApprovalId: extractProvidedApprovalId(req),
+      });
+
+      if (!gateRes.allowed) {
+        (req as any).__pendingApprovalGatePayload = gateRes.gatePayload;
+        return {
+          allowed: false,
+          server,
+          code: 'APPROVAL_REQUIRED',
+          gatePayload: gateRes.gatePayload,
+          error: gateRes.gatePayload.error,
+          errorFa: gateRes.gatePayload.errorFa,
+          status: 403,
+        };
+      }
+
+      delete (req as any).__pendingApprovalGatePayload;
+      (req as any).__approvedTicketCtx = {
+        actor,
+        ticketId: gateRes.approvedTicket.id,
+        executionNote: `Executed server action '${action}' on ${server.name || server.id} via JIT approval ${gateRes.approvedTicket.id}`,
+      };
+      return {
+        allowed: true,
+        server,
+        approvedTicketId: gateRes.approvedTicket.id,
       };
     }
   }
 
+  delete (req as any).__pendingApprovalGatePayload;
   return { allowed: true, server };
 }
 
@@ -7525,9 +7952,10 @@ apiRouter.post('/remote-servers/export', async (req: Request, res: Response) => 
       });
     }
 
-    // Granular RBAC Check: Ensure user is authorized to export each server
+    // Granular Tri-State RBAC Check: Ensure user is authorized to export each server
+    const context = await resolveRequestContextPolicy(req);
     const unauthorized = targetServers.filter(
-      (s: any) => !isSuperAdmin && !isServerActionPermitted(effectivePolicy, s.id, 'export_servers')
+      (s: any) => !isSuperAdmin && evaluateServerActionDecision(effectivePolicy, s.id, 'export_servers') === 'deny'
     );
 
     if (unauthorized.length > 0) {
@@ -7537,6 +7965,43 @@ apiRouter.post('/remote-servers/export', async (req: Request, res: Response) => 
         errorFa: `عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز استخراج (Export) تعداد ${unauthorized.length} از سرورهای درخواستی را ندارید.`,
         unauthorizedIds: unauthorized.map((s: any) => s.id),
       });
+    }
+
+    const approvalGatedServers = isSuperAdmin
+      ? []
+      : targetServers.filter(
+          (s: any) => evaluateServerActionDecision(effectivePolicy, s.id, 'export_servers') === 'require_approval'
+        );
+
+    let exportApprovedTicket: { actor: ApprovalActor; ticketId: string } | null = null;
+    if (approvalGatedServers.length > 0 && effectivePolicy) {
+      const actor = buildApprovalActor(req, context);
+      const primarySrv = approvalGatedServers[0];
+      const gateRes = await evaluateApprovalGateForRequest({
+        actor,
+        effectivePolicy,
+        entityType: 'server',
+        entityId: approvalGatedServers.length === 1 ? primarySrv.id : 'bulk',
+        entityName:
+          approvalGatedServers.length === 1
+            ? primarySrv.name || primarySrv.ip || primarySrv.id
+            : `${approvalGatedServers.length} Remote Servers`,
+        actionKey: 'export_servers',
+        requestedAction: `Export ${targetServers.length} Remote Server(s)`,
+        commandPreview: buildSafeCommandPreview(req, `format=${format}, count=${targetServers.length}`),
+        actionParams: { serverIds: targetServers.map((s: any) => s.id), format },
+        providedApprovalId: extractProvidedApprovalId(req),
+      });
+      if (!gateRes.allowed) {
+        res.setHeader('X-Approval-Required', 'true');
+        return res.status(403).json({ success: false, ...gateRes.gatePayload });
+      }
+      exportApprovedTicket = { actor, ticketId: gateRes.approvedTicket.id };
+      (req as any).__approvedTicketCtx = {
+        actor,
+        ticketId: gateRes.approvedTicket.id,
+        executionNote: `Executed export_servers for ${targetServers.length} server(s) via ${gateRes.approvedTicket.id}`,
+      };
     }
 
     // Sanitize credentials: Zero plaintext secrets leak (Rule 14)
@@ -7730,9 +8195,9 @@ apiRouter.post('/remote-servers/import', async (req: Request, res: Response) => 
   try {
     const { effectivePolicy, isSuperAdmin, user } = await resolveRequestContextPolicy(req);
 
-    // Strict RBAC Enforcement: check if user is authorized to import servers
-    if (!isSuperAdmin) {
-      if (effectivePolicy && effectivePolicy.canViewServers === false) {
+    // Strict Tri-State RBAC Enforcement: check if user is authorized to import servers
+    if (!isSuperAdmin && effectivePolicy) {
+      if (effectivePolicy.canViewServers === false) {
         return res.status(403).json({
           success: false,
           error: 'Access denied: Your account policy prohibits access to Remote Servers & Automation Fleet.',
@@ -7740,19 +8205,41 @@ apiRouter.post('/remote-servers/import', async (req: Request, res: Response) => 
         });
       }
 
-      const isImportPermitted = effectivePolicy
-        ? effectivePolicy.canImportServers !== false &&
-          (effectivePolicy.canImportServers === true ||
-            effectivePolicy.canManageDevices === true ||
-            effectivePolicy.defaultServerPermissions?.import_servers === true)
-        : true;
+      const importDecision =
+        effectivePolicy.canImportServers === false
+          ? 'deny'
+          : evaluateServerActionDecision(effectivePolicy, '__global_import__', 'import_servers');
 
-      if (!isImportPermitted) {
+      if (importDecision === 'deny' && effectivePolicy.canImportServers !== true) {
         return res.status(403).json({
           success: false,
           error: 'Access denied: You do not have RBAC permission to import servers into the fleet.',
           errorFa: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز ورود و بارگذاری (Import) سرورها را ندارید.',
         });
+      }
+
+      if (importDecision === 'require_approval') {
+        const actor = buildApprovalActor(req, { user, effectivePolicy, isSuperAdmin });
+        const gateRes = await evaluateApprovalGateForRequest({
+          actor,
+          effectivePolicy,
+          entityType: 'server',
+          entityId: 'bulk',
+          entityName: 'Remote Servers Import Package',
+          actionKey: 'import_servers',
+          requestedAction: 'Import Remote Servers into Fleet',
+          commandPreview: buildSafeCommandPreview(req),
+          providedApprovalId: extractProvidedApprovalId(req),
+        });
+        if (!gateRes.allowed) {
+          res.setHeader('X-Approval-Required', 'true');
+          return res.status(403).json({ success: false, ...gateRes.gatePayload });
+        }
+        (req as any).__approvedTicketCtx = {
+          actor,
+          ticketId: gateRes.approvedTicket.id,
+          executionNote: `Executed import_servers via JIT approval ${gateRes.approvedTicket.id}`,
+        };
       }
     }
 
@@ -16134,19 +16621,54 @@ apiRouter.post('/remote-servers/bulk-power', async (req: Request, res: Response)
       return res.status(400).json({ success: false, error: 'serverIds array is required' });
     }
 
-    const { effectivePolicy, isSuperAdmin, allowedServerIds } = await resolveRequestContextPolicy(req);
+    const context = await resolveRequestContextPolicy(req);
+    const { effectivePolicy, isSuperAdmin, allowedServerIds } = context;
     let targetIds: string[] = serverIds;
     if (!isSuperAdmin && effectivePolicy) {
       if (allowedServerIds !== null) {
         const allowedSet = new Set(allowedServerIds.map((id) => (id || '').trim().toLowerCase()));
         targetIds = serverIds.filter((id: string) => allowedSet.has((id || '').trim().toLowerCase()));
       }
-      targetIds = targetIds.filter((id: string) => isServerActionPermitted(effectivePolicy, id, 'power_control'));
+      targetIds = targetIds.filter(
+        (id: string) => evaluateServerActionDecision(effectivePolicy, id, 'power_control') !== 'deny'
+      );
       if (targetIds.length === 0) {
         return res.status(403).json({
           success: false,
           error: 'Access denied: You do not have permission to execute power operations on the requested servers under your assigned RBAC policy in PostgreSQL.',
         });
+      }
+
+      const approvalRequiredIds = targetIds.filter(
+        (id: string) => evaluateServerActionDecision(effectivePolicy, id, 'power_control') === 'require_approval'
+      );
+      if (approvalRequiredIds.length > 0) {
+        const actor = buildApprovalActor(req, context);
+        const isSingle = approvalRequiredIds.length === 1;
+        const primarySrv = isSingle ? await getRemoteServerById(approvalRequiredIds[0]) : null;
+        const gateRes = await evaluateApprovalGateForRequest({
+          actor,
+          effectivePolicy,
+          entityType: 'server',
+          entityId: isSingle ? approvalRequiredIds[0] : 'bulk',
+          entityName: isSingle
+            ? primarySrv?.name || primarySrv?.ip || approvalRequiredIds[0]
+            : `${approvalRequiredIds.length} Selected Servers`,
+          actionKey: 'power_control',
+          requestedAction: `Bulk Power Control (${actionType || 'restart'} on ${targetIds.length} server(s))`,
+          commandPreview: buildSafeCommandPreview(req),
+          actionParams: { serverIds: targetIds, actionType, delayMinutes, force },
+          providedApprovalId: extractProvidedApprovalId(req),
+        });
+        if (!gateRes.allowed) {
+          res.setHeader('X-Approval-Required', 'true');
+          return res.status(403).json({ success: false, ...gateRes.gatePayload });
+        }
+        (req as any).__approvedTicketCtx = {
+          actor,
+          ticketId: gateRes.approvedTicket.id,
+          executionNote: `Executed bulk-power (${actionType || 'restart'}) on ${targetIds.length} server(s) via ${gateRes.approvedTicket.id}`,
+        };
       }
     }
 

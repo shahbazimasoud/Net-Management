@@ -4415,14 +4415,32 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     };
   }
 
-  const cleanUsername = (user.username || '').trim().toLowerCase();
+  const initialUsername = (user.username || '').trim().toLowerCase();
+  const initialId = (user.id || user.userId || '').trim();
+  let hydratedUser = user;
+  if ((!user.id && user.userId) || (user.groupIds === undefined && user.group_ids === undefined)) {
+    try {
+      const dbUser =
+        (initialId ? await findUserById(initialId) : null) ||
+        (initialUsername ? await findUserByUsername(initialUsername) : null);
+      if (dbUser) {
+        hydratedUser = {
+          ...user,
+          ...dbUser,
+          groups: Array.isArray(user.groups) && user.groups.length > 0 ? user.groups : dbUser.groups,
+        };
+      }
+    } catch {}
+  }
+
+  const cleanUsername = (hydratedUser.username || '').trim().toLowerCase();
   const samAccount = cleanUsername.includes('@')
     ? cleanUsername.split('@')[0]
     : cleanUsername.includes('\\')
     ? cleanUsername.split('\\')[1]
     : cleanUsername;
-  const userId = (user.id || '').trim();
-  const roleName = (user.role || '').trim().toLowerCase();
+  const userId = (hydratedUser.id || hydratedUser.userId || '').trim();
+  const roleName = (hydratedUser.role || '').trim().toLowerCase();
   const isSuperAdmin = cleanUsername === 'admin' || samAccount === 'admin' || roleName.includes('super admin') || roleName.includes('administrator');
 
   // Load policies from PostgreSQL (or fallback store)
@@ -4431,16 +4449,16 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
   const userGroups = await getUserGroups();
 
   const matchingPolicies: any[] = [];
-  const rawGroupIds: string[] = Array.isArray(user.groupIds)
-    ? user.groupIds
-    : Array.isArray(user.group_ids)
-    ? user.group_ids
-    : typeof user.group_ids === 'string'
-    ? JSON.parse(user.group_ids || '[]')
+  const rawGroupIds: string[] = Array.isArray(hydratedUser.groupIds)
+    ? hydratedUser.groupIds
+    : Array.isArray(hydratedUser.group_ids)
+    ? hydratedUser.group_ids
+    : typeof hydratedUser.group_ids === 'string'
+    ? JSON.parse(hydratedUser.group_ids || '[]')
     : [];
 
-  const rawAdGroups: string[] = Array.isArray(user.groups)
-    ? user.groups
+  const rawAdGroups: string[] = Array.isArray(hydratedUser.groups)
+    ? hydratedUser.groups
     : [];
 
   const combinedGroupList = [...rawGroupIds, ...rawAdGroups];
@@ -4453,15 +4471,20 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
 
     // 1. Direct user match by subjectId / subjectIds (supports username, samAccountName, email, DN, or ID)
     if (p.subjectType === 'local_user' || p.subjectType === 'ad_user') {
-      const isDirectUserMatch = policySubjectIds.some((sId) => {
+      const policyUserCandidates = [
+        ...policySubjectIds,
+        p.subjectName,
+        ...(Array.isArray(p.subjectNames) ? p.subjectNames : []),
+      ].filter((s) => s && typeof s === 'string' && s.trim() !== '');
+      const isDirectUserMatch = policyUserCandidates.some((sId) => {
         const sSub = sId.toLowerCase();
         return (
-          sId === userId ||
+          (userId && sId === userId) ||
           sSub === cleanUsername ||
           sSub === samAccount ||
           cleanUsername === sSub ||
-          (user.email && sSub === user.email.toLowerCase()) ||
-          (user.dn && sSub === user.dn.toLowerCase())
+          (hydratedUser.email && sSub === hydratedUser.email.toLowerCase()) ||
+          (hydratedUser.dn && sSub === hydratedUser.dn.toLowerCase())
         );
       });
 

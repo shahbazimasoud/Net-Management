@@ -267,6 +267,18 @@ async function fetchWithRetry(url: string, options?: RequestInit, maxRetries = 3
   throw lastError || new Error(`Network request to ${url} failed`);
 }
 
+async function parseErrorAndThrow(res: Response, fallbackMessage: string): Promise<never> {
+  const errData = await res.json().catch(() => ({} as any));
+  const err: any = new Error(errData?.error || errData?.message || fallbackMessage);
+  if (errData?.approvalHandled) {
+    err.approvalHandled = true;
+  }
+  if (errData?.code) {
+    err.code = errData.code;
+  }
+  throw err;
+}
+
 export async function fetchHealth(): Promise<any> {
   const res = await fetch(`${API_BASE}/health`);
   if (!res.ok) throw new Error('Health check failed');
@@ -295,7 +307,7 @@ export async function updateDevice(id: string, updates: Partial<Device>): Promis
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
   });
-  if (!res.ok) throw new Error('Failed to update device');
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update device');
   return res.json();
 }
 
@@ -303,7 +315,7 @@ export async function deleteDevice(id: string): Promise<{ message: string }> {
   const res = await fetchWithRetry(`${API_BASE}/devices/${id}`, {
     method: 'DELETE',
   });
-  if (!res.ok) throw new Error('Failed to delete device');
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to delete device');
   return res.json();
 }
 
@@ -597,8 +609,7 @@ export async function updateSwitchPort(
     body: JSON.stringify({ ...updates, port_id: cleanId, interface: cleanId }),
   });
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || errData.message || 'Failed to update port');
+    await parseErrorAndThrow(res, 'Failed to update port');
   }
   return res.json();
 }
@@ -619,7 +630,7 @@ export async function batchUpdateSwitchPorts(
     headers: reqHeaders,
     body: JSON.stringify({ port_ids: portIds, updates }),
   });
-  if (!res.ok) throw new Error('Failed to batch update ports');
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to batch update ports');
   return res.json();
 }
 
@@ -773,6 +784,7 @@ export function getTerminalWebSocketUrl(
     enable_password?: string;
     platform?: string;
     ssh_version?: 'legacy' | 'modern' | string;
+    approval_request_id?: string;
   }
 ): string {
   const loc = window.location;
@@ -792,6 +804,7 @@ export function getTerminalWebSocketUrl(
     if (deviceInfo.enable_password) query.set('enable_password', deviceInfo.enable_password);
     if (deviceInfo.platform) query.set('platform', deviceInfo.platform);
     if (deviceInfo.ssh_version) query.set('ssh_version', deviceInfo.ssh_version);
+    if (deviceInfo.approval_request_id) query.set('approvalRequestId', deviceInfo.approval_request_id);
   }
   const token = getAuthToken();
   if (token) query.set('token', token);
@@ -851,7 +864,7 @@ export async function writeMemory(
     method: 'POST',
     headers: reqHeaders,
   });
-  if (!res.ok) throw new Error('Failed to write memory');
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to write memory');
   return res.json();
 }
 
@@ -1026,8 +1039,7 @@ export async function applyTemplateToDevice(params: {
     body: JSON.stringify(params),
   });
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'Failed to apply template to device');
+    await parseErrorAndThrow(res, 'Failed to apply template to device');
   }
   return res.json();
 }
@@ -1757,7 +1769,7 @@ export async function deleteRemoteServer(id: string): Promise<{ success: boolean
     method: 'DELETE',
   });
   if (!res.ok) {
-    throw new Error('Failed to delete server');
+    await parseErrorAndThrow(res, 'Failed to delete server');
   }
   return res.json();
 }
@@ -3702,6 +3714,7 @@ export function getRemoteServerWebSocketUrl(
     ssh_port?: number;
     ssh_username?: string;
     ssh_password?: string;
+    approval_request_id?: string;
   }
 ): string {
   const loc = window.location;
@@ -3716,6 +3729,7 @@ export function getRemoteServerWebSocketUrl(
     if (serverInfo.ssh_port) query.set('port', String(serverInfo.ssh_port));
     if (serverInfo.ssh_username) query.set('username', serverInfo.ssh_username);
     if (serverInfo.ssh_password) query.set('password', serverInfo.ssh_password);
+    if (serverInfo.approval_request_id) query.set('approvalRequestId', serverInfo.approval_request_id);
   }
   const token = getAuthToken();
   if (token) query.set('token', token);

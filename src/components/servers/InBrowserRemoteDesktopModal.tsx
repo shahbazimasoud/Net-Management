@@ -938,11 +938,13 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
       // 3. Request single-use connection token
       const effectivePassword = customPasswordRef.current || sessionPasswordRef.current;
+      const preflightTicketId = (curServer as any)?.approval_request_id;
       const resp = await fetch('/api/remote-desktop/token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          ...(preflightTicketId ? { 'X-Approval-Request-Id': preflightTicketId } : {}),
         },
         body: JSON.stringify({
           serverId: curServer.id,
@@ -956,6 +958,11 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
+        if (data?.approvalHandled) {
+          cleanupConnection();
+          onClose();
+          return;
+        }
         throw new Error(data.error || `HTTP ${resp.status} - Failed to generate session token`);
       }
 

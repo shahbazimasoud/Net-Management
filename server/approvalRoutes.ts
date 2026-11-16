@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { verifyToken } from './auth';
 import {
+  evaluateDeviceActionDecision,
+  evaluateServerActionDecision,
   findUserById,
   findUserByUsername,
   getApprovalEligibleCandidates,
@@ -11,6 +13,7 @@ import {
   cancelApprovalRequest,
   createApprovalRequest,
   decideApprovalRequest,
+  evaluateApprovalGateForRequest,
   getApprovalRequestById,
   listApprovalRequests,
   listApprovalTargets,
@@ -101,6 +104,95 @@ approvalRouter.get('/approvals/targets', async (req: Request, res: Response) => 
     return res.json({ success: true, targets });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Failed to load targets' });
+  }
+});
+
+// GET /api/approvals/check-action?entityType=server|device&entityId=...&actionKey=...
+approvalRouter.get('/approvals/check-action', async (req: Request, res: Response) => {
+  const auth = await authenticateApprovalRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const entityType = String(req.query.entityType || 'device').trim().toLowerCase() === 'server' ? 'server' : 'device';
+    const entityId = String(req.query.entityId || '').trim();
+    const entityName = typeof req.query.entityName === 'string' ? req.query.entityName.trim() : undefined;
+    const actionKey = String(req.query.actionKey || '').trim();
+    const requestedAction = typeof req.query.requestedAction === 'string' ? req.query.requestedAction.trim() : undefined;
+    const commandPreview = typeof req.query.commandPreview === 'string' ? req.query.commandPreview.trim() : undefined;
+    const providedApprovalId = (req.headers['x-approval-request-id'] as string) || (req.query.approvalRequestId as string) || undefined;
+
+    if (!entityId || !actionKey) {
+      return res.status(400).json({ success: false, error: 'entityId and actionKey are required' });
+    }
+
+    if (auth.actor.isSuperAdmin) {
+      return res.json({
+        success: true,
+        decision: 'allow',
+        approvalRequired: false,
+        denied: false,
+      });
+    }
+
+    const userRecord =
+      (await findUserById(auth.actor.userId)) || (await findUserByUsername(auth.actor.username));
+    const effectivePolicy = await getEffectivePolicyForUser(userRecord || auth.actor);
+
+    const decision =
+      entityType === 'server'
+        ? evaluateServerActionDecision(effectivePolicy, entityId, actionKey)
+        : evaluateDeviceActionDecision(effectivePolicy, entityId, actionKey);
+
+    if (decision === 'deny') {
+      return res.json({
+        success: true,
+        decision: 'deny',
+        approvalRequired: false,
+        denied: true,
+      });
+    }
+
+    if (decision === 'allow') {
+      return res.json({
+        success: true,
+        decision: 'allow',
+        approvalRequired: false,
+        denied: false,
+      });
+    }
+
+    const gateRes = await evaluateApprovalGateForRequest({
+      actor: auth.actor,
+      effectivePolicy,
+      entityType,
+      entityId,
+      entityName,
+      actionKey,
+      requestedAction,
+      commandPreview: commandPreview || null,
+      providedApprovalId,
+    });
+
+    if (gateRes.allowed) {
+      return res.json({
+        success: true,
+        decision: 'require_approval',
+        approvalRequired: false,
+        denied: false,
+        approvedTicket: gateRes.approvedTicket,
+      });
+    }
+
+    return res.json({
+      success: true,
+      decision: 'require_approval',
+      denied: false,
+      approvedTicket: gateRes.gatePayload?.existingApprovedApproval || null,
+      ...gateRes.gatePayload,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to check action approval status' });
   }
 });
 

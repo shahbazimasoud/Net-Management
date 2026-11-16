@@ -1441,6 +1441,38 @@ export interface ApprovalTargetOption {
   subtitle?: string;
 }
 
+export interface ApprovalGateStagePreview {
+  stageOrder: number;
+  id: string;
+  titleFa: string;
+  titleEn: string;
+  approverTargetType: ApprovalStageApproverTargetType;
+  approverLabels: string[];
+  ttlMinutes: number;
+}
+
+export interface ApprovalGatePayload {
+  code: 'APPROVAL_REQUIRED';
+  approvalRequired: true;
+  actionKey: string;
+  actionLabelEn?: string;
+  actionLabelFa?: string;
+  targetEntityType: ApprovalTargetEntityType | string;
+  targetEntityId: string;
+  targetEntityName?: string;
+  requestedAction?: string;
+  commandPreview?: string | null;
+  actionParams?: Record<string, any> | null;
+  riskLevel?: ApprovalRiskLevel;
+  policyId?: string | null;
+  policyName?: string | null;
+  stagesPreview?: ApprovalGateStagePreview[];
+  existingApprovedApproval?: ActionApprovalRequest | null;
+  existingPendingApproval?: ActionApprovalRequest | null;
+  error?: string;
+  errorFa?: string;
+}
+
 export type BackupScope = 'full' | 'devices_topology' | 'security_rbac' | 'servers_only' | 'templates_only';
 
 export interface BackupMetadata {

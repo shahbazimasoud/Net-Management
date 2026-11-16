@@ -965,6 +965,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           enable_password: enablePass,
           platform: devPlatform,
           ssh_version: devSshVersion,
+          approval_request_id: (curDev as any)?.approval_request_id,
         });
         const ws = new WebSocket(wsUrl);
         ws.binaryType = 'arraybuffer';

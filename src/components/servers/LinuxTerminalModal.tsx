@@ -1451,6 +1451,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         ssh_port: targetServer.ssh_port || 22,
         ssh_username: targetServer.ssh_username || 'root',
         ssh_password: targetServer.prompt_password_on_connect ? targetPassword || '' : targetPassword || targetServer.ssh_password,
+        approval_request_id: (targetServer as any)?.approval_request_id || (server as any)?.approval_request_id,
       });
 
       try {
