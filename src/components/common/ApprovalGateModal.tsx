@@ -261,9 +261,43 @@ export const ApprovalGateModal: React.FC<ApprovalGateModalProps> = ({
 
   const formattedActionParams = useMemo(() => {
     if (!payload?.actionParams || typeof payload.actionParams !== 'object') return [];
-    return Object.entries(payload.actionParams).filter(
-      ([k, v]) => k !== '_httpExecution' && v !== undefined && v !== null && v !== ''
-    );
+    const seen = new Set<string>();
+    const items: Array<[string, string]> = [];
+    const pushEntry = (rawKey: string, rawVal: any) => {
+      if (rawVal === undefined || rawVal === null || rawVal === '') return;
+      const key = rawKey.trim();
+      if (!key || seen.has(key.toLowerCase())) return;
+      if (/(password|passwd|secret|token|private_key|passphrase|api_key)/i.test(key)) {
+        seen.add(key.toLowerCase());
+        items.push([key, '***']);
+        return;
+      }
+      seen.add(key.toLowerCase());
+      if (Array.isArray(rawVal)) {
+        items.push([key, rawVal.length <= 5 ? rawVal.join(', ') : `${rawVal.length} items`]);
+      } else if (typeof rawVal === 'object') {
+        const subEntries = Object.entries(rawVal)
+          .filter(([sk, sv]) => sv !== undefined && sv !== null && sv !== '' && !seen.has(sk.toLowerCase()))
+          .map(([sk, sv]) => `${sk}: ${typeof sv === 'object' ? '...' : String(sv)}`);
+        if (subEntries.length > 0) {
+          items.push([key, subEntries.join(', ')]);
+        }
+      } else {
+        items.push([key, String(rawVal)]);
+      }
+    };
+
+    for (const [k, v] of Object.entries(payload.actionParams)) {
+      if (k === '_httpExecution' || k === 'approvalRequestId') continue;
+      if ((k === 'params' || k === 'updates') && v && typeof v === 'object' && !Array.isArray(v)) {
+        for (const [nk, nv] of Object.entries(v)) {
+          pushEntry(nk, nv);
+        }
+      } else {
+        pushEntry(k, v);
+      }
+    }
+    return items;
   }, [payload]);
 
   const supportsAutoExec = Boolean(

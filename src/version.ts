@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.434.0';
+export const APP_VERSION = '1.434.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.434.1',
+    releaseDate: '2026-11-16',
+    type: 'patch',
+    title: 'اصلاح فرمت پیش‌نمایش عملیات و دستور (Action / Command Preview) به فرامین واقعی CLI در درخواست‌های تایید',
+    title_en: 'Format Action / Command Preview as Human-Readable CLI & Operational Commands Instead of Raw HTTP/JSON Payloads',
+    changes: [
+      'افزودن ماژول سازنده پیش‌نمایش خوانا (`server/commandPreviewBuilder.ts`) برای تبدیل درخواست‌های تایید تجهیزات (از جمله عملیات پورت سیسکو/میکروتیک مانند تغییر Description، VLAN، Shutdown/No Shutdown و Port Security، ذخیره حافظه، قالب‌ها، VPN و عملیات سرورها) به دستورات واقعی CLI و خلاصه خوانای عملیاتی.',
+      'حذف نمایش خام مسیر داخلی HTTP و پیلود JSON (`POST /api/devices/.../operations`) در باکس پیش‌نمایش مودال درخواست تایید (`ApprovalGateModal`) و صف تاییدیه‌ها، همراه با بازچینی خوانا و حذف تکراری برچسب‌های پارامتر و ماسک کامل فیلدهای محرمانه.'
+    ],
+    changes_en: [
+      'Introduced `server/commandPreviewBuilder.ts` to translate approval-gated device and server HTTP operations (Cisco/MikroTik port descriptions, VLAN, trunk/access mode, shutdown, port security, write memory, templates, VPN, service/firewall/package/fs/SQL commands) into authentic CLI and human-readable operational previews.',
+      'Replaced raw internal `POST /api/...` + JSON dumps in `buildSafeCommandPreview` across `server/routes.ts` and enhanced `ApprovalGateModal.tsx` parameter chips to flatten nested `params` entries cleanly while redacting any sensitive credential fields.'
+    ]
+  },
   {
     version: '1.434.0',
     releaseDate: '2026-11-16',

@@ -569,6 +569,7 @@ import {
   buildSignedHttpExecutionPayload,
   isInteractiveJitAction,
 } from './approvalExecutor';
+import { buildSafeCommandPreview } from './commandPreviewBuilder';
 
 export const apiRouter = Router();
 
@@ -668,27 +669,6 @@ function buildApprovalActor(
     canApproveActions: isSuperAdmin || Boolean(context.effectivePolicy?.canApproveActions),
     clientIp: getClientIp(req),
   };
-}
-
-function buildSafeCommandPreview(req: Request, extraSummary?: string): string {
-  const method = (req.method || 'POST').toUpperCase();
-  const urlPath = (req.originalUrl || req.url || '').split('?')[0];
-  const parts = [`${method} ${urlPath}`];
-  if (extraSummary) parts.push(extraSummary);
-  if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
-    const sanitized: Record<string, any> = {};
-    for (const [k, v] of Object.entries(req.body)) {
-      const kl = k.toLowerCase();
-      if (kl.includes('password') || kl.includes('secret') || kl.includes('token') || kl.includes('key')) {
-        sanitized[k] = '***';
-      } else {
-        sanitized[k] = v;
-      }
-    }
-    const serialized = JSON.stringify(sanitized);
-    parts.push(serialized.length > 500 ? serialized.slice(0, 500) + '...' : serialized);
-  }
-  return parts.join('\n');
 }
 
 function isMutatingDeviceRequest(req: Request, action: string): boolean {
@@ -3660,7 +3640,7 @@ async function assertDeviceScopeAccess(
           entityName: device.name || device.ip || device.id,
           actionKey: action,
           requestedAction: `${meta.labelEn} (${device.name || device.ip || device.id})`,
-          commandPreview: buildSafeCommandPreview(req),
+          commandPreview: buildSafeCommandPreview(req, { device, action }),
           actionParams:
             rawActionParams && Object.keys(rawActionParams).length > 0 ? rawActionParams : null,
           providedApprovalId: extractProvidedApprovalId(req),
@@ -3811,7 +3791,7 @@ apiRouter.post('/devices/export', async (req: Request, res: Response) => {
             : `${approvalGatedDevices.length} Network Devices`,
         actionKey: 'export_devices',
         requestedAction: `Export ${targetDevices.length} Network Device(s)`,
-        commandPreview: buildSafeCommandPreview(req, `format=${format}, count=${targetDevices.length}`),
+        commandPreview: buildSafeCommandPreview(req, { action: 'export_devices', extraSummary: `format=${format}, count=${targetDevices.length}` }),
         actionParams: { deviceIds: targetDevices.map((d: any) => d.id), format },
         providedApprovalId: extractProvidedApprovalId(req),
       });
@@ -4044,7 +4024,7 @@ apiRouter.post(['/devices/import', '/network-equipment/import'], async (req: Req
           entityName: 'Network Equipment Import Package',
           actionKey: 'import_devices',
           requestedAction: 'Import Network Equipment into Inventory',
-          commandPreview: buildSafeCommandPreview(req),
+          commandPreview: buildSafeCommandPreview(req, { action: 'import_devices' }),
           providedApprovalId: extractProvidedApprovalId(req),
         });
         if (!gateRes.allowed) {
@@ -7812,7 +7792,7 @@ async function assertServerScopeAccess(
         entityName: server.name || server.ip || server.id,
         actionKey: action,
         requestedAction: `${meta.labelEn} (${server.name || server.ip || server.id})`,
-        commandPreview: buildSafeCommandPreview(req),
+        commandPreview: buildSafeCommandPreview(req, { server, action }),
         actionParams:
           rawActionParams && Object.keys(rawActionParams).length > 0 ? rawActionParams : null,
         providedApprovalId: extractProvidedApprovalId(req),
@@ -8048,7 +8028,7 @@ apiRouter.post('/remote-servers/export', async (req: Request, res: Response) => 
             : `${approvalGatedServers.length} Remote Servers`,
         actionKey: 'export_servers',
         requestedAction: `Export ${targetServers.length} Remote Server(s)`,
-        commandPreview: buildSafeCommandPreview(req, `format=${format}, count=${targetServers.length}`),
+        commandPreview: buildSafeCommandPreview(req, { action: 'export_servers', extraSummary: `format=${format}, count=${targetServers.length}` }),
         actionParams: { serverIds: targetServers.map((s: any) => s.id), format },
         providedApprovalId: extractProvidedApprovalId(req),
       });
@@ -8288,7 +8268,7 @@ apiRouter.post('/remote-servers/import', async (req: Request, res: Response) => 
           entityName: 'Remote Servers Import Package',
           actionKey: 'import_servers',
           requestedAction: 'Import Remote Servers into Fleet',
-          commandPreview: buildSafeCommandPreview(req),
+          commandPreview: buildSafeCommandPreview(req, { action: 'import_servers' }),
           providedApprovalId: extractProvidedApprovalId(req),
         });
         if (!gateRes.allowed) {
@@ -16732,7 +16712,7 @@ apiRouter.post('/remote-servers/bulk-power', async (req: Request, res: Response)
             : `${approvalRequiredIds.length} Selected Servers`,
           actionKey: 'power_control',
           requestedAction: `Bulk Power Control (${actionType || 'restart'} on ${targetIds.length} server(s))`,
-          commandPreview: buildSafeCommandPreview(req),
+          commandPreview: buildSafeCommandPreview(req, { action: 'power_control' }),
           actionParams: bulkParams,
           providedApprovalId: extractProvidedApprovalId(req),
         });
