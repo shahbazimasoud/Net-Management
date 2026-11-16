@@ -1043,7 +1043,88 @@ export interface AccessPolicy {
   canEditLicenses?: boolean;
   canDeleteLicenseAttachments?: boolean;
 
+  // 9. Communications, Notifications, Profile Security & Two-Step Approvals (RBAC)
+  canViewCommunications?: boolean;
+  canSendCommunications?: boolean;
+  canSendAnnouncements?: boolean;
+  canApproveActions?: boolean;
+
   permissions?: any;
+}
+
+export type CommsFolder = 'all' | 'unread' | 'messages' | 'announcements' | 'system' | 'approvals' | 'archived';
+export type CommsSeverity = 'info' | 'warning' | 'critical';
+export type CommsCategory =
+  | 'direct_message'
+  | 'channel_message'
+  | 'announcement'
+  | 'security_2fa'
+  | 'approval_request'
+  | 'system_alert';
+
+export interface CommsNotificationItem {
+  id: string;
+  recipientUserId: string;
+  recipientUsername: string;
+  sourceMessageId?: string | null;
+  channelId?: string | null;
+  category: CommsCategory;
+  severity: CommsSeverity;
+  senderName: string;
+  senderRole?: string | null;
+  title: string;
+  titleEn?: string | null;
+  summary: string;
+  summaryEn?: string | null;
+  body: string;
+  bodyEn?: string | null;
+  linkedEntityType?: string | null;
+  linkedEntityId?: string | null;
+  linkedEntityName?: string | null;
+  actionTab?: string | null;
+  isRead: boolean;
+  readAt?: string | null;
+  acknowledgedAt?: string | null;
+  isArchived: boolean;
+  requiresAcknowledgment?: boolean;
+  metadata?: Record<string, any>;
+  createdAt: string;
+}
+
+export interface CommsCountsByFolder {
+  all: number;
+  unread: number;
+  messages: number;
+  announcements: number;
+  system: number;
+  approvals: number;
+  archived: number;
+}
+
+export interface CommsRecipientOption {
+  type: 'user' | 'group' | 'all';
+  id: string;
+  username?: string;
+  label: string;
+  labelEn?: string;
+  roleOrType?: string;
+  source?: 'local' | 'ad' | 'group' | 'broadcast';
+}
+
+export interface CommsDispatchPayload {
+  targetType: 'all' | 'group' | 'users';
+  targetIds?: string[];
+  category: 'direct_message' | 'channel_message' | 'announcement';
+  severity: CommsSeverity;
+  title: string;
+  titleEn?: string;
+  body: string;
+  bodyEn?: string;
+  requiresAcknowledgment?: boolean;
+  linkedEntityType?: string;
+  linkedEntityId?: string;
+  linkedEntityName?: string;
+  actionTab?: string;
 }
 
 export type BackupScope = 'full' | 'devices_topology' | 'security_rbac' | 'servers_only' | 'templates_only';

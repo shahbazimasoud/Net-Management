@@ -131,6 +131,7 @@ export const translations = {
     tab_licenses: 'Licenses Management',
     tab_contracts: 'Contracts & SLA',
     tab_logs: 'Audit & Command Logs',
+    tab_communications: 'Inbox & Notifications',
 
     // Footer
     footer_network_status: 'Network Status:',
@@ -829,6 +830,7 @@ export const translations = {
     tab_licenses: 'مدیریت لایسنس‌ها',
     tab_contracts: 'مدیریت قراردادها',
     tab_logs: 'لاگ',
+    tab_communications: 'مرکز پیام‌ها و اعلانات',
 
     // Footer
     footer_network_status: 'وضعیت شبکه:',

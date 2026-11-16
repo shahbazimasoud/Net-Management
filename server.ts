@@ -40,6 +40,9 @@ import { verifyToken } from './server/auth';
 import { apiRouter } from './server/routes';
 import { setupTerminalWebSocket } from './server/terminalWs';
 import { setupPortMonitorWebSocket } from './server/portMonitorWs';
+import { setupCommsWebSocket } from './server/commsWs';
+import { commsRouter } from './server/commsRoutes';
+import { initCommsIntegration } from './server/commsService';
 import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdServiceRunning } from './server/remoteDesktopGateway';
 import { registerCertConverterRoutes } from './server/certConverter';
 import { licenseContractRouter, startLicenseContractCronDaemon } from './server/licenseContractService';
@@ -1273,6 +1276,9 @@ registerCertConverterRoutes(app);
 // Mount Licenses & Contracts Management routes
 app.use('/api', licenseContractRouter);
 
+// Mount Communications & Notifications Center routes
+app.use('/api', commsRouter);
+
 // Mount PostgreSQL & Authentication API router
 app.use('/api', apiRouter);
 
@@ -1517,8 +1523,14 @@ async function startServer() {
   // Setup In-Browser Remote Desktop / Remote Console (RDP & VNC) gateway via Guacamole protocol
   setupRemoteDesktopWebSocket(server, projectRoot);
 
+  // Initialize Communications & Audit Notification integration
+  initCommsIntegration();
+
   // Setup Real-Time Port Monitoring WebSocket (Cisco terminal monitor / MikroTik link watcher)
   setupPortMonitorWebSocket(server, projectRoot);
+
+  // Setup Real-Time Communications & Notifications WebSocket (/ws/comms)
+  setupCommsWebSocket(server);
 
   server.listen(PORT, HOST, () => {
     console.log(`Node/Express frontend + proxy running on http://${HOST}:${PORT}`);

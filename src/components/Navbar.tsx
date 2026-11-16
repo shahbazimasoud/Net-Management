@@ -18,13 +18,22 @@ import {
   Server,
   Cpu,
   Menu,
-  X
+  X,
+  Bell,
+  CheckCheck,
+  ArrowUpRight
 } from 'lucide-react';
 import { APP_VERSION } from '../version';
 import { useLanguage } from '../i18n';
 import { useUpdate } from '../context/UpdateContext';
 import { useAuth } from '../context/AuthContext';
 import { canUserCheckUpdate, isUserSuperAdmin } from '../utils/rbac';
+import { CommsNotificationItem } from '../types';
+import {
+  fetchCommsNotifications,
+  markAllCommsNotificationsRead,
+  markCommsNotificationRead,
+} from '../services/commsApi';
 
 export type ThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light' | 'google-dark';
 
@@ -50,6 +59,9 @@ interface NavbarProps {
   logoCustomUrl?: string;
   isMobileMenuOpen?: boolean;
   onToggleMobileMenu?: () => void;
+  unreadCommsCount?: number;
+  onOpenCommunications?: () => void;
+  onUnreadCountSync?: (count: number) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -71,6 +83,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   logoCustomUrl,
   isMobileMenuOpen = false,
   onToggleMobileMenu,
+  unreadCommsCount = 0,
+  onOpenCommunications,
+  onUnreadCountSync,
 }) => {
   const { t, language, setLanguage, resetToDefaultLanguage, isCustomizedByUser, isRtl, isEn } = useLanguage();
   const { updateInfo, checking, checkUpdate, checkFeedback, dismissFeedback } = useUpdate();
@@ -81,6 +96,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
+  const [commsOpen, setCommsOpen] = useState(false);
+  const [commsPreview, setCommsPreview] = useState<CommsNotificationItem[]>([]);
+  const [commsPreviewLoading, setCommsPreviewLoading] = useState(false);
+  const commsRef = useRef<HTMLDivElement>(null);
+
+  const canViewComms = isSuperAdmin || effectivePolicy?.canViewCommunications !== false;
+
   const isThemeCustomized = typeof window !== 'undefined' && localStorage.getItem('user_customized_theme') === 'true';
   const isLightMode = panelTheme === 'light';
 
@@ -89,11 +111,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   const displayEmail = user?.email || 'admin@nettopology.internal';
 
   useEffect(() => {
-    if (!profileOpen) return;
+    if (!profileOpen && !commsOpen) return;
     const handleOutsideClick = (event: Event) => {
       const target = event.target as Node | null;
-      if (profileRef.current && target && !profileRef.current.contains(target)) {
+      if (profileOpen && profileRef.current && target && !profileRef.current.contains(target)) {
         setProfileOpen(false);
+      }
+      if (commsOpen && commsRef.current && target && !commsRef.current.contains(target)) {
+        setCommsOpen(false);
       }
     };
     window.addEventListener('pointerdown', handleOutsideClick, true);
@@ -104,7 +129,22 @@ export const Navbar: React.FC<NavbarProps> = ({
       window.removeEventListener('mousedown', handleOutsideClick, true);
       window.removeEventListener('touchstart', handleOutsideClick, true);
     };
-  }, [profileOpen]);
+  }, [profileOpen, commsOpen]);
+
+  const handleToggleCommsPopover = async () => {
+    const nextState = !commsOpen;
+    setCommsOpen(nextState);
+    if (nextState) {
+      setProfileOpen(false);
+      setCommsPreviewLoading(true);
+      try {
+        const res = await fetchCommsNotifications({ folder: 'all', limit: 6, forceRefresh: true });
+        setCommsPreview(res.items || []);
+        onUnreadCountSync?.(res.unreadCount ?? 0);
+      } catch {}
+      setCommsPreviewLoading(false);
+    }
+  };
 
   const themeOptions: { id: ThemeType; nameKey: string; color: string; bgClass: string; nameEn: string; nameFa: string }[] = [
     { id: 'obsidian', nameKey: 'theme_obsidian', color: '#6366f1', bgClass: 'bg-indigo-600', nameEn: 'Obsidian', nameFa: 'آبسیدین' },
@@ -251,6 +291,159 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Lock className={`w-3.5 h-3.5 ${isLightMode ? 'text-cyan-600' : 'text-cyan-400'}`} />
             <span className="hidden md:inline">{isEn ? 'Vault' : 'ولت پسورد'}</span>
           </button>
+        )}
+
+        {/* Communications & Notifications Bell */}
+        {canViewComms && onOpenCommunications && (
+          <div className="relative" ref={commsRef}>
+            <button
+              type="button"
+              onClick={handleToggleCommsPopover}
+              className={`relative flex items-center justify-center p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border font-medium text-xs shadow-xs transition active:scale-95 cursor-pointer ${
+                isLightMode
+                  ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800 hover:text-indigo-700'
+                  : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200 hover:text-indigo-300'
+              }`}
+              title={isEn ? 'Inbox & Notifications' : 'مرکز پیام‌ها و اعلانات'}
+              id="navbar-comms-bell-btn"
+            >
+              <Bell className={`w-4 h-4 ${isLightMode ? 'text-indigo-600' : 'text-indigo-400'}`} />
+              {unreadCommsCount > 0 && (
+                <span className="ml-1.5 px-1.5 py-0.2 rounded-md bg-rose-600 text-white text-[10px] font-bold font-mono tabular-nums leading-tight">
+                  {unreadCommsCount > 99 ? '99+' : unreadCommsCount}
+                </span>
+              )}
+            </button>
+
+            {commsOpen && (
+              <div
+                className={`absolute ${isRtl ? 'left-0 text-right' : 'right-0 text-left'} mt-2 w-[min(22rem,calc(100vw-1rem))] rounded-2xl border shadow-2xl z-50 backdrop-blur-2xl overflow-hidden ${
+                  isLightMode
+                    ? 'bg-white border-slate-200 ring-1 ring-slate-200/80 text-slate-900'
+                    : 'bg-slate-900/95 border-white/15 ring-1 ring-white/10 text-slate-100'
+                }`}
+              >
+                <div
+                  className={`flex items-center justify-between px-3.5 py-2.5 border-b ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-white/10'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold">
+                      {isEn ? 'Inbox & Notifications' : 'پیام‌ها و اعلانات'}
+                    </span>
+                    {unreadCommsCount > 0 && (
+                      <span className="text-[11px] font-mono tabular-nums text-rose-500 font-semibold">
+                        ({unreadCommsCount})
+                      </span>
+                    )}
+                  </div>
+                  {unreadCommsCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await markAllCommsNotificationsRead('all');
+                          setCommsPreview((prev) => prev.map((n) => ({ ...n, isRead: true })));
+                          onUnreadCountSync?.(res.unreadCount);
+                        } catch {}
+                      }}
+                      className={`flex items-center gap-1 text-[11px] font-medium cursor-pointer ${
+                        isLightMode
+                          ? 'text-indigo-700 hover:text-indigo-900'
+                          : 'text-indigo-400 hover:text-indigo-300'
+                      }`}
+                    >
+                      <CheckCheck className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Mark all read' : 'خواندن همه'}</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="max-h-72 overflow-y-auto custom-scrollbar divide-y divide-slate-100 dark:divide-white/5">
+                  {commsPreviewLoading && commsPreview.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-400">
+                      {isEn ? 'Loading feed...' : 'در حال دریافت...'}
+                    </div>
+                  ) : commsPreview.length === 0 ? (
+                    <div className="p-5 text-center text-xs text-slate-400">
+                      {isEn ? 'No notifications in inbox yet.' : 'هیچ پیام یا اعلانی در صندوق وجود ندارد.'}
+                    </div>
+                  ) : (
+                    commsPreview.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={async () => {
+                          if (!item.isRead) {
+                            markCommsNotificationRead(item.id, true)
+                              .then((res) => onUnreadCountSync?.(res.unreadCount))
+                              .catch(() => {});
+                          }
+                          setCommsOpen(false);
+                          onOpenCommunications();
+                        }}
+                        className={`w-full px-3.5 py-2.5 flex items-start gap-2.5 text-start transition cursor-pointer ${
+                          !item.isRead
+                            ? isLightMode
+                              ? 'bg-indigo-50/50 hover:bg-indigo-50'
+                              : 'bg-indigo-500/10 hover:bg-indigo-500/15'
+                            : isLightMode
+                            ? 'hover:bg-slate-50'
+                            : 'hover:bg-white/5'
+                        }`}
+                      >
+                        <span
+                          className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${
+                            !item.isRead
+                              ? item.severity === 'critical'
+                                ? 'bg-rose-500'
+                                : 'bg-indigo-500'
+                              : 'bg-transparent'
+                          }`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold truncate">
+                            {isEn ? item.titleEn || item.title : item.title || item.titleEn}
+                          </div>
+                          <div className="text-[11px] opacity-75 line-clamp-1 mt-0.5">
+                            {isEn ? item.summaryEn || item.summary : item.summary || item.summaryEn}
+                          </div>
+                          <div className="text-[10px] opacity-60 mt-0.5 font-mono tabular-nums">
+                            {item.senderName} ·{' '}
+                            {new Date(item.createdAt).toLocaleTimeString(isEn ? 'en-US' : 'fa-IR', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+
+                <div
+                  className={`p-2 border-t ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-white/10'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCommsOpen(false);
+                      onOpenCommunications();
+                    }}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer transition"
+                  >
+                    <span>
+                      {isEn ? 'Open Inbox & Notifications Center' : 'مشاهده کامل مرکز پیام‌ها و اعلانات'}
+                    </span>
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
 

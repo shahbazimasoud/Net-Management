@@ -219,6 +219,12 @@ export interface FallbackStore {
   device_command_audit_logs?: any[];
   portal_audit_logs?: any[];
   log_retention_config?: any;
+  comms_channels?: any[];
+  comms_channel_members?: any[];
+  comms_messages?: any[];
+  comms_notifications?: any[];
+  user_security_profiles?: any[];
+  action_approval_requests?: any[];
 }
 
 export interface SystemSecurityKeysRecord {
@@ -1273,6 +1279,25 @@ export function loadFallbackStore(): FallbackStore {
       lastCleanupTimestamp: null,
       lastCleanupDeletedCount: 0,
     };
+  }
+
+  if (!Array.isArray(store.comms_channels)) {
+    store.comms_channels = [];
+  }
+  if (!Array.isArray(store.comms_channel_members)) {
+    store.comms_channel_members = [];
+  }
+  if (!Array.isArray(store.comms_messages)) {
+    store.comms_messages = [];
+  }
+  if (!Array.isArray(store.comms_notifications)) {
+    store.comms_notifications = [];
+  }
+  if (!Array.isArray(store.user_security_profiles)) {
+    store.user_security_profiles = [];
+  }
+  if (!Array.isArray(store.action_approval_requests)) {
+    store.action_approval_requests = [];
   }
 
   return store;
@@ -2484,6 +2509,138 @@ export async function initDatabase(): Promise<void> {
           updated_by VARCHAR(128)
         )
       `);
+
+      // 24. Enterprise Communications Channels (Direct, Group, Announcements, System Alerts)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS comms_channels (
+          id VARCHAR(128) PRIMARY KEY,
+          channel_type VARCHAR(32) NOT NULL DEFAULT 'direct',
+          name VARCHAR(255) NOT NULL,
+          name_en VARCHAR(255),
+          description TEXT,
+          description_en TEXT,
+          linked_group_id VARCHAR(128),
+          is_pinned BOOLEAN DEFAULT FALSE,
+          created_by_user_id VARCHAR(128),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_comms_channels_type ON comms_channels(channel_type)");
+
+      // 25. Communications Channel Memberships
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS comms_channel_members (
+          channel_id VARCHAR(128) NOT NULL,
+          user_id VARCHAR(128) NOT NULL,
+          username VARCHAR(128) NOT NULL,
+          role VARCHAR(32) DEFAULT 'member',
+          is_muted BOOLEAN DEFAULT FALSE,
+          last_read_message_id VARCHAR(128),
+          joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (channel_id, user_id)
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_comms_members_user ON comms_channel_members(user_id)");
+
+      // 26. Communications Messages & Broadcast Announcements Ledger
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS comms_messages (
+          id VARCHAR(128) PRIMARY KEY,
+          channel_id VARCHAR(128),
+          sender_user_id VARCHAR(128) NOT NULL,
+          sender_username VARCHAR(128) NOT NULL,
+          sender_full_name VARCHAR(255),
+          sender_role VARCHAR(128),
+          message_type VARCHAR(32) NOT NULL DEFAULT 'text',
+          priority VARCHAR(24) NOT NULL DEFAULT 'info',
+          title TEXT NOT NULL,
+          title_en TEXT,
+          body TEXT NOT NULL,
+          body_en TEXT,
+          linked_entity_type VARCHAR(64),
+          linked_entity_id VARCHAR(128),
+          linked_entity_name VARCHAR(255),
+          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_comms_messages_channel ON comms_messages(channel_id, created_at DESC)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_comms_messages_created ON comms_messages(created_at DESC)");
+
+      // 27. Personal User Inbox & Notifications Ledger (Per-Recipient Read/Ack/Archive State)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS comms_notifications (
+          id VARCHAR(128) PRIMARY KEY,
+          recipient_user_id VARCHAR(128) NOT NULL,
+          recipient_username VARCHAR(128) NOT NULL,
+          source_message_id VARCHAR(128),
+          channel_id VARCHAR(128),
+          category VARCHAR(32) NOT NULL DEFAULT 'system_alert',
+          severity VARCHAR(24) NOT NULL DEFAULT 'info',
+          sender_name VARCHAR(255) NOT NULL,
+          sender_role VARCHAR(128),
+          title TEXT NOT NULL,
+          title_en TEXT,
+          summary TEXT NOT NULL,
+          summary_en TEXT,
+          body TEXT NOT NULL,
+          body_en TEXT,
+          linked_entity_type VARCHAR(64),
+          linked_entity_id VARCHAR(128),
+          linked_entity_name VARCHAR(255),
+          action_tab VARCHAR(64),
+          is_read BOOLEAN DEFAULT FALSE,
+          read_at TIMESTAMP WITH TIME ZONE,
+          acknowledged_at TIMESTAMP WITH TIME ZONE,
+          is_archived BOOLEAN DEFAULT FALSE,
+          requires_acknowledgment BOOLEAN DEFAULT FALSE,
+          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_comms_notif_recipient_feed ON comms_notifications(recipient_user_id, is_archived, is_read, created_at DESC)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_comms_notif_username ON comms_notifications(recipient_username, created_at DESC)");
+
+      // 28. Per-User Profile, 2FA TOTP Enrollment & Notification Preferences
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS user_security_profiles (
+          user_id VARCHAR(128) PRIMARY KEY,
+          username VARCHAR(128) NOT NULL,
+          display_title VARCHAR(255),
+          phone_ext VARCHAR(64),
+          preferred_2fa_method VARCHAR(32) DEFAULT 'none',
+          totp_secret_enc TEXT,
+          totp_verified BOOLEAN DEFAULT FALSE,
+          backup_codes_hash JSONB NOT NULL DEFAULT '[]'::jsonb,
+          notify_channels JSONB NOT NULL DEFAULT '{}'::jsonb,
+          quiet_hours JSONB NOT NULL DEFAULT '{}'::jsonb,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_user_sec_profiles_username ON user_security_profiles(username)");
+
+      // 29. Two-Step / Four-Eyes Action Approval Requests Queue
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS action_approval_requests (
+          id VARCHAR(128) PRIMARY KEY,
+          requester_user_id VARCHAR(128) NOT NULL,
+          requester_username VARCHAR(128) NOT NULL,
+          target_entity_type VARCHAR(64) NOT NULL,
+          target_entity_id VARCHAR(128) NOT NULL,
+          target_entity_name VARCHAR(255),
+          requested_action VARCHAR(128) NOT NULL,
+          command_payload_enc TEXT,
+          status VARCHAR(24) NOT NULL DEFAULT 'pending',
+          approver_user_id VARCHAR(128),
+          approver_username VARCHAR(128),
+          decision_note TEXT,
+          expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          decided_at TIMESTAMP WITH TIME ZONE
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON action_approval_requests(status, created_at DESC)");
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -4496,6 +4653,10 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canManageNavigationGovernance: true,
       canViewContracts: true,
       canViewLicenses: true,
+      canViewCommunications: true,
+      canSendCommunications: true,
+      canSendAnnouncements: true,
+      canApproveActions: true,
       targetContractScope: 'all',
       targetContractIds: [],
       canAddContracts: true,
@@ -7285,6 +7446,13 @@ export async function getPortalAuditLogs(options: {
   return logs.slice(offset, offset + limit);
 }
 
+type AuditAlertHook = (record: any) => Promise<void> | void;
+let commsAuditAlertHook: AuditAlertHook | null = null;
+
+export function registerCommsAuditAlertHook(hook: AuditAlertHook): void {
+  commsAuditAlertHook = hook;
+}
+
 export async function addPortalAuditLog(log: any): Promise<any> {
   const actor = log.actor || {
     username: log.user_name || log.userName || 'admin',
@@ -7359,6 +7527,13 @@ export async function addPortalAuditLog(log: any): Promise<any> {
     } catch (e) {
       console.error('[DB Insert Error in addPortalAuditLog]', e);
     }
+  }
+
+  if (commsAuditAlertHook && record.category !== 'communications') {
+    const hookFn = commsAuditAlertHook;
+    setImmediate(() => {
+      Promise.resolve(hookFn(record)).catch(() => {});
+    });
   }
 
   return {

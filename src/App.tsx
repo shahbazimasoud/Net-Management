@@ -29,6 +29,7 @@ import { EmailSettingsView } from './components/settings/EmailSettingsView';
 import { TelegramAlertsSettingsView } from './components/settings/TelegramAlertsSettingsView';
 import { LogRetentionSettingsView } from './components/settings/LogRetentionSettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
+import { CommunicationsCenterView } from './components/comms/CommunicationsCenterView';
 import { RemoteServersView } from './components/servers/RemoteServersView';
 import { LicensesView } from './components/licenses/LicensesView';
 import { ContractsView } from './components/licenses/ContractsView';
@@ -68,6 +69,7 @@ import {
   writeMemory
 } from './services/api';
 import { appDataCache } from './services/dataCache';
+import { connectCommsWebSocket, fetchUnreadCommsCounts } from './services/commsApi';
 import {
   logDeviceAddition,
   logDeviceDeletion,
@@ -107,6 +109,8 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [unreadCommsCount, setUnreadCommsCount] = useState<number>(0);
+  const [commsLiveRevision, setCommsLiveRevision] = useState<number>(0);
 
   // RBAC Access Control States (Synchronized directly with PostgreSQL database via Bearer Token)
   const [policies, setPolicies] = useState<AccessPolicy[]>([]);
@@ -131,6 +135,52 @@ export default function App() {
         if (cfg) setAdConfig(cfg);
       }).catch(() => {});
     }
+  }, [isAuthenticated]);
+
+  // Live Communications & Notifications WebSocket subscription
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setUnreadCommsCount(0);
+      return;
+    }
+
+    let cancelled = false;
+    fetchUnreadCommsCounts(true)
+      .then((res) => {
+        if (!cancelled) {
+          setUnreadCommsCount(res.unreadCount ?? 0);
+        }
+      })
+      .catch(() => {});
+
+    const conn = connectCommsWebSocket((evt) => {
+      if (cancelled) return;
+      if (evt.type === 'ping' || evt.type === 'pong') return;
+      const nextUnread = 'unreadCount' in evt && typeof evt.unreadCount === 'number' ? evt.unreadCount : undefined;
+      if (nextUnread !== undefined) {
+        setUnreadCommsCount(nextUnread);
+      }
+      if (
+        evt.type === 'notification:created' ||
+        evt.type === 'notification:updated' ||
+        evt.type === 'notification:read_all'
+      ) {
+        appDataCache.invalidate('comms:');
+        setCommsLiveRevision((r) => r + 1);
+        if (nextUnread === undefined) {
+          fetchUnreadCommsCounts(true)
+            .then((res) => {
+              if (!cancelled) setUnreadCommsCount(res.unreadCount ?? 0);
+            })
+            .catch(() => {});
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      conn.close();
+    };
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -1346,6 +1396,12 @@ export default function App() {
           logoCustomUrl={generalSettings.logoCustomUrl}
           isMobileMenuOpen={isMobileMenuOpen}
           onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
+          unreadCommsCount={unreadCommsCount}
+          onOpenCommunications={() => {
+            setIsTopologyFullscreen(false);
+            setActiveTab('communications');
+          }}
+          onUnreadCountSync={setUnreadCommsCount}
         />
       )}
 
@@ -1369,6 +1425,7 @@ export default function App() {
             effectivePolicy={effectivePolicy}
             user={user}
             isLightMode={isLightMode}
+            unreadCommsCount={unreadCommsCount}
           />
         )}
 
@@ -1450,6 +1507,15 @@ export default function App() {
             <AuditLogsView
               isLightMode={isLightMode}
               onNavigateToRetentionSettings={() => setActiveTab('settings-log-retention')}
+            />
+          )}
+
+          {activeTab === 'communications' && (
+            <CommunicationsCenterView
+              isLightMode={isLightMode}
+              onNavigateToTab={(tab) => setActiveTab(tab)}
+              onUnreadCountSync={(cnt) => setUnreadCommsCount(cnt)}
+              liveRevision={commsLiveRevision}
             />
           )}
 

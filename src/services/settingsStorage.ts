@@ -204,6 +204,11 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewContracts: true,
     canManageContracts: false,
     canDeleteContracts: false,
+    // Communications & Approvals RBAC
+    canViewCommunications: true,
+    canSendCommunications: true,
+    canSendAnnouncements: false,
+    canApproveActions: false,
   },
   {
     id: 'policy-noc-observer',
@@ -263,6 +268,11 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewContracts: true,
     canManageContracts: false,
     canDeleteContracts: false,
+    // Communications & Approvals RBAC
+    canViewCommunications: true,
+    canSendCommunications: false,
+    canSendAnnouncements: false,
+    canApproveActions: false,
   },
   {
     id: 'policy-super-admin',
@@ -326,6 +336,11 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewContracts: true,
     canManageContracts: true,
     canDeleteContracts: true,
+    // Communications & Approvals RBAC
+    canViewCommunications: true,
+    canSendCommunications: true,
+    canSendAnnouncements: true,
+    canApproveActions: true,
   },
 ];
 
@@ -1363,6 +1378,8 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
       return policy?.canViewLicenses !== undefined ? Boolean(policy?.canViewLicenses) : true;
     case 'contracts':
       return policy?.canViewContracts !== undefined ? Boolean(policy?.canViewContracts) : true;
+    case 'communications':
+      return policy?.canViewCommunications !== undefined ? Boolean(policy?.canViewCommunications) : true;
     case 'settings':
     case 'general-settings':
     case 'settings-services':

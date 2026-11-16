@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.425.19';
+export const APP_VERSION = '1.426.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.426.0',
+    releaseDate: '2026-11-16',
+    type: 'minor',
+    title: 'راه‌اندازی مرکز یکپارچه پیام‌ها و اعلانات بلادرنگ به همراه زیرساخت PostgreSQL پیام‌رسانی، امنیت پروفایل و تاییدیه‌های دو مرحله‌ای',
+    title_en: 'Launch Real-Time Inbox & Notifications Center with Foundational PostgreSQL Messaging, Profile Security & Two-Step Approval Schemas',
+    changes: [
+      'ایجاد کامل ۶ جدول پایه در PostgreSQL (comms_channels، comms_channel_members، comms_messages، comms_notifications، user_security_profiles و action_approval_requests) با همگام‌سازی کامل برای کاربران محلی و اکتیو دایرکتوری.',
+      'راه‌اندازی هاب اختصاصی WebSocket در مسیر /ws/comms و سرویس API یکپارچه (/api/comms/*) برای دریافت آنی هشدارهای واقعی سیستم، رویدادهای امنیتی، اطلاعیه‌های مدیر و پیام‌های تیمی.',
+      'طراحی صفحه اختصاصی «مرکز پیام‌ها و اعلانات» با فیلتر هوشمند پوشه‌ها، فیلتر شدت و جستجوی فوری، انتخاب گروهی جهت خوانده‌شدن/آرشیو، دکمه تایید مطالعه (Read Receipt) و مودال استاندارد ارسال پیام و اطلاعیه مطابق با سطوح دسترسی RBAC.',
+      'افزودن زنگ اعلان بلادرنگ با نشانگر شمارنده موارد خوانده‌نشده و منوی پیش‌نمایش سریع به هدر بالای سامانه (Navbar) و ثبت آیتم «مرکز پیام‌ها و اعلانات» در منوی سایدبار.',
+      'افزودن مجوزهای جدید دسترسی (canViewCommunications، canSendCommunications، canSendAnnouncements و canApproveActions) در ماتریس پالیسی‌های RBAC.'
+    ],
+    changes_en: [
+      'Created foundational PostgreSQL schemas (comms_channels, comms_channel_members, comms_messages, comms_notifications, user_security_profiles, and action_approval_requests) supporting unified Local and Active Directory identities.',
+      'Implemented authenticated WebSocket hub (/ws/comms) and REST API (/api/comms/*) delivering live system alerts, security events, team messages, and official announcements with zero simulated data.',
+      'Built the dedicated Inbox & Notifications Center workspace with smart folder navigation, severity filtering, instant search, batch mark-read/archive, explicit Read Receipt acknowledgment, and RBAC-gated Compose/Broadcast modal.',
+      'Integrated a live unread notification bell and preview popover into the Navbar alongside a badge-enabled Sidebar entry and automatic critical/warning audit alert routing.',
+      'Added granular RBAC permission controls (canViewCommunications, canSendCommunications, canSendAnnouncements, canApproveActions) to the Access Policy management matrix.'
+    ]
+  },
   {
     version: '1.425.19',
     releaseDate: '2026-11-15',

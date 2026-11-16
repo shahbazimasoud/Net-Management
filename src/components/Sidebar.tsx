@@ -27,6 +27,7 @@ import {
   ArrowUpCircle,
   Mail,
   BellRing,
+  Bell,
   Database,
   FileCheck,
   X
@@ -69,6 +70,7 @@ export type ActiveTab =
   | 'ports'
   | 'scanner'
   | 'logs'
+  | 'communications'
   | 'licenses'
   | 'contracts'
   | 'settings'
@@ -98,6 +100,7 @@ interface SidebarProps {
   effectivePolicy?: AccessPolicy;
   user?: AuthUser | null;
   isLightMode?: boolean;
+  unreadCommsCount?: number;
 }
 
 interface NavItem {
@@ -129,6 +132,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   effectivePolicy,
   user,
   isLightMode: isLightModeProp,
+  unreadCommsCount = 0,
 }) => {
   const { t, isRtl, isEn } = useLanguage();
   const { updateInfo } = useUpdate();
@@ -269,6 +273,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: ScrollText,
           badge: 'Live',
         },
+        {
+          id: 'communications',
+          labelKey: 'tab_communications',
+          icon: Bell,
+          badge: unreadCommsCount > 0 ? String(unreadCommsCount) : null,
+        },
       ],
     },
     {
@@ -361,7 +371,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         },
       ],
     },
-  ], [devicesCount, hasUpdate]);
+  ], [devicesCount, hasUpdate, unreadCommsCount]);
 
   // Filter modules and parent accordions based on user's effective RBAC policy
   const visibleNavGroups = useMemo(() => {
