@@ -183,6 +183,7 @@ import {
   LicenseItem,
   ContractItem,
   AttachmentFile,
+  ApprovalEligibleCandidatesResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -1234,18 +1235,30 @@ export async function syncActiveDirectoryApi(config: ActiveDirectoryConfig): Pro
 }
 
 export async function fetchAccessPolicies(): Promise<{ policies: AccessPolicy[]; total: number }> {
-  const res = await fetch(`${API_BASE}/access-policies`);
+  const res = await fetchWithRetry(`${API_BASE}/access-policies`);
   if (!res.ok) throw new Error('Failed to fetch access policies');
   return res.json();
 }
 
 export async function saveAccessPoliciesApi(policies: AccessPolicy[]): Promise<{ success: boolean; policies: AccessPolicy[] }> {
-  const res = await fetch(`${API_BASE}/access-policies`, {
+  const res = await fetchWithRetry(`${API_BASE}/access-policies`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ policies }),
   });
-  if (!res.ok) throw new Error('Failed to save access policies');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || err.error || 'Failed to save access policies');
+  }
+  return res.json();
+}
+
+export async function fetchEligibleApproversApi(): Promise<ApprovalEligibleCandidatesResponse> {
+  const res = await fetchWithRetry(`${API_BASE}/approvals/eligible-approvers`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || err.error || 'Failed to load eligible approvers');
+  }
   return res.json();
 }
 

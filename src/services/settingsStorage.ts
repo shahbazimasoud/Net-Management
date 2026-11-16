@@ -1016,24 +1016,32 @@ export function saveAccessPolicies(policies: AccessPolicy[]): void {
 
 export async function saveAccessPoliciesToDatabase(
   policies: AccessPolicy[]
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; message?: string }> {
   try {
-    inMemoryPolicies = policies;
     const res = await fetch('/api/access-policies', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ policies }),
     });
     if (res.ok) {
+      inMemoryPolicies = policies;
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('nettopology_access_policies_changed', { detail: { policies } }));
       }
       return { success: true };
     }
     const data = await res.json().catch(() => ({}));
-    return { success: false, error: data.error || 'Failed to save access policies in database' };
+    return {
+      success: false,
+      error: data.error || 'Failed to save access policies in database',
+      message: data.message || data.error || 'Failed to save access policies in database',
+    };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Connection error to backend database' };
+    return {
+      success: false,
+      error: err?.message || 'Connection error to backend database',
+      message: err?.message || 'Connection error to backend database',
+    };
   }
 }
 

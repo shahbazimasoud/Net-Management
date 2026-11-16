@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.430.3';
+export const APP_VERSION = '1.431.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.431.0',
+    releaseDate: '2026-11-16',
+    type: 'minor',
+    title: 'فاز ۱: ماتریس دسترسی سه‌حالته (مجاز / نیازمند تایید / مسدود) و سازنده زنجیره تایید چندمرحله‌ای در پالیسی‌های RBAC',
+    title_en: 'Phase 1: Policy-Driven Tri-State RBAC (Allow / Approval / Deny) & Multi-Stage Approval Chain Builder',
+    changes: [
+      'ارتقای مدل و ارزیاب‌های دسترسی سرورها و تجهیزات شبکه (`AccessPolicy` و `rbac.ts`) به حالت سه‌گانه `Allow` (اجرای مستقیم)، `Require Approval` (نیازمند تایید) و `Deny` (مسدود) با پشتیبانی کامل از قوانین پیش‌فرض و استثناهای اختصاصی.',
+      'افزودن تب اختصاصی «زنجیره تایید چندمرحله‌ای (Approval Chain)» در مودال ساخت و ویرایش پالیسی دسترسی با قابلیت تعریف ۱ تا ۳ مرحله ترتیبی، انتخاب تاییدکنندگان مجاز (کاربران خاص، گروه‌های محلی/اکتیو دایرکتوری یا هر تاییدکننده مجاز) و تعیین مهلت زمانی (TTL) هر مرحله.',
+      'افزودن اندپوینت `/api/approvals/eligible-approvers` و اعتبارسنجی اجباری سمت سرور هنگام ذخیره پالیسی جهت اطمینان از تعریف حداقل یک مرحله تایید معتبر در صورت وجود قوانین نیازمند تایید.'
+    ],
+    changes_en: [
+      'Upgraded `AccessPolicy` schema and tri-state RBAC evaluators (`Allow` / `Require Approval` / `Deny`) across both Fleet Server Actions and Network Device Matrix (universal, MikroTik, Cisco IOS, and port controls) including per-target overrides.',
+      'Introduced the `Approval Chain` tab and `ApprovalChainBuilder` component inside Access Policy configuration supporting 1 to 3 sequential approval stages with targeted local/AD users, local/AD security groups, or any authorized approver plus per-stage TTL windows.',
+      'Added `GET /api/approvals/eligible-approvers` and strict backend policy validation ensuring every policy with approval-gated actions configures valid sequential approval stages.'
+    ]
+  },
   {
     version: '1.430.3',
     releaseDate: '2026-11-16',

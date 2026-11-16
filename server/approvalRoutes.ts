@@ -1,6 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { verifyToken } from './auth';
-import { findUserById, findUserByUsername, getEffectivePolicyForUser } from './db';
+import {
+  findUserById,
+  findUserByUsername,
+  getApprovalEligibleCandidates,
+  getEffectivePolicyForUser,
+} from './db';
 import {
   ApprovalActor,
   cancelApprovalRequest,
@@ -67,6 +72,23 @@ async function authenticateApprovalRequest(req: Request): Promise<{
     },
   };
 }
+
+// GET /api/approvals/eligible-approvers
+approvalRouter.get('/approvals/eligible-approvers', async (req: Request, res: Response) => {
+  const auth = await authenticateApprovalRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const data = await getApprovalEligibleCandidates();
+    return res.json(data);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to resolve eligible approvers',
+    });
+  }
+});
 
 // GET /api/approvals/targets
 approvalRouter.get('/approvals/targets', async (req: Request, res: Response) => {

@@ -17,6 +17,7 @@ import {
   Sliders,
   ChevronDown,
   ChevronUp,
+  Clock,
   Save,
   CheckCircle2,
   AlertCircle,
@@ -77,10 +78,13 @@ import {
   NetworkDeviceActionKey,
   ContractItem,
   LicenseItem,
+  ActionAccessDecision,
+  ApprovalWorkflowStageConfig,
 } from '../../types';
 import { useLanguage } from '../../i18n';
 import { useModalDock } from '../../context/ModalDockContext';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { ApprovalChainBuilder } from './ApprovalChainBuilder';
 import {
   SERVER_ACTIONS_CATALOG,
   DEVICE_ACTIONS_CATALOG,
@@ -89,6 +93,8 @@ import {
   FULL_DEVICE_PERMISSIONS,
   RESTRICTED_DEVICE_PERMISSIONS,
   isDeviceActionPermitted,
+  evaluateDeviceActionDecision,
+  countPolicyApprovalRules,
 } from '../../utils/rbac';
 import { fetchActiveDirectoryConfig, fetchContractsApi, fetchLicensesApi } from '../../services/api';
 
@@ -98,7 +104,8 @@ export type PolicyModalTab =
   | 'contracts_licenses'
   | 'servers'
   | 'global'
-  | 'matrix';
+  | 'matrix'
+  | 'approvals';
 
 export interface AccessPolicyModalProps {
   isOpen: boolean;
@@ -258,8 +265,16 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         add_device: false,
       },
       perDevicePermissions: initialPolicy.perDevicePermissions || {},
+      defaultServerApprovalRules: initialPolicy.defaultServerApprovalRules || {},
+      perServerApprovalRules: initialPolicy.perServerApprovalRules || {},
+      defaultDeviceApprovalRules: initialPolicy.defaultDeviceApprovalRules || {},
+      perDeviceApprovalRules: initialPolicy.perDeviceApprovalRules || {},
+      approvalWorkflowStages: Array.isArray(initialPolicy.approvalWorkflowStages)
+        ? initialPolicy.approvalWorkflowStages
+        : [],
     };
   });
+  const [isDefaultDeviceActionsOpen, setIsDefaultDeviceActionsOpen] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -483,14 +498,24 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       if (!matchesSearch) return false;
 
       const hasCustom = Boolean(
-        draftPolicy?.perServerPermissions?.[s.id] &&
-          Object.keys(draftPolicy.perServerPermissions[s.id]).length > 0
+        (draftPolicy?.perServerPermissions?.[s.id] &&
+          Object.keys(draftPolicy.perServerPermissions[s.id]).length > 0) ||
+          (draftPolicy?.perServerApprovalRules?.[s.id] &&
+            Object.keys(draftPolicy.perServerApprovalRules[s.id]).length > 0)
       );
       if (serverOverrideFilter === 'custom_only') return hasCustom;
       if (serverOverrideFilter === 'default_only') return !hasCustom;
       return true;
     });
-  }, [draftPolicy?.targetScope, draftPolicy?.perServerPermissions, permittedServers, allAvailableServers, serverScopeSearch, serverOverrideFilter]);
+  }, [
+    draftPolicy?.targetScope,
+    draftPolicy?.perServerPermissions,
+    draftPolicy?.perServerApprovalRules,
+    permittedServers,
+    allAvailableServers,
+    serverScopeSearch,
+    serverOverrideFilter,
+  ]);
 
   // Sync draft policy whenever initialPolicy changes or modal opens
   useEffect(() => {
@@ -577,6 +602,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           add_device: false,
         },
         perDevicePermissions: initialPolicy.perDevicePermissions || {},
+        defaultServerApprovalRules: initialPolicy.defaultServerApprovalRules || {},
+        perServerApprovalRules: initialPolicy.perServerApprovalRules || {},
+        defaultDeviceApprovalRules: initialPolicy.defaultDeviceApprovalRules || {},
+        perDeviceApprovalRules: initialPolicy.perDeviceApprovalRules || {},
+        approvalWorkflowStages: Array.isArray(initialPolicy.approvalWorkflowStages)
+          ? initialPolicy.approvalWorkflowStages
+          : [],
       });
       setErrorMessage(null);
       setIsMaximized(false);
@@ -886,8 +918,10 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       if (!matchesSearch) return false;
 
       const hasCustom = Boolean(
-        draftPolicy.perDevicePermissions?.[d.id] &&
-          Object.keys(draftPolicy.perDevicePermissions[d.id]).length > 0
+        (draftPolicy.perDevicePermissions?.[d.id] &&
+          Object.keys(draftPolicy.perDevicePermissions[d.id]).length > 0) ||
+          (draftPolicy.perDeviceApprovalRules?.[d.id] &&
+            Object.keys(draftPolicy.perDeviceApprovalRules[d.id]).length > 0)
       );
       if (matrixDeviceFilter === 'custom_only') return hasCustom;
       if (matrixDeviceFilter === 'default_only') return !hasCustom;
@@ -961,6 +995,388 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     onClose();
   };
 
+  const approvalCounts = useMemo(
+    () => countPolicyApprovalRules(draftPolicy),
+    [
+      draftPolicy?.defaultServerApprovalRules,
+      draftPolicy?.perServerApprovalRules,
+      draftPolicy?.defaultDeviceApprovalRules,
+      draftPolicy?.perDeviceApprovalRules,
+    ]
+  );
+
+  const customServerOverridesCount = useMemo(() => {
+    if (!draftPolicy) return 0;
+    const keys = new Set<string>([
+      ...Object.keys(draftPolicy.perServerPermissions || {}).filter(
+        (id) => Object.keys(draftPolicy.perServerPermissions?.[id] || {}).length > 0
+      ),
+      ...Object.keys(draftPolicy.perServerApprovalRules || {}).filter(
+        (id) => Object.keys(draftPolicy.perServerApprovalRules?.[id] || {}).length > 0
+      ),
+    ]);
+    return keys.size;
+  }, [draftPolicy?.perServerPermissions, draftPolicy?.perServerApprovalRules]);
+
+  const customDeviceOverridesCount = useMemo(() => {
+    if (!draftPolicy) return 0;
+    const keys = new Set<string>([
+      ...Object.keys(draftPolicy.perDevicePermissions || {}).filter(
+        (id) => Object.keys(draftPolicy.perDevicePermissions?.[id] || {}).length > 0
+      ),
+      ...Object.keys(draftPolicy.perDeviceApprovalRules || {}).filter(
+        (id) => Object.keys(draftPolicy.perDeviceApprovalRules?.[id] || {}).length > 0
+      ),
+    ]);
+    return keys.size;
+  }, [draftPolicy?.perDevicePermissions, draftPolicy?.perDeviceApprovalRules]);
+
+  const getDefaultServerDecision = useCallback(
+    (key: ServerActionKey): ActionAccessDecision => {
+      if (!draftPolicy) return 'deny';
+      const rule = draftPolicy.defaultServerApprovalRules?.[key];
+      if (rule === 'allow' || rule === 'require_approval' || rule === 'deny') return rule;
+      return draftPolicy.defaultServerPermissions?.[key] ? 'allow' : 'deny';
+    },
+    [draftPolicy]
+  );
+
+  const setDefaultServerDecision = useCallback(
+    (key: ServerActionKey, decision: ActionAccessDecision) => {
+      setDraftPolicy((prev) => {
+        if (!prev) return prev;
+        const nextRules = { ...(prev.defaultServerApprovalRules || {}), [key]: decision };
+        return {
+          ...prev,
+          canAddServer: key === 'add_server' ? decision !== 'deny' : prev.canAddServer,
+          defaultServerPermissions: {
+            ...(prev.defaultServerPermissions || {}),
+            [key]: decision !== 'deny',
+          },
+          defaultServerApprovalRules: nextRules,
+        };
+      });
+    },
+    []
+  );
+
+  const setAllServerDefaultDecision = useCallback((decision: ActionAccessDecision) => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      const nextPerms: Record<string, boolean> = { ...(prev.defaultServerPermissions || {}) };
+      const nextRules: Record<string, ActionAccessDecision> = {
+        ...(prev.defaultServerApprovalRules || {}),
+      };
+      SERVER_ACTIONS_CATALOG.forEach((a) => {
+        nextPerms[a.key] = decision !== 'deny';
+        nextRules[a.key] = decision;
+      });
+      return {
+        ...prev,
+        canAddServer: decision !== 'deny',
+        defaultServerPermissions: nextPerms as any,
+        defaultServerApprovalRules: nextRules as any,
+      };
+    });
+  }, []);
+
+  const getPerServerDecisionState = useCallback(
+    (serverId: string, key: ServerActionKey): { decision: ActionAccessDecision; isOverridden: boolean } => {
+      const rule = draftPolicy?.perServerApprovalRules?.[serverId]?.[key];
+      if (rule === 'allow' || rule === 'require_approval' || rule === 'deny') {
+        return { decision: rule, isOverridden: true };
+      }
+      const boolOverride = draftPolicy?.perServerPermissions?.[serverId]?.[key];
+      if (typeof boolOverride === 'boolean') {
+        return { decision: boolOverride ? 'allow' : 'deny', isOverridden: true };
+      }
+      return { decision: getDefaultServerDecision(key), isOverridden: false };
+    },
+    [draftPolicy, getDefaultServerDecision]
+  );
+
+  const setPerServerDecision = useCallback(
+    (serverId: string, key: ServerActionKey, decision: ActionAccessDecision) => {
+      setDraftPolicy((prev) => {
+        if (!prev) return prev;
+        const currentPerms = prev.perServerPermissions?.[serverId] || {
+          ...(prev.defaultServerPermissions || {}),
+        };
+        const currentRules = prev.perServerApprovalRules?.[serverId] || {};
+        return {
+          ...prev,
+          perServerPermissions: {
+            ...(prev.perServerPermissions || {}),
+            [serverId]: { ...currentPerms, [key]: decision !== 'deny' },
+          },
+          perServerApprovalRules: {
+            ...(prev.perServerApprovalRules || {}),
+            [serverId]: { ...currentRules, [key]: decision },
+          },
+        };
+      });
+    },
+    []
+  );
+
+  const setPerServerBulkDecision = useCallback(
+    (serverId: string, decision: ActionAccessDecision) => {
+      setDraftPolicy((prev) => {
+        if (!prev) return prev;
+        const nextPerms: Record<string, boolean> = {};
+        const nextRules: Record<string, ActionAccessDecision> = {};
+        SERVER_ACTIONS_CATALOG.forEach((a) => {
+          nextPerms[a.key] = decision !== 'deny';
+          nextRules[a.key] = decision;
+        });
+        return {
+          ...prev,
+          perServerPermissions: {
+            ...(prev.perServerPermissions || {}),
+            [serverId]: nextPerms as any,
+          },
+          perServerApprovalRules: {
+            ...(prev.perServerApprovalRules || {}),
+            [serverId]: nextRules as any,
+          },
+        };
+      });
+    },
+    []
+  );
+
+  const resetPerServerOverride = useCallback((serverId: string) => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      const nextPerms = { ...(prev.perServerPermissions || {}) };
+      const nextRules = { ...(prev.perServerApprovalRules || {}) };
+      delete nextPerms[serverId];
+      delete nextRules[serverId];
+      return {
+        ...prev,
+        perServerPermissions: nextPerms,
+        perServerApprovalRules: nextRules,
+      };
+    });
+  }, []);
+
+  const getDefaultDeviceDecision = useCallback(
+    (key: NetworkDeviceActionKey): ActionAccessDecision => {
+      if (!draftPolicy) return 'deny';
+      const rule = draftPolicy.defaultDeviceApprovalRules?.[key];
+      if (rule === 'allow' || rule === 'require_approval' || rule === 'deny') return rule;
+      if (key === 'add_device' && draftPolicy.canAddDevice !== undefined) {
+        return draftPolicy.canAddDevice ? 'allow' : 'deny';
+      }
+      const fallbackDecision = evaluateDeviceActionDecision(
+        {
+          ...draftPolicy,
+          perDevicePermissions: undefined,
+          perDeviceApprovalRules: undefined,
+        },
+        '',
+        key
+      );
+      return fallbackDecision;
+    },
+    [draftPolicy]
+  );
+
+  const setDefaultDeviceDecision = useCallback(
+    (key: NetworkDeviceActionKey, decision: ActionAccessDecision) => {
+      setDraftPolicy((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          canAddDevice: key === 'add_device' ? decision !== 'deny' : prev.canAddDevice,
+          defaultDevicePermissions: {
+            ...(prev.defaultDevicePermissions || {}),
+            [key]: decision !== 'deny',
+          },
+          defaultDeviceApprovalRules: {
+            ...(prev.defaultDeviceApprovalRules || {}),
+            [key]: decision,
+          },
+        };
+      });
+    },
+    []
+  );
+
+  const setAllDefaultDeviceDecision = useCallback(
+    (keys: NetworkDeviceActionKey[], decision: ActionAccessDecision) => {
+      setDraftPolicy((prev) => {
+        if (!prev) return prev;
+        const nextPerms = { ...(prev.defaultDevicePermissions || {}) };
+        const nextRules = { ...(prev.defaultDeviceApprovalRules || {}) };
+        let nextCanAdd = prev.canAddDevice;
+        keys.forEach((k) => {
+          (nextPerms as any)[k] = decision !== 'deny';
+          (nextRules as any)[k] = decision;
+          if (k === 'add_device') nextCanAdd = decision !== 'deny';
+        });
+        return {
+          ...prev,
+          canAddDevice: nextCanAdd,
+          defaultDevicePermissions: nextPerms,
+          defaultDeviceApprovalRules: nextRules,
+        };
+      });
+    },
+    []
+  );
+
+  const getPerDeviceDecisionState = useCallback(
+    (deviceId: string, key: NetworkDeviceActionKey): { decision: ActionAccessDecision; isOverridden: boolean } => {
+      const rule = draftPolicy?.perDeviceApprovalRules?.[deviceId]?.[key];
+      if (rule === 'allow' || rule === 'require_approval' || rule === 'deny') {
+        return { decision: rule, isOverridden: true };
+      }
+      const boolOverride = draftPolicy?.perDevicePermissions?.[deviceId]?.[key];
+      if (typeof boolOverride === 'boolean') {
+        return { decision: boolOverride ? 'allow' : 'deny', isOverridden: true };
+      }
+      const defaultDecision = evaluateDeviceActionDecision(
+        {
+          ...draftPolicy,
+          perDevicePermissions: undefined,
+          perDeviceApprovalRules: undefined,
+        },
+        deviceId,
+        key
+      );
+      return { decision: defaultDecision, isOverridden: false };
+    },
+    [draftPolicy]
+  );
+
+  const setPerDeviceDecision = useCallback(
+    (deviceId: string, key: NetworkDeviceActionKey, decision: ActionAccessDecision) => {
+      setDraftPolicy((prev) => {
+        if (!prev) return prev;
+        const currentPerms = prev.perDevicePermissions?.[deviceId] || {
+          ...(prev.defaultDevicePermissions || {}),
+        };
+        const currentRules = prev.perDeviceApprovalRules?.[deviceId] || {};
+        return {
+          ...prev,
+          perDevicePermissions: {
+            ...(prev.perDevicePermissions || {}),
+            [deviceId]: { ...currentPerms, [key]: decision !== 'deny' },
+          },
+          perDeviceApprovalRules: {
+            ...(prev.perDeviceApprovalRules || {}),
+            [deviceId]: { ...currentRules, [key]: decision },
+          },
+        };
+      });
+    },
+    []
+  );
+
+  const setPerDeviceSectionDecision = useCallback(
+    (deviceId: string, keys: NetworkDeviceActionKey[], decision: ActionAccessDecision) => {
+      setDraftPolicy((prev) => {
+        if (!prev) return prev;
+        const currentPerms = { ...(prev.perDevicePermissions?.[deviceId] || prev.defaultDevicePermissions || {}) };
+        const currentRules = { ...(prev.perDeviceApprovalRules?.[deviceId] || {}) };
+        keys.forEach((k) => {
+          (currentPerms as any)[k] = decision !== 'deny';
+          (currentRules as any)[k] = decision;
+        });
+        return {
+          ...prev,
+          perDevicePermissions: {
+            ...(prev.perDevicePermissions || {}),
+            [deviceId]: currentPerms,
+          },
+          perDeviceApprovalRules: {
+            ...(prev.perDeviceApprovalRules || {}),
+            [deviceId]: currentRules,
+          },
+        };
+      });
+    },
+    []
+  );
+
+  const renderTriStateControl = (
+    decision: ActionAccessDecision,
+    onChange: (next: ActionAccessDecision) => void,
+    compact = false
+  ) => (
+    <div
+      className={`inline-flex items-center rounded-lg border p-0.5 gap-0.5 shrink-0 ${
+        isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-950/80 border-white/10'
+      }`}
+    >
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onChange('allow');
+        }}
+        title={isEn ? 'Allow directly without approval' : 'مجاز بدون نیاز به تایید'}
+        className={`${
+          compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-[10px]'
+        } rounded-md font-bold transition flex items-center gap-1 cursor-pointer ${
+          decision === 'allow'
+            ? 'bg-emerald-600 text-white shadow-xs'
+            : isLightMode
+            ? 'text-slate-900 hover:bg-slate-200'
+            : 'text-slate-400 hover:text-white hover:bg-white/5'
+        }`}
+      >
+        <CheckCircle2 className="w-3 h-3 shrink-0" />
+        <span>{isEn ? 'Allow' : 'مجاز'}</span>
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onChange('require_approval');
+        }}
+        title={
+          isEn
+            ? 'Require sequential approval workflow before execution'
+            : 'اجرای عملیات منوط به تایید در زنجیره مراحل'
+        }
+        className={`${
+          compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-[10px]'
+        } rounded-md font-bold transition flex items-center gap-1 cursor-pointer ${
+          decision === 'require_approval'
+            ? 'bg-amber-600 text-white shadow-xs'
+            : isLightMode
+            ? 'text-slate-900 hover:bg-slate-200'
+            : 'text-slate-400 hover:text-white hover:bg-white/5'
+        }`}
+      >
+        <Clock className="w-3 h-3 shrink-0" />
+        <span>{isEn ? 'Approval' : 'نیاز به تایید'}</span>
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onChange('deny');
+        }}
+        title={isEn ? 'Block and deny action' : 'مسدودسازی و عدم دسترسی'}
+        className={`${
+          compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-[10px]'
+        } rounded-md font-bold transition flex items-center gap-1 cursor-pointer ${
+          decision === 'deny'
+            ? 'bg-rose-600 text-white shadow-xs'
+            : isLightMode
+            ? 'text-slate-900 hover:bg-slate-200'
+            : 'text-slate-400 hover:text-white hover:bg-white/5'
+        }`}
+      >
+        <X className="w-3 h-3 shrink-0" />
+        <span>{isEn ? 'Deny' : 'مسدود'}</span>
+      </button>
+    </div>
+  );
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!draftPolicy) return;
@@ -972,6 +1388,59 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       );
       setActiveTab('identity');
       return;
+    }
+
+    const stages: ApprovalWorkflowStageConfig[] = Array.isArray(draftPolicy.approvalWorkflowStages)
+      ? draftPolicy.approvalWorkflowStages
+      : [];
+    const reqCount = countPolicyApprovalRules(draftPolicy).totalCount;
+    if (reqCount > 0 && stages.length === 0) {
+      setErrorMessage(
+        isEn
+          ? `This policy has ${reqCount} action(s) set to "Require Approval" without an Approval Workflow Chain. Add 1 to 3 stages before saving.`
+          : `این پالیسی دارای ${reqCount} اکشن «نیازمند تایید» است اما زنجیره تایید مراحل تعریف نشده است. لطفاً حداقل ۱ مرحله در تب «زنجیره تایید مراحل» اضافه کنید.`
+      );
+      setActiveTab('approvals');
+      return;
+    }
+    if (stages.length > 3) {
+      setErrorMessage(
+        isEn
+          ? 'A maximum of 3 sequential approval stages is permitted.'
+          : 'حداکثر ۳ مرحله تایید متوالی مجاز است.'
+      );
+      setActiveTab('approvals');
+      return;
+    }
+    for (let i = 0; i < stages.length; i++) {
+      const st = stages[i];
+      if (!st.titleFa?.trim() && !st.titleEn?.trim()) {
+        setErrorMessage(
+          isEn
+            ? `Approval Stage ${i + 1} requires a stage title.`
+            : `مرحله تایید ${i + 1} باید دارای عنوان باشد.`
+        );
+        setActiveTab('approvals');
+        return;
+      }
+      if (st.approverTargetType === 'specific_users' && (!st.approverUserIds || st.approverUserIds.length === 0)) {
+        setErrorMessage(
+          isEn
+            ? `Approval Stage ${i + 1} requires at least one selected approver user.`
+            : `در مرحله تایید ${i + 1} حداقل یک کاربر تاییدکننده باید انتخاب شود.`
+        );
+        setActiveTab('approvals');
+        return;
+      }
+      if (st.approverTargetType === 'user_groups' && (!st.approverGroupIds || st.approverGroupIds.length === 0)) {
+        setErrorMessage(
+          isEn
+            ? `Approval Stage ${i + 1} requires at least one selected approver group.`
+            : `در مرحله تایید ${i + 1} حداقل یک گروه تاییدکننده باید انتخاب شود.`
+        );
+        setActiveTab('approvals');
+        return;
+      }
     }
 
     try {
@@ -1021,26 +1490,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   };
 
   const setAllServerDefaultPermissions = (enabled: boolean) => {
-    setDraftPolicy((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        canAddServer: enabled,
-        defaultServerPermissions: {
-          terminal: enabled,
-          file_explorer: enabled,
-          server_management: enabled,
-          web_management: enabled,
-          database_management: enabled,
-          power_control: enabled,
-          edit_properties: enabled,
-          delete_server: enabled,
-          export_servers: enabled,
-          import_servers: enabled,
-          add_server: enabled,
-        },
-      };
-    });
+    setAllServerDefaultDecision(enabled ? 'allow' : 'deny');
   };
 
   const setAllGlobalCapabilities = (enabled: boolean) => {
@@ -1112,6 +1562,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       labelFa: 'استثنائات تجهیزات شبکه',
       icon: Sliders,
       color: 'text-rose-400',
+    },
+    {
+      id: 'approvals',
+      labelEn: 'Approval Chain',
+      labelFa: 'زنجیره تایید مراحل',
+      icon: Layers,
+      color: 'text-amber-400',
     },
   ];
 
@@ -1317,18 +1774,25 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         draftPolicy.perDevicePermissions?.[sourceDevId] ||
         draftPolicy.defaultDevicePermissions ||
         {};
+      const sourceRules =
+        draftPolicy.perDeviceApprovalRules?.[sourceDevId] ||
+        draftPolicy.defaultDeviceApprovalRules ||
+        {};
 
       if (targetDevIdOrBatch === 'BATCH') {
         if (selectedDeviceIds.size === 0) return;
         setDraftPolicy((prev) => {
           if (!prev) return prev;
           const nextPerDev = { ...(prev.perDevicePermissions || {}) };
+          const nextRules = { ...(prev.perDeviceApprovalRules || {}) };
           selectedDeviceIds.forEach((id) => {
             nextPerDev[id] = { ...sourcePerms };
+            nextRules[id] = { ...sourceRules };
           });
           return {
             ...prev,
             perDevicePermissions: nextPerDev,
+            perDeviceApprovalRules: nextRules,
           };
         });
         setCopyTargetDevId(null);
@@ -1346,6 +1810,10 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
             perDevicePermissions: {
               ...(prev.perDevicePermissions || {}),
               [targetDevIdOrBatch]: { ...sourcePerms },
+            },
+            perDeviceApprovalRules: {
+              ...(prev.perDeviceApprovalRules || {}),
+              [targetDevIdOrBatch]: { ...sourceRules },
             },
           };
         });
@@ -1365,8 +1833,10 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   const handleExcludeDevice = useCallback(
     (devId: string) => {
       const denyAll: Record<string, boolean> = {};
+      const denyRules: Record<string, ActionAccessDecision> = {};
       DEVICE_ACTIONS_CATALOG.forEach((a) => {
         denyAll[a.key] = false;
+        denyRules[a.key] = 'deny';
       });
       setDraftPolicy((prev) => {
         if (!prev) return prev;
@@ -1375,6 +1845,10 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           perDevicePermissions: {
             ...(prev.perDevicePermissions || {}),
             [devId]: denyAll,
+          },
+          perDeviceApprovalRules: {
+            ...(prev.perDeviceApprovalRules || {}),
+            [devId]: denyRules,
           },
         };
       });
@@ -1390,18 +1864,23 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   const handleExcludeBatch = useCallback(() => {
     if (selectedDeviceIds.size === 0) return;
     const denyAll: Record<string, boolean> = {};
+    const denyRules: Record<string, ActionAccessDecision> = {};
     DEVICE_ACTIONS_CATALOG.forEach((a) => {
       denyAll[a.key] = false;
+      denyRules[a.key] = 'deny';
     });
     setDraftPolicy((prev) => {
       if (!prev) return prev;
       const nextPerDev = { ...(prev.perDevicePermissions || {}) };
+      const nextRules = { ...(prev.perDeviceApprovalRules || {}) };
       selectedDeviceIds.forEach((id) => {
         nextPerDev[id] = { ...denyAll };
+        nextRules[id] = { ...denyRules };
       });
       return {
         ...prev,
         perDevicePermissions: nextPerDev,
+        perDeviceApprovalRules: nextRules,
       };
     });
     showToast(
@@ -1416,10 +1895,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       setDraftPolicy((prev) => {
         if (!prev) return prev;
         const nextPerDev = { ...(prev.perDevicePermissions || {}) };
+        const nextRules = { ...(prev.perDeviceApprovalRules || {}) };
         delete nextPerDev[devId];
+        delete nextRules[devId];
         return {
           ...prev,
           perDevicePermissions: nextPerDev,
+          perDeviceApprovalRules: nextRules,
         };
       });
       showToast(
@@ -1436,12 +1918,15 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     setDraftPolicy((prev) => {
       if (!prev) return prev;
       const nextPerDev = { ...(prev.perDevicePermissions || {}) };
+      const nextRules = { ...(prev.perDeviceApprovalRules || {}) };
       selectedDeviceIds.forEach((id) => {
         delete nextPerDev[id];
+        delete nextRules[id];
       });
       return {
         ...prev,
         perDevicePermissions: nextPerDev,
+        perDeviceApprovalRules: nextRules,
       };
     });
     showToast(
@@ -1705,6 +2190,11 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           {tabsConfig.map((tab) => {
             const IconComponent = tab.icon;
             const isActive = activeTab === tab.id;
+            const stageCount = Array.isArray(draftPolicy.approvalWorkflowStages)
+              ? draftPolicy.approvalWorkflowStages.length
+              : 0;
+            const isApprovalsWarning =
+              tab.id === 'approvals' && approvalCounts.totalCount > 0 && stageCount === 0;
             return (
               <button
                 key={tab.id}
@@ -1726,6 +2216,23 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                   }`}
                 />
                 <span>{isEn ? tab.labelEn : tab.labelFa}</span>
+                {tab.id === 'approvals' && (approvalCounts.totalCount > 0 || stageCount > 0) && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums font-bold ${
+                      isApprovalsWarning
+                        ? 'bg-amber-600 text-white'
+                        : stageCount > 0
+                        ? isLightMode
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-emerald-500/20 text-emerald-300'
+                        : isLightMode
+                        ? 'bg-slate-200 text-slate-800'
+                        : 'bg-white/10 text-slate-300'
+                    }`}
+                  >
+                    {stageCount}/3
+                  </span>
+                )}
               </button>
             );
           })}
@@ -4520,7 +5027,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                       : 'bg-slate-950/60 border-white/10'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
                     <div className="flex items-center gap-2">
                       <Server className="w-4 h-4 text-amber-400" />
                       <h4
@@ -4529,86 +5036,108 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         }`}
                       >
                         {isEn
-                          ? 'Default Server Fleet Actions & Linux Privileges'
-                          : 'اختیارات پیش‌فرض ناوگان سرورها و لینوکس'}
+                          ? 'Default Server Fleet Actions & Tri-State Approval Rules'
+                          : 'اختیارات پیش‌فرض ناوگان سرورها و قوانین سه‌حالته تایید'}
                       </h4>
+                      <FieldInfoTooltip
+                        title={
+                          isEn
+                            ? 'Tri-State Server Action Governance'
+                            : 'مدیریت سه‌حالته اکشن‌های سرور'
+                        }
+                        whatIsIt={
+                          isEn
+                            ? 'Controls whether each server action executes immediately (Allow), routes through the policy Approval Chain (Require Approval), or is blocked (Deny).'
+                            : 'تعیین می‌کند هر عملیات روی سرور مستقیماً اجرا شود (مجاز)، در صف زنجیره تایید قرار گیرد (نیاز به تایید)، یا مسدود شود (مسدود).'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Protects critical Linux/Windows actions (e.g., power off, delete, SSH terminal) with multi-stage human approval without blocking day-to-day operations.'
+                            : 'امکان اعمال تایید چندمرحله‌ای روی دستورات حساس (مانند خاموش کردن، حذف یا ترمینال SSH) را بدون از کار انداختن کارهای روزمره فراهم می‌کند.'
+                        }
+                        practicalExample={
+                          isEn
+                            ? 'Set File Explorer to Allow, Power Control & Delete Server to Require Approval.'
+                            : 'فایل اکسپلورر را «مجاز» و کنترل پاور یا حذف سرور را «نیاز به تایید» قرار دهید.'
+                        }
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <button
                         type="button"
-                        onClick={() => setAllServerDefaultPermissions(true)}
-                        className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition cursor-pointer"
+                        onClick={() => setAllServerDefaultDecision('allow')}
+                        className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition cursor-pointer"
                       >
-                        {isEn ? 'Select All' : 'انتخاب همه'}
+                        {isEn ? 'Allow All' : 'مجاز همه'}
                       </button>
                       <button
                         type="button"
-                        onClick={() => setAllServerDefaultPermissions(false)}
-                        className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/5 text-slate-400 border border-white/10 hover:text-white transition cursor-pointer"
+                        onClick={() => setAllServerDefaultDecision('require_approval')}
+                        className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white transition cursor-pointer"
                       >
-                        {isEn ? 'Deselect All' : 'لغو همه'}
+                        {isEn ? 'Approval All' : 'نیاز به تایید همه'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAllServerDefaultDecision('deny')}
+                        className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition cursor-pointer"
+                      >
+                        {isEn ? 'Deny All' : 'مسدود همه'}
                       </button>
                     </div>
                   </div>
 
                   <p
                     className={`text-[11px] mb-4 ${
-                      isLightMode ? 'text-slate-500' : 'text-slate-400'
+                      isLightMode ? 'text-slate-600' : 'text-slate-400'
                     }`}
                   >
                     {isEn
-                      ? 'Configure default action permissions applied across all authorized Linux and Windows servers.'
-                      : 'پیکربندی سطح دسترسی پیش‌فرض که بر روی کلیه سرورهای لینوکس و ویندوز مجاز اعمال می‌گردد.'}
+                      ? 'Configure default tri-state decisions (Allow / Require Approval / Deny) applied across all authorized Linux and Windows servers.'
+                      : 'پیکربندی وضعیت سه‌حالته پیش‌فرض (مجاز / نیاز به تایید / مسدود) که بر روی کلیه سرورهای مجاز اعمال می‌گردد.'}
                   </p>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {SERVER_ACTIONS_CATALOG.map((action) => {
-                      const isChecked = Boolean(
-                        draftPolicy.defaultServerPermissions &&
-                          (draftPolicy.defaultServerPermissions as any)[action.key]
-                      );
+                      const decision = getDefaultServerDecision(action.key as ServerActionKey);
                       return (
-                        <label
+                        <div
                           key={action.key}
-                          className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition select-none ${
-                            isChecked
+                          className={`flex flex-col justify-between gap-2.5 p-3 rounded-xl border transition select-none ${
+                            decision === 'allow'
                               ? isLightMode
-                                ? 'bg-amber-50 border-amber-300 text-amber-900 shadow-xs'
-                                : 'bg-amber-500/15 border-amber-500/40 text-amber-200'
+                                ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950 shadow-xs'
+                                : 'bg-emerald-500/10 border-emerald-500/35 text-emerald-100'
+                              : decision === 'require_approval'
+                              ? isLightMode
+                                ? 'bg-amber-50/80 border-amber-300 text-amber-950 shadow-xs'
+                                : 'bg-amber-500/15 border-amber-500/40 text-amber-100'
                               : isLightMode
-                              ? 'bg-slate-100 border-slate-200 text-slate-500'
+                              ? 'bg-slate-100 border-slate-200 text-slate-700'
                               : 'bg-slate-900/60 border-white/10 text-slate-400'
                           }`}
                         >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={(e) => {
-                              const isAdd = action.key === 'add_server';
-                              setDraftPolicy({
-                                ...draftPolicy,
-                                canAddServer: isAdd ? e.target.checked : draftPolicy.canAddServer,
-                                defaultServerPermissions: {
-                                  ...draftPolicy.defaultServerPermissions,
-                                  [action.key]: e.target.checked,
-                                },
-                              });
-                            }}
-                            className="w-4 h-4 mt-0.5 accent-amber-500 rounded cursor-pointer"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-1">
-                              <span
-                                className={`font-bold text-xs ${
-                                  isLightMode ? 'text-slate-900' : 'text-white'
-                                }`}
-                              >
-                                {isEn ? action.labelEn : action.labelFa}
-                              </span>
-                              <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span
+                                  className={`font-bold text-xs ${
+                                    isLightMode ? 'text-slate-900' : 'text-white'
+                                  }`}
+                                >
+                                  {isEn ? action.labelEn : action.labelFa}
+                                </span>
                                 {action.danger && (
-                                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-mono font-bold">
+                                  <span
+                                    className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold border ${
+                                      isLightMode
+                                        ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                        : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                                    }`}
+                                  >
                                     {isEn ? 'HIGH RISK' : 'حساس'}
                                   </span>
                                 )}
@@ -4621,26 +5150,45 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                   }
                                   whyNeeded={
                                     isEn
-                                      ? action.tooltipWhyEn || 'Defines operational authority for server actions across the fleet.'
-                                      : action.tooltipWhyFa || 'تعیین سطح اختیارات اجرایی بر روی ناوگان سرورهای متصل.'
+                                      ? action.tooltipWhyEn ||
+                                        'Defines operational authority for server actions across the fleet.'
+                                      : action.tooltipWhyFa ||
+                                        'تعیین سطح اختیارات اجرایی بر روی ناوگان سرورهای متصل.'
                                   }
                                   practicalExample={
                                     isEn
-                                      ? action.tooltipExampleEn || 'Configured according to administrator role and responsibility.'
-                                      : action.tooltipExampleFa || 'تنظیم بر مبنای مسئولیت‌های تخصصی تیم‌های عملیات و پشتیبانی.'
+                                      ? action.tooltipExampleEn ||
+                                        'Configured according to administrator role and responsibility.'
+                                      : action.tooltipExampleFa ||
+                                        'تنظیم بر مبنای مسئولیت‌های تخصصی تیم‌های عملیات و پشتیبانی.'
                                   }
+                                  isEn={isEn}
+                                  isLightMode={isLightMode}
                                 />
                               </div>
-                            </div>
-                            <div
-                              className={`text-[10px] mt-0.5 ${
-                                isLightMode ? 'text-slate-600' : 'text-slate-400'
-                              }`}
-                            >
-                              {isEn ? action.descriptionEn : action.descriptionFa}
+                              <div
+                                className={`text-[10px] mt-1 ${
+                                  isLightMode ? 'text-slate-600' : 'text-slate-400'
+                                }`}
+                              >
+                                {isEn ? action.descriptionEn : action.descriptionFa}
+                              </div>
                             </div>
                           </div>
-                        </label>
+
+                          <div className="flex items-center justify-between gap-2 pt-1 border-t border-black/5 dark:border-white/5">
+                            <span
+                              className={`text-[10px] font-mono ${
+                                isLightMode ? 'text-slate-500' : 'text-slate-400'
+                              }`}
+                            >
+                              {action.key}
+                            </span>
+                            {renderTriStateControl(decision, (next) =>
+                              setDefaultServerDecision(action.key as ServerActionKey, next)
+                            )}
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
@@ -4779,13 +5327,21 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
 
                       <div className="flex items-center gap-2 flex-wrap">
                         {/* Override Filter Pills */}
-                        <div className="flex items-center gap-1 p-0.5 rounded-lg bg-black/20 border border-white/10">
+                        <div
+                          className={`flex items-center gap-1 p-0.5 rounded-lg border ${
+                            isLightMode
+                              ? 'bg-slate-100 border-slate-200'
+                              : 'bg-black/20 border-white/10'
+                          }`}
+                        >
                           <button
                             type="button"
                             onClick={() => setServerOverrideFilter('all')}
                             className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
                               serverOverrideFilter === 'all'
-                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                ? 'bg-amber-600 text-white shadow-xs'
+                                : isLightMode
+                                ? 'text-slate-900 hover:bg-slate-200'
                                 : 'text-slate-400 hover:text-white'
                             }`}
                           >
@@ -4796,19 +5352,23 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                             onClick={() => setServerOverrideFilter('custom_only')}
                             className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
                               serverOverrideFilter === 'custom_only'
-                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                ? 'bg-amber-600 text-white shadow-xs'
+                                : isLightMode
+                                ? 'text-slate-900 hover:bg-slate-200'
                                 : 'text-slate-400 hover:text-white'
                             }`}
                           >
                             {isEn ? 'Custom Overrides' : 'دارای استثنا'} (
-                            {Object.keys(draftPolicy.perServerPermissions || {}).length})
+                            {customServerOverridesCount})
                           </button>
                           <button
                             type="button"
                             onClick={() => setServerOverrideFilter('default_only')}
                             className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
                               serverOverrideFilter === 'default_only'
-                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                ? 'bg-amber-600 text-white shadow-xs'
+                                : isLightMode
+                                ? 'text-slate-900 hover:bg-slate-200'
                                 : 'text-slate-400 hover:text-white'
                             }`}
                           >
@@ -4893,10 +5453,11 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                               : (draftPolicy.targetServerIds || []).includes(server.id);
 
                           const hasCustom = Boolean(
-                            draftPolicy.perServerPermissions?.[server.id] &&
-                              Object.keys(draftPolicy.perServerPermissions[server.id]).length > 0
+                            (draftPolicy.perServerPermissions?.[server.id] &&
+                              Object.keys(draftPolicy.perServerPermissions[server.id]).length > 0) ||
+                              (draftPolicy.perServerApprovalRules?.[server.id] &&
+                                Object.keys(draftPolicy.perServerApprovalRules[server.id]).length > 0)
                           );
-                          const srvPerms = draftPolicy.perServerPermissions?.[server.id] || {};
                           const isExpanded = expandedServerOverrideId === server.id;
 
                           // Groups that contain this server
@@ -5000,15 +5561,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                       </span>
                                       <button
                                         type="button"
-                                        onClick={() => {
-                                          const next = { ...(draftPolicy.perServerPermissions || {}) };
-                                          delete next[server.id];
-                                          setDraftPolicy({
-                                            ...draftPolicy,
-                                            perServerPermissions: next,
-                                          });
-                                        }}
-                                        className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 transition cursor-pointer flex items-center gap-1"
+                                        onClick={() => resetPerServerOverride(server.id)}
+                                        className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition cursor-pointer flex items-center gap-1 ${
+                                          isLightMode
+                                            ? 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'
+                                            : 'bg-rose-500/15 text-rose-300 border-rose-500/30 hover:bg-rose-500/25'
+                                        }`}
                                         title={isEn ? 'Reset to General Server Actions' : 'ریست به دسترسی‌های پیش‌فرض عمومی'}
                                       >
                                         <RotateCcw className="w-2.5 h-2.5" />
@@ -5016,7 +5574,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                       </button>
                                     </>
                                   ) : (
-                                    <span className="text-[10px] px-2 py-0.5 rounded-md text-slate-400 font-medium border border-white/5 bg-white/5">
+                                    <span
+                                      className={`text-[10px] px-2 py-0.5 rounded-md font-medium border ${
+                                        isLightMode
+                                          ? 'text-slate-700 border-slate-200 bg-slate-100'
+                                          : 'text-slate-400 border-white/5 bg-white/5'
+                                      }`}
+                                    >
                                       {isEn ? 'Inherits General Actions' : 'پیروی از دسترسی‌های عمومی'}
                                     </span>
                                   )}
@@ -5026,13 +5590,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                     onClick={() => setExpandedServerOverrideId(isExpanded ? null : server.id)}
                                     className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition cursor-pointer flex items-center gap-1.5 ${
                                       isExpanded
-                                        ? 'bg-amber-500 text-slate-950 font-bold border-amber-400 shadow-xs'
+                                        ? 'bg-amber-600 text-white font-bold border-amber-500 shadow-xs'
                                         : isLightMode
-                                        ? 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                                        ? 'bg-white text-slate-900 border-slate-300 hover:bg-slate-100'
                                         : 'bg-white/5 text-slate-200 border-white/10 hover:bg-white/10'
                                     }`}
                                   >
-                                    <Sliders className="w-3 h-3 text-amber-400" />
+                                    <Sliders className={`w-3 h-3 ${isExpanded ? 'text-white' : 'text-amber-500'}`} />
                                     <span>
                                       {isEn ? 'Custom Overrides' : 'تنظیم استثنائات'}
                                     </span>
@@ -5049,77 +5613,57 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                               {isExpanded && (
                                 <div
                                   className={`p-3.5 border-t space-y-3 animate-fadeIn ${
-                                    isLightMode ? 'bg-white/80 border-slate-200' : 'bg-black/25 border-white/10'
+                                    isLightMode ? 'bg-white/90 border-slate-200' : 'bg-black/25 border-white/10'
                                   }`}
                                 >
                                   {/* Drawer Subheader with Quick Toggles */}
                                   <div className="flex items-center justify-between gap-2 flex-wrap">
                                     <div className="flex items-center gap-2">
-                                      <Sliders className="w-3.5 h-3.5 text-amber-400" />
-                                      <span className="text-xs font-bold text-amber-300">
+                                      <Sliders className="w-3.5 h-3.5 text-amber-500" />
+                                      <span
+                                        className={`text-xs font-bold ${
+                                          isLightMode ? 'text-amber-800' : 'text-amber-300'
+                                        }`}
+                                      >
                                         {isEn
                                           ? `Granular Overrides for ${server.name}:`
                                           : `استثنائات تفکیکی برای سرور ${server.name}:`}
                                       </span>
-                                      <span className="text-[10px] text-slate-400 hidden sm:inline">
-                                        {isEn
-                                          ? '(Toggling an action overrides general policy for this specific server)'
-                                          : '(تغییر هر دسترسی، پالیسی عمومی را برای این سرور خاص بازنویسی می‌کند)'}
-                                      </span>
                                     </div>
 
-                                    <div className="flex items-center gap-1.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
                                       <button
                                         type="button"
-                                        onClick={() => {
-                                          const allTrue: Record<string, boolean> = {};
-                                          SERVER_ACTIONS_CATALOG.forEach((a) => {
-                                            allTrue[a.key] = true;
-                                          });
-                                          setDraftPolicy({
-                                            ...draftPolicy,
-                                            perServerPermissions: {
-                                              ...(draftPolicy.perServerPermissions || {}),
-                                              [server.id]: allTrue as any,
-                                            },
-                                          });
-                                        }}
-                                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition cursor-pointer flex items-center gap-1"
+                                        onClick={() => setPerServerBulkDecision(server.id, 'allow')}
+                                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition cursor-pointer flex items-center gap-1"
                                       >
                                         <CheckSquare className="w-2.5 h-2.5" />
                                         <span>{isEn ? 'Allow All' : 'مجاز همه'}</span>
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => {
-                                          const allFalse: Record<string, boolean> = {};
-                                          SERVER_ACTIONS_CATALOG.forEach((a) => {
-                                            allFalse[a.key] = false;
-                                          });
-                                          setDraftPolicy({
-                                            ...draftPolicy,
-                                            perServerPermissions: {
-                                              ...(draftPolicy.perServerPermissions || {}),
-                                              [server.id]: allFalse as any,
-                                            },
-                                          });
-                                        }}
-                                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 transition cursor-pointer flex items-center gap-1"
+                                        onClick={() => setPerServerBulkDecision(server.id, 'require_approval')}
+                                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-600 hover:bg-amber-500 text-white transition cursor-pointer flex items-center gap-1"
+                                      >
+                                        <Clock className="w-2.5 h-2.5" />
+                                        <span>{isEn ? 'Approval All' : 'نیاز به تایید همه'}</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setPerServerBulkDecision(server.id, 'deny')}
+                                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-600 hover:bg-rose-500 text-white transition cursor-pointer flex items-center gap-1"
                                       >
                                         <Square className="w-2.5 h-2.5" />
                                         <span>{isEn ? 'Deny All' : 'مسدود همه'}</span>
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => {
-                                          const next = { ...(draftPolicy.perServerPermissions || {}) };
-                                          delete next[server.id];
-                                          setDraftPolicy({
-                                            ...draftPolicy,
-                                            perServerPermissions: next,
-                                          });
-                                        }}
-                                        className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white/5 text-slate-300 border border-white/10 hover:text-white transition cursor-pointer flex items-center gap-1"
+                                        onClick={() => resetPerServerOverride(server.id)}
+                                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition cursor-pointer flex items-center gap-1 ${
+                                          isLightMode
+                                            ? 'bg-slate-100 text-slate-900 border-slate-300 hover:bg-slate-200'
+                                            : 'bg-white/5 text-slate-300 border-white/10 hover:text-white'
+                                        }`}
                                       >
                                         <RotateCcw className="w-2.5 h-2.5" />
                                         <span>{isEn ? 'Reset to Defaults' : 'ریست به پیش‌فرض'}</span>
@@ -5127,60 +5671,76 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                     </div>
                                   </div>
 
-                                  {/* Grid of the 11 Server Actions */}
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 pt-1">
+                                  {/* Grid of Server Actions with Tri-State Controls */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1">
                                     {SERVER_ACTIONS_CATALOG.map((action) => {
-                                      const isAllowed = hasCustom
-                                        ? srvPerms[action.key as ServerActionKey] !== false
-                                        : draftPolicy.defaultServerPermissions
-                                        ? draftPolicy.defaultServerPermissions[action.key as ServerActionKey] !== false
-                                        : true;
+                                      const { decision, isOverridden } = getPerServerDecisionState(
+                                        server.id,
+                                        action.key as ServerActionKey
+                                      );
 
                                       return (
-                                        <button
+                                        <div
                                           key={action.key}
-                                          type="button"
-                                          onClick={() => {
-                                            const current = draftPolicy.perServerPermissions?.[server.id] || {
-                                              ...(draftPolicy.defaultServerPermissions || {}),
-                                            };
-                                            const nextVal = !isAllowed;
-                                            setDraftPolicy({
-                                              ...draftPolicy,
-                                              perServerPermissions: {
-                                                ...(draftPolicy.perServerPermissions || {}),
-                                                [server.id]: {
-                                                  ...current,
-                                                  [action.key]: nextVal,
-                                                },
-                                              },
-                                            });
-                                          }}
-                                          className={`flex items-center justify-between p-2 rounded-lg border text-xs font-medium transition cursor-pointer select-none text-left rtl:text-right gap-2 ${
-                                            isAllowed
-                                              ? isLightMode
-                                                ? 'bg-emerald-50 border-emerald-300 text-emerald-950 hover:bg-emerald-100'
-                                                : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/25'
-                                              : isLightMode
-                                              ? 'bg-rose-50 border-rose-300 text-rose-950 hover:bg-rose-100 opacity-80'
-                                              : 'bg-rose-500/15 border-rose-500/30 text-rose-200 hover:bg-rose-500/25 opacity-80'
-                                          }`}
                                           title={isEn ? action.descriptionEn : action.descriptionFa}
+                                          className={`flex items-center justify-between p-2 rounded-lg border text-xs transition gap-2 ${
+                                            decision === 'allow'
+                                              ? isLightMode
+                                                ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+                                                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-100'
+                                              : decision === 'require_approval'
+                                              ? isLightMode
+                                                ? 'bg-amber-50/80 border-amber-300 text-amber-950'
+                                                : 'bg-amber-500/15 border-amber-500/40 text-amber-100'
+                                              : isLightMode
+                                              ? 'bg-rose-50/60 border-rose-200 text-rose-950'
+                                              : 'bg-rose-500/10 border-rose-500/25 text-rose-200'
+                                          }`}
                                         >
-                                          <div className="truncate">
-                                            <div className="font-semibold truncate">
-                                              {isEn ? action.labelEn : action.labelFa}
+                                          <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                              <span className="font-semibold truncate">
+                                                {isEn ? action.labelEn : action.labelFa}
+                                              </span>
+                                              <span
+                                                className={`text-[9px] px-1.5 py-0.2 rounded font-semibold border ${
+                                                  isOverridden
+                                                    ? isLightMode
+                                                      ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                                      : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                                                    : isLightMode
+                                                    ? 'bg-slate-200 text-slate-700 border-slate-300'
+                                                    : 'bg-white/5 text-slate-400 border-white/10'
+                                                }`}
+                                              >
+                                                {isOverridden
+                                                  ? isEn
+                                                    ? 'Override'
+                                                    : 'استثنا'
+                                                  : isEn
+                                                  ? 'Inherited'
+                                                  : 'ارث‌بری'}
+                                              </span>
                                             </div>
-                                            <div className="text-[10px] text-slate-400 truncate opacity-80">
+                                            <div
+                                              className={`text-[10px] truncate ${
+                                                isLightMode ? 'text-slate-500' : 'text-slate-400'
+                                              }`}
+                                            >
                                               {action.key}
                                             </div>
                                           </div>
-                                          {isAllowed ? (
-                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                                          ) : (
-                                            <X className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                                          {renderTriStateControl(
+                                            decision,
+                                            (next) =>
+                                              setPerServerDecision(
+                                                server.id,
+                                                action.key as ServerActionKey,
+                                                next
+                                              ),
+                                            true
                                           )}
-                                        </button>
+                                        </div>
                                       );
                                     })}
                                   </div>
@@ -5454,11 +6014,17 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
 
                     {/* Equipment Scope Badges */}
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-300 border border-rose-500/20 font-bold">
+                      <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">
                         {permittedDevices.length} {isEn ? 'Equipment in Scope' : 'تجهیز در دامنه'}
                       </span>
-                      <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-white/5 text-slate-400 border border-white/10">
-                        {Object.keys(draftPolicy.perDevicePermissions || {}).length} {isEn ? 'Custom Overrides' : 'دارای استثنا'}
+                      <span
+                        className={`text-[11px] font-mono px-2 py-0.5 rounded-md border ${
+                          isLightMode
+                            ? 'bg-slate-100 text-slate-800 border-slate-300'
+                            : 'bg-white/5 text-slate-300 border-white/10'
+                        }`}
+                      >
+                        {customDeviceOverridesCount} {isEn ? 'Custom Overrides' : 'دارای استثنا'}
                       </span>
                     </div>
                   </div>
@@ -5466,115 +6032,358 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                   {/* Network Equipment Matrix Content */}
                   <div className="space-y-3">
                       {/* Introduce New Device Permission Card */}
-                      <div
-                        className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 transition ${
-                          draftPolicy.canAddDevice
-                            ? isLightMode
-                              ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 shadow-xs'
-                              : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
-                            : isLightMode
-                            ? 'bg-slate-100 border-slate-200 text-slate-700'
-                            : 'bg-slate-900/60 border-white/10 text-slate-400'
-                        }`}
-                      >
-                        <div className="flex items-start gap-2.5 min-w-0">
+                      {(() => {
+                        const addDeviceDecision = getDefaultDeviceDecision('add_device');
+                        return (
                           <div
-                            className={`p-2 rounded-lg shrink-0 ${
-                              draftPolicy.canAddDevice
+                            className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 flex-wrap transition ${
+                              addDeviceDecision === 'allow'
                                 ? isLightMode
-                                  ? 'bg-emerald-200 text-emerald-800'
-                                  : 'bg-emerald-500/30 text-emerald-300'
+                                  ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 shadow-xs'
+                                  : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
+                                : addDeviceDecision === 'require_approval'
+                                ? isLightMode
+                                  ? 'bg-amber-50/90 border-amber-300 text-amber-950 shadow-xs'
+                                  : 'bg-amber-500/15 border-amber-500/40 text-amber-200'
                                 : isLightMode
-                                ? 'bg-slate-200 text-slate-600'
-                                : 'bg-white/5 text-slate-400'
+                                ? 'bg-slate-100 border-slate-200 text-slate-700'
+                                : 'bg-slate-900/60 border-white/10 text-slate-400'
                             }`}
                           >
-                            <Plus className="w-4 h-4" />
+                            <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                              <div
+                                className={`p-2 rounded-lg shrink-0 ${
+                                  addDeviceDecision === 'allow'
+                                    ? isLightMode
+                                      ? 'bg-emerald-200 text-emerald-800'
+                                      : 'bg-emerald-500/30 text-emerald-300'
+                                    : addDeviceDecision === 'require_approval'
+                                    ? isLightMode
+                                      ? 'bg-amber-200 text-amber-800'
+                                      : 'bg-amber-500/30 text-amber-300'
+                                    : isLightMode
+                                    ? 'bg-slate-200 text-slate-600'
+                                    : 'bg-white/5 text-slate-400'
+                                }`}
+                              >
+                                <Plus className="w-4 h-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span
+                                    className={`font-bold text-xs ${
+                                      isLightMode ? 'text-slate-900' : 'text-white'
+                                    }`}
+                                  >
+                                    {isEn
+                                      ? 'Introduce New Device Authority (Inventory Registration)'
+                                      : 'مجوز دسترسی دکمه معرفی تجهیز جدید (Introduce New Device)'}
+                                  </span>
+                                  <span
+                                    className={`text-[9px] px-1.5 py-0.2 rounded font-semibold border ${
+                                      addDeviceDecision === 'allow'
+                                        ? isLightMode
+                                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold'
+                                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 font-bold'
+                                        : addDeviceDecision === 'require_approval'
+                                        ? isLightMode
+                                          ? 'bg-amber-100 text-amber-900 border-amber-300 font-bold'
+                                          : 'bg-amber-500/20 text-amber-300 border-amber-500/30 font-bold'
+                                        : isLightMode
+                                        ? 'bg-slate-200 text-slate-700 border-slate-300'
+                                        : 'bg-slate-500/20 text-slate-400 border-slate-500/30'
+                                    }`}
+                                  >
+                                    {addDeviceDecision === 'allow'
+                                      ? isEn
+                                        ? 'PERMITTED'
+                                        : 'مجاز'
+                                      : addDeviceDecision === 'require_approval'
+                                      ? isEn
+                                        ? 'APPROVAL REQUIRED'
+                                        : 'نیاز به تایید'
+                                      : isEn
+                                      ? 'RESTRICTED'
+                                      : 'مسدود'}
+                                  </span>
+                                </div>
+                                <p
+                                  className={`text-[11px] mt-0.5 leading-relaxed ${
+                                    isLightMode ? 'text-slate-600' : 'text-slate-300'
+                                  }`}
+                                >
+                                  {isEn
+                                    ? 'Controls direct onboarding, approval-gated onboarding, or restriction for the "Introduce New Device" action.'
+                                    : 'کنترل دسترسی مستقیم، منوط به تایید در زنجیره مراحل، یا مسدودسازی دکمه «معرفی تجهیز جدید» برای این نقش.'}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <FieldInfoTooltip
+                                title={
+                                  isEn
+                                    ? 'Introduce New Device Authority'
+                                    : 'اختیار معرفی تجهیز جدید'
+                                }
+                                whatIsIt={
+                                  isEn
+                                    ? 'Controls visibility and approval requirements for the "Introduce New Device" action in Dashboard and Equipment Inventory.'
+                                    : 'کنترل‌کننده فعال بودن و یا نیاز به تایید برای دکمه معرفی تجهیز جدید در داشبورد و فهرست تجهیزات.'
+                                }
+                                whyNeeded={
+                                  isEn
+                                    ? 'Allows delegated engineers to propose or register new hardware with optional multi-stage supervisor sign-off.'
+                                    : 'به مهندسان اجازه می‌دهد تجهیزات جدید را مستقیماً یا با تایید سرپرست در سامانه ثبت کنند.'
+                                }
+                                practicalExample={
+                                  isEn
+                                    ? 'Set to Require Approval for junior NOC operators onboarding core devices.'
+                                    : 'برای اپراتورهای جدید روی «نیاز به تایید» قرار دهید تا ثبت تجهیز جدید توسط مدیر تایید شود.'
+                                }
+                                isEn={isEn}
+                                isLightMode={isLightMode}
+                              />
+                              {renderTriStateControl(addDeviceDecision, (next) =>
+                                setDefaultDeviceDecision('add_device', next)
+                              )}
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span
-                                className={`font-bold text-xs ${
-                                  isLightMode ? 'text-slate-900' : 'text-white'
+                        );
+                      })()}
+
+                      {/* Collapsible Default Network Device Actions (Policy-wide Tri-State Rules) */}
+                      <div
+                        className={`rounded-xl border overflow-hidden transition ${
+                          isLightMode
+                            ? 'bg-slate-50/90 border-slate-200'
+                            : 'bg-slate-900/60 border-white/10'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setIsDefaultDeviceActionsOpen((prev) => !prev)}
+                          className={`w-full p-3.5 flex items-center justify-between gap-3 text-left rtl:text-right cursor-pointer transition ${
+                            isLightMode ? 'hover:bg-slate-100/80' : 'hover:bg-white/[0.03]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div
+                              className={`p-1.5 rounded-lg shrink-0 ${
+                                isLightMode
+                                  ? 'bg-indigo-100 text-indigo-700'
+                                  : 'bg-indigo-500/20 text-indigo-300'
+                              }`}
+                            >
+                              <Layers className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span
+                                  className={`text-xs font-bold ${
+                                    isLightMode ? 'text-slate-900' : 'text-white'
+                                  }`}
+                                >
+                                  {isEn
+                                    ? 'Default Network Device Actions (General, MikroTik, Cisco & Ports)'
+                                    : 'اختیارات پیش‌فرض تجهیزات شبکه (عمومی، میکروتیک، سیسکو و پورت‌ها)'}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-mono px-2 py-0.2 rounded-full border font-semibold ${
+                                    approvalCounts.defaultDeviceCount > 0
+                                      ? isLightMode
+                                        ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                        : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                      : isLightMode
+                                      ? 'bg-slate-200 text-slate-700 border-slate-300'
+                                      : 'bg-white/5 text-slate-400 border-white/10'
+                                  }`}
+                                >
+                                  {approvalCounts.defaultDeviceCount}{' '}
+                                  {isEn ? 'Require Approval' : 'نیاز به تایید'}
+                                </span>
+                              </div>
+                              <p
+                                className={`text-[11px] mt-0.5 ${
+                                  isLightMode ? 'text-slate-600' : 'text-slate-400'
                                 }`}
                               >
                                 {isEn
-                                  ? 'Introduce New Device Authority (Inventory Registration)'
-                                  : 'مجوز دسترسی دکمه معرفی تجهیز جدید (Introduce New Device)'}
-                              </span>
-                              <span
-                                className={`text-[9px] px-1.5 py-0.2 rounded font-semibold border ${
-                                  draftPolicy.canAddDevice
-                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 font-bold'
-                                    : 'bg-slate-500/20 text-slate-400 border-slate-500/30'
-                                }`}
-                              >
-                                {draftPolicy.canAddDevice
-                                  ? isEn
-                                    ? 'PERMITTED'
-                                    : 'مجاز'
-                                  : isEn
-                                  ? 'RESTRICTED'
-                                  : 'مسدود'}
-                              </span>
+                                  ? 'Policy-wide tri-state defaults inherited by all network equipment unless overridden per device below.'
+                                  : 'مقادیر سه‌حالته پیش‌فرض پالیسی که به کلیه تجهیزات شبکه به ارث می‌رسند مگر در استثنائات زیر بازنویسی شوند.'}
+                              </p>
                             </div>
-                            <p
-                              className={`text-[11px] mt-0.5 leading-relaxed ${
-                                isLightMode ? 'text-slate-600' : 'text-slate-300'
-                              }`}
-                            >
-                              {isEn
-                                ? 'Permits the subject to use the "Introduce New Device" button in Dashboard and Network Equipment Inventory to register and manage their own hardware.'
-                                : 'به این کاربر اجازه می‌دهد علاوه بر تجهیزات از قبل تخصیص‌یافته، بتواند با دکمه «معرفی تجهیز جدید» دیوایس‌های مدنظر خود را ثبت و مدیریت کند.'}
-                            </p>
                           </div>
-                        </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          <FieldInfoTooltip
-                            title={
-                              isEn
-                                ? 'Introduce New Device Authority'
-                                : 'اختیار معرفی تجهیز جدید'
-                            }
-                            whatIsIt={
-                              isEn
-                                ? 'Controls visibility and authorization for the "Introduce New Device" button in Dashboard and Network Equipment Inventory.'
-                                : 'کنترل‌کننده فعال بودن دکمه معرفی تجهیز جدید در داشبورد و فهرست تجهیزات شبکه.'
-                            }
-                            whyNeeded={
-                              isEn
-                                ? 'Allows delegated network operators to onboard new hardware into their authorized inventory without granting full global admin rights.'
-                                : 'امکان اضافه کردن تجهیزات شبکه توسط کاربر برای خود بدون نیاز به دسترسی‌های سطح بالای مدیریتی.'
-                            }
-                            practicalExample={
-                              isEn
-                                ? 'Enabled for Site Engineers adding branch switches; disabled for read-only NOC operators.'
-                                : 'فعال برای مهندسین شعب جهت افزودن سوییچ‌های جدید؛ غیرفعال برای ناظران مانیتورینگ.'
-                            }
-                            isEn={isEn}
-                            isLightMode={isLightMode}
-                          />
-                          <label className="relative inline-flex items-center cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(draftPolicy.canAddDevice)}
-                              onChange={(e) => {
-                                const checked = e.target.checked;
-                                setDraftPolicy({
-                                  ...draftPolicy,
-                                  canAddDevice: checked,
-                                  defaultDevicePermissions: {
-                                    ...(draftPolicy.defaultDevicePermissions || {}),
-                                    add_device: checked,
-                                  },
-                                });
-                              }}
-                              className="sr-only peer"
-                            />
-                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                          </label>
-                        </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div onClick={(e) => e.stopPropagation()}>
+                              <FieldInfoTooltip
+                                title={
+                                  isEn
+                                    ? 'Default Network Device Actions'
+                                    : 'اختیارات پیش‌فرض تجهیزات شبکه'
+                                }
+                                whatIsIt={
+                                  isEn
+                                    ? 'Sets the baseline tri-state rule (Allow / Require Approval / Deny) across all 4 network capability groups.'
+                                    : 'قاعده پایه سه‌حالته (مجاز / نیاز به تایید / مسدود) را برای هر ۴ دسته قابلیت تجهیزات شبکه مشخص می‌کند.'
+                                }
+                                whyNeeded={
+                                  isEn
+                                    ? 'Enforces uniform approval gates (e.g., Write Memory, Firewall, Port Shutdown) across all switches and routers at once.'
+                                    : 'قوانین تایید یکپارچه (مثلاً ذخیره NVRAM، فایروال یا خاموش کردن پورت) را هم‌زمان روی همه روترها و سوئیچ‌ها اعمال می‌کند.'
+                                }
+                                practicalExample={
+                                  isEn
+                                    ? 'Set Cisco Write Memory and MikroTik Firewall & Safe Mode to Require Approval by default.'
+                                    : 'گزینه‌های Write Memory سیسکو و فایروال میکروتیک را به‌صورت پیش‌فرض روی «نیاز به تایید» قرار دهید.'
+                                }
+                                isEn={isEn}
+                                isLightMode={isLightMode}
+                              />
+                            </div>
+                            {isDefaultDeviceActionsOpen ? (
+                              <ChevronUp className="w-4 h-4 text-slate-400" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-slate-400" />
+                            )}
+                          </div>
+                        </button>
+
+                        {isDefaultDeviceActionsOpen && (
+                          <div
+                            className={`p-3.5 border-t space-y-4 animate-fadeIn ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-950/50 border-white/10'
+                            }`}
+                          >
+                            {[
+                              {
+                                id: 'general',
+                                titleEn: 'General Device & Management Capabilities',
+                                titleFa: 'عملیات و دسترسی‌های عمومی تجهیز',
+                                actions: universalGeneralActions,
+                                accentClass: isLightMode ? 'text-cyan-700' : 'text-cyan-300',
+                              },
+                              {
+                                id: 'mikrotik',
+                                titleEn: 'MikroTik RouterOS Core Services & Governance',
+                                titleFa: 'سرویس‌ها و اختیارات اختصاصی روتروس میکروتیک',
+                                actions: mikrotikCoreActions,
+                                accentClass: isLightMode ? 'text-emerald-700' : 'text-emerald-300',
+                              },
+                              {
+                                id: 'cisco',
+                                titleEn: 'Cisco IOS Switch Enterprise Configuration Suite',
+                                titleFa: 'مجموعه ابزار و اختیارات پیکربندی سوئیچ سیسکو',
+                                actions: ciscoConfigActions,
+                                accentClass: isLightMode ? 'text-sky-700' : 'text-sky-300',
+                              },
+                              {
+                                id: 'ports',
+                                titleEn: 'Port Right-Click & Interface Actions',
+                                titleFa: 'عملیات راست‌کلیک پورت و اینترفیس‌ها',
+                                actions: portEquipmentActions,
+                                accentClass: isLightMode ? 'text-amber-700' : 'text-amber-300',
+                              },
+                            ]
+                              .filter((sec) => sec.actions.length > 0)
+                              .map((section) => {
+                                const sectionKeys = section.actions.map(
+                                  (a) => a.key as NetworkDeviceActionKey
+                                );
+                                return (
+                                  <div
+                                    key={section.id}
+                                    className="space-y-2 pt-2 first:pt-0 border-t first:border-t-0 border-slate-200/70 dark:border-white/10"
+                                  >
+                                    <div className="flex items-center justify-between flex-wrap gap-2">
+                                      <span className={`text-[11px] font-bold ${section.accentClass}`}>
+                                        {isEn ? section.titleEn : section.titleFa}
+                                      </span>
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setAllDefaultDeviceDecision(sectionKeys, 'allow')
+                                          }
+                                          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                        >
+                                          {isEn ? 'Allow All' : 'مجاز همه'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setAllDefaultDeviceDecision(
+                                              sectionKeys,
+                                              'require_approval'
+                                            )
+                                          }
+                                          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-600 hover:bg-amber-500 text-white cursor-pointer"
+                                        >
+                                          {isEn ? 'Approval All' : 'نیاز به تایید همه'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setAllDefaultDeviceDecision(sectionKeys, 'deny')
+                                          }
+                                          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer"
+                                        >
+                                          {isEn ? 'Deny All' : 'مسدود همه'}
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                      {section.actions.map((action) => {
+                                        const decision = getDefaultDeviceDecision(
+                                          action.key as NetworkDeviceActionKey
+                                        );
+                                        return (
+                                          <div
+                                            key={action.key}
+                                            title={
+                                              isEn
+                                                ? action.descriptionEn || action.labelEn
+                                                : action.descriptionFa || action.labelFa
+                                            }
+                                            className={`flex items-center justify-between p-2 rounded-lg border text-[11px] transition gap-2 ${
+                                              decision === 'allow'
+                                                ? isLightMode
+                                                  ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
+                                                  : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200'
+                                                : decision === 'require_approval'
+                                                ? isLightMode
+                                                  ? 'bg-amber-50/75 border-amber-300 text-amber-950'
+                                                  : 'bg-amber-500/15 border-amber-500/35 text-amber-200'
+                                                : isLightMode
+                                                ? 'bg-slate-100 border-slate-200 text-slate-600'
+                                                : 'bg-slate-900/60 border-white/10 text-slate-400'
+                                            }`}
+                                          >
+                                            <span className="font-semibold truncate">
+                                              {isEn
+                                                ? action.labelEn || action.shortLabelEn || action.key
+                                                : action.labelFa || action.shortLabelFa || action.key}
+                                            </span>
+                                            {renderTriStateControl(
+                                              decision,
+                                              (next) =>
+                                                setDefaultDeviceDecision(
+                                                  action.key as NetworkDeviceActionKey,
+                                                  next
+                                                ),
+                                              true
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
                       </div>
 
                       {/* Cascading Filter Status Banner (Phase 2) */}
@@ -5664,10 +6473,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setMatrixDeviceFilter('all')}
-                                className={`px-2 py-1 rounded text-[10px] font-semibold border ${
+                                className={`px-2 py-1 rounded text-[10px] font-semibold border cursor-pointer transition ${
                                   matrixDeviceFilter === 'all'
-                                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                                    : 'bg-white/5 text-slate-400 border-white/10'
+                                    ? 'bg-rose-600 text-white border-rose-500'
+                                    : isLightMode
+                                    ? 'bg-slate-100 text-slate-900 border-slate-200 hover:bg-slate-200'
+                                    : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
                                 }`}
                               >
                                 {isEn ? 'All' : 'همه'} ({permittedDevices.length})
@@ -5675,22 +6486,26 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setMatrixDeviceFilter('custom_only')}
-                                className={`px-2 py-1 rounded text-[10px] font-semibold border ${
+                                className={`px-2 py-1 rounded text-[10px] font-semibold border cursor-pointer transition ${
                                   matrixDeviceFilter === 'custom_only'
-                                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                                    : 'bg-white/5 text-slate-400 border-white/10'
+                                    ? 'bg-rose-600 text-white border-rose-500'
+                                    : isLightMode
+                                    ? 'bg-slate-100 text-slate-900 border-slate-200 hover:bg-slate-200'
+                                    : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
                                 }`}
                               >
                                 {isEn ? 'Custom Overrides' : 'دارای استثنا'} (
-                                {Object.keys(draftPolicy.perDevicePermissions || {}).length})
+                                {customDeviceOverridesCount})
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setMatrixDeviceFilter('default_only')}
-                                className={`px-2 py-1 rounded text-[10px] font-semibold border ${
+                                className={`px-2 py-1 rounded text-[10px] font-semibold border cursor-pointer transition ${
                                   matrixDeviceFilter === 'default_only'
-                                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                                    : 'bg-white/5 text-slate-400 border-white/10'
+                                    ? 'bg-rose-600 text-white border-rose-500'
+                                    : isLightMode
+                                    ? 'bg-slate-100 text-slate-900 border-slate-200 hover:bg-slate-200'
+                                    : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
                                 }`}
                               >
                                 {isEn ? 'Default' : 'پیش‌فرض'}
@@ -5997,10 +6812,11 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                             ) : (
                           matrixFilteredDevices.map((dev) => {
                             const hasCustom = Boolean(
-                              draftPolicy.perDevicePermissions?.[dev.id] &&
-                                Object.keys(draftPolicy.perDevicePermissions[dev.id]).length > 0
+                              (draftPolicy.perDevicePermissions?.[dev.id] &&
+                                Object.keys(draftPolicy.perDevicePermissions[dev.id]).length > 0) ||
+                                (draftPolicy.perDeviceApprovalRules?.[dev.id] &&
+                                  Object.keys(draftPolicy.perDeviceApprovalRules[dev.id]).length > 0)
                             );
-                            const devPerms = draftPolicy.perDevicePermissions?.[dev.id] || {};
                             const isSelected = selectedDeviceIds.has(dev.id);
 
                             const isCisco = Boolean(
@@ -6280,8 +7096,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                 {/* Section 1: General Device & Management Capabilities */}
                                 <div className="space-y-1.5">
                                   <div className="flex items-center justify-between flex-wrap gap-1">
-                                    <div className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
-                                      <Sliders className="w-3 h-3 text-cyan-400" />
+                                    <div
+                                      className={`text-[10px] font-bold flex items-center gap-1 ${
+                                        isLightMode ? 'text-slate-700' : 'text-slate-300'
+                                      }`}
+                                    >
+                                      <Sliders className="w-3 h-3 text-cyan-500" />
                                       <span>
                                         {isEn
                                           ? 'General Device & Management Capabilities'
@@ -6291,100 +7111,118 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                     <div className="flex items-center gap-1">
                                       <button
                                         type="button"
-                                        onClick={() => {
-                                          const current = draftPolicy.perDevicePermissions?.[dev.id] || {
-                                            ...(draftPolicy.defaultDevicePermissions || {}),
-                                          };
-                                          const updated = { ...current };
-                                          universalGeneralActions.forEach((a) => {
-                                            updated[a.key as NetworkDeviceActionKey] = true;
-                                          });
-                                          setDraftPolicy({
-                                            ...draftPolicy,
-                                            perDevicePermissions: {
-                                              ...(draftPolicy.perDevicePermissions || {}),
-                                              [dev.id]: updated,
-                                            },
-                                          });
-                                        }}
-                                        className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30 cursor-pointer"
+                                        onClick={() =>
+                                          setPerDeviceSectionDecision(
+                                            dev.id,
+                                            universalGeneralActions.map(
+                                              (a) => a.key as NetworkDeviceActionKey
+                                            ),
+                                            'allow'
+                                          )
+                                        }
+                                        className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
                                       >
-                                        {isEn ? 'Allow All' : 'اجازه همه'}
+                                        {isEn ? 'Allow All' : 'مجاز همه'}
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => {
-                                          const current = draftPolicy.perDevicePermissions?.[dev.id] || {
-                                            ...(draftPolicy.defaultDevicePermissions || {}),
-                                          };
-                                          const updated = { ...current };
-                                          universalGeneralActions.forEach((a) => {
-                                            updated[a.key as NetworkDeviceActionKey] = false;
-                                          });
-                                          setDraftPolicy({
-                                            ...draftPolicy,
-                                            perDevicePermissions: {
-                                              ...(draftPolicy.perDevicePermissions || {}),
-                                              [dev.id]: updated,
-                                            },
-                                          });
-                                        }}
-                                        className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 cursor-pointer"
+                                        onClick={() =>
+                                          setPerDeviceSectionDecision(
+                                            dev.id,
+                                            universalGeneralActions.map(
+                                              (a) => a.key as NetworkDeviceActionKey
+                                            ),
+                                            'require_approval'
+                                          )
+                                        }
+                                        className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-600 hover:bg-amber-500 text-white cursor-pointer"
+                                      >
+                                        {isEn ? 'Approval All' : 'نیاز به تایید'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setPerDeviceSectionDecision(
+                                            dev.id,
+                                            universalGeneralActions.map(
+                                              (a) => a.key as NetworkDeviceActionKey
+                                            ),
+                                            'deny'
+                                          )
+                                        }
+                                        className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer"
                                       >
                                         {isEn ? 'Deny All' : 'مسدودسازی'}
                                       </button>
                                     </div>
                                   </div>
 
-                                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
                                     {universalGeneralActions.map((action) => {
-                                      const isCustom = typeof devPerms[action.key as NetworkDeviceActionKey] === 'boolean';
-                                      const isAllowed = isCustom
-                                        ? devPerms[action.key as NetworkDeviceActionKey] === true
-                                        : isDeviceActionPermitted(
-                                            { ...draftPolicy, perDevicePermissions: undefined },
-                                            dev.id,
-                                            action.key as NetworkDeviceActionKey
-                                          );
+                                      const { decision, isOverridden } = getPerDeviceDecisionState(
+                                        dev.id,
+                                        action.key as NetworkDeviceActionKey
+                                      );
 
                                       return (
-                                        <button
+                                        <div
                                           key={action.key}
-                                          type="button"
-                                          title={isEn ? (action.descriptionEn || action.labelEn) : (action.descriptionFa || action.labelFa)}
-                                          onClick={() => {
-                                            const current = draftPolicy.perDevicePermissions?.[dev.id] || {
-                                              ...(draftPolicy.defaultDevicePermissions || {}),
-                                            };
-                                            const nextVal = !isAllowed;
-                                            setDraftPolicy({
-                                              ...draftPolicy,
-                                              perDevicePermissions: {
-                                                ...(draftPolicy.perDevicePermissions || {}),
-                                                [dev.id]: {
-                                                  ...current,
-                                                  [action.key]: nextVal,
-                                                },
-                                              },
-                                            });
-                                          }}
-                                          className={`flex items-center justify-between p-1.5 rounded-lg border text-[11px] font-medium transition cursor-pointer select-none ${
-                                            isAllowed
-                                              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
-                                              : 'bg-rose-500/15 border-rose-500/30 text-rose-300 opacity-80'
+                                          title={
+                                            isEn
+                                              ? action.descriptionEn || action.labelEn
+                                              : action.descriptionFa || action.labelFa
+                                          }
+                                          className={`flex items-center justify-between p-1.5 rounded-lg border text-[11px] transition gap-2 ${
+                                            decision === 'allow'
+                                              ? isLightMode
+                                                ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+                                                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                                              : decision === 'require_approval'
+                                              ? isLightMode
+                                                ? 'bg-amber-50/80 border-amber-300 text-amber-950'
+                                                : 'bg-amber-500/15 border-amber-500/35 text-amber-200'
+                                              : isLightMode
+                                              ? 'bg-rose-50/60 border-rose-200 text-rose-950'
+                                              : 'bg-rose-500/10 border-rose-500/25 text-rose-300'
                                           }`}
                                         >
-                                          <span className="truncate">
-                                            {isEn
-                                              ? (action.shortLabelEn || action.key)
-                                              : (action.shortLabelFa || action.key)}
-                                          </span>
-                                          {isAllowed ? (
-                                            <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                                          ) : (
-                                            <X className="w-3 h-3 text-rose-400 shrink-0" />
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            <span className="truncate font-semibold">
+                                              {isEn
+                                                ? action.shortLabelEn || action.key
+                                                : action.shortLabelFa || action.key}
+                                            </span>
+                                            <span
+                                              className={`text-[9px] px-1 py-0.2 rounded font-semibold shrink-0 border ${
+                                                isOverridden
+                                                  ? isLightMode
+                                                    ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                                    : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                                                  : isLightMode
+                                                  ? 'bg-slate-200 text-slate-700 border-slate-300'
+                                                  : 'bg-white/5 text-slate-400 border-white/10'
+                                              }`}
+                                            >
+                                              {isOverridden
+                                                ? isEn
+                                                  ? 'Override'
+                                                  : 'استثنا'
+                                                : isEn
+                                                ? 'Inherited'
+                                                : 'ارث‌بری'}
+                                            </span>
+                                          </div>
+                                          {renderTriStateControl(
+                                            decision,
+                                            (next) =>
+                                              setPerDeviceDecision(
+                                                dev.id,
+                                                action.key as NetworkDeviceActionKey,
+                                                next
+                                              ),
+                                            true
                                           )}
-                                        </button>
+                                        </div>
                                       );
                                     })}
                                   </div>
@@ -6394,8 +7232,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                 {isMikrotik && mikrotikCoreActions.length > 0 && (
                                   <div className="space-y-1.5 pt-1.5 border-t border-white/5">
                                     <div className="flex items-center justify-between flex-wrap gap-1">
-                                      <div className="text-[10px] font-bold text-emerald-300 flex items-center gap-1.5">
-                                        <RouterIcon className="w-3 h-3 text-emerald-400" />
+                                      <div
+                                        className={`text-[10px] font-bold flex items-center gap-1.5 ${
+                                          isLightMode ? 'text-emerald-800' : 'text-emerald-300'
+                                        }`}
+                                      >
+                                        <RouterIcon className="w-3 h-3 text-emerald-500" />
                                         <span>
                                           {isEn
                                             ? 'MikroTik RouterOS Core Services & Governance'
@@ -6405,100 +7247,118 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                       <div className="flex items-center gap-1">
                                         <button
                                           type="button"
-                                          onClick={() => {
-                                            const current = draftPolicy.perDevicePermissions?.[dev.id] || {
-                                              ...(draftPolicy.defaultDevicePermissions || {}),
-                                            };
-                                            const updated = { ...current };
-                                            mikrotikCoreActions.forEach((a) => {
-                                              updated[a.key as NetworkDeviceActionKey] = true;
-                                            });
-                                            setDraftPolicy({
-                                              ...draftPolicy,
-                                              perDevicePermissions: {
-                                                ...(draftPolicy.perDevicePermissions || {}),
-                                                [dev.id]: updated,
-                                              },
-                                            });
-                                          }}
-                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 cursor-pointer"
+                                          onClick={() =>
+                                            setPerDeviceSectionDecision(
+                                              dev.id,
+                                              mikrotikCoreActions.map(
+                                                (a) => a.key as NetworkDeviceActionKey
+                                              ),
+                                              'allow'
+                                            )
+                                          }
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
                                         >
                                           {isEn ? 'Allow All RouterOS' : 'اجازه همه روتروس'}
                                         </button>
                                         <button
                                           type="button"
-                                          onClick={() => {
-                                            const current = draftPolicy.perDevicePermissions?.[dev.id] || {
-                                              ...(draftPolicy.defaultDevicePermissions || {}),
-                                            };
-                                            const updated = { ...current };
-                                            mikrotikCoreActions.forEach((a) => {
-                                              updated[a.key as NetworkDeviceActionKey] = false;
-                                            });
-                                            setDraftPolicy({
-                                              ...draftPolicy,
-                                              perDevicePermissions: {
-                                                ...(draftPolicy.perDevicePermissions || {}),
-                                                [dev.id]: updated,
-                                              },
-                                            });
-                                          }}
-                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 cursor-pointer"
+                                          onClick={() =>
+                                            setPerDeviceSectionDecision(
+                                              dev.id,
+                                              mikrotikCoreActions.map(
+                                                (a) => a.key as NetworkDeviceActionKey
+                                              ),
+                                              'require_approval'
+                                            )
+                                          }
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-600 hover:bg-amber-500 text-white cursor-pointer"
+                                        >
+                                          {isEn ? 'Approval RouterOS' : 'نیاز به تایید'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setPerDeviceSectionDecision(
+                                              dev.id,
+                                              mikrotikCoreActions.map(
+                                                (a) => a.key as NetworkDeviceActionKey
+                                              ),
+                                              'deny'
+                                            )
+                                          }
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer"
                                         >
                                           {isEn ? 'Deny All RouterOS' : 'مسدودسازی روتروس'}
                                         </button>
                                       </div>
                                     </div>
 
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
                                       {mikrotikCoreActions.map((action) => {
-                                        const isCustom = typeof devPerms[action.key as NetworkDeviceActionKey] === 'boolean';
-                                        const isAllowed = isCustom
-                                          ? devPerms[action.key as NetworkDeviceActionKey] === true
-                                          : isDeviceActionPermitted(
-                                              { ...draftPolicy, perDevicePermissions: undefined },
-                                              dev.id,
-                                              action.key as NetworkDeviceActionKey
-                                            );
+                                        const { decision, isOverridden } = getPerDeviceDecisionState(
+                                          dev.id,
+                                          action.key as NetworkDeviceActionKey
+                                        );
 
                                         return (
-                                          <button
+                                          <div
                                             key={action.key}
-                                            type="button"
-                                            title={isEn ? (action.descriptionEn || action.labelEn) : (action.descriptionFa || action.labelFa)}
-                                            onClick={() => {
-                                              const current = draftPolicy.perDevicePermissions?.[dev.id] || {
-                                                ...(draftPolicy.defaultDevicePermissions || {}),
-                                              };
-                                              const nextVal = !isAllowed;
-                                              setDraftPolicy({
-                                                ...draftPolicy,
-                                                perDevicePermissions: {
-                                                  ...(draftPolicy.perDevicePermissions || {}),
-                                                  [dev.id]: {
-                                                    ...current,
-                                                    [action.key]: nextVal,
-                                                  },
-                                                },
-                                              });
-                                            }}
-                                            className={`flex items-center justify-between p-1.5 rounded-lg border text-[11px] font-medium transition cursor-pointer select-none ${
-                                              isAllowed
-                                                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
-                                                : 'bg-rose-500/15 border-rose-500/30 text-rose-300 opacity-80'
+                                            title={
+                                              isEn
+                                                ? action.descriptionEn || action.labelEn
+                                                : action.descriptionFa || action.labelFa
+                                            }
+                                            className={`flex items-center justify-between p-1.5 rounded-lg border text-[11px] transition gap-2 ${
+                                              decision === 'allow'
+                                                ? isLightMode
+                                                  ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+                                                  : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                                                : decision === 'require_approval'
+                                                ? isLightMode
+                                                  ? 'bg-amber-50/80 border-amber-300 text-amber-950'
+                                                  : 'bg-amber-500/15 border-amber-500/35 text-amber-200'
+                                                : isLightMode
+                                                ? 'bg-rose-50/60 border-rose-200 text-rose-950'
+                                                : 'bg-rose-500/10 border-rose-500/25 text-rose-300'
                                             }`}
                                           >
-                                            <span className="truncate">
-                                              {isEn
-                                                ? (action.shortLabelEn || action.key)
-                                                : (action.shortLabelFa || action.key)}
-                                            </span>
-                                            {isAllowed ? (
-                                              <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                                            ) : (
-                                              <X className="w-3 h-3 text-rose-400 shrink-0" />
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                              <span className="truncate font-semibold">
+                                                {isEn
+                                                  ? action.shortLabelEn || action.key
+                                                  : action.shortLabelFa || action.key}
+                                              </span>
+                                              <span
+                                                className={`text-[9px] px-1 py-0.2 rounded font-semibold shrink-0 border ${
+                                                  isOverridden
+                                                    ? isLightMode
+                                                      ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                                      : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                                                    : isLightMode
+                                                    ? 'bg-slate-200 text-slate-700 border-slate-300'
+                                                    : 'bg-white/5 text-slate-400 border-white/10'
+                                                }`}
+                                              >
+                                                {isOverridden
+                                                  ? isEn
+                                                    ? 'Override'
+                                                    : 'استثنا'
+                                                  : isEn
+                                                  ? 'Inherited'
+                                                  : 'ارث‌بری'}
+                                              </span>
+                                            </div>
+                                            {renderTriStateControl(
+                                              decision,
+                                              (next) =>
+                                                setPerDeviceDecision(
+                                                  dev.id,
+                                                  action.key as NetworkDeviceActionKey,
+                                                  next
+                                                ),
+                                            true
                                             )}
-                                          </button>
+                                          </div>
                                         );
                                       })}
                                     </div>
@@ -6509,8 +7369,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                 {isCisco && ciscoConfigActions.length > 0 && (
                                   <div className="space-y-1.5 pt-1.5 border-t border-white/5">
                                     <div className="flex items-center justify-between flex-wrap gap-1">
-                                      <div className="text-[10px] font-bold text-sky-300 flex items-center gap-1.5">
-                                        <Sliders className="w-3 h-3 text-sky-400" />
+                                      <div
+                                        className={`text-[10px] font-bold flex items-center gap-1.5 ${
+                                          isLightMode ? 'text-sky-800' : 'text-sky-300'
+                                        }`}
+                                      >
+                                        <Sliders className="w-3 h-3 text-sky-500" />
                                         <span>
                                           {isEn
                                             ? 'Cisco IOS Switch Enterprise Configuration Suite'
@@ -6520,100 +7384,118 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                       <div className="flex items-center gap-1">
                                         <button
                                           type="button"
-                                          onClick={() => {
-                                            const current = draftPolicy.perDevicePermissions?.[dev.id] || {
-                                              ...(draftPolicy.defaultDevicePermissions || {}),
-                                            };
-                                            const updated = { ...current };
-                                            ciscoConfigActions.forEach((a) => {
-                                              updated[a.key as NetworkDeviceActionKey] = true;
-                                            });
-                                            setDraftPolicy({
-                                              ...draftPolicy,
-                                              perDevicePermissions: {
-                                                ...(draftPolicy.perDevicePermissions || {}),
-                                                [dev.id]: updated,
-                                              },
-                                            });
-                                          }}
-                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30 hover:bg-sky-500/30 cursor-pointer"
+                                          onClick={() =>
+                                            setPerDeviceSectionDecision(
+                                              dev.id,
+                                              ciscoConfigActions.map(
+                                                (a) => a.key as NetworkDeviceActionKey
+                                              ),
+                                              'allow'
+                                            )
+                                          }
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-sky-600 hover:bg-sky-500 text-white cursor-pointer"
                                         >
-                                          {isEn ? 'Allow All Cisco Config' : 'اجازه همه کانفیگ سیسکو'}
+                                          {isEn ? 'Allow All Cisco' : 'اجازه همه سیسکو'}
                                         </button>
                                         <button
                                           type="button"
-                                          onClick={() => {
-                                            const current = draftPolicy.perDevicePermissions?.[dev.id] || {
-                                              ...(draftPolicy.defaultDevicePermissions || {}),
-                                            };
-                                            const updated = { ...current };
-                                            ciscoConfigActions.forEach((a) => {
-                                              updated[a.key as NetworkDeviceActionKey] = false;
-                                            });
-                                            setDraftPolicy({
-                                              ...draftPolicy,
-                                              perDevicePermissions: {
-                                                ...(draftPolicy.perDevicePermissions || {}),
-                                                [dev.id]: updated,
-                                              },
-                                            });
-                                          }}
-                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 cursor-pointer"
+                                          onClick={() =>
+                                            setPerDeviceSectionDecision(
+                                              dev.id,
+                                              ciscoConfigActions.map(
+                                                (a) => a.key as NetworkDeviceActionKey
+                                              ),
+                                              'require_approval'
+                                            )
+                                          }
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-600 hover:bg-amber-500 text-white cursor-pointer"
                                         >
-                                          {isEn ? 'Deny All Cisco Config' : 'مسدودسازی کانفیگ سیسکو'}
+                                          {isEn ? 'Approval Cisco' : 'نیاز به تایید'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setPerDeviceSectionDecision(
+                                              dev.id,
+                                              ciscoConfigActions.map(
+                                                (a) => a.key as NetworkDeviceActionKey
+                                              ),
+                                              'deny'
+                                            )
+                                          }
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer"
+                                        >
+                                          {isEn ? 'Deny All Cisco' : 'مسدودسازی سیسکو'}
                                         </button>
                                       </div>
                                     </div>
 
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
                                       {ciscoConfigActions.map((action) => {
-                                        const isCustom = typeof devPerms[action.key as NetworkDeviceActionKey] === 'boolean';
-                                        const isAllowed = isCustom
-                                          ? devPerms[action.key as NetworkDeviceActionKey] === true
-                                          : isDeviceActionPermitted(
-                                              { ...draftPolicy, perDevicePermissions: undefined },
-                                              dev.id,
-                                              action.key as NetworkDeviceActionKey
-                                            );
+                                        const { decision, isOverridden } = getPerDeviceDecisionState(
+                                          dev.id,
+                                          action.key as NetworkDeviceActionKey
+                                        );
 
                                         return (
-                                          <button
+                                          <div
                                             key={action.key}
-                                            type="button"
-                                            title={isEn ? (action.descriptionEn || action.labelEn) : (action.descriptionFa || action.labelFa)}
-                                            onClick={() => {
-                                              const current = draftPolicy.perDevicePermissions?.[dev.id] || {
-                                                ...(draftPolicy.defaultDevicePermissions || {}),
-                                              };
-                                              const nextVal = !isAllowed;
-                                              setDraftPolicy({
-                                                ...draftPolicy,
-                                                perDevicePermissions: {
-                                                  ...(draftPolicy.perDevicePermissions || {}),
-                                                  [dev.id]: {
-                                                    ...current,
-                                                    [action.key]: nextVal,
-                                                  },
-                                                },
-                                              });
-                                            }}
-                                            className={`flex items-center justify-between p-1.5 rounded-lg border text-[11px] font-medium transition cursor-pointer select-none ${
-                                              isAllowed
-                                                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
-                                                : 'bg-rose-500/15 border-rose-500/30 text-rose-300 opacity-80'
+                                            title={
+                                              isEn
+                                                ? action.descriptionEn || action.labelEn
+                                                : action.descriptionFa || action.labelFa
+                                            }
+                                            className={`flex items-center justify-between p-1.5 rounded-lg border text-[11px] transition gap-2 ${
+                                              decision === 'allow'
+                                                ? isLightMode
+                                                  ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+                                                  : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                                                : decision === 'require_approval'
+                                                ? isLightMode
+                                                  ? 'bg-amber-50/80 border-amber-300 text-amber-950'
+                                                  : 'bg-amber-500/15 border-amber-500/35 text-amber-200'
+                                                : isLightMode
+                                                ? 'bg-rose-50/60 border-rose-200 text-rose-950'
+                                                : 'bg-rose-500/10 border-rose-500/25 text-rose-300'
                                             }`}
                                           >
-                                            <span className="truncate">
-                                              {isEn
-                                                ? (action.shortLabelEn || action.key)
-                                                : (action.shortLabelFa || action.key)}
-                                            </span>
-                                            {isAllowed ? (
-                                              <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                                            ) : (
-                                              <X className="w-3 h-3 text-rose-400 shrink-0" />
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                              <span className="truncate font-semibold">
+                                                {isEn
+                                                  ? action.shortLabelEn || action.key
+                                                  : action.shortLabelFa || action.key}
+                                              </span>
+                                              <span
+                                                className={`text-[9px] px-1 py-0.2 rounded font-semibold shrink-0 border ${
+                                                  isOverridden
+                                                    ? isLightMode
+                                                      ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                                      : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                                                    : isLightMode
+                                                    ? 'bg-slate-200 text-slate-700 border-slate-300'
+                                                    : 'bg-white/5 text-slate-400 border-white/10'
+                                                }`}
+                                              >
+                                                {isOverridden
+                                                  ? isEn
+                                                    ? 'Override'
+                                                    : 'استثنا'
+                                                  : isEn
+                                                  ? 'Inherited'
+                                                  : 'ارث‌بری'}
+                                              </span>
+                                            </div>
+                                            {renderTriStateControl(
+                                              decision,
+                                              (next) =>
+                                                setPerDeviceDecision(
+                                                  dev.id,
+                                                  action.key as NetworkDeviceActionKey,
+                                                  next
+                                                ),
+                                              true
                                             )}
-                                          </button>
+                                          </div>
                                         );
                                       })}
                                     </div>
@@ -6624,8 +7506,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                 {applicablePortActions.length > 0 && (
                                   <div className="space-y-1.5 pt-1.5 border-t border-white/5">
                                     <div className="flex items-center justify-between flex-wrap gap-1">
-                                      <div className="text-[10px] font-bold text-amber-300 flex items-center gap-1.5">
-                                        <Network className="w-3 h-3 text-amber-400" />
+                                      <div
+                                        className={`text-[10px] font-bold flex items-center gap-1.5 ${
+                                          isLightMode ? 'text-amber-800' : 'text-amber-300'
+                                        }`}
+                                      >
+                                        <Network className="w-3 h-3 text-amber-500" />
                                         <span>
                                           {isMikrotik
                                             ? isEn
@@ -6639,100 +7525,118 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                       <div className="flex items-center gap-1">
                                         <button
                                           type="button"
-                                          onClick={() => {
-                                            const current = draftPolicy.perDevicePermissions?.[dev.id] || {
-                                              ...(draftPolicy.defaultDevicePermissions || {}),
-                                            };
-                                            const updated = { ...current };
-                                            applicablePortActions.forEach((a) => {
-                                              updated[a.key as NetworkDeviceActionKey] = true;
-                                            });
-                                            setDraftPolicy({
-                                              ...draftPolicy,
-                                              perDevicePermissions: {
-                                                ...(draftPolicy.perDevicePermissions || {}),
-                                                [dev.id]: updated,
-                                              },
-                                            });
-                                          }}
-                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 cursor-pointer"
+                                          onClick={() =>
+                                            setPerDeviceSectionDecision(
+                                              dev.id,
+                                              applicablePortActions.map(
+                                                (a) => a.key as NetworkDeviceActionKey
+                                              ),
+                                              'allow'
+                                            )
+                                          }
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
                                         >
                                           {isEn ? 'Allow All Ports' : 'اجازه همه پورت‌ها'}
                                         </button>
                                         <button
                                           type="button"
-                                          onClick={() => {
-                                            const current = draftPolicy.perDevicePermissions?.[dev.id] || {
-                                              ...(draftPolicy.defaultDevicePermissions || {}),
-                                            };
-                                            const updated = { ...current };
-                                            applicablePortActions.forEach((a) => {
-                                              updated[a.key as NetworkDeviceActionKey] = false;
-                                            });
-                                            setDraftPolicy({
-                                              ...draftPolicy,
-                                              perDevicePermissions: {
-                                                ...(draftPolicy.perDevicePermissions || {}),
-                                                [dev.id]: updated,
-                                              },
-                                            });
-                                          }}
-                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 cursor-pointer"
+                                          onClick={() =>
+                                            setPerDeviceSectionDecision(
+                                              dev.id,
+                                              applicablePortActions.map(
+                                                (a) => a.key as NetworkDeviceActionKey
+                                              ),
+                                              'require_approval'
+                                            )
+                                          }
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-600 hover:bg-amber-500 text-white cursor-pointer"
+                                        >
+                                          {isEn ? 'Approval Ports' : 'نیاز به تایید'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setPerDeviceSectionDecision(
+                                              dev.id,
+                                              applicablePortActions.map(
+                                                (a) => a.key as NetworkDeviceActionKey
+                                              ),
+                                              'deny'
+                                            )
+                                          }
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer"
                                         >
                                           {isEn ? 'Deny All Ports' : 'مسدودسازی پورت‌ها'}
                                         </button>
                                       </div>
                                     </div>
 
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
                                       {applicablePortActions.map((action) => {
-                                        const isCustom = typeof devPerms[action.key as NetworkDeviceActionKey] === 'boolean';
-                                        const isAllowed = isCustom
-                                          ? devPerms[action.key as NetworkDeviceActionKey] === true
-                                          : isDeviceActionPermitted(
-                                              { ...draftPolicy, perDevicePermissions: undefined },
-                                              dev.id,
-                                              action.key as NetworkDeviceActionKey
-                                            );
+                                        const { decision, isOverridden } = getPerDeviceDecisionState(
+                                          dev.id,
+                                          action.key as NetworkDeviceActionKey
+                                        );
 
                                         return (
-                                          <button
+                                          <div
                                             key={action.key}
-                                            type="button"
-                                            title={isEn ? (action.descriptionEn || action.labelEn) : (action.descriptionFa || action.labelFa)}
-                                            onClick={() => {
-                                              const current = draftPolicy.perDevicePermissions?.[dev.id] || {
-                                                ...(draftPolicy.defaultDevicePermissions || {}),
-                                              };
-                                              const nextVal = !isAllowed;
-                                              setDraftPolicy({
-                                                ...draftPolicy,
-                                                perDevicePermissions: {
-                                                  ...(draftPolicy.perDevicePermissions || {}),
-                                                  [dev.id]: {
-                                                    ...current,
-                                                    [action.key]: nextVal,
-                                                  },
-                                                },
-                                              });
-                                            }}
-                                            className={`flex items-center justify-between p-1.5 rounded-lg border text-[11px] font-medium transition cursor-pointer select-none ${
-                                              isAllowed
-                                                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
-                                                : 'bg-rose-500/15 border-rose-500/30 text-rose-300 opacity-80'
+                                            title={
+                                              isEn
+                                                ? action.descriptionEn || action.labelEn
+                                                : action.descriptionFa || action.labelFa
+                                            }
+                                            className={`flex items-center justify-between p-1.5 rounded-lg border text-[11px] transition gap-2 ${
+                                              decision === 'allow'
+                                                ? isLightMode
+                                                  ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+                                                  : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                                                : decision === 'require_approval'
+                                                ? isLightMode
+                                                  ? 'bg-amber-50/80 border-amber-300 text-amber-950'
+                                                  : 'bg-amber-500/15 border-amber-500/35 text-amber-200'
+                                                : isLightMode
+                                                ? 'bg-rose-50/60 border-rose-200 text-rose-950'
+                                                : 'bg-rose-500/10 border-rose-500/25 text-rose-300'
                                             }`}
                                           >
-                                            <span className="truncate">
-                                              {isEn
-                                                ? (action.shortLabelEn || action.key)
-                                                : (action.shortLabelFa || action.key)}
-                                            </span>
-                                            {isAllowed ? (
-                                              <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                                            ) : (
-                                              <X className="w-3 h-3 text-rose-400 shrink-0" />
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                              <span className="truncate font-semibold">
+                                                {isEn
+                                                  ? action.shortLabelEn || action.key
+                                                  : action.shortLabelFa || action.key}
+                                              </span>
+                                              <span
+                                                className={`text-[9px] px-1 py-0.2 rounded font-semibold shrink-0 border ${
+                                                  isOverridden
+                                                    ? isLightMode
+                                                      ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                                      : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                                                    : isLightMode
+                                                    ? 'bg-slate-200 text-slate-700 border-slate-300'
+                                                    : 'bg-white/5 text-slate-400 border-white/10'
+                                                }`}
+                                              >
+                                                {isOverridden
+                                                  ? isEn
+                                                    ? 'Override'
+                                                    : 'استثنا'
+                                                  : isEn
+                                                  ? 'Inherited'
+                                                  : 'ارث‌بری'}
+                                              </span>
+                                            </div>
+                                            {renderTriStateControl(
+                                              decision,
+                                              (next) =>
+                                                setPerDeviceDecision(
+                                                  dev.id,
+                                                  action.key as NetworkDeviceActionKey,
+                                                  next
+                                                ),
+                                              true
                                             )}
-                                          </button>
+                                          </div>
                                         );
                                       })}
                                     </div>
@@ -6749,6 +7653,29 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                   </div>
                 </div>
               )}
+
+            {/* ========================================================================= */}
+            {/* TAB 7: Multi-Stage Approval Workflow Chain Builder                        */}
+            {/* ========================================================================= */}
+            {activeTab === 'approvals' && (
+              <div className="space-y-4 animate-fadeIn">
+                <ApprovalChainBuilder
+                  stages={draftPolicy.approvalWorkflowStages || []}
+                  onChange={(stages) =>
+                    setDraftPolicy((prev) =>
+                      prev ? { ...prev, approvalWorkflowStages: stages } : prev
+                    )
+                  }
+                  requireApprovalCount={approvalCounts.totalCount}
+                  isEn={isEn}
+                  isLightMode={Boolean(isLightMode)}
+                  liveLocalUsers={liveLocalUsers}
+                  liveLocalGroups={liveLocalGroups}
+                  liveAdConfig={liveAdConfig}
+                  currentPolicy={draftPolicy}
+                />
+              </div>
+            )}
           </div>
 
           {/* Sticky Modal Footer with Actions */}
@@ -6905,11 +7832,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                 )
                 .map((srcDev) => {
                   const hasCustom = Boolean(
-                    draftPolicy?.perDevicePermissions?.[srcDev.id] &&
-                      Object.keys(draftPolicy.perDevicePermissions[srcDev.id]).length > 0
+                    (draftPolicy?.perDevicePermissions?.[srcDev.id] &&
+                      Object.keys(draftPolicy.perDevicePermissions[srcDev.id]).length > 0) ||
+                      (draftPolicy?.perDeviceApprovalRules?.[srcDev.id] &&
+                        Object.keys(draftPolicy.perDeviceApprovalRules[srcDev.id]).length > 0)
                   );
                   const allowedCount = hasCustom
-                    ? Object.values(draftPolicy!.perDevicePermissions![srcDev.id]).filter(Boolean).length
+                    ? Object.values(draftPolicy!.perDevicePermissions?.[srcDev.id] || {}).filter(Boolean).length
                     : Object.values(draftPolicy?.defaultDevicePermissions || {}).filter(Boolean).length;
 
                   return (

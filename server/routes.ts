@@ -70,6 +70,7 @@ import {
   saveUserGroups,
   getAccessPolicies,
   saveAccessPolicies,
+  validateAccessPoliciesApprovalRules,
   deleteAccessPolicy,
   getAuthorizedMapSubjects,
   getEffectivePolicyForUser,
@@ -2001,8 +2002,18 @@ apiRouter.get(['/settings/access-policies', '/access-policies'], async (req: Req
 apiRouter.post(['/settings/access-policies', '/access-policies'], async (req: Request, res: Response) => {
   try {
     const policies = Array.isArray(req.body?.policies) ? req.body.policies : req.body;
+    const validation = await validateAccessPoliciesApprovalRules(policies);
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: validation.error,
+        message: validation.message,
+        policyId: validation.policyId,
+        policyName: validation.policyName,
+      });
+    }
     await saveAccessPolicies(policies);
-    res.json({ success: true, count: policies.length });
+    res.json({ success: true, count: policies.length, policies });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

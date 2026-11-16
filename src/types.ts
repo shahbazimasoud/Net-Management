@@ -1021,6 +1021,13 @@ export interface AccessPolicy {
   defaultDevicePermissions?: NetworkDeviceActionPermissions;
   perDevicePermissions?: Record<string /* deviceId */, NetworkDeviceActionPermissions>;
 
+  // 7.1 Tri-State Action Access & Approval Rules (Allow / Require Approval / Deny)
+  defaultServerApprovalRules?: Partial<Record<ServerActionKey, ActionAccessDecision>>;
+  perServerApprovalRules?: Record<string /* serverId */, Partial<Record<ServerActionKey, ActionAccessDecision>>>;
+  defaultDeviceApprovalRules?: Partial<Record<NetworkDeviceActionKey, ActionAccessDecision>>;
+  perDeviceApprovalRules?: Record<string /* deviceId */, Partial<Record<NetworkDeviceActionKey, ActionAccessDecision>>>;
+  approvalWorkflowStages?: ApprovalWorkflowStageConfig[];
+
   // 8. Licenses & Contracts Management (Granular Multi-Vendor RBAC)
   canViewLicenses?: boolean;
   canManageLicenses?: boolean;
@@ -1050,6 +1057,50 @@ export interface AccessPolicy {
   canApproveActions?: boolean;
 
   permissions?: any;
+}
+
+export type ActionAccessDecision = 'allow' | 'require_approval' | 'deny';
+
+export type ApprovalStageApproverTargetType = 'specific_users' | 'user_groups' | 'any_approver';
+
+export interface ApprovalWorkflowStageApproverRef {
+  id: string;
+  name: string;
+  username?: string;
+  type: 'local_user' | 'ad_user' | 'local_group' | 'ad_group';
+}
+
+export interface ApprovalWorkflowStageConfig {
+  stageOrder: number; // 1, 2, 3
+  titleFa: string;
+  titleEn: string;
+  approverTargetType: ApprovalStageApproverTargetType;
+  approverUserIds?: string[];
+  approverGroupIds?: string[];
+  approverLabels?: ApprovalWorkflowStageApproverRef[];
+  ttlMinutes?: number;
+}
+
+export interface ApprovalEligibleCandidate {
+  id: string;
+  rawId?: string;
+  name: string;
+  username?: string;
+  displayName: string;
+  type: 'local_user' | 'ad_user' | 'local_group' | 'ad_group';
+  role?: string;
+  policyId?: string;
+  policyName?: string;
+  hasApprovalPrivilege: boolean;
+  isSuperAdmin?: boolean;
+  memberCount?: number;
+  email?: string;
+}
+
+export interface ApprovalEligibleCandidatesResponse {
+  success: boolean;
+  users: ApprovalEligibleCandidate[];
+  groups: ApprovalEligibleCandidate[];
 }
 
 export type CommsFolder = 'all' | 'unread' | 'messages' | 'announcements' | 'system' | 'approvals' | 'archived';

@@ -26,7 +26,7 @@ import {
   loadActiveDirectoryConfig,
   saveActiveDirectoryConfig,
   loadAccessPolicies,
-  saveAccessPolicies,
+  saveAccessPoliciesToDatabase,
   loadSimulatedRoleId,
   saveSimulatedRoleId,
   loadLocalUsers,
@@ -159,9 +159,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     saveActiveDirectoryConfig(newConfig, { skipBackendPost });
   };
 
-  const handleSavePolicies = (newPolicies: AccessPolicy[]) => {
+  const handleSavePolicies = async (newPolicies: AccessPolicy[]) => {
+    const result = await saveAccessPoliciesToDatabase(newPolicies);
+    if (!result.success) {
+      throw new Error(
+        result.message ||
+          result.error ||
+          (isEn ? 'Failed to save access policies.' : 'خطا در ذخیره‌سازی پالیسی‌های دسترسی در سرور.')
+      );
+    }
     setPolicies(newPolicies);
-    saveAccessPolicies(newPolicies);
   };
 
   const handleSelectSimulatedPolicy = (id: string) => {

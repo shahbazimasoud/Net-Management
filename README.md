@@ -260,6 +260,11 @@ npm start
 > ۳. **گیت و کامیت خودکار**: تمامی تغییرات باید خودکار همراه با پیام توصیفی دوزبانه روی برنچ `master` مخزن گیت‌هاب کامیت و پوش شوند. جزئیات بیشتر در فایل `AGENTS.md` درج شده است.
 
 ### تاریخچه نسخه‌ها و رفع مشکلات (Release Notes & Troubleshooting)
+- **نسخه ۱.۴۳۱.۰ (v1.431.0 - فاز ۱: ماتریس دسترسی سه‌حالته RBAC و سازنده زنجیره تایید چندمرحله‌ای در پالیسی‌ها)**:
+  - **ماتریس دسترسی سه‌حالته (Tri-State RBAC):** ارتقای قوانین دسترسی سرورها و تجهیزات شبکه در پالیسی‌های RBAC از حالت دوگانه به سه حالت «مجاز (Allow)»، «نیازمند تایید (Approval)» و «مسدود (Deny)» همراه با کنترل‌های دسته‌ای و استثناهای تکی.
+  - **سازنده زنجیره تایید چندمرحله‌ای (`ApprovalChainBuilder`):** افزودن تب «زنجیره تایید» در مودال پالیسی دسترسی با قابلیت تعریف ۱ تا ۳ مرحله تایید ترتیبی، انتخاب تاییدکنندگان مجاز (کاربران محلی/AD و گروه‌های امنیتی) و تنظیم مهلت زمانی (TTL) هر مرحله.
+  - **اندپوینت تاییدکنندگان و اعتبارسنجی سرور:** افزودن مسیر `GET /api/approvals/eligible-approvers` و اعتبارسنجی سمت سرور (`validateAccessPoliciesApprovalRules`) جهت جلوگیری از ثبت قوانین نیازمند تایید بدون مرحله تایید معتبر.
+
 - **نسخه ۱.۴۱۸.۲ (v1.418.2 - ثبت قانون قطعی اجبار منوی سه‌نقطه در قوانین توسعه و راهنمای هوش مصنوعی مخزن)**:
   - **افزودن قانون اجباری منوی ۳ نقطه در دستورالعمل‌های مخزن:** ثبت قانون صریح در فایل‌های `AI_INSTRUCTIONS.md`، `AGENTS.md` (بخش ۱۷) و `MODAL_GUIDELINES.md` مبنی بر الزام استفاده از دکمه واحد ۳ نقطه (`MoreVertical`) و منوی دراپ‌داون پورتال شناور برای تمامی صفحات و ماژول‌های دارای جدول و لیست، و ممنوعیت قطعی چیدن دکمه‌های متعدد در ردیف اکشن‌ها.
 
@@ -601,7 +606,12 @@ Any AI assistant, coding agent, or human contributor working on this repository 
 3. **Git Workflow:** Automatically commit all changes with descriptive commit messages and push to `origin master`.
 
 ### Release Notes & Bug Fixes
-- **Version 1.11.0 (Resolved Terminal Interface Dropdown Viewport Overflow, Bold White Trunk/Access Badges, Dark Gray Login Banner, Switch Faceplate Right-Click Context Menu & Standardized Layer 2 Security Badge)**:
+- **Version 1.431.0 (Phase 1: Policy-Driven Tri-State RBAC & Multi-Stage Approval Chain Builder)**:
+  - **Tri-State RBAC Rules Matrix:** Upgraded Server Fleet and Network Equipment action permissions inside Access Policies to support explicit `Allow`, `Require Approval`, and `Deny` rules with bulk selectors, per-target overrides, and interactive tooltips.
+  - **Multi-Stage Approval Chain Builder (`ApprovalChainBuilder`):** Added the `Approval Chain` tab to Access Policy Modal to design 1–3 sequential approval stages targeting specific local/AD users, local/AD groups, or any eligible approver with configurable stage TTLs.
+  - **Eligible Approvers API & Server Validation:** Added `GET /api/approvals/eligible-approvers` and strict backend policy validation blocking invalid or empty approval chains when approval rules are active.
+
+- **Version 1.418.2 / 1.11.0 (Resolved Terminal Interface Dropdown Viewport Overflow, Bold White Trunk/Access Badges, Dark Gray Login Banner, Switch Faceplate Right-Click Context Menu & Standardized Layer 2 Security Badge)**:
   - **Resolved Terminal Interface Dropdown Overflow:** Clamped interface dropdown coordinates and bounded max height with responsive scrolling inside the Cisco Terminal modal, preventing any overflow beyond modal boundaries or screen edges.
   - **High-Contrast Trunk & Access Badges:** Ensured Trunk and Access badges display crisp, bold white typography on vibrant purple and indigo backgrounds across both light and dark modes.
   - **Dark Gray Login Banner in Light Terminal:** Transformed User Access Verification, username/password labels, and asterisk dividing lines into readable dark slate gray (`#334155`) in light mode.

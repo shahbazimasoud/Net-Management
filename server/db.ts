@@ -4062,6 +4062,11 @@ export async function getAccessPolicies(): Promise<any[]> {
           perServerPermissions: pData.perServerPermissions || {},
           defaultDevicePermissions: defaultDevicePerms,
           perDevicePermissions: pData.perDevicePermissions || {},
+          defaultServerApprovalRules: pData.defaultServerApprovalRules || {},
+          perServerApprovalRules: pData.perServerApprovalRules || {},
+          defaultDeviceApprovalRules: pData.defaultDeviceApprovalRules || {},
+          perDeviceApprovalRules: pData.perDeviceApprovalRules || {},
+          approvalWorkflowStages: Array.isArray(pData.approvalWorkflowStages) ? pData.approvalWorkflowStages : [],
         };
       });
     } catch (e) {
@@ -4103,6 +4108,15 @@ export async function getAccessPolicies(): Promise<any[]> {
       perServerPermissions: p.perServerPermissions || pData.perServerPermissions || {},
       defaultDevicePermissions: defaultDevicePerms,
       perDevicePermissions: p.perDevicePermissions || pData.perDevicePermissions || {},
+      defaultServerApprovalRules: p.defaultServerApprovalRules || pData.defaultServerApprovalRules || {},
+      perServerApprovalRules: p.perServerApprovalRules || pData.perServerApprovalRules || {},
+      defaultDeviceApprovalRules: p.defaultDeviceApprovalRules || pData.defaultDeviceApprovalRules || {},
+      perDeviceApprovalRules: p.perDeviceApprovalRules || pData.perDeviceApprovalRules || {},
+      approvalWorkflowStages: Array.isArray(p.approvalWorkflowStages)
+        ? p.approvalWorkflowStages
+        : Array.isArray(pData.approvalWorkflowStages)
+        ? pData.approvalWorkflowStages
+        : [],
     };
   });
 }
@@ -4381,6 +4395,11 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canBatchOperate: false,
       canExportBackup: false,
       canImportBackup: false,
+      defaultServerApprovalRules: {},
+      perServerApprovalRules: {},
+      defaultDeviceApprovalRules: {},
+      perDeviceApprovalRules: {},
+      approvalWorkflowStages: [],
     };
   }
 
@@ -4609,6 +4628,11 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       allowedServerIds,
       allowedContractIds,
       allowedLicenseIds,
+      defaultServerApprovalRules: pol.defaultServerApprovalRules || {},
+      perServerApprovalRules: pol.perServerApprovalRules || {},
+      defaultDeviceApprovalRules: pol.defaultDeviceApprovalRules || {},
+      perDeviceApprovalRules: pol.perDeviceApprovalRules || {},
+      approvalWorkflowStages: Array.isArray(pol.approvalWorkflowStages) ? pol.approvalWorkflowStages : [],
     };
   };
 
@@ -4715,6 +4739,11 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
         port_cable_test: true,
       },
       perDevicePermissions: {},
+      defaultServerApprovalRules: {},
+      perServerApprovalRules: {},
+      defaultDeviceApprovalRules: {},
+      perDeviceApprovalRules: {},
+      approvalWorkflowStages: [],
     });
   }
 
@@ -4811,6 +4840,11 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       port_cable_test: false,
     },
     perDevicePermissions: {},
+    defaultServerApprovalRules: {},
+    perServerApprovalRules: {},
+    defaultDeviceApprovalRules: {},
+    perDeviceApprovalRules: {},
+    approvalWorkflowStages: [],
   });
 }
 
@@ -4841,255 +4875,851 @@ export function isNavigationGovernancePermitted(policy: any | null | undefined):
   return Boolean(policy.canManageNavigationGovernance);
 }
 
+export type ServerActionDecision = 'allow' | 'require_approval' | 'deny';
+
+function normalizeActionDecision(val: any): ServerActionDecision | null {
+  if (val === 'allow' || val === 'require_approval' || val === 'deny') return val;
+  if (val === true) return 'allow';
+  if (val === false) return 'deny';
+  return null;
+}
+
 /**
- * Universally evaluates whether a specific server action is permitted
- * under a database-authoritative AccessPolicy for a given server.
+ * Tri-state policy evaluator for Server actions ('allow' | 'require_approval' | 'deny').
+ * Resolution order:
+ * 1. Scope Gates (canViewServers, allowedServerIds, targetServerIds)
+ * 2. Per-Server Approval Rule -> Per-Server Boolean Override
+ * 3. Default Server Approval Rule -> Default Server Boolean Permission
+ * 4. Super Admin Fallback -> Safe Backward-Compatible Flag Fallback
  */
-export function isServerActionPermitted(
+export function evaluateServerActionDecision(
   policy: any | null | undefined,
   serverId: string,
   action: string
-): boolean {
-  if (!policy) return true;
+): ServerActionDecision {
+  if (!policy) return 'allow';
 
-  // 1. If user has no permission to view/manage servers at all
   if (policy.canViewServers === false) {
-    return false;
+    return 'deny';
   }
 
-  // 1.1 Fleet-level Add Remote Server action
   if (action === 'add_server') {
+    const rule = normalizeActionDecision(policy.defaultServerApprovalRules?.add_server);
+    if (rule) return rule;
     if (policy.defaultServerPermissions?.add_server !== undefined) {
-      return Boolean(policy.defaultServerPermissions.add_server);
+      return policy.defaultServerPermissions.add_server ? 'allow' : 'deny';
     }
     if (policy.canAddServer !== undefined) {
-      return Boolean(policy.canAddServer);
+      return policy.canAddServer ? 'allow' : 'deny';
     }
-    return policy.canManageDevices !== false;
+    return policy.canManageDevices !== false ? 'allow' : 'deny';
   }
 
-  // 2. If policy targets specific groups/servers, ensure target server is in allowed fleet scope
-  if (Array.isArray(policy.allowedServerIds) && !policy.allowedServerIds.includes(serverId)) {
-    return false;
+  if (Array.isArray(policy.allowedServerIds) && serverId && !policy.allowedServerIds.includes(serverId)) {
+    return 'deny';
+  }
+  if (policy.targetScope === 'specific' && Array.isArray(policy.targetServerIds) && serverId && !policy.targetServerIds.includes(serverId)) {
+    return 'deny';
   }
 
-  // 3. Highest Priority: Granular Per-Server Override Matrix
-  if (policy.perServerPermissions && typeof policy.perServerPermissions === 'object') {
+  if (serverId && policy.perServerApprovalRules && typeof policy.perServerApprovalRules === 'object') {
+    const serverRuleOverrides = policy.perServerApprovalRules[serverId];
+    if (serverRuleOverrides && typeof serverRuleOverrides === 'object') {
+      const rule = normalizeActionDecision(serverRuleOverrides[action]);
+      if (rule) return rule;
+    }
+  }
+  if (serverId && policy.perServerPermissions && typeof policy.perServerPermissions === 'object') {
     const serverOverrides = policy.perServerPermissions[serverId];
     if (serverOverrides && typeof serverOverrides === 'object') {
       if (typeof serverOverrides[action] === 'boolean') {
-        return serverOverrides[action];
+        return serverOverrides[action] ? 'allow' : 'deny';
       }
     }
   }
 
-  // 4. Default Server Permissions defined in the policy
+  if (policy.defaultServerApprovalRules && typeof policy.defaultServerApprovalRules === 'object') {
+    const rule = normalizeActionDecision(policy.defaultServerApprovalRules[action]);
+    if (rule) return rule;
+  }
   if (policy.defaultServerPermissions && typeof policy.defaultServerPermissions === 'object') {
     if (typeof policy.defaultServerPermissions[action] === 'boolean') {
-      return policy.defaultServerPermissions[action];
+      return policy.defaultServerPermissions[action] ? 'allow' : 'deny';
     }
   }
 
-  // 5. Global Policy Scope Fallback (Super Administrator unconstrained access)
   const isSuperAdmin =
     policy.id === 'policy-super-admin' ||
     (policy.targetScope === 'all' && (policy.priority || 0) >= 100);
   if (isSuperAdmin) {
-    return true;
+    return 'allow';
   }
 
-  // 6. Safe backward-compatible fallback mapping from general policy flags:
   if (action === 'export_servers') {
-    if (policy.canExportServers === false) return false;
-    return Boolean(policy.canExportServers || policy.canManageDevices || isSuperAdmin);
+    if (policy.canExportServers === false) return 'deny';
+    return Boolean(policy.canExportServers || policy.canManageDevices || isSuperAdmin) ? 'allow' : 'deny';
   }
   if (action === 'import_servers') {
-    if (policy.canImportServers === false) return false;
-    return Boolean(policy.canImportServers || policy.canManageDevices || isSuperAdmin);
+    if (policy.canImportServers === false) return 'deny';
+    return Boolean(policy.canImportServers || policy.canManageDevices || isSuperAdmin) ? 'allow' : 'deny';
   }
 
-  // Safe defaults for non-superadmin policies without explicit grants:
-  // Dangerous / sensitive actions are blocked by default
   if (
     action === 'delete_server' ||
     action === 'power_control' ||
     action === 'terminal' ||
     action === 'edit_properties'
   ) {
-    return false;
+    return 'deny';
   }
 
-  return true;
+  return 'allow';
+}
+
+export function doesServerActionRequireApproval(
+  policy: any | null | undefined,
+  serverId: string,
+  action: string
+): boolean {
+  return evaluateServerActionDecision(policy, serverId, action) === 'require_approval';
+}
+
+/**
+ * Universally evaluates whether a specific server action is permitted
+ * (returns true for both 'allow' and 'require_approval').
+ */
+export function isServerActionPermitted(
+  policy: any | null | undefined,
+  serverId: string,
+  action: string
+): boolean {
+  return evaluateServerActionDecision(policy, serverId, action) !== 'deny';
+}
+
+/**
+ * Tri-state policy evaluator for Network Equipment actions ('allow' | 'require_approval' | 'deny').
+ * Resolution order:
+ * 1. Scope Gates (canViewDevices, allowedDeviceIds, targetDeviceIds)
+ * 2. Per-Device Approval Rule -> Per-Device Boolean Override
+ * 3. Default Device Approval Rule -> Default Device Boolean Permission
+ * 4. Super Admin Fallback -> Safe Backward-Compatible Flag Fallback
+ */
+export function evaluateDeviceActionDecision(
+  policy: any | null | undefined,
+  deviceId: string,
+  action: string
+): ServerActionDecision {
+  if (!policy) return 'allow';
+
+  if (policy.canViewDevices === false) {
+    return 'deny';
+  }
+
+  if (action === 'add_device') {
+    const rule = normalizeActionDecision(policy.defaultDeviceApprovalRules?.add_device);
+    if (rule) return rule;
+    if (policy.canAddDevice !== undefined) {
+      return policy.canAddDevice ? 'allow' : 'deny';
+    }
+    if (policy.defaultDevicePermissions?.add_device !== undefined) {
+      return policy.defaultDevicePermissions.add_device ? 'allow' : 'deny';
+    }
+    return policy.canManageDevices !== false && Boolean(policy.canManageDevices) ? 'allow' : 'deny';
+  }
+
+  if (Array.isArray(policy.allowedDeviceIds) && deviceId && !policy.allowedDeviceIds.includes(deviceId)) {
+    return 'deny';
+  }
+  if (policy.targetScope === 'specific' && Array.isArray(policy.targetDeviceIds) && deviceId && !policy.targetDeviceIds.includes(deviceId)) {
+    return 'deny';
+  }
+
+  if (deviceId && policy.perDeviceApprovalRules && typeof policy.perDeviceApprovalRules === 'object') {
+    const deviceRuleOverrides = policy.perDeviceApprovalRules[deviceId];
+    if (deviceRuleOverrides && typeof deviceRuleOverrides === 'object') {
+      const rule = normalizeActionDecision(deviceRuleOverrides[action]);
+      if (rule) return rule;
+    }
+  }
+  if (deviceId && policy.perDevicePermissions && typeof policy.perDevicePermissions === 'object') {
+    const deviceOverrides = policy.perDevicePermissions[deviceId];
+    if (deviceOverrides && typeof deviceOverrides === 'object') {
+      if (typeof deviceOverrides[action] === 'boolean') {
+        return deviceOverrides[action] ? 'allow' : 'deny';
+      }
+    }
+  }
+
+  if (policy.defaultDeviceApprovalRules && typeof policy.defaultDeviceApprovalRules === 'object') {
+    const rule = normalizeActionDecision(policy.defaultDeviceApprovalRules[action]);
+    if (rule) return rule;
+  }
+  if (policy.defaultDevicePermissions && typeof policy.defaultDevicePermissions === 'object') {
+    if (typeof policy.defaultDevicePermissions[action] === 'boolean') {
+      return policy.defaultDevicePermissions[action] ? 'allow' : 'deny';
+    }
+  }
+
+  const isSuperAdmin =
+    policy.id === 'policy-super-admin' ||
+    (policy.targetScope === 'all' && (policy.priority || 0) >= 100);
+  if (isSuperAdmin) {
+    return 'allow';
+  }
+
+  const allowIf = (cond: boolean): ServerActionDecision => (cond ? 'allow' : 'deny');
+
+  if (action === 'terminal') {
+    return allowIf(policy.terminalAccess === 'full' || policy.terminalAccess === 'view_only');
+  }
+  if (action === 'apply_template') {
+    return allowIf(Boolean(policy.canApplyTemplates));
+  }
+  if (action === 'write_memory') {
+    return allowIf(Boolean(policy.canWriteMemory));
+  }
+  if (action === 'delete_device' || action === 'edit_properties') {
+    return allowIf(Boolean(policy.canManageDevices));
+  }
+  if (action === 'export_devices') {
+    if (policy.canExportDevices === false) return 'deny';
+    return allowIf(Boolean(policy.canExportDevices || policy.canManageDevices || isSuperAdmin));
+  }
+  if (action === 'import_devices') {
+    if (policy.canImportDevices === false) return 'deny';
+    return allowIf(Boolean(policy.canImportDevices || policy.canManageDevices || isSuperAdmin));
+  }
+
+  if (action === 'port_power') {
+    return allowIf(policy.canToggleAdminStatus !== false && policy.canMikrotikToggleInterface !== false);
+  }
+  if (action === 'port_mode') {
+    return allowIf(policy.canToggleAdminStatus !== false && policy.canChangeVlan !== false);
+  }
+  if (action === 'port_vlan') {
+    return allowIf(policy.canChangeVlan !== false && policy.canMikrotikBridgeVlan !== false);
+  }
+  if (action === 'port_security') {
+    return allowIf(Boolean(policy.canTogglePortSecurity));
+  }
+  if (action === 'port_description') {
+    return allowIf(policy.canEditDescription !== false && policy.canMikrotikComment !== false);
+  }
+  if (action === 'port_bridge') {
+    return allowIf(policy.canMikrotikBridgeVlan !== false);
+  }
+  if (action === 'port_speed') {
+    return allowIf(policy.canMikrotikToggleInterface !== false);
+  }
+  if (action === 'port_cable_test') {
+    return allowIf(policy.canGenericDiagnostics !== false);
+  }
+
+  if (action === 'mikrotik_safe_mode') {
+    return allowIf(policy.canMikrotikSafeMode !== false);
+  }
+  if (action === 'mikrotik_firewall') {
+    return allowIf(policy.canMikrotikFirewall !== false);
+  }
+  if (action === 'mikrotik_backup') {
+    return allowIf(policy.canMikrotikBackup !== false);
+  }
+  if (action === 'mikrotik_bridge_vlan') {
+    return allowIf(policy.canMikrotikBridgeVlan !== false);
+  }
+  if (action === 'mikrotik_toggle_interface') {
+    return allowIf(policy.canMikrotikToggleInterface !== false && policy.canToggleAdminStatus !== false);
+  }
+  if (action === 'mikrotik_vpn') {
+    return allowIf(policy.canManageDevices !== false);
+  }
+  if (action === 'mikrotik_comment') {
+    return allowIf(policy.canMikrotikComment !== false && policy.canEditDescription !== false);
+  }
+  if (action === 'mikrotik_ip_pool') {
+    return allowIf(policy.canMikrotikIpPool !== false);
+  }
+
+  if (action === 'cisco_config_device') {
+    return allowIf(Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin));
+  }
+  if (action === 'cisco_config_vty_ssh') {
+    return allowIf(Boolean(policy.canManageDevices || isSuperAdmin));
+  }
+  if (action === 'cisco_config_ntp') {
+    return allowIf(Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin));
+  }
+  if (action === 'cisco_config_snmp') {
+    return allowIf(Boolean(policy.canManageDevices || isSuperAdmin));
+  }
+  if (action === 'cisco_config_users') {
+    return allowIf(Boolean(policy.canManageDevices || isSuperAdmin));
+  }
+  if (action === 'cisco_config_stp') {
+    return allowIf(Boolean(policy.canManageDevices || isSuperAdmin));
+  }
+  if (action === 'cisco_config_vtp') {
+    return allowIf(Boolean(policy.canManageDevices || isSuperAdmin));
+  }
+  if (action === 'cisco_config_syslog') {
+    return allowIf(Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin));
+  }
+  if (action === 'cisco_config_vlans') {
+    return allowIf(policy.canChangeVlan !== false && Boolean(policy.canManageDevices || isSuperAdmin));
+  }
+  if (action === 'cisco_config_l2_security') {
+    return allowIf(Boolean(policy.canTogglePortSecurity ?? policy.canManageDevices ?? isSuperAdmin));
+  }
+  if (action === 'cisco_config_write_memory') {
+    return allowIf(Boolean(policy.canWriteMemory || isSuperAdmin));
+  }
+
+  return 'allow';
+}
+
+export function doesDeviceActionRequireApproval(
+  policy: any | null | undefined,
+  deviceId: string,
+  action: string
+): boolean {
+  return evaluateDeviceActionDecision(policy, deviceId, action) === 'require_approval';
 }
 
 /**
  * Universally evaluates whether a specific network equipment action is permitted
- * under a database-authoritative AccessPolicy for a given network device.
+ * (returns true for both 'allow' and 'require_approval').
  */
 export function isDeviceActionPermitted(
   policy: any | null | undefined,
   deviceId: string,
   action: string
 ): boolean {
-  if (!policy) return true;
+  return evaluateDeviceActionDecision(policy, deviceId, action) !== 'deny';
+}
 
-  // 1. If user has no permission to view/manage devices at all
-  if (policy.canViewDevices === false) {
-    return false;
-  }
+export interface ApprovalEligibleCandidateRecord {
+  id: string;
+  rawId?: string;
+  name: string;
+  username?: string;
+  displayName: string;
+  type: 'local_user' | 'ad_user' | 'local_group' | 'ad_group';
+  role?: string;
+  policyId?: string;
+  policyName?: string;
+  hasApprovalPrivilege: boolean;
+  isSuperAdmin?: boolean;
+  memberCount?: number;
+  email?: string;
+}
 
-  // 1.1 Inventory-level Add Network Device (Introduce New Device) action
-  if (action === 'add_device') {
-    if (policy.canAddDevice !== undefined) {
-      return Boolean(policy.canAddDevice);
+/**
+ * Resolves all local/AD users and groups and marks which ones hold approval authority
+ * (either via an AccessPolicy with canApproveActions/Super Admin, or Super Admin role).
+ */
+export async function getApprovalEligibleCandidates(overridePolicies?: any[]): Promise<{
+  success: boolean;
+  users: ApprovalEligibleCandidateRecord[];
+  groups: ApprovalEligibleCandidateRecord[];
+}> {
+  const policies = Array.isArray(overridePolicies) ? overridePolicies : await getAccessPolicies();
+  const localUsersList = await getAllUsers();
+  const activeLocalUsers = localUsersList.filter((u: any) => u && u.status !== 'disabled');
+  const rawLocalGroups = await getUserGroups();
+  const adConfig = await getActiveDirectoryConfig();
+  const syncedUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? adConfig.syncedUsers : [];
+  const syncedGroups: any[] = Array.isArray(adConfig?.syncedGroups) ? adConfig.syncedGroups : [];
+
+  const isPolicyApproverCapable = (p: any): boolean => {
+    if (!p) return false;
+    return (
+      p.id === 'policy-super-admin' ||
+      ((p.priority || 0) >= 100 && p.targetScope === 'all') ||
+      Boolean(p.canApproveActions)
+    );
+  };
+
+  const getGroupMemberList = (g: any): string[] => {
+    if (!g) return [];
+    if (Array.isArray(g.memberUserIds)) return g.memberUserIds;
+    if (Array.isArray(g.member_user_ids)) return g.member_user_ids;
+    if (typeof g.member_user_ids === 'string') {
+      try {
+        return JSON.parse(g.member_user_ids || '[]');
+      } catch {
+        return [];
+      }
     }
-    if (policy.defaultDevicePermissions?.add_device !== undefined) {
-      return Boolean(policy.defaultDevicePermissions.add_device);
+    return [];
+  };
+
+  const findPoliciesForSubject = (
+    subjectTypes: string[],
+    keys: string[]
+  ): any[] => {
+    const keySet = new Set(keys.map((k) => (k || '').trim().toLowerCase()).filter(Boolean));
+    return policies
+      .filter((p: any) => {
+        if (!p || !subjectTypes.includes(p.subjectType)) return false;
+        const ids = [p.subjectId, ...(Array.isArray(p.subjectIds) ? p.subjectIds : [])]
+          .map((s) => (s || '').trim().toLowerCase())
+          .filter(Boolean);
+        const names = [p.subjectName, ...(Array.isArray(p.subjectNames) ? p.subjectNames : [])]
+          .map((s) => (s || '').trim().toLowerCase())
+          .filter(Boolean);
+        return ids.some((id) => keySet.has(id)) || names.some((n) => keySet.has(n));
+      })
+      .sort((a: any, b: any) => (b.priority || 0) - (a.priority || 0));
+  };
+
+  // 1. Groups (Local + Active Directory)
+  const groups: ApprovalEligibleCandidateRecord[] = [];
+  const seenGroupKeys = new Set<string>();
+
+  for (const g of rawLocalGroups) {
+    const gId = (g.id || '').trim();
+    const gName = (g.name || gId).trim();
+    const members = getGroupMemberList(g);
+    const matched = findPoliciesForSubject(['local_group'], [gId, gName]);
+    const topPolicy = matched[0];
+    const hasAdminRole = gId === 'group-admin' || gName.toLowerCase().includes('super admin');
+    const hasApprovalPrivilege = hasAdminRole || matched.some(isPolicyApproverCapable);
+    const dedupeKey = `local_group:${gId.toLowerCase()}`;
+    if (!seenGroupKeys.has(dedupeKey)) {
+      seenGroupKeys.add(dedupeKey);
+      groups.push({
+        id: gId,
+        rawId: gId,
+        name: gName,
+        displayName: gName,
+        type: 'local_group',
+        role: topPolicy?.name || g.description || 'Local Group',
+        policyId: topPolicy?.id,
+        policyName: topPolicy?.name,
+        hasApprovalPrivilege,
+        isSuperAdmin: hasAdminRole || topPolicy?.id === 'policy-super-admin',
+        memberCount: members.length,
+      });
     }
-    return policy.canManageDevices !== false && Boolean(policy.canManageDevices);
   }
 
-  // 2. If policy targets specific groups or devices, ensure target device is in allowed scope
-  if (Array.isArray(policy.allowedDeviceIds) && !policy.allowedDeviceIds.includes(deviceId)) {
-    return false;
+  for (const ag of syncedGroups) {
+    const rawId = (ag.dn || ag.cn || ag.id || '').trim();
+    const cn = (ag.cn || rawId).trim();
+    if (!rawId) continue;
+    const matched = findPoliciesForSubject(['ad_group'], [rawId, cn, ag.dn || '', ag.cn || '']);
+    const topPolicy = matched[0];
+    const hasApprovalPrivilege = matched.some(isPolicyApproverCapable);
+    const dedupeKey = `ad_group:${rawId.toLowerCase()}`;
+    if (!seenGroupKeys.has(dedupeKey)) {
+      seenGroupKeys.add(dedupeKey);
+      groups.push({
+        id: rawId,
+        rawId,
+        name: cn,
+        displayName: `${cn} (Active Directory)`,
+        type: 'ad_group',
+        role: topPolicy?.name || 'Active Directory Group',
+        policyId: topPolicy?.id,
+        policyName: topPolicy?.name,
+        hasApprovalPrivilege,
+        isSuperAdmin: topPolicy?.id === 'policy-super-admin',
+        memberCount: Array.isArray(ag.members) ? ag.members.length : undefined,
+      });
+    }
   }
 
-  // 3. Highest Priority: Granular Per-Device Override Matrix
-  if (policy.perDevicePermissions && typeof policy.perDevicePermissions === 'object') {
-    const deviceOverrides = policy.perDevicePermissions[deviceId];
-    if (deviceOverrides && typeof deviceOverrides === 'object') {
-      if (typeof deviceOverrides[action] === 'boolean') {
-        return deviceOverrides[action];
+  // Also include any ad_group referenced directly in policies even if AD sync cache is empty
+  for (const p of policies.filter((item: any) => item?.subjectType === 'ad_group' && item?.subjectId)) {
+    const rawIds: string[] = [p.subjectId, ...(Array.isArray(p.subjectIds) ? p.subjectIds : [])].filter(Boolean);
+    rawIds.forEach((rawId, idx) => {
+      const cleanRaw = String(rawId).trim();
+      const dedupeKey = `ad_group:${cleanRaw.toLowerCase()}`;
+      if (!cleanRaw || seenGroupKeys.has(dedupeKey)) return;
+      seenGroupKeys.add(dedupeKey);
+      const cnMatch = cleanRaw.match(/CN=([^,]+)/i);
+      const label = (Array.isArray(p.subjectNames) && p.subjectNames[idx]) || (idx === 0 ? p.subjectName : '') || (cnMatch ? cnMatch[1] : cleanRaw);
+      groups.push({
+        id: cleanRaw,
+        rawId: cleanRaw,
+        name: label,
+        displayName: label.includes('Active Directory') ? label : `${label} (Active Directory)`,
+        type: 'ad_group',
+        role: p.name,
+        policyId: p.id,
+        policyName: p.name,
+        hasApprovalPrivilege: isPolicyApproverCapable(p),
+        isSuperAdmin: p.id === 'policy-super-admin',
+      });
+    });
+  }
+
+  // 2. Users (Local + Active Directory)
+  const users: ApprovalEligibleCandidateRecord[] = [];
+  const seenUserKeys = new Set<string>();
+
+  for (const u of activeLocalUsers) {
+    const uId = (u.id || u.username || '').trim();
+    const uName = (u.username || uId).trim();
+    const cleanUser = uName.toLowerCase();
+    const roleLower = (u.role || '').trim().toLowerCase();
+    const isSuperAdmin =
+      cleanUser === 'admin' ||
+      roleLower.includes('super admin') ||
+      roleLower.includes('administrator');
+
+    // Collect local groups that contain this user
+    const userGroupKeys: string[] = [];
+    const rawUserGroupIds: string[] = Array.isArray(u.groupIds)
+      ? u.groupIds
+      : Array.isArray(u.group_ids)
+      ? u.group_ids
+      : [];
+    userGroupKeys.push(...rawUserGroupIds);
+    for (const lg of rawLocalGroups) {
+      const members = getGroupMemberList(lg).map((m) => (m || '').toLowerCase());
+      if (members.includes(uId.toLowerCase()) || members.includes(cleanUser)) {
+        userGroupKeys.push(lg.id, lg.name);
+      }
+    }
+
+    const directPolicies = findPoliciesForSubject(['local_user'], [uId, uName, u.email || '']);
+    const groupPolicies = findPoliciesForSubject(['local_group'], userGroupKeys);
+    const combinedPolicies = [...directPolicies, ...groupPolicies].sort(
+      (a: any, b: any) => (b.priority || 0) - (a.priority || 0)
+    );
+    const effective = combinedPolicies[0];
+    const hasApprovalPrivilege =
+      isSuperAdmin ||
+      (effective ? isPolicyApproverCapable(effective) : false) ||
+      directPolicies.some(isPolicyApproverCapable);
+
+    const dedupeKey = `local_user:${uId.toLowerCase()}`;
+    if (!seenUserKeys.has(dedupeKey)) {
+      seenUserKeys.add(dedupeKey);
+      users.push({
+        id: uId,
+        rawId: uId,
+        name: u.fullName ? `${u.fullName} (${uName})` : uName,
+        username: uName,
+        displayName: u.fullName ? `${u.fullName} (${uName})` : uName,
+        type: 'local_user',
+        role: u.role || effective?.name || 'Operator',
+        policyId: effective?.id,
+        policyName: effective?.name,
+        hasApprovalPrivilege,
+        isSuperAdmin,
+        email: u.email,
+      });
+    }
+  }
+
+  for (const au of syncedUsers) {
+    const uId = (au.samAccountName || au.dn || au.email || au.id || '').trim();
+    if (!uId) continue;
+    const adUserGroupKeys: string[] = Array.isArray(au.groups) ? au.groups : [];
+    const directPolicies = findPoliciesForSubject(
+      ['ad_user'],
+      [uId, au.samAccountName || '', au.dn || '', au.email || '']
+    );
+    const groupPolicies = findPoliciesForSubject(['ad_group'], adUserGroupKeys);
+    const combinedPolicies = [...directPolicies, ...groupPolicies].sort(
+      (a: any, b: any) => (b.priority || 0) - (a.priority || 0)
+    );
+    const effective = combinedPolicies[0];
+    const hasApprovalPrivilege = effective ? isPolicyApproverCapable(effective) : false;
+
+    const dedupeKey = `ad_user:${uId.toLowerCase()}`;
+    if (!seenUserKeys.has(dedupeKey)) {
+      seenUserKeys.add(dedupeKey);
+      users.push({
+        id: uId,
+        rawId: au.dn || uId,
+        name: au.displayName || au.samAccountName || uId,
+        username: au.samAccountName || uId,
+        displayName: au.displayName
+          ? `${au.displayName} (${au.samAccountName || uId})`
+          : au.samAccountName || uId,
+        type: 'ad_user',
+        role: au.title || effective?.name || 'Active Directory User',
+        policyId: effective?.id,
+        policyName: effective?.name,
+        hasApprovalPrivilege,
+        isSuperAdmin: effective?.id === 'policy-super-admin',
+        email: au.email,
+      });
+    }
+  }
+
+  // Also include ad_user policies not yet in syncedUsers
+  for (const p of policies.filter((item: any) => item?.subjectType === 'ad_user' && item?.subjectId)) {
+    const rawIds: string[] = [p.subjectId, ...(Array.isArray(p.subjectIds) ? p.subjectIds : [])].filter(Boolean);
+    rawIds.forEach((rawId, idx) => {
+      const cleanRaw = String(rawId).trim();
+      const dedupeKey = `ad_user:${cleanRaw.toLowerCase()}`;
+      if (!cleanRaw || seenUserKeys.has(dedupeKey)) return;
+      seenUserKeys.add(dedupeKey);
+      const label = (Array.isArray(p.subjectNames) && p.subjectNames[idx]) || (idx === 0 ? p.subjectName : '') || cleanRaw;
+      users.push({
+        id: cleanRaw,
+        rawId: cleanRaw,
+        name: label,
+        username: cleanRaw,
+        displayName: label,
+        type: 'ad_user',
+        role: p.name,
+        policyId: p.id,
+        policyName: p.name,
+        hasApprovalPrivilege: isPolicyApproverCapable(p),
+        isSuperAdmin: p.id === 'policy-super-admin',
+      });
+    });
+  }
+
+  return { success: true, users, groups };
+}
+
+function countPolicyRequireApprovalRulesServer(policy: any): number {
+  if (!policy || typeof policy !== 'object') return 0;
+  let count = 0;
+  for (const val of Object.values(policy.defaultServerApprovalRules || {})) {
+    if (val === 'require_approval') count++;
+  }
+  for (const map of Object.values(policy.perServerApprovalRules || {})) {
+    if (map && typeof map === 'object') {
+      for (const val of Object.values(map)) {
+        if (val === 'require_approval') count++;
+      }
+    }
+  }
+  for (const val of Object.values(policy.defaultDeviceApprovalRules || {})) {
+    if (val === 'require_approval') count++;
+  }
+  for (const map of Object.values(policy.perDeviceApprovalRules || {})) {
+    if (map && typeof map === 'object') {
+      for (const val of Object.values(map)) {
+        if (val === 'require_approval') count++;
+      }
+    }
+  }
+  return count;
+}
+
+/**
+ * Validates that every policy using 'require_approval' rules defines a valid 1-3 stage
+ * approvalWorkflowStages chain with valid, existing, approval-privileged approvers.
+ */
+export async function validateAccessPoliciesApprovalRules(policies: any[]): Promise<{
+  valid: boolean;
+  error?: string;
+  message?: string;
+  policyId?: string;
+  policyName?: string;
+}> {
+  if (!Array.isArray(policies)) {
+    return {
+      valid: false,
+      error: 'Policies payload must be an array.',
+      message: 'ساختار لیست پالیسی‌ها نامعتبر است.',
+    };
+  }
+
+  const anyStagesPresent = policies.some(
+    (p) =>
+      countPolicyRequireApprovalRulesServer(p) > 0 ||
+      (Array.isArray(p?.approvalWorkflowStages) && p.approvalWorkflowStages.length > 0)
+  );
+  if (!anyStagesPresent) {
+    return { valid: true };
+  }
+
+  const candidates = await getApprovalEligibleCandidates(policies);
+  const userMap = new Map<string, ApprovalEligibleCandidateRecord>();
+  for (const u of candidates.users) {
+    if (u.id) userMap.set(u.id.toLowerCase(), u);
+    if (u.username) userMap.set(u.username.toLowerCase(), u);
+    if (u.rawId) userMap.set(u.rawId.toLowerCase(), u);
+  }
+  const groupMap = new Map<string, ApprovalEligibleCandidateRecord>();
+  for (const g of candidates.groups) {
+    if (g.id) groupMap.set(g.id.toLowerCase(), g);
+    if (g.rawId) groupMap.set(g.rawId.toLowerCase(), g);
+    if (g.name) groupMap.set(g.name.toLowerCase(), g);
+  }
+  const anyEligibleApproverExists =
+    candidates.users.some((u) => u.hasApprovalPrivilege) ||
+    candidates.groups.some((g) => g.hasApprovalPrivilege);
+
+  for (const p of policies) {
+    if (!p || typeof p !== 'object') continue;
+    const policyLabel = p.name || p.id || 'Policy';
+    const requireCount = countPolicyRequireApprovalRulesServer(p);
+    const stages = p.approvalWorkflowStages;
+
+    if (stages !== undefined && !Array.isArray(stages)) {
+      return {
+        valid: false,
+        policyId: p.id,
+        policyName: policyLabel,
+        error: `Policy "${policyLabel}" has malformed approvalWorkflowStages (expected array).`,
+        message: `ساختار زنجیره تایید در پالیسی «${policyLabel}» نامعتبر است.`,
+      };
+    }
+
+    const stageList: any[] = Array.isArray(stages) ? stages : [];
+
+    if (requireCount > 0 && stageList.length === 0) {
+      return {
+        valid: false,
+        policyId: p.id,
+        policyName: policyLabel,
+        error: `Policy "${policyLabel}" marks ${requireCount} action(s) as "Require Approval" without defining an Approval Workflow Chain (1-3 stages required).`,
+        message: `پالیسی «${policyLabel}» دارای ${requireCount} اکشن «نیازمند تایید» است اما زنجیره تایید مراحل (۱ تا ۳ مرحله) برای آن تعریف نشده است.`,
+      };
+    }
+
+    if (stageList.length > 3) {
+      return {
+        valid: false,
+        policyId: p.id,
+        policyName: policyLabel,
+        error: `Policy "${policyLabel}" exceeds the maximum limit of 3 sequential approval stages.`,
+        message: `پالیسی «${policyLabel}» حداکثر می‌تواند دارای ۳ مرحله تایید متوالی باشد.`,
+      };
+    }
+
+    for (let idx = 0; idx < stageList.length; idx++) {
+      const stage = stageList[idx];
+      const stageNum = idx + 1;
+      if (!stage || typeof stage !== 'object') {
+        return {
+          valid: false,
+          policyId: p.id,
+          policyName: policyLabel,
+          error: `Stage ${stageNum} in policy "${policyLabel}" is invalid.`,
+          message: `تنظیمات مرحله ${stageNum} در پالیسی «${policyLabel}» نامعتبر است.`,
+        };
+      }
+
+      const hasTitle = Boolean(
+        (typeof stage.titleFa === 'string' && stage.titleFa.trim()) ||
+        (typeof stage.titleEn === 'string' && stage.titleEn.trim())
+      );
+      if (!hasTitle) {
+        return {
+          valid: false,
+          policyId: p.id,
+          policyName: policyLabel,
+          error: `Approval Stage ${stageNum} in policy "${policyLabel}" requires a stage title (English or Persian).`,
+          message: `برای مرحله ${stageNum} در پالیسی «${policyLabel}» باید عنوان مرحله (فارسی یا انگلیسی) وارد شود.`,
+        };
+      }
+
+      if (stage.ttlMinutes !== undefined && stage.ttlMinutes !== null) {
+        const ttl = Number(stage.ttlMinutes);
+        if (!Number.isFinite(ttl) || ttl < 1 || ttl > 43200) {
+          return {
+            valid: false,
+            policyId: p.id,
+            policyName: policyLabel,
+            error: `Approval Stage ${stageNum} in policy "${policyLabel}" has an invalid TTL (${stage.ttlMinutes}). Allowed range: 1 to 43200 minutes.`,
+            message: `مهلت انقضای (TTL) مرحله ${stageNum} در پالیسی «${policyLabel}» باید بین ۱ تا ۴۳۲۰۰ دقیقه باشد.`,
+          };
+        }
+      }
+
+      const targetType = stage.approverTargetType;
+      if (targetType !== 'specific_users' && targetType !== 'user_groups' && targetType !== 'any_approver') {
+        return {
+          valid: false,
+          policyId: p.id,
+          policyName: policyLabel,
+          error: `Approval Stage ${stageNum} in policy "${policyLabel}" has invalid approverTargetType "${targetType}".`,
+          message: `نوع تاییدکننده در مرحله ${stageNum} پالیسی «${policyLabel}» نامعتبر است.`,
+        };
+      }
+
+      if (targetType === 'specific_users') {
+        const userIds: string[] = Array.isArray(stage.approverUserIds)
+          ? stage.approverUserIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+          : [];
+        if (userIds.length === 0) {
+          return {
+            valid: false,
+            policyId: p.id,
+            policyName: policyLabel,
+            error: `Approval Stage ${stageNum} in policy "${policyLabel}" uses "specific_users" but has no approver users selected.`,
+            message: `در مرحله ${stageNum} پالیسی «${policyLabel}» حداقل یک کاربر تاییدکننده باید انتخاب شود.`,
+          };
+        }
+        for (const uid of userIds) {
+          const matchedUser = userMap.get(uid.toLowerCase());
+          if (!matchedUser) {
+            return {
+              valid: false,
+              policyId: p.id,
+              policyName: policyLabel,
+              error: `Approval Stage ${stageNum} in policy "${policyLabel}" references unknown or inactive user "${uid}".`,
+              message: `کاربر «${uid}» در مرحله ${stageNum} پالیسی «${policyLabel}» یافت نشد یا غیرفعال است.`,
+            };
+          }
+          if (!matchedUser.hasApprovalPrivilege) {
+            return {
+              valid: false,
+              policyId: p.id,
+              policyName: policyLabel,
+              error: `User "${matchedUser.username || uid}" in Stage ${stageNum} of policy "${policyLabel}" lacks approval authority (canApproveActions).`,
+              message: `کاربر «${matchedUser.displayName}» در مرحله ${stageNum} پالیسی «${policyLabel}» فاقد مجوز تایید اقدامات (canApproveActions) است.`,
+            };
+          }
+        }
+      } else if (targetType === 'user_groups') {
+        const groupIds: string[] = Array.isArray(stage.approverGroupIds)
+          ? stage.approverGroupIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+          : [];
+        if (groupIds.length === 0) {
+          return {
+            valid: false,
+            policyId: p.id,
+            policyName: policyLabel,
+            error: `Approval Stage ${stageNum} in policy "${policyLabel}" uses "user_groups" but has no approver groups selected.`,
+            message: `در مرحله ${stageNum} پالیسی «${policyLabel}» حداقل یک گروه کاربری تاییدکننده باید انتخاب شود.`,
+          };
+        }
+        for (const gid of groupIds) {
+          const matchedGroup = groupMap.get(gid.toLowerCase());
+          if (!matchedGroup) {
+            return {
+              valid: false,
+              policyId: p.id,
+              policyName: policyLabel,
+              error: `Approval Stage ${stageNum} in policy "${policyLabel}" references unknown user group "${gid}".`,
+              message: `گروه کاربری «${gid}» در مرحله ${stageNum} پالیسی «${policyLabel}» یافت نشد.`,
+            };
+          }
+          if (!matchedGroup.hasApprovalPrivilege) {
+            return {
+              valid: false,
+              policyId: p.id,
+              policyName: policyLabel,
+              error: `Group "${matchedGroup.name || gid}" in Stage ${stageNum} of policy "${policyLabel}" lacks approval authority (canApproveActions).`,
+              message: `گروه «${matchedGroup.displayName}» در مرحله ${stageNum} پالیسی «${policyLabel}» فاقد پالیسی دارای مجوز تایید است.`,
+            };
+          }
+        }
+      } else if (targetType === 'any_approver' && !anyEligibleApproverExists) {
+        return {
+          valid: false,
+          policyId: p.id,
+          policyName: policyLabel,
+          error: `Approval Stage ${stageNum} in policy "${policyLabel}" selects "any_approver", but no active user or group has approval privilege.`,
+          message: `در مرحله ${stageNum} پالیسی «${policyLabel}» هیچ کاربر یا گروه دارای مجوز تایید در سیستم وجود ندارد.`,
+        };
       }
     }
   }
 
-  // 4. Default Device Permissions defined in the policy
-  if (policy.defaultDevicePermissions && typeof policy.defaultDevicePermissions === 'object') {
-    if (typeof policy.defaultDevicePermissions[action] === 'boolean') {
-      return policy.defaultDevicePermissions[action];
-    }
-  }
-
-  // 5. Global Policy Scope Fallback (Super Administrator unconstrained access)
-  const isSuperAdmin =
-    policy.id === 'policy-super-admin' ||
-    (policy.targetScope === 'all' && (policy.priority || 0) >= 100);
-  if (isSuperAdmin) {
-    return true;
-  }
-
-  // 6. Safe backward-compatible fallback mapping from general policy flags:
-  if (action === 'terminal') {
-    return policy.terminalAccess === 'full' || policy.terminalAccess === 'view_only';
-  }
-  if (action === 'apply_template') {
-    return Boolean(policy.canApplyTemplates);
-  }
-  if (action === 'write_memory') {
-    return Boolean(policy.canWriteMemory);
-  }
-  if (action === 'delete_device' || action === 'edit_properties') {
-    return Boolean(policy.canManageDevices);
-  }
-  if (action === 'export_devices') {
-    if (policy.canExportDevices === false) return false;
-    return Boolean(policy.canExportDevices || policy.canManageDevices || isSuperAdmin);
-  }
-  if (action === 'import_devices') {
-    if (policy.canImportDevices === false) return false;
-    return Boolean(policy.canImportDevices || policy.canManageDevices || isSuperAdmin);
-  }
-
-  // Fallback mappings for granular port & interface capabilities:
-  if (action === 'port_power') {
-    return policy.canToggleAdminStatus !== false && policy.canMikrotikToggleInterface !== false;
-  }
-  if (action === 'port_mode') {
-    return policy.canToggleAdminStatus !== false && policy.canChangeVlan !== false;
-  }
-  if (action === 'port_vlan') {
-    return policy.canChangeVlan !== false && policy.canMikrotikBridgeVlan !== false;
-  }
-  if (action === 'port_security') {
-    return Boolean(policy.canTogglePortSecurity);
-  }
-  if (action === 'port_description') {
-    return policy.canEditDescription !== false && policy.canMikrotikComment !== false;
-  }
-  if (action === 'port_bridge') {
-    return policy.canMikrotikBridgeVlan !== false;
-  }
-  if (action === 'port_speed') {
-    return policy.canMikrotikToggleInterface !== false;
-  }
-  if (action === 'port_cable_test') {
-    return policy.canGenericDiagnostics !== false;
-  }
-
-  // Fallback mappings for MikroTik RouterOS capabilities & core services:
-  if (action === 'mikrotik_safe_mode') {
-    return policy.canMikrotikSafeMode !== false;
-  }
-  if (action === 'mikrotik_firewall') {
-    return policy.canMikrotikFirewall !== false;
-  }
-  if (action === 'mikrotik_backup') {
-    return policy.canMikrotikBackup !== false;
-  }
-  if (action === 'mikrotik_bridge_vlan') {
-    return policy.canMikrotikBridgeVlan !== false;
-  }
-  if (action === 'mikrotik_toggle_interface') {
-    return policy.canMikrotikToggleInterface !== false && policy.canToggleAdminStatus !== false;
-  }
-  if (action === 'mikrotik_vpn') {
-    return policy.canManageDevices !== false;
-  }
-  if (action === 'mikrotik_comment') {
-    return policy.canMikrotikComment !== false && policy.canEditDescription !== false;
-  }
-  if (action === 'mikrotik_ip_pool') {
-    return policy.canMikrotikIpPool !== false;
-  }
-
-  // Fallback mappings for Cisco Switch Enterprise Configuration Suite:
-  if (action === 'cisco_config_device') {
-    return Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin);
-  }
-  if (action === 'cisco_config_vty_ssh') {
-    return Boolean(policy.canManageDevices || isSuperAdmin);
-  }
-  if (action === 'cisco_config_ntp') {
-    return Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin);
-  }
-  if (action === 'cisco_config_snmp') {
-    return Boolean(policy.canManageDevices || isSuperAdmin);
-  }
-  if (action === 'cisco_config_users') {
-    return Boolean(policy.canManageDevices || isSuperAdmin);
-  }
-  if (action === 'cisco_config_stp') {
-    return Boolean(policy.canManageDevices || isSuperAdmin);
-  }
-  if (action === 'cisco_config_vtp') {
-    return Boolean(policy.canManageDevices || isSuperAdmin);
-  }
-  if (action === 'cisco_config_syslog') {
-    return Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin);
-  }
-  if (action === 'cisco_config_vlans') {
-    return policy.canChangeVlan !== false && Boolean(policy.canManageDevices || isSuperAdmin);
-  }
-  if (action === 'cisco_config_l2_security') {
-    return Boolean(policy.canTogglePortSecurity ?? policy.canManageDevices ?? isSuperAdmin);
-  }
-  if (action === 'cisco_config_write_memory') {
-    return Boolean(policy.canWriteMemory || isSuperAdmin);
-  }
-
-  // Non-destructive actions (web_configs, ping_keepalive, inspect_ports, device_note)
-  return true;
+  return { valid: true };
 }
 
 // -------------------------------------------------------------

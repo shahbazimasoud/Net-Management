@@ -1,5 +1,6 @@
 import {
   AccessPolicy,
+  ActionAccessDecision,
   ServerActionKey,
   ServerActionPermissions,
   NetworkDeviceActionKey,
@@ -1127,56 +1128,125 @@ export const RESTRICTED_SERVER_PERMISSIONS: ServerActionPermissions = {
   add_server: false,
 };
 
+function normalizeActionDecision(val: any): ActionAccessDecision | null {
+  if (val === 'allow' || val === 'require_approval' || val === 'deny') return val;
+  if (val === true) return 'allow';
+  if (val === false) return 'deny';
+  return null;
+}
+
 /**
- * Universally evaluates whether a specific server action is permitted
- * under a database-authoritative AccessPolicy for a given server.
+ * Counts how many actions (default + per-server/per-device overrides) in an AccessPolicy
+ * are configured as 'require_approval'.
  */
-export function isServerActionPermitted(
+export function countPolicyApprovalRules(policy: AccessPolicy | any | null | undefined): {
+  defaultServerCount: number;
+  perServerCount: number;
+  defaultDeviceCount: number;
+  perDeviceCount: number;
+  totalCount: number;
+} {
+  if (!policy) {
+    return { defaultServerCount: 0, perServerCount: 0, defaultDeviceCount: 0, perDeviceCount: 0, totalCount: 0 };
+  }
+  const defaultServerCount = Object.values(policy.defaultServerApprovalRules || {}).filter(
+    (v) => v === 'require_approval'
+  ).length;
+  const perServerCount = Object.values(policy.perServerApprovalRules || {}).reduce<number>(
+    (acc, map) =>
+      acc +
+      (map && typeof map === 'object'
+        ? Object.values(map).filter((v) => v === 'require_approval').length
+        : 0),
+    0
+  );
+  const defaultDeviceCount = Object.values(policy.defaultDeviceApprovalRules || {}).filter(
+    (v) => v === 'require_approval'
+  ).length;
+  const perDeviceCount = Object.values(policy.perDeviceApprovalRules || {}).reduce<number>(
+    (acc, map) =>
+      acc +
+      (map && typeof map === 'object'
+        ? Object.values(map).filter((v) => v === 'require_approval').length
+        : 0),
+    0
+  );
+  return {
+    defaultServerCount,
+    perServerCount,
+    defaultDeviceCount,
+    perDeviceCount,
+    totalCount: defaultServerCount + perServerCount + defaultDeviceCount + perDeviceCount,
+  };
+}
+
+/**
+ * Tri-state policy evaluator for Server actions ('allow' | 'require_approval' | 'deny').
+ * Resolution order:
+ * 1. Global / Fleet Scope Gates (canViewServers, allowedServerIds, targetServerIds)
+ * 2. Per-Server Approval Rule -> Per-Server Boolean Override
+ * 3. Default Server Approval Rule -> Default Server Boolean Permission
+ * 4. Super Admin Fallback -> Safe Backward-Compatible Flag Fallback
+ */
+export function evaluateServerActionDecision(
   policy: AccessPolicy | any | null | undefined,
   serverId: string,
   action: ServerActionKey
-): boolean {
+): ActionAccessDecision {
   // If no policy is provided (unauthenticated/standalone fallback), permit action
-  if (!policy) return true;
+  if (!policy) return 'allow';
 
   // 1. If user has no permission to view/manage servers at all
   if (policy.canViewServers === false) {
-    return false;
+    return 'deny';
   }
 
   // 1.1 Fleet-level Add Remote Server action
   if (action === 'add_server') {
+    const rule = normalizeActionDecision(policy.defaultServerApprovalRules?.add_server);
+    if (rule) return rule;
     if (policy.defaultServerPermissions?.add_server !== undefined) {
-      return Boolean(policy.defaultServerPermissions.add_server);
+      return policy.defaultServerPermissions.add_server ? 'allow' : 'deny';
     }
     if (policy.canAddServer !== undefined) {
-      return Boolean(policy.canAddServer);
+      return policy.canAddServer ? 'allow' : 'deny';
     }
-    return policy.canManageDevices !== false;
+    return policy.canManageDevices !== false ? 'allow' : 'deny';
   }
 
   // 2. If policy targets specific groups/servers, ensure target server is in allowed fleet scope
   if (Array.isArray(policy.allowedServerIds) && serverId && !policy.allowedServerIds.includes(serverId)) {
-    return false;
+    return 'deny';
   }
   if (policy.targetScope === 'specific' && Array.isArray(policy.targetServerIds) && serverId && !policy.targetServerIds.includes(serverId)) {
-    return false;
+    return 'deny';
   }
 
-  // 3. Highest Priority: Granular Per-Server Override Matrix
-  if (policy.perServerPermissions && typeof policy.perServerPermissions === 'object') {
+  // 3. Highest Priority: Granular Per-Server Override Matrix (Approval Rule > Boolean)
+  if (serverId && policy.perServerApprovalRules && typeof policy.perServerApprovalRules === 'object') {
+    const serverRuleOverrides = policy.perServerApprovalRules[serverId];
+    if (serverRuleOverrides && typeof serverRuleOverrides === 'object') {
+      const rule = normalizeActionDecision(serverRuleOverrides[action]);
+      if (rule) return rule;
+    }
+  }
+  if (serverId && policy.perServerPermissions && typeof policy.perServerPermissions === 'object') {
     const serverOverrides = policy.perServerPermissions[serverId];
     if (serverOverrides && typeof serverOverrides === 'object') {
       if (typeof serverOverrides[action] === 'boolean') {
-        return serverOverrides[action];
+        return serverOverrides[action] ? 'allow' : 'deny';
       }
     }
   }
 
-  // 4. Default Server Permissions defined in the policy
+  // 4. Default Server Approval Rules & Default Server Permissions defined in the policy
+  if (policy.defaultServerApprovalRules && typeof policy.defaultServerApprovalRules === 'object') {
+    const rule = normalizeActionDecision(policy.defaultServerApprovalRules[action]);
+    if (rule) return rule;
+  }
   if (policy.defaultServerPermissions && typeof policy.defaultServerPermissions === 'object') {
     if (typeof policy.defaultServerPermissions[action] === 'boolean') {
-      return policy.defaultServerPermissions[action];
+      return policy.defaultServerPermissions[action] ? 'allow' : 'deny';
     }
   }
 
@@ -1185,32 +1255,51 @@ export function isServerActionPermitted(
     policy.id === 'policy-super-admin' ||
     (policy.targetScope === 'all' && (policy.priority || 0) >= 100);
   if (isSuperAdmin) {
-    return true;
+    return 'allow';
   }
 
   // 6. Safe backward-compatible fallback mapping from general policy flags:
   if (action === 'export_servers') {
-    if (policy.canExportServers === false) return false;
-    return Boolean(policy.canExportServers || policy.canManageDevices || isSuperAdmin);
+    if (policy.canExportServers === false) return 'deny';
+    return Boolean(policy.canExportServers || policy.canManageDevices || isSuperAdmin) ? 'allow' : 'deny';
   }
   if (action === 'import_servers') {
-    if (policy.canImportServers === false) return false;
-    return Boolean(policy.canImportServers || policy.canManageDevices || isSuperAdmin);
+    if (policy.canImportServers === false) return 'deny';
+    return Boolean(policy.canImportServers || policy.canManageDevices || isSuperAdmin) ? 'allow' : 'deny';
   }
 
   // Safe defaults for non-superadmin policies without explicit grants:
-  // Dangerous / sensitive actions are blocked by default
   if (
     action === 'delete_server' ||
     action === 'power_control' ||
     action === 'terminal' ||
     action === 'edit_properties'
   ) {
-    return false;
+    return 'deny';
   }
 
-  // Safe monitoring & inspection actions default to true if the server is in scope
-  return true;
+  // Safe monitoring & inspection actions default to allow if the server is in scope
+  return 'allow';
+}
+
+export function doesServerActionRequireApproval(
+  policy: AccessPolicy | any | null | undefined,
+  serverId: string,
+  action: ServerActionKey
+): boolean {
+  return evaluateServerActionDecision(policy, serverId, action) === 'require_approval';
+}
+
+/**
+ * Universally evaluates whether a specific server action is permitted
+ * (returns true for both 'allow' and 'require_approval' so buttons remain clickable for approval interception).
+ */
+export function isServerActionPermitted(
+  policy: AccessPolicy | any | null | undefined,
+  serverId: string,
+  action: ServerActionKey
+): boolean {
+  return evaluateServerActionDecision(policy, serverId, action) !== 'deny';
 }
 
 /**
@@ -1279,55 +1368,72 @@ export function isServerActionAllowed(
 }
 
 /**
- * Universally evaluates whether a specific network equipment action is permitted
- * under a database-authoritative AccessPolicy for a given network device.
+ * Tri-state policy evaluator for Network Equipment actions ('allow' | 'require_approval' | 'deny').
+ * Resolution order:
+ * 1. Global / Device Scope Gates (canViewDevices, allowedDeviceIds, targetDeviceIds)
+ * 2. Per-Device Approval Rule -> Per-Device Boolean Override
+ * 3. Default Device Approval Rule -> Default Device Boolean Permission
+ * 4. Super Admin Fallback -> Safe Backward-Compatible Flag Fallback
  */
-export function isDeviceActionPermitted(
+export function evaluateDeviceActionDecision(
   policy: AccessPolicy | any | null | undefined,
   deviceId: string,
   action: NetworkDeviceActionKey
-): boolean {
+): ActionAccessDecision {
   // If no policy is provided (unauthenticated/standalone fallback), permit action
-  if (!policy) return true;
+  if (!policy) return 'allow';
 
   // 1. If user has no permission to view/manage devices at all
   if (policy.canViewDevices === false) {
-    return false;
+    return 'deny';
   }
 
   // 1.1 Inventory-level Add Network Device (Introduce New Device) action
   if (action === 'add_device') {
+    const rule = normalizeActionDecision(policy.defaultDeviceApprovalRules?.add_device);
+    if (rule) return rule;
     if (policy.canAddDevice !== undefined) {
-      return Boolean(policy.canAddDevice);
+      return policy.canAddDevice ? 'allow' : 'deny';
     }
     if (policy.defaultDevicePermissions?.add_device !== undefined) {
-      return Boolean(policy.defaultDevicePermissions.add_device);
+      return policy.defaultDevicePermissions.add_device ? 'allow' : 'deny';
     }
-    return policy.canManageDevices !== false && Boolean(policy.canManageDevices);
+    return policy.canManageDevices !== false && Boolean(policy.canManageDevices) ? 'allow' : 'deny';
   }
 
   // 2. If policy targets specific groups or devices, ensure target device is in allowed scope
-  if (Array.isArray(policy.allowedDeviceIds) && !policy.allowedDeviceIds.includes(deviceId)) {
-    return false;
+  if (Array.isArray(policy.allowedDeviceIds) && deviceId && !policy.allowedDeviceIds.includes(deviceId)) {
+    return 'deny';
   }
-  if (policy.targetScope === 'specific' && Array.isArray(policy.targetDeviceIds) && !policy.targetDeviceIds.includes(deviceId)) {
-    return false;
+  if (policy.targetScope === 'specific' && Array.isArray(policy.targetDeviceIds) && deviceId && !policy.targetDeviceIds.includes(deviceId)) {
+    return 'deny';
   }
 
-  // 3. Highest Priority: Granular Per-Device Override Matrix
-  if (policy.perDevicePermissions && typeof policy.perDevicePermissions === 'object') {
+  // 3. Highest Priority: Granular Per-Device Override Matrix (Approval Rule > Boolean)
+  if (deviceId && policy.perDeviceApprovalRules && typeof policy.perDeviceApprovalRules === 'object') {
+    const deviceRuleOverrides = policy.perDeviceApprovalRules[deviceId];
+    if (deviceRuleOverrides && typeof deviceRuleOverrides === 'object') {
+      const rule = normalizeActionDecision(deviceRuleOverrides[action]);
+      if (rule) return rule;
+    }
+  }
+  if (deviceId && policy.perDevicePermissions && typeof policy.perDevicePermissions === 'object') {
     const deviceOverrides = policy.perDevicePermissions[deviceId];
     if (deviceOverrides && typeof deviceOverrides === 'object') {
       if (typeof deviceOverrides[action] === 'boolean') {
-        return deviceOverrides[action];
+        return deviceOverrides[action] ? 'allow' : 'deny';
       }
     }
   }
 
-  // 4. Default Device Permissions defined in the policy
+  // 4. Default Device Approval Rules & Default Device Permissions defined in the policy
+  if (policy.defaultDeviceApprovalRules && typeof policy.defaultDeviceApprovalRules === 'object') {
+    const rule = normalizeActionDecision(policy.defaultDeviceApprovalRules[action]);
+    if (rule) return rule;
+  }
   if (policy.defaultDevicePermissions && typeof policy.defaultDevicePermissions === 'object') {
     if (typeof policy.defaultDevicePermissions[action] === 'boolean') {
-      return policy.defaultDevicePermissions[action];
+      return policy.defaultDevicePermissions[action] ? 'allow' : 'deny';
     }
   }
 
@@ -1336,128 +1442,150 @@ export function isDeviceActionPermitted(
     policy.id === 'policy-super-admin' ||
     (policy.targetScope === 'all' && (policy.priority || 0) >= 100);
   if (isSuperAdmin) {
-    return true;
+    return 'allow';
   }
 
   // 6. Safe backward-compatible fallback mapping from general policy flags:
+  const allowIf = (cond: boolean): ActionAccessDecision => (cond ? 'allow' : 'deny');
+
   if (action === 'terminal') {
-    return policy.terminalAccess === 'full' || policy.terminalAccess === 'view_only';
+    return allowIf(policy.terminalAccess === 'full' || policy.terminalAccess === 'view_only');
   }
   if (action === 'apply_template') {
-    return Boolean(policy.canApplyTemplates);
+    return allowIf(Boolean(policy.canApplyTemplates));
   }
   if (action === 'write_memory') {
-    return Boolean(policy.canWriteMemory);
+    return allowIf(Boolean(policy.canWriteMemory));
   }
   if (action === 'delete_device' || action === 'edit_properties') {
-    return Boolean(policy.canManageDevices);
+    return allowIf(Boolean(policy.canManageDevices));
   }
   if (action === 'export_devices') {
-    if (policy.canExportDevices === false) return false;
-    return Boolean(policy.canExportDevices || policy.canManageDevices || isSuperAdmin);
+    if (policy.canExportDevices === false) return 'deny';
+    return allowIf(Boolean(policy.canExportDevices || policy.canManageDevices || isSuperAdmin));
   }
   if (action === 'import_devices') {
-    if (policy.canImportDevices === false) return false;
-    return Boolean(policy.canImportDevices || policy.canManageDevices || isSuperAdmin);
+    if (policy.canImportDevices === false) return 'deny';
+    return allowIf(Boolean(policy.canImportDevices || policy.canManageDevices || isSuperAdmin));
   }
   if (action === 'export_templates') {
-    if (policy.canExportTemplates === false) return false;
-    return Boolean(policy.canExportTemplates ?? true);
+    if (policy.canExportTemplates === false) return 'deny';
+    return allowIf(Boolean(policy.canExportTemplates ?? true));
   }
   if (action === 'import_templates') {
-    if (policy.canImportTemplates === false) return false;
-    return Boolean(policy.canImportTemplates ?? (policy.canManageDevices !== false));
+    if (policy.canImportTemplates === false) return 'deny';
+    return allowIf(Boolean(policy.canImportTemplates ?? (policy.canManageDevices !== false)));
   }
 
   // Fallback mappings for granular port & interface capabilities:
   if (action === 'port_power') {
-    return policy.canToggleAdminStatus !== false && policy.canMikrotikToggleInterface !== false;
+    return allowIf(policy.canToggleAdminStatus !== false && policy.canMikrotikToggleInterface !== false);
   }
   if (action === 'port_mode') {
-    return policy.canToggleAdminStatus !== false && policy.canChangeVlan !== false;
+    return allowIf(policy.canToggleAdminStatus !== false && policy.canChangeVlan !== false);
   }
   if (action === 'port_vlan') {
-    return policy.canChangeVlan !== false && policy.canMikrotikBridgeVlan !== false;
+    return allowIf(policy.canChangeVlan !== false && policy.canMikrotikBridgeVlan !== false);
   }
   if (action === 'port_security') {
-    return Boolean(policy.canTogglePortSecurity);
+    return allowIf(Boolean(policy.canTogglePortSecurity));
   }
   if (action === 'port_description') {
-    return policy.canEditDescription !== false && policy.canMikrotikComment !== false;
+    return allowIf(policy.canEditDescription !== false && policy.canMikrotikComment !== false);
   }
   if (action === 'port_bridge') {
-    return policy.canMikrotikBridgeVlan !== false;
+    return allowIf(policy.canMikrotikBridgeVlan !== false);
   }
   if (action === 'port_speed') {
-    return policy.canMikrotikToggleInterface !== false;
+    return allowIf(policy.canMikrotikToggleInterface !== false);
   }
   if (action === 'port_cable_test') {
-    return policy.canGenericDiagnostics !== false;
+    return allowIf(policy.canGenericDiagnostics !== false);
   }
 
   // Fallback mappings for MikroTik RouterOS capabilities & core services:
   if (action === 'mikrotik_safe_mode') {
-    return policy.canMikrotikSafeMode !== false;
+    return allowIf(policy.canMikrotikSafeMode !== false);
   }
   if (action === 'mikrotik_firewall') {
-    return policy.canMikrotikFirewall !== false;
+    return allowIf(policy.canMikrotikFirewall !== false);
   }
   if (action === 'mikrotik_backup') {
-    return policy.canMikrotikBackup !== false;
+    return allowIf(policy.canMikrotikBackup !== false);
   }
   if (action === 'mikrotik_bridge_vlan') {
-    return policy.canMikrotikBridgeVlan !== false;
+    return allowIf(policy.canMikrotikBridgeVlan !== false);
   }
   if (action === 'mikrotik_toggle_interface') {
-    return policy.canMikrotikToggleInterface !== false && policy.canToggleAdminStatus !== false;
+    return allowIf(policy.canMikrotikToggleInterface !== false && policy.canToggleAdminStatus !== false);
   }
   if (action === 'mikrotik_vpn') {
-    return policy.canManageDevices !== false;
+    return allowIf(policy.canManageDevices !== false);
   }
   if (action === 'mikrotik_comment') {
-    return policy.canMikrotikComment !== false && policy.canEditDescription !== false;
+    return allowIf(policy.canMikrotikComment !== false && policy.canEditDescription !== false);
   }
   if (action === 'mikrotik_ip_pool') {
-    return policy.canMikrotikIpPool !== false;
+    return allowIf(policy.canMikrotikIpPool !== false);
   }
 
   // Fallback mappings for Cisco Switch Enterprise Configuration Suite:
   if (action === 'cisco_config_device') {
-    return Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin);
+    return allowIf(Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin));
   }
   if (action === 'cisco_config_vty_ssh') {
-    return Boolean(policy.canManageDevices || isSuperAdmin);
+    return allowIf(Boolean(policy.canManageDevices || isSuperAdmin));
   }
   if (action === 'cisco_config_ntp') {
-    return Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin);
+    return allowIf(Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin));
   }
   if (action === 'cisco_config_snmp') {
-    return Boolean(policy.canManageDevices || isSuperAdmin);
+    return allowIf(Boolean(policy.canManageDevices || isSuperAdmin));
   }
   if (action === 'cisco_config_users') {
-    return Boolean(policy.canManageDevices || isSuperAdmin);
+    return allowIf(Boolean(policy.canManageDevices || isSuperAdmin));
   }
   if (action === 'cisco_config_stp') {
-    return Boolean(policy.canManageDevices || isSuperAdmin);
+    return allowIf(Boolean(policy.canManageDevices || isSuperAdmin));
   }
   if (action === 'cisco_config_vtp') {
-    return Boolean(policy.canManageDevices || isSuperAdmin);
+    return allowIf(Boolean(policy.canManageDevices || isSuperAdmin));
   }
   if (action === 'cisco_config_syslog') {
-    return Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin);
+    return allowIf(Boolean(policy.canManageDevices || policy.canApplyTemplates || isSuperAdmin));
   }
   if (action === 'cisco_config_vlans') {
-    return policy.canChangeVlan !== false && Boolean(policy.canManageDevices || isSuperAdmin);
+    return allowIf(policy.canChangeVlan !== false && Boolean(policy.canManageDevices || isSuperAdmin));
   }
   if (action === 'cisco_config_l2_security') {
-    return Boolean(policy.canTogglePortSecurity ?? policy.canManageDevices ?? isSuperAdmin);
+    return allowIf(Boolean(policy.canTogglePortSecurity ?? policy.canManageDevices ?? isSuperAdmin));
   }
   if (action === 'cisco_config_write_memory') {
-    return Boolean(policy.canWriteMemory || isSuperAdmin);
+    return allowIf(Boolean(policy.canWriteMemory || isSuperAdmin));
   }
 
   // Operational telemetry and memos are enabled by default for authorized equipment
-  return true;
+  return 'allow';
+}
+
+export function doesDeviceActionRequireApproval(
+  policy: AccessPolicy | any | null | undefined,
+  deviceId: string,
+  action: NetworkDeviceActionKey
+): boolean {
+  return evaluateDeviceActionDecision(policy, deviceId, action) === 'require_approval';
+}
+
+/**
+ * Universally evaluates whether a specific network equipment action is permitted
+ * (returns true for both 'allow' and 'require_approval' so action menus & triggers remain available).
+ */
+export function isDeviceActionPermitted(
+  policy: AccessPolicy | any | null | undefined,
+  deviceId: string,
+  action: NetworkDeviceActionKey
+): boolean {
+  return evaluateDeviceActionDecision(policy, deviceId, action) !== 'deny';
 }
 
 /**

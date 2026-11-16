@@ -57,7 +57,8 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Copy,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Clock
 } from 'lucide-react';
 import {
   AccessPolicy,
@@ -86,6 +87,7 @@ import {
   FULL_EQUIPMENT_PERMISSIONS,
   EMPTY_EQUIPMENT_PERMISSIONS,
   isDeviceActionPermitted,
+  countPolicyApprovalRules,
 } from '../../utils/rbac';
 import { fetchRemoteServers } from '../../services/api';
 import { FieldInfoTooltip } from '../vpn/FieldInfoTooltip';
@@ -157,7 +159,7 @@ interface AccessControlTabProps {
   groups: DeviceGroup[];
   devices: Device[];
   adConfig: ActiveDirectoryConfig;
-  onSavePolicies: (policies: AccessPolicy[]) => void;
+  onSavePolicies: (policies: AccessPolicy[]) => Promise<void> | void;
   activeSimulatedPolicyId: string;
   onSelectSimulatedPolicy: (id: string) => void;
   localUsers?: LocalUser[];
@@ -377,6 +379,8 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         add_server: false,
       },
       perServerPermissions: {},
+      defaultServerApprovalRules: {},
+      perServerApprovalRules: {},
       // Network Equipment & 3-Dots Action Permissions
       defaultDevicePermissions: {
         web_configs: true,
@@ -393,6 +397,9 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         add_device: false,
       },
       perDevicePermissions: {},
+      defaultDeviceApprovalRules: {},
+      perDeviceApprovalRules: {},
+      approvalWorkflowStages: [],
     };
   };
 
@@ -419,12 +426,19 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           : { ...RESTRICTED_SERVER_PERMISSIONS }
       ),
       perServerPermissions: policy.perServerPermissions || {},
+      defaultServerApprovalRules: policy.defaultServerApprovalRules || {},
+      perServerApprovalRules: policy.perServerApprovalRules || {},
       defaultDevicePermissions: policy.defaultDevicePermissions || (
         policy.id === 'policy-super-admin'
           ? { ...FULL_DEVICE_PERMISSIONS }
           : { ...RESTRICTED_DEVICE_PERMISSIONS }
       ),
       perDevicePermissions: policy.perDevicePermissions || {},
+      defaultDeviceApprovalRules: policy.defaultDeviceApprovalRules || {},
+      perDeviceApprovalRules: policy.perDeviceApprovalRules || {},
+      approvalWorkflowStages: Array.isArray(policy.approvalWorkflowStages)
+        ? policy.approvalWorkflowStages
+        : [],
     });
     setIsCreating(false);
     setIsPolicyModalOpen(true);
@@ -442,7 +456,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     };
 
     const updated = [...policies, copyPolicy];
-    onSavePolicies(updated);
+    Promise.resolve(onSavePolicies(updated)).catch(() => {});
 
     try {
       logPortalEvent({
@@ -476,7 +490,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
 
     const targetPolicy = policies.find((p) => p.id === id);
     const updated = policies.filter((p) => p.id !== id);
-    onSavePolicies(updated);
+    Promise.resolve(onSavePolicies(updated)).catch(() => {});
     if (activeSimulatedPolicyId === id) {
       onSelectSimulatedPolicy(updated[0]?.id || '');
     }
@@ -503,7 +517,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     }
   };
 
-  const handleSavePolicy = (e?: React.FormEvent, policyToSave?: AccessPolicy) => {
+  const handleSavePolicy = async (e?: React.FormEvent, policyToSave?: AccessPolicy) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     const targetPolicy = policyToSave || editingPolicy;
     if (!targetPolicy) return;
@@ -514,7 +528,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     } else {
       updated = policies.map((p) => (p.id === targetPolicy.id ? targetPolicy : p));
     }
-    onSavePolicies(updated);
+    await onSavePolicies(updated);
 
     try {
       logPortalEvent({
@@ -536,6 +550,10 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
             canExportBackup: targetPolicy.permissions?.canExportBackup,
             canImportBackup: targetPolicy.permissions?.canImportBackup,
             terminalAccess: targetPolicy.permissions?.terminalAccess,
+            approvalRulesCount: countPolicyApprovalRules(targetPolicy).totalCount,
+            approvalStagesCount: Array.isArray(targetPolicy.approvalWorkflowStages)
+              ? targetPolicy.approvalWorkflowStages.length
+              : 0,
           }
         },
         severity: 'notice',
@@ -975,6 +993,36 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     );
   };
 
+  const renderApprovalSummaryPill = (policy: AccessPolicy) => {
+    const counts = countPolicyApprovalRules(policy);
+    const stageCount = Array.isArray(policy.approvalWorkflowStages)
+      ? policy.approvalWorkflowStages.length
+      : 0;
+    if (counts.totalCount === 0 && stageCount === 0) return null;
+    return (
+      <span
+        className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border ${
+          counts.totalCount > 0 && stageCount === 0
+            ? 'bg-rose-600 text-white border-rose-500'
+            : isLight
+            ? 'bg-amber-100 text-amber-900 border-amber-300'
+            : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+        }`}
+        title={
+          isEn
+            ? `${counts.totalCount} action(s) require approval across ${stageCount} stage(s)`
+            : `${counts.totalCount} اکشن نیازمند تایید در ${stageCount} مرحله`
+        }
+      >
+        <Clock className="w-2.5 h-2.5 shrink-0" />
+        <span>
+          {counts.totalCount} {isEn ? 'Appr' : 'تایید'} · {stageCount}
+          {isEn ? 'Stg' : 'م'}
+        </span>
+      </span>
+    );
+  };
+
   const renderTemplatesBadge = (policy: AccessPolicy) => {
     return (
       <div className="flex flex-wrap gap-1 items-center">
@@ -1001,6 +1049,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         }`}>
           DR: {policy.canImportBackup ? 'Full' : policy.canExportBackup ? 'Exp' : 'None'}
         </span>
+        {renderApprovalSummaryPill(policy)}
       </div>
     );
   };
@@ -1993,7 +2042,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           isCreating={isCreating}
           editingPolicy={editingPolicy}
           onSavePolicy={async (policy) => {
-            handleSavePolicy(undefined, policy);
+            await handleSavePolicy(undefined, policy);
             undockModal(`access-policy-${policy.id || 'new'}`);
           }}
           isLightMode={isLight}
