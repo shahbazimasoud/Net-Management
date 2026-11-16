@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.428.0';
+export const APP_VERSION = '1.429.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.429.0',
+    releaseDate: '2026-11-16',
+    type: 'minor',
+    title: 'تکمیل فاز ۴: صف تایید دو مرحله‌ای تغییرات پرریسک (Four-Eyes Control)، رمزنگاری AES-256-GCM دستورات و ارسال درخواست از استقرار الگوها',
+    title_en: 'Phase 4 Complete: Two-Step Four-Eyes Approval Queue, AES-256-GCM Command Preview Encryption & Template Deployment JIT Requests',
+    changes: [
+      'راه‌اندازی کامل بک‌اند و API صف تایید دو مرحله‌ای (/api/approvals) متصل به جدول PostgreSQL action_approval_requests با انقضای خودکار درخواست‌های منقضی‌شده، کنترل دسترسی RBAC و ثبت کامل در لاگ‌های ممیزی.',
+      'اجرای قانون تفکیک وظایف (Four-Eyes Principle): جلوگیری از تایید خودکار درخواست توسط همان درخواست‌کننده (مگر در سناریوی تک‌ادمین کل فعال همراه با ثبت برچسب ممیزی).',
+      'رمزنگاری کلیه دستورات خط فرمان (command_payload_enc) در حالت سکون با AES-256-GCM قبل از ذخیره در پایگاه داده و رمزگشایی امن صرفاً در سمت سرور.',
+      'افزودن بخش «صف تاییدیه‌ها» (Approvals Queue) به مرکز ارتباطات همراه با کارت خلاصه وضعیت، فیلترهای جستجو، مشاهده پیش‌نمایش CLI، تایید/رد/لغو/ثبت اجرا، مودال ثبت درخواست جدید با لیست زنده تجهیزات و سرورها، و به‌روزرسانی آنی از طریق WebSocket.',
+      'افزودن کنترل تصمیم‌گیری مستقیم تاییدیه در پنل جزئیات صندوق اعلانات (Inbox) و دکمه «ارسال جهت تایید دو مرحله‌ای» در مرحله پیش‌نمایش استقرار الگوهای پیکربندی (ApplyTemplateModal).'
+    ],
+    changes_en: [
+      'Implemented the backend Two-Step Approval service and REST routes (/api/approvals) backed by PostgreSQL action_approval_requests with automatic TTL expiration, RBAC enforcement, and immutable audit logging.',
+      'Enforced Four-Eyes separation of duties so requesters cannot self-approve their own high-risk requests when another authorized manager/approver exists in the database (with explicit audit tagging for sole active Super Admin fallback).',
+      'Encrypted stored CLI command payloads (command_payload_enc) at rest using AES-256-GCM with server-side-only decryption.',
+      'Added the interactive Approvals Queue workspace inside Communications Center featuring KPI counters, status and scope filters, encrypted CLI command preview, Approve/Reject/Execute/Cancel controls, a live-inventory New Approval Request modal, and real-time WebSocket synchronization.',
+      'Added inline approval decision controls directly inside the Inbox Detail Pane for approval_request items plus an optional Request 2-Step Approval trigger inside Step 2 of the Template Deployment modal.'
+    ]
+  },
   {
     version: '1.428.0',
     releaseDate: '2026-11-16',

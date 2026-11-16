@@ -16,8 +16,11 @@ export function getAuthToken(): string {
   if (typeof window === 'undefined') return '';
   return (
     localStorage.getItem('nettopology_auth_token_v1') ||
+    sessionStorage.getItem('nettopology_auth_token_v1') ||
     localStorage.getItem('nettopology_auth_token') ||
+    sessionStorage.getItem('nettopology_auth_token') ||
     localStorage.getItem('auth_token') ||
+    sessionStorage.getItem('auth_token') ||
     localStorage.getItem('token') ||
     ''
   );
@@ -478,6 +481,11 @@ export type CommsWsEvent =
       type: 'channel:message';
       channelId: string;
       message: CommsMessage;
+    }
+  | {
+      type: 'approval:updated';
+      approvalId: string;
+      status: string;
     }
   | { type: 'ping' | 'pong'; timestamp?: number };
 

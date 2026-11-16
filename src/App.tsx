@@ -167,9 +167,11 @@ export default function App() {
         evt.type === 'notification:read_all' ||
         evt.type === 'channel:message' ||
         evt.type === 'channel:created' ||
-        evt.type === 'channel:updated'
+        evt.type === 'channel:updated' ||
+        evt.type === 'approval:updated'
       ) {
         appDataCache.invalidate('comms:');
+        appDataCache.invalidate('approvals:');
         setCommsLiveRevision((r) => r + 1);
         if (
           nextUnread === undefined &&

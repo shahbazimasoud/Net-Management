@@ -44,6 +44,7 @@ import { setupCommsWebSocket } from './server/commsWs';
 import { commsRouter } from './server/commsRoutes';
 import { initCommsIntegration } from './server/commsService';
 import { profileRouter } from './server/profileRoutes';
+import { approvalRouter } from './server/approvalRoutes';
 import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdServiceRunning } from './server/remoteDesktopGateway';
 import { registerCertConverterRoutes } from './server/certConverter';
 import { licenseContractRouter, startLicenseContractCronDaemon } from './server/licenseContractService';
@@ -1282,6 +1283,9 @@ app.use('/api', commsRouter);
 
 // Mount User Profile, Personal 2FA (TOTP) & Notification Preferences routes
 app.use('/api', profileRouter);
+
+// Mount Phase 4 Two-Step / Four-Eyes Approval Queue routes
+app.use('/api', approvalRouter);
 
 // Mount PostgreSQL & Authentication API router
 app.use('/api', apiRouter);

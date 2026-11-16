@@ -47,7 +47,8 @@ import {
   Search,
   Clock,
   ListOrdered,
-  FileCheck
+  FileCheck,
+  Send
 } from 'lucide-react';
 import {
   Device,
@@ -64,6 +65,7 @@ import {
   createTemplate,
   testDeviceConnection
 } from '../services/api';
+import { submitApprovalRequest } from '../services/approvalApi';
 import { logDeviceCommand } from '../services/auditLogger';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useModalDock } from '../context/ModalDockContext';
@@ -419,6 +421,61 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   const [executionStartTime, setExecutionStartTime] = useState<number | null>(null);
   const [elapsedDurationMs, setElapsedDurationMs] = useState<number>(0);
   const [copiedTerminal, setCopiedTerminal] = useState(false);
+
+  // Two-Step Approval (Four-Eyes JIT Change Request) state
+  const [isRequestingApproval, setIsRequestingApproval] = useState(false);
+  const [approvalRequestFeedback, setApprovalRequestFeedback] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+
+  const handleRequestTwoStepApproval = async () => {
+    if (!currentTemplate || !selectedDevice || !renderedScript.trim() || isRequestingApproval) {
+      return;
+    }
+    setIsRequestingApproval(true);
+    setApprovalRequestFeedback(null);
+    try {
+      const mappedRisk: 'medium' | 'high' | 'critical' =
+        dangerAnalysis.riskLevel === 'critical'
+          ? 'critical'
+          : dangerAnalysis.riskLevel === 'high'
+          ? 'high'
+          : 'medium';
+
+      const created = await submitApprovalRequest({
+        targetEntityType: 'device',
+        targetEntityId: selectedDevice.id,
+        targetEntityName: `${selectedDevice.name} (${selectedDevice.ip})`,
+        requestedAction: `Apply Template: ${currentTemplate.name}`,
+        riskLevel: mappedRisk,
+        reason:
+          dangerAnalysis.dangerLines.length > 0
+            ? `Template "${currentTemplate.name}" contains ${dangerAnalysis.dangerLines.length} high-impact command(s) queued for IT Manager 2-step approval.`
+            : `Pre-apply change approval requested for template "${currentTemplate.name}" targeting ${selectedDevice.name} (${selectedDevice.ip}).`,
+        commandPreview: renderedScript,
+        ttlMinutes: 60,
+      });
+
+      setApprovalRequestFeedback({
+        type: 'success',
+        text: isEn
+          ? `Two-step approval request (#${created.id.slice(0, 8)}) submitted to IT Manager queue.`
+          : `درخواست تایید دو مرحله‌ای (#${created.id.slice(0, 8)}) با موفقیت به صف مدیر IT ارسال شد.`,
+      });
+    } catch (err: any) {
+      setApprovalRequestFeedback({
+        type: 'error',
+        text:
+          err?.message ||
+          (isEn
+            ? 'Failed to submit two-step approval request.'
+            : 'خطا در ارسال درخواست تایید دو مرحله‌ای به سرور.'),
+      });
+    } finally {
+      setIsRequestingApproval(false);
+    }
+  };
 
   // Live Elapsed Timer Effect during execution
   useEffect(() => {
@@ -2730,8 +2787,29 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                 </div>
               </div>
 
+              {approvalRequestFeedback && (
+                <div
+                  className={`p-3 rounded-xl border text-xs font-medium flex items-center gap-2 ${
+                    approvalRequestFeedback.type === 'success'
+                      ? isLightMode
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                        : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                      : isLightMode
+                      ? 'bg-rose-50 border-rose-200 text-rose-800'
+                      : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                  }`}
+                >
+                  {approvalRequestFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                  )}
+                  <span>{approvalRequestFeedback.text}</span>
+                </div>
+              )}
+
               {/* Step 2 Actions */}
-              <div className={`flex items-center justify-between pt-4 border-t ${
+              <div className={`flex flex-wrap items-center justify-between gap-2 pt-4 border-t ${
                 isLightMode ? 'border-slate-200' : 'border-white/10'
               }`}>
                 <button
@@ -2746,28 +2824,48 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                   {isEn ? '← Back to Variables & Options' : '← بازگشت به تنظیمات و متغیرها'}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handleExecuteApply}
-                  disabled={isApplying || isBackingUp || !isApprovalUnlocked}
-                  className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition active:scale-95 ${
-                    isApprovalUnlocked && !isApplying && !isBackingUp
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 cursor-pointer shadow-emerald-500/25'
-                      : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5 text-slate-400'
-                  }`}
-                  title={
-                    !isApprovalUnlocked
-                      ? (isEn ? 'Please fulfill all strict approval checkboxes and type device hostname' : 'لطفاً تمام چک‌باکس‌های تایید را علامت زده و نام هاست را تایپ کنید')
-                      : undefined
-                  }
-                >
-                  <Play className="w-4 h-4 fill-white" />
-                  <span>
-                    {enablePreBackup
-                      ? (isEn ? 'Backup & Apply Template to Device' : 'تهیه بکاپ و اعمال قطعی تمپلیت بر روی تجهیز')
-                      : (isEn ? 'Apply Template (Without Backup)' : 'اعمال قطعی تمپلیت (بدون بکاپ)')}
-                  </span>
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleRequestTwoStepApproval}
+                    disabled={isRequestingApproval || isApplying || isBackingUp || !renderedScript.trim()}
+                    className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl border text-xs font-semibold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isLightMode
+                        ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-800'
+                        : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/40 text-amber-300'
+                    }`}
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>
+                      {isRequestingApproval
+                        ? (isEn ? 'Submitting...' : 'در حال ارسال...')
+                        : (isEn ? 'Request 2-Step Approval' : 'ارسال جهت تایید دو مرحله‌ای')}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExecuteApply}
+                    disabled={isApplying || isBackingUp || !isApprovalUnlocked}
+                    className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition active:scale-95 ${
+                      isApprovalUnlocked && !isApplying && !isBackingUp
+                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 cursor-pointer shadow-emerald-500/25'
+                        : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5 text-slate-400'
+                    }`}
+                    title={
+                      !isApprovalUnlocked
+                        ? (isEn ? 'Please fulfill all strict approval checkboxes and type device hostname' : 'لطفاً تمام چک‌باکس‌های تایید را علامت زده و نام هاست را تایپ کنید')
+                        : undefined
+                    }
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    <span>
+                      {enablePreBackup
+                        ? (isEn ? 'Backup & Apply Template to Device' : 'تهیه بکاپ و اعمال قطعی تمپلیت بر روی تجهیز')
+                        : (isEn ? 'Apply Template (Without Backup)' : 'اعمال قطعی تمپلیت (بدون بکاپ)')}
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
           )}

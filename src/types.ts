@@ -1276,6 +1276,79 @@ export interface TotpEnrollmentPayload {
   accountName: string;
 }
 
+export type ApprovalRequestStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'expired'
+  | 'executed'
+  | 'cancelled';
+
+export type ApprovalRiskLevel = 'medium' | 'high' | 'critical';
+
+export type ApprovalTargetEntityType =
+  | 'device'
+  | 'server'
+  | 'bulk_config'
+  | 'firewall'
+  | 'backup'
+  | 'rbac'
+  | 'system';
+
+export interface ActionApprovalRequest {
+  id: string;
+  requesterUserId: string;
+  requesterUsername: string;
+  requesterFullName?: string;
+  requesterRole?: string;
+  targetEntityType: ApprovalTargetEntityType | string;
+  targetEntityId: string;
+  targetEntityName?: string | null;
+  requestedAction: string;
+  riskLevel: ApprovalRiskLevel;
+  reason: string;
+  commandPreview?: string | null;
+  executionNote?: string | null;
+  status: ApprovalRequestStatus;
+  approverUserId?: string | null;
+  approverUsername?: string | null;
+  decisionNote?: string | null;
+  ttlMinutes: number;
+  expiresAt: string;
+  createdAt: string;
+  decidedAt?: string | null;
+  executedAt?: string | null;
+  executedBy?: string | null;
+}
+
+export interface CreateApprovalRequestPayload {
+  targetEntityType: ApprovalTargetEntityType | string;
+  targetEntityId: string;
+  targetEntityName?: string;
+  requestedAction: string;
+  riskLevel?: ApprovalRiskLevel;
+  reason: string;
+  commandPreview?: string;
+  ttlMinutes?: number;
+}
+
+export interface ApprovalQueueSummary {
+  pending: number;
+  approved: number;
+  rejected: number;
+  expired: number;
+  executed: number;
+  cancelled: number;
+  myPendingRequests: number;
+}
+
+export interface ApprovalTargetOption {
+  entityType: ApprovalTargetEntityType;
+  id: string;
+  name: string;
+  subtitle?: string;
+}
+
 export type BackupScope = 'full' | 'devices_topology' | 'security_rbac' | 'servers_only' | 'templates_only';
 
 export interface BackupMetadata {

@@ -28,8 +28,11 @@ import {
   Reply,
   Hash,
   BarChart3,
+  XCircle,
 } from 'lucide-react';
 import {
+  ActionApprovalRequest,
+  ApprovalQueueSummary,
   CommsCategory,
   CommsChannel,
   CommsCountsByFolder,
@@ -56,10 +59,16 @@ import {
   markCommsNotificationRead,
   replyToInboxNotificationApi,
 } from '../../services/commsApi';
+import {
+  decideApprovalRequestApi,
+  fetchApprovalById,
+  fetchApprovalRequests,
+} from '../../services/approvalApi';
 import { appDataCache } from '../../services/dataCache';
 import { ActiveTab } from '../Sidebar';
 import { TeamChannelsPane } from './TeamChannelsPane';
 import { AnnouncementTrackerPane } from './AnnouncementTrackerPane';
+import { ApprovalsQueuePane } from './ApprovalsQueuePane';
 
 interface CommunicationsCenterViewProps {
   isLightMode?: boolean;
@@ -101,11 +110,24 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
     Boolean(effectivePolicy?.canSendCommunications) ||
     Boolean(effectivePolicy?.canSendAnnouncements);
   const canBroadcast = isSuperAdmin || Boolean(effectivePolicy?.canSendAnnouncements);
+  const canApprove = isSuperAdmin || Boolean(effectivePolicy?.canApproveActions);
 
-  // Phase 2 View Mode & Team Chat states
-  const [viewMode, setViewMode] = useState<'inbox' | 'channels' | 'tracker'>('inbox');
+  // Phase 2 & Phase 4 Sub-View & Queue states
+  const [viewMode, setViewMode] = useState<'inbox' | 'channels' | 'tracker' | 'approvals'>('inbox');
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [channelUnreadCount, setChannelUnreadCount] = useState<number>(0);
+  const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
+  const [focusApprovalId, setFocusApprovalId] = useState<string | null>(null);
+
+  // Inline Approval Request Inspection in Inbox Detail Pane
+  const [linkedApproval, setLinkedApproval] = useState<ActionApprovalRequest | null>(null);
+  const [linkedApprovalLoading, setLinkedApprovalLoading] = useState(false);
+  const [inlineDecisionNote, setInlineDecisionNote] = useState('');
+  const [inlineApprovalBusy, setInlineApprovalBusy] = useState(false);
+  const [inlineApprovalFeedback, setInlineApprovalFeedback] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   // Inline Quick Reply in Inbox Detail Pane
   const [quickReplyBody, setQuickReplyBody] = useState('');
@@ -229,8 +251,22 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   }, [liveRevision, syncChannelUnreadFromList]);
 
   useEffect(() => {
+    fetchApprovalRequests({ status: 'pending', limit: 1, forceRefresh: liveRevision > 0 })
+      .then((res) => {
+        setPendingApprovalsCount(res.summary?.pending ?? 0);
+      })
+      .catch(() => {});
+  }, [liveRevision]);
+
+  const handleApprovalsSummarySync = useCallback((summary: ApprovalQueueSummary) => {
+    setPendingApprovalsCount(summary.pending ?? 0);
+  }, []);
+
+  useEffect(() => {
     setQuickReplyBody('');
     setQuickReplyFeedback(null);
+    setInlineDecisionNote('');
+    setInlineApprovalFeedback(null);
   }, [selectedId]);
 
   const handleQuickReplySubmit = async (e: React.FormEvent) => {
@@ -262,6 +298,74 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
     () => items.find((item) => item.id === selectedId) || null,
     [items, selectedId]
   );
+
+  const selectedApprovalId = useMemo(() => {
+    if (!selectedItem || selectedItem.category !== 'approval_request') return null;
+    const rawId = selectedItem.metadata?.approvalRequestId;
+    return typeof rawId === 'string' && rawId.trim() ? rawId.trim() : null;
+  }, [selectedItem]);
+
+  useEffect(() => {
+    if (!selectedApprovalId) {
+      setLinkedApproval(null);
+      setLinkedApprovalLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLinkedApprovalLoading(true);
+    fetchApprovalById(selectedApprovalId)
+      .then((req) => {
+        if (!cancelled) setLinkedApproval(req);
+      })
+      .catch(() => {
+        if (!cancelled) setLinkedApproval(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLinkedApprovalLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedApprovalId, liveRevision]);
+
+  const handleInlineApprovalDecision = async (decision: 'approved' | 'rejected') => {
+    if (!linkedApproval || inlineApprovalBusy) return;
+    setInlineApprovalBusy(true);
+    setInlineApprovalFeedback(null);
+    try {
+      const updated = await decideApprovalRequestApi(
+        linkedApproval.id,
+        decision,
+        inlineDecisionNote.trim() || undefined
+      );
+      setLinkedApproval(updated);
+      setInlineDecisionNote('');
+      setInlineApprovalFeedback({
+        type: 'success',
+        text:
+          decision === 'approved'
+            ? isEn
+              ? 'Request approved and requester notified.'
+              : 'درخواست با موفقیت تایید شد و به متقاضی اطلاع‌رسانی گردید.'
+            : isEn
+            ? 'Request rejected and requester notified.'
+            : 'درخواست رد شد و نتیجه به متقاضی اطلاع‌رسانی گردید.',
+      });
+      fetchApprovalRequests({ status: 'pending', limit: 1, forceRefresh: true })
+        .then((res) => setPendingApprovalsCount(res.summary?.pending ?? 0))
+        .catch(() => {});
+      loadNotifications(true);
+    } catch (err: any) {
+      setInlineApprovalFeedback({
+        type: 'error',
+        text:
+          err?.message ||
+          (isEn ? 'Failed to submit approval decision' : 'خطا در ثبت تصمیم تاییدیه'),
+      });
+    } finally {
+      setInlineApprovalBusy(false);
+    }
+  };
 
   const handleSelectItem = async (item: CommsNotificationItem) => {
     setSelectedId(item.id);
@@ -700,6 +804,28 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
               )}
             </button>
 
+            <button
+              type="button"
+              onClick={() => setViewMode('approvals')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+                viewMode === 'approvals'
+                  ? isLightMode
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-indigo-600 text-white'
+                  : isLightMode
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Approvals Queue' : 'صف تاییدیه‌ها'}</span>
+              {pendingApprovalsCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white font-mono tabular-nums text-[10px]">
+                  {pendingApprovalsCount}
+                </span>
+              )}
+            </button>
+
             {canBroadcast && (
               <button
                 type="button"
@@ -838,6 +964,14 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
           selectedChannelId={activeChannelId}
           onSelectChannelId={setActiveChannelId}
           onChannelsLoaded={syncChannelUnreadFromList}
+        />
+      ) : viewMode === 'approvals' ? (
+        <ApprovalsQueuePane
+          isLightMode={isLightMode}
+          liveRevision={liveRevision}
+          initialFocusApprovalId={focusApprovalId}
+          onNavigateToTab={onNavigateToTab}
+          onSummaryChange={handleApprovalsSummarySync}
         />
       ) : viewMode === 'tracker' && canBroadcast ? (
         <AnnouncementTrackerPane
@@ -1094,21 +1228,35 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                   : 'اعلانات واقعی سامانه، هشدارهای امنیتی و پیام‌های همکاران به محض ثبت به‌صورت زنده در اینجا نمایش داده می‌شوند.'}
               </p>
               {(searchQuery || severityFilter !== 'all' || activeFolder !== 'all') && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSeverityFilter('all');
-                    setActiveFolder('all');
-                  }}
-                  className={`px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer ${
-                    isLightMode
-                      ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
-                      : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
-                  }`}
-                >
-                  {isEn ? 'Reset Filters' : 'پاک کردن فیلترها'}
-                </button>
+                <div className="flex items-center flex-wrap justify-center gap-2">
+                  {activeFolder === 'approvals' && (
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('approvals')}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer transition"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>
+                        {isEn ? 'Open Approvals Queue' : 'ورود به صف تاییدیه‌ها'}
+                      </span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setSeverityFilter('all');
+                      setActiveFolder('all');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer ${
+                      isLightMode
+                        ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+                        : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
+                    }`}
+                  >
+                    {isEn ? 'Reset Filters' : 'پاک کردن فیلترها'}
+                  </button>
+                </div>
               )}
             </div>
           ) : (
@@ -1455,6 +1603,144 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                       <ArrowUpRight className="w-3.5 h-3.5" />
                     </button>
                   )}
+                </div>
+              )}
+
+              {/* Linked Two-Step Approval Request Control Block */}
+              {selectedItem.category === 'approval_request' && selectedApprovalId && (
+                <div
+                  className={`p-4 rounded-xl border flex flex-col gap-3 text-xs ${
+                    isLightMode
+                      ? 'bg-slate-50 border-slate-200 text-slate-800'
+                      : 'bg-slate-950/50 border-white/10 text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2 font-bold">
+                      <ShieldCheck className="w-4 h-4 text-amber-500 shrink-0" />
+                      <span>
+                        {isEn ? 'Two-Step Approval Control' : 'کنترل و تصمیم‌گیری درخواست تایید'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusApprovalId(selectedApprovalId);
+                        setViewMode('approvals');
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs cursor-pointer transition"
+                    >
+                      <span>{isEn ? 'Inspect in Queue' : 'مشاهده کامل در صف تاییدیه‌ها'}</span>
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {linkedApprovalLoading ? (
+                    <p className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                      {isEn ? 'Loading live request status...' : 'در حال دریافت وضعیت لحظه‌ای درخواست...'}
+                    </p>
+                  ) : linkedApproval ? (
+                    <>
+                      <div className="flex items-center flex-wrap gap-2 text-[11px]">
+                        <span
+                          className={`font-semibold ${
+                            linkedApproval.status === 'approved'
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : linkedApproval.status === 'rejected'
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : linkedApproval.status === 'executed'
+                              ? 'text-indigo-600 dark:text-indigo-400'
+                              : linkedApproval.status === 'expired' ||
+                                linkedApproval.status === 'cancelled'
+                              ? 'text-slate-500'
+                              : 'text-amber-600 dark:text-amber-400'
+                          }`}
+                        >
+                          {isEn ? 'Status:' : 'وضعیت:'}{' '}
+                          {linkedApproval.status.toUpperCase()}
+                        </span>
+                        <span className="opacity-40">·</span>
+                        <span>
+                          {isEn ? 'Target:' : 'هدف:'}{' '}
+                          <strong>{linkedApproval.targetEntityName}</strong>
+                        </span>
+                        <span className="opacity-40">·</span>
+                        <span>
+                          {isEn ? 'Risk:' : 'ریسک:'}{' '}
+                          <strong className="uppercase">{linkedApproval.riskLevel}</strong>
+                        </span>
+                      </div>
+
+                      {linkedApproval.commandPreview && (
+                        <pre
+                          dir="ltr"
+                          className={`p-3 rounded-lg border font-mono text-[11px] leading-relaxed overflow-x-auto max-h-40 ${
+                            isLightMode
+                              ? 'bg-slate-900 border-slate-700 text-slate-100'
+                              : 'bg-slate-950 border-white/10 text-slate-200'
+                          }`}
+                        >
+                          {linkedApproval.commandPreview}
+                        </pre>
+                      )}
+
+                      {inlineApprovalFeedback && (
+                        <div
+                          className={`px-3 py-2 rounded-lg border font-medium ${
+                            inlineApprovalFeedback.type === 'success'
+                              ? isLightMode
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                              : isLightMode
+                              ? 'bg-rose-50 border-rose-200 text-rose-800'
+                              : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                          }`}
+                        >
+                          {inlineApprovalFeedback.text}
+                        </div>
+                      )}
+
+                      {linkedApproval.status === 'pending' && canApprove && (
+                        <div className="flex flex-col gap-2 pt-1">
+                          <input
+                            type="text"
+                            value={inlineDecisionNote}
+                            onChange={(e) => setInlineDecisionNote(e.target.value)}
+                            placeholder={
+                              isEn
+                                ? 'Optional decision note for audit log...'
+                                : 'یادداشت اختیاری مدیر برای ثبت در لاگ ممیزی...'
+                            }
+                            className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none ${
+                              isLightMode
+                                ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500'
+                                : 'bg-slate-900 border-white/15 text-white focus:border-indigo-500'
+                            }`}
+                          />
+                          <div className="flex items-center flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={inlineApprovalBusy}
+                              onClick={() => handleInlineApprovalDecision('approved')}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs cursor-pointer disabled:opacity-50 transition"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              <span>{isEn ? 'Approve Request' : 'تایید درخواست'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={inlineApprovalBusy}
+                              onClick={() => handleInlineApprovalDecision('rejected')}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs cursor-pointer disabled:opacity-50 transition"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>{isEn ? 'Reject Request' : 'رد درخواست'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : null}
                 </div>
               )}
 
