@@ -1346,6 +1346,35 @@ export type ApprovalTargetEntityType =
   | 'rbac'
   | 'system';
 
+export type ApprovalStageInstanceStatus =
+  | 'waiting'
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'skipped'
+  | 'expired';
+
+export interface ApprovalStageInstance {
+  stageOrder: number;
+  id: string;
+  titleFa: string;
+  titleEn: string;
+  approverTargetType: ApprovalStageApproverTargetType;
+  approverUserIds: string[];
+  approverGroupIds: string[];
+  approverLabels?: string[];
+  ttlMinutes: number;
+  status: ApprovalStageInstanceStatus;
+  startedAt?: string | null;
+  expiresAt?: string | null;
+  decidedAt?: string | null;
+  decidedByUserId?: string | null;
+  decidedByUsername?: string | null;
+  decidedByFullName?: string | null;
+  decisionNote?: string | null;
+  isOverride?: boolean;
+}
+
 export interface ActionApprovalRequest {
   id: string;
   requesterUserId: string;
@@ -1356,6 +1385,10 @@ export interface ActionApprovalRequest {
   targetEntityId: string;
   targetEntityName?: string | null;
   requestedAction: string;
+  actionKey?: string | null;
+  actionParams?: Record<string, any> | null;
+  policyId?: string | null;
+  policyName?: string | null;
   riskLevel: ApprovalRiskLevel;
   reason: string;
   commandPreview?: string | null;
@@ -1370,6 +1403,10 @@ export interface ActionApprovalRequest {
   decidedAt?: string | null;
   executedAt?: string | null;
   executedBy?: string | null;
+  currentStageOrder?: number;
+  totalStages?: number;
+  stages?: ApprovalStageInstance[];
+  isAssignedToCurrentActor?: boolean;
 }
 
 export interface CreateApprovalRequestPayload {
@@ -1377,6 +1414,9 @@ export interface CreateApprovalRequestPayload {
   targetEntityId: string;
   targetEntityName?: string;
   requestedAction: string;
+  actionKey?: string;
+  policyId?: string;
+  actionParams?: Record<string, any>;
   riskLevel?: ApprovalRiskLevel;
   reason: string;
   commandPreview?: string;
@@ -1391,6 +1431,7 @@ export interface ApprovalQueueSummary {
   executed: number;
   cancelled: number;
   myPendingRequests: number;
+  awaitingMyDecision?: number;
 }
 
 export interface ApprovalTargetOption {

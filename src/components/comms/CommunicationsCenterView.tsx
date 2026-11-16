@@ -27,6 +27,7 @@ import {
   Filter,
   Reply,
   Hash,
+  Layers,
   BarChart3,
   XCircle,
 } from 'lucide-react';
@@ -128,6 +129,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   const [linkedApprovalLoading, setLinkedApprovalLoading] = useState(false);
   const [inlineDecisionNote, setInlineDecisionNote] = useState('');
   const [inlineApprovalBusy, setInlineApprovalBusy] = useState(false);
+  const [inlineOverrideUnlocked, setInlineOverrideUnlocked] = useState(false);
   const [inlineApprovalFeedback, setInlineApprovalFeedback] = useState<{
     type: 'success' | 'error';
     text: string;
@@ -292,6 +294,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
     setQuickReplyFeedback(null);
     setInlineDecisionNote('');
     setInlineApprovalFeedback(null);
+    setInlineOverrideUnlocked(false);
   }, [selectedId]);
 
   const handleQuickReplySubmit = async (e: React.FormEvent) => {
@@ -353,7 +356,10 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
     };
   }, [selectedApprovalId, liveRevision]);
 
-  const handleInlineApprovalDecision = async (decision: 'approved' | 'rejected') => {
+  const handleInlineApprovalDecision = async (
+    decision: 'approved' | 'rejected',
+    useEmergencyOverride = false
+  ) => {
     if (!linkedApproval || inlineApprovalBusy) return;
     setInlineApprovalBusy(true);
     setInlineApprovalFeedback(null);
@@ -361,20 +367,26 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
       const updated = await decideApprovalRequestApi(
         linkedApproval.id,
         decision,
-        inlineDecisionNote.trim() || undefined
+        inlineDecisionNote.trim() || undefined,
+        useEmergencyOverride ? { emergencyOverride: true } : undefined
       );
       setLinkedApproval(updated);
       setInlineDecisionNote('');
+      setInlineOverrideUnlocked(false);
+      const movedToNextStage = decision === 'approved' && updated.status === 'pending';
       setInlineApprovalFeedback({
         type: 'success',
-        text:
-          decision === 'approved'
-            ? isEn
-              ? 'Request approved and requester notified.'
-              : 'درخواست با موفقیت تایید شد و به متقاضی اطلاع‌رسانی گردید.'
-            : isEn
-            ? 'Request rejected and requester notified.'
-            : 'درخواست رد شد و نتیجه به متقاضی اطلاع‌رسانی گردید.',
+        text: movedToNextStage
+          ? isEn
+            ? `Stage approved and routed to Stage ${updated.currentStageOrder}/${updated.totalStages}.`
+            : `مرحله تایید شد و درخواست به مرحله ${updated.currentStageOrder} از ${updated.totalStages} ارسال گردید.`
+          : decision === 'approved'
+          ? isEn
+            ? 'Request approved and requester notified.'
+            : 'درخواست با موفقیت تایید شد و به متقاضی اطلاع‌رسانی گردید.'
+          : isEn
+          ? 'Request rejected and requester notified.'
+          : 'درخواست رد شد و نتیجه به متقاضی اطلاع‌رسانی گردید.',
       });
       fetchApprovalRequests({ status: 'pending', limit: 1, forceRefresh: true })
         .then((res) => setPendingApprovalsCount(res.summary?.pending ?? 0))
@@ -1760,7 +1772,68 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                           {isEn ? 'Risk:' : 'ریسک:'}{' '}
                           <strong className="uppercase">{linkedApproval.riskLevel}</strong>
                         </span>
+                        {(linkedApproval.totalStages || 1) > 1 && (
+                          <>
+                            <span className="opacity-40">·</span>
+                            <span className="font-mono tabular-nums font-semibold">
+                              {isEn
+                                ? `Stage ${linkedApproval.currentStageOrder || 1}/${linkedApproval.totalStages}`
+                                : `مرحله ${linkedApproval.currentStageOrder || 1}/${linkedApproval.totalStages}`}
+                            </span>
+                          </>
+                        )}
                       </div>
+
+                      {/* Compact Multi-Stage Progress Stepper */}
+                      {linkedApproval.stages && linkedApproval.stages.length > 0 && (
+                        <div
+                          className={`p-2.5 rounded-lg border flex flex-col gap-1.5 ${
+                            isLightMode
+                              ? 'bg-white border-slate-200'
+                              : 'bg-slate-900/70 border-white/10'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[11px] font-semibold">
+                            <span className="inline-flex items-center gap-1.5">
+                              <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                              <span>{isEn ? 'Approval Stages' : 'مراحل زنجیره تایید'}</span>
+                            </span>
+                            {linkedApproval.policyName && (
+                              <span className={isLightMode ? 'text-indigo-700' : 'text-indigo-300'}>
+                                {linkedApproval.policyName}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {linkedApproval.stages.map((st) => {
+                              const pillCls =
+                                st.status === 'approved'
+                                  ? 'bg-emerald-600 text-white'
+                                  : st.status === 'pending'
+                                  ? 'bg-amber-600 text-white'
+                                  : st.status === 'rejected'
+                                  ? 'bg-rose-600 text-white'
+                                  : isLightMode
+                                  ? 'bg-slate-200 text-slate-700'
+                                  : 'bg-white/10 text-slate-300';
+                              return (
+                                <span
+                                  key={st.id || st.stageOrder}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold ${pillCls}`}
+                                  title={
+                                    st.approverLabels && st.approverLabels.length > 0
+                                      ? st.approverLabels.join(', ')
+                                      : undefined
+                                  }
+                                >
+                                  <span>{st.stageOrder}.</span>
+                                  <span>{isEn ? st.titleEn : st.titleFa}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
 
                       {linkedApproval.commandPreview && (
                         <pre
@@ -1791,45 +1864,126 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                         </div>
                       )}
 
-                      {linkedApproval.status === 'pending' && canApprove && (
-                        <div className="flex flex-col gap-2 pt-1">
-                          <input
-                            type="text"
-                            value={inlineDecisionNote}
-                            onChange={(e) => setInlineDecisionNote(e.target.value)}
-                            placeholder={
-                              isEn
-                                ? 'Optional decision note for audit log...'
-                                : 'یادداشت اختیاری مدیر برای ثبت در لاگ ممیزی...'
-                            }
-                            className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none ${
-                              isLightMode
-                                ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500'
-                                : 'bg-slate-900 border-white/15 text-white focus:border-indigo-500'
-                            }`}
-                          />
-                          <div className="flex items-center flex-wrap gap-2">
-                            <button
-                              type="button"
-                              disabled={inlineApprovalBusy}
-                              onClick={() => handleInlineApprovalDecision('approved')}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs cursor-pointer disabled:opacity-50 transition"
+                      {linkedApproval.status === 'pending' && canApprove && (() => {
+                        const activeStage =
+                          (linkedApproval.stages || []).find(
+                            (s) =>
+                              s.status === 'pending' &&
+                              s.stageOrder === (linkedApproval.currentStageOrder || 1)
+                          ) || (linkedApproval.stages || []).find((s) => s.status === 'pending');
+                        const isFinalStage =
+                          !activeStage ||
+                          (linkedApproval.stages || []).every(
+                            (s) => s.stageOrder <= activeStage.stageOrder || s.status !== 'waiting'
+                          );
+                        const canDecideNormally = linkedApproval.isAssignedToCurrentActor !== false;
+                        const activeAssignees =
+                          activeStage?.approverTargetType === 'any_approver'
+                            ? isEn
+                              ? 'Any Authorized Approver'
+                              : 'هر تاییدکننده مجاز'
+                            : activeStage?.approverLabels?.length
+                            ? activeStage.approverLabels.join('، ')
+                            : [
+                                ...(activeStage?.approverUserIds || []),
+                                ...(activeStage?.approverGroupIds || []),
+                              ].join(', ');
+
+                        if (!canDecideNormally && !inlineOverrideUnlocked) {
+                          return (
+                            <div
+                              className={`p-2.5 rounded-lg border flex items-center justify-between gap-2 flex-wrap ${
+                                isLightMode
+                                  ? 'bg-amber-50 border-amber-200 text-amber-900'
+                                  : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                              }`}
                             >
-                              <Check className="w-3.5 h-3.5" />
-                              <span>{isEn ? 'Approve Request' : 'تایید درخواست'}</span>
-                            </button>
-                            <button
-                              type="button"
-                              disabled={inlineApprovalBusy}
-                              onClick={() => handleInlineApprovalDecision('rejected')}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs cursor-pointer disabled:opacity-50 transition"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                              <span>{isEn ? 'Reject Request' : 'رد درخواست'}</span>
-                            </button>
+                              <span className="text-[11px]">
+                                {isEn
+                                  ? `Waiting on Stage ${activeStage?.stageOrder || 1} (${activeStage?.titleEn || 'Stage'}): ${activeAssignees || 'Assigned approvers'}`
+                                  : `در انتظار تایید مرحله ${activeStage?.stageOrder || 1} (${activeStage?.titleFa || 'مرحله'}): ${activeAssignees || 'تاییدکنندگان مرحله'}`}
+                              </span>
+                              {isSuperAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => setInlineOverrideUnlocked(true)}
+                                  className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-semibold cursor-pointer"
+                                >
+                                  {isEn ? 'Super Admin Override' : 'عبور اضطراری'}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="flex flex-col gap-2 pt-1">
+                            {inlineOverrideUnlocked && (
+                              <div className="flex items-center justify-between text-[11px] text-purple-600 dark:text-purple-300 font-semibold">
+                                <span>
+                                  {isEn
+                                    ? 'Emergency Super Admin Override active for current stage'
+                                    : 'حالت عبور اضطراری سوپرادمین فعال است'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setInlineOverrideUnlocked(false)}
+                                  className="underline cursor-pointer"
+                                >
+                                  {isEn ? 'Cancel' : 'لغو'}
+                                </button>
+                              </div>
+                            )}
+                            <input
+                              type="text"
+                              value={inlineDecisionNote}
+                              onChange={(e) => setInlineDecisionNote(e.target.value)}
+                              placeholder={
+                                isEn
+                                  ? 'Optional decision note for audit log...'
+                                  : 'یادداشت اختیاری مدیر برای ثبت در لاگ ممیزی...'
+                              }
+                              className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none ${
+                                isLightMode
+                                  ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500'
+                                  : 'bg-slate-900 border-white/15 text-white focus:border-indigo-500'
+                              }`}
+                            />
+                            <div className="flex items-center flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={inlineApprovalBusy}
+                                onClick={() =>
+                                  handleInlineApprovalDecision('approved', inlineOverrideUnlocked)
+                                }
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs cursor-pointer disabled:opacity-50 transition"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>
+                                  {isFinalStage
+                                    ? isEn
+                                      ? 'Grant Final Approval'
+                                      : 'تایید نهایی'
+                                    : isEn
+                                    ? `Approve Stage ${activeStage?.stageOrder || 1}`
+                                    : `تایید مرحله ${activeStage?.stageOrder || 1}`}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={inlineApprovalBusy}
+                                onClick={() =>
+                                  handleInlineApprovalDecision('rejected', inlineOverrideUnlocked)
+                                }
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs cursor-pointer disabled:opacity-50 transition"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                                <span>{isEn ? 'Reject Request' : 'رد درخواست'}</span>
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                     </>
                   ) : null}
                 </div>

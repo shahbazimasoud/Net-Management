@@ -6,6 +6,7 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Layers,
   Play,
   Plus,
   RefreshCw,
@@ -15,6 +16,8 @@ import {
   ShieldCheck,
   Terminal,
   User,
+  UserCheck,
+  Users,
   XCircle,
 } from 'lucide-react';
 import {
@@ -22,6 +25,8 @@ import {
   ApprovalQueueSummary,
   ApprovalRequestStatus,
   ApprovalRiskLevel,
+  ApprovalStageInstance,
+  ApprovalStageInstanceStatus,
   ApprovalTargetEntityType,
   ApprovalTargetOption,
 } from '../../types';
@@ -59,6 +64,7 @@ const DEFAULT_SUMMARY: ApprovalQueueSummary = {
   executed: 0,
   cancelled: 0,
   myPendingRequests: 0,
+  awaitingMyDecision: 0,
 };
 
 function formatRemainingWindow(expiresAtIso: string, isEn: boolean): string {
@@ -88,7 +94,9 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
   const canApprove = isSuperAdmin || Boolean(effectivePolicy?.canApproveActions);
 
   const [statusFilter, setStatusFilter] = useState<'all' | ApprovalRequestStatus>('all');
-  const [scopeFilter, setScopeFilter] = useState<'all' | 'mine'>(canApprove ? 'all' : 'mine');
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'mine' | 'assigned_to_me'>(
+    canApprove ? 'all' : 'mine'
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
 
@@ -105,6 +113,7 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
   const [decisionNote, setDecisionNote] = useState('');
   const [executionNote, setExecutionNote] = useState('');
   const [actionBusy, setActionBusy] = useState(false);
+  const [overrideUnlocked, setOverrideUnlocked] = useState(false);
 
   // New Approval / JIT Request Modal
   const [newModalOpen, setNewModalOpen] = useState(false);
@@ -180,6 +189,7 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
     setDecisionNote('');
     setExecutionNote('');
     setFeedbackMsg(null);
+    setOverrideUnlocked(false);
   }, [selectedId]);
 
   const openNewRequestModal = async () => {
@@ -279,7 +289,7 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
     }
   };
 
-  const handleDecide = async (decision: 'approved' | 'rejected') => {
+  const handleDecide = async (decision: 'approved' | 'rejected', useEmergencyOverride = false) => {
     if (!selectedItem || actionBusy) return;
     setActionBusy(true);
     setFeedbackMsg(null);
@@ -287,19 +297,26 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
       const updated = await decideApprovalRequestApi(
         selectedItem.id,
         decision,
-        decisionNote.trim() || undefined
+        decisionNote.trim() || undefined,
+        useEmergencyOverride ? { emergencyOverride: true } : undefined
       );
       setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      setOverrideUnlocked(false);
+      setDecisionNote('');
+      const movedToNextStage = decision === 'approved' && updated.status === 'pending';
       setFeedbackMsg({
         type: 'success',
-        text:
-          decision === 'approved'
-            ? isEn
-              ? 'Change request approved cleanly and audit logged.'
-              : 'درخواست تغییر تایید شد و در ممیزی امنیتی ثبت گردید.'
-            : isEn
-            ? 'Change request rejected cleanly and requester notified.'
-            : 'درخواست رد شد و به درخواست‌کننده اطلاع‌رسانی گردید.',
+        text: movedToNextStage
+          ? isEn
+            ? `Stage approved cleanly. Request routed to Stage ${updated.currentStageOrder}/${updated.totalStages}.`
+            : `مرحله فعلی تایید شد و درخواست به مرحله ${updated.currentStageOrder} از ${updated.totalStages} ارسال گردید.`
+          : decision === 'approved'
+          ? isEn
+            ? 'Change request approved cleanly and audit logged.'
+            : 'درخواست تغییر تایید نهایی شد و در ممیزی امنیتی ثبت گردید.'
+          : isEn
+          ? 'Change request rejected cleanly and requester notified.'
+          : 'درخواست رد شد و به درخواست‌کننده اطلاع‌رسانی گردید.',
       });
       await loadApprovals(true);
     } catch (err: any) {
@@ -481,6 +498,16 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                 <span>
                   {isEn ? `Pending: ${summary.pending}` : `در انتظار تایید: ${summary.pending}`}
                 </span>
+                {canApprove && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className={isLightMode ? 'text-amber-700 font-semibold' : 'text-amber-400 font-semibold'}>
+                      {isEn
+                        ? `Awaiting My Decision: ${summary.awaitingMyDecision || 0}`
+                        : `در انتظار تایید من: ${summary.awaitingMyDecision || 0}`}
+                    </span>
+                  </>
+                )}
                 <span aria-hidden="true">·</span>
                 <span>
                   {isEn ? `Approved: ${summary.approved}` : `تایید شده: ${summary.approved}`}
@@ -581,11 +608,35 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                   scopeFilter === 'all'
                     ? 'bg-indigo-600 text-white'
                     : isLightMode
-                    ? 'text-slate-600 hover:text-slate-900'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'text-slate-700 hover:text-slate-900'
+                    : 'text-slate-300 hover:text-white'
                 }`}
               >
                 {isEn ? 'All Organization' : 'کل سازمان'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setScopeFilter('assigned_to_me')}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap cursor-pointer ${
+                  scopeFilter === 'assigned_to_me'
+                    ? 'bg-amber-600 text-white'
+                    : isLightMode
+                    ? 'text-slate-700 hover:text-slate-900'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>{isEn ? 'Awaiting My Decision' : 'در انتظار تایید من'}</span>
+                {(summary.awaitingMyDecision || 0) > 0 && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono tabular-nums ${
+                      scopeFilter === 'assigned_to_me'
+                        ? 'bg-white/25 text-white'
+                        : 'bg-amber-500 text-white'
+                    }`}
+                  >
+                    {summary.awaitingMyDecision}
+                  </span>
+                )}
               </button>
               <button
                 type="button"
@@ -594,8 +645,8 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                   scopeFilter === 'mine'
                     ? 'bg-indigo-600 text-white'
                     : isLightMode
-                    ? 'text-slate-600 hover:text-slate-900'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'text-slate-700 hover:text-slate-900'
+                    : 'text-slate-300 hover:text-white'
                 }`}
               >
                 {isEn ? 'Submitted by Me' : 'درخواست‌های من'}
@@ -692,6 +743,49 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                       {' · '}
                       <span className={risk.cls}>{isEn ? risk.labelEn : risk.labelFa}</span>
                     </div>
+
+                    {/* Multi-stage progress bar & awaiting indicator */}
+                    {((item.totalStages || 1) > 1 || item.isAssignedToCurrentActor) && (
+                      <div className="flex items-center justify-between gap-2 flex-wrap pt-0.5">
+                        <div className="flex items-center gap-1.5">
+                          {(item.stages || []).map((st) => {
+                            const dotCls =
+                              st.status === 'approved'
+                                ? 'bg-emerald-500'
+                                : st.status === 'pending'
+                                ? 'bg-amber-500 animate-pulse'
+                                : st.status === 'rejected'
+                                ? 'bg-rose-500'
+                                : st.status === 'expired'
+                                ? 'bg-slate-400'
+                                : isLightMode
+                                ? 'bg-slate-300'
+                                : 'bg-slate-600';
+                            return (
+                              <span
+                                key={st.id || st.stageOrder}
+                                title={`${st.stageOrder}. ${isEn ? st.titleEn : st.titleFa} (${st.status})`}
+                                className={`w-2 h-2 rounded-full ${dotCls}`}
+                              />
+                            );
+                          })}
+                          <span
+                            className={`text-[10px] font-mono tabular-nums ${
+                              isLightMode ? 'text-slate-600' : 'text-slate-400'
+                            }`}
+                          >
+                            {isEn
+                              ? `Stage ${item.currentStageOrder || 1}/${item.totalStages || 1}`
+                              : `مرحله ${item.currentStageOrder || 1}/${item.totalStages || 1}`}
+                          </span>
+                        </div>
+                        {item.isAssignedToCurrentActor && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-600 text-white text-[10px] font-semibold">
+                            {isEn ? 'Awaiting You' : 'نوبت تایید شما'}
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     <div
                       className={`flex items-center justify-between gap-2 text-[11px] font-mono tabular-nums ${
@@ -802,8 +896,200 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                     {isEn ? 'Expires:' : 'انقضا:'}{' '}
                     {new Date(selectedItem.expiresAt).toLocaleString(isEn ? 'en-US' : 'fa-IR')}
                   </span>
+                  {selectedItem.policyName && (
+                    <span
+                      className={`px-2 py-0.5 rounded-md border text-[11px] font-medium ${
+                        isLightMode
+                          ? 'bg-indigo-50 border-indigo-200 text-indigo-800'
+                          : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300'
+                      }`}
+                    >
+                      {isEn ? 'Policy:' : 'پالیسی:'} {selectedItem.policyName}
+                    </span>
+                  )}
+                  {selectedItem.actionKey && (
+                    <span
+                      className={`px-2 py-0.5 rounded-md border text-[11px] font-mono ${
+                        isLightMode
+                          ? 'bg-slate-100 border-slate-200 text-slate-700'
+                          : 'bg-white/5 border-white/10 text-slate-300'
+                      }`}
+                    >
+                      {selectedItem.actionKey}
+                    </span>
+                  )}
                 </div>
               </div>
+
+              {/* Multi-Stage Sequential Workflow Timeline */}
+              {selectedItem.stages && selectedItem.stages.length > 0 && (
+                <div
+                  className={`p-3.5 rounded-xl border space-y-2.5 ${
+                    isLightMode
+                      ? 'bg-slate-50/80 border-slate-200'
+                      : 'bg-slate-950/50 border-white/10'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 text-xs font-bold">
+                      <Layers className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                      <span>
+                        {isEn ? 'Approval Workflow Chain' : 'زنجیره مراحل تایید'}
+                      </span>
+                    </div>
+                    <span
+                      className={`text-[11px] font-mono tabular-nums ${
+                        isLightMode ? 'text-slate-600' : 'text-slate-400'
+                      }`}
+                    >
+                      {isEn
+                        ? `Stage ${selectedItem.currentStageOrder || 1} of ${selectedItem.totalStages || selectedItem.stages.length}`
+                        : `مرحله ${selectedItem.currentStageOrder || 1} از ${selectedItem.totalStages || selectedItem.stages.length}`}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {selectedItem.stages.map((st: ApprovalStageInstance) => {
+                      const stStatus: ApprovalStageInstanceStatus = st.status;
+                      const badgeCls =
+                        stStatus === 'approved'
+                          ? 'bg-emerald-600 text-white'
+                          : stStatus === 'pending'
+                          ? 'bg-amber-600 text-white'
+                          : stStatus === 'rejected'
+                          ? 'bg-rose-600 text-white'
+                          : isLightMode
+                          ? 'bg-slate-200 text-slate-700'
+                          : 'bg-white/10 text-slate-300';
+                      const cardBorder =
+                        stStatus === 'pending'
+                          ? isLightMode
+                            ? 'border-amber-300 bg-amber-50/60'
+                            : 'border-amber-500/40 bg-amber-500/10'
+                          : stStatus === 'approved'
+                          ? isLightMode
+                            ? 'border-emerald-200 bg-white'
+                            : 'border-emerald-500/20 bg-white/[0.03]'
+                          : stStatus === 'rejected'
+                          ? isLightMode
+                            ? 'border-rose-200 bg-rose-50/50'
+                            : 'border-rose-500/30 bg-rose-500/10'
+                          : isLightMode
+                          ? 'border-slate-200 bg-white/70 opacity-85'
+                          : 'border-white/10 bg-white/[0.02] opacity-80';
+
+                      const stStatusLabel =
+                        stStatus === 'approved'
+                          ? isEn ? 'Approved' : 'تایید شده'
+                          : stStatus === 'pending'
+                          ? isEn ? 'Active Stage' : 'مرحله فعال'
+                          : stStatus === 'rejected'
+                          ? isEn ? 'Rejected' : 'رد شده'
+                          : stStatus === 'expired'
+                          ? isEn ? 'Expired' : 'منقضی'
+                          : stStatus === 'skipped'
+                          ? isEn ? 'Skipped' : 'ردشده / لغوشده'
+                          : isEn ? 'Waiting' : 'در صف انتظار';
+
+                      const targetSummary =
+                        st.approverTargetType === 'any_approver'
+                          ? isEn
+                            ? 'Any Authorized Approver'
+                            : 'هر تاییدکننده مجاز'
+                          : st.approverLabels && st.approverLabels.length > 0
+                          ? st.approverLabels.join('، ')
+                          : st.approverTargetType === 'user_groups'
+                          ? st.approverGroupIds.join(', ')
+                          : st.approverUserIds.join(', ');
+
+                      return (
+                        <div
+                          key={st.id || st.stageOrder}
+                          className={`p-2.5 rounded-xl border text-xs flex flex-col gap-1 ${cardBorder}`}
+                        >
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className={`w-5 h-5 rounded-full inline-flex items-center justify-center text-[11px] font-bold shrink-0 ${
+                                  stStatus === 'approved'
+                                    ? 'bg-emerald-600 text-white'
+                                    : stStatus === 'pending'
+                                    ? 'bg-amber-600 text-white'
+                                    : stStatus === 'rejected'
+                                    ? 'bg-rose-600 text-white'
+                                    : isLightMode
+                                    ? 'bg-slate-300 text-slate-800'
+                                    : 'bg-slate-700 text-slate-200'
+                                }`}
+                              >
+                                {st.stageOrder}
+                              </span>
+                              <span className="font-bold truncate">
+                                {isEn ? st.titleEn : st.titleFa}
+                              </span>
+                              {st.isOverride && (
+                                <span className="px-1.5 py-0.5 rounded bg-purple-600 text-white text-[10px] font-semibold">
+                                  {isEn ? 'Override' : 'عبور اضطراری'}
+                                </span>
+                              )}
+                            </div>
+
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 ${badgeCls}`}>
+                              {stStatusLabel}
+                            </span>
+                          </div>
+
+                          <div
+                            className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] ${
+                              isLightMode ? 'text-slate-600' : 'text-slate-400'
+                            }`}
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              {st.approverTargetType === 'user_groups' ? (
+                                <Users className="w-3 h-3 shrink-0" />
+                              ) : (
+                                <UserCheck className="w-3 h-3 shrink-0" />
+                              )}
+                              <span>{targetSummary}</span>
+                            </span>
+                            <span className="font-mono tabular-nums">
+                              TTL: {st.ttlMinutes}m
+                            </span>
+                            {stStatus === 'pending' && st.expiresAt && (
+                              <span className={isLightMode ? 'text-amber-700 font-semibold' : 'text-amber-400 font-semibold'}>
+                                ({formatRemainingWindow(st.expiresAt, isEn)})
+                              </span>
+                            )}
+                          </div>
+
+                          {(st.decidedByUsername || st.decisionNote) && (
+                            <div
+                              className={`text-[11px] pt-1 mt-0.5 border-t border-slate-200/70 dark:border-white/10 ${
+                                isLightMode ? 'text-slate-700' : 'text-slate-300'
+                              }`}
+                            >
+                              {st.decidedByUsername && (
+                                <span>
+                                  <strong>{st.decidedByFullName || st.decidedByUsername}</strong>
+                                  {st.decidedAt && (
+                                    <span className="font-mono tabular-nums opacity-75">
+                                      {' · '}
+                                      {new Date(st.decidedAt).toLocaleString(isEn ? 'en-US' : 'fa-IR')}
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+                              {st.decisionNote && (
+                                <div className="italic opacity-90 mt-0.5">“{st.decisionNote}”</div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Reason / Justification */}
               <div className="space-y-1.5">
@@ -879,51 +1165,145 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                 </div>
               )}
 
-              {/* Manager Approval Actions (When Pending) */}
-              {selectedItem.status === 'pending' && canApprove && (
-                <div
-                  className={`p-4 rounded-xl border space-y-3 ${
-                    isLightMode
-                      ? 'bg-slate-50 border-slate-200'
-                      : 'bg-slate-950/40 border-white/10'
-                  }`}
-                >
-                  <label className="block text-xs font-bold">
-                    {isEn ? 'Approver Decision Note (Optional)' : 'توضیحات یا شرط مدیر برای تایید/رد (اختیاری)'}
-                  </label>
-                  <input
-                    type="text"
-                    value={decisionNote}
-                    onChange={(e) => setDecisionNote(e.target.value)}
-                    placeholder={
-                      isEn
-                        ? 'e.g. Verified maintenance window; keep console rollback open'
-                        : 'مثلاً: پنجره تعمیراتی تایید شد؛ پس از اجرا خروجی بررسی شود'
-                    }
-                    className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
-                  />
-                  <div className="flex items-center flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() => handleDecide('approved')}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+              {/* Manager Approval Actions (Stage-Aware Authorization & Emergency Override) */}
+              {selectedItem.status === 'pending' && canApprove && (() => {
+                const activeStage =
+                  (selectedItem.stages || []).find(
+                    (s) => s.status === 'pending' && s.stageOrder === (selectedItem.currentStageOrder || 1)
+                  ) || (selectedItem.stages || []).find((s) => s.status === 'pending');
+                const isFinalStage =
+                  !activeStage ||
+                  (selectedItem.stages || []).every(
+                    (s) => s.stageOrder <= activeStage.stageOrder || s.status !== 'waiting'
+                  );
+                const canDecideNormally = selectedItem.isAssignedToCurrentActor !== false;
+                const activeStageAssignees =
+                  activeStage?.approverTargetType === 'any_approver'
+                    ? isEn ? 'Any Authorized Approver' : 'هر تاییدکننده مجاز'
+                    : activeStage?.approverLabels?.length
+                    ? activeStage.approverLabels.join('، ')
+                    : [...(activeStage?.approverUserIds || []), ...(activeStage?.approverGroupIds || [])].join(', ');
+
+                if (!canDecideNormally && !overrideUnlocked) {
+                  return (
+                    <div
+                      className={`p-4 rounded-xl border space-y-2.5 text-xs ${
+                        isLightMode
+                          ? 'bg-amber-50/70 border-amber-200 text-amber-900'
+                          : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                      }`}
                     >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>{isEn ? 'Approve Request' : 'تایید و صدور مجوز'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() => handleDecide('rejected')}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
-                    >
-                      <XCircle className="w-3.5 h-3.5" />
-                      <span>{isEn ? 'Reject Request' : 'رد درخواست'}</span>
-                    </button>
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div className="space-y-1">
+                          <div className="font-bold flex items-center gap-1.5">
+                            <Clock className="w-4 h-4 shrink-0" />
+                            <span>
+                              {isEn
+                                ? `Waiting on Stage ${activeStage?.stageOrder || 1} Approvers`
+                                : `در انتظار تاییدکنندگان مرحله ${activeStage?.stageOrder || 1}`}
+                            </span>
+                          </div>
+                          <p className="opacity-90">
+                            {isEn
+                              ? `Current active stage ("${activeStage?.titleEn || 'Stage'}") is assigned to: ${activeStageAssignees || 'Designated approvers'}.`
+                              : `مرحله فعلی («${activeStage?.titleFa || 'مرحله'}») به تاییدکنندگان مشخص‌شده (${activeStageAssignees || 'تاییدکنندگان مرحله'}) ارجاع شده است.`}
+                          </p>
+                        </div>
+
+                        {isSuperAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setOverrideUnlocked(true)}
+                            className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold cursor-pointer shrink-0 transition"
+                          >
+                            {isEn ? 'Super Admin Override' : 'عبور اضطراری سوپرادمین'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    className={`p-4 rounded-xl border space-y-3 ${
+                      overrideUnlocked
+                        ? isLightMode
+                          ? 'bg-purple-50 border-purple-300'
+                          : 'bg-purple-950/30 border-purple-500/40'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200'
+                        : 'bg-slate-950/40 border-white/10'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <label className="block text-xs font-bold">
+                        {overrideUnlocked
+                          ? isEn
+                            ? `Emergency Override — Stage ${activeStage?.stageOrder || 1} Decision Note`
+                            : `عبور اضطراری سوپرادمین — توضیحات مرحله ${activeStage?.stageOrder || 1}`
+                          : activeStage
+                          ? isEn
+                            ? `Stage ${activeStage.stageOrder}/${selectedItem.totalStages || 1} (${activeStage.titleEn}) — Decision Note`
+                            : `مرحله ${activeStage.stageOrder} از ${selectedItem.totalStages || 1} (${activeStage.titleFa}) — توضیحات مدیر`
+                          : isEn
+                          ? 'Approver Decision Note (Optional)'
+                          : 'توضیحات یا شرط مدیر برای تایید/رد (اختیاری)'}
+                      </label>
+                      {overrideUnlocked && (
+                        <button
+                          type="button"
+                          onClick={() => setOverrideUnlocked(false)}
+                          className={`text-[11px] underline cursor-pointer ${
+                            isLightMode ? 'text-slate-700' : 'text-slate-300'
+                          }`}
+                        >
+                          {isEn ? 'Cancel Override' : 'لغو حالت اضطراری'}
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={decisionNote}
+                      onChange={(e) => setDecisionNote(e.target.value)}
+                      placeholder={
+                        isEn
+                          ? 'e.g. Verified maintenance window; keep console rollback open'
+                          : 'مثلاً: پنجره تعمیراتی تایید شد؛ پس از اجرا خروجی بررسی شود'
+                      }
+                      className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+                    />
+                    <div className="flex items-center flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => handleDecide('approved', overrideUnlocked)}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>
+                          {isFinalStage
+                            ? isEn
+                              ? 'Grant Final Approval'
+                              : 'تایید نهایی و صدور مجوز'
+                            : isEn
+                            ? `Approve Stage ${activeStage?.stageOrder || 1} & Advance`
+                            : `تایید مرحله ${activeStage?.stageOrder || 1} و ارسال به مرحله بعد`}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => handleDecide('rejected', overrideUnlocked)}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Reject Request' : 'رد درخواست'}</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Execute / Close JIT Window (When Approved) */}
               {selectedItem.status === 'approved' && (

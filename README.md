@@ -260,6 +260,11 @@ npm start
 > ۳. **گیت و کامیت خودکار**: تمامی تغییرات باید خودکار همراه با پیام توصیفی دوزبانه روی برنچ `master` مخزن گیت‌هاب کامیت و پوش شوند. جزئیات بیشتر در فایل `AGENTS.md` درج شده است.
 
 ### تاریخچه نسخه‌ها و رفع مشکلات (Release Notes & Troubleshooting)
+- **نسخه ۱.۴۳۲.۰ (v1.432.0 - فاز ۲: موتور جریان کار تایید چندمرحله‌ای ترتیبی و ارتقای رابط Inbox و صف تاییدیه‌ها)**:
+  - **موتور اجرای ترتیبی چندمرحله‌ای (`approvalService.ts`):** پیاده‌سازی کامل چرخه تایید ۱ تا ۳ مرحله‌ای متصل به پالیسی RBAC در PostgreSQL و fallback store با مهاجرت خودکار ستون‌های `action_key`، `policy_id`، `policy_name`، `current_stage_order`، `total_stages` و `stages_json`.
+  - **مسیریابی اختصاصی اعلان و امنیت هر مرحله:** ارسال اعلان `approval_request` صرفاً به تاییدکنندگان مجاز مرحله فعال (کاربران خاص، گروه‌های کاربری محلی/AD و یا تاییدکنندگان مجاز)، اعمال کنترل عدم تایید خودکار (Four-Eyes) در سطح هر مرحله، و امکان تصمیم‌گیری اضطراری `Super Admin Override` با ثبت در لاگ ممیزی.
+  - **ارتقای صف تاییدیه‌ها و صندوق اعلانات:** افزودن فیلتر و شمارنده اختصاصی «در انتظار تایید من (`scope=assigned_to_me`)»، خط زمانی کامل مراحل تایید (`Approval Workflow Chain`) در جزئیات صف تاییدیه‌ها، و استپر پیشرفت گام‌به‌گام چندمرحله‌ای در کارت تاییدیه صندوق اعلانات (Inbox).
+
 - **نسخه ۱.۴۳۱.۰ (v1.431.0 - فاز ۱: ماتریس دسترسی سه‌حالته RBAC و سازنده زنجیره تایید چندمرحله‌ای در پالیسی‌ها)**:
   - **ماتریس دسترسی سه‌حالته (Tri-State RBAC):** ارتقای قوانین دسترسی سرورها و تجهیزات شبکه در پالیسی‌های RBAC از حالت دوگانه به سه حالت «مجاز (Allow)»، «نیازمند تایید (Approval)» و «مسدود (Deny)» همراه با کنترل‌های دسته‌ای و استثناهای تکی.
   - **سازنده زنجیره تایید چندمرحله‌ای (`ApprovalChainBuilder`):** افزودن تب «زنجیره تایید» در مودال پالیسی دسترسی با قابلیت تعریف ۱ تا ۳ مرحله تایید ترتیبی، انتخاب تاییدکنندگان مجاز (کاربران محلی/AD و گروه‌های امنیتی) و تنظیم مهلت زمانی (TTL) هر مرحله.
@@ -606,6 +611,11 @@ Any AI assistant, coding agent, or human contributor working on this repository 
 3. **Git Workflow:** Automatically commit all changes with descriptive commit messages and push to `origin master`.
 
 ### Release Notes & Bug Fixes
+- **Version 1.432.0 (Phase 2: Policy-Driven Multi-Stage Sequential Approval Workflow Engine & Inbox/Queue UI Upgrade)**:
+  - **Backend Multi-Stage Approval Engine (`approvalService.ts`):** Implemented 1–3 stage sequential workflow execution bound to the requester's effective `AccessPolicy` with idempotent PostgreSQL column migrations (`action_key`, `policy_id`, `policy_name`, `current_stage_order`, `total_stages`, `stages_json`) and full legacy 1-stage backward compatibility.
+  - **Targeted Stage Routing & Per-Stage Enforcement:** Sends `approval_request` Inbox notifications strictly to authorized recipients of the currently active stage (`specific_users`, `user_groups` across Local/AD groups, or `any_approver`), enforces per-stage assignment and Four-Eyes checks, and supports audited `Super Admin Override` escalation.
+  - **Inbox & Approvals Queue UI Upgrade:** Added `scope=assigned_to_me` (`Awaiting My Decision`) filtering and KPI badge in `ApprovalsQueuePane`, an interactive Approval Workflow Chain timeline inspector, and a compact Multi-Stage Progress Stepper inside the Inbox Detail Pane inline approval card (`CommunicationsCenterView`).
+
 - **Version 1.431.0 (Phase 1: Policy-Driven Tri-State RBAC & Multi-Stage Approval Chain Builder)**:
   - **Tri-State RBAC Rules Matrix:** Upgraded Server Fleet and Network Equipment action permissions inside Access Policies to support explicit `Allow`, `Require Approval`, and `Deny` rules with bulk selectors, per-target overrides, and interactive tooltips.
   - **Multi-Stage Approval Chain Builder (`ApprovalChainBuilder`):** Added the `Approval Chain` tab to Access Policy Modal to design 1–3 sequential approval stages targeting specific local/AD users, local/AD groups, or any eligible approver with configurable stage TTLs.

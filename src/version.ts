@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.431.0';
+export const APP_VERSION = '1.432.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.432.0',
+    releaseDate: '2026-11-16',
+    type: 'minor',
+    title: 'فاز ۲: موتور جریان کار تایید چندمرحله‌ای ترتیبی در سرور، مسیریابی اختصاصی اعلان و ارتقای رابط Inbox و صف تاییدیه‌ها',
+    title_en: 'Phase 2: Policy-Driven Multi-Stage Sequential Approval Workflow Engine, Targeted Routing & Inbox/Queue UI Upgrade',
+    changes: [
+      'راه‌اندازی موتور اجرای ترتیبی چندمرحله‌ای تایید در بک‌اند (`approvalService.ts` و `action_approval_requests`) متصل به زنجیره تایید پالیسی RBAC کاربر، همراه با پشتیبانی کامل از مراحل ۱ تا ۳، انقضای مستقل هر مرحله و مهاجرت خودکار ستون‌های PostgreSQL.',
+      'مسیریابی هوشمند و محدودسازی سطح مرحله: ارسال اعلان `approval_request` منحصراً برای تاییدکنندگان مجاز مرحله فعال (`specific_users`، `user_groups` شامل گروه‌های محلی/اکتیو دایرکتوری، یا `any_approver`)، کنترل Four-Eyes در هر مرحله و امکان تایید اضطراری `Super Admin Override` با ثبت برچسب ممیزی.',
+      'افزودن فیلتر «در انتظار تایید من (`assigned_to_me`)» و شمارنده `awaitingMyDecision` در API و صفحه صف تاییدیه‌ها (`ApprovalsQueuePane`) همراه با خط زمانی کامل زنجیره مراحل تایید (Timeline)، برچسب تاییدکنندگان هدف، شمارشگر TTL و دکمه‌های کنترل‌شده بر اساس مرحله فعال.',
+      'ارتقای کارت تاییدیه درون‌خطی در پنل جزئیات صندوق اعلانات (`CommunicationsCenterView`) با نمایشگر پیشرفت گام‌به‌گام مراحل (`Multi-Stage Stepper`)، نمایش وضعیت مرحله فعال و بازخورد پیشرفت به مرحله بعدی.'
+    ],
+    changes_en: [
+      'Implemented the backend Policy-Driven Multi-Stage Sequential Approval Workflow engine (`approvalService.ts` and `action_approval_requests` schema migration) supporting 1–3 ordered stages, per-stage TTL windows, action binding (`actionKey` / `policyId`), and full legacy 1-stage fallback.',
+      'Added stage-targeted Inbox notification routing and strict per-stage authorization across `specific_users`, `user_groups` (Local & AD groups), and `any_approver`, enforced per-stage Four-Eyes checks, and added audited `Super Admin Override` escalation.',
+      'Upgraded `ApprovalsQueuePane` and `GET /api/approvals` with `scope=assigned_to_me` (`Awaiting My Decision`), the `awaitingMyDecision` summary KPI, compact card stage-progress strips, and a full Approval Workflow Chain timeline inspector with stage-gated controls.',
+      'Upgraded the inline approval card in `CommunicationsCenterView` Inbox Detail Pane with a compact Multi-Stage Progress Stepper (`1..N`), stage-targeted assignment feedback, and seamless progression messaging across stages.'
+    ]
+  },
   {
     version: '1.431.0',
     releaseDate: '2026-11-16',

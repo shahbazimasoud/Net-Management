@@ -112,7 +112,10 @@ approvalRouter.get('/approvals', async (req: Request, res: Response) => {
   }
   try {
     const status = (req.query.status as string) || 'all';
-    const scope = ((req.query.scope as string) === 'mine' ? 'mine' : 'all') as 'all' | 'mine';
+    const rawScope = (req.query.scope as string) || 'all';
+    const scope = (
+      rawScope === 'mine' || rawScope === 'assigned_to_me' ? rawScope : 'all'
+    ) as 'all' | 'mine' | 'assigned_to_me';
     const q = (req.query.q as string) || '';
     const limit = parseInt((req.query.limit as string) || '100', 10);
 
@@ -171,7 +174,8 @@ approvalRouter.post('/approvals/:id/decide', async (req: Request, res: Response)
       auth.actor,
       req.params.id,
       decision,
-      req.body?.decisionNote
+      req.body?.decisionNote,
+      { emergencyOverride: Boolean(req.body?.emergencyOverride) }
     );
     return res.json({ success: true, approval: updated });
   } catch (err: any) {

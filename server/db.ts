@@ -2620,7 +2620,7 @@ export async function initDatabase(): Promise<void> {
       `);
       await client.query("CREATE INDEX IF NOT EXISTS idx_user_sec_profiles_username ON user_security_profiles(username)");
 
-      // 29. Two-Step / Four-Eyes Action Approval Requests Queue
+      // 29. Two-Step / Multi-Stage Action Approval Requests Queue
       await client.query(`
         CREATE TABLE IF NOT EXISTS action_approval_requests (
           id VARCHAR(128) PRIMARY KEY,
@@ -2630,6 +2630,12 @@ export async function initDatabase(): Promise<void> {
           target_entity_id VARCHAR(128) NOT NULL,
           target_entity_name VARCHAR(255),
           requested_action VARCHAR(128) NOT NULL,
+          action_key VARCHAR(128),
+          policy_id VARCHAR(128),
+          policy_name VARCHAR(255),
+          current_stage_order INTEGER DEFAULT 1,
+          total_stages INTEGER DEFAULT 1,
+          stages_json TEXT,
           command_payload_enc TEXT,
           status VARCHAR(24) NOT NULL DEFAULT 'pending',
           approver_user_id VARCHAR(128),
@@ -2640,6 +2646,12 @@ export async function initDatabase(): Promise<void> {
           decided_at TIMESTAMP WITH TIME ZONE
         )
       `);
+      await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS action_key VARCHAR(128)");
+      await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS policy_id VARCHAR(128)");
+      await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS policy_name VARCHAR(255)");
+      await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS current_stage_order INTEGER DEFAULT 1");
+      await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS total_stages INTEGER DEFAULT 1");
+      await client.query("ALTER TABLE action_approval_requests ADD COLUMN IF NOT EXISTS stages_json TEXT");
       await client.query("CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON action_approval_requests(status, created_at DESC)");
     } catch {}
 

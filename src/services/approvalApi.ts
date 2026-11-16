@@ -28,7 +28,7 @@ export interface ApprovalsListResponse {
 export async function fetchApprovalRequests(
   options: {
     status?: string;
-    scope?: 'all' | 'mine';
+    scope?: 'all' | 'mine' | 'assigned_to_me';
     q?: string;
     limit?: number;
     forceRefresh?: boolean;
@@ -113,12 +113,17 @@ export async function submitApprovalRequest(
 export async function decideApprovalRequestApi(
   id: string,
   decision: 'approved' | 'rejected',
-  decisionNote?: string
+  decisionNote?: string,
+  options?: { emergencyOverride?: boolean }
 ): Promise<ActionApprovalRequest> {
   const res = await fetch(`/api/approvals/${encodeURIComponent(id)}/decide`, {
     method: 'POST',
     headers: buildHeaders(),
-    body: JSON.stringify({ decision, decisionNote }),
+    body: JSON.stringify({
+      decision,
+      decisionNote,
+      ...(options?.emergencyOverride ? { emergencyOverride: true } : {}),
+    }),
   });
   const json = await res.json();
   if (!res.ok || !json.success || !json.approval) {
