@@ -184,6 +184,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   );
   const [composeTargetType, setComposeTargetType] = useState<'users' | 'group' | 'all'>('users');
   const [composeTargetIds, setComposeTargetIds] = useState<string[]>([]);
+  const [composeRecipientQuery, setComposeRecipientQuery] = useState('');
   const [composeSeverity, setComposeSeverity] = useState<CommsSeverity>('info');
   const [composeTitle, setComposeTitle] = useState('');
   const [composeBody, setComposeBody] = useState('');
@@ -541,6 +542,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   const openComposeModal = async () => {
     undockModal(COMPOSE_MODAL_ID);
     setComposeFeedback(null);
+    setComposeRecipientQuery('');
     setComposeOpen(true);
     if (recipients.length === 0) {
       setRecipientsLoading(true);
@@ -566,6 +568,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
 
   const handleCloseCompose = () => {
     setComposeOpen(false);
+    setComposeRecipientQuery('');
     undockModal(COMPOSE_MODAL_ID);
   };
 
@@ -604,6 +607,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
       setComposeTitle('');
       setComposeBody('');
       setComposeTargetIds([]);
+      setComposeRecipientQuery('');
       setComposeRequiresAck(false);
       setComposeFeedback({
         type: 'success',
@@ -747,6 +751,21 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
       ),
     [recipients, composeTargetType]
   );
+
+  const filteredSelectableOptions = useMemo(() => {
+    const q = composeRecipientQuery.trim().toLowerCase();
+    if (!q) return selectableOptions;
+    return selectableOptions.filter((opt) => {
+      const fields = [opt.label, opt.labelEn, opt.username, opt.roleOrType, opt.id, opt.source];
+      return fields.some((f) => (f || '').toLowerCase().includes(q));
+    });
+  }, [selectableOptions, composeRecipientQuery]);
+
+  const selectedRecipientOptions = useMemo(() => {
+    if (composeTargetIds.length === 0) return [];
+    const selectedSet = new Set(composeTargetIds);
+    return selectableOptions.filter((opt) => selectedSet.has(opt.username || opt.id));
+  }, [selectableOptions, composeTargetIds]);
 
   return (
     <div
@@ -2176,6 +2195,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                           onClick={() => {
                             setComposeTargetType(mode.id);
                             setComposeTargetIds([]);
+                            setComposeRecipientQuery('');
                           }}
                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition ${
                             active
@@ -2194,56 +2214,222 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
 
                   {composeTargetType !== 'all' && (
                     <div
-                      className={`max-h-36 overflow-y-auto custom-scrollbar rounded-xl border p-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5 ${
+                      className={`rounded-xl border overflow-hidden ${
                         isLightMode
                           ? 'bg-slate-50 border-slate-200'
                           : 'bg-slate-950/70 border-slate-800'
                       }`}
                     >
-                      {recipientsLoading ? (
-                        <p className="text-xs text-slate-400 p-2">
-                          {isEn ? 'Loading directory...' : 'در حال دریافت فهرست...'}
-                        </p>
-                      ) : selectableOptions.length === 0 ? (
-                        <p className="text-xs text-slate-400 p-2">
-                          {isEn ? 'No entries available' : 'موردی یافت نشد'}
-                        </p>
-                      ) : (
-                        selectableOptions.map((opt) => {
-                          const targetVal = opt.username || opt.id;
-                          const checked = composeTargetIds.includes(targetVal);
-                          return (
-                            <label
-                              key={`${opt.type}:${opt.id}`}
-                              className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer transition ${
-                                checked
-                                  ? isLightMode
-                                    ? 'bg-indigo-50 border-indigo-300 text-indigo-900'
-                                    : 'bg-indigo-500/20 border-indigo-500/40 text-white'
-                                  : isLightMode
-                                  ? 'bg-white border-slate-200 text-slate-800 hover:bg-slate-100'
-                                  : 'bg-white/5 border-transparent text-slate-300 hover:bg-white/10'
+                      {/* Live Search + Multi-Select Controls Bar */}
+                      <div
+                        className={`flex flex-wrap items-center gap-2 px-2.5 py-2 border-b ${
+                          isLightMode
+                            ? 'bg-white border-slate-200'
+                            : 'bg-slate-900/70 border-slate-800'
+                        }`}
+                      >
+                        <div className="relative flex-1 min-w-[180px]">
+                          <Search
+                            className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 ${
+                              isRtl ? 'right-2.5' : 'left-2.5'
+                            } ${isLightMode ? 'text-slate-400' : 'text-slate-500'}`}
+                          />
+                          <input
+                            type="text"
+                            value={composeRecipientQuery}
+                            onChange={(e) => setComposeRecipientQuery(e.target.value)}
+                            placeholder={
+                              composeTargetType === 'users'
+                                ? isEn
+                                  ? 'Search users by name, username, or role...'
+                                  : 'جستجوی کاربر با نام، نام کاربری یا نقش...'
+                                : isEn
+                                ? 'Search user groups...'
+                                : 'جستجوی گروه کاربری...'
+                            }
+                            className={`w-full py-1.5 rounded-lg border text-xs outline-none transition ${
+                              isRtl ? 'pr-8 pl-7' : 'pl-8 pr-7'
+                            } ${
+                              isLightMode
+                                ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white'
+                                : 'bg-slate-950 border-white/15 text-white placeholder:text-slate-500 focus:border-indigo-500'
+                            }`}
+                          />
+                          {composeRecipientQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setComposeRecipientQuery('')}
+                              className={`absolute top-1/2 -translate-y-1/2 ${
+                                isRtl ? 'left-2' : 'right-2'
+                              } text-slate-400 hover:text-slate-600 cursor-pointer`}
+                              title={isEn ? 'Clear search' : 'پاک کردن جستجو'}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 text-[11px] shrink-0">
+                          <span
+                            className={`font-mono tabular-nums font-semibold px-2 py-1 rounded-md ${
+                              composeTargetIds.length > 0
+                                ? isLightMode
+                                  ? 'bg-indigo-50 text-indigo-700'
+                                  : 'bg-indigo-500/20 text-indigo-300'
+                                : isLightMode
+                                ? 'text-slate-500'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            {isEn
+                              ? `${composeTargetIds.length} selected`
+                              : `${composeTargetIds.length} انتخاب شده`}
+                          </span>
+
+                          {filteredSelectableOptions.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const visibleValues = filteredSelectableOptions.map(
+                                  (o) => o.username || o.id
+                                );
+                                setComposeTargetIds((prev) =>
+                                  Array.from(new Set([...prev, ...visibleValues]))
+                                );
+                              }}
+                              className={`px-2 py-1 rounded-md border font-medium cursor-pointer transition ${
+                                isLightMode
+                                  ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                                  : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
                               }`}
                             >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => {
+                              {composeRecipientQuery.trim()
+                                ? isEn
+                                  ? 'Select Filtered'
+                                  : 'انتخاب فیلترشده‌ها'
+                                : isEn
+                                ? 'Select All'
+                                : 'انتخاب همه'}
+                            </button>
+                          )}
+
+                          {composeTargetIds.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setComposeTargetIds([])}
+                              className={`px-2 py-1 rounded-md border font-medium cursor-pointer transition ${
+                                isLightMode
+                                  ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
+                                  : 'bg-rose-500/10 hover:bg-rose-500/20 border-rose-500/30 text-rose-300'
+                              }`}
+                            >
+                              {isEn ? 'Clear' : 'پاک کردن'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Selected Recipients Review Bar (Preserved Across Searches) */}
+                      {selectedRecipientOptions.length > 0 && (
+                        <div
+                          className={`flex flex-wrap items-center gap-1.5 px-2.5 py-2 border-b max-h-20 overflow-y-auto custom-scrollbar ${
+                            isLightMode
+                              ? 'bg-indigo-50/40 border-slate-200'
+                              : 'bg-indigo-500/5 border-slate-800'
+                          }`}
+                        >
+                          {selectedRecipientOptions.map((opt) => {
+                            const targetVal = opt.username || opt.id;
+                            return (
+                              <button
+                                key={`sel:${opt.type}:${opt.id}`}
+                                type="button"
+                                onClick={() =>
                                   setComposeTargetIds((prev) =>
-                                    e.target.checked
-                                      ? [...prev, targetVal]
-                                      : prev.filter((x) => x !== targetVal)
-                                  );
-                                }}
-                                className="rounded accent-indigo-600"
-                              />
-                              <span className="truncate flex-1">
-                                {isEn ? opt.labelEn || opt.label : opt.label}
-                              </span>
-                            </label>
-                          );
-                        })
+                                    prev.filter((x) => x !== targetVal)
+                                  )
+                                }
+                                title={isEn ? 'Remove recipient' : 'حذف از گیرندگان'}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-medium cursor-pointer transition ${
+                                  isLightMode
+                                    ? 'bg-white border-indigo-200 text-indigo-800 hover:bg-rose-50 hover:border-rose-300 hover:text-rose-700'
+                                    : 'bg-indigo-500/20 border-indigo-500/40 text-indigo-200 hover:bg-rose-500/20 hover:border-rose-500/40 hover:text-rose-200'
+                                }`}
+                              >
+                                <span className="truncate max-w-[180px]">
+                                  {isEn ? opt.labelEn || opt.label : opt.label}
+                                </span>
+                                <X className="w-3 h-3 shrink-0" />
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
+
+                      {/* Directory Multi-Select Grid */}
+                      <div className="max-h-40 overflow-y-auto custom-scrollbar p-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {recipientsLoading ? (
+                          <p className="text-xs text-slate-400 p-2">
+                            {isEn ? 'Loading directory...' : 'در حال دریافت فهرست...'}
+                          </p>
+                        ) : selectableOptions.length === 0 ? (
+                          <p className="text-xs text-slate-400 p-2">
+                            {isEn ? 'No entries available' : 'موردی یافت نشد'}
+                          </p>
+                        ) : filteredSelectableOptions.length === 0 ? (
+                          <p className="text-xs text-slate-400 p-2 sm:col-span-2">
+                            {isEn
+                              ? `No matches found for "${composeRecipientQuery.trim()}"`
+                              : `موردی مطابق با «${composeRecipientQuery.trim()}» یافت نشد.`}
+                          </p>
+                        ) : (
+                          filteredSelectableOptions.map((opt) => {
+                            const targetVal = opt.username || opt.id;
+                            const checked = composeTargetIds.includes(targetVal);
+                            return (
+                              <label
+                                key={`${opt.type}:${opt.id}`}
+                                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer transition ${
+                                  checked
+                                    ? isLightMode
+                                      ? 'bg-indigo-50 border-indigo-300 text-indigo-900'
+                                      : 'bg-indigo-500/20 border-indigo-500/40 text-white'
+                                    : isLightMode
+                                    ? 'bg-white border-slate-200 text-slate-800 hover:bg-slate-100'
+                                    : 'bg-white/5 border-transparent text-slate-300 hover:bg-white/10'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    setComposeTargetIds((prev) =>
+                                      e.target.checked
+                                        ? Array.from(new Set([...prev, targetVal]))
+                                        : prev.filter((x) => x !== targetVal)
+                                    );
+                                  }}
+                                  className="rounded accent-indigo-600 shrink-0"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate font-medium">
+                                    {isEn ? opt.labelEn || opt.label : opt.label}
+                                  </div>
+                                  {(opt.roleOrType || opt.username) && (
+                                    <div
+                                      className={`truncate text-[10px] ${
+                                        isLightMode ? 'text-slate-500' : 'text-slate-400'
+                                      }`}
+                                    >
+                                      {[opt.roleOrType, opt.username].filter(Boolean).join(' · ')}
+                                    </div>
+                                  )}
+                                </div>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

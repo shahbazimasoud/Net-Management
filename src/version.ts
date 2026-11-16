@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.429.1';
+export const APP_VERSION = '1.430.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.430.0',
+    releaseDate: '2026-11-16',
+    type: 'minor',
+    title: 'افزودن قابلیت جستجوی زنده و انتخاب چندکاربره پیشرفته در بخش گیرندگان (Target Audience)',
+    title_en: 'Add Searchable Multi-User & Group Recipient Selector in Communications Compose Modal',
+    changes: [
+      'افزودن کادر جستجوی زنده در بخش انتخاب گیرندگان (کاربران مشخص / گروه کاربری) پنجره ارسال پیام با قابلیت فیلتر هم‌زمان بر اساس نام، نام کاربری و نقش.',
+      'افزودن نوار خلاصه گیرندگان انتخاب‌شده با قابلیت حذف تک‌به‌تک و حفظ انتخاب‌های قبلی هنگام تغییر عبارت جستجو جهت انتخاب سریع چندین کاربر مختلف.',
+      'افزودن دکمه‌های کاربردی «انتخاب فیلترشده‌ها / انتخاب همه»، «پاک کردن» و نمایش تعداد دقیق کاربران انتخاب‌شده همراه با نقش و شناسه هر کاربر.'
+    ],
+    changes_en: [
+      'Added a live search input inside the Target Audience selector of the Compose Message modal filtering Specific Users and User Groups by display name, username, and role.',
+      'Added a preserved selected-recipients bar allowing multi-user cumulative selection across multiple search queries with one-click individual removal.',
+      'Added Select Filtered / Select All, Clear Selection controls, selected count indicator, and clean role metadata on each directory entry.'
+    ]
+  },
   {
     version: '1.429.1',
     releaseDate: '2026-11-16',
