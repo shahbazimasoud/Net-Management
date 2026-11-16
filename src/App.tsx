@@ -163,11 +163,18 @@ export default function App() {
       if (
         evt.type === 'notification:created' ||
         evt.type === 'notification:updated' ||
-        evt.type === 'notification:read_all'
+        evt.type === 'notification:read_all' ||
+        evt.type === 'channel:message' ||
+        evt.type === 'channel:created' ||
+        evt.type === 'channel:updated'
       ) {
         appDataCache.invalidate('comms:');
         setCommsLiveRevision((r) => r + 1);
-        if (nextUnread === undefined) {
+        if (
+          nextUnread === undefined &&
+          evt.type !== 'channel:created' &&
+          evt.type !== 'channel:updated'
+        ) {
           fetchUnreadCommsCounts(true)
             .then((res) => {
               if (!cancelled) setUnreadCommsCount(res.unreadCount ?? 0);

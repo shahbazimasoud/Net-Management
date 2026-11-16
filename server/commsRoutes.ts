@@ -3,16 +3,26 @@ import { verifyToken } from './auth';
 import { findUserById, findUserByUsername, getEffectivePolicyForUser } from './db';
 import {
   acknowledgeNotification,
+  addChannelMembers,
   archiveNotification,
   CommsActor,
+  createGroupChannel,
+  createOrOpenDirectChannel,
   dispatchCommunication,
+  getAnnouncementReceipts,
   getCommsRecipients,
   getUnreadNotificationCounts,
+  listChannelMessages,
+  listSentAnnouncements,
+  listUserChannels,
   listUserNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  postChannelMessage,
+  replyToInboxNotification,
+  toggleChannelMute,
 } from './commsService';
-import { CommsDispatchPayload, CommsFolder } from '../src/types';
+import { CommsDispatchPayload, CommsFolder, CommsSeverity } from '../src/types';
 
 export const commsRouter = Router();
 
@@ -246,5 +256,223 @@ commsRouter.post('/comms/dispatch', async (req: Request, res: Response) => {
     return res.json({ success: true, ...result });
   } catch (err: any) {
     return res.status(400).json({ success: false, error: err?.message || 'Failed to dispatch message' });
+  }
+});
+
+// ==============================================================================
+// Phase 2 Routes: Channels, Direct Chats, Threads & Announcement Read Tracker
+// ==============================================================================
+
+// GET /api/comms/channels
+commsRouter.get('/comms/channels', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const channels = await listUserChannels(auth.actor);
+    return res.json({ success: true, channels });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to list channels' });
+  }
+});
+
+// POST /api/comms/channels/direct
+commsRouter.post('/comms/channels/direct', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  if (!auth.isSuperAdmin && !auth.policy?.canSendCommunications && !auth.policy?.canSendAnnouncements) {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: Insufficient permissions to initiate direct conversations.',
+    });
+  }
+  try {
+    const targetUserId = String(req.body?.targetUserId || req.body?.targetUsername || '').trim();
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, error: 'Target user identifier is required' });
+    }
+    const result = await createOrOpenDirectChannel(auth.actor, targetUserId);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'Failed to open direct chat' });
+  }
+});
+
+// POST /api/comms/channels/group
+commsRouter.post('/comms/channels/group', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  if (!auth.isSuperAdmin && !auth.policy?.canSendCommunications && !auth.policy?.canSendAnnouncements) {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: Insufficient permissions to create group channels.',
+    });
+  }
+  try {
+    const channel = await createGroupChannel(auth.actor, auth.clientIp, req.body || {});
+    return res.json({ success: true, channel });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'Failed to create group channel' });
+  }
+});
+
+// POST /api/comms/channels/:id/members
+commsRouter.post('/comms/channels/:id/members', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const memberIds = Array.isArray(req.body?.memberIds) ? req.body.memberIds : [];
+    const channel = await addChannelMembers(
+      auth.actor,
+      Boolean(auth.isSuperAdmin),
+      req.params.id,
+      memberIds
+    );
+    return res.json({ success: true, channel });
+  } catch (err: any) {
+    const status = String(err?.message || '').startsWith('ACCESS_DENIED') ? 403 : 400;
+    return res.status(status).json({ success: false, error: err?.message || 'Failed to add members' });
+  }
+});
+
+// PATCH /api/comms/channels/:id/mute
+commsRouter.patch('/comms/channels/:id/mute', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const isMuted = Boolean(req.body?.isMuted);
+    const result = await toggleChannelMute(auth.actor, req.params.id, isMuted);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'Failed to update mute state' });
+  }
+});
+
+// GET /api/comms/channels/:id/messages
+commsRouter.get('/comms/channels/:id/messages', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const limit = parseInt((req.query.limit as string) || '100', 10);
+    const offset = parseInt((req.query.offset as string) || '0', 10);
+    const data = await listChannelMessages(auth.actor, Boolean(auth.isSuperAdmin), req.params.id, {
+      limit,
+      offset,
+    });
+    return res.json({ success: true, ...data });
+  } catch (err: any) {
+    const msg = String(err?.message || '');
+    const status = msg.startsWith('ACCESS_DENIED') ? 403 : msg.includes('not found') ? 404 : 500;
+    return res.status(status).json({ success: false, error: msg || 'Failed to load messages' });
+  }
+});
+
+// POST /api/comms/channels/:id/messages
+commsRouter.post('/comms/channels/:id/messages', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  if (!auth.isSuperAdmin && !auth.policy?.canSendCommunications && !auth.policy?.canSendAnnouncements) {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: Insufficient permissions to post channel messages.',
+    });
+  }
+  try {
+    const message = await postChannelMessage(auth.actor, auth.clientIp, req.params.id, {
+      body: req.body?.body || '',
+      bodyEn: req.body?.bodyEn,
+      priority: (req.body?.priority || 'info') as CommsSeverity,
+      replyToMessageId: req.body?.replyToMessageId || null,
+      linkedEntityType: req.body?.linkedEntityType || null,
+      linkedEntityId: req.body?.linkedEntityId || null,
+      linkedEntityName: req.body?.linkedEntityName || null,
+    });
+    return res.json({ success: true, message });
+  } catch (err: any) {
+    const msg = String(err?.message || '');
+    const status = msg.startsWith('ACCESS_DENIED') ? 403 : 400;
+    return res.status(status).json({ success: false, error: msg || 'Failed to post message' });
+  }
+});
+
+// POST /api/comms/notifications/:id/reply
+commsRouter.post('/comms/notifications/:id/reply', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  if (!auth.isSuperAdmin && !auth.policy?.canSendCommunications && !auth.policy?.canSendAnnouncements) {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: Insufficient permissions to reply to messages.',
+    });
+  }
+  try {
+    const result = await replyToInboxNotification(auth.actor, auth.clientIp, req.params.id, {
+      body: req.body?.body || '',
+      priority: (req.body?.priority || 'info') as CommsSeverity,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err?.message || 'Failed to send reply' });
+  }
+});
+
+// GET /api/comms/announcements/sent
+commsRouter.get('/comms/announcements/sent', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  if (!auth.isSuperAdmin && !auth.policy?.canSendAnnouncements) {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: Announcement tracker requires broadcast privileges.',
+    });
+  }
+  try {
+    const announcements = await listSentAnnouncements(auth.actor, Boolean(auth.isSuperAdmin));
+    return res.json({ success: true, announcements });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to list announcements' });
+  }
+});
+
+// GET /api/comms/announcements/:messageId/receipts
+commsRouter.get('/comms/announcements/:messageId/receipts', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  if (!auth.isSuperAdmin && !auth.policy?.canSendAnnouncements) {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: Announcement tracker requires broadcast privileges.',
+    });
+  }
+  try {
+    const tracker = await getAnnouncementReceipts(
+      auth.actor,
+      Boolean(auth.isSuperAdmin),
+      req.params.messageId
+    );
+    return res.json({ success: true, ...tracker });
+  } catch (err: any) {
+    const msg = String(err?.message || '');
+    const status = msg.startsWith('ACCESS_DENIED') ? 403 : msg.includes('not found') ? 404 : 500;
+    return res.status(status).json({ success: false, error: msg || 'Failed to load receipts' });
   }
 });

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.426.0';
+export const APP_VERSION = '1.427.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.427.0',
+    releaseDate: '2026-11-16',
+    type: 'minor',
+    title: 'تکمیل فاز ۲ مرکز ارتباطات: گفتگوی مستقیم دوجانبه، کانال‌های گروهی تیم، رهگیری مطالعه اطلاعیه‌ها و هشدارهای سرویس‌های پس‌زمینه',
+    title_en: 'Communications Center Phase 2: Two-Way Direct Chats, Team Group Channels, Broadcast Read-Receipt Tracker & Daemon Alerts',
+    changes: [
+      'افزودن فضای کامل «گفتگوی تیمی و کانال‌ها» (Team Chat & Channels) با پشتیبانی از گفتگوی مستقیم دوجانبه (1:1)، ایجاد کانال‌های گروهی با قابلیت اتصال به گروه‌های کاربری/AD، افزودن عضو، ریپلای روی پیام (Thread Quote)، بی‌صدا کردن اعلان کانال (Mute/Unmute) و به‌روزرسانی آنی پیام‌ها از طریق WebSocket.',
+      'افزودن قابلیت پاسخ سریع مستقیم (Quick Reply) و انتقال به ترد چت در پنل جزئیات پیام‌های صندوق اعلانات (Inbox Detail Pane).',
+      'ایجاد بخش «رهگیری مطالعه اطلاعیه‌ها» (Announcement Read Tracker) ویژه مدیران و فرستنده‌های مجاز با جدول دقیق وضعیت مطالعه و تاییدیه رسمی (Acknowledge Receipt) برای تک‌تک گیرندگان.',
+      'اتصال مستقیم هشدارهای سرویس‌های پس‌زمینه به صندوق اعلانات واقعی: خطای بکاپ‌های زمان‌بندی‌شده (Backup Scheduler)، هشدار سررسید و انقضای لایسنس‌ها و قراردادها (License & Contract Daemon) و لاگ‌های حسابرسی سطح هشدار (warn).'
+    ],
+    changes_en: [
+      'Added full Team Chat & Channels workspace supporting two-way 1:1 direct conversations, team group channels with optional Local/AD group auto-enrollment, member invitations, quoted message replies, per-user channel mute/unmute, and live WebSocket message streaming.',
+      'Added inline Quick Reply and Open-in-Team-Chat workflow directly inside the Inbox Detail Pane for user-originated messages.',
+      'Built the Broadcast Announcement Read-Receipt Tracker for authorized managers, displaying real-time read/acknowledgment progress and per-recipient audit timestamps.',
+      'Integrated genuine background daemon notifications into the real-time Inbox feed for scheduled backup failures, expiring/expired licenses and contracts, and warn-level audit logs.'
+    ]
+  },
   {
     version: '1.426.0',
     releaseDate: '2026-11-16',

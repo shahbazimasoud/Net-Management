@@ -16,6 +16,7 @@ import {
   addAuditLog,
 } from './db';
 import { sendTelegramAlert } from './telegramAlertManager';
+import { emitSystemNotification } from './commsService';
 
 // Server-side backups storage directory
 const DEFAULT_BACKUPS_DIR = path.join(process.cwd(), 'backend', 'server_backups');
@@ -490,6 +491,21 @@ export async function executeScheduledJob(jobId: string, triggeredBy: string = '
     }).catch((telegramErr) => {
       console.warn('[DR Scheduler Daemon] Telegram failure alert dispatch failed:', telegramErr.message);
     });
+
+    emitSystemNotification({
+      category: 'system_alert',
+      severity: 'critical',
+      senderName: 'DR Backup Scheduler',
+      senderRole: 'Automated Backup Engine',
+      title: `خطا در اجرای پشتیبان‌گیری زمان‌بندی‌شده: ${job.name}`,
+      titleEn: `Scheduled Backup Failed: ${job.name}`,
+      body: `پشتیبان‌گیری خودکار «${job.name}» با خطا متوقف شد.\nجزئیات خطا: ${err.message || errorDetails}`,
+      bodyEn: `Automated scheduled backup "${job.name}" failed.\nError details: ${err.message || errorDetails}`,
+      linkedEntityType: 'backup_job',
+      linkedEntityId: job.id,
+      linkedEntityName: job.name,
+      actionTab: 'settings-backup',
+    }).catch(() => {});
 
     throw err;
   }

@@ -1127,6 +1127,96 @@ export interface CommsDispatchPayload {
   actionTab?: string;
 }
 
+export type CommsChannelType = 'direct' | 'group' | 'announcement';
+
+export interface CommsChannelMember {
+  channelId: string;
+  userId: string;
+  username: string;
+  fullName?: string;
+  role: string;
+  isMuted: boolean;
+  lastReadMessageId?: string | null;
+  joinedAt: string;
+}
+
+export interface CommsChannel {
+  id: string;
+  channelType: CommsChannelType;
+  name: string;
+  nameEn?: string | null;
+  description?: string | null;
+  descriptionEn?: string | null;
+  linkedGroupId?: string | null;
+  isPinned?: boolean;
+  isMuted?: boolean;
+  createdByUserId?: string | null;
+  memberCount: number;
+  unreadCount: number;
+  lastMessagePreview?: string | null;
+  lastMessageAt?: string | null;
+  members?: CommsChannelMember[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CommsMessage {
+  id: string;
+  channelId?: string | null;
+  senderUserId: string;
+  senderUsername: string;
+  senderFullName?: string | null;
+  senderRole?: string | null;
+  messageType: string;
+  priority: CommsSeverity;
+  title: string;
+  titleEn?: string | null;
+  body: string;
+  bodyEn?: string | null;
+  replyToMessageId?: string | null;
+  replyToPreview?: {
+    id: string;
+    senderName: string;
+    body: string;
+  } | null;
+  linkedEntityType?: string | null;
+  linkedEntityId?: string | null;
+  linkedEntityName?: string | null;
+  metadata?: Record<string, any>;
+  createdAt: string;
+}
+
+export interface CommsAnnouncementSummary {
+  messageId: string;
+  title: string;
+  titleEn?: string | null;
+  body: string;
+  priority: CommsSeverity;
+  senderName: string;
+  requiresAcknowledgment: boolean;
+  totalRecipients: number;
+  readCount: number;
+  acknowledgedCount: number;
+  createdAt: string;
+}
+
+export interface CommsAnnouncementReadReceipt {
+  notificationId: string;
+  recipientUserId: string;
+  recipientUsername: string;
+  fullName?: string;
+  role?: string | null;
+  isRead: boolean;
+  readAt?: string | null;
+  acknowledgedAt?: string | null;
+  createdAt: string;
+}
+
+export interface CommsAnnouncementTrackerResponse {
+  announcement: CommsAnnouncementSummary;
+  recipients: CommsAnnouncementReadReceipt[];
+}
+
 export type BackupScope = 'full' | 'devices_topology' | 'security_rbac' | 'servers_only' | 'templates_only';
 
 export interface BackupMetadata {

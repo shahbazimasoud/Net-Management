@@ -1,9 +1,14 @@
 import {
+  CommsAnnouncementSummary,
+  CommsAnnouncementTrackerResponse,
+  CommsChannel,
   CommsCountsByFolder,
   CommsDispatchPayload,
   CommsFolder,
+  CommsMessage,
   CommsNotificationItem,
   CommsRecipientOption,
+  CommsSeverity,
 } from '../types';
 import { appDataCache } from './dataCache';
 
@@ -229,6 +234,213 @@ export async function dispatchCommsMessage(payload: CommsDispatchPayload): Promi
   return json;
 }
 
+export async function fetchCommsChannels(forceRefresh = false): Promise<CommsChannel[]> {
+  return appDataCache.query<CommsChannel[]>(
+    'comms:channels',
+    async () => {
+      const res = await fetch('/api/comms/channels', {
+        headers: buildAuthHeaders(),
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+      return Array.isArray(json.channels) ? json.channels : [];
+    },
+    { ttlMs: 12_000, forceRefresh }
+  );
+}
+
+export async function openDirectCommsChannel(targetUserId: string): Promise<{
+  success: boolean;
+  channel: CommsChannel;
+  created: boolean;
+}> {
+  const res = await fetch('/api/comms/channels/direct', {
+    method: 'POST',
+    headers: buildAuthHeaders(),
+    body: JSON.stringify({ targetUserId }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate('comms:channels');
+  return json;
+}
+
+export async function createGroupCommsChannel(payload: {
+  name: string;
+  nameEn?: string;
+  description?: string;
+  linkedGroupId?: string | null;
+  memberIds?: string[];
+}): Promise<{ success: boolean; channel: CommsChannel }> {
+  const res = await fetch('/api/comms/channels/group', {
+    method: 'POST',
+    headers: buildAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate('comms:channels');
+  return json;
+}
+
+export async function addCommsChannelMembers(
+  channelId: string,
+  memberIds: string[]
+): Promise<{ success: boolean; channel: CommsChannel }> {
+  const res = await fetch(`/api/comms/channels/${encodeURIComponent(channelId)}/members`, {
+    method: 'POST',
+    headers: buildAuthHeaders(),
+    body: JSON.stringify({ memberIds }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate('comms:channels');
+  return json;
+}
+
+export async function toggleCommsChannelMute(
+  channelId: string,
+  isMuted: boolean
+): Promise<{ success: boolean; channelId: string; isMuted: boolean }> {
+  const res = await fetch(`/api/comms/channels/${encodeURIComponent(channelId)}/mute`, {
+    method: 'PATCH',
+    headers: buildAuthHeaders(),
+    body: JSON.stringify({ isMuted }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate('comms:channels');
+  return json;
+}
+
+export async function fetchChannelMessages(
+  channelId: string,
+  options: { limit?: number; offset?: number; forceRefresh?: boolean } = {}
+): Promise<{ success: boolean; channel: CommsChannel; messages: CommsMessage[]; total: number }> {
+  const limit = options.limit || 100;
+  const offset = options.offset || 0;
+  return appDataCache.query(
+    `comms:channel:${channelId}:${limit}:${offset}`,
+    async () => {
+      const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+      const res = await fetch(
+        `/api/comms/channels/${encodeURIComponent(channelId)}/messages?${qs.toString()}`,
+        {
+          headers: buildAuthHeaders(),
+          cache: 'no-store',
+        }
+      );
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+      appDataCache.invalidate('comms:unread');
+      return json;
+    },
+    { ttlMs: 8_000, forceRefresh: Boolean(options.forceRefresh) }
+  );
+}
+
+export async function postChannelMessage(
+  channelId: string,
+  payload: {
+    body: string;
+    priority?: CommsSeverity;
+    replyToMessageId?: string | null;
+  }
+): Promise<{ success: boolean; message: CommsMessage }> {
+  const res = await fetch(`/api/comms/channels/${encodeURIComponent(channelId)}/messages`, {
+    method: 'POST',
+    headers: buildAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate(`comms:channel:${channelId}`);
+  appDataCache.invalidate('comms:channels');
+  return json;
+}
+
+export async function replyToInboxNotificationApi(
+  notificationId: string,
+  payload: { body: string; priority?: CommsSeverity }
+): Promise<{ success: boolean; channel: CommsChannel; message: CommsMessage }> {
+  const res = await fetch(
+    `/api/comms/notifications/${encodeURIComponent(notificationId)}/reply`,
+    {
+      method: 'POST',
+      headers: buildAuthHeaders(),
+      body: JSON.stringify(payload),
+    }
+  );
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate('comms:');
+  return json;
+}
+
+export async function fetchSentAnnouncements(
+  forceRefresh = false
+): Promise<CommsAnnouncementSummary[]> {
+  return appDataCache.query<CommsAnnouncementSummary[]>(
+    'comms:announcements:sent',
+    async () => {
+      const res = await fetch('/api/comms/announcements/sent', {
+        headers: buildAuthHeaders(),
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+      return Array.isArray(json.announcements) ? json.announcements : [];
+    },
+    { ttlMs: 12_000, forceRefresh }
+  );
+}
+
+export async function fetchAnnouncementReceipts(
+  messageId: string,
+  forceRefresh = false
+): Promise<CommsAnnouncementTrackerResponse> {
+  return appDataCache.query<CommsAnnouncementTrackerResponse>(
+    `comms:announcement:${messageId}:receipts`,
+    async () => {
+      const res = await fetch(
+        `/api/comms/announcements/${encodeURIComponent(messageId)}/receipts`,
+        {
+          headers: buildAuthHeaders(),
+          cache: 'no-store',
+        }
+      );
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+      return {
+        announcement: json.announcement,
+        recipients: Array.isArray(json.recipients) ? json.recipients : [],
+      };
+    },
+    { ttlMs: 10_000, forceRefresh }
+  );
+}
+
 export type CommsWsEvent =
   | {
       type: 'comms:sync';
@@ -253,6 +465,19 @@ export type CommsWsEvent =
       folder?: CommsFolder;
       unreadCount?: number;
       countsByFolder?: CommsCountsByFolder;
+    }
+  | {
+      type: 'channel:created';
+      channel: CommsChannel;
+    }
+  | {
+      type: 'channel:updated';
+      channel: CommsChannel;
+    }
+  | {
+      type: 'channel:message';
+      channelId: string;
+      message: CommsMessage;
     }
   | { type: 'ping' | 'pong'; timestamp?: number };
 

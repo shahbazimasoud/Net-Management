@@ -25,9 +25,13 @@ import {
   Users,
   X,
   Filter,
+  Reply,
+  Hash,
+  BarChart3,
 } from 'lucide-react';
 import {
   CommsCategory,
+  CommsChannel,
   CommsCountsByFolder,
   CommsDispatchPayload,
   CommsFolder,
@@ -45,13 +49,17 @@ import {
   acknowledgeCommsNotification,
   archiveCommsNotification,
   dispatchCommsMessage,
+  fetchCommsChannels,
   fetchCommsNotifications,
   fetchCommsRecipients,
   markAllCommsNotificationsRead,
   markCommsNotificationRead,
+  replyToInboxNotificationApi,
 } from '../../services/commsApi';
 import { appDataCache } from '../../services/dataCache';
 import { ActiveTab } from '../Sidebar';
+import { TeamChannelsPane } from './TeamChannelsPane';
+import { AnnouncementTrackerPane } from './AnnouncementTrackerPane';
 
 interface CommunicationsCenterViewProps {
   isLightMode?: boolean;
@@ -93,6 +101,19 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
     Boolean(effectivePolicy?.canSendCommunications) ||
     Boolean(effectivePolicy?.canSendAnnouncements);
   const canBroadcast = isSuperAdmin || Boolean(effectivePolicy?.canSendAnnouncements);
+
+  // Phase 2 View Mode & Team Chat states
+  const [viewMode, setViewMode] = useState<'inbox' | 'channels' | 'tracker'>('inbox');
+  const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  const [channelUnreadCount, setChannelUnreadCount] = useState<number>(0);
+
+  // Inline Quick Reply in Inbox Detail Pane
+  const [quickReplyBody, setQuickReplyBody] = useState('');
+  const [quickReplySending, setQuickReplySending] = useState(false);
+  const [quickReplyFeedback, setQuickReplyFeedback] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   // Filter & feed states
   const [activeFolder, setActiveFolder] = useState<CommsFolder>('all');
@@ -195,6 +216,47 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   useEffect(() => {
     loadNotifications(liveRevision > 0);
   }, [activeFolder, severityFilter, debouncedQuery, liveRevision]);
+
+  const syncChannelUnreadFromList = useCallback((list: CommsChannel[]) => {
+    const sum = list.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+    setChannelUnreadCount(sum);
+  }, []);
+
+  useEffect(() => {
+    fetchCommsChannels(liveRevision > 0)
+      .then(syncChannelUnreadFromList)
+      .catch(() => {});
+  }, [liveRevision, syncChannelUnreadFromList]);
+
+  useEffect(() => {
+    setQuickReplyBody('');
+    setQuickReplyFeedback(null);
+  }, [selectedId]);
+
+  const handleQuickReplySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedItem || !quickReplyBody.trim() || quickReplySending) return;
+    setQuickReplySending(true);
+    setQuickReplyFeedback(null);
+    try {
+      const res = await replyToInboxNotificationApi(selectedItem.id, {
+        body: quickReplyBody.trim(),
+      });
+      setQuickReplyBody('');
+      setActiveChannelId(res.channel.id);
+      setQuickReplyFeedback({
+        type: 'success',
+        text: isEn ? 'Reply delivered to thread.' : 'پاسخ با موفقیت در گفتگو ثبت و ارسال شد.',
+      });
+    } catch (err: any) {
+      setQuickReplyFeedback({
+        type: 'error',
+        text: err?.message || (isEn ? 'Failed to send reply' : 'خطا در ارسال پاسخ'),
+      });
+    } finally {
+      setQuickReplySending(false);
+    }
+  };
 
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedId) || null,
@@ -586,75 +648,151 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
         </div>
 
         <div className="flex items-center flex-wrap gap-2 shrink-0">
-          {/* Live Search */}
-          <div className="relative min-w-[200px] sm:w-56">
-            <Search
-              className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 ${
-                isRtl ? 'right-3' : 'left-3'
-              } ${isLightMode ? 'text-slate-400' : 'text-slate-500'}`}
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={isEn ? 'Search inbox...' : 'جستجو در عنوان، متن یا فرستنده...'}
-              className={`w-full py-1.5 rounded-lg border text-xs outline-none transition ${
-                isRtl ? 'pr-8 pl-7' : 'pl-8 pr-7'
-              } ${
-                isLightMode
-                  ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white'
-                  : 'bg-slate-950/60 border-white/15 text-slate-100 placeholder:text-slate-500 focus:border-indigo-500'
+          {/* Sub-View Segmented Switcher */}
+          <div
+            className={`flex items-center gap-1 p-1 rounded-xl border ${
+              isLightMode
+                ? 'bg-slate-100 border-slate-200'
+                : 'bg-slate-950/70 border-white/10'
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => setViewMode('inbox')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+                viewMode === 'inbox'
+                  ? isLightMode
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-indigo-600 text-white'
+                  : isLightMode
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-300 hover:text-white'
               }`}
-            />
-            {searchQuery && (
+            >
+              <Inbox className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Inbox Feed' : 'صندوق اعلانات'}</span>
+              {countsByFolder.unread > 0 && (
+                <span className="font-mono tabular-nums text-[10px] opacity-85">
+                  ({countsByFolder.unread})
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setViewMode('channels')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+                viewMode === 'channels'
+                  ? isLightMode
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-indigo-600 text-white'
+                  : isLightMode
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              <Hash className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Team Chat & Channels' : 'گفتگوی تیمی و کانال‌ها'}</span>
+              {channelUnreadCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-indigo-500 text-white font-mono tabular-nums text-[10px]">
+                  {channelUnreadCount}
+                </span>
+              )}
+            </button>
+
+            {canBroadcast && (
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
-                className={`absolute top-1/2 -translate-y-1/2 ${
-                  isRtl ? 'left-2' : 'right-2'
-                } text-slate-400 hover:text-slate-600 cursor-pointer`}
+                onClick={() => setViewMode('tracker')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+                  viewMode === 'tracker'
+                    ? isLightMode
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'bg-indigo-600 text-white'
+                    : isLightMode
+                    ? 'text-slate-600 hover:text-slate-900'
+                    : 'text-slate-300 hover:text-white'
+                }`}
               >
-                <X className="w-3.5 h-3.5" />
+                <BarChart3 className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Read Tracker' : 'رهگیری اطلاعیه‌ها'}</span>
               </button>
             )}
           </div>
 
-          {/* Mark All Read */}
-          <button
-            type="button"
-            onClick={handleMarkAllRead}
-            disabled={markingAll || countsByFolder.unread === 0}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
-              isLightMode
-                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
-                : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
-            }`}
-          >
-            <CheckCheck className="w-3.5 h-3.5" />
-            <span>{isEn ? 'Mark All Read' : 'خوانده‌شدن همه'}</span>
-          </button>
+          {/* Live Search (Inbox view) */}
+          {viewMode === 'inbox' && (
+            <>
+              <div className="relative min-w-[180px] sm:w-48">
+                <Search
+                  className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 ${
+                    isRtl ? 'right-3' : 'left-3'
+                  } ${isLightMode ? 'text-slate-400' : 'text-slate-500'}`}
+                />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={isEn ? 'Search inbox...' : 'جستجو در عنوان، متن یا فرستنده...'}
+                  className={`w-full py-1.5 rounded-lg border text-xs outline-none transition ${
+                    isRtl ? 'pr-8 pl-7' : 'pl-8 pr-7'
+                  } ${
+                    isLightMode
+                      ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white'
+                      : 'bg-slate-950/60 border-white/15 text-slate-100 placeholder:text-slate-500 focus:border-indigo-500'
+                  }`}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className={`absolute top-1/2 -translate-y-1/2 ${
+                      isRtl ? 'left-2' : 'right-2'
+                    } text-slate-400 hover:text-slate-600 cursor-pointer`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
 
-          {/* Refresh */}
-          <button
-            type="button"
-            onClick={() => loadNotifications(true)}
-            disabled={refreshing}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition cursor-pointer ${
-              isLightMode
-                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
-                : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
-            }`}
-            title={isEn ? 'Refresh' : 'تازه‌سازی'}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-          </button>
+              {/* Mark All Read */}
+              <button
+                type="button"
+                onClick={handleMarkAllRead}
+                disabled={markingAll || countsByFolder.unread === 0}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium whitespace-nowrap transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
+                  isLightMode
+                    ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+                    : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
+                }`}
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Mark All Read' : 'خوانده‌شدن همه'}</span>
+              </button>
+
+              {/* Refresh */}
+              <button
+                type="button"
+                onClick={() => loadNotifications(true)}
+                disabled={refreshing}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition cursor-pointer ${
+                  isLightMode
+                    ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+                    : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
+                }`}
+                title={isEn ? 'Refresh' : 'تازه‌سازی'}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              </button>
+            </>
+          )}
 
           {/* RBAC-Gated Compose Button */}
           {canSend && (
             <button
               type="button"
               onClick={openComposeModal}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-semibold shadow-sm transition cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-semibold shadow-sm whitespace-nowrap transition cursor-pointer"
             >
               <Send className="w-3.5 h-3.5" />
               <span>{isEn ? 'New Message' : 'ارسال پیام / اطلاعیه'}</span>
@@ -689,6 +827,30 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
           </button>
         </div>
       )}
+
+      {/* Conditional View Body */}
+      {viewMode === 'channels' ? (
+        <TeamChannelsPane
+          isLightMode={isLightMode}
+          canSend={canSend}
+          isSuperAdmin={isSuperAdmin}
+          liveRevision={liveRevision}
+          selectedChannelId={activeChannelId}
+          onSelectChannelId={setActiveChannelId}
+          onChannelsLoaded={syncChannelUnreadFromList}
+        />
+      ) : viewMode === 'tracker' && canBroadcast ? (
+        <AnnouncementTrackerPane
+          isLightMode={isLightMode}
+          liveRevision={liveRevision}
+          onOpenComposeAnnouncement={() => {
+            setComposeCategory('announcement');
+            setComposeTargetType('all');
+            openComposeModal();
+          }}
+        />
+      ) : (
+      <>
 
       {/* Main 3-Column Single-Elevation Workspace */}
       <div
@@ -1335,10 +1497,109 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                   )}
                 </div>
               )}
+
+              {/* Inline Two-Way Quick Reply for Direct & Group Messages */}
+              {canSend &&
+                (selectedItem.category === 'direct_message' ||
+                  selectedItem.category === 'channel_message') && (
+                  <div
+                    className={`p-4 rounded-xl border flex flex-col gap-3 ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-200'
+                        : 'bg-slate-950/40 border-white/10'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className={`text-xs font-bold flex items-center gap-1.5 ${
+                          isLightMode ? 'text-slate-800' : 'text-slate-100'
+                        }`}
+                      >
+                        <Reply className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>{isEn ? 'Quick Thread Reply' : 'پاسخ سریع در گفتگو'}</span>
+                      </span>
+
+                      {selectedItem.channelId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveChannelId(selectedItem.channelId || null);
+                            setViewMode('channels');
+                          }}
+                          className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Open in Team Chat' : 'باز کردن کامل در چت تیمی'}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {quickReplyFeedback && (
+                      <div
+                        className={`px-3 py-2 rounded-lg border text-xs font-medium flex items-center justify-between gap-2 ${
+                          quickReplyFeedback.type === 'success'
+                            ? isLightMode
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                              : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                            : isLightMode
+                            ? 'bg-rose-50 border-rose-200 text-rose-800'
+                            : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                        }`}
+                      >
+                        <span>{quickReplyFeedback.text}</span>
+                        {quickReplyFeedback.type === 'success' && activeChannelId && (
+                          <button
+                            type="button"
+                            onClick={() => setViewMode('channels')}
+                            className="underline font-semibold cursor-pointer"
+                          >
+                            {isEn ? 'View Thread' : 'مشاهده گفتگو'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    <form onSubmit={handleQuickReplySubmit} className="flex items-end gap-2">
+                      <textarea
+                        rows={2}
+                        value={quickReplyBody}
+                        onChange={(e) => setQuickReplyBody(e.target.value)}
+                        placeholder={
+                          isEn
+                            ? `Reply directly to ${selectedItem.senderName}...`
+                            : `نوشتن پاسخ مستقیم برای ${selectedItem.senderName}...`
+                        }
+                        className={`flex-1 px-3 py-2 rounded-lg border text-xs outline-none resize-none ${
+                          isLightMode
+                            ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500'
+                            : 'bg-slate-900 border-white/15 text-white focus:border-indigo-500'
+                        }`}
+                      />
+                      <button
+                        type="submit"
+                        disabled={quickReplySending || !quickReplyBody.trim()}
+                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 transition"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>
+                          {quickReplySending
+                            ? isEn
+                              ? 'Sending...'
+                              : 'ارسال...'
+                            : isEn
+                            ? 'Reply'
+                            : 'ارسال پاسخ'}
+                        </span>
+                      </button>
+                    </form>
+                  </div>
+                )}
             </div>
           )}
         </section>
       </div>
+      </>
+      )}
 
       {/* Compose Message / Official Announcement Modal (Compliant with ALL 5 MODAL_GUIDELINES rules) */}
       {composeOpen &&

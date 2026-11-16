@@ -14,10 +14,17 @@ import {
   registerCommsAuditAlertHook,
 } from './db';
 import {
+  CommsAnnouncementReadReceipt,
+  CommsAnnouncementSummary,
+  CommsAnnouncementTrackerResponse,
   CommsCategory,
+  CommsChannel,
+  CommsChannelMember,
+  CommsChannelType,
   CommsCountsByFolder,
   CommsDispatchPayload,
   CommsFolder,
+  CommsMessage,
   CommsNotificationItem,
   CommsRecipientOption,
   CommsSeverity,
@@ -1152,7 +1159,7 @@ export function initCommsIntegration(): void {
     if (!auditRecord || auditRecord.category === 'communications') return;
     const sev = (auditRecord.severity || '').toLowerCase();
     const status = (auditRecord.status || '').toLowerCase();
-    if (sev !== 'critical' && sev !== 'warning' && status !== 'failed') return;
+    if (sev !== 'critical' && sev !== 'warning' && sev !== 'warn' && status !== 'failed') return;
 
     const category: CommsCategory =
       auditRecord.category === 'system_auth' || auditRecord.category === 'security_rbac' || auditRecord.category === 'rbac'
@@ -1185,4 +1192,1347 @@ export function initCommsIntegration(): void {
       },
     });
   });
+}
+
+// ==============================================================================
+// Phase 2: Two-Way Direct Chats, Team Group Channels & Announcement Read Tracker
+// ==============================================================================
+
+async function buildDirectoryUserMap(): Promise<
+  Map<string, { userId: string; username: string; fullName: string; role: string }>
+> {
+  const map = new Map<string, { userId: string; username: string; fullName: string; role: string }>();
+  const register = (id: string, username: string, fullName: string, role: string) => {
+    const info = { userId: id, username, fullName: fullName || username, role: role || 'Operator' };
+    for (const key of resolveUserIdentifiers({ userId: id, username })) {
+      if (!map.has(key)) map.set(key, info);
+    }
+  };
+
+  const localUsers = (await getAllUsers()).filter((u) => u && u.status !== 'disabled');
+  for (const u of localUsers) {
+    register(u.id, u.username, u.fullName || u.username, u.role || 'Operator');
+  }
+
+  const subjectsResult = await getAuthorizedMapSubjects().catch(() => null);
+  for (const adu of subjectsResult?.categories?.adUsers || []) {
+    register(
+      adu.rawId || adu.id,
+      adu.name || adu.id,
+      adu.displayName || adu.name || adu.id,
+      adu.role || 'AD User'
+    );
+  }
+  return map;
+}
+
+async function resolveSingleUser(
+  identifier: string
+): Promise<{ userId: string; username: string; fullName: string; role: string } | null> {
+  const clean = (identifier || '').trim().toLowerCase();
+  if (!clean) return null;
+  const dir = await buildDirectoryUserMap();
+  if (dir.has(clean)) return dir.get(clean)!;
+  if (clean.includes('@') && dir.has(clean.split('@')[0])) {
+    return dir.get(clean.split('@')[0])!;
+  }
+  if (clean.includes('\\') && dir.has(clean.split('\\')[1])) {
+    return dir.get(clean.split('\\')[1])!;
+  }
+  return null;
+}
+
+function mapChannelMemberRow(
+  row: any,
+  dirMap?: Map<string, { userId: string; username: string; fullName: string; role: string }>
+): CommsChannelMember {
+  const userId = row.user_id ?? row.userId ?? '';
+  const username = row.username ?? '';
+  const dirInfo =
+    dirMap?.get(username.toLowerCase()) || dirMap?.get(userId.toLowerCase()) || undefined;
+  return {
+    channelId: row.channel_id ?? row.channelId ?? '',
+    userId,
+    username,
+    fullName: row.full_name ?? row.fullName ?? dirInfo?.fullName ?? username,
+    role: row.role ?? 'member',
+    isMuted: Boolean(row.is_muted ?? row.isMuted),
+    lastReadMessageId: row.last_read_message_id ?? row.lastReadMessageId ?? null,
+    joinedAt: row.joined_at
+      ? new Date(row.joined_at).toISOString()
+      : row.joinedAt || new Date().toISOString(),
+  };
+}
+
+function mapMessageRow(row: any, lookupById?: Map<string, any>): CommsMessage {
+  const meta =
+    typeof row.metadata === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(row.metadata);
+          } catch {
+            return {};
+          }
+        })()
+      : row.metadata || {};
+
+  const replyToId: string | null = meta.replyToMessageId || row.replyToMessageId || null;
+  let replyToPreview: CommsMessage['replyToPreview'] = null;
+  if (replyToId && lookupById?.has(replyToId)) {
+    const parent = lookupById.get(replyToId);
+    const parentBody = parent.body || '';
+    replyToPreview = {
+      id: parent.id,
+      senderName: parent.sender_full_name || parent.sender_username || 'User',
+      body: parentBody.length > 100 ? `${parentBody.slice(0, 97)}...` : parentBody,
+    };
+  }
+
+  return {
+    id: row.id,
+    channelId: row.channel_id ?? row.channelId ?? null,
+    senderUserId: row.sender_user_id ?? row.senderUserId ?? '',
+    senderUsername: row.sender_username ?? row.senderUsername ?? '',
+    senderFullName: row.sender_full_name ?? row.senderFullName ?? null,
+    senderRole: row.sender_role ?? row.senderRole ?? null,
+    messageType: row.message_type ?? row.messageType ?? 'text',
+    priority: (row.priority || 'info') as CommsSeverity,
+    title: row.title || '',
+    titleEn: row.title_en ?? row.titleEn ?? null,
+    body: row.body || '',
+    bodyEn: row.body_en ?? row.bodyEn ?? null,
+    replyToMessageId: replyToId,
+    replyToPreview,
+    linkedEntityType: row.linked_entity_type ?? row.linkedEntityType ?? null,
+    linkedEntityId: row.linked_entity_id ?? row.linkedEntityId ?? null,
+    linkedEntityName: row.linked_entity_name ?? row.linkedEntityName ?? null,
+    metadata: meta,
+    createdAt: row.created_at
+      ? new Date(row.created_at).toISOString()
+      : row.createdAt || new Date().toISOString(),
+  };
+}
+
+function memberMatchesIdentifiers(member: { userId?: string; username?: string }, idSet: Set<string>): boolean {
+  const uIds = resolveUserIdentifiers({ userId: member.userId, username: member.username });
+  return uIds.some((id) => idSet.has(id));
+}
+
+async function loadHydratedChannelForUser(
+  channelId: string,
+  viewerUser: Partial<CommsActor>,
+  dirMap?: Map<string, { userId: string; username: string; fullName: string; role: string }>
+): Promise<CommsChannel | null> {
+  const resolvedDir = dirMap || (await buildDirectoryUserMap());
+  const idList = resolveUserIdentifiers(viewerUser);
+  const idSet = new Set(idList);
+
+  let rawChannel: any = null;
+  let rawMembers: any[] = [];
+  let latestMsg: any = null;
+  let unreadCount = 0;
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const chRes = await pool.query(`SELECT * FROM comms_channels WHERE id = $1`, [channelId]);
+      if (chRes.rows[0]) {
+        rawChannel = chRes.rows[0];
+        const mRes = await pool.query(
+          `SELECT * FROM comms_channel_members WHERE channel_id = $1 ORDER BY joined_at ASC`,
+          [channelId]
+        );
+        rawMembers = mRes.rows;
+
+        const msgRes = await pool.query(
+          `SELECT body, created_at FROM comms_messages WHERE channel_id = $1 ORDER BY created_at DESC LIMIT 1`,
+          [channelId]
+        );
+        latestMsg = msgRes.rows[0] || null;
+
+        if (idList.length > 0) {
+          const uRes = await pool.query(
+            `SELECT COUNT(*)::int AS cnt FROM comms_notifications
+             WHERE channel_id = $1 AND is_archived = FALSE AND is_read = FALSE
+               AND (LOWER(recipient_user_id) = ANY($2::text[]) OR LOWER(recipient_username) = ANY($2::text[]))`,
+            [channelId, idList]
+          );
+          unreadCount = uRes.rows[0]?.cnt || 0;
+        }
+      }
+    } catch (err: any) {
+      console.error('[CommsService] loadHydratedChannel PG error:', err?.message || err);
+    }
+  }
+
+  if (!rawChannel) {
+    const store = loadFallbackStore();
+    rawChannel = (store.comms_channels || []).find((c: any) => c.id === channelId) || null;
+    if (!rawChannel) return null;
+    rawMembers = (store.comms_channel_members || []).filter(
+      (m: any) => (m.channel_id ?? m.channelId) === channelId
+    );
+    const chMsgs = (store.comms_messages || [])
+      .filter((m: any) => (m.channel_id ?? m.channelId) === channelId)
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.created_at || b.createdAt).getTime() -
+          new Date(a.created_at || a.createdAt).getTime()
+      );
+    latestMsg = chMsgs[0] || null;
+    unreadCount = (store.comms_notifications || []).filter(
+      (n: any) =>
+        (n.channel_id ?? n.channelId) === channelId &&
+        !(n.is_archived ?? n.isArchived) &&
+        !(n.is_read ?? n.isRead) &&
+        (idSet.has((n.recipient_user_id || n.recipientUserId || '').toLowerCase()) ||
+          idSet.has((n.recipient_username || n.recipientUsername || '').toLowerCase()))
+    ).length;
+  }
+
+  const members = rawMembers.map((m) => mapChannelMemberRow(m, resolvedDir));
+  const viewerMembership = members.find((m) => memberMatchesIdentifiers(m, idSet));
+  const channelType = (rawChannel.channel_type ?? rawChannel.channelType ?? 'group') as CommsChannelType;
+
+  let displayName = rawChannel.name || '';
+  let displayNameEn = rawChannel.name_en ?? rawChannel.nameEn ?? rawChannel.name ?? '';
+
+  if (channelType === 'direct' && members.length > 0) {
+    const peer = members.find((m) => !memberMatchesIdentifiers(m, idSet)) || members[0];
+    if (peer) {
+      displayName =
+        peer.fullName && peer.fullName !== peer.username
+          ? `${peer.fullName} (${peer.username})`
+          : peer.username;
+      displayNameEn = displayName;
+    }
+  }
+
+  const lastBody = latestMsg?.body || null;
+  const lastMessagePreview =
+    lastBody && lastBody.length > 90 ? `${lastBody.slice(0, 87)}...` : lastBody;
+
+  return {
+    id: rawChannel.id,
+    channelType,
+    name: displayName,
+    nameEn: displayNameEn,
+    description: rawChannel.description ?? null,
+    descriptionEn: rawChannel.description_en ?? rawChannel.descriptionEn ?? null,
+    linkedGroupId: rawChannel.linked_group_id ?? rawChannel.linkedGroupId ?? null,
+    isPinned: Boolean(rawChannel.is_pinned ?? rawChannel.isPinned),
+    isMuted: viewerMembership?.isMuted || false,
+    createdByUserId: rawChannel.created_by_user_id ?? rawChannel.createdByUserId ?? null,
+    memberCount: members.length,
+    unreadCount,
+    lastMessagePreview,
+    lastMessageAt: latestMsg?.created_at
+      ? new Date(latestMsg.created_at).toISOString()
+      : latestMsg?.createdAt || null,
+    members,
+    createdAt: rawChannel.created_at
+      ? new Date(rawChannel.created_at).toISOString()
+      : rawChannel.createdAt || new Date().toISOString(),
+    updatedAt: rawChannel.updated_at
+      ? new Date(rawChannel.updated_at).toISOString()
+      : rawChannel.updatedAt || new Date().toISOString(),
+  };
+}
+
+export async function listUserChannels(user: Partial<CommsActor>): Promise<CommsChannel[]> {
+  const identifiers = resolveUserIdentifiers(user);
+  if (identifiers.length === 0) return [];
+  const idSet = new Set(identifiers);
+  const dirMap = await buildDirectoryUserMap();
+
+  const channelIds = new Set<string>();
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const res = await pool.query(
+        `SELECT DISTINCT channel_id FROM comms_channel_members
+         WHERE LOWER(user_id) = ANY($1::text[]) OR LOWER(username) = ANY($1::text[])`,
+        [identifiers]
+      );
+      for (const r of res.rows) {
+        if (r.channel_id) channelIds.add(r.channel_id);
+      }
+    } catch (err: any) {
+      console.error('[CommsService] listUserChannels PG error:', err?.message || err);
+    }
+  }
+
+  const store = loadFallbackStore();
+  for (const m of store.comms_channel_members || []) {
+    if (memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet)) {
+      const cid = m.channel_id ?? m.channelId;
+      if (cid) channelIds.add(cid);
+    }
+  }
+
+  const channels: CommsChannel[] = [];
+  for (const cid of channelIds) {
+    const hydrated = await loadHydratedChannelForUser(cid, user, dirMap);
+    if (hydrated) channels.push(hydrated);
+  }
+
+  channels.sort((a, b) => {
+    const tA = new Date(a.lastMessageAt || a.updatedAt || a.createdAt).getTime();
+    const tB = new Date(b.lastMessageAt || b.updatedAt || b.createdAt).getTime();
+    return tB - tA;
+  });
+
+  return channels;
+}
+
+export async function createOrOpenDirectChannel(
+  senderUser: CommsActor,
+  targetIdentifier: string
+): Promise<{ channel: CommsChannel; created: boolean }> {
+  const target = await resolveSingleUser(targetIdentifier);
+  if (!target) {
+    throw new Error('Target user not found or disabled.');
+  }
+
+  const senderIdSet = new Set(resolveUserIdentifiers(senderUser));
+  if (memberMatchesIdentifiers(target, senderIdSet)) {
+    throw new Error('Cannot start a direct chat with yourself.');
+  }
+
+  // Search existing 1:1 direct channels between sender and target
+  const senderChannels = await listUserChannels(senderUser);
+  const existing = senderChannels.find(
+    (c) =>
+      c.channelType === 'direct' &&
+      c.members &&
+      c.members.length === 2 &&
+      c.members.some((m) =>
+        memberMatchesIdentifiers(m, new Set(resolveUserIdentifiers(target)))
+      )
+  );
+  if (existing) {
+    return { channel: existing, created: false };
+  }
+
+  const nowIso = new Date().toISOString();
+  const channelId = makeId('chan');
+  const senderDisplay = senderUser.fullName
+    ? `${senderUser.fullName} (${senderUser.username})`
+    : senderUser.username;
+  const targetDisplay =
+    target.fullName && target.fullName !== target.username
+      ? `${target.fullName} (${target.username})`
+      : target.username;
+
+  const channelRec = {
+    id: channelId,
+    channel_type: 'direct',
+    name: `${senderDisplay} ↔ ${targetDisplay}`,
+    name_en: `${senderDisplay} ↔ ${targetDisplay}`,
+    description: null,
+    description_en: null,
+    linked_group_id: null,
+    is_pinned: false,
+    created_by_user_id: senderUser.userId,
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  const memberRecs = [
+    {
+      channel_id: channelId,
+      user_id: senderUser.userId,
+      username: senderUser.username,
+      role: 'member',
+      is_muted: false,
+      last_read_message_id: null,
+      joined_at: nowIso,
+    },
+    {
+      channel_id: channelId,
+      user_id: target.userId,
+      username: target.username,
+      role: 'member',
+      is_muted: false,
+      last_read_message_id: null,
+      joined_at: nowIso,
+    },
+  ];
+
+  // Fallback persistence
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.comms_channels)) store.comms_channels = [];
+  if (!Array.isArray(store.comms_channel_members)) store.comms_channel_members = [];
+  store.comms_channels.unshift(channelRec);
+  store.comms_channel_members.push(...memberRecs);
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO comms_channels (id, channel_type, name, name_en, description, description_en, linked_group_id, is_pinned, created_by_user_id, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [
+          channelRec.id,
+          channelRec.channel_type,
+          channelRec.name,
+          channelRec.name_en,
+          null,
+          null,
+          null,
+          false,
+          channelRec.created_by_user_id,
+          channelRec.created_at,
+          channelRec.updated_at,
+        ]
+      );
+      for (const m of memberRecs) {
+        await pool.query(
+          `INSERT INTO comms_channel_members (channel_id, user_id, username, role, is_muted, last_read_message_id, joined_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (channel_id, user_id) DO NOTHING`,
+          [m.channel_id, m.user_id, m.username, m.role, false, null, m.joined_at]
+        );
+      }
+    } catch (err: any) {
+      console.error('[CommsService] createOrOpenDirectChannel PG error:', err?.message || err);
+    }
+  }
+
+  const hydratedForSender = await loadHydratedChannelForUser(channelId, senderUser);
+  const hydratedForTarget = await loadHydratedChannelForUser(channelId, {
+    userId: target.userId,
+    username: target.username,
+  });
+
+  if (hydratedForSender) {
+    broadcastCommsEventToUser(senderUser, {
+      type: 'channel:created',
+      channel: hydratedForSender,
+    });
+  }
+  if (hydratedForTarget) {
+    broadcastCommsEventToUser(
+      { userId: target.userId, username: target.username },
+      {
+        type: 'channel:created',
+        channel: hydratedForTarget,
+      }
+    );
+  }
+
+  return {
+    channel: hydratedForSender!,
+    created: true,
+  };
+}
+
+export async function createGroupChannel(
+  creatorUser: CommsActor,
+  senderIp: string,
+  payload: {
+    name: string;
+    nameEn?: string;
+    description?: string;
+    descriptionEn?: string;
+    linkedGroupId?: string | null;
+    memberIds?: string[];
+  }
+): Promise<CommsChannel> {
+  const cleanName = (payload.name || '').trim();
+  if (!cleanName) {
+    throw new Error('Channel name is required.');
+  }
+  const cleanNameEn = (payload.nameEn || '').trim() || cleanName;
+  const nowIso = new Date().toISOString();
+  const channelId = makeId('chan');
+
+  const memberMap = new Map<string, { userId: string; username: string; role: string }>();
+  memberMap.set(creatorUser.username.toLowerCase(), {
+    userId: creatorUser.userId,
+    username: creatorUser.username,
+    role: 'owner',
+  });
+
+  if (Array.isArray(payload.memberIds) && payload.memberIds.length > 0) {
+    const resolved = await resolveTargetRecipients('users', payload.memberIds);
+    for (const r of resolved) {
+      const k = r.username.toLowerCase();
+      if (!memberMap.has(k)) {
+        memberMap.set(k, { userId: r.userId, username: r.username, role: 'member' });
+      }
+    }
+  }
+
+  if (payload.linkedGroupId) {
+    const groupMembers = await resolveTargetRecipients('group', [payload.linkedGroupId]);
+    for (const r of groupMembers) {
+      const k = r.username.toLowerCase();
+      if (!memberMap.has(k)) {
+        memberMap.set(k, { userId: r.userId, username: r.username, role: 'member' });
+      }
+    }
+  }
+
+  const channelRec = {
+    id: channelId,
+    channel_type: 'group',
+    name: cleanName,
+    name_en: cleanNameEn,
+    description: (payload.description || '').trim() || null,
+    description_en: (payload.descriptionEn || payload.description || '').trim() || null,
+    linked_group_id: payload.linkedGroupId || null,
+    is_pinned: false,
+    created_by_user_id: creatorUser.userId,
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  const memberRecs = Array.from(memberMap.values()).map((m) => ({
+    channel_id: channelId,
+    user_id: m.userId,
+    username: m.username,
+    role: m.role,
+    is_muted: false,
+    last_read_message_id: null,
+    joined_at: nowIso,
+  }));
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.comms_channels)) store.comms_channels = [];
+  if (!Array.isArray(store.comms_channel_members)) store.comms_channel_members = [];
+  store.comms_channels.unshift(channelRec);
+  store.comms_channel_members.push(...memberRecs);
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO comms_channels (id, channel_type, name, name_en, description, description_en, linked_group_id, is_pinned, created_by_user_id, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [
+          channelRec.id,
+          channelRec.channel_type,
+          channelRec.name,
+          channelRec.name_en,
+          channelRec.description,
+          channelRec.description_en,
+          channelRec.linked_group_id,
+          false,
+          channelRec.created_by_user_id,
+          channelRec.created_at,
+          channelRec.updated_at,
+        ]
+      );
+      for (const m of memberRecs) {
+        await pool.query(
+          `INSERT INTO comms_channel_members (channel_id, user_id, username, role, is_muted, last_read_message_id, joined_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (channel_id, user_id) DO NOTHING`,
+          [m.channel_id, m.user_id, m.username, m.role, false, null, m.joined_at]
+        );
+      }
+    } catch (err: any) {
+      console.error('[CommsService] createGroupChannel PG error:', err?.message || err);
+    }
+  }
+
+  const channel = (await loadHydratedChannelForUser(channelId, creatorUser))!;
+  broadcastCommsEventToRecipients(
+    memberRecs.map((m) => ({ userId: m.user_id, username: m.username })),
+    undefined,
+    { type: 'channel:created', channel }
+  );
+
+  await addPortalAuditLog({
+    category: 'communications',
+    action: 'CHANNEL_CREATED',
+    title: `ایجاد کانال گروهی: ${cleanName}`,
+    title_en: `Group Channel Created: ${cleanNameEn}`,
+    actor: {
+      username: creatorUser.username,
+      role: creatorUser.role || 'Operator',
+      ipAddress: senderIp || '127.0.0.1',
+    },
+    target: {
+      type: 'comms_channel',
+      id: channelId,
+      name: cleanNameEn,
+    },
+    severity: 'info',
+    status: 'success',
+    details: `کانال گروهی «${cleanName}» با ${memberRecs.length} عضو ایجاد شد.`,
+    details_en: `Created team group channel "${cleanNameEn}" with ${memberRecs.length} member(s).`,
+  }).catch(() => {});
+
+  return channel;
+}
+
+export async function addChannelMembers(
+  actor: CommsActor,
+  isSuperAdmin: boolean,
+  channelId: string,
+  memberIds: string[]
+): Promise<CommsChannel> {
+  const existing = await loadHydratedChannelForUser(channelId, actor);
+  if (!existing) {
+    throw new Error('Channel not found.');
+  }
+  if (existing.channelType !== 'group') {
+    throw new Error('Members can only be added to team group channels.');
+  }
+
+  const actorIds = new Set(resolveUserIdentifiers(actor));
+  const actorMember = (existing.members || []).find((m) => memberMatchesIdentifiers(m, actorIds));
+  if (!isSuperAdmin && actorMember?.role !== 'owner' && existing.createdByUserId !== actor.userId) {
+    throw new Error('ACCESS_DENIED: Only channel owner or Super Admin can add members.');
+  }
+
+  const resolved = await resolveTargetRecipients('users', memberIds);
+  if (resolved.length === 0) {
+    return existing;
+  }
+
+  const nowIso = new Date().toISOString();
+  const existingSet = new Set((existing.members || []).map((m) => m.username.toLowerCase()));
+  const toInsert = resolved.filter((r) => !existingSet.has(r.username.toLowerCase()));
+
+  if (toInsert.length > 0) {
+    const store = loadFallbackStore();
+    if (!Array.isArray(store.comms_channel_members)) store.comms_channel_members = [];
+    for (const r of toInsert) {
+      store.comms_channel_members.push({
+        channel_id: channelId,
+        user_id: r.userId,
+        username: r.username,
+        role: 'member',
+        is_muted: false,
+        last_read_message_id: null,
+        joined_at: nowIso,
+      });
+    }
+    const chIdx = (store.comms_channels || []).findIndex((c: any) => c.id === channelId);
+    if (chIdx !== -1) store.comms_channels[chIdx].updated_at = nowIso;
+    saveFallbackStore(store);
+
+    await ensurePostgresConnection();
+    const pool = getPgPool();
+    if (isPostgresConnected() && pool) {
+      try {
+        for (const r of toInsert) {
+          await pool.query(
+            `INSERT INTO comms_channel_members (channel_id, user_id, username, role, is_muted, last_read_message_id, joined_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (channel_id, user_id) DO NOTHING`,
+            [channelId, r.userId, r.username, 'member', false, null, nowIso]
+          );
+        }
+        await pool.query(`UPDATE comms_channels SET updated_at = $1 WHERE id = $2`, [nowIso, channelId]);
+      } catch (err: any) {
+        console.error('[CommsService] addChannelMembers PG error:', err?.message || err);
+      }
+    }
+  }
+
+  const updated = (await loadHydratedChannelForUser(channelId, actor))!;
+  broadcastCommsEventToRecipients(
+    (updated.members || []).map((m) => ({ userId: m.userId, username: m.username })),
+    undefined,
+    { type: 'channel:updated', channel: updated }
+  );
+  return updated;
+}
+
+export async function toggleChannelMute(
+  user: Partial<CommsActor>,
+  channelId: string,
+  isMuted: boolean
+): Promise<{ channelId: string; isMuted: boolean }> {
+  const identifiers = resolveUserIdentifiers(user);
+  if (identifiers.length === 0) throw new Error('User identity missing');
+  const idSet = new Set(identifiers);
+
+  const store = loadFallbackStore();
+  let matched = false;
+  for (const m of store.comms_channel_members || []) {
+    if (
+      (m.channel_id ?? m.channelId) === channelId &&
+      memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet)
+    ) {
+      m.is_muted = isMuted;
+      matched = true;
+    }
+  }
+  if (matched) saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      await pool.query(
+        `UPDATE comms_channel_members
+         SET is_muted = $1
+         WHERE channel_id = $2
+           AND (LOWER(user_id) = ANY($3::text[]) OR LOWER(username) = ANY($3::text[]))`,
+        [isMuted, channelId, identifiers]
+      );
+    } catch (err: any) {
+      console.error('[CommsService] toggleChannelMute PG error:', err?.message || err);
+    }
+  }
+
+  const updated = await loadHydratedChannelForUser(channelId, user);
+  if (updated) {
+    broadcastCommsEventToUser(user, { type: 'channel:updated', channel: updated });
+  }
+  return { channelId, isMuted };
+}
+
+export async function listChannelMessages(
+  user: CommsActor,
+  isSuperAdmin: boolean,
+  channelId: string,
+  options: { limit?: number; offset?: number } = {}
+): Promise<{ channel: CommsChannel; messages: CommsMessage[]; total: number }> {
+  const channel = await loadHydratedChannelForUser(channelId, user);
+  if (!channel) {
+    throw new Error('Channel not found.');
+  }
+
+  const idList = resolveUserIdentifiers(user);
+  const idSet = new Set(idList);
+  const isMember = (channel.members || []).some((m) => memberMatchesIdentifiers(m, idSet));
+  if (!isMember && !isSuperAdmin) {
+    throw new Error('ACCESS_DENIED: You are not a member of this channel.');
+  }
+
+  const limit = Math.min(200, Math.max(1, Number(options.limit) || 100));
+  const offset = Math.max(0, Number(options.offset) || 0);
+
+  let rawMessages: any[] = [];
+  let total = 0;
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const cntRes = await pool.query(
+        `SELECT COUNT(*)::int AS total FROM comms_messages WHERE channel_id = $1`,
+        [channelId]
+      );
+      total = cntRes.rows[0]?.total || 0;
+      const msgRes = await pool.query(
+        `SELECT * FROM comms_messages WHERE channel_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+        [channelId, limit, offset]
+      );
+      rawMessages = msgRes.rows.reverse();
+    } catch (err: any) {
+      console.error('[CommsService] listChannelMessages PG error:', err?.message || err);
+    }
+  }
+
+  if (rawMessages.length === 0) {
+    const store = loadFallbackStore();
+    const allForChannel = (store.comms_messages || [])
+      .filter((m: any) => (m.channel_id ?? m.channelId) === channelId)
+      .sort(
+        (a: any, b: any) =>
+          new Date(a.created_at || a.createdAt).getTime() -
+          new Date(b.created_at || b.createdAt).getTime()
+      );
+    total = Math.max(total, allForChannel.length);
+    const start = Math.max(0, allForChannel.length - offset - limit);
+    const end = Math.max(0, allForChannel.length - offset);
+    rawMessages = allForChannel.slice(start, end);
+  }
+
+  const lookupMap = new Map<string, any>();
+  for (const r of rawMessages) {
+    lookupMap.set(r.id, r);
+  }
+  const messages = rawMessages.map((r) => mapMessageRow(r, lookupMap));
+
+  // Mark channel notifications as read automatically when opening thread
+  const newestId = messages[messages.length - 1]?.id || null;
+  let clearedAny = false;
+
+  const store = loadFallbackStore();
+  if (Array.isArray(store.comms_notifications)) {
+    const nowIso = new Date().toISOString();
+    for (const n of store.comms_notifications) {
+      if (
+        (n.channel_id ?? n.channelId) === channelId &&
+        !(n.is_read ?? n.isRead) &&
+        (idSet.has((n.recipient_user_id || n.recipientUserId || '').toLowerCase()) ||
+          idSet.has((n.recipient_username || n.recipientUsername || '').toLowerCase()))
+      ) {
+        n.is_read = true;
+        n.read_at = n.read_at || nowIso;
+        clearedAny = true;
+      }
+    }
+  }
+  if (newestId && Array.isArray(store.comms_channel_members)) {
+    for (const m of store.comms_channel_members) {
+      if (
+        (m.channel_id ?? m.channelId) === channelId &&
+        memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet)
+      ) {
+        m.last_read_message_id = newestId;
+      }
+    }
+  }
+  if (clearedAny || newestId) {
+    saveFallbackStore(store);
+  }
+
+  if (isPostgresConnected() && pool && idList.length > 0) {
+    try {
+      const updRes = await pool.query(
+        `UPDATE comms_notifications
+         SET is_read = TRUE, read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+         WHERE channel_id = $1 AND is_read = FALSE
+           AND (LOWER(recipient_user_id) = ANY($2::text[]) OR LOWER(recipient_username) = ANY($2::text[]))`,
+        [channelId, idList]
+      );
+      if ((updRes.rowCount || 0) > 0) clearedAny = true;
+      if (newestId) {
+        await pool.query(
+          `UPDATE comms_channel_members
+           SET last_read_message_id = $1
+           WHERE channel_id = $2
+             AND (LOWER(user_id) = ANY($3::text[]) OR LOWER(username) = ANY($3::text[]))`,
+          [newestId, channelId, idList]
+        );
+      }
+    } catch {}
+  }
+
+  if (clearedAny) {
+    const counts = await getUnreadNotificationCounts(user).catch(() => null);
+    if (counts) {
+      broadcastCommsEventToUser(user, {
+        type: 'comms:sync',
+        unreadCount: counts.unreadCount,
+        countsByFolder: counts.countsByFolder,
+      });
+    }
+  }
+
+  return {
+    channel: { ...channel, unreadCount: 0 },
+    messages,
+    total,
+  };
+}
+
+export async function postChannelMessage(
+  senderUser: CommsActor,
+  senderIp: string,
+  channelId: string,
+  payload: {
+    body: string;
+    bodyEn?: string;
+    priority?: CommsSeverity;
+    replyToMessageId?: string | null;
+    linkedEntityType?: string | null;
+    linkedEntityId?: string | null;
+    linkedEntityName?: string | null;
+  }
+): Promise<CommsMessage> {
+  const body = (payload.body || '').trim();
+  if (!body) {
+    throw new Error('Message body is required.');
+  }
+  const channel = await loadHydratedChannelForUser(channelId, senderUser);
+  if (!channel) {
+    throw new Error('Channel not found.');
+  }
+
+  const senderIds = new Set(resolveUserIdentifiers(senderUser));
+  const members = channel.members || [];
+  if (!members.some((m) => memberMatchesIdentifiers(m, senderIds))) {
+    throw new Error('ACCESS_DENIED: You are not a member of this channel.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const msgId = makeId('cmsg');
+  const bodyEn = (payload.bodyEn || '').trim() || body;
+  const msgType = channel.channelType === 'direct' ? 'direct_message' : 'channel_message';
+  const senderDisplay = senderUser.fullName
+    ? `${senderUser.fullName} (${senderUser.username})`
+    : senderUser.username;
+
+  const title =
+    channel.channelType === 'direct'
+      ? `پیام از ${senderDisplay}`
+      : `${channel.name}: پیام جدید از ${senderDisplay}`;
+  const titleEn =
+    channel.channelType === 'direct'
+      ? `Message from ${senderDisplay}`
+      : `${channel.nameEn || channel.name}: New message from ${senderDisplay}`;
+
+  const messageRecord = {
+    id: msgId,
+    channel_id: channelId,
+    sender_user_id: senderUser.userId,
+    sender_username: senderUser.username,
+    sender_full_name: senderUser.fullName || senderUser.username,
+    sender_role: senderUser.role || 'Operator',
+    message_type: msgType,
+    priority: payload.priority || 'info',
+    title,
+    title_en: titleEn,
+    body,
+    body_en: bodyEn,
+    linked_entity_type: payload.linkedEntityType || null,
+    linked_entity_id: payload.linkedEntityId || null,
+    linked_entity_name: payload.linkedEntityName || null,
+    metadata: {
+      channelType: channel.channelType,
+      replyToMessageId: payload.replyToMessageId || null,
+      senderUsername: senderUser.username,
+    },
+    created_at: nowIso,
+  };
+
+  // Update channel updated_at + sender last_read in fallback store
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.comms_channels)) store.comms_channels = [];
+  if (!Array.isArray(store.comms_channel_members)) store.comms_channel_members = [];
+  const chIdx = store.comms_channels.findIndex((c: any) => c.id === channelId);
+  if (chIdx !== -1) store.comms_channels[chIdx].updated_at = nowIso;
+  for (const m of store.comms_channel_members) {
+    if (
+      (m.channel_id ?? m.channelId) === channelId &&
+      memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, senderIds)
+    ) {
+      m.last_read_message_id = msgId;
+    }
+  }
+  saveFallbackStore(store);
+
+  // Determine notification recipients (exclude sender and muted members)
+  const notifyMembers = members.filter(
+    (m) => !memberMatchesIdentifiers(m, senderIds) && !m.isMuted
+  );
+  const summary = body.length > 140 ? `${body.slice(0, 137)}...` : body;
+  const summaryEn = bodyEn.length > 140 ? `${bodyEn.slice(0, 137)}...` : bodyEn;
+
+  const notificationRecords = notifyMembers.map((m) => ({
+    id: makeId('notif'),
+    recipient_user_id: m.userId,
+    recipient_username: m.username,
+    source_message_id: msgId,
+    channel_id: channelId,
+    category: msgType,
+    severity: payload.priority || 'info',
+    sender_name: senderDisplay,
+    sender_role: senderUser.role || 'Operator',
+    title,
+    title_en: titleEn,
+    summary,
+    summary_en: summaryEn,
+    body,
+    body_en: bodyEn,
+    linked_entity_type: payload.linkedEntityType || null,
+    linked_entity_id: payload.linkedEntityId || null,
+    linked_entity_name: payload.linkedEntityName || null,
+    action_tab: 'communications',
+    is_read: false,
+    is_archived: false,
+    requires_acknowledgment: false,
+    metadata: {
+      channelId,
+      channelType: channel.channelType,
+      sourceMessageId: msgId,
+      senderUsername: senderUser.username,
+      replyToMessageId: payload.replyToMessageId || null,
+    },
+    created_at: nowIso,
+  }));
+
+  await persistMessageAndNotifications(
+    messageRecord,
+    notificationRecords,
+    notifyMembers.map((m) => ({ userId: m.userId, username: m.username }))
+  );
+
+  // Also update PG channel updated_at and sender last_read
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      await pool.query(`UPDATE comms_channels SET updated_at = $1 WHERE id = $2`, [nowIso, channelId]);
+      await pool.query(
+        `UPDATE comms_channel_members
+         SET last_read_message_id = $1
+         WHERE channel_id = $2
+           AND (LOWER(user_id) = ANY($3::text[]) OR LOWER(username) = ANY($3::text[]))`,
+        [msgId, channelId, Array.from(senderIds)]
+      );
+    } catch {}
+  }
+
+  // Hydrate reply preview if parent exists
+  let parentLookup: Map<string, any> | undefined;
+  if (payload.replyToMessageId) {
+    let parentRow: any = null;
+    if (isPostgresConnected() && pool) {
+      try {
+        const pRes = await pool.query(`SELECT * FROM comms_messages WHERE id = $1`, [
+          payload.replyToMessageId,
+        ]);
+        parentRow = pRes.rows[0] || null;
+      } catch {}
+    }
+    if (!parentRow) {
+      parentRow = (loadFallbackStore().comms_messages || []).find(
+        (m: any) => m.id === payload.replyToMessageId
+      );
+    }
+    if (parentRow) {
+      parentLookup = new Map([[parentRow.id, parentRow]]);
+    }
+  }
+
+  const mappedMessage = mapMessageRow(messageRecord, parentLookup);
+
+  // Broadcast live thread update to all members (including sender's other tabs)
+  broadcastCommsEventToRecipients(
+    members.map((m) => ({ userId: m.userId, username: m.username })),
+    undefined,
+    {
+      type: 'channel:message',
+      channelId,
+      message: mappedMessage,
+    }
+  );
+
+  await addPortalAuditLog({
+    category: 'communications',
+    action: 'CHANNEL_MESSAGE_SENT',
+    title: `ارسال پیام در ${channel.channelType === 'direct' ? 'گفتگوی مستقیم' : 'کانال گروهی'}`,
+    title_en: `Message Sent in ${channel.channelType === 'direct' ? 'Direct Chat' : 'Group Channel'}`,
+    actor: {
+      username: senderUser.username,
+      role: senderUser.role || 'Operator',
+      ipAddress: senderIp || '127.0.0.1',
+    },
+    target: {
+      type: 'comms_channel',
+      id: channelId,
+      name: channel.nameEn || channel.name,
+    },
+    severity: payload.priority || 'info',
+    status: 'success',
+    details: `ارسال پیام در کانال "${channel.name}" برای ${members.length} عضو.`,
+    details_en: `Posted message in "${channel.nameEn || channel.name}" (${members.length} members).`,
+  }).catch(() => {});
+
+  return mappedMessage;
+}
+
+export async function replyToInboxNotification(
+  senderUser: CommsActor,
+  senderIp: string,
+  notificationId: string,
+  payload: { body: string; priority?: CommsSeverity }
+): Promise<{ channel: CommsChannel; message: CommsMessage }> {
+  const identifiers = resolveUserIdentifiers(senderUser);
+  const idSet = new Set(identifiers);
+
+  let notif: CommsNotificationItem | null = null;
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const res = await pool.query(
+        `SELECT * FROM comms_notifications
+         WHERE id = $1
+           AND (LOWER(recipient_user_id) = ANY($2::text[]) OR LOWER(recipient_username) = ANY($2::text[]))`,
+        [notificationId, identifiers]
+      );
+      if (res.rows[0]) notif = mapNotificationRow(res.rows[0]);
+    } catch {}
+  }
+
+  if (!notif) {
+    const store = loadFallbackStore();
+    const raw = (store.comms_notifications || []).find(
+      (n: any) =>
+        n.id === notificationId &&
+        (idSet.has((n.recipient_user_id || n.recipientUserId || '').toLowerCase()) ||
+          idSet.has((n.recipient_username || n.recipientUsername || '').toLowerCase()))
+    );
+    if (raw) notif = mapNotificationRow(raw);
+  }
+
+  if (!notif) {
+    throw new Error('Notification not found.');
+  }
+
+  let targetChannel: CommsChannel | null = null;
+  if (notif.channelId) {
+    targetChannel = await loadHydratedChannelForUser(notif.channelId, senderUser);
+  }
+
+  if (!targetChannel) {
+    let senderIdent = notif.metadata?.senderUsername || '';
+    if (!senderIdent && notif.sourceMessageId) {
+      if (isPostgresConnected() && pool) {
+        try {
+          const mRes = await pool.query(
+            `SELECT sender_username, sender_user_id FROM comms_messages WHERE id = $1`,
+            [notif.sourceMessageId]
+          );
+          senderIdent = mRes.rows[0]?.sender_username || mRes.rows[0]?.sender_user_id || '';
+        } catch {}
+      }
+      if (!senderIdent) {
+        const msg = (loadFallbackStore().comms_messages || []).find(
+          (m: any) => m.id === notif!.sourceMessageId
+        );
+        senderIdent = msg?.sender_username || msg?.sender_user_id || '';
+      }
+    }
+
+    if (!senderIdent) {
+      throw new Error('Only user-originated messages support direct reply.');
+    }
+
+    const opened = await createOrOpenDirectChannel(senderUser, senderIdent);
+    targetChannel = opened.channel;
+  }
+
+  const posted = await postChannelMessage(senderUser, senderIp, targetChannel.id, {
+    body: payload.body,
+    priority: payload.priority || 'info',
+    replyToMessageId: notif.sourceMessageId || null,
+    linkedEntityType: notif.linkedEntityType || null,
+    linkedEntityId: notif.linkedEntityId || null,
+    linkedEntityName: notif.linkedEntityName || null,
+  });
+
+  const refreshedChannel = (await loadHydratedChannelForUser(targetChannel.id, senderUser)) || targetChannel;
+  return { channel: refreshedChannel, message: posted };
+}
+
+export async function listSentAnnouncements(
+  actor: CommsActor,
+  isSuperAdmin: boolean
+): Promise<CommsAnnouncementSummary[]> {
+  const actorIds = new Set(resolveUserIdentifiers(actor));
+  let messages: any[] = [];
+  let notifications: any[] = [];
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const mRes = isSuperAdmin
+        ? await pool.query(
+            `SELECT * FROM comms_messages WHERE message_type = 'announcement' ORDER BY created_at DESC LIMIT 100`
+          )
+        : await pool.query(
+            `SELECT * FROM comms_messages
+             WHERE message_type = 'announcement'
+               AND (LOWER(sender_user_id) = ANY($1::text[]) OR LOWER(sender_username) = ANY($1::text[]))
+             ORDER BY created_at DESC LIMIT 100`,
+            [Array.from(actorIds)]
+          );
+      messages = mRes.rows;
+
+      const msgIds = messages.map((m) => m.id);
+      if (msgIds.length > 0) {
+        const nRes = await pool.query(
+          `SELECT id, source_message_id, is_read, acknowledged_at FROM comms_notifications
+           WHERE source_message_id = ANY($1::text[])`,
+          [msgIds]
+        );
+        notifications = nRes.rows;
+      }
+    } catch (err: any) {
+      console.error('[CommsService] listSentAnnouncements PG error:', err?.message || err);
+    }
+  }
+
+  if (messages.length === 0) {
+    const store = loadFallbackStore();
+    messages = (store.comms_messages || [])
+      .filter((m: any) => (m.message_type ?? m.messageType) === 'announcement')
+      .filter((m: any) => {
+        if (isSuperAdmin) return true;
+        return memberMatchesIdentifiers(
+          { userId: m.sender_user_id ?? m.senderUserId, username: m.sender_username ?? m.senderUsername },
+          actorIds
+        );
+      })
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.created_at || b.createdAt).getTime() -
+          new Date(a.created_at || a.createdAt).getTime()
+      )
+      .slice(0, 100);
+    notifications = store.comms_notifications || [];
+  }
+
+  const byMsgId = new Map<string, { total: number; read: number; acked: number }>();
+  for (const n of notifications) {
+    const mid = n.source_message_id ?? n.sourceMessageId;
+    if (!mid) continue;
+    let stat = byMsgId.get(mid);
+    if (!stat) {
+      stat = { total: 0, read: 0, acked: 0 };
+      byMsgId.set(mid, stat);
+    }
+    stat.total++;
+    if (n.is_read ?? n.isRead) stat.read++;
+    if (n.acknowledged_at ?? n.acknowledgedAt) stat.acked++;
+  }
+
+  return messages.map((m) => {
+    const meta =
+      typeof m.metadata === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(m.metadata);
+            } catch {
+              return {};
+            }
+          })()
+        : m.metadata || {};
+    const stats = byMsgId.get(m.id) || { total: 0, read: 0, acked: 0 };
+    const senderFull = m.sender_full_name ?? m.senderFullName;
+    const senderUser = m.sender_username ?? m.senderUsername;
+    return {
+      messageId: m.id,
+      title: m.title || '',
+      titleEn: m.title_en ?? m.titleEn ?? null,
+      body: m.body || '',
+      priority: (m.priority || 'info') as CommsSeverity,
+      senderName:
+        senderFull && senderFull !== senderUser ? `${senderFull} (${senderUser})` : senderUser || 'Manager',
+      requiresAcknowledgment: Boolean(meta.requiresAcknowledgment),
+      totalRecipients: stats.total,
+      readCount: stats.read,
+      acknowledgedCount: stats.acked,
+      createdAt: m.created_at
+        ? new Date(m.created_at).toISOString()
+        : m.createdAt || new Date().toISOString(),
+    };
+  });
+}
+
+export async function getAnnouncementReceipts(
+  actor: CommsActor,
+  isSuperAdmin: boolean,
+  messageId: string
+): Promise<CommsAnnouncementTrackerResponse> {
+  const dirMap = await buildDirectoryUserMap();
+  const actorIds = new Set(resolveUserIdentifiers(actor));
+
+  let msgRow: any = null;
+  let notifRows: any[] = [];
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const mRes = await pool.query(`SELECT * FROM comms_messages WHERE id = $1`, [messageId]);
+      if (mRes.rows[0]) {
+        msgRow = mRes.rows[0];
+        const nRes = await pool.query(
+          `SELECT * FROM comms_notifications WHERE source_message_id = $1 ORDER BY recipient_username ASC`,
+          [messageId]
+        );
+        notifRows = nRes.rows;
+      }
+    } catch (err: any) {
+      console.error('[CommsService] getAnnouncementReceipts PG error:', err?.message || err);
+    }
+  }
+
+  if (!msgRow) {
+    const store = loadFallbackStore();
+    msgRow = (store.comms_messages || []).find((m: any) => m.id === messageId) || null;
+    if (msgRow) {
+      notifRows = (store.comms_notifications || []).filter(
+        (n: any) => (n.source_message_id ?? n.sourceMessageId) === messageId
+      );
+    }
+  }
+
+  if (!msgRow) {
+    throw new Error('Announcement not found.');
+  }
+
+  const isOwner = memberMatchesIdentifiers(
+    { userId: msgRow.sender_user_id ?? msgRow.senderUserId, username: msgRow.sender_username ?? msgRow.senderUsername },
+    actorIds
+  );
+  if (!isSuperAdmin && !isOwner) {
+    throw new Error('ACCESS_DENIED: Cannot view receipts for another sender announcement.');
+  }
+
+  const meta =
+    typeof msgRow.metadata === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(msgRow.metadata);
+          } catch {
+            return {};
+          }
+        })()
+      : msgRow.metadata || {};
+
+  const recipients: CommsAnnouncementReadReceipt[] = notifRows.map((n) => {
+    const rUser = n.recipient_username ?? n.recipientUsername ?? '';
+    const rId = n.recipient_user_id ?? n.recipientUserId ?? '';
+    const dirInfo = dirMap.get(rUser.toLowerCase()) || dirMap.get(rId.toLowerCase());
+    return {
+      notificationId: n.id,
+      recipientUserId: rId,
+      recipientUsername: rUser,
+      fullName: dirInfo?.fullName || rUser,
+      role: dirInfo?.role || null,
+      isRead: Boolean(n.is_read ?? n.isRead),
+      readAt: n.read_at ? new Date(n.read_at).toISOString() : n.readAt || null,
+      acknowledgedAt: n.acknowledged_at
+        ? new Date(n.acknowledged_at).toISOString()
+        : n.acknowledgedAt || null,
+      createdAt: n.created_at
+        ? new Date(n.created_at).toISOString()
+        : n.createdAt || new Date().toISOString(),
+    };
+  });
+
+  const readCount = recipients.filter((r) => r.isRead).length;
+  const acknowledgedCount = recipients.filter((r) => Boolean(r.acknowledgedAt)).length;
+  const senderFull = msgRow.sender_full_name ?? msgRow.senderFullName;
+  const senderUser = msgRow.sender_username ?? msgRow.senderUsername;
+
+  return {
+    announcement: {
+      messageId: msgRow.id,
+      title: msgRow.title || '',
+      titleEn: msgRow.title_en ?? msgRow.titleEn ?? null,
+      body: msgRow.body || '',
+      priority: (msgRow.priority || 'info') as CommsSeverity,
+      senderName:
+        senderFull && senderFull !== senderUser ? `${senderFull} (${senderUser})` : senderUser || 'Manager',
+      requiresAcknowledgment: Boolean(meta.requiresAcknowledgment),
+      totalRecipients: recipients.length,
+      readCount,
+      acknowledgedCount,
+      createdAt: msgRow.created_at
+        ? new Date(msgRow.created_at).toISOString()
+        : msgRow.createdAt || new Date().toISOString(),
+    },
+    recipients,
+  };
 }

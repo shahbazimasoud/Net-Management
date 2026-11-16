@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { verifyToken, UserSessionPayload } from './auth';
 import { findUserById, findUserByUsername, getEffectivePolicyForUser, addPortalAuditLog, getEmailConfig, getGeneralSettings } from './db';
 import { createMailTransport } from './emailService';
+import { emitSystemNotification } from './commsService';
 import { LicenseItem, ContractItem, AttachmentFile, LicenseStatus, ContractStatus } from '../src/types';
 
 // Safely resolve project root across both ESM (tsx dev) and CJS (dist bundle)
@@ -1766,13 +1767,15 @@ export async function checkAndSendLicenseContractAlerts(): Promise<{
   const todayStr = new Date().toISOString().split('T')[0];
   let alertsSent = 0;
   const errors: string[] = [];
+  const inboxNotifiedCache: Set<string> =
+    (globalThis as any).__nettopInboxLicenseAlerted ||
+    ((globalThis as any).__nettopInboxLicenseAlerted = new Set<string>());
 
   // 1. Check Licenses
   for (const lic of licenses) {
     try {
       // Skip inactive or suspended licenses - no alerts or notifications should be sent
       if (lic.isActive === false || lic.status === 'inactive' || lic.status === 'suspended') continue;
-      if (!Array.isArray(lic.notifyEmails) || lic.notifyEmails.length === 0) continue;
 
       const end = new Date(lic.endDate);
       if (isNaN(end.getTime())) continue;
@@ -1787,6 +1790,33 @@ export async function checkAndSendLicenseContractAlerts(): Promise<{
       const isMilestone = alertDays.includes(daysRemaining);
       // Or if expired (<= 0) and hasn't been notified today
       const isExpiredNotice = daysRemaining <= 0 && lic.lastNotifiedDate !== todayStr;
+
+      const inboxKey = `${todayStr}:license:${lic.id}`;
+      if ((isMilestone || isExpiredNotice) && !inboxNotifiedCache.has(inboxKey)) {
+        inboxNotifiedCache.add(inboxKey);
+        emitSystemNotification({
+          category: 'system_alert',
+          severity: daysRemaining <= 0 ? 'critical' : 'warning',
+          senderName: 'License & Contract Monitor',
+          senderRole: 'Compliance Scheduler',
+          title:
+            daysRemaining <= 0
+              ? `انقضای لایسنس: ${lic.title}`
+              : `هشدار نزدیک شدن سررسید لایسنس (${daysRemaining} روز): ${lic.title}`,
+          titleEn:
+            daysRemaining <= 0
+              ? `License Expired: ${lic.title}`
+              : `License Expiring in ${daysRemaining} Day(s): ${lic.title}`,
+          body: `لایسنس «${lic.title}» (${lic.vendor || 'Vendor'}) با تاریخ پایان ${lic.endDate} نیاز به بررسی/تمدید دارد (${daysRemaining <= 0 ? 'منقضی شده' : `${daysRemaining} روز باقی مانده`}).`,
+          bodyEn: `License "${lic.title}" (${lic.vendor || 'Vendor'}) ending on ${lic.endDate} requires attention (${daysRemaining <= 0 ? 'Expired' : `${daysRemaining} days remaining`}).`,
+          linkedEntityType: 'license',
+          linkedEntityId: lic.id,
+          linkedEntityName: lic.title,
+          actionTab: 'licenses',
+        }).catch(() => {});
+      }
+
+      if (!Array.isArray(lic.notifyEmails) || lic.notifyEmails.length === 0) continue;
 
       if ((isMilestone || isExpiredNotice) && lic.lastNotifiedDate !== todayStr) {
         console.log(`[License Alert Triggered] '${lic.title}' has ${daysRemaining} days remaining. Sending alert to ${lic.notifyEmails.join(', ')}...`);
@@ -1823,7 +1853,6 @@ export async function checkAndSendLicenseContractAlerts(): Promise<{
     try {
       // Skip inactive or terminated contracts - no alerts or notifications should be sent
       if (cnt.isActive === false || cnt.status === 'inactive' || cnt.status === 'terminated') continue;
-      if (!Array.isArray(cnt.notifyEmails) || cnt.notifyEmails.length === 0) continue;
 
       const end = new Date(cnt.endDate);
       if (isNaN(end.getTime())) continue;
@@ -1836,6 +1865,33 @@ export async function checkAndSendLicenseContractAlerts(): Promise<{
 
       const isMilestone = alertDays.includes(daysRemaining);
       const isExpiredNotice = daysRemaining <= 0 && cnt.lastNotifiedDate !== todayStr;
+
+      const inboxKey = `${todayStr}:contract:${cnt.id}`;
+      if ((isMilestone || isExpiredNotice) && !inboxNotifiedCache.has(inboxKey)) {
+        inboxNotifiedCache.add(inboxKey);
+        emitSystemNotification({
+          category: 'system_alert',
+          severity: daysRemaining <= 0 ? 'critical' : 'warning',
+          senderName: 'License & Contract Monitor',
+          senderRole: 'Compliance Scheduler',
+          title:
+            daysRemaining <= 0
+              ? `انقضای قرارداد پشتیبانی: ${cnt.title}`
+              : `هشدار سررسید قرارداد (${daysRemaining} روز): ${cnt.title}`,
+          titleEn:
+            daysRemaining <= 0
+              ? `Contract Expired: ${cnt.title}`
+              : `Contract Expiring in ${daysRemaining} Day(s): ${cnt.title}`,
+          body: `قرارداد شماره ${cnt.contractNumber || '-'} («${cnt.title}» - ${cnt.vendorName || 'Vendor'}) با تاریخ اتمام ${cnt.endDate} نیازمند پیگیری تمدید است (${daysRemaining <= 0 ? 'منقضی شده' : `${daysRemaining} روز باقی مانده`}).`,
+          bodyEn: `Contract #${cnt.contractNumber || '-'} ("${cnt.title}" - ${cnt.vendorName || 'Vendor'}) ending ${cnt.endDate} requires renewal review (${daysRemaining <= 0 ? 'Expired' : `${daysRemaining} days remaining`}).`,
+          linkedEntityType: 'contract',
+          linkedEntityId: cnt.id,
+          linkedEntityName: cnt.title,
+          actionTab: 'contracts',
+        }).catch(() => {});
+      }
+
+      if (!Array.isArray(cnt.notifyEmails) || cnt.notifyEmails.length === 0) continue;
 
       if ((isMilestone || isExpiredNotice) && cnt.lastNotifiedDate !== todayStr) {
         console.log(`[Contract Alert Triggered] '${cnt.title}' has ${daysRemaining} days remaining. Sending alert to ${cnt.notifyEmails.join(', ')}...`);

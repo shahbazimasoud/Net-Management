@@ -1,0 +1,1624 @@
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  Hash,
+  User,
+  Users,
+  MessageSquare,
+  Plus,
+  Send,
+  Bell,
+  BellOff,
+  Search,
+  RefreshCw,
+  Reply,
+  X,
+  UserPlus,
+  AlertTriangle,
+  AlertCircle,
+  CornerDownRight,
+} from 'lucide-react';
+import {
+  CommsChannel,
+  CommsMessage,
+  CommsRecipientOption,
+  CommsSeverity,
+} from '../../types';
+import { useLanguage } from '../../i18n';
+import { useAuth } from '../../context/AuthContext';
+import { useModalDock } from '../../context/ModalDockContext';
+import { ModalHeaderControls } from '../common/ModalHeaderControls';
+import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import {
+  addCommsChannelMembers,
+  createGroupCommsChannel,
+  fetchChannelMessages,
+  fetchCommsChannels,
+  fetchCommsRecipients,
+  openDirectCommsChannel,
+  postChannelMessage,
+  toggleCommsChannelMute,
+} from '../../services/commsApi';
+import { appDataCache } from '../../services/dataCache';
+
+interface TeamChannelsPaneProps {
+  isLightMode: boolean;
+  canSend: boolean;
+  isSuperAdmin: boolean;
+  liveRevision: number;
+  selectedChannelId: string | null;
+  onSelectChannelId: (id: string | null) => void;
+  onChannelsLoaded?: (channels: CommsChannel[]) => void;
+}
+
+const DIRECT_MODAL_ID = 'comms-direct-chat-modal';
+const GROUP_MODAL_ID = 'comms-group-channel-modal';
+const MEMBERS_MODAL_ID = 'comms-channel-members-modal';
+
+export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
+  isLightMode,
+  canSend,
+  isSuperAdmin,
+  liveRevision,
+  selectedChannelId,
+  onSelectChannelId,
+  onChannelsLoaded,
+}) => {
+  const { isEn, isRtl } = useLanguage();
+  const { user } = useAuth();
+  const { dockModal, undockModal } = useModalDock();
+
+  const optimisticChannels = appDataCache.getOptimistic<CommsChannel[]>('comms:channels');
+  const [channels, setChannels] = useState<CommsChannel[]>(optimisticChannels || []);
+  const [channelsLoading, setChannelsLoading] = useState<boolean>(!optimisticChannels);
+  const [channelSearch, setChannelSearch] = useState('');
+
+  const [messages, setMessages] = useState<CommsMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Composer state
+  const [draftBody, setDraftBody] = useState('');
+  const [draftPriority, setDraftPriority] = useState<CommsSeverity>('info');
+  const [replyTarget, setReplyTarget] = useState<CommsMessage | null>(null);
+  const [sending, setSending] = useState(false);
+
+  // Members popover strip toggle
+  const [showMembersStrip, setShowMembersStrip] = useState(false);
+
+  // Directory options
+  const [directoryOptions, setDirectoryOptions] = useState<CommsRecipientOption[]>([]);
+  const [directoryLoading, setDirectoryLoading] = useState(false);
+
+  // Direct Chat Modal
+  const [directModalOpen, setDirectModalOpen] = useState(false);
+  const [directMaximized, setDirectMaximized] = useState(false);
+  const [directSearch, setDirectSearch] = useState('');
+  const [selectedDirectUser, setSelectedDirectUser] = useState('');
+  const [directBusy, setDirectBusy] = useState(false);
+
+  // Group Channel Modal
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [groupMaximized, setGroupMaximized] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupDescription, setGroupDescription] = useState('');
+  const [groupLinkedId, setGroupLinkedId] = useState('');
+  const [groupMemberIds, setGroupMemberIds] = useState<string[]>([]);
+  const [groupBusy, setGroupBusy] = useState(false);
+
+  // Add Members Modal
+  const [addMembersOpen, setAddMembersOpen] = useState(false);
+  const [addMembersMaximized, setAddMembersMaximized] = useState(false);
+  const [extraMemberIds, setExtraMemberIds] = useState<string[]>([]);
+  const [addMembersBusy, setAddMembersBusy] = useState(false);
+
+  const threadEndRef = useRef<HTMLDivElement>(null);
+
+  const ensureDirectory = useCallback(async () => {
+    if (directoryOptions.length > 0) return;
+    setDirectoryLoading(true);
+    try {
+      const opts = await fetchCommsRecipients();
+      setDirectoryOptions(opts);
+    } catch {}
+    setDirectoryLoading(false);
+  }, [directoryOptions.length]);
+
+  const loadChannels = useCallback(
+    async (forceRefresh = false) => {
+      if (channels.length === 0) setChannelsLoading(true);
+      try {
+        const list = await fetchCommsChannels(forceRefresh);
+        setChannels(list);
+        onChannelsLoaded?.(list);
+        if (!selectedChannelId && list.length > 0) {
+          onSelectChannelId(list[0].id);
+        }
+      } catch (err: any) {
+        setErrorMsg(
+          err?.message || (isEn ? 'Failed to load team channels' : 'خطا در دریافت کانال‌های تیمی')
+        );
+      } finally {
+        setChannelsLoading(false);
+      }
+    },
+    [channels.length, isEn, onChannelsLoaded, onSelectChannelId, selectedChannelId]
+  );
+
+  const loadThread = useCallback(
+    async (channelId: string, forceRefresh = false) => {
+      setMessagesLoading((prev) => (messages.length === 0 ? true : prev));
+      setErrorMsg(null);
+      try {
+        const res = await fetchChannelMessages(channelId, { limit: 100, forceRefresh });
+        setMessages(res.messages || []);
+        setChannels((prev) =>
+          prev.map((c) => (c.id === channelId ? { ...c, unreadCount: 0 } : c))
+        );
+      } catch (err: any) {
+        setErrorMsg(
+          err?.message || (isEn ? 'Failed to load thread messages' : 'خطا در دریافت پیام‌های گفتگو')
+        );
+      } finally {
+        setMessagesLoading(false);
+      }
+    },
+    [isEn, messages.length]
+  );
+
+  useEffect(() => {
+    loadChannels(liveRevision > 0);
+  }, [liveRevision]);
+
+  useEffect(() => {
+    if (selectedChannelId) {
+      loadThread(selectedChannelId, liveRevision > 0);
+      setReplyTarget(null);
+    } else {
+      setMessages([]);
+    }
+  }, [selectedChannelId, liveRevision]);
+
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length, selectedChannelId]);
+
+  const activeChannel = useMemo(
+    () => channels.find((c) => c.id === selectedChannelId) || null,
+    [channels, selectedChannelId]
+  );
+
+  const filteredChannels = useMemo(() => {
+    const q = channelSearch.trim().toLowerCase();
+    if (!q) return channels;
+    return channels.filter(
+      (c) =>
+        (c.name || '').toLowerCase().includes(q) ||
+        (c.nameEn || '').toLowerCase().includes(q) ||
+        (c.lastMessagePreview || '').toLowerCase().includes(q)
+    );
+  }, [channels, channelSearch]);
+
+  const directChannels = useMemo(
+    () => filteredChannels.filter((c) => c.channelType === 'direct'),
+    [filteredChannels]
+  );
+  const groupChannels = useMemo(
+    () => filteredChannels.filter((c) => c.channelType !== 'direct'),
+    [filteredChannels]
+  );
+
+  const userOptions = useMemo(
+    () =>
+      directoryOptions.filter(
+        (o) =>
+          o.type === 'user' &&
+          (o.username || '').toLowerCase() !== (user?.username || '').toLowerCase()
+      ),
+    [directoryOptions, user?.username]
+  );
+
+  const dirGroupOptions = useMemo(
+    () => directoryOptions.filter((o) => o.type === 'group'),
+    [directoryOptions]
+  );
+
+  const formatShortTime = (iso?: string | null) => {
+    if (!iso) return '';
+    try {
+      return new Date(iso).toLocaleString(isEn ? 'en-US' : 'fa-IR', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return iso;
+    }
+  };
+
+  const handleSendThreadMessage = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!activeChannel || !draftBody.trim() || sending) return;
+    setSending(true);
+    setErrorMsg(null);
+    try {
+      const res = await postChannelMessage(activeChannel.id, {
+        body: draftBody.trim(),
+        priority: draftPriority,
+        replyToMessageId: replyTarget?.id || null,
+      });
+      setMessages((prev) =>
+        prev.some((m) => m.id === res.message.id) ? prev : [...prev, res.message]
+      );
+      setDraftBody('');
+      setDraftPriority('info');
+      setReplyTarget(null);
+      loadChannels(true);
+    } catch (err: any) {
+      setErrorMsg(
+        err?.message || (isEn ? 'Failed to send message' : 'خطا در ارسال پیام')
+      );
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleToggleMute = async () => {
+    if (!activeChannel) return;
+    const nextMuted = !activeChannel.isMuted;
+    try {
+      await toggleCommsChannelMute(activeChannel.id, nextMuted);
+      setChannels((prev) =>
+        prev.map((c) => (c.id === activeChannel.id ? { ...c, isMuted: nextMuted } : c))
+      );
+    } catch (err: any) {
+      setErrorMsg(err?.message || (isEn ? 'Mute update failed' : 'خطا در تغییر وضعیت سکوت'));
+    }
+  };
+
+  // Direct Chat Modal handlers
+  const openDirectModal = () => {
+    undockModal(DIRECT_MODAL_ID);
+    setSelectedDirectUser('');
+    setDirectSearch('');
+    setDirectModalOpen(true);
+    ensureDirectory();
+  };
+
+  const handleStartDirectChat = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDirectUser) return;
+    setDirectBusy(true);
+    try {
+      const res = await openDirectCommsChannel(selectedDirectUser);
+      setDirectModalOpen(false);
+      undockModal(DIRECT_MODAL_ID);
+      await loadChannels(true);
+      onSelectChannelId(res.channel.id);
+    } catch (err: any) {
+      setErrorMsg(err?.message || (isEn ? 'Could not start direct chat' : 'خطا در ایجاد گفتگو'));
+    } finally {
+      setDirectBusy(false);
+    }
+  };
+
+  // Group Channel Modal handlers
+  const openGroupModal = () => {
+    undockModal(GROUP_MODAL_ID);
+    setGroupName('');
+    setGroupDescription('');
+    setGroupLinkedId('');
+    setGroupMemberIds([]);
+    setGroupModalOpen(true);
+    ensureDirectory();
+  };
+
+  const handleCreateGroupChannel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!groupName.trim()) return;
+    setGroupBusy(true);
+    try {
+      const res = await createGroupCommsChannel({
+        name: groupName.trim(),
+        nameEn: groupName.trim(),
+        description: groupDescription.trim() || undefined,
+        linkedGroupId: groupLinkedId || undefined,
+        memberIds: groupMemberIds,
+      });
+      setGroupModalOpen(false);
+      undockModal(GROUP_MODAL_ID);
+      await loadChannels(true);
+      onSelectChannelId(res.channel.id);
+    } catch (err: any) {
+      setErrorMsg(
+        err?.message || (isEn ? 'Failed to create group channel' : 'خطا در ساخت کانال گروهی')
+      );
+    } finally {
+      setGroupBusy(false);
+    }
+  };
+
+  // Add Members Modal handlers
+  const openAddMembersModal = () => {
+    if (!activeChannel) return;
+    undockModal(MEMBERS_MODAL_ID);
+    setExtraMemberIds([]);
+    setAddMembersOpen(true);
+    ensureDirectory();
+  };
+
+  const handleAddMembersSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeChannel || extraMemberIds.length === 0) return;
+    setAddMembersBusy(true);
+    try {
+      await addCommsChannelMembers(activeChannel.id, extraMemberIds);
+      setAddMembersOpen(false);
+      undockModal(MEMBERS_MODAL_ID);
+      await loadChannels(true);
+    } catch (err: any) {
+      setErrorMsg(err?.message || (isEn ? 'Failed to add members' : 'خطا در افزودن اعضا'));
+    } finally {
+      setAddMembersBusy(false);
+    }
+  };
+
+  const canManageChannelMembers = useMemo(() => {
+    if (!activeChannel || activeChannel.channelType !== 'group') return false;
+    if (isSuperAdmin) return true;
+    const uname = (user?.username || '').toLowerCase();
+    return Boolean(
+      activeChannel.members?.some(
+        (m) => m.username.toLowerCase() === uname && m.role === 'owner'
+      )
+    );
+  }, [activeChannel, isSuperAdmin, user?.username]);
+
+  const existingMemberUsernames = useMemo(
+    () => new Set((activeChannel?.members || []).map((m) => m.username.toLowerCase())),
+    [activeChannel]
+  );
+
+  const isMessageSelf = (msg: CommsMessage) => {
+    const me = (user?.username || '').toLowerCase();
+    return me !== '' && (msg.senderUsername || '').toLowerCase() === me;
+  };
+
+  return (
+    <div className="flex flex-col gap-3 flex-1 min-h-0">
+      {errorMsg && (
+        <div
+          className={`flex items-center justify-between gap-3 px-4 py-2 rounded-xl border text-xs ${
+            isLightMode
+              ? 'bg-rose-50 border-rose-200 text-rose-800'
+              : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{errorMsg}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setErrorMsg(null)}
+            className="text-xs underline cursor-pointer"
+          >
+            {isEn ? 'Dismiss' : 'بستن'}
+          </button>
+        </div>
+      )}
+
+      {/* 2-Column Single-Elevation Chat Workspace */}
+      <div
+        className={`flex-1 grid grid-cols-1 lg:grid-cols-12 rounded-2xl border overflow-hidden min-h-[540px] ${
+          isLightMode
+            ? 'bg-white border-slate-200 shadow-xs'
+            : 'bg-slate-900/70 border-white/10'
+        }`}
+      >
+        {/* Left Rail: Direct Chats + Team Group Channels */}
+        <aside
+          className={`lg:col-span-4 xl:col-span-3 border-b lg:border-b-0 ${
+            isRtl ? 'lg:border-l' : 'lg:border-r'
+          } ${
+            isLightMode ? 'border-slate-200 bg-slate-50/60' : 'border-white/10 bg-slate-950/35'
+          } flex flex-col`}
+        >
+          {/* Rail Header & Creation Actions */}
+          <div
+            className={`p-3 border-b flex flex-col gap-2.5 ${
+              isLightMode ? 'border-slate-200' : 'border-white/10'
+            }`}
+          >
+            {canSend && (
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={openDirectModal}
+                  className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+                    isLightMode
+                      ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-800'
+                      : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-100'
+                  }`}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{isEn ? 'Direct Chat' : 'گفتگوی مستقیم'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={openGroupModal}
+                  className="flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap cursor-pointer transition"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{isEn ? 'New Channel' : 'کانال گروهی'}</span>
+                </button>
+              </div>
+            )}
+
+            <div className="relative">
+              <Search
+                className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 ${
+                  isRtl ? 'right-2.5' : 'left-2.5'
+                } ${isLightMode ? 'text-slate-400' : 'text-slate-500'}`}
+              />
+              <input
+                type="text"
+                value={channelSearch}
+                onChange={(e) => setChannelSearch(e.target.value)}
+                placeholder={isEn ? 'Filter conversations...' : 'جستجو در گفتگوها و کانال‌ها...'}
+                className={`w-full py-1.5 rounded-lg border text-xs outline-none ${
+                  isRtl ? 'pr-8 pl-2.5' : 'pl-8 pr-2.5'
+                } ${
+                  isLightMode
+                    ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                    : 'bg-slate-950/70 border-white/10 text-slate-100 placeholder:text-slate-500'
+                }`}
+              />
+            </div>
+          </div>
+
+          {/* Rail Channel Lists */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-2.5 space-y-4">
+            {channelsLoading ? (
+              <div className="space-y-2 p-1">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={`h-12 rounded-xl animate-pulse ${
+                      isLightMode ? 'bg-slate-200/70' : 'bg-white/5'
+                    }`}
+                  />
+                ))}
+              </div>
+            ) : filteredChannels.length === 0 ? (
+              <div className="p-4 text-center">
+                <MessageSquare
+                  className={`w-8 h-8 mx-auto mb-2 ${
+                    isLightMode ? 'text-slate-300' : 'text-slate-600'
+                  }`}
+                />
+                <p className={`text-xs ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                  {isEn
+                    ? 'No conversations yet. Start a direct chat or create a team channel.'
+                    : 'هنوز گفتگویی ثبت نشده است. یک گفتگوی مستقیم یا کانال گروهی بسازید.'}
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Group Channels Section */}
+                {groupChannels.length > 0 && (
+                  <div className="space-y-1">
+                    <div
+                      className={`px-2 text-[11px] font-semibold ${
+                        isLightMode ? 'text-slate-500' : 'text-slate-400'
+                      }`}
+                    >
+                      {isEn ? 'Team Channels' : 'کانال‌های گروهی'}
+                    </div>
+                    {groupChannels.map((ch) => {
+                      const active = ch.id === selectedChannelId;
+                      return (
+                        <button
+                          key={ch.id}
+                          type="button"
+                          onClick={() => onSelectChannelId(ch.id)}
+                          className={`w-full flex items-start gap-2.5 px-2.5 py-2 rounded-xl text-start transition cursor-pointer ${
+                            active
+                              ? isLightMode
+                                ? 'bg-indigo-50 border border-indigo-200 text-indigo-900'
+                                : 'bg-indigo-500/15 border border-indigo-500/30 text-white'
+                              : isLightMode
+                              ? 'border border-transparent hover:bg-slate-200/60 text-slate-800'
+                              : 'border border-transparent hover:bg-white/5 text-slate-200'
+                          }`}
+                        >
+                          <div
+                            className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 border ${
+                              isLightMode
+                                ? 'bg-white border-slate-200 text-indigo-600'
+                                : 'bg-white/5 border-white/10 text-indigo-300'
+                            }`}
+                          >
+                            <Hash className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="text-xs font-semibold truncate">
+                                {isEn ? ch.nameEn || ch.name : ch.name}
+                              </span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {ch.isMuted && <BellOff className="w-3 h-3 text-slate-400" />}
+                                {ch.unreadCount > 0 && (
+                                  <span className="px-1.5 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-mono tabular-nums">
+                                    {ch.unreadCount}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <p
+                              className={`text-[11px] truncate mt-0.5 ${
+                                isLightMode ? 'text-slate-500' : 'text-slate-400'
+                              }`}
+                            >
+                              {ch.lastMessagePreview ||
+                                (isEn
+                                  ? `${ch.memberCount} members`
+                                  : `${ch.memberCount} عضو`)}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Direct Chats Section */}
+                {directChannels.length > 0 && (
+                  <div className="space-y-1">
+                    <div
+                      className={`px-2 text-[11px] font-semibold ${
+                        isLightMode ? 'text-slate-500' : 'text-slate-400'
+                      }`}
+                    >
+                      {isEn ? 'Direct Messages' : 'گفتگوهای مستقیم'}
+                    </div>
+                    {directChannels.map((ch) => {
+                      const active = ch.id === selectedChannelId;
+                      return (
+                        <button
+                          key={ch.id}
+                          type="button"
+                          onClick={() => onSelectChannelId(ch.id)}
+                          className={`w-full flex items-start gap-2.5 px-2.5 py-2 rounded-xl text-start transition cursor-pointer ${
+                            active
+                              ? isLightMode
+                                ? 'bg-indigo-50 border border-indigo-200 text-indigo-900'
+                                : 'bg-indigo-500/15 border border-indigo-500/30 text-white'
+                              : isLightMode
+                              ? 'border border-transparent hover:bg-slate-200/60 text-slate-800'
+                              : 'border border-transparent hover:bg-white/5 text-slate-200'
+                          }`}
+                        >
+                          <div
+                            className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 border ${
+                              isLightMode
+                                ? 'bg-white border-slate-200 text-sky-600'
+                                : 'bg-white/5 border-white/10 text-sky-300'
+                            }`}
+                          >
+                            <User className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="text-xs font-semibold truncate">
+                                {isEn ? ch.nameEn || ch.name : ch.name}
+                              </span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {ch.isMuted && <BellOff className="w-3 h-3 text-slate-400" />}
+                                {ch.unreadCount > 0 && (
+                                  <span className="px-1.5 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-mono tabular-nums">
+                                    {ch.unreadCount}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <p
+                              className={`text-[11px] truncate mt-0.5 ${
+                                isLightMode ? 'text-slate-500' : 'text-slate-400'
+                              }`}
+                            >
+                              {ch.lastMessagePreview ||
+                                (isEn ? 'No messages yet' : 'بدون پیام')}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </aside>
+
+        {/* Right Conversation Thread Pane */}
+        <section className="lg:col-span-8 xl:col-span-9 flex flex-col min-h-[460px]">
+          {!activeChannel ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+              <MessageSquare
+                className={`w-10 h-10 mb-3 ${
+                  isLightMode ? 'text-slate-300' : 'text-slate-600'
+                }`}
+              />
+              <h3
+                className={`text-sm font-bold mb-1 ${
+                  isLightMode ? 'text-slate-900' : 'text-white'
+                }`}
+              >
+                {isEn ? 'Select a Conversation' : 'یک گفتگو یا کانال را انتخاب کنید'}
+              </h3>
+              <p
+                className={`text-xs max-w-sm ${
+                  isLightMode ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
+                {isEn
+                  ? 'Collaborate directly with team operators or switch between incident response group channels.'
+                  : 'با کارشناسان IT به‌صورت دوجانبه گفتگو کنید یا پیام‌های کانال‌های گروهی را به‌صورت زنده دنبال نمایید.'}
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Thread Header */}
+              <div
+                className={`px-4 py-3 border-b flex items-center justify-between gap-3 ${
+                  isLightMode ? 'border-slate-200 bg-slate-50/40' : 'border-white/10 bg-white/[0.02]'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center border shrink-0 ${
+                      isLightMode
+                        ? 'bg-white border-slate-200 text-indigo-600'
+                        : 'bg-white/5 border-white/10 text-indigo-300'
+                    }`}
+                  >
+                    {activeChannel.channelType === 'direct' ? (
+                      <User className="w-4 h-4" />
+                    ) : (
+                      <Hash className="w-4 h-4" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <h3
+                      className={`text-sm font-bold truncate ${
+                        isLightMode ? 'text-slate-900' : 'text-white'
+                      }`}
+                    >
+                      {isEn ? activeChannel.nameEn || activeChannel.name : activeChannel.name}
+                    </h3>
+                    <div
+                      className={`flex items-center gap-2 text-[11px] ${
+                        isLightMode ? 'text-slate-500' : 'text-slate-400'
+                      }`}
+                    >
+                      <span>
+                        {activeChannel.channelType === 'direct'
+                          ? isEn
+                            ? 'Direct 1:1 Thread'
+                            : 'گفتگوی مستقیم دوطرفه'
+                          : isEn
+                          ? 'Team Group Channel'
+                          : 'کانال گروهی تیم'}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span className="tabular-nums">
+                        {isEn
+                          ? `${activeChannel.memberCount} members`
+                          : `${activeChannel.memberCount} عضو`}
+                      </span>
+                      {activeChannel.description && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span className="truncate max-w-xs">{activeChannel.description}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowMembersStrip((v) => !v)}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+                      showMembersStrip
+                        ? isLightMode
+                          ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                          : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-200'
+                        : isLightMode
+                        ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+                        : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Members' : 'اعضا'}</span>
+                  </button>
+
+                  {canManageChannelMembers && canSend && (
+                    <button
+                      type="button"
+                      onClick={openAddMembersModal}
+                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+                        isLightMode
+                          ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+                          : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
+                      }`}
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Add Member' : 'افزودن عضو'}</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleToggleMute}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+                      isLightMode
+                        ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+                        : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
+                    }`}
+                    title={
+                      activeChannel.isMuted
+                        ? isEn
+                          ? 'Unmute notifications'
+                          : 'لغو بی‌صدا کردن'
+                        : isEn
+                        ? 'Mute notifications'
+                        : 'بی‌صدا کردن اعلان کانال'
+                    }
+                  >
+                    {activeChannel.isMuted ? (
+                      <BellOff className="w-3.5 h-3.5 text-amber-500" />
+                    ) : (
+                      <Bell className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {activeChannel.isMuted
+                        ? isEn
+                          ? 'Muted'
+                          : 'بی‌صدا'
+                        : isEn
+                        ? 'Mute'
+                        : 'سکوت'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => loadThread(activeChannel.id, true)}
+                    className={`p-1.5 rounded-lg border cursor-pointer transition ${
+                      isLightMode
+                        ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                        : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
+                    }`}
+                    title={isEn ? 'Refresh thread' : 'تازه‌سازی گفتگو'}
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Optional Collapsible Members Bar */}
+              {showMembersStrip && (
+                <div
+                  className={`px-4 py-2.5 border-b flex flex-wrap items-center gap-2 text-xs ${
+                    isLightMode
+                      ? 'bg-slate-50 border-slate-200 text-slate-700'
+                      : 'bg-slate-950/40 border-white/10 text-slate-300'
+                  }`}
+                >
+                  <span className="font-semibold">
+                    {isEn ? 'Channel Participants:' : 'اعضای کانال:'}
+                  </span>
+                  {(activeChannel.members || []).map((m, idx) => (
+                    <span key={m.userId || m.username} className="inline-flex items-center gap-1">
+                      {idx > 0 && <span aria-hidden="true">·</span>}
+                      <span>{m.fullName || m.username}</span>
+                      {m.role === 'owner' && (
+                        <span
+                          className={isLightMode ? 'text-indigo-700 font-semibold' : 'text-indigo-300 font-semibold'}
+                        >
+                          ({isEn ? 'Owner' : 'مدیر'})
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Message Stream */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3 max-h-[440px]">
+                {messagesLoading && messages.length === 0 ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 4 }).map((_, idx) => (
+                      <div
+                        key={idx}
+                        className={`h-14 w-2/3 rounded-xl animate-pulse ${
+                          isLightMode ? 'bg-slate-100' : 'bg-white/5'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center py-12 text-center">
+                    <p
+                      className={`text-xs ${
+                        isLightMode ? 'text-slate-500' : 'text-slate-400'
+                      }`}
+                    >
+                      {isEn
+                        ? 'No messages in this conversation yet. Send the first message below.'
+                        : 'هنوز پیامی در این گفتگو ارسال نشده است. اولین پیام را ارسال کنید.'}
+                    </p>
+                  </div>
+                ) : (
+                  messages.map((msg) => {
+                    const self = isMessageSelf(msg);
+                    const senderLabel = msg.senderFullName
+                      ? `${msg.senderFullName} (${msg.senderUsername})`
+                      : msg.senderUsername;
+
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`group flex flex-col ${self ? 'items-end' : 'items-start'}`}
+                      >
+                        <div
+                          className={`max-w-[82%] sm:max-w-[70%] rounded-2xl border px-3.5 py-2.5 text-xs ${
+                            self
+                              ? isLightMode
+                                ? 'bg-indigo-600 border-indigo-600 text-white'
+                                : 'bg-indigo-600/90 border-indigo-500 text-white'
+                              : isLightMode
+                              ? 'bg-slate-50 border-slate-200 text-slate-900'
+                              : 'bg-slate-800/75 border-white/10 text-slate-100'
+                          }`}
+                        >
+                          {/* Sender & Timestamp line */}
+                          <div
+                            className={`flex items-center justify-between gap-3 mb-1 text-[11px] ${
+                              self
+                                ? 'text-indigo-100'
+                                : isLightMode
+                                ? 'text-slate-500'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            <span className="font-semibold truncate">
+                              {self ? (isEn ? 'You' : 'شما') : senderLabel}
+                              {msg.priority !== 'info' && (
+                                <span className="inline-flex items-center gap-1 mx-1.5">
+                                  {msg.priority === 'critical' ? (
+                                    <AlertCircle className="w-3 h-3 inline text-rose-400" />
+                                  ) : (
+                                    <AlertTriangle className="w-3 h-3 inline text-amber-400" />
+                                  )}
+                                  <span>
+                                    {msg.priority === 'critical'
+                                      ? isEn
+                                        ? 'Critical'
+                                        : 'بحرانی'
+                                      : isEn
+                                      ? 'Warning'
+                                      : 'هشدار'}
+                                  </span>
+                                </span>
+                              )}
+                            </span>
+                            <span className="font-mono tabular-nums shrink-0">
+                              {formatShortTime(msg.createdAt)}
+                            </span>
+                          </div>
+
+                          {/* Optional Reply Quote */}
+                          {msg.replyToPreview && (
+                            <div
+                              className={`mb-2 px-2.5 py-1.5 rounded-lg border text-[11px] ${
+                                self
+                                  ? 'bg-indigo-700/60 border-indigo-400/40 text-indigo-100'
+                                  : isLightMode
+                                  ? 'bg-white border-slate-200 text-slate-600'
+                                  : 'bg-slate-950/60 border-white/10 text-slate-300'
+                              }`}
+                            >
+                              <div className="font-semibold flex items-center gap-1">
+                                <CornerDownRight className="w-3 h-3" />
+                                <span>{msg.replyToPreview.senderName}</span>
+                              </div>
+                              <p className="truncate opacity-90">{msg.replyToPreview.body}</p>
+                            </div>
+                          )}
+
+                          {/* Body */}
+                          <div className="whitespace-pre-wrap leading-relaxed break-words text-xs sm:text-[13px]">
+                            {isEn ? msg.bodyEn || msg.body : msg.body}
+                          </div>
+                        </div>
+
+                        {canSend && (
+                          <button
+                            type="button"
+                            onClick={() => setReplyTarget(msg)}
+                            className={`mt-1 px-2 py-0.5 rounded text-[11px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 cursor-pointer ${
+                              isLightMode
+                                ? 'text-slate-500 hover:text-indigo-700'
+                                : 'text-slate-400 hover:text-indigo-300'
+                            }`}
+                          >
+                            <Reply className="w-3 h-3" />
+                            <span>{isEn ? 'Reply' : 'پاسخ'}</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={threadEndRef} />
+              </div>
+
+              {/* Bottom Composer */}
+              {canSend ? (
+                <form
+                  onSubmit={handleSendThreadMessage}
+                  className={`p-3 border-t flex flex-col gap-2 ${
+                    isLightMode ? 'border-slate-200 bg-slate-50/50' : 'border-white/10 bg-slate-950/40'
+                  }`}
+                >
+                  {replyTarget && (
+                    <div
+                      className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border text-xs ${
+                        isLightMode
+                          ? 'bg-indigo-50 border-indigo-200 text-indigo-900'
+                          : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-200'
+                      }`}
+                    >
+                      <span className="truncate">
+                        {isEn ? 'Replying to ' : 'در حال پاسخ به '}
+                        <strong>
+                          {replyTarget.senderFullName || replyTarget.senderUsername}
+                        </strong>
+                        : {replyTarget.body.slice(0, 75)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setReplyTarget(null)}
+                        className="p-0.5 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex items-end gap-2">
+                    <select
+                      value={draftPriority}
+                      onChange={(e) => setDraftPriority(e.target.value as CommsSeverity)}
+                      className={`px-2.5 py-2 rounded-lg border text-xs outline-none shrink-0 ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-900'
+                          : 'bg-slate-950 border-white/15 text-slate-100'
+                      }`}
+                      title={isEn ? 'Message Priority' : 'اولویت پیام'}
+                    >
+                      <option value="info">{isEn ? 'Normal' : 'عادی'}</option>
+                      <option value="warning">{isEn ? 'Warning' : 'هشدار'}</option>
+                      <option value="critical">{isEn ? 'Critical' : 'بحرانی'}</option>
+                    </select>
+
+                    <textarea
+                      rows={2}
+                      value={draftBody}
+                      onChange={(e) => setDraftBody(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendThreadMessage();
+                        }
+                      }}
+                      placeholder={
+                        isEn
+                          ? 'Write a message (Enter to send, Shift+Enter for new line)...'
+                          : 'پیام خود را بنویسید (Enter برای ارسال، Shift+Enter برای خط جدید)...'
+                      }
+                      className={`flex-1 px-3 py-2 rounded-xl border text-xs outline-none resize-none ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500'
+                          : 'bg-slate-950 border-white/15 text-slate-100 focus:border-indigo-500'
+                      }`}
+                    />
+
+                    <button
+                      type="submit"
+                      disabled={sending || !draftBody.trim()}
+                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 transition"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{sending ? (isEn ? 'Sending...' : 'ارسال...') : isEn ? 'Send' : 'ارسال'}</span>
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div
+                  className={`px-4 py-3 border-t text-xs text-center ${
+                    isLightMode
+                      ? 'border-slate-200 bg-slate-50 text-slate-500'
+                      : 'border-white/10 bg-slate-950/30 text-slate-400'
+                  }`}
+                >
+                  {isEn
+                    ? 'Your role policy grants read-only access to team conversations.'
+                    : 'سطح دسترسی فعلی شما برای ارسال پیام در کانال‌ها به‌صورت فقط-خواندنی است.'}
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      </div>
+
+      {/* Modal 1: Start Direct Chat (5 MODAL_GUIDELINES rules) */}
+      {directModalOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed top-0 left-0 right-0 bottom-8 z-[9999] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm"
+            dir={isRtl ? 'rtl' : 'ltr'}
+          >
+            <div
+              className={`flex flex-col border shadow-2xl overflow-hidden transition-all ${
+                directMaximized
+                  ? 'w-full h-full rounded-xl'
+                  : 'w-full max-w-lg max-h-full rounded-2xl'
+              } ${
+                isLightMode
+                  ? 'bg-white border-slate-200 text-slate-900'
+                  : 'bg-slate-900 border-slate-700/80 text-slate-100'
+              }`}
+            >
+              <div
+                className={`flex items-center justify-between px-4 py-3 border-b shrink-0 ${
+                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4 text-indigo-500" />
+                  <h3 className="text-sm font-bold">
+                    {isEn ? 'Start Direct 1:1 Conversation' : 'شروع گفتگوی مستقیم دوطرفه'}
+                  </h3>
+                </div>
+                <ModalHeaderControls
+                  isMaximized={directMaximized}
+                  onMaximizeToggle={() => setDirectMaximized((v) => !v)}
+                  onMinimize={() => {
+                    setDirectModalOpen(false);
+                    dockModal({
+                      id: DIRECT_MODAL_ID,
+                      labelEn: 'Start Direct Chat',
+                      labelFa: 'گفتگوی مستقیم جدید',
+                      category: 'system',
+                      onRestore: () => setDirectModalOpen(true),
+                      onClose: () => setDirectModalOpen(false),
+                    });
+                  }}
+                  onClose={() => {
+                    setDirectModalOpen(false);
+                    undockModal(DIRECT_MODAL_ID);
+                  }}
+                  isLightMode={isLightMode}
+                  isEn={isEn}
+                />
+              </div>
+
+              <form onSubmit={handleStartDirectChat} className="p-4 flex flex-col gap-3 flex-1 overflow-y-auto">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold">
+                    {isEn ? 'Select Team Member' : 'انتخاب کارشناس / کاربر'}
+                  </label>
+                  <FieldInfoTooltip
+                    title={isEn ? 'Direct 1:1 Conversation' : 'گفتگوی مستقیم'}
+                    whatIsIt={
+                      isEn
+                        ? 'Creates or reuses an isolated private thread between you and the selected operator.'
+                        : 'یک کانال گفتگوی خصوصی و دوطرفه بین شما و همکار انتخابی ایجاد یا بازگشایی می‌کند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Replaces external chat apps for incident coordination with full auditability inside NetTopology.'
+                        : 'مکاتبات عملیاتی را به‌صورت امن و قابل ممیزی درون خود پنل متمرکز می‌سازد.'
+                    }
+                    practicalExample={
+                      isEn ? 'Select NOC Shift Engineer' : 'انتخاب کارشناس شیفت یا مدیر شبکه'
+                    }
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
+                </div>
+
+                <input
+                  type="text"
+                  value={directSearch}
+                  onChange={(e) => setDirectSearch(e.target.value)}
+                  placeholder={isEn ? 'Search user...' : 'جستجوی نام یا نام کاربری...'}
+                  className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-900'
+                      : 'bg-slate-950 border-slate-700 text-white'
+                  }`}
+                />
+
+                <div
+                  className={`max-h-60 overflow-y-auto custom-scrollbar rounded-xl border p-2 space-y-1 ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                  }`}
+                >
+                  {directoryLoading ? (
+                    <p className="text-xs text-slate-400 p-2">
+                      {isEn ? 'Loading directory...' : 'در حال بارگذاری کاربران...'}
+                    </p>
+                  ) : (
+                    userOptions
+                      .filter((u) => {
+                        const q = directSearch.trim().toLowerCase();
+                        return (
+                          !q ||
+                          (u.label || '').toLowerCase().includes(q) ||
+                          (u.username || '').toLowerCase().includes(q)
+                        );
+                      })
+                      .map((u) => {
+                        const val = u.username || u.id;
+                        const active = selectedDirectUser === val;
+                        return (
+                          <button
+                            key={u.id}
+                            type="button"
+                            onClick={() => setSelectedDirectUser(val)}
+                            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs text-start cursor-pointer transition ${
+                              active
+                                ? 'bg-indigo-600 border-indigo-600 text-white font-semibold'
+                                : isLightMode
+                                ? 'bg-white border-slate-200 text-slate-800 hover:bg-slate-100'
+                                : 'bg-white/5 border-transparent text-slate-200 hover:bg-white/10'
+                            }`}
+                          >
+                            <span>{isEn ? u.labelEn || u.label : u.label}</span>
+                            <span className="text-[11px] opacity-80">{u.roleOrType}</span>
+                          </button>
+                        );
+                      })
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDirectModalOpen(false);
+                      undockModal(DIRECT_MODAL_ID);
+                    }}
+                    className={`px-4 py-2 rounded-lg border text-xs font-medium cursor-pointer ${
+                      isLightMode
+                        ? 'bg-slate-100 border-slate-300 text-slate-800'
+                        : 'bg-white/5 border-white/15 text-slate-200'
+                    }`}
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!selectedDirectUser || directBusy}
+                    className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-45"
+                  >
+                    {directBusy
+                      ? isEn
+                        ? 'Opening...'
+                        : 'در حال باز کردن...'
+                      : isEn
+                      ? 'Open Chat'
+                      : 'شروع گفتگو'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Modal 2: Create Team Group Channel (5 MODAL_GUIDELINES rules) */}
+      {groupModalOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed top-0 left-0 right-0 bottom-8 z-[9999] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm"
+            dir={isRtl ? 'rtl' : 'ltr'}
+          >
+            <div
+              className={`flex flex-col border shadow-2xl overflow-hidden transition-all ${
+                groupMaximized
+                  ? 'w-full h-full rounded-xl'
+                  : 'w-full max-w-xl max-h-full rounded-2xl'
+              } ${
+                isLightMode
+                  ? 'bg-white border-slate-200 text-slate-900'
+                  : 'bg-slate-900 border-slate-700/80 text-slate-100'
+              }`}
+            >
+              <div
+                className={`flex items-center justify-between px-4 py-3 border-b shrink-0 ${
+                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Hash className="w-4 h-4 text-indigo-500" />
+                  <h3 className="text-sm font-bold">
+                    {isEn ? 'Create Team Group Channel' : 'ایجاد کانال گروهی جدید'}
+                  </h3>
+                </div>
+                <ModalHeaderControls
+                  isMaximized={groupMaximized}
+                  onMaximizeToggle={() => setGroupMaximized((v) => !v)}
+                  onMinimize={() => {
+                    setGroupModalOpen(false);
+                    dockModal({
+                      id: GROUP_MODAL_ID,
+                      labelEn: 'Create Channel',
+                      labelFa: 'ایجاد کانال گروهی',
+                      category: 'system',
+                      onRestore: () => setGroupModalOpen(true),
+                      onClose: () => setGroupModalOpen(false),
+                    });
+                  }}
+                  onClose={() => {
+                    setGroupModalOpen(false);
+                    undockModal(GROUP_MODAL_ID);
+                  }}
+                  isLightMode={isLightMode}
+                  isEn={isEn}
+                />
+              </div>
+
+              <form onSubmit={handleCreateGroupChannel} className="p-4 flex flex-col gap-3.5 flex-1 overflow-y-auto">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold">
+                      {isEn ? 'Channel Name' : 'نام کانال گروهی'}
+                    </label>
+                    <FieldInfoTooltip
+                      title={isEn ? 'Channel Name' : 'نام کانال گروهی'}
+                      whatIsIt={
+                        isEn
+                          ? 'Display title of the shared workspace channel visible to all channel members.'
+                          : 'عنوان مشترک کانال که برای تمامی اعضای این کانال نمایش داده می‌شود.'
+                      }
+                      whyNeeded={
+                        isEn
+                          ? 'Organizes incidents, maintenance shifts, or departmental discussions by topic.'
+                          : 'مباحث رخدادها، تحویل شیفت یا هماهنگی بخش‌های مختلف را به تفکیک موضوع دسته‌بندی می‌کند.'
+                      }
+                      practicalExample={
+                        isEn ? 'NOC Incident Bridge / Core Network Ops' : 'اتاق عملیات NOC / پشتیبانی شبانه'
+                      }
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    value={groupName}
+                    onChange={(e) => setGroupName(e.target.value)}
+                    placeholder={isEn ? 'e.g. Core Infrastructure Ops' : 'مثال: تیم عملیات شبکه و امنیت'}
+                    className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${
+                      isLightMode
+                        ? 'bg-white border-slate-300 text-slate-900'
+                        : 'bg-slate-950 border-slate-700 text-white'
+                    }`}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1">
+                    {isEn ? 'Topic / Description (Optional)' : 'توضیحات / موضوع کانال (اختیاری)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={groupDescription}
+                    onChange={(e) => setGroupDescription(e.target.value)}
+                    placeholder={
+                      isEn ? 'Purpose of this channel...' : 'توضیح کوتاه درباره هدف این کانال...'
+                    }
+                    className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${
+                      isLightMode
+                        ? 'bg-white border-slate-300 text-slate-900'
+                        : 'bg-slate-950 border-slate-700 text-white'
+                    }`}
+                  />
+                </div>
+
+                {dirGroupOptions.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold">
+                        {isEn ? 'Auto-Include User Group (Optional)' : 'افزودن خودکار اعضای یک گروه (اختیاری)'}
+                      </label>
+                      <FieldInfoTooltip
+                        title={isEn ? 'Linked Directory Group' : 'اتصال به گروه کاربری'}
+                        whatIsIt={
+                          isEn
+                            ? 'Automatically enrolls all members of a Local or Active Directory group into this channel.'
+                            : 'تمام اعضای یک گروه محلی یا اکتیو دایرکتوری را به‌صورت خودکار به عضویت کانال درمی‌آورد.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Saves time when onboarding entire engineering squads or shifts.'
+                            : 'نیاز به انتخاب تک‌تک اعضای گروه‌های پرجمعیت را برطرف می‌کند.'
+                        }
+                        practicalExample={
+                          isEn ? 'Select NOC Operators group' : 'انتخاب گروه کارشناسان شبکه'
+                        }
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
+                    </div>
+                    <select
+                      value={groupLinkedId}
+                      onChange={(e) => setGroupLinkedId(e.target.value)}
+                      className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-900'
+                          : 'bg-slate-950 border-slate-700 text-white'
+                      }`}
+                    >
+                      <option value="">{isEn ? '— None —' : '— انتخاب نشده —'}</option>
+                      {dirGroupOptions.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {isEn ? g.labelEn || g.label : g.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1.5">
+                    {isEn ? 'Select Additional Members' : 'انتخاب اعضای کانال'}
+                  </label>
+                  <div
+                    className={`max-h-40 overflow-y-auto custom-scrollbar rounded-xl border p-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5 ${
+                      isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                    }`}
+                  >
+                    {userOptions.map((u) => {
+                      const val = u.username || u.id;
+                      const checked = groupMemberIds.includes(val);
+                      return (
+                        <label
+                          key={u.id}
+                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer ${
+                            checked
+                              ? isLightMode
+                                ? 'bg-indigo-50 border-indigo-300 text-indigo-900'
+                                : 'bg-indigo-500/20 border-indigo-500/40 text-white'
+                              : isLightMode
+                              ? 'bg-white border-slate-200 text-slate-800'
+                              : 'bg-white/5 border-transparent text-slate-300'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) =>
+                              setGroupMemberIds((prev) =>
+                                e.target.checked ? [...prev, val] : prev.filter((x) => x !== val)
+                              )
+                            }
+                            className="rounded accent-indigo-600"
+                          />
+                          <span className="truncate">{isEn ? u.labelEn || u.label : u.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGroupModalOpen(false);
+                      undockModal(GROUP_MODAL_ID);
+                    }}
+                    className={`px-4 py-2 rounded-lg border text-xs font-medium cursor-pointer ${
+                      isLightMode
+                        ? 'bg-slate-100 border-slate-300 text-slate-800'
+                        : 'bg-white/5 border-white/15 text-slate-200'
+                    }`}
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!groupName.trim() || groupBusy}
+                    className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-45"
+                  >
+                    {groupBusy
+                      ? isEn
+                        ? 'Creating...'
+                        : 'در حال ساخت...'
+                      : isEn
+                      ? 'Create Channel'
+                      : 'ساخت کانال'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Modal 3: Add Members to Group Channel (5 MODAL_GUIDELINES rules) */}
+      {addMembersOpen &&
+        activeChannel &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed top-0 left-0 right-0 bottom-8 z-[9999] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm"
+            dir={isRtl ? 'rtl' : 'ltr'}
+          >
+            <div
+              className={`flex flex-col border shadow-2xl overflow-hidden transition-all ${
+                addMembersMaximized
+                  ? 'w-full h-full rounded-xl'
+                  : 'w-full max-w-md max-h-full rounded-2xl'
+              } ${
+                isLightMode
+                  ? 'bg-white border-slate-200 text-slate-900'
+                  : 'bg-slate-900 border-slate-700/80 text-slate-100'
+              }`}
+            >
+              <div
+                className={`flex items-center justify-between px-4 py-3 border-b shrink-0 ${
+                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-indigo-500" />
+                  <h3 className="text-sm font-bold">
+                    {isEn ? 'Add Channel Members' : 'افزودن عضو به کانال'}
+                  </h3>
+                </div>
+                <ModalHeaderControls
+                  isMaximized={addMembersMaximized}
+                  onMaximizeToggle={() => setAddMembersMaximized((v) => !v)}
+                  onMinimize={() => {
+                    setAddMembersOpen(false);
+                    dockModal({
+                      id: MEMBERS_MODAL_ID,
+                      labelEn: 'Add Members',
+                      labelFa: 'افزودن اعضای کانال',
+                      category: 'system',
+                      onRestore: () => setAddMembersOpen(true),
+                      onClose: () => setAddMembersOpen(false),
+                    });
+                  }}
+                  onClose={() => {
+                    setAddMembersOpen(false);
+                    undockModal(MEMBERS_MODAL_ID);
+                  }}
+                  isLightMode={isLightMode}
+                  isEn={isEn}
+                />
+              </div>
+
+              <form onSubmit={handleAddMembersSubmit} className="p-4 flex flex-col gap-3 flex-1 overflow-y-auto">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold">
+                    {isEn ? 'Select Users to Add' : 'انتخاب کاربران جدید'}
+                  </label>
+                  <FieldInfoTooltip
+                    title={isEn ? 'Add Channel Members' : 'افزودن عضو جدید'}
+                    whatIsIt={
+                      isEn
+                        ? 'Enrolls additional users into the active team channel.'
+                        : 'کاربران انتخاب‌شده را به عضویت کانال گروهی فعلی درمی‌آورد.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Allows onboarding new team operators into ongoing discussions without recreating the channel.'
+                        : 'بدون نیاز به ساخت کانال جدید، همکاران تازه را به گفتگو اضافه می‌کند.'
+                    }
+                    practicalExample={
+                      isEn ? 'Add backup engineer during escalation' : 'افزودن کارشناس امنیت هنگام بررسی رخداد'
+                    }
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
+                </div>
+
+                <div
+                  className={`max-h-56 overflow-y-auto custom-scrollbar rounded-xl border p-2 space-y-1.5 ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                  }`}
+                >
+                  {userOptions
+                    .filter((u) => !existingMemberUsernames.has((u.username || '').toLowerCase()))
+                    .map((u) => {
+                      const val = u.username || u.id;
+                      const checked = extraMemberIds.includes(val);
+                      return (
+                        <label
+                          key={u.id}
+                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer ${
+                            checked
+                              ? isLightMode
+                                ? 'bg-indigo-50 border-indigo-300 text-indigo-900'
+                                : 'bg-indigo-500/20 border-indigo-500/40 text-white'
+                              : isLightMode
+                              ? 'bg-white border-slate-200 text-slate-800'
+                              : 'bg-white/5 border-transparent text-slate-300'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) =>
+                              setExtraMemberIds((prev) =>
+                                e.target.checked ? [...prev, val] : prev.filter((x) => x !== val)
+                              )
+                            }
+                            className="rounded accent-indigo-600"
+                          />
+                          <span className="truncate">{isEn ? u.labelEn || u.label : u.label}</span>
+                        </label>
+                      );
+                    })}
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddMembersOpen(false);
+                      undockModal(MEMBERS_MODAL_ID);
+                    }}
+                    className={`px-4 py-2 rounded-lg border text-xs font-medium cursor-pointer ${
+                      isLightMode
+                        ? 'bg-slate-100 border-slate-300 text-slate-800'
+                        : 'bg-white/5 border-white/15 text-slate-200'
+                    }`}
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={extraMemberIds.length === 0 || addMembersBusy}
+                    className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-45"
+                  >
+                    {addMembersBusy
+                      ? isEn
+                        ? 'Adding...'
+                        : 'در حال افزودن...'
+                      : isEn
+                      ? 'Add Selected'
+                      : 'افزودن اعضا'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+};
