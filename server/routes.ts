@@ -86,6 +86,7 @@ import {
   getActiveDirectoryConfig,
   saveActiveDirectoryConfig,
   sanitizeAdConfigForClient,
+  recordAuthenticatedAdUser,
   getGeneralSettings,
   saveGeneralSettings,
   getEmailConfig,
@@ -1459,6 +1460,17 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
             : 'احراز هویت دامین موفق بود، اما هیچ نقش یا دسترسی‌ای در پنل به حساب شما یا گروه‌های مربوطه اختصاص نیافته است. لطفاً با مدیر سیستم تماس بگیرید.',
         });
       }
+
+      // Record verified AD account so members of authorized AD groups or live domain logins appear immediately in Team Chat & Directory
+      await recordAuthenticatedAdUser({
+        dn: authenticatedProfile.dn,
+        samAccountName,
+        displayName: authenticatedProfile.displayName,
+        email: adUser.email,
+        department: authenticatedProfile.department,
+        title: authenticatedProfile.title,
+        groups: userGroups,
+      }).catch(() => {});
 
       // Two-Step Verification (2FA) Enforcement for Active Directory
       const adUser2faStatus = await getUserTotpStatusForLogin({

@@ -4269,45 +4269,168 @@ export async function getAuthorizedMapSubjects(): Promise<{
   const syncedUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? adConfig.syncedUsers : [];
   const syncedGroups: any[] = Array.isArray(adConfig?.syncedGroups) ? adConfig.syncedGroups : [];
 
-  // Filter AD users that have an assigned policy
+  const extractAdGroupKeys = (rawVal?: string | null): string[] => {
+    const clean = (rawVal || '')
+      .replace(/\s*\(Active Directory\)\s*$/i, '')
+      .trim()
+      .toLowerCase();
+    if (!clean) return [];
+    const keys = new Set<string>([clean]);
+    const cnMatch = clean.match(/(?:^|,)cn=([^,]+)/i);
+    if (cnMatch?.[1]) {
+      keys.add(cnMatch[1].trim());
+    }
+    return Array.from(keys);
+  };
+
+  const adUserDedup = new Set<string>();
+  const adUsers: AuthorizedMapSubject[] = [];
+
+  const pushUniqueAdUser = (item: AuthorizedMapSubject) => {
+    const k = (item.name || item.id || '').trim().toLowerCase();
+    if (!k || adUserDedup.has(k)) return;
+    adUserDedup.add(k);
+    adUsers.push(item);
+  };
+
+  // 2a. Explicit AD user policies (supporting single subjectId and multi-subject subjectIds)
   const adUserPolicies = policies.filter(
-    (p: any) => p && p.subjectType === 'ad_user' && p.subjectId && p.id !== 'policy-guest'
+    (p: any) => p && p.subjectType === 'ad_user' && (p.subjectId || (Array.isArray(p.subjectIds) && p.subjectIds.length > 0)) && p.id !== 'policy-guest'
   );
-  const adUsers: AuthorizedMapSubject[] = adUserPolicies.map((p: any) => {
-    const rawSubject = (p.subjectId || '').trim();
-    const cleanSubject = rawSubject.toLowerCase();
-    const foundSynced = syncedUsers.find(
-      (u) =>
-        u.samAccountName?.toLowerCase() === cleanSubject ||
-        u.dn?.toLowerCase() === cleanSubject ||
-        u.email?.toLowerCase() === cleanSubject
+  for (const p of adUserPolicies) {
+    const rawIds: string[] = Array.from(
+      new Set([p.subjectId, ...(Array.isArray(p.subjectIds) ? p.subjectIds : [])].filter(Boolean).map((x) => String(x).trim()))
     );
+    rawIds.forEach((rawSubject, idx) => {
+      const cleanSubject = rawSubject.toLowerCase();
+      const foundSynced = syncedUsers.find(
+        (u) =>
+          u.samAccountName?.toLowerCase() === cleanSubject ||
+          u.dn?.toLowerCase() === cleanSubject ||
+          u.email?.toLowerCase() === cleanSubject
+      );
 
-    const displayName = foundSynced?.displayName
-      ? `${foundSynced.displayName} (${foundSynced.samAccountName || rawSubject})`
-      : p.subjectName || rawSubject;
+      const sam = foundSynced?.samAccountName || rawSubject;
+      const subjName =
+        (Array.isArray(p.subjectNames) && p.subjectNames[idx]) || (idx === 0 ? p.subjectName : '') || rawSubject;
+      const rawDisplay = foundSynced?.displayName || subjName || rawSubject;
+      const samEsc = sam.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const cleanedDisplay = rawDisplay.replace(new RegExp(`(?:\\s*\\(${samEsc}\\))+$`, 'i'), '').trim();
+      const displayName =
+        cleanedDisplay && cleanedDisplay.toLowerCase() !== sam.toLowerCase()
+          ? `${cleanedDisplay} (${sam})`
+          : sam;
 
-    return {
-      id: (foundSynced?.samAccountName || rawSubject).toLowerCase(),
-      rawId: rawSubject,
-      name: foundSynced?.samAccountName || rawSubject,
-      displayName,
-      type: 'ad_user',
-      role: p.name,
-      badge: 'AD User (Policy)',
-      badge_fa: 'کاربر اکتیو دایرکتوری (دارای پالیسی)',
-      policyName: p.name,
-      policyId: p.id,
-      secondaryText: foundSynced?.email || p.name,
-      email: foundSynced?.email,
-      department: foundSynced?.department,
-    };
-  });
+      pushUniqueAdUser({
+        id: sam.toLowerCase(),
+        rawId: foundSynced?.dn || rawSubject,
+        name: sam,
+        displayName,
+        type: 'ad_user',
+        role: p.name,
+        badge: 'AD User (Policy)',
+        badge_fa: 'کاربر اکتیو دایرکتوری (دارای پالیسی)',
+        policyName: p.name,
+        policyId: p.id,
+        secondaryText: foundSynced?.email || p.name,
+        email: foundSynced?.email,
+        department: foundSynced?.department,
+      });
+    });
+  }
 
   // Filter AD groups that have an assigned policy
   const adGroupPolicies = policies.filter(
-    (p: any) => p && p.subjectType === 'ad_group' && p.subjectId && p.id !== 'policy-guest'
+    (p: any) => p && p.subjectType === 'ad_group' && (p.subjectId || (Array.isArray(p.subjectIds) && p.subjectIds.length > 0)) && p.id !== 'policy-guest'
   );
+
+  // Build lookup of authorized AD group keys -> policy metadata (sorted by highest priority first)
+  const authorizedGroupEntries: Array<{ policy: any; keys: Set<string>; memberIdents: Set<string> }> = [];
+  const sortedAdGroupPolicies = [...adGroupPolicies].sort((a: any, b: any) => (b.priority || 0) - (a.priority || 0));
+  for (const p of sortedAdGroupPolicies) {
+    const keys = new Set<string>();
+    const memberIdents = new Set<string>();
+    const policySubjects: string[] = [
+      p.subjectId,
+      p.subjectName,
+      ...(Array.isArray(p.subjectIds) ? p.subjectIds : []),
+      ...(Array.isArray(p.subjectNames) ? p.subjectNames : []),
+    ].filter(Boolean);
+    for (const s of policySubjects) {
+      for (const k of extractAdGroupKeys(String(s))) keys.add(k);
+    }
+    for (const ag of syncedGroups) {
+      const agKeys = [...extractAdGroupKeys(ag.dn), ...extractAdGroupKeys(ag.cn)];
+      if (agKeys.some((k) => keys.has(k))) {
+        agKeys.forEach((k) => keys.add(k));
+        if (Array.isArray(ag.members)) {
+          ag.members.forEach((m: any) => {
+            const cleanM = String(m || '').trim().toLowerCase();
+            if (cleanM) memberIdents.add(cleanM);
+          });
+        }
+      }
+    }
+    if (keys.size > 0) {
+      authorizedGroupEntries.push({ policy: p, keys, memberIdents });
+    }
+  }
+
+  // 2b. Expand AD users belonging to any authorized AD Group OR who logged directly into the panel
+  for (const au of syncedUsers) {
+    if (!au || au.enabled === false) continue;
+    const sam = String(au.samAccountName || au.email || au.dn || '').trim();
+    if (!sam) continue;
+
+    const userGroupKeys = new Set<string>();
+    if (Array.isArray(au.groups)) {
+      for (const g of au.groups) {
+        for (const k of extractAdGroupKeys(String(g))) {
+          userGroupKeys.add(k);
+        }
+      }
+    }
+
+    const userDnLower = String(au.dn || '').trim().toLowerCase();
+    const samLower = sam.toLowerCase();
+    const emailLower = String(au.email || '').trim().toLowerCase();
+
+    const matchedEntry = authorizedGroupEntries.find(
+      (entry) =>
+        Array.from(userGroupKeys).some((gk) => entry.keys.has(gk)) ||
+        (userDnLower && entry.memberIdents.has(userDnLower)) ||
+        entry.memberIdents.has(samLower) ||
+        (emailLower && entry.memberIdents.has(emailLower))
+    );
+
+    if (!matchedEntry && !au.loggedInViaPanel) continue;
+
+    const samEsc = sam.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rawDisplay = String(au.displayName || sam).trim();
+    const cleanedDisplay = rawDisplay.replace(new RegExp(`(?:\\s*\\(${samEsc}\\))+$`, 'i'), '').trim();
+    const displayName =
+      cleanedDisplay && cleanedDisplay.toLowerCase() !== samLower
+        ? `${cleanedDisplay} (${sam})`
+        : sam;
+
+    const matchedPolicy = matchedEntry?.policy;
+    pushUniqueAdUser({
+      id: samLower,
+      rawId: au.dn || sam,
+      name: sam,
+      displayName,
+      type: 'ad_user',
+      role: matchedPolicy?.name || au.title || 'Active Directory User',
+      badge: matchedPolicy ? 'AD Group Member' : 'AD User (Panel Login)',
+      badge_fa: matchedPolicy ? 'عضو گروه اکتیو دایرکتوری' : 'کاربر لاگین‌شده اکتیو دایرکتوری',
+      policyName: matchedPolicy?.name || 'AD Authenticated',
+      policyId: matchedPolicy?.id,
+      secondaryText: au.email || (Array.isArray(au.groups) && au.groups.length > 0 ? au.groups.slice(0, 2).join(', ') : 'Active Directory'),
+      email: au.email,
+      department: au.department,
+    });
+  }
+
   const adGroups: AuthorizedMapSubject[] = adGroupPolicies.map((p: any) => {
     const rawSubject = (p.subjectId || '').trim();
     const cleanSubject = rawSubject.toLowerCase();
@@ -4378,6 +4501,96 @@ export async function getAuthorizedMapSubjects(): Promise<{
     },
     count: subjects.length,
   };
+}
+
+/**
+ * Upserts a verified Active Directory user who logged into the panel into adConfig.syncedUsers
+ * so they remain immediately discoverable in Team Chat, Notifications, and RBAC pickers
+ * even when membership comes via an AD security group or live LDAP authentication.
+ */
+export async function recordAuthenticatedAdUser(profile: {
+  dn?: string;
+  samAccountName?: string;
+  displayName?: string;
+  email?: string;
+  department?: string;
+  title?: string;
+  groups?: string[];
+}): Promise<void> {
+  const sam = String(profile?.samAccountName || '').trim();
+  if (!sam) return;
+  const samLower = sam.toLowerCase();
+  const dnLower = String(profile?.dn || '').trim().toLowerCase();
+  const emailLower = String(profile?.email || '').trim().toLowerCase();
+
+  const adConfig = await getActiveDirectoryConfig();
+  const syncedUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? [...adConfig.syncedUsers] : [];
+
+  const idx = syncedUsers.findIndex(
+    (u) =>
+      u &&
+      ((u.samAccountName || '').toLowerCase() === samLower ||
+        (dnLower && (u.dn || '').toLowerCase() === dnLower) ||
+        (emailLower && (u.email || '').toLowerCase() === emailLower))
+  );
+
+  const incomingGroups = Array.isArray(profile.groups)
+    ? profile.groups.map((g) => String(g || '').trim()).filter(Boolean)
+    : [];
+
+  if (idx !== -1) {
+    const existing = syncedUsers[idx];
+    const mergedGroups = Array.from(
+      new Set([...(Array.isArray(existing.groups) ? existing.groups : []), ...incomingGroups])
+    );
+    const nextDisplayName =
+      profile.displayName && profile.displayName.toLowerCase() !== samLower
+        ? profile.displayName
+        : existing.displayName || sam;
+    const nextEmail = profile.email || existing.email || '';
+    const nextDn = profile.dn || existing.dn || '';
+    const alreadySame =
+      existing.loggedInViaPanel === true &&
+      existing.displayName === nextDisplayName &&
+      existing.email === nextEmail &&
+      existing.dn === nextDn &&
+      existing.enabled !== false &&
+      mergedGroups.length === (Array.isArray(existing.groups) ? existing.groups.length : 0);
+
+    if (alreadySame) return;
+
+    syncedUsers[idx] = {
+      ...existing,
+      dn: nextDn,
+      samAccountName: existing.samAccountName || sam,
+      displayName: nextDisplayName,
+      email: nextEmail,
+      department: profile.department || existing.department || '',
+      title: profile.title || existing.title || '',
+      groups: mergedGroups,
+      enabled: true,
+      loggedInViaPanel: true,
+      lastLoginAt: new Date().toISOString(),
+    };
+  } else {
+    syncedUsers.push({
+      dn: profile.dn || '',
+      samAccountName: sam,
+      displayName: profile.displayName || sam,
+      email: profile.email || '',
+      department: profile.department || '',
+      title: profile.title || '',
+      groups: incomingGroups,
+      enabled: true,
+      loggedInViaPanel: true,
+      lastLoginAt: new Date().toISOString(),
+    });
+  }
+
+  await saveActiveDirectoryConfig({
+    ...adConfig,
+    syncedUsers,
+  });
 }
 
 /**

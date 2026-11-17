@@ -903,22 +903,55 @@ async function resolveTargetRecipients(
       }
     }
 
+    const extractGroupKeys = (val?: string | null): string[] => {
+      const clean = String(val || '')
+        .replace(/\s*\(Active Directory\)\s*$/i, '')
+        .trim()
+        .toLowerCase();
+      if (!clean) return [];
+      const out = [clean];
+      const cnMatch = clean.match(/(?:^|,)cn=([^,]+)/i);
+      if (cnMatch?.[1]) out.push(cnMatch[1].trim());
+      return out;
+    };
+
+    const normalizedTargets = new Set<string>();
+    targetIds.forEach((t) => {
+      for (const k of extractGroupKeys(t)) normalizedTargets.add(k);
+    });
+
     for (const ag of syncedAdGroups) {
-      const matchAg =
-        targetSet.has((ag.dn || '').toLowerCase()) ||
-        targetSet.has((ag.cn || '').toLowerCase());
-      if (matchAg && Array.isArray(ag.members)) {
-        for (const memberIdent of ag.members) {
-          const mLower = String(memberIdent).toLowerCase();
-          const matchedAd = syncedAdUsers.find(
-            (au) =>
-              (au.dn || '').toLowerCase() === mLower ||
-              (au.samAccountName || '').toLowerCase() === mLower
-          );
-          if (matchedAd?.samAccountName) {
-            addRec(`ad-${matchedAd.samAccountName}`, matchedAd.samAccountName);
+      const agKeys = [...extractGroupKeys(ag.dn), ...extractGroupKeys(ag.cn)];
+      const matchAg = agKeys.some((k) => normalizedTargets.has(k));
+      if (matchAg) {
+        agKeys.forEach((k) => normalizedTargets.add(k));
+        if (Array.isArray(ag.members)) {
+          for (const memberIdent of ag.members) {
+            const mLower = String(memberIdent).toLowerCase();
+            const matchedAd = syncedAdUsers.find(
+              (au) =>
+                (au.dn || '').toLowerCase() === mLower ||
+                (au.samAccountName || '').toLowerCase() === mLower
+            );
+            if (matchedAd?.samAccountName) {
+              addRec(matchedAd.dn || `ad-${matchedAd.samAccountName}`, matchedAd.samAccountName);
+            }
           }
         }
+      }
+    }
+
+    // Match AD users via au.groups (since AD Sync stores user memberships in au.groups)
+    for (const au of syncedAdUsers) {
+      if (!au || au.enabled === false) continue;
+      const sam = (au.samAccountName || '').trim();
+      if (!sam) continue;
+      const uGroups = Array.isArray(au.groups) ? au.groups : [];
+      const belongs = uGroups.some((g: any) =>
+        extractGroupKeys(String(g)).some((gk) => normalizedTargets.has(gk))
+      );
+      if (belongs) {
+        addRec(au.dn || `ad-${sam}`, sam);
       }
     }
     return Array.from(map.values());
@@ -937,9 +970,22 @@ async function resolveTargetRecipients(
     if (
       targetSet.has((adu.rawId || '').toLowerCase()) ||
       targetSet.has((adu.id || '').toLowerCase()) ||
-      targetSet.has((adu.name || '').toLowerCase())
+      targetSet.has((adu.name || '').toLowerCase()) ||
+      (adu.email && targetSet.has(adu.email.toLowerCase()))
     ) {
       addRec(adu.rawId || adu.id, adu.name || adu.id);
+    }
+  }
+  for (const au of syncedAdUsers) {
+    if (!au || au.enabled === false) continue;
+    const sam = (au.samAccountName || '').trim();
+    if (!sam) continue;
+    if (
+      targetSet.has(sam.toLowerCase()) ||
+      (au.dn && targetSet.has(au.dn.toLowerCase())) ||
+      (au.email && targetSet.has(au.email.toLowerCase()))
+    ) {
+      addRec(au.dn || `ad-${sam}`, sam);
     }
   }
   return Array.from(map.values());
@@ -1406,10 +1452,15 @@ async function buildDirectoryUserMap(): Promise<
   Map<string, { userId: string; username: string; fullName: string; role: string }>
 > {
   const map = new Map<string, { userId: string; username: string; fullName: string; role: string }>();
-  const register = (id: string, username: string, fullName: string, role: string) => {
+  const register = (id: string, username: string, fullName: string, role: string, email?: string) => {
     const info = { userId: id, username, fullName: fullName || username, role: role || 'Operator' };
     for (const key of resolveUserIdentifiers({ userId: id, username })) {
       if (!map.has(key)) map.set(key, info);
+    }
+    if (email) {
+      for (const key of resolveUserIdentifiers({ username: email })) {
+        if (!map.has(key)) map.set(key, info);
+      }
     }
   };
 
@@ -1419,7 +1470,8 @@ async function buildDirectoryUserMap(): Promise<
       u.id,
       u.username,
       stripDuplicateUsernameSuffix(u.fullName || u.username, u.username),
-      u.role || 'Operator'
+      u.role || 'Operator',
+      u.email
     );
   }
 
@@ -1430,7 +1482,23 @@ async function buildDirectoryUserMap(): Promise<
       adu.rawId || adu.id,
       adUname,
       stripDuplicateUsernameSuffix(adu.displayName || adUname, adUname),
-      adu.role || 'AD User'
+      adu.role || 'AD User',
+      adu.email
+    );
+  }
+
+  const adConfig = await getActiveDirectoryConfig().catch(() => null);
+  const syncedAdUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? adConfig.syncedUsers : [];
+  for (const au of syncedAdUsers) {
+    if (!au || au.enabled === false) continue;
+    const adUname = (au.samAccountName || au.email || au.dn || '').trim();
+    if (!adUname) continue;
+    register(
+      au.dn || `ad-${adUname}`,
+      adUname,
+      stripDuplicateUsernameSuffix(au.displayName || adUname, adUname),
+      au.title || 'AD User',
+      au.email
     );
   }
   return map;

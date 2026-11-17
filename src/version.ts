@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.436.1';
+export const APP_VERSION = '1.437.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.437.0',
+    releaseDate: '2026-11-17',
+    type: 'minor',
+    title: 'نمایش خودکار اعضای گروه‌های اکتیو دایرکتوری و کاربران لاگین‌شده دامین در چت و ارسال پیام',
+    title_en: 'Auto-Expand Authorized AD Group Members & Logged-In Domain Users in Team Chat & Messaging',
+    changes: [
+      'بسط خودکار اعضای گروه‌های اکتیو دایرکتوری دارای پالیسی RBAC (`ad_group`) به فهرست کاربران قابل انتخاب در `getAuthorizedMapSubjects` و `getCommsRecipients` تا علاوه‌بر خود گروه، تمامی اعضای داخلی گروه نیز در چت مستقیم و پیام‌ها نمایش داده شوند.',
+      'ثبت و همگام‌سازی خودکار کاربران اکتیو دایرکتوری احرازهویت‌شده در زمان لاگین (`recordAuthenticatedAdUser`) تا هر کاربری که از طریق دامین وارد پنل می‌شود بلافاصله در چت تیمی قابل دسترسی و گفتگو باشد.',
+      'تکمیل نگاشت گیرندگان پیام‌های گروهی برای گروه‌های اکتیو دایرکتوری بر اساس `au.groups` و تازه‌سازی لحظه‌ای لیست کاربران هنگام باز کردن انتخابگر گفتگوی مستقیم در فوتر.'
+    ],
+    changes_en: [
+      'Updated `getAuthorizedMapSubjects` in `server/db.ts` to expand members of any RBAC-authorized Active Directory group (`ad_group` policies, supporting DN/CN and multi-subject policies) into `adUsers` so individual members appear in Direct Chat and Messaging pickers rather than only group entries.',
+      'Added `recordAuthenticatedAdUser` in `server/db.ts` and invoked it upon verified AD logins in `server/routes.ts` so any domain user who signs into the panel is immediately discoverable in Team Chat & Notifications.',
+      'Enhanced `resolveTargetRecipients` and `buildDirectoryUserMap` in `server/commsService.ts` to resolve AD group broadcasts via `au.groups` and refresh recipient options cleanly when opening New Direct Chat in `FooterTeamChatDock`.'
+    ]
+  },
   {
     version: '1.436.1',
     releaseDate: '2026-11-17',

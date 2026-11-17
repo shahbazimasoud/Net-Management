@@ -200,7 +200,7 @@ export async function archiveCommsNotification(
   return json;
 }
 
-export async function fetchCommsRecipients(): Promise<CommsRecipientOption[]> {
+export async function fetchCommsRecipients(forceRefresh = false): Promise<CommsRecipientOption[]> {
   return appDataCache.query<CommsRecipientOption[]>(
     'comms:recipients',
     async () => {
@@ -214,7 +214,7 @@ export async function fetchCommsRecipients(): Promise<CommsRecipientOption[]> {
       }
       return Array.isArray(json.options) ? json.options : [];
     },
-    { ttlMs: 30_000 }
+    { ttlMs: 30_000, forceRefresh }
   );
 }
 

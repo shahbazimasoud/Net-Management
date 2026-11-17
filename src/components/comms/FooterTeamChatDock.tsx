@@ -867,14 +867,12 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
   const handleOpenNewChatPicker = async () => {
     setIsNewChatMode(true);
     setRecipientSearch('');
-    if (recipients.length === 0) {
-      setRecipientsLoading(true);
-      try {
-        const opts = await fetchCommsRecipients();
-        setRecipients(opts);
-      } catch {}
-      setRecipientsLoading(false);
-    }
+    if (recipients.length === 0) setRecipientsLoading(true);
+    try {
+      const opts = await fetchCommsRecipients(true);
+      setRecipients(opts);
+    } catch {}
+    setRecipientsLoading(false);
   };
 
   const userRecipients = useMemo(() => {
