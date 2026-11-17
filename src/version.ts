@@ -10,9 +10,22 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.440.7';
+export const APP_VERSION = '1.440.8';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.440.8',
+    releaseDate: '2026-11-17',
+    type: 'patch',
+    title: 'حذف نمایش تکراری و بزرگ دیسکریپشن در ستون Connected Device مودال پورت‌ها',
+    title_en: 'Remove Duplicate Large Description Text in Port Inspector Connected Device Column',
+    changes: [
+      'حذف خط تکراری و بزرگ (`connected_device`) در ستون `Connected Device` جدول پورت‌ها در `PortInspectorModal.tsx` هنگامی که پورت دارای `description` است تا توضیحات هر پورت تنها یک‌بار با نمایشگر کوچک و خوانا (`10px`) نمایش داده شود.'
+    ],
+    changes_en: [
+      'Removed the duplicate larger `connected_device` text line above the compact description badge in the `Connected Device` table column of `PortInspectorModal.tsx` so port descriptions render only once in the compact (`10px`) format.'
+    ]
+  },
   {
     version: '1.440.7',
     releaseDate: '2026-11-17',

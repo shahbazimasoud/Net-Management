@@ -3677,11 +3677,14 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                           })()}
                         </td>
                         <td className="px-3 py-2.5 text-slate-200 font-sans text-xs">
-                          <div>{port.connected_device || '-'}</div>
-                          {port.description && (
-                            <div className="text-[10px] text-amber-300/90 font-mono flex items-center gap-1 mt-0.5" title={port.description}>
+                          {port.description && port.description.trim() ? (
+                            <div className="text-[10px] text-amber-300/90 font-mono flex items-center gap-1" title={port.description}>
                               <FileText className="w-2.5 h-2.5 text-amber-400 shrink-0" />
                               <span className="truncate max-w-[180px]">{port.description}</span>
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              {port.connected_device || '-'}
                             </div>
                           )}
                         </td>
