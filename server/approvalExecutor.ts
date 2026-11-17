@@ -221,14 +221,19 @@ export function resolveExecutionModeForAction(
     return { executionMode: 'auto_command', supportsAutoExecute: true };
   }
 
-  if (cleanKey === 'power_control' || cleanKey === 'delete_device' || cleanKey === 'delete_server') {
+  if (
+    cleanKey === 'power_control' ||
+    cleanKey === 'bulk_power' ||
+    cleanKey === 'delete_device' ||
+    cleanKey === 'delete_server'
+  ) {
     return { executionMode: 'auto_command', supportsAutoExecute: true };
   }
 
   if (
     cleanKey === 'apply_template' &&
     actionParams &&
-    (actionParams.templateId || actionParams.template_id || actionParams.commands)
+    (actionParams.templateId || actionParams.template_id || actionParams.commands || actionParams.resolved_variables)
   ) {
     return { executionMode: 'auto_command', supportsAutoExecute: true };
   }
@@ -236,7 +241,13 @@ export function resolveExecutionModeForAction(
   if (
     cleanKey.startsWith('port_') &&
     actionParams &&
-    (actionParams.portId || actionParams.port_id || actionParams.portName || actionParams.interface)
+    (actionParams.portId ||
+      actionParams.port_id ||
+      actionParams.portName ||
+      actionParams.interface ||
+      actionParams.iface ||
+      actionParams.port ||
+      actionParams.name)
   ) {
     return { executionMode: 'auto_command', supportsAutoExecute: true };
   }
@@ -249,6 +260,11 @@ export function resolveExecutionModeForAction(
 }
 
 function getInternalListeningPort(): number {
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    const v = parseInt(process.argv[portArgIndex + 1], 10);
+    if (!isNaN(v)) return v;
+  }
   if (process.env.APP_PORT) {
     const v = parseInt(process.env.APP_PORT, 10);
     if (!isNaN(v)) return v;
@@ -282,20 +298,77 @@ function resolveStructuredFallbackEndpoint(ticket: ActionApprovalRequest): {
     if (key === 'apply_template' && (params.templateId || params.template_id)) {
       return {
         method: 'POST',
-        path: `/api/devices/${entityId}/apply-template`,
+        path: '/api/templates/apply',
         body: {
+          device_id: ticket.targetEntityId,
           template_id: params.templateId || params.template_id,
-          variables: params.variables || {},
+          resolved_variables: params.resolved_variables || params.variables || {},
         },
       };
     }
-    if (key.startsWith('port_') && (params.portId || params.port_id || params.portName)) {
-      const portRef = encodeURIComponent(String(params.portId || params.port_id || params.portName));
-      return {
-        method: 'PUT',
-        path: `/api/devices/${entityId}/ports/${portRef}`,
-        body: sanitizeActionParams(params) || {},
+    if (key.startsWith('cisco_config_') && key !== 'cisco_config_device') {
+      const tabMap: Record<string, string> = {
+        cisco_config_vty_ssh: 'vty',
+        cisco_config_ntp: 'ntp',
+        cisco_config_snmp: 'snmp',
+        cisco_config_users: 'users',
+        cisco_config_stp: 'stp',
+        cisco_config_vtp: 'vtp',
+        cisco_config_syslog: 'syslog',
+        cisco_config_vlans: 'vlans',
+        cisco_config_l2_security: 'l2_security',
       };
+      const resolvedTab = String(params.tab || tabMap[key] || '').trim();
+      if (resolvedTab) {
+        return {
+          method: 'POST',
+          path: `/api/devices/${entityId}/cisco-config/${encodeURIComponent(resolvedTab)}`,
+          body: sanitizeActionParams(params) || {},
+        };
+      }
+    }
+    if (key.startsWith('port_')) {
+      const hasOperation =
+        (typeof params.operation === 'string' && params.operation.trim().length > 0) ||
+        (typeof params.action === 'string' && params.action.trim().length > 0);
+      const resolvedPortRef = String(
+        params.portId ||
+          params.port_id ||
+          params.portName ||
+          params.interface ||
+          params.iface ||
+          params.port ||
+          params.name ||
+          ''
+      ).trim();
+
+      if (hasOperation && resolvedPortRef) {
+        return {
+          method: 'POST',
+          path: `/api/devices/${entityId}/operations`,
+          body: sanitizeActionParams(params) || {},
+        };
+      }
+
+      if (resolvedPortRef) {
+        const cleanBody: Record<string, any> = { ...(sanitizeActionParams(params) || {}) };
+        if (cleanBody.params && typeof cleanBody.params === 'object' && !Array.isArray(cleanBody.params)) {
+          const nested = cleanBody.params;
+          delete cleanBody.params;
+          Object.assign(cleanBody, nested);
+        }
+        if (cleanBody.updates && typeof cleanBody.updates === 'object' && !Array.isArray(cleanBody.updates)) {
+          const nestedUpdates = cleanBody.updates;
+          delete cleanBody.updates;
+          Object.assign(cleanBody, nestedUpdates);
+        }
+        const portRef = encodeURIComponent(resolvedPortRef);
+        return {
+          method: 'PUT',
+          path: `/api/devices/${entityId}/ports/${portRef}`,
+          body: cleanBody,
+        };
+      }
     }
   }
 

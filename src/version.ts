@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.440.3';
+export const APP_VERSION = '1.440.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.440.4',
+    releaseDate: '2026-11-17',
+    type: 'patch',
+    title: 'اصلاح فاز ۲ موتور اجرای خودکار تاییدیه‌ها، فالبک امنیتی JIT و هم‌ترازی مسیرهای بک‌اند',
+    title_en: 'Phase 2 Fix: Harden Backend Auto-Execute Engine, Fallback Endpoints & JIT Grant Resilience',
+    changes: [
+      'افزودن پشتیبانی از آرگومان `--port` در `getInternalListeningPort`، پشتیبانی کامل از `bulk_power` و تمامی فرمت‌های پارامتر پورت (`interface`، `iface`، `port`، `name`) در `resolveExecutionModeForAction` و هدایت دقیق فالبک عملیات پورت (`/operations` و `PUT /ports/:portRef` با مسطح‌سازی فیلدهای تو در تو) و اعمال تمپلیت (`/api/templates/apply`) و تب‌های سیسکو در `server/approvalExecutor.ts`.',
+      'ذخیره قطعی وضعیت `execution_status = "failed"` و پیام خطای واقعی به‌همراه صدور خودکار مجوز موقت پشتیبان (`issueJitGrantForApproval` با گزینه `preserveExecutionStatus`) در صورت شکست یا خطای غیرمنتظره اجرای خودکار پس از تایید نهایی در `server/approvalService.ts` و پخش وضعیت اجرای زنده عبر وب‌سوکت.',
+      'افزودن جستجوی مستقیم رکورد تیکت (`loadRawApprovalRowById`) در `evaluateApprovalGateForRequest` برای جلوگیری از رد شدن تیکت‌های معتبر خارج از ۳۰۰ رکورد اخیر، و تکمیل مصرف تیکت تک‌بار برای مسیرهای پراکسی‌شده به پایتون در `server/routes.ts`.'
+    ],
+    changes_en: [
+      'Added `--port` CLI resolution to `getInternalListeningPort`, expanded `resolveExecutionModeForAction` to cover `bulk_power` and all port/template payload aliases, and fixed `resolveStructuredFallbackEndpoint` in `server/approvalExecutor.ts` to dispatch `/operations` payloads, flatten nested port payloads for `PUT /ports/:portRef`, route `apply_template` to `/api/templates/apply`, and map Cisco config tabs.',
+      'Hardened `decideApprovalRequest` and `executeApprovalTicketPayload` in `server/approvalService.ts` to always persist `execution_status = "failed"` and exact error output on auto-execution failures/exceptions, issue a fallback active JIT grant (`preserveExecutionStatus: true`) so retries stay unblocked, and broadcast `executionStatus`/`autoExecuted` over WebSocket.',
+      'Added direct ID lookup fallback (`loadRawApprovalRowById`) in `evaluateApprovalGateForRequest` so valid tickets older than the top 300 rows are honored cleanly, and added finish-hook ticket consumption in `server/routes.ts` for proxied Python endpoints.'
+    ]
+  },
   {
     version: '1.440.3',
     releaseDate: '2026-11-17',

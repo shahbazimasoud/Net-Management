@@ -578,28 +578,9 @@ export const apiRouter = Router();
 // 1) Enriches any 403 triggered by a policy require_approval block with structured APPROVAL_REQUIRED metadata
 // 2) Automatically consumes single-use transactional tickets OR records active JIT Pass usage for interactive actions
 apiRouter.use((req: Request, res: Response, next: NextFunction) => {
-  const origJson = res.json.bind(res);
-  res.json = ((body?: any) => {
-    const gatePayload = (req as any).__pendingApprovalGatePayload;
-    if (
-      res.statusCode === 403 &&
-      gatePayload &&
-      body &&
-      typeof body === 'object' &&
-      !body.code
-    ) {
-      delete (req as any).__pendingApprovalGatePayload;
-      if (!res.headersSent) {
-        res.setHeader('X-Approval-Required', 'true');
-      }
-      return origJson({
-        ...gatePayload,
-        ...body,
-        code: 'APPROVAL_REQUIRED',
-        approvalRequired: true,
-      });
-    }
+  const isInternalExec = req.headers['x-internal-approval-exec'] === '1';
 
+  const consumeTicketIfNeeded = () => {
     const ticketCtx = (req as any).__approvedTicketCtx as
       | {
           actor: ApprovalActor;
@@ -611,32 +592,64 @@ apiRouter.use((req: Request, res: Response, next: NextFunction) => {
         }
       | undefined;
 
-    const isInternalExec = req.headers['x-internal-approval-exec'] === '1';
+    if (!ticketCtx || ticketCtx.consumed || isInternalExec) {
+      return null;
+    }
+
+    ticketCtx.consumed = true;
+    return ticketCtx.actionKey && isInteractiveJitAction(ticketCtx.actionKey)
+      ? recordJitGrantUsage({
+          approvalId: ticketCtx.ticketId,
+          grantId: ticketCtx.grantId,
+          actor: ticketCtx.actor,
+        })
+      : consumeApprovedTicketForExecution(
+          ticketCtx.actor,
+          ticketCtx.ticketId,
+          ticketCtx.executionNote
+        );
+  };
+
+  // Fallback for proxied endpoints (e.g. /templates/apply, /devices/:id/vpn/*) that pipe through Python instead of res.json
+  res.on('finish', () => {
+    if (!(res as any).__skipFinishApprovalConsume && res.statusCode >= 200 && res.statusCode < 400) {
+      const donePromise = consumeTicketIfNeeded();
+      if (donePromise) donePromise.catch(() => {});
+    }
+  });
+
+  const origJson = res.json.bind(res);
+  res.json = ((body?: any) => {
+    const gatePayload = (req as any).__pendingApprovalGatePayload;
+    if (res.statusCode === 403 && gatePayload && body && typeof body === 'object') {
+      if (!res.headersSent) {
+        res.setHeader('X-Approval-Required', 'true');
+      }
+      if (!body.code) {
+        delete (req as any).__pendingApprovalGatePayload;
+        return origJson({
+          ...gatePayload,
+          ...body,
+          code: 'APPROVAL_REQUIRED',
+          approvalRequired: true,
+        });
+      }
+    }
+
+    if (body && typeof body === 'object' && body.success === false) {
+      (res as any).__skipFinishApprovalConsume = true;
+    }
 
     if (
-      ticketCtx &&
-      !ticketCtx.consumed &&
-      !isInternalExec &&
       res.statusCode >= 200 &&
       res.statusCode < 400 &&
       (!body || typeof body !== 'object' || body.success !== false)
     ) {
-      ticketCtx.consumed = true;
-      const donePromise =
-        ticketCtx.actionKey && isInteractiveJitAction(ticketCtx.actionKey)
-          ? recordJitGrantUsage({
-              approvalId: ticketCtx.ticketId,
-              grantId: ticketCtx.grantId,
-              actor: ticketCtx.actor,
-            })
-          : consumeApprovedTicketForExecution(
-              ticketCtx.actor,
-              ticketCtx.ticketId,
-              ticketCtx.executionNote
-            );
-
-      donePromise.catch(() => {}).finally(() => origJson(body));
-      return res;
+      const donePromise = consumeTicketIfNeeded();
+      if (donePromise) {
+        donePromise.catch(() => {}).finally(() => origJson(body));
+        return res;
+      }
     }
 
     return origJson(body);

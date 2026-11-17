@@ -1189,7 +1189,8 @@ async function issueJitGrantForApproval(
   approval: ActionApprovalRequest,
   approver: { userId: string; username: string },
   expiresAtIso: string,
-  executionMode: ApprovalExecutionMode
+  executionMode: ApprovalExecutionMode,
+  options?: { preserveExecutionStatus?: boolean }
 ): Promise<ApprovalExecutionGrant> {
   const existingGrants = await loadRawGrantRowsFast();
   const alreadyActive = existingGrants.find(
@@ -1242,7 +1243,9 @@ async function issueJitGrantForApproval(
     const reqRow = store.action_approval_requests.find((r: any) => r.id === approval.id);
     if (reqRow) {
       reqRow.grant_id = id;
-      reqRow.execution_status = executionMode === 'jit_session' ? 'jit_active' : 'pending';
+      if (!options?.preserveExecutionStatus) {
+        reqRow.execution_status = executionMode === 'jit_session' ? 'jit_active' : 'pending';
+      }
     }
   }
   saveFallbackStore(store);
@@ -1275,10 +1278,17 @@ async function issueJitGrantForApproval(
           rawGrant.metadata_json,
         ]
       );
-      await pool.query(
-        `UPDATE action_approval_requests SET grant_id = $2, execution_status = $3 WHERE id = $1`,
-        [approval.id, id, executionMode === 'jit_session' ? 'jit_active' : 'pending']
-      );
+      if (options?.preserveExecutionStatus) {
+        await pool.query(
+          `UPDATE action_approval_requests SET grant_id = $2 WHERE id = $1`,
+          [approval.id, id]
+        );
+      } else {
+        await pool.query(
+          `UPDATE action_approval_requests SET grant_id = $2, execution_status = $3 WHERE id = $1`,
+          [approval.id, id, executionMode === 'jit_session' ? 'jit_active' : 'pending']
+        );
+      }
     } catch (err: any) {
       console.error('[ApprovalService] PG issueJitGrantForApproval error:', err?.message || err);
     }
@@ -2513,7 +2523,118 @@ export async function decideApprovalRequest(
     try {
       return await executeApprovalTicketPayload(actor, approvalId, { isAuto: true });
     } catch (autoErr: any) {
-      console.warn('[ApprovalService] Auto-execute post-approval notice:', autoErr?.message || autoErr);
+      const errMsg = String(autoErr?.message || autoErr || 'Auto-execution encountered an unexpected error');
+      console.error('[ApprovalService] Auto-execute post-approval exception:', errMsg);
+
+      const failedOutput = `[Auto-Execute Error] ${errMsg}`;
+      const failedPayload: EncryptedApprovalPayload = {
+        reason: mappedWithInternal.reason,
+        riskLevel: mappedWithInternal.riskLevel,
+        commandPreview: mappedWithInternal.commandPreview || null,
+        ttlMinutes: mappedWithInternal.ttlMinutes,
+        actionParams: mappedWithInternal.actionParams || null,
+        executionMode: mappedWithInternal.executionMode,
+        autoExecuteOnApprove: mappedWithInternal.autoExecuteOnApprove,
+        grantId: mappedWithInternal.grantId || null,
+        executionOutput: failedOutput,
+        executionStatus: 'failed',
+        requesterFullName: mappedWithInternal.requesterFullName,
+        requesterRole: mappedWithInternal.requesterRole,
+        executionNote: 'Auto-execution encountered an unexpected error upon final approval',
+        executedAt: null,
+        executedBy: actor.username,
+      };
+      const failedEnc = encryptServerSecret(JSON.stringify(failedPayload));
+
+      let persistedRaw: any = updatedRaw;
+      const errStore = loadFallbackStore();
+      if (Array.isArray(errStore.action_approval_requests)) {
+        const errRow = errStore.action_approval_requests.find((r: any) => r.id === approvalId);
+        if (errRow) {
+          errRow.execution_status = 'failed';
+          errRow.execution_output = failedOutput;
+          errRow.command_payload_enc = failedEnc;
+          persistedRaw = errRow;
+          saveFallbackStore(errStore);
+        }
+      }
+
+      await ensurePostgresConnection();
+      const errPool = getPgPool();
+      if (isPostgresConnected() && errPool) {
+        try {
+          const errPgRes = await errPool.query(
+            `UPDATE action_approval_requests
+             SET execution_status = 'failed',
+                 execution_output = $2,
+                 command_payload_enc = $3
+             WHERE id = $1
+             RETURNING *`,
+            [approvalId, failedOutput, failedEnc]
+          );
+          if (errPgRes.rows[0]) persistedRaw = errPgRes.rows[0];
+        } catch (pgErr: any) {
+          console.error('[ApprovalService] PG auto-exec failure persistence error:', pgErr?.message || pgErr);
+        }
+      }
+
+      let fallbackGrant: ApprovalExecutionGrant | null = null;
+      try {
+        fallbackGrant = await issueJitGrantForApproval(
+          mappedWithInternal,
+          { userId: actor.userId, username: actor.username },
+          nextExpiresAtIso,
+          'auto_command',
+          { preserveExecutionStatus: true }
+        );
+        if (persistedRaw) persistedRaw.grant_id = fallbackGrant.id;
+      } catch {}
+
+      await emitSystemNotification({
+        category: 'system_alert',
+        severity: 'critical',
+        senderName: actor.fullName || actor.username,
+        senderRole: actor.role || 'System',
+        title: `خطا در اجرای خودکار دستور تاییدشده: ${existing.requestedAction}`,
+        titleEn: `Auto-Execution Failed After Approval: ${existing.requestedAction}`,
+        body: `تایید نهایی انجام شد اما اجرای خودکار روی «${existing.targetEntityName || existing.targetEntityId}» با خطا مواجه شد: ${errMsg}`,
+        bodyEn: `Final approval succeeded, but auto-execution on "${existing.targetEntityName || existing.targetEntityId}" failed: ${errMsg}`,
+        linkedEntityType: existing.targetEntityType,
+        linkedEntityId: existing.targetEntityId,
+        linkedEntityName: existing.targetEntityName || existing.targetEntityId,
+        actionTab: 'communications',
+        recipients: [
+          ...snapshot.privilegedUsers.map((u) => ({ userId: u.userId, username: u.username })),
+          { userId: existing.requesterUserId, username: existing.requesterUsername },
+        ],
+        metadata: {
+          approvalRequestId: approvalId,
+          executionStatus: 'failed',
+          status: 'approved',
+        },
+      }).catch(() => {});
+
+      broadcastCommsEventToRecipients(
+        [
+          ...snapshot.privilegedUsers.map((u) => ({ userId: u.userId, username: u.username })),
+          { userId: existing.requesterUserId, username: existing.requesterUsername },
+        ],
+        undefined,
+        {
+          type: 'approval:updated',
+          approvalId,
+          status: 'approved',
+          executionStatus: 'failed',
+          autoExecuted: true,
+        }
+      );
+
+      return annotateRowForActor(
+        mapApprovalRow(persistedRaw || updatedRaw, true, false),
+        actor,
+        snapshot,
+        fallbackGrant
+      );
     }
   }
 
@@ -2709,8 +2830,20 @@ export async function executeApprovalTicketPayload(
     }
   }
 
+  let fallbackGrant: ApprovalExecutionGrant | null = null;
   if (execResult.success) {
     await consumeGrantForApproval(approvalId);
+  } else if (!existingInternal.grantId) {
+    try {
+      fallbackGrant = await issueJitGrantForApproval(
+        existingInternal,
+        { userId: actor.userId, username: actor.username },
+        existingInternal.expiresAt,
+        existingInternal.executionMode || 'auto_command',
+        { preserveExecutionStatus: true }
+      );
+      if (updatedRaw) updatedRaw.grant_id = fallbackGrant.id;
+    } catch {}
   }
 
   const snapshot = await loadApprovalDirectorySnapshot();
@@ -2781,11 +2914,13 @@ export async function executeApprovalTicketPayload(
     type: 'approval:updated',
     approvalId,
     status: nextStatus,
+    executionStatus: nextExecStatus,
+    autoExecuted: Boolean(options?.isAuto),
   });
   broadcastCommsEventToRecipients(dedupedRecipients, undefined, {
     type: 'jit_grant:updated',
     approvalId,
-    grantId: existingInternal.grantId || undefined,
+    grantId: fallbackGrant?.id || existingInternal.grantId || undefined,
     status: execResult.success ? 'consumed' : 'active',
   });
 
@@ -2793,7 +2928,7 @@ export async function executeApprovalTicketPayload(
     mapApprovalRow(updatedRaw || rawRow, true, false),
     actor,
     snapshot,
-    null
+    fallbackGrant
   );
 }
 
@@ -3363,12 +3498,23 @@ export async function evaluateApprovalGateForRequest(params: {
 
   if (cleanProvidedId) {
     const allRows = await loadRawApprovalRowsFast();
-    const ticket =
+    let ticket =
       allRows.find(
         (r) =>
           r.id === cleanProvidedId ||
           (activeGrant && r.id === activeGrant.approvalId)
       ) || null;
+    if (!ticket) {
+      const directRaw = await loadRawApprovalRowById(cleanProvidedId);
+      if (directRaw) {
+        ticket = mapApprovalRow(directRaw, true, false);
+      } else if (activeGrant?.approvalId) {
+        const grantRaw = await loadRawApprovalRowById(activeGrant.approvalId);
+        if (grantRaw) {
+          ticket = mapApprovalRow(grantRaw, true, false);
+        }
+      }
+    }
     if (
       ticket &&
       ticket.status === 'approved' &&
@@ -3388,7 +3534,11 @@ export async function evaluateApprovalGateForRequest(params: {
   // Interactive JIT Pass allows seamless open/reconnect across endpoints & WS until expiry/revoke
   if (interactiveJit && activeGrant) {
     const allRows = await loadRawApprovalRowsFast();
-    const matchingTicket = allRows.find((r) => r.id === activeGrant.approvalId) || null;
+    let matchingTicket = allRows.find((r) => r.id === activeGrant.approvalId) || null;
+    if (!matchingTicket) {
+      const directRaw = await loadRawApprovalRowById(activeGrant.approvalId);
+      if (directRaw) matchingTicket = mapApprovalRow(directRaw, true, false);
+    }
     if (matchingTicket && matchingTicket.status === 'approved') {
       return {
         allowed: true,
