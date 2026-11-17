@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.440.2';
+export const APP_VERSION = '1.440.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.440.3',
+    releaseDate: '2026-11-17',
+    type: 'patch',
+    title: 'اصلاح فاز ۱ جریان تایید عملیات پورت‌ها و حذف ارسال دوگانه و خطاهای کاذب',
+    title_en: 'Phase 1 Fix: Eliminate Duplicate Port API Requests & False Approval Gate Alerts',
+    changes: [
+      'ارتقای `parseErrorAndThrow` و یکپارچه‌سازی متدهای mutating در `src/services/api.ts` (از جمله `executeDeviceOperation`، `executeDeviceTerminal` و مدیریت سرور/قالب‌ها) جهت حفظ دقیق پرچم‌های `approvalHandled`، `submittedApprovalId` و `cancelled`.',
+      'توقف فوری عملیات پس از ثبت درخواست تایید در `PortInspectorModal` و `PortManagementView` و حذف فراخوانی تکراری `updateSwitchPort` پس از موفقیت `executeDeviceOperation` برای جلوگیری از گشوده‌شدن مجدد پنجره تایید و مصرف پیش‌ازموعد بلیت.',
+      'حذف پیام‌های `alert` و اعلان‌های خطای کاذب هنگام هندل‌شدن درخواست توسط `ApprovalGateModal` در `PortInspectorModal`، `PortManagementView`، `CiscoPortSecurityModal` و `MikroTikDeviceManageModal`.'
+    ],
+    changes_en: [
+      'Enhanced `parseErrorAndThrow` and wired mutating API helpers in `src/services/api.ts` (including `executeDeviceOperation`, `executeDeviceTerminal`, and server/template mutators) to preserve `approvalHandled`, `submittedApprovalId`, and `cancelled` metadata.',
+      'Stopped sequential `updateSwitchPort` fallback calls in `PortInspectorModal` and `PortManagementView` whenever `executeDeviceOperation` is handled by the approval gate or already succeeds cleanly, preventing duplicate approval prompts and premature single-use ticket consumption.',
+      'Suppressed false `alert()` and error banners when `err.approvalHandled` is true across `PortInspectorModal`, `PortManagementView`, `CiscoPortSecurityModal`, and `MikroTikDeviceManageModal`.'
+    ]
+  },
   {
     version: '1.440.2',
     releaseDate: '2026-11-17',

@@ -617,6 +617,10 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
 
       setPortConfigConfirmModal(null);
     } catch (err: any) {
+      if (err?.approvalHandled) {
+        setPortConfigConfirmModal(null);
+        return;
+      }
       alert(t('ports_save_error', { error: err.message || err }));
     } finally {
       setIsExecutingPortConfig(false);
@@ -741,21 +745,21 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
             interface: targetPortId,
           }
         );
-      } catch (opErr) {
+      } catch (opErr: any) {
+        if (opErr?.approvalHandled) {
+          setConfirmModalState(null);
+          return;
+        }
         console.warn('executeDeviceOperation note:', opErr);
       }
 
-      // 2. Persist state via updateSwitchPort
-      try {
+      // 2. Fallback persistence via updateSwitchPort ONLY if executeDeviceOperation did not succeed
+      if (!opRes?.success) {
         await updateSwitchPort(currentDevice.id, targetPortId, {
           ...updates,
           port_id: targetPortId,
           interface: targetPortId,
         });
-      } catch (putErr) {
-        if (!opRes?.success) {
-          throw putErr;
-        }
       }
 
       // 3. Update local ports state and selected port view
@@ -782,6 +786,10 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
       currentDevice.has_unsaved_changes = true;
       setConfirmModalState(null);
     } catch (err: any) {
+      if (err?.approvalHandled) {
+        setConfirmModalState(null);
+        return;
+      }
       console.error('Failed to update port from context menu:', err);
       alert(
         (isEn ? 'Failed to apply configuration to device: ' : 'خطا در اعمال پیکربندی روی دیوایس: ') +
@@ -814,22 +822,22 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
           targetPortId,
           { vlan: newVlan, device_type: currentDevice.type, is_router: currentDevice.type === 'router', interface: targetPortId }
         );
-      } catch (opErr) {
+      } catch (opErr: any) {
+        if (opErr?.approvalHandled) {
+          setVlanAssignModalPort(null);
+          return;
+        }
         console.warn('executeDeviceOperation set_vlan note:', opErr);
       }
 
-      // 2. Persist state via updateSwitchPort
-      try {
+      // 2. Fallback persistence via updateSwitchPort ONLY if executeDeviceOperation did not succeed
+      if (!opRes?.success) {
         await updateSwitchPort(currentDevice.id, targetPortId, {
           vlan: newVlan,
           mode: 'access',
           port_id: targetPortId,
           interface: targetPortId,
         });
-      } catch (putErr) {
-        if (!opRes?.success) {
-          throw putErr;
-        }
       }
 
       // 3. Update local ports list
@@ -855,6 +863,10 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
       currentDevice.has_unsaved_changes = true;
       setVlanAssignModalPort(null);
     } catch (err: any) {
+      if (err?.approvalHandled) {
+        setVlanAssignModalPort(null);
+        return;
+      }
       console.error('Failed to assign VLAN:', err);
       alert(
         (isEn ? 'Failed to assign VLAN: ' : 'خطا در تخصیص ویلن به پورت: ') +

@@ -592,21 +592,21 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             interface: targetPortId,
           }
         );
-      } catch (opErr) {
+      } catch (opErr: any) {
+        if (opErr?.approvalHandled) {
+          setConfirmModalState(null);
+          return;
+        }
         console.warn('executeDeviceOperation note:', opErr);
       }
 
-      // 2. Persist state via updateSwitchPort
-      try {
+      // 2. Fallback persistence via updateSwitchPort ONLY if executeDeviceOperation did not succeed
+      if (!opRes?.success) {
         await updateSwitchPort(device.id, targetPortId, {
           ...updates,
           port_id: targetPortId,
           interface: targetPortId,
         }, { clientAuditLogged: true });
-      } catch (putErr) {
-        if (!opRes?.success) {
-          throw putErr;
-        }
       }
 
       // 3. Update local ports state and selected port view
@@ -682,6 +682,10 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
       setConfirmModalState(null);
       if (onPortUpdated) onPortUpdated();
     } catch (err: any) {
+      if (err?.approvalHandled) {
+        setConfirmModalState(null);
+        return;
+      }
       console.error('Failed to execute command on device:', err);
       alert(
         (isEn ? 'Failed to apply configuration to device: ' : 'خطا در اعمال پیکربندی روی دیوایس: ') +
@@ -723,22 +727,22 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           targetPortId,
           { vlan: newVlan, device_type: device.type, is_router: device.type === 'router', interface: targetPortId }
         );
-      } catch (opErr) {
+      } catch (opErr: any) {
+        if (opErr?.approvalHandled) {
+          setVlanAssignModalPort(null);
+          return;
+        }
         console.warn('executeDeviceOperation set_vlan note:', opErr);
       }
 
-      // 2. Persist via updateSwitchPort (which updates DB and applies CLI command)
-      try {
+      // 2. Fallback persistence via updateSwitchPort ONLY if executeDeviceOperation did not succeed
+      if (!opRes?.success) {
         await updateSwitchPort(device.id, targetPortId, {
           vlan: newVlan,
           mode: 'access',
           port_id: targetPortId,
           interface: targetPortId,
         }, { clientAuditLogged: true });
-      } catch (putErr) {
-        if (!opRes?.success) {
-          throw putErr;
-        }
       }
 
       // 3. Update local ports state and selected port view
@@ -818,6 +822,10 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
       setVlanAssignModalPort(null);
       if (onPortUpdated) onPortUpdated();
     } catch (err: any) {
+      if (err?.approvalHandled) {
+        setVlanAssignModalPort(null);
+        return;
+      }
       console.error('Failed to assign VLAN:', err);
       alert(
         (isEn ? 'Failed to assign VLAN: ' : 'خطا در تخصیص ویلن به پورت: ') +
@@ -860,21 +868,21 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
           targetPortId,
           { description: cleanDesc, interface: targetPortId }
         );
-      } catch (opErr) {
+      } catch (opErr: any) {
+        if (opErr?.approvalHandled) {
+          setDescriptionModalPort(null);
+          return;
+        }
         console.warn('executeDeviceOperation note:', opErr);
       }
 
-      // 2. Also persist via updateSwitchPort (which updates DB and applies CLI command)
-      try {
+      // 2. Fallback persistence via updateSwitchPort ONLY if executeDeviceOperation did not succeed
+      if (!opRes?.success) {
         await updateSwitchPort(device.id, targetPortId, {
           description: cleanDesc,
           port_id: targetPortId,
           interface: targetPortId,
         }, { clientAuditLogged: true });
-      } catch (putErr) {
-        if (!opRes?.success) {
-          throw putErr;
-        }
       }
 
       // 3. Update local ports state and selected port view
@@ -932,6 +940,10 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
       setDescriptionModalPort(null);
       if (onPortUpdated) onPortUpdated();
     } catch (err: any) {
+      if (err?.approvalHandled) {
+        setDescriptionModalPort(null);
+        return;
+      }
       console.error('Failed to set port description:', err);
       alert(
         (isEn

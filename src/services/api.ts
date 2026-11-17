@@ -270,12 +270,19 @@ async function fetchWithRetry(url: string, options?: RequestInit, maxRetries = 3
 async function parseErrorAndThrow(res: Response, fallbackMessage: string): Promise<never> {
   const errData = await res.json().catch(() => ({} as any));
   const err: any = new Error(errData?.error || errData?.message || fallbackMessage);
-  if (errData?.approvalHandled) {
+  if (errData?.approvalHandled || res.headers.get('X-Approval-Handled') === 'true') {
     err.approvalHandled = true;
+  }
+  if (errData?.submittedApprovalId) {
+    err.submittedApprovalId = errData.submittedApprovalId;
+  }
+  if (errData?.cancelled) {
+    err.cancelled = true;
   }
   if (errData?.code) {
     err.code = errData.code;
   }
+  err.status = res.status;
   throw err;
 }
 
@@ -297,7 +304,7 @@ export async function addDevice(device: Partial<Device>): Promise<{ device: Devi
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(device),
   });
-  if (!res.ok) throw new Error('Failed to add device');
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to add device');
   return res.json();
 }
 
@@ -390,8 +397,7 @@ export async function executeDeviceOperation(
     body: JSON.stringify({ operation, interface: iface, params, user_role: userRole }),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || 'Operation failed on device');
+    await parseErrorAndThrow(res, 'Operation failed on device');
   }
   return res.json();
 }
@@ -416,8 +422,7 @@ export async function executeDeviceTerminal(
     body: JSON.stringify({ command, user_role: userRole }),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || err.error || 'Failed to execute command on device');
+    await parseErrorAndThrow(res, 'Failed to execute command on device');
   }
   return res.json();
 }
@@ -897,7 +902,7 @@ export async function runCdpLldpScan(): Promise<{
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
-  if (!res.ok) throw new Error('Failed to run CDP/LLDP scan');
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to run CDP/LLDP scan');
   return res.json();
 }
 
@@ -906,7 +911,7 @@ export async function pingAllDevices(): Promise<{ message: string; results: any[
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
-  if (!res.ok) throw new Error('Failed to ping devices');
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to ping devices');
   return res.json();
 }
 
@@ -915,7 +920,7 @@ export async function pingDevice(id: string): Promise<{ device: Device; ping_res
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
-  if (!res.ok) throw new Error('Failed to ping device');
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to ping device');
   return res.json();
 }
 
@@ -998,7 +1003,7 @@ export async function createTemplate(template: Partial<ConfigTemplate>): Promise
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(template),
   });
-  if (!res.ok) throw new Error('Failed to create template');
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to create template');
   return res.json();
 }
 
@@ -1011,7 +1016,7 @@ export async function updateTemplate(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
   });
-  if (!res.ok) throw new Error('Failed to update template');
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update template');
   return res.json();
 }
 
@@ -1019,7 +1024,7 @@ export async function deleteTemplate(id: string): Promise<{ message: string }> {
   const res = await fetch(`${API_BASE}/templates/${id}`, {
     method: 'DELETE',
   });
-  if (!res.ok) throw new Error('Failed to delete template');
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to delete template');
   return res.json();
 }
 
@@ -1053,8 +1058,7 @@ export async function extractConfigFromDevice(
     body: JSON.stringify(params),
   });
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'خطا در اتصال به تجهیز و استخراج کانفیگ');
+    await parseErrorAndThrow(res, 'خطا در اتصال به تجهیز و استخراج کانفیگ');
   }
   return res.json();
 }
@@ -1742,8 +1746,7 @@ export async function createRemoteServer(server: Partial<RemoteServer>): Promise
     body: JSON.stringify(server),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Failed to create server' }));
-    throw new Error(err.error || 'Failed to create server');
+    await parseErrorAndThrow(res, 'Failed to create server');
   }
   return res.json();
 }
@@ -1758,8 +1761,7 @@ export async function updateRemoteServer(
     body: JSON.stringify(server),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Failed to update server' }));
-    throw new Error(err.error || 'Failed to update server');
+    await parseErrorAndThrow(res, 'Failed to update server');
   }
   return res.json();
 }

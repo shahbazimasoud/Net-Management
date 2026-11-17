@@ -340,7 +340,11 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
 
       onPortUpdated?.();
       setConfirmModal(null);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.approvalHandled) {
+        setConfirmModal(null);
+        return;
+      }
       console.error('Failed to dispatch MikroTik CLI:', err);
     } finally {
       setIsExecuting(false);

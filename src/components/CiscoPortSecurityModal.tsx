@@ -335,6 +335,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           : `مک‌آدرس ${targetMac} با موفقیت از روی پورت ${portId} پاک‌سازی شد.`,
       });
     } catch (err: any) {
+      if (err?.approvalHandled) return;
       setNotification({
         type: 'error',
         message: err.message || (isEn ? 'Failed to clear MAC address.' : 'خطا در پاک‌سازی مک‌آدرس.'),
@@ -406,6 +407,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           : `تمامی مک‌آدرس‌های پورت ${portId} با موفقیت پاک‌سازی شدند.`,
       });
     } catch (err: any) {
+      if (err?.approvalHandled) return;
       setNotification({
         type: 'error',
         message: err.message || (isEn ? 'Failed to clear all MACs.' : 'خطا در پاک‌سازی همه مک‌آدرس‌ها.'),
@@ -468,6 +470,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           : `پورت ${portId} با موفقیت از وضعیت Err-Disable خارج و ریست گردید.`,
       });
     } catch (err: any) {
+      if (err?.approvalHandled) return;
       setNotification({
         type: 'error',
         message: err.message || (isEn ? 'Failed to recover port.' : 'خطا در بازیابی پورت.'),
@@ -503,7 +506,8 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           freshPort = queryRes.port;
           console.log(`[PortSecurity Sync] Parsed Port from Direct Query:`, freshPort);
         }
-      } catch (queryErr) {
+      } catch (queryErr: any) {
+        if (queryErr?.approvalHandled) return;
         console.warn('[PortSecurity Sync] Direct interface query fallback to full sync:', queryErr);
       }
 
@@ -547,6 +551,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
         message: isEn ? 'Port Security data refreshed successfully.' : 'اطلاعات پورت سکیوریتی با موفقیت به‌روزرسانی شد.',
       });
     } catch (err: any) {
+      if (err?.approvalHandled) return;
       console.error('[PortSecurity Sync Error]', err);
       setNotification({
         type: 'error',
@@ -694,6 +699,7 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
           : `تنظیمات پورت سکیوریتی با موفقیت روی اینترفیس ${portId} ذخیره و بر روی سوئیچ اعمال گردید.`,
       });
     } catch (err: any) {
+      if (err?.approvalHandled) return;
       setNotification({
         type: 'error',
         message: err.message || (isEn ? 'Failed to apply configuration.' : 'خطا در اعمال تنظیمات.'),
