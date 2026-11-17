@@ -429,7 +429,11 @@ export function tryStartGuacd(host: string = '127.0.0.1', port: number = 4822): 
  * Verify guacd version (guacd -v) and RDP plugin presence (libguac-client-rdp loadable) at startup.
  * Logs a clear error if guacd or libguac-client-rdp is missing or fails to load.
  */
-export function verifyGuacdRdpPlugin(host: string = '127.0.0.1', port: number = 4822): Promise<{
+export function verifyGuacdRdpPlugin(
+  host: string = '127.0.0.1',
+  port: number = 4822,
+  options: { quietIfMissing?: boolean } = {}
+): Promise<{
   guacdVersion: string | null;
   rdpPluginPath: string | null;
   rdpPluginLoadable: boolean;
@@ -437,11 +441,22 @@ export function verifyGuacdRdpPlugin(host: string = '127.0.0.1', port: number = 
 }> {
   return new Promise((resolve) => {
     const cmd = `
-      VER=$(guacd -v 2>&1 || /usr/sbin/guacd -v 2>&1 || /usr/local/sbin/guacd -v 2>&1 || true);
-      echo "GUACD_VER:$VER";
-      RDP_SO=$(ldconfig -p 2>/dev/null | grep 'libguac-client-rdp\\.so' | awk '{print $NF}' | head -n 1);
+      GUACD_BIN=$(command -v guacd 2>/dev/null || true);
+      if [ -z "$GUACD_BIN" ] || [ ! -x "$GUACD_BIN" ]; then
+        for p in /usr/local/sbin/guacd /usr/sbin/guacd /usr/bin/guacd /usr/local/bin/guacd; do
+          if [ -x "$p" ]; then GUACD_BIN="$p"; break; fi;
+        done;
+      fi;
+      echo "GUACD_BIN:$GUACD_BIN";
+      if [ -n "$GUACD_BIN" ] && [ -x "$GUACD_BIN" ]; then
+        VER=$("$GUACD_BIN" -v 2>&1 || true);
+        echo "GUACD_VER:$VER";
+      else
+        echo "GUACD_VER:";
+      fi;
+      RDP_SO=$(ldconfig -p 2>/dev/null | grep 'libguac-client-rdp\\.so' | awk '{print $NF}' | head -n 1 || true);
       if [ -z "$RDP_SO" ]; then
-        RDP_SO=$(find /usr/lib /usr/lib64 /usr/local/lib /lib -name 'libguac-client-rdp.so*' 2>/dev/null | head -n 1);
+        RDP_SO=$(find /usr/lib /usr/lib64 /usr/local/lib /lib -name 'libguac-client-rdp.so*' 2>/dev/null | head -n 1 || true);
       fi;
       echo "RDP_SO:$RDP_SO";
       if [ -n "$RDP_SO" ] && [ -e "$RDP_SO" ]; then
@@ -452,25 +467,34 @@ export function verifyGuacdRdpPlugin(host: string = '127.0.0.1', port: number = 
 
     exec(cmd, { timeout: 8000 }, (_err, stdout) => {
       const out = stdout || '';
+      const binMatch = out.match(/GUACD_BIN:(.*)/);
       const verMatch = out.match(/GUACD_VER:(.*)/);
       const soMatch = out.match(/RDP_SO:(.*)/);
       const missingMatch = out.match(/RDP_MISSING:(.*)/);
 
+      const guacdBinPath = binMatch && binMatch[1] ? binMatch[1].trim() : '';
       const guacdVersion = verMatch && verMatch[1] ? verMatch[1].trim() : null;
       const rdpPluginPath = soMatch && soMatch[1] ? soMatch[1].trim() : null;
       const missingDeps = missingMatch && missingMatch[1] ? missingMatch[1].trim() : '';
 
+      const looksLikeShellError = Boolean(
+        guacdVersion && /not found|no such file|cannot execute|permission denied/i.test(guacdVersion)
+      );
       const hasValidVersion = Boolean(
-        guacdVersion &&
-          (guacdVersion.toLowerCase().includes('guacamole') ||
-            guacdVersion.toLowerCase().includes('guacd') ||
-            /\d+\.\d+/.test(guacdVersion))
+        guacdBinPath &&
+          guacdVersion &&
+          !looksLikeShellError &&
+          (/\d+\.\d+\.\d+/.test(guacdVersion) || /guacamole proxy daemon.*\d+\.\d+/i.test(guacdVersion))
       );
 
       if (!hasValidVersion) {
         const errMsg =
-          'guacd binary not found or "guacd -v" failed. Please run "sudo bash scripts/install-guacd.sh" to build and install guacd >= 1.5.5 from source.';
-        console.error(`[RemoteDesktop] ERROR: ${errMsg} (output: ${guacdVersion || 'none'})`);
+          'guacd binary not found or "guacd -v" failed. Run "sudo bash scripts/install-guacd.sh" on the Linux host to build and install guacd >= 1.5.5 with RDP support.';
+        if (options.quietIfMissing) {
+          console.warn(`[RemoteDesktop] ${errMsg}`);
+        } else {
+          console.error(`[RemoteDesktop] ERROR: ${errMsg} (output: ${guacdVersion || 'none'})`);
+        }
         return resolve({
           guacdVersion: null,
           rdpPluginPath: null,
@@ -568,15 +592,24 @@ export async function ensureGuacdServiceRunning(host: string = '127.0.0.1', port
   const isLive = await checkGuacdHealth(host, port);
   if (isLive) {
     console.log(`[RemoteDesktop] guacd daemon is active and listening on ${host}:${port}`);
-    await verifyGuacdRdpPlugin(host, port);
+    await verifyGuacdRdpPlugin(host, port, { quietIfMissing: true });
     return true;
   }
+
+  const isInstalled = await checkGuacdInstalled();
+  if (!isInstalled) {
+    console.warn(
+      `[RemoteDesktop] guacd is not installed on this host (${host}:${port} inactive); in-browser RDP/VNC proxy is standby until scripts/install-guacd.sh is run.`
+    );
+    return false;
+  }
+
   console.log(`[RemoteDesktop] guacd daemon is not listening on ${host}:${port}. Attempting auto-start...`);
   const started = await tryStartGuacd(host, port);
   if (started) {
     console.log(`[RemoteDesktop] guacd daemon successfully started on ${host}:${port}`);
   } else {
-    console.warn(`[RemoteDesktop] Could not auto-start guacd on ${host}:${port}. Please ensure guacd package is installed.`);
+    console.warn(`[RemoteDesktop] Could not auto-start guacd on ${host}:${port}. Please check guacd service logs.`);
   }
   await verifyGuacdRdpPlugin(host, port);
   return started;
