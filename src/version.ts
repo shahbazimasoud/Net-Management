@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.435.0';
+export const APP_VERSION = '1.435.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.435.1',
+    releaseDate: '2026-11-16',
+    type: 'patch',
+    title: 'رفع باگ ذخیره‌سازی و اعمال الگوهای سفارشی و استاندارد در ماتریس دسترسی تجهیزات RBAC',
+    title_en: 'Fix Custom & Built-in Device Template Saving and Application in RBAC Granular Override Matrix',
+    changes: [
+      'اصلاح `handleSaveCustomTemplate` در مودال دسترسی (`AccessPolicyModal`) برای ثبت کامل و دقیق هر سه وضعیت (`allow` / `require_approval` / `deny`) از وضعیت موثر تجهیز مبدأ در قالب دو فیلد `permissions` و `approvalRules`.',
+      'اصلاح توابع `applyTemplateToDevice` و `applyTemplateToBatch` برای به‌روزرسانی و جایگزینی همزمان `perDevicePermissions` و `perDeviceApprovalRules` بر روی تجهیزات هدف؛ تا استثنائات قبلی مانع اعمال الگوهای ذخیره‌شده و الگوهای استاندارد سیستم نشوند.',
+      'افزودن اسکرول ایمن به منوی بازشونده الگوها، نمایش تعداد دسترسی‌های الگوهای سفارشی، کلیک‌پذیر کردن کامل ردیف الگو و پشتیبانی از کلید Enter در کادر ذخیره الگو.'
+    ],
+    changes_en: [
+      'Fixed `handleSaveCustomTemplate` in `AccessPolicyModal.tsx` to snapshot the complete effective tri-state decision (`allow` / `require_approval` / `deny`) across all catalog actions for the source device into both `permissions` and `approvalRules`.',
+      'Fixed `applyTemplateToDevice` and `applyTemplateToBatch` (`buildTemplateDevicePayload`) to cleanly replace both `perDevicePermissions` and `perDeviceApprovalRules` on target devices so prior per-device approval rules never shadow or block newly applied built-in or custom saved templates.',
+      'Improved batch and per-device template dropdowns with safe scrollable height bounds, full-row click targets, compact rule counters, and Enter-key submission in the Save Template modal.'
+    ]
+  },
   {
     version: '1.435.0',
     releaseDate: '2026-11-16',

@@ -308,6 +308,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       nameEn: string;
       nameFa: string;
       permissions: Partial<Record<NetworkDeviceActionKey, boolean>>;
+      approvalRules?: Partial<Record<NetworkDeviceActionKey, ActionAccessDecision>>;
     }>
   >(() => {
     try {
@@ -1720,15 +1721,66 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     }, 4000);
   }, []);
 
+  const buildTemplateDevicePayload = useCallback(
+    (
+      tmplPerms: Partial<Record<string, boolean>>,
+      tmplApprovalRules?: Partial<Record<string, ActionAccessDecision>>
+    ) => {
+      const resolvedPerms: Partial<Record<NetworkDeviceActionKey, boolean>> = {};
+      const resolvedRules: Partial<Record<NetworkDeviceActionKey, ActionAccessDecision>> = {};
+
+      const allKeys = new Set<string>([
+        ...DEVICE_ACTIONS_CATALOG.map((a) => a.key),
+        ...Object.keys(tmplPerms || {}),
+        ...Object.keys(tmplApprovalRules || {}),
+      ]);
+
+      allKeys.forEach((rawKey) => {
+        const key = rawKey as NetworkDeviceActionKey;
+        const explicitRule = tmplApprovalRules?.[key];
+        if (
+          explicitRule === 'allow' ||
+          explicitRule === 'require_approval' ||
+          explicitRule === 'deny'
+        ) {
+          resolvedRules[key] = explicitRule;
+          resolvedPerms[key] = explicitRule !== 'deny';
+          return;
+        }
+        if (typeof tmplPerms?.[key] === 'boolean') {
+          const decision: ActionAccessDecision = tmplPerms[key] ? 'allow' : 'deny';
+          resolvedRules[key] = decision;
+          resolvedPerms[key] = tmplPerms[key];
+        }
+      });
+
+      return { resolvedPerms, resolvedRules };
+    },
+    []
+  );
+
   const applyTemplateToDevice = useCallback(
-    (devId: string, tmplPerms: Record<string, boolean>, tmplName: string) => {
+    (
+      devId: string,
+      tmplPerms: Partial<Record<string, boolean>>,
+      tmplName: string,
+      tmplApprovalRules?: Partial<Record<string, ActionAccessDecision>>
+    ) => {
+      const { resolvedPerms, resolvedRules } = buildTemplateDevicePayload(
+        tmplPerms,
+        tmplApprovalRules
+      );
       setDraftPolicy((prev) => {
         if (!prev) return prev;
         return {
           ...prev,
           perDevicePermissions: {
             ...(prev.perDevicePermissions || {}),
-            [devId]: { ...tmplPerms },
+            [devId]: { ...resolvedPerms },
+          },
+          perDeviceApprovalRules: {
+            ...(prev.perDeviceApprovalRules || {}),
+            [devId]: { ...resolvedRules },
           },
         };
       });
@@ -1739,21 +1791,32 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           : `الگوی "${tmplName}" بر روی تجهیز اعمال شد.`
       );
     },
-    [isEn, showToast]
+    [buildTemplateDevicePayload, isEn, showToast]
   );
 
   const applyTemplateToBatch = useCallback(
-    (tmplPerms: Record<string, boolean>, tmplName: string) => {
+    (
+      tmplPerms: Partial<Record<string, boolean>>,
+      tmplName: string,
+      tmplApprovalRules?: Partial<Record<string, ActionAccessDecision>>
+    ) => {
       if (selectedDeviceIds.size === 0) return;
+      const { resolvedPerms, resolvedRules } = buildTemplateDevicePayload(
+        tmplPerms,
+        tmplApprovalRules
+      );
       setDraftPolicy((prev) => {
         if (!prev) return prev;
         const nextPerDev = { ...(prev.perDevicePermissions || {}) };
+        const nextRules = { ...(prev.perDeviceApprovalRules || {}) };
         selectedDeviceIds.forEach((id) => {
-          nextPerDev[id] = { ...tmplPerms };
+          nextPerDev[id] = { ...resolvedPerms };
+          nextRules[id] = { ...resolvedRules };
         });
         return {
           ...prev,
           perDevicePermissions: nextPerDev,
+          perDeviceApprovalRules: nextRules,
         };
       });
       setIsBatchTemplateMenuOpen(false);
@@ -1763,7 +1826,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           : `الگوی "${tmplName}" بر روی ${selectedDeviceIds.size} تجهیز اعمال شد.`
       );
     },
-    [selectedDeviceIds, isEn, showToast]
+    [selectedDeviceIds, buildTemplateDevicePayload, isEn, showToast]
   );
 
   const handleCopyFromDevice = useCallback(
@@ -1939,15 +2002,39 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   const handleSaveCustomTemplate = useCallback(
     (sourceDevId: string, name: string) => {
       if (!name.trim() || !draftPolicy) return;
-      const sourcePerms =
-        draftPolicy.perDevicePermissions?.[sourceDevId] ||
-        draftPolicy.defaultDevicePermissions ||
-        {};
+      const snapshotPerms: Partial<Record<NetworkDeviceActionKey, boolean>> = {};
+      const snapshotRules: Partial<Record<NetworkDeviceActionKey, ActionAccessDecision>> = {};
+
+      DEVICE_ACTIONS_CATALOG.forEach((action) => {
+        const key = action.key as NetworkDeviceActionKey;
+        const { decision } = getPerDeviceDecisionState(sourceDevId, key);
+        snapshotRules[key] = decision;
+        snapshotPerms[key] = decision !== 'deny';
+      });
+
+      const rawPerms = draftPolicy.perDevicePermissions?.[sourceDevId] || {};
+      const rawRules = draftPolicy.perDeviceApprovalRules?.[sourceDevId] || {};
+      Object.entries(rawPerms).forEach(([k, val]) => {
+        const key = k as NetworkDeviceActionKey;
+        if (snapshotPerms[key] === undefined && typeof val === 'boolean') {
+          snapshotPerms[key] = val;
+          snapshotRules[key] = val ? 'allow' : 'deny';
+        }
+      });
+      Object.entries(rawRules).forEach(([k, val]) => {
+        const key = k as NetworkDeviceActionKey;
+        if (val === 'allow' || val === 'require_approval' || val === 'deny') {
+          snapshotRules[key] = val;
+          snapshotPerms[key] = val !== 'deny';
+        }
+      });
+
       const newTmpl = {
         id: `custom_${Date.now()}`,
         nameEn: name.trim(),
         nameFa: name.trim(),
-        permissions: { ...sourcePerms },
+        permissions: snapshotPerms,
+        approvalRules: snapshotRules,
       };
       const updated = [newTmpl, ...customTemplates];
       setCustomTemplates(updated);
@@ -1965,7 +2052,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           : `الگوی "${name.trim()}" با موفقیت ذخیره گردید.`
       );
     },
-    [draftPolicy, customTemplates, isEn, showToast]
+    [draftPolicy, customTemplates, getPerDeviceDecisionState, isEn, showToast]
   );
 
   const handleDeleteCustomTemplate = useCallback(
@@ -6630,7 +6717,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                         onClick={() => setIsBatchTemplateMenuOpen(false)}
                                       />
                                       <div
-                                        className={`absolute right-0 rtl:right-auto rtl:left-0 top-full mt-1.5 w-72 rounded-xl border shadow-2xl p-2 z-50 animate-fadeIn ${
+                                        className={`absolute right-0 rtl:right-auto rtl:left-0 top-full mt-1.5 w-76 max-h-[65vh] overflow-y-auto rounded-xl border shadow-2xl p-2 z-50 animate-fadeIn ${
                                           isLightMode
                                             ? 'bg-white border-slate-200 text-slate-800'
                                             : 'bg-slate-900 border-white/15 text-white'
@@ -6684,42 +6771,56 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1 border-t border-white/10 pt-1.5">
                                               {isEn ? 'Custom Saved Templates' : 'الگوهای سفارشی ذخیره‌شده'}
                                             </div>
-                                            <div className="space-y-1 max-h-40 overflow-y-auto">
-                                              {customTemplates.map((ct) => (
-                                                <div
-                                                  key={ct.id}
-                                                  className={`flex items-center justify-between p-1.5 rounded-lg text-xs transition ${
-                                                    isLightMode
-                                                      ? 'hover:bg-slate-100'
-                                                      : 'hover:bg-white/10'
-                                                  }`}
-                                                >
-                                                  <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                      applyTemplateToBatch(
-                                                        ct.permissions as any,
-                                                        isEn ? ct.nameEn : ct.nameFa
-                                                      )
-                                                    }
-                                                    className="flex-1 text-left rtl:text-right cursor-pointer"
+                                            <div className="space-y-1 max-h-44 overflow-y-auto">
+                                              {customTemplates.map((ct) => {
+                                                const allowCount = DEVICE_ACTIONS_CATALOG.filter((a) => {
+                                                  const k = a.key as NetworkDeviceActionKey;
+                                                  const r = ct.approvalRules?.[k];
+                                                  return r ? r === 'allow' : Boolean(ct.permissions?.[k]);
+                                                }).length;
+                                                const apprCount = DEVICE_ACTIONS_CATALOG.filter(
+                                                  (a) => ct.approvalRules?.[a.key as NetworkDeviceActionKey] === 'require_approval'
+                                                ).length;
+                                                return (
+                                                  <div
+                                                    key={ct.id}
+                                                    className={`flex items-center justify-between gap-1 rounded-lg text-xs transition ${
+                                                      isLightMode
+                                                        ? 'hover:bg-slate-100'
+                                                        : 'hover:bg-white/10'
+                                                    }`}
                                                   >
-                                                    <span className="font-semibold">
-                                                      {isEn ? ct.nameEn : ct.nameFa}
-                                                    </span>
-                                                  </button>
-                                                  <button
-                                                    type="button"
-                                                    onClick={(e) =>
-                                                      handleDeleteCustomTemplate(ct.id, e)
-                                                    }
-                                                    className="p-1 text-slate-400 hover:text-rose-400 cursor-pointer"
-                                                    title={isEn ? 'Delete template' : 'حذف الگو'}
-                                                  >
-                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                  </button>
-                                                </div>
-                                              ))}
+                                                    <button
+                                                      type="button"
+                                                      onClick={() =>
+                                                        applyTemplateToBatch(
+                                                          ct.permissions,
+                                                          isEn ? ct.nameEn : ct.nameFa,
+                                                          ct.approvalRules
+                                                        )
+                                                      }
+                                                      className="flex-1 p-1.5 text-left rtl:text-right cursor-pointer flex items-center justify-between gap-2 min-w-0"
+                                                    >
+                                                      <span className="font-semibold truncate">
+                                                        {isEn ? ct.nameEn : ct.nameFa}
+                                                      </span>
+                                                      <span className="text-[9px] font-mono shrink-0 text-slate-400">
+                                                        {allowCount}✓{apprCount > 0 ? ` · ${apprCount}⏳` : ''}
+                                                      </span>
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={(e) =>
+                                                        handleDeleteCustomTemplate(ct.id, e)
+                                                      }
+                                                      className="p-1.5 text-slate-400 hover:text-rose-400 cursor-pointer shrink-0"
+                                                      title={isEn ? 'Delete template' : 'حذف الگو'}
+                                                    >
+                                                      <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                  </div>
+                                                );
+                                              })}
                                             </div>
                                           </>
                                         )}
@@ -6920,7 +7021,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                             onClick={() => setActivePresetMenuDevId(null)}
                                           />
                                           <div
-                                            className={`absolute right-0 rtl:right-auto rtl:left-0 top-full mt-1 w-64 rounded-xl border shadow-2xl p-2 z-50 animate-fadeIn ${
+                                            className={`absolute right-0 rtl:right-auto rtl:left-0 top-full mt-1 w-68 max-h-64 overflow-y-auto rounded-xl border shadow-2xl p-2 z-50 animate-fadeIn ${
                                               isLightMode
                                                 ? 'bg-white border-slate-200 text-slate-800'
                                                 : 'bg-slate-900 border-white/15 text-white'
@@ -6970,43 +7071,57 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                                 <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-0.5 border-t border-white/10 pt-1">
                                                   {isEn ? 'Custom Templates' : 'الگوهای سفارشی'}
                                                 </div>
-                                                <div className="space-y-1 max-h-32 overflow-y-auto">
-                                                  {customTemplates.map((ct) => (
-                                                    <div
-                                                      key={ct.id}
-                                                      className={`flex items-center justify-between p-1 rounded-lg text-[11px] transition ${
-                                                        isLightMode
-                                                          ? 'hover:bg-slate-100'
-                                                          : 'hover:bg-white/10'
-                                                      }`}
-                                                    >
-                                                      <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                          applyTemplateToDevice(
-                                                            dev.id,
-                                                            ct.permissions as any,
-                                                            isEn ? ct.nameEn : ct.nameFa
-                                                          )
-                                                        }
-                                                        className="flex-1 text-left rtl:text-right cursor-pointer"
+                                                <div className="space-y-1 max-h-36 overflow-y-auto">
+                                                  {customTemplates.map((ct) => {
+                                                    const allowCount = DEVICE_ACTIONS_CATALOG.filter((a) => {
+                                                      const k = a.key as NetworkDeviceActionKey;
+                                                      const r = ct.approvalRules?.[k];
+                                                      return r ? r === 'allow' : Boolean(ct.permissions?.[k]);
+                                                    }).length;
+                                                    const apprCount = DEVICE_ACTIONS_CATALOG.filter(
+                                                      (a) => ct.approvalRules?.[a.key as NetworkDeviceActionKey] === 'require_approval'
+                                                    ).length;
+                                                    return (
+                                                      <div
+                                                        key={ct.id}
+                                                        className={`flex items-center justify-between gap-1 rounded-lg text-[11px] transition ${
+                                                          isLightMode
+                                                            ? 'hover:bg-slate-100'
+                                                            : 'hover:bg-white/10'
+                                                        }`}
                                                       >
-                                                        <span className="font-semibold">
-                                                          {isEn ? ct.nameEn : ct.nameFa}
-                                                        </span>
-                                                      </button>
-                                                      <button
-                                                        type="button"
-                                                        onClick={(e) =>
-                                                          handleDeleteCustomTemplate(ct.id, e)
-                                                        }
-                                                        className="p-1 text-slate-400 hover:text-rose-400 cursor-pointer"
-                                                        title={isEn ? 'Delete' : 'حذف'}
-                                                      >
-                                                        <Trash2 className="w-3 h-3" />
-                                                      </button>
-                                                    </div>
-                                                  ))}
+                                                        <button
+                                                          type="button"
+                                                          onClick={() =>
+                                                            applyTemplateToDevice(
+                                                              dev.id,
+                                                              ct.permissions,
+                                                              isEn ? ct.nameEn : ct.nameFa,
+                                                              ct.approvalRules
+                                                            )
+                                                          }
+                                                          className="flex-1 p-1.5 text-left rtl:text-right cursor-pointer flex items-center justify-between gap-1.5 min-w-0"
+                                                        >
+                                                          <span className="font-semibold truncate">
+                                                            {isEn ? ct.nameEn : ct.nameFa}
+                                                          </span>
+                                                          <span className="text-[9px] font-mono shrink-0 text-slate-400">
+                                                            {allowCount}✓{apprCount > 0 ? `·${apprCount}⏳` : ''}
+                                                          </span>
+                                                        </button>
+                                                        <button
+                                                          type="button"
+                                                          onClick={(e) =>
+                                                            handleDeleteCustomTemplate(ct.id, e)
+                                                          }
+                                                          className="p-1 text-slate-400 hover:text-rose-400 cursor-pointer shrink-0"
+                                                          title={isEn ? 'Delete' : 'حذف'}
+                                                        >
+                                                          <Trash2 className="w-3 h-3" />
+                                                        </button>
+                                                      </div>
+                                                    );
+                                                  })}
                                                 </div>
                                               </>
                                             )}
@@ -7998,6 +8113,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                   type="text"
                   value={templateNameInput}
                   onChange={(e) => setTemplateNameInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && templateNameInput.trim()) {
+                      e.preventDefault();
+                      handleSaveCustomTemplate(saveTemplateDevId, templateNameInput);
+                    }
+                  }}
                   placeholder={
                     isEn
                       ? 'e.g., Access Switch Standard, Branch Gateway...'
