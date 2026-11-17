@@ -111,6 +111,7 @@ import {
   preflightActionApproval,
   registerApprovalGateHandler,
 } from './utils/approvalGateBridge';
+import { FooterTeamChatDock } from './components/comms/FooterTeamChatDock';
 
 export default function App() {
   const { t, isRtl, isEn, language, setLanguage } = useLanguage();
@@ -127,6 +128,7 @@ export default function App() {
   const [focusedCommsNotificationId, setFocusedCommsNotificationId] = useState<string | null>(null);
   const [focusedCommsViewMode, setFocusedCommsViewMode] = useState<'inbox' | 'channels' | 'tracker' | 'approvals' | null>(null);
   const [focusedApprovalId, setFocusedApprovalId] = useState<string | null>(null);
+  const [focusedCommsChannelId, setFocusedCommsChannelId] = useState<string | null>(null);
   const [approvalGateState, setApprovalGateState] = useState<{
     isOpen: boolean;
     payload: ApprovalGatePayload | null;
@@ -1623,9 +1625,11 @@ export default function App() {
               onConsumeInitialSelectedId={() => setFocusedCommsNotificationId(null)}
               initialViewMode={focusedCommsViewMode}
               initialApprovalId={focusedApprovalId}
+              initialChannelId={focusedCommsChannelId}
               onConsumeInitialApprovalView={() => {
                 setFocusedCommsViewMode(null);
                 setFocusedApprovalId(null);
+                setFocusedCommsChannelId(null);
               }}
             />
           )}
@@ -1826,6 +1830,24 @@ export default function App() {
                 isLightMode={isLightMode}
               />
             </div>
+
+            {/* LinkedIn-style Quick Team Chat & Channels Footer Trigger & Floating Dock */}
+            <FooterTeamChatDock
+              isEn={isEn}
+              isLightMode={isLightMode}
+              isRtl={isRtl}
+              liveRevision={commsLiveRevision}
+              onOpenInCenter={(channelId) => {
+                setFocusedCommsViewMode('channels');
+                setFocusedCommsChannelId(channelId || null);
+                setActiveTab('communications');
+              }}
+              onUnreadChanged={() => {
+                fetchUnreadCommsCounts(true)
+                  .then((res) => setUnreadCommsCount(res.unreadCount ?? 0))
+                  .catch(() => {});
+              }}
+            />
 
             <button
               onClick={() => setIsReleaseNotesOpen(true)}

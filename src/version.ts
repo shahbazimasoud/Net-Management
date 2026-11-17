@@ -10,9 +10,41 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.435.2';
+export const APP_VERSION = '1.436.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.436.0',
+    releaseDate: '2026-11-17',
+    type: 'minor',
+    title: 'افزودن دسترسی سریع چت و کانال‌های تیمی در نوار فوتر به سبک لینکدین',
+    title_en: 'Add LinkedIn-Style Quick Team Chat & Channels Dock in Bottom Footer',
+    changes: [
+      'افزودن دکمه چت تیمی در نوار فوتر پایین صفحه (در کنار دکمه ابزارها) به همراه نمایش شمارنده لحظه‌ای پیام‌های خوانده‌نشده.',
+      'طراحی پنل شناور لیست گفتگوهای مستقیم و کانال‌های تیمی با قابلیت جستجو، فیلتر (همه / مستقیم / کانال‌ها) و شروع سریع گفتگوی مستقیم جدید.',
+      'امکان باز کردن هم‌زمان پنجره‌های چت شناور با نام شخص یا کانال بر فراز فوتر به سبک لینکدین، ارسال و پاسخ زنده پیام‌ها، تغییر اندازه، کوچک‌سازی به تب جمع‌شده روی لبه فوتر و انتقال مستقیم به صفحه کامل چت تیمی.'
+    ],
+    changes_en: [
+      'Added a quick Team Chat button (`chat`) in the bottom footer bar beside the Tools button with live unread counter.',
+      'Added a LinkedIn-style floating Messaging Drawer displaying direct chats and team channels with search, All/Direct/Channels filters, and quick "+ New Direct Chat" user picker synced live via WebSocket.',
+      'Clicking any person or channel opens a dedicated floating chat box titled with that conversation above the footer (`bottom-8`), supporting live messaging, reply quotes, mute toggle, size toggle, collapse-to-footer-tab, and one-click expansion into Inbox & Notifications Center -> Team Chat & Channels.'
+    ]
+  },
+  {
+    version: '1.435.3',
+    releaseDate: '2026-11-16',
+    type: 'patch',
+    title: 'رفع خطای تشخیص کاذب باینری guacd و جلوگیری از خطای کاذب نبود پلاگین RDP در زمان راه‌اندازی سرور',
+    title_en: 'Fix False-Positive guacd Version Detection & Spurious RDP Plugin Missing Startup Error',
+    changes: [
+      'اصلاح تابع `verifyGuacdRdpPlugin` در `server/remoteDesktopGateway.ts` تا پیش از بررسی نسخه، وجود واقعی فایل اجرایی `guacd` بررسی شود و خروجی خطای شل (`sh: ... guacd: not found`) به‌اشتباه به‌عنوان نسخه معتبر `guacd` شناسایی نگردد.',
+      'اصلاح `ensureGuacdServiceRunning` برای تفکیک محیط‌های فاقد نصب `guacd` (ثبت هشدار استاندارد آماده به‌جای خطای کاذب `ERROR: RDP plugin (libguac-client-rdp.so) is MISSING!`).'
+    ],
+    changes_en: [
+      'Fixed `verifyGuacdRdpPlugin` in `server/remoteDesktopGateway.ts` to verify an executable `guacd` binary path first and reject shell `not found` error strings that previously matched `.includes("guacd")` as valid versions.',
+      'Updated `ensureGuacdServiceRunning` to check binary installation first and log a non-fatal standby warning when `guacd` is not installed in the host/container instead of emitting a false-positive `ERROR: RDP plugin (libguac-client-rdp.so) is MISSING!` log on boot.'
+    ]
+  },
   {
     version: '1.435.2',
     releaseDate: '2026-11-16',

@@ -82,6 +82,7 @@ interface CommunicationsCenterViewProps {
   onConsumeInitialSelectedId?: () => void;
   initialViewMode?: 'inbox' | 'channels' | 'tracker' | 'approvals' | null;
   initialApprovalId?: string | null;
+  initialChannelId?: string | null;
   onConsumeInitialApprovalView?: () => void;
 }
 
@@ -106,6 +107,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   onConsumeInitialSelectedId,
   initialViewMode = null,
   initialApprovalId = null,
+  initialChannelId = null,
   onConsumeInitialApprovalView,
 }) => {
   const { isEn, isRtl } = useLanguage();
@@ -271,14 +273,17 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   }, [initialSelectedId, onConsumeInitialSelectedId]);
 
   useEffect(() => {
-    if (initialViewMode || initialApprovalId) {
-      setViewMode(initialViewMode || 'approvals');
+    if (initialViewMode || initialApprovalId || initialChannelId) {
+      setViewMode(initialChannelId ? 'channels' : initialViewMode || 'approvals');
       if (initialApprovalId) {
         setFocusApprovalId(initialApprovalId);
       }
+      if (initialChannelId) {
+        setActiveChannelId(initialChannelId);
+      }
       onConsumeInitialApprovalView?.();
     }
-  }, [initialViewMode, initialApprovalId, onConsumeInitialApprovalView]);
+  }, [initialViewMode, initialApprovalId, initialChannelId, onConsumeInitialApprovalView]);
 
   useEffect(() => {
     loadNotifications(liveRevision > 0);
