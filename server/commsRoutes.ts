@@ -11,6 +11,7 @@ import {
   createOrOpenDirectChannel,
   deleteGroupChannel,
   dispatchCommunication,
+  executeChannelSlashCommand,
   getAnnouncementReceipts,
   getCommsRecipients,
   getUnreadNotificationCounts,
@@ -504,6 +505,53 @@ commsRouter.post('/comms/channels/:id/messages', async (req: Request, res: Respo
     const msg = String(err?.message || '');
     const status = msg.startsWith('ACCESS_DENIED') ? 403 : 400;
     return res.status(status).json({ success: false, error: msg || 'Failed to post message' });
+  }
+});
+
+// POST /api/comms/channels/:id/slash
+commsRouter.post('/comms/channels/:id/slash', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  if (!auth.isSuperAdmin && !auth.policy?.canSendCommunications && !auth.policy?.canSendAnnouncements) {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: Insufficient permissions to run ChatOps commands in team channels.',
+      errorFa: 'عدم دسترسی: سطح دسترسی شما برای ارسال پیام و اجرای دستورات ChatOps در کانال‌ها فقط-خواندنی است.',
+      code: 'ACCESS_DENIED',
+    });
+  }
+  try {
+    const message = await executeChannelSlashCommand(
+      auth.actor,
+      Boolean(auth.isSuperAdmin),
+      auth.clientIp,
+      req.params.id,
+      {
+        commandText: String(req.body?.commandText || ''),
+        priority: (req.body?.priority || 'info') as CommsSeverity,
+        replyToMessageId: req.body?.replyToMessageId || null,
+      }
+    );
+    return res.json({ success: true, message });
+  } catch (err: any) {
+    const rawMsg = String(err?.message || '');
+    const [enPart, faPart] = rawMsg.split('|');
+    const cleanEn = (enPart || rawMsg).replace(/^(ACCESS_DENIED|NOT_FOUND|BAD_COMMAND|UNSUPPORTED_COMMAND|INVALID_TARGET):\s*/i, '').trim();
+    const status = rawMsg.startsWith('ACCESS_DENIED')
+      ? 403
+      : rawMsg.startsWith('NOT_FOUND') || rawMsg.includes('not found')
+      ? 404
+      : rawMsg.startsWith('BAD_COMMAND') || rawMsg.startsWith('UNSUPPORTED_COMMAND') || rawMsg.startsWith('INVALID_TARGET')
+      ? 400
+      : 500;
+    return res.status(status).json({
+      success: false,
+      error: cleanEn || 'ChatOps command failed',
+      errorFa: (faPart || '').trim() || undefined,
+      code: rawMsg.startsWith('ACCESS_DENIED') ? 'ACCESS_DENIED' : undefined,
+    });
   }
 });
 

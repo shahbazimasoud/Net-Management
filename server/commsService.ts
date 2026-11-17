@@ -1,4 +1,7 @@
 import crypto from 'crypto';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import dns from 'dns';
 import {
   getPgPool,
   isPostgresConnected,
@@ -20,6 +23,7 @@ import {
   isDeviceActionPermitted,
   isServerActionPermitted,
 } from './db';
+import { searchMacOrIp } from './macIpTrackerService';
 import {
   CommsAnnouncementReadReceipt,
   CommsAnnouncementSummary,
@@ -36,8 +40,10 @@ import {
   CommsMessage,
   CommsNotificationItem,
   CommsProjectedEntityCard,
+  CommsProjectedSlashResult,
   CommsRecipientOption,
   CommsSeverity,
+  CommsSlashCommandName,
 } from '../src/types';
 import {
   broadcastCommsEventToRecipients,
@@ -46,6 +52,8 @@ import {
 } from './commsWs';
 import { evaluateNotificationDeliveryForUser } from './profileService';
 import { CommsEmailDispatchItem, sendCommsCategoryEmailBatch } from './emailService';
+
+const execFileAsync = promisify(execFile);
 
 interface PendingCommsEmailTarget {
   recipient: ResolvedRecipient;
@@ -2978,6 +2986,292 @@ export async function searchScopedEntityMentions(
   return candidates.slice(0, 25);
 }
 
+function sanitizeCleanMessageMetadata(meta: Record<string, any> | undefined): Record<string, any> | undefined {
+  if (!meta) return undefined;
+  if (!('slashCommandData' in meta)) return meta;
+  const copy = { ...meta };
+  delete copy.slashCommandData;
+  return copy;
+}
+
+function projectSlashResultForViewer(
+  rawSlashData: any,
+  ctx: CommsViewerAccessContext,
+  devicesById: Map<string, any>,
+  serversById: Map<string, any>
+): CommsProjectedSlashResult | undefined {
+  if (!rawSlashData || typeof rawSlashData !== 'object') return undefined;
+  const cmd = rawSlashData.command as CommsSlashCommandName;
+  if (!cmd) return undefined;
+
+  const base = {
+    command: cmd,
+    rawCommand: String(rawSlashData.rawCommand || ''),
+    target: String(rawSlashData.target || ''),
+    executedAt: String(rawSlashData.executedAt || new Date().toISOString()),
+    durationMs: typeof rawSlashData.durationMs === 'number' ? rawSlashData.durationMs : undefined,
+    success: Boolean(rawSlashData.success),
+  };
+
+  if (cmd === 'dns') {
+    return {
+      ...base,
+      dnsRecordType: rawSlashData.dnsRecordType,
+      ipv4Addresses: Array.isArray(rawSlashData.ipv4Addresses) ? rawSlashData.ipv4Addresses : [],
+      ipv6Addresses: Array.isArray(rawSlashData.ipv6Addresses) ? rawSlashData.ipv6Addresses : [],
+      mxRecords: Array.isArray(rawSlashData.mxRecords) ? rawSlashData.mxRecords : [],
+      ptrHostnames: Array.isArray(rawSlashData.ptrHostnames) ? rawSlashData.ptrHostnames : [],
+      txtRecords: Array.isArray(rawSlashData.txtRecords) ? rawSlashData.txtRecords : [],
+    };
+  }
+
+  if (cmd === 'mac') {
+    const canDevices = ctx.isSuperAdmin || ctx.policy?.canViewDevices !== false;
+    if (!canDevices) {
+      return {
+        ...base,
+        target: '[Protected]',
+        accessRestricted: true,
+        restrictionReasonCode: 'module_disabled',
+        restrictionMessageFa:
+          'عدم دسترسی RBAC: ماژول تجهیزات شبکه برای مشاهده نتایج /mac در پالیسی شما غیرفعال است.',
+        restrictionMessageEn:
+          'Access Restricted (RBAC): Network Devices module is disabled in your policy.',
+      };
+    }
+
+    const canPorts = ctx.isSuperAdmin || ctx.policy?.canViewPorts !== false;
+    const rawCamHits: any[] = Array.isArray(rawSlashData.camHits) ? rawSlashData.camHits : [];
+    const rawArpHits: any[] = Array.isArray(rawSlashData.arpHits) ? rawSlashData.arpHits : [];
+
+    const permittedCamHits = rawCamHits.filter((h) => {
+      const sid = String(h?.switchId || '').trim();
+      if (!sid) return false;
+      const devGate = isDeviceVisibleInViewerCtx(sid, ctx);
+      if (!devGate.allowed) return false;
+      if (!canPorts) return false;
+      return ctx.isSuperAdmin || !ctx.policy || isDeviceActionPermitted(ctx.policy, sid, 'inspect_ports');
+    });
+
+    const permittedArpHits = rawArpHits.filter((h) => {
+      const sid = String(h?.switchId || '').trim();
+      if (!sid) return false;
+      return isDeviceVisibleInViewerCtx(sid, ctx).allowed;
+    });
+
+    const totalMatched = Math.max(
+      Number(rawSlashData.totalSwitchesMatched || 0),
+      new Set([
+        ...rawCamHits.map((h) => String(h?.switchId || '').toLowerCase()),
+        ...rawArpHits.map((h) => String(h?.switchId || '').toLowerCase()),
+      ]).size
+    );
+    const visibleSwitchIds = new Set([
+      ...permittedCamHits.map((h) => String(h.switchId).toLowerCase()),
+      ...permittedArpHits.map((h) => String(h.switchId).toLowerCase()),
+    ]);
+    const restrictedSwitchCount = Math.max(0, totalMatched - visibleSwitchIds.size);
+
+    let visibleFinalEdge: CommsProjectedSlashResult['finalEdgePort'] = null;
+    if (rawSlashData.finalEdgePort?.switchId) {
+      const esid = String(rawSlashData.finalEdgePort.switchId);
+      const edgeVisible =
+        isDeviceVisibleInViewerCtx(esid, ctx).allowed &&
+        canPorts &&
+        (ctx.isSuperAdmin || !ctx.policy || isDeviceActionPermitted(ctx.policy, esid, 'inspect_ports'));
+      if (edgeVisible) {
+        visibleFinalEdge = rawSlashData.finalEdgePort;
+      }
+    }
+
+    const edgeCanPorts = visibleFinalEdge
+      ? ctx.isSuperAdmin ||
+        (canPorts && (!ctx.policy || isDeviceActionPermitted(ctx.policy, visibleFinalEdge.switchId, 'inspect_ports')))
+      : false;
+    const edgeCanTerminal = visibleFinalEdge
+      ? ctx.isSuperAdmin || !ctx.policy || isDeviceActionPermitted(ctx.policy, visibleFinalEdge.switchId, 'terminal')
+      : false;
+
+    return {
+      ...base,
+      queryType: rawSlashData.queryType,
+      resolvedIp: rawSlashData.resolvedIp || null,
+      resolvedMac: rawSlashData.resolvedMac || null,
+      vendorName: rawSlashData.vendorName || null,
+      finalEdgePort: visibleFinalEdge,
+      camHits: permittedCamHits.slice(0, 10),
+      arpHits: permittedArpHits.slice(0, 10),
+      restrictedSwitchCount,
+      totalSwitchesMatched: totalMatched,
+      portsRestricted: !canPorts && rawCamHits.length > 0,
+      portsRestrictionMessageFa:
+        !canPorts && rawCamHits.length > 0
+          ? 'جزئیات پورت سوئیچ‌ها طبق مجوز RBAC (canViewPorts) برای شما محدود شده است.'
+          : undefined,
+      portsRestrictionMessageEn:
+        !canPorts && rawCamHits.length > 0
+          ? 'Switch port hits are hidden per your RBAC port inspection permission.'
+          : undefined,
+      linkedEntityType: visibleFinalEdge ? 'port' : undefined,
+      linkedEntityId: visibleFinalEdge?.switchId,
+      portId: visibleFinalEdge?.port || null,
+      canOpenPorts: edgeCanPorts,
+      canOpenTerminal: edgeCanTerminal,
+      canOpenDeviceView: Boolean(visibleFinalEdge),
+    };
+  }
+
+  // /ping, /status, /port
+  const linkedType = rawSlashData.linkedEntityType as 'device' | 'server' | undefined;
+  const linkedId = rawSlashData.linkedEntityId ? String(rawSlashData.linkedEntityId) : '';
+
+  if (linkedType === 'server' && linkedId) {
+    const gate = isServerVisibleInViewerCtx(linkedId, ctx);
+    if (!gate.allowed) {
+      return {
+        ...base,
+        target: '[Protected Server]',
+        rawCommand: `/${cmd} [Protected]`,
+        accessRestricted: true,
+        restrictionReasonCode: gate.reasonCode,
+        restrictionMessageFa:
+          gate.reasonCode === 'module_disabled'
+            ? 'عدم دسترسی RBAC: ماژول سرورهای ریموت در پالیسی کاربری شما غیرفعال است.'
+            : 'عدم دسترسی RBAC: خروجی این دستور مربوط به سروری خارج از محدوده دسترسی مجاز شما است.',
+        restrictionMessageEn:
+          gate.reasonCode === 'module_disabled'
+            ? 'Access Restricted (RBAC): Remote Servers module is disabled in your policy.'
+            : 'Access Denied (RBAC): Command output belongs to a server outside your authorized scope.',
+      };
+    }
+
+    const srv = serversById.get(linkedId.trim().toLowerCase());
+    const canTerminal =
+      ctx.isSuperAdmin || !ctx.policy || isServerActionPermitted(ctx.policy, linkedId, 'terminal');
+
+    return {
+      ...base,
+      linkedEntityType: 'server',
+      linkedEntityId: linkedId,
+      entityName: srv?.name || rawSlashData.entityName || linkedId,
+      entityIp: srv?.host || rawSlashData.entityIp || '',
+      osType: srv?.os_type || rawSlashData.osType || 'linux',
+      platform: srv?.distro || srv?.os_type || rawSlashData.platform || 'linux',
+      location: srv?.location || srv?.category || rawSlashData.location || undefined,
+      isOnline: Boolean(rawSlashData.isOnline),
+      latencyMs: rawSlashData.latencyMs ?? null,
+      packetLoss: rawSlashData.packetLoss,
+      rawOutput: rawSlashData.rawOutput,
+      canOpenTerminal: canTerminal,
+      canOpenDeviceView: true,
+    };
+  }
+
+  if (linkedType === 'device' && linkedId) {
+    const gate = isDeviceVisibleInViewerCtx(linkedId, ctx);
+    if (!gate.allowed) {
+      return {
+        ...base,
+        target: '[Protected Device]',
+        rawCommand: `/${cmd} [Protected]`,
+        accessRestricted: true,
+        restrictionReasonCode: gate.reasonCode,
+        restrictionMessageFa:
+          gate.reasonCode === 'module_disabled'
+            ? 'عدم دسترسی RBAC: ماژول تجهیزات شبکه در پالیسی کاربری شما غیرفعال است.'
+            : 'عدم دسترسی RBAC: خروجی این دستور مربوط به تجهیزی خارج از محدوده دسترسی مجاز شما است.',
+        restrictionMessageEn:
+          gate.reasonCode === 'module_disabled'
+            ? 'Access Restricted (RBAC): Network Devices module is disabled in your policy.'
+            : 'Access Denied (RBAC): Command output belongs to a device outside your authorized scope.',
+      };
+    }
+
+    const dev = devicesById.get(linkedId.trim().toLowerCase());
+    const canInspectPorts =
+      ctx.isSuperAdmin ||
+      (ctx.policy?.canViewPorts !== false &&
+        (!ctx.policy || isDeviceActionPermitted(ctx.policy, linkedId, 'inspect_ports')));
+    const canTerminal =
+      ctx.isSuperAdmin || !ctx.policy || isDeviceActionPermitted(ctx.policy, linkedId, 'terminal');
+
+    if (cmd === 'port') {
+      if (!canInspectPorts) {
+        return {
+          ...base,
+          linkedEntityType: 'port',
+          linkedEntityId: linkedId,
+          portId: rawSlashData.portId || null,
+          entityName: dev?.name || rawSlashData.entityName || linkedId,
+          entityIp: dev?.ip || dev?.ssh_host || rawSlashData.entityIp || '',
+          platform: dev?.platform || dev?.type || rawSlashData.platform || 'switch',
+          portsRestricted: true,
+          restrictionReasonCode: 'ports_restricted',
+          portsRestrictionMessageFa:
+            'عدم دسترسی RBAC: شما مجوز مشاهده جزئیات پورت‌های این تجهیز (inspect_ports) را ندارید.',
+          portsRestrictionMessageEn:
+            'Port Details Restricted (RBAC): You lack inspect_ports permission for this device.',
+          canOpenPorts: false,
+          canOpenTerminal: canTerminal,
+          canOpenDeviceView: true,
+        };
+      }
+
+      return {
+        ...base,
+        linkedEntityType: 'port',
+        linkedEntityId: linkedId,
+        portId: rawSlashData.portId || null,
+        entityName: dev?.name || rawSlashData.entityName || linkedId,
+        entityIp: dev?.ip || dev?.ssh_host || rawSlashData.entityIp || '',
+        platform: dev?.platform || dev?.type || rawSlashData.platform || 'switch',
+        portStatus: rawSlashData.portStatus,
+        portAdminStatus: rawSlashData.portAdminStatus,
+        portMode: rawSlashData.portMode,
+        portVlan: rawSlashData.portVlan,
+        portSpeed: rawSlashData.portSpeed,
+        portDescription: rawSlashData.portDescription,
+        connectedDevice: rawSlashData.connectedDevice,
+        lastSynced: rawSlashData.lastSynced,
+        canOpenPorts: canInspectPorts,
+        canOpenTerminal: canTerminal,
+        canOpenDeviceView: true,
+      };
+    }
+
+    return {
+      ...base,
+      linkedEntityType: 'device',
+      linkedEntityId: linkedId,
+      entityName: dev?.name || rawSlashData.entityName || linkedId,
+      entityIp: dev?.ip || dev?.ssh_host || rawSlashData.entityIp || '',
+      platform: dev?.platform || dev?.type || rawSlashData.platform || 'switch',
+      location:
+        dev?.location ||
+        [dev?.building, dev?.floor, dev?.rack].filter(Boolean).join(' / ') ||
+        rawSlashData.location ||
+        undefined,
+      isOnline: Boolean(rawSlashData.isOnline),
+      latencyMs: rawSlashData.latencyMs ?? null,
+      packetLoss: rawSlashData.packetLoss,
+      rawOutput: rawSlashData.rawOutput,
+      canOpenPorts: canInspectPorts,
+      canOpenTerminal: canTerminal,
+      canOpenDeviceView: true,
+    };
+  }
+
+  // Unlinked external host / IP /ping
+  return {
+    ...base,
+    entityIp: rawSlashData.entityIp,
+    isOnline: Boolean(rawSlashData.isOnline),
+    latencyMs: rawSlashData.latencyMs ?? null,
+    packetLoss: rawSlashData.packetLoss,
+    rawOutput: rawSlashData.rawOutput,
+  };
+}
+
 export async function listChannelMessages(
   user: CommsActor,
   isSuperAdmin: boolean,
@@ -3088,12 +3382,17 @@ export async function listChannelMessages(
   }
   const messages = rawMessages.map((r) => mapMessageRow(r, lookupMap));
 
-  // Project any attached entity mentions strictly through the viewer's RBAC policy (Zero-Leak)
-  const needsDeviceLookup = messages.some((m) =>
-    extractMessageEntityRefs(m).some((ref) => ref.entityType === 'device' || ref.entityType === 'port')
+  // Project entity mentions & ChatOps slash results strictly through the viewer's RBAC policy (Zero-Leak)
+  const needsDeviceLookup = messages.some(
+    (m) =>
+      extractMessageEntityRefs(m).some(
+        (ref) => ref.entityType === 'device' || ref.entityType === 'port'
+      ) || Boolean(m.metadata?.slashCommandData)
   );
-  const needsServerLookup = messages.some((m) =>
-    extractMessageEntityRefs(m).some((ref) => ref.entityType === 'server')
+  const needsServerLookup = messages.some(
+    (m) =>
+      extractMessageEntityRefs(m).some((ref) => ref.entityType === 'server') ||
+      Boolean(m.metadata?.slashCommandData)
   );
   if (needsDeviceLookup || needsServerLookup) {
     const [viewerCtx, allDevices, allServers] = await Promise.all([
@@ -3102,19 +3401,40 @@ export async function listChannelMessages(
       needsServerLookup ? getAllRemoteServers().catch(() => []) : Promise.resolve([]),
     ]);
     const devicesById = new Map<string, any>(
-      (allDevices || []).filter((d: any) => d?.id).map((d: any) => [String(d.id).trim().toLowerCase(), d])
+      (allDevices || [])
+        .filter((d: any) => d?.id)
+        .map((d: any) => [String(d.id).trim().toLowerCase(), d])
     );
     const serversById = new Map<string, any>(
-      (allServers || []).filter((s: any) => s?.id).map((s: any) => [String(s.id).trim().toLowerCase(), s])
+      (allServers || [])
+        .filter((s: any) => s?.id)
+        .map((s: any) => [String(s.id).trim().toLowerCase(), s])
     );
     for (const m of messages) {
       const refs = extractMessageEntityRefs(m);
       if (refs.length > 0) {
         const cards = buildProjectedCardsForViewer(refs, viewerCtx, devicesById, serversById);
         m.entityCards = cards;
-        if (cards[0]?.accessRestricted) {
+        if (cards.some((c) => c.accessRestricted)) {
           m.linkedEntityName = null;
         }
+      }
+      if (m.metadata?.slashCommandData) {
+        const projectedSlash = projectSlashResultForViewer(
+          m.metadata.slashCommandData,
+          viewerCtx,
+          devicesById,
+          serversById
+        );
+        if (projectedSlash) {
+          m.slashResult = projectedSlash;
+          if (projectedSlash.accessRestricted) {
+            m.linkedEntityName = null;
+            m.body = '🔒 خروجی دستور ChatOps (دسترسی به تجهیز/سرور محدود شده است)';
+            m.bodyEn = '🔒 ChatOps output (Entity access restricted by RBAC)';
+          }
+        }
+        m.metadata = sanitizeCleanMessageMetadata(m.metadata);
       }
     }
   }
@@ -4228,4 +4548,798 @@ export async function getAnnouncementReceipts(
     },
     recipients,
   };
+}
+
+// ==============================================================================
+// Phase 2: RBAC-Enforced ChatOps Slash Commands Engine
+// ==============================================================================
+
+async function executeIcmpPingProbe(
+  targetHost: string,
+  count = 3,
+  timeoutSec = 1
+): Promise<{
+  is_online: boolean;
+  latency_ms: number | null;
+  packet_loss: number;
+  raw_output: string;
+}> {
+  const cleanHost = String(targetHost || '').trim();
+  if (!cleanHost || !/^[a-zA-Z0-9.:_-]{1,253}$/.test(cleanHost) || cleanHost.startsWith('-')) {
+    throw new Error('INVALID_TARGET: Invalid IP address or hostname format for /ping.');
+  }
+  const start = Date.now();
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      'ping',
+      ['-c', String(count), '-W', String(timeoutSec), cleanHost],
+      { timeout: (count * timeoutSec + 3) * 1000 }
+    );
+    const raw = (stdout || stderr || '').trim();
+    const elapsed = Date.now() - start;
+    const lossMatch = raw.match(/([0-9]+(?:\.[0-9]+)?)\%\s*packet\s*loss/i);
+    const lossPct = lossMatch ? parseFloat(lossMatch[1]) : 100;
+    const rttMatch = raw.match(/rtt\s+min\/avg\/max\/mdev\s*=\s*([0-9\.]+)\/([0-9\.]+)\/([0-9\.]+)/i);
+    const avgLatency = rttMatch ? parseFloat(rttMatch[2]) : elapsed;
+    return {
+      is_online: lossPct < 100,
+      latency_ms: lossPct < 100 ? Math.round(avgLatency * 10) / 10 : null,
+      packet_loss: lossPct,
+      raw_output: raw,
+    };
+  } catch (err: any) {
+    const raw = (err?.stdout || err?.stderr || err?.message || '').toString().trim();
+    const lossMatch = raw.match(/([0-9]+(?:\.[0-9]+)?)\%\s*packet\s*loss/i);
+    const lossPct = lossMatch ? parseFloat(lossMatch[1]) : 100;
+    return {
+      is_online: false,
+      latency_ms: null,
+      packet_loss: lossPct,
+      raw_output: raw || 'Host unreachable / Request timed out',
+    };
+  }
+}
+
+function normalizeInterfaceLookupToken(raw: string): string {
+  const s = (raw || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!s) return '';
+  return s
+    .replace(/^tengigabitethernet/, 'te')
+    .replace(/^gigabitethernet/, 'gi')
+    .replace(/^fastethernet/, 'fa')
+    .replace(/^ethernet/, 'eth')
+    .replace(/^twentyfivegige/, 'twe')
+    .replace(/^fortygigabitethernet/, 'fo')
+    .replace(/^port-channel/, 'po');
+}
+
+function resolveInventoryTargetByQuery(
+  queryToken: string,
+  allDevices: any[],
+  allServers: any[]
+): { kind: 'device' | 'server'; record: any } | null {
+  const q = (queryToken || '').trim().toLowerCase();
+  if (!q) return null;
+
+  const devExact = allDevices.find(
+    (d) =>
+      String(d?.id || '').toLowerCase() === q ||
+      String(d?.name || '').toLowerCase() === q ||
+      String(d?.ip || '').toLowerCase() === q ||
+      String(d?.ssh_host || '').toLowerCase() === q
+  );
+  if (devExact) return { kind: 'device', record: devExact };
+
+  const srvExact = allServers.find(
+    (s) =>
+      String(s?.id || '').toLowerCase() === q ||
+      String(s?.name || '').toLowerCase() === q ||
+      String(s?.host || '').toLowerCase() === q
+  );
+  if (srvExact) return { kind: 'server', record: srvExact };
+
+  const devPartial = allDevices.filter((d) =>
+    String(d?.name || '').toLowerCase().includes(q)
+  );
+  const srvPartial = allServers.filter((s) =>
+    String(s?.name || '').toLowerCase().includes(q)
+  );
+  if (devPartial.length === 1 && srvPartial.length === 0) {
+    return { kind: 'device', record: devPartial[0] };
+  }
+  if (srvPartial.length === 1 && devPartial.length === 0) {
+    return { kind: 'server', record: srvPartial[0] };
+  }
+  return null;
+}
+
+export async function executeChannelSlashCommand(
+  senderUser: CommsActor,
+  isSuperAdmin: boolean,
+  senderIp: string,
+  channelId: string,
+  payload: {
+    commandText: string;
+    priority?: CommsSeverity;
+    replyToMessageId?: string | null;
+  }
+): Promise<CommsMessage> {
+  const rawCommand = (payload.commandText || '').trim();
+  if (!rawCommand.startsWith('/')) {
+    throw new Error('BAD_COMMAND: Slash command must start with / (e.g. /ping, /mac, /port, /status, /dns).');
+  }
+
+  const tokens = rawCommand.split(/\s+/).filter(Boolean);
+  const cmdRaw = (tokens[0] || '').slice(1).toLowerCase();
+  const cmdNormalized: CommsSlashCommandName | null =
+    cmdRaw === 'ping'
+      ? 'ping'
+      : cmdRaw === 'mac'
+      ? 'mac'
+      : cmdRaw === 'port'
+      ? 'port'
+      : cmdRaw === 'status' || cmdRaw === 'uptime'
+      ? 'status'
+      : cmdRaw === 'dns'
+      ? 'dns'
+      : null;
+
+  if (!cmdNormalized) {
+    throw new Error(
+      `UNSUPPORTED_COMMAND: Unknown command "/${cmdRaw}". Supported: /ping, /mac, /port, /status, /dns`
+    );
+  }
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+
+  const [channel, parentRowPg, senderCtx, allDevices, allServers] = await Promise.all([
+    loadHydratedChannelForUser(channelId, senderUser),
+    payload.replyToMessageId && isPostgresConnected() && pool
+      ? pool
+          .query(`SELECT * FROM comms_messages WHERE id = $1`, [payload.replyToMessageId])
+          .then((r) => r.rows[0] || null)
+          .catch(() => null)
+      : Promise.resolve(null),
+    resolveCommsViewerAccessContext(senderUser, isSuperAdmin),
+    getAllDevices().catch(() => []),
+    getAllRemoteServers().catch(() => []),
+  ]);
+
+  if (!channel) {
+    throw new Error('Channel not found.');
+  }
+  const senderIds = new Set(resolveUserIdentifiers(senderUser));
+  const members = channel.members || [];
+  if (!members.some((m) => memberMatchesIdentifiers(m, senderIds))) {
+    throw new Error('ACCESS_DENIED: You are not a member of this channel.');
+  }
+
+  const devicesById = new Map<string, any>(
+    (allDevices || [])
+      .filter((d: any) => d?.id)
+      .map((d: any) => [String(d.id).trim().toLowerCase(), d])
+  );
+  const serversById = new Map<string, any>(
+    (allServers || [])
+      .filter((s: any) => s?.id)
+      .map((s: any) => [String(s.id).trim().toLowerCase(), s])
+  );
+
+  const startedAt = Date.now();
+  const executedAt = new Date().toISOString();
+  let slashCommandData: any = null;
+  let body = '';
+  let bodyEn = '';
+  let linkedEntityType: string | null = null;
+  let linkedEntityId: string | null = null;
+  let linkedEntityName: string | null = null;
+
+  if (cmdNormalized === 'ping' || cmdNormalized === 'status') {
+    const targetArg = tokens.slice(1).join(' ').trim();
+    if (!targetArg) {
+      throw new Error(
+        `BAD_COMMAND: Usage: /${cmdNormalized} <device-name | server-name${
+          cmdNormalized === 'ping' ? ' | ip | host' : ''
+        }>`
+      );
+    }
+
+    const matched = resolveInventoryTargetByQuery(targetArg, allDevices, allServers);
+    if (cmdNormalized === 'status' && !matched) {
+      throw new Error(
+        `NOT_FOUND: No matching network device or server found for "${targetArg}".`
+      );
+    }
+
+    if (matched?.kind === 'device') {
+      const dev = matched.record;
+      const gate = isDeviceVisibleInViewerCtx(dev.id, senderCtx);
+      if (!gate.allowed) {
+        throw new Error(
+          gate.reasonCode === 'module_disabled'
+            ? 'ACCESS_DENIED: Network Devices module is disabled in your RBAC policy.|عدم دسترسی RBAC: ماژول تجهیزات شبکه در پالیسی کاربری شما غیرفعال است.'
+            : 'ACCESS_DENIED: You do not have RBAC access to this device.|عدم دسترسی RBAC: این تجهیز خارج از محدوده دسترسی مجاز شما قرار دارد.'
+        );
+      }
+      if (
+        !senderCtx.isSuperAdmin &&
+        senderCtx.policy &&
+        !isDeviceActionPermitted(senderCtx.policy, dev.id, 'ping_keepalive')
+      ) {
+        throw new Error(
+          `ACCESS_DENIED: Your RBAC policy denies "ping_keepalive" on "${dev.name || dev.id}".|عدم دسترسی RBAC: مجوز تست پینگ (ping_keepalive) برای تجهیز «${dev.name || dev.id}» در پالیسی شما مجاز نیست.`
+        );
+      }
+
+      const probeIp = String(dev.ip || dev.ssh_host || '').trim();
+      const probe = await executeIcmpPingProbe(probeIp, cmdNormalized === 'ping' ? 3 : 2, 1);
+      const devLoc =
+        dev.location ||
+        [dev.building, dev.floor, dev.rack].filter(Boolean).join(' / ') ||
+        undefined;
+
+      linkedEntityType = 'device';
+      linkedEntityId = dev.id;
+      slashCommandData = {
+        command: cmdNormalized,
+        rawCommand,
+        target: dev.name || probeIp,
+        executedAt,
+        durationMs: Date.now() - startedAt,
+        success: true,
+        linkedEntityType: 'device',
+        linkedEntityId: dev.id,
+        entityName: dev.name || dev.id,
+        entityIp: probeIp,
+        platform: dev.platform || dev.type || 'switch',
+        location: devLoc,
+        isOnline: probe.is_online,
+        latencyMs: probe.latency_ms,
+        packetLoss: probe.packet_loss,
+        rawOutput: probe.raw_output,
+      };
+      body = `📡 /${cmdNormalized} ${dev.name || probeIp} — ${
+        probe.is_online
+          ? `آنلاین (${probe.latency_ms ?? '-'}ms، افت بسته ${probe.packet_loss}%)`
+          : `آفلاین / عدم پاسخ (افت بسته ${probe.packet_loss}%)`
+      }`;
+      bodyEn = `📡 /${cmdNormalized} ${dev.name || probeIp} — ${
+        probe.is_online
+          ? `Online (${probe.latency_ms ?? '-'}ms, ${probe.packet_loss}% loss)`
+          : `Unreachable (${probe.packet_loss}% loss)`
+      }`;
+    } else if (matched?.kind === 'server') {
+      const srv = matched.record;
+      const gate = isServerVisibleInViewerCtx(srv.id, senderCtx);
+      if (!gate.allowed) {
+        throw new Error(
+          gate.reasonCode === 'module_disabled'
+            ? 'ACCESS_DENIED: Remote Servers module is disabled in your RBAC policy.|عدم دسترسی RBAC: ماژول سرورهای ریموت در پالیسی شما غیرفعال است.'
+            : 'ACCESS_DENIED: You do not have RBAC access to this server.|عدم دسترسی RBAC: این سرور خارج از محدوده سرورهای مجاز شما قرار دارد.'
+        );
+      }
+      const probeHost = String(srv.host || '').trim();
+      const probe = await executeIcmpPingProbe(probeHost, cmdNormalized === 'ping' ? 3 : 2, 1);
+
+      linkedEntityType = 'server';
+      linkedEntityId = srv.id;
+      slashCommandData = {
+        command: cmdNormalized,
+        rawCommand,
+        target: srv.name || probeHost,
+        executedAt,
+        durationMs: Date.now() - startedAt,
+        success: true,
+        linkedEntityType: 'server',
+        linkedEntityId: srv.id,
+        entityName: srv.name || srv.id,
+        entityIp: probeHost,
+        osType: srv.os_type || 'linux',
+        platform: srv.distro || srv.os_type || 'linux',
+        location: srv.location || srv.category || undefined,
+        isOnline: probe.is_online,
+        latencyMs: probe.latency_ms,
+        packetLoss: probe.packet_loss,
+        rawOutput: probe.raw_output,
+      };
+      body = `🖥️ /${cmdNormalized} ${srv.name || probeHost} — ${
+        probe.is_online
+          ? `آنلاین (${probe.latency_ms ?? '-'}ms، افت بسته ${probe.packet_loss}%)`
+          : `آفلاین / عدم پاسخ (افت بسته ${probe.packet_loss}%)`
+      }`;
+      bodyEn = `🖥️ /${cmdNormalized} ${srv.name || probeHost} — ${
+        probe.is_online
+          ? `Online (${probe.latency_ms ?? '-'}ms, ${probe.packet_loss}% loss)`
+          : `Unreachable (${probe.packet_loss}% loss)`
+      }`;
+    } else {
+      // General IP or hostname (/ping only)
+      const probe = await executeIcmpPingProbe(targetArg, 3, 1);
+      slashCommandData = {
+        command: 'ping',
+        rawCommand,
+        target: targetArg,
+        executedAt,
+        durationMs: Date.now() - startedAt,
+        success: true,
+        entityIp: targetArg,
+        isOnline: probe.is_online,
+        latencyMs: probe.latency_ms,
+        packetLoss: probe.packet_loss,
+        rawOutput: probe.raw_output,
+      };
+      body = `📡 /ping ${targetArg} — ${
+        probe.is_online
+          ? `در دسترس (${probe.latency_ms ?? '-'}ms، افت بسته ${probe.packet_loss}%)`
+          : `غیرقابل دسترس (افت بسته ${probe.packet_loss}%)`
+      }`;
+      bodyEn = `📡 /ping ${targetArg} — ${
+        probe.is_online
+          ? `Reachable (${probe.latency_ms ?? '-'}ms, ${probe.packet_loss}% loss)`
+          : `Unreachable (${probe.packet_loss}% loss)`
+      }`;
+    }
+  } else if (cmdNormalized === 'port') {
+    let devArg = tokens[1] || '';
+    let portArg = tokens.slice(2).join(' ').trim();
+    if (!portArg && devArg.includes(':')) {
+      const colonIdx = devArg.lastIndexOf(':');
+      portArg = devArg.slice(colonIdx + 1).trim();
+      devArg = devArg.slice(0, colonIdx).trim();
+    }
+    if (!devArg || !portArg) {
+      throw new Error('BAD_COMMAND: Usage: /port <device-name-or-ip> <port-name>');
+    }
+
+    let matched = resolveInventoryTargetByQuery(devArg, allDevices, []);
+    if (!matched && tokens.length > 3) {
+      const multiDevArg = tokens.slice(1, -1).join(' ').trim();
+      const lastPortArg = (tokens[tokens.length - 1] || '').trim();
+      const multiMatched = resolveInventoryTargetByQuery(multiDevArg, allDevices, []);
+      if (multiMatched && lastPortArg) {
+        matched = multiMatched;
+        devArg = multiDevArg;
+        portArg = lastPortArg;
+      }
+    }
+    if (!matched || matched.kind !== 'device') {
+      throw new Error(`NOT_FOUND: Network device "${devArg}" was not found.`);
+    }
+    const dev = matched.record;
+    const gate = isDeviceVisibleInViewerCtx(dev.id, senderCtx);
+    if (!gate.allowed) {
+      throw new Error(
+        gate.reasonCode === 'module_disabled'
+          ? 'ACCESS_DENIED: Network Devices module is disabled in your RBAC policy.|عدم دسترسی RBAC: ماژول تجهیزات شبکه در پالیسی شما غیرفعال است.'
+          : 'ACCESS_DENIED: You do not have RBAC access to this device.|عدم دسترسی RBAC: این تجهیز خارج از محدوده دسترسی مجاز شما قرار دارد.'
+      );
+    }
+
+    const canInspectPorts =
+      senderCtx.isSuperAdmin ||
+      (senderCtx.policy?.canViewPorts !== false &&
+        (!senderCtx.policy || isDeviceActionPermitted(senderCtx.policy, dev.id, 'inspect_ports')));
+    if (!canInspectPorts) {
+      throw new Error(
+        `ACCESS_DENIED: Your RBAC policy denies "inspect_ports" on "${dev.name || dev.id}".|عدم دسترسی RBAC: مجوز مشاهده وضعیت پورت‌ها برای تجهیز «${dev.name || dev.id}» در پالیسی شما فعال نیست.`
+      );
+    }
+
+    const portsArr: any[] = Array.isArray(dev.ports) ? dev.ports : [];
+    const targetLower = portArg.toLowerCase();
+    const targetNorm = normalizeInterfaceLookupToken(portArg);
+    const foundPort = portsArr.find((p: any) => {
+      const pName = String(p?.port_id || p?.port || p?.name || '').trim();
+      if (!pName) return false;
+      const pLower = pName.toLowerCase();
+      const pNorm = normalizeInterfaceLookupToken(pName);
+      return (
+        pLower === targetLower ||
+        pNorm === targetNorm ||
+        (targetNorm.length >= 2 && (pNorm.endsWith(targetNorm) || pLower.endsWith(`/${targetLower}`)))
+      );
+    });
+
+    if (!foundPort) {
+      throw new Error(
+        `NOT_FOUND: Port "${portArg}" was not found in synced inventory of "${dev.name || dev.id}" (${portsArr.length} ports cached).|پورت «${portArg}» در اطلاعات همگام‌سازی‌شده تجهیز «${dev.name || dev.id}» (${portsArr.length} پورت) یافت نشد.`
+      );
+    }
+
+    const resolvedPortId = String(foundPort.port_id || foundPort.port || foundPort.name).trim();
+    linkedEntityType = 'port';
+    linkedEntityId = dev.id;
+    slashCommandData = {
+      command: 'port',
+      rawCommand,
+      target: `${dev.name || dev.id} · ${resolvedPortId}`,
+      executedAt,
+      durationMs: Date.now() - startedAt,
+      success: true,
+      linkedEntityType: 'device',
+      linkedEntityId: dev.id,
+      portId: resolvedPortId,
+      entityName: dev.name || dev.id,
+      entityIp: dev.ip || dev.ssh_host || '',
+      platform: dev.platform || dev.type || 'switch',
+      portStatus: foundPort.status || 'down',
+      portAdminStatus: foundPort.admin_status || 'enabled',
+      portMode: foundPort.mode || 'access',
+      portVlan: foundPort.vlan,
+      portSpeed: foundPort.speed || undefined,
+      portDescription: foundPort.description || undefined,
+      connectedDevice: foundPort.connected_device || undefined,
+      lastSynced: foundPort.last_synced || dev.last_seen || undefined,
+    };
+    body = `🔌 /port ${dev.name || dev.id} [${resolvedPortId}] — وضعیت: ${
+      foundPort.status || 'down'
+    } | VLAN ${foundPort.vlan ?? '-'}`;
+    bodyEn = `🔌 /port ${dev.name || dev.id} [${resolvedPortId}] — Status: ${
+      foundPort.status || 'down'
+    } | VLAN ${foundPort.vlan ?? '-'}`;
+  } else if (cmdNormalized === 'mac') {
+    const args = tokens.slice(1);
+    const liveFlag = args.some((a) => a.toLowerCase() === '--live' || a.toLowerCase() === 'live');
+    const addrArg = args.find((a) => !a.startsWith('--') && a.toLowerCase() !== 'live') || '';
+    if (!addrArg) {
+      throw new Error('BAD_COMMAND: Usage: /mac <MAC-or-IPv4> [--live]');
+    }
+
+    if (!senderCtx.isSuperAdmin && senderCtx.policy?.canViewDevices === false) {
+      throw new Error(
+        'ACCESS_DENIED: Network Devices module is disabled in your RBAC policy.|عدم دسترسی RBAC: ماژول تجهیزات شبکه برای اجرای /mac در پالیسی شما غیرفعال است.'
+      );
+    }
+    if (!senderCtx.isSuperAdmin && senderCtx.policy?.canViewPorts === false) {
+      throw new Error(
+        'ACCESS_DENIED: Port view permission is required for /mac CAM lookup.|عدم دسترسی RBAC: مجوز مشاهده پورت‌ها (canViewPorts) برای ردیابی MAC الزامی است.'
+      );
+    }
+
+    const allowedIdsForSender: string[] | null = senderCtx.isSuperAdmin
+      ? null
+      : (allDevices || [])
+          .filter(
+            (d: any) =>
+              d?.id &&
+              isDeviceVisibleInViewerCtx(d.id, senderCtx).allowed &&
+              (!senderCtx.policy || isDeviceActionPermitted(senderCtx.policy, d.id, 'inspect_ports'))
+          )
+          .map((d: any) => String(d.id));
+
+    const trackerRes = await searchMacOrIp({
+      query: addrArg,
+      forceRefresh: liveFlag,
+      operatorUsername: senderUser.username,
+      clientIp: senderIp,
+      allowedDeviceIds: allowedIdsForSender,
+    });
+
+    const camHits = (trackerRes.camEntries || []).map((c) => ({
+      switchId: c.switchId,
+      switchName: c.switchName,
+      switchIp: c.switchIp,
+      port: c.port,
+      vlan: String(c.vlan || '-'),
+      type: c.type || 'DYNAMIC',
+      isUplink: Boolean(c.isUplink),
+      isFinalEdgePort: Boolean(c.isFinalEdgePort),
+    }));
+    const arpHits = (trackerRes.arpEntries || []).map((a) => ({
+      switchId: a.switchId,
+      switchName: a.switchName,
+      ip: a.ip,
+      mac: a.mac,
+      interface: a.interface,
+      vlan: a.vlan,
+    }));
+    const finalEdge = trackerRes.finalEdgePort
+      ? {
+          switchId: trackerRes.finalEdgePort.switchId,
+          switchName: trackerRes.finalEdgePort.switchName,
+          switchIp: trackerRes.finalEdgePort.switchIp,
+          port: trackerRes.finalEdgePort.port,
+          vlan: String(trackerRes.finalEdgePort.vlan || '-'),
+          confidence: trackerRes.finalEdgePort.confidence,
+        }
+      : null;
+
+    if (finalEdge) {
+      linkedEntityType = 'port';
+      linkedEntityId = finalEdge.switchId;
+    }
+
+    const macLabel = trackerRes.normalizedMac?.standardUpper || trackerRes.resolvedMac || addrArg;
+    slashCommandData = {
+      command: 'mac',
+      rawCommand,
+      target: addrArg,
+      executedAt,
+      durationMs: trackerRes.durationMs || Date.now() - startedAt,
+      success: Boolean(finalEdge || camHits.length > 0 || arpHits.length > 0),
+      queryType: trackerRes.queryType,
+      resolvedIp: trackerRes.resolvedIp,
+      resolvedMac: macLabel,
+      vendorName: trackerRes.vendor?.isKnown ? trackerRes.vendor.vendor : null,
+      finalEdgePort: finalEdge,
+      camHits,
+      arpHits,
+      totalSwitchesMatched: new Set([
+        ...camHits.map((h) => h.switchId.toLowerCase()),
+        ...arpHits.map((h) => h.switchId.toLowerCase()),
+      ]).size,
+    };
+    body = `🧭 /mac ${addrArg} — ${
+      finalEdge
+        ? `پورت لبه: ${finalEdge.switchName} [${finalEdge.port}] (VLAN ${finalEdge.vlan})`
+        : camHits.length > 0
+        ? `${camHits.length} رکورد CAM یافت شد`
+        : 'موردی در جدول CAM/ARP سوئیچ‌های مجاز یافت نشد'
+    }`;
+    bodyEn = `🧭 /mac ${addrArg} — ${
+      finalEdge
+        ? `Edge Port: ${finalEdge.switchName} [${finalEdge.port}] (VLAN ${finalEdge.vlan})`
+        : camHits.length > 0
+        ? `${camHits.length} CAM table hit(s) found`
+        : 'No CAM/ARP match across authorized switches'
+    }`;
+  } else if (cmdNormalized === 'dns') {
+    const dnsTarget = (tokens[1] || '').trim();
+    if (!dnsTarget || !/^[a-zA-Z0-9.:_-]{1,253}$/.test(dnsTarget)) {
+      throw new Error('BAD_COMMAND: Usage: /dns <hostname-or-ipv4>');
+    }
+    const isIpv4 = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(dnsTarget);
+    let ipv4Addresses: string[] = [];
+    let ipv6Addresses: string[] = [];
+    let mxRecords: Array<{ exchange: string; priority: number }> = [];
+    let ptrHostnames: string[] = [];
+    let txtRecords: string[] = [];
+
+    if (isIpv4) {
+      ptrHostnames = await dns.promises.reverse(dnsTarget).catch(() => []);
+    } else {
+      const [a4, a6, mx, txt] = await Promise.all([
+        dns.promises.resolve4(dnsTarget).catch(() => []),
+        dns.promises.resolve6(dnsTarget).catch(() => []),
+        dns.promises.resolveMx(dnsTarget).catch(() => []),
+        dns.promises.resolveTxt(dnsTarget).catch(() => []),
+      ]);
+      ipv4Addresses = a4;
+      ipv6Addresses = a6;
+      mxRecords = mx;
+      txtRecords = txt.map((parts) => parts.join(' ')).slice(0, 5);
+    }
+
+    const totalHits =
+      ipv4Addresses.length + ipv6Addresses.length + mxRecords.length + ptrHostnames.length;
+    slashCommandData = {
+      command: 'dns',
+      rawCommand,
+      target: dnsTarget,
+      executedAt,
+      durationMs: Date.now() - startedAt,
+      success: totalHits > 0,
+      dnsRecordType: isIpv4 ? 'PTR' : 'A/AAAA/MX',
+      ipv4Addresses,
+      ipv6Addresses,
+      mxRecords,
+      ptrHostnames,
+      txtRecords,
+    };
+    body = `🌐 /dns ${dnsTarget} — ${
+      totalHits > 0
+        ? `${totalHits} رکورد DNS بازیابی شد`
+        : 'هیچ رکوردی در DNS یافت نشد'
+    }`;
+    bodyEn = `🌐 /dns ${dnsTarget} — ${
+      totalHits > 0 ? `${totalHits} DNS record(s) resolved` : 'No DNS records returned'
+    }`;
+  }
+
+  const nowIso = new Date().toISOString();
+  const msgId = makeId('cmsg');
+  const msgType = channel.channelType === 'direct' ? 'direct_message' : 'channel_message';
+  const senderDisplay = formatUserDisplay(senderUser.fullName, senderUser.username);
+  const title =
+    channel.channelType === 'direct'
+      ? `دستور ChatOps از ${senderDisplay}`
+      : `${channel.name}: دستور ChatOps از ${senderDisplay}`;
+  const titleEn =
+    channel.channelType === 'direct'
+      ? `ChatOps command from ${senderDisplay}`
+      : `${channel.nameEn || channel.name}: ChatOps command from ${senderDisplay}`;
+
+  const messageRecord = {
+    id: msgId,
+    channel_id: channelId,
+    sender_user_id: senderUser.userId,
+    sender_username: senderUser.username,
+    sender_full_name: senderUser.fullName || senderUser.username,
+    sender_role: senderUser.role || 'Operator',
+    message_type: msgType,
+    priority: payload.priority || 'info',
+    title,
+    title_en: titleEn,
+    body,
+    body_en: bodyEn,
+    linked_entity_type: linkedEntityType,
+    linked_entity_id: linkedEntityId,
+    linked_entity_name: linkedEntityName,
+    metadata: {
+      channelType: channel.channelType,
+      replyToMessageId: payload.replyToMessageId || null,
+      senderUsername: senderUser.username,
+      slashCommandData,
+    },
+    created_at: nowIso,
+  };
+
+  // Pre-compute per-member RBAC projection (used for both Zero-Leak notifications and live WS broadcast)
+  const memberContextPairs = await Promise.all(
+    members.map(async (m) => {
+      const key = `${(m.userId || '').toLowerCase()}|${(m.username || '').toLowerCase()}`;
+      const memberCtx = await resolveCommsViewerAccessContext(
+        { userId: m.userId, username: m.username, role: m.role },
+        false
+      );
+      const memberSlash = projectSlashResultForViewer(
+        slashCommandData,
+        memberCtx,
+        devicesById,
+        serversById
+      );
+      return { key, m, memberSlash };
+    })
+  );
+  const slashByMemberKey = new Map(memberContextPairs.map((p) => [p.key, p.memberSlash]));
+
+  // Notifications evaluation
+  const notifyMembers = members.filter(
+    (m) => !memberMatchesIdentifiers(m, senderIds) && !m.isMuted
+  );
+  const evalResults =
+    notifyMembers.length > 0
+      ? await Promise.all(
+          notifyMembers.map(async (m) => ({
+            m,
+            pref: await evaluateNotificationDeliveryForUser(
+              m,
+              msgType as CommsCategory,
+              payload.priority || 'info',
+              false
+            ),
+          }))
+        )
+      : [];
+
+  const redactedFa = '🔒 خروجی دستور ChatOps (دسترسی به تجهیز/سرور محدود شده است)';
+  const redactedEn = '🔒 ChatOps output (Entity access restricted by RBAC)';
+  const notificationRecords: any[] = [];
+  const activeRecipients: ResolvedRecipient[] = [];
+  for (const { m, pref } of evalResults) {
+    if (!pref.deliverInboxNotification) continue;
+    const key = `${(m.userId || '').toLowerCase()}|${(m.username || '').toLowerCase()}`;
+    const memberSlash = slashByMemberKey.get(key);
+    const notifBodyFa = memberSlash?.accessRestricted ? redactedFa : body;
+    const notifBodyEn = memberSlash?.accessRestricted ? redactedEn : bodyEn;
+    activeRecipients.push({ userId: m.userId, username: m.username });
+    notificationRecords.push({
+      id: makeId('notif'),
+      recipient_user_id: m.userId,
+      recipient_username: m.username,
+      source_message_id: msgId,
+      channel_id: channelId,
+      category: msgType,
+      severity: payload.priority || 'info',
+      sender_name: senderDisplay,
+      sender_role: senderUser.role || 'Operator',
+      title,
+      title_en: titleEn,
+      summary: notifBodyFa.slice(0, 140),
+      summary_en: notifBodyEn.slice(0, 140),
+      body: notifBodyFa,
+      body_en: notifBodyEn,
+      linked_entity_type: null,
+      linked_entity_id: null,
+      linked_entity_name: null,
+      action_tab: 'communications',
+      is_read: false,
+      is_archived: false,
+      requires_acknowledgment: false,
+      metadata: {
+        channelId,
+        channelType: channel.channelType,
+        sourceMessageId: msgId,
+        senderUsername: senderUser.username,
+        replyToMessageId: payload.replyToMessageId || null,
+        quietHoursMuted: pref.quietHoursMuted,
+        playSound: pref.playSound,
+      },
+      created_at: nowIso,
+    });
+  }
+
+  await persistMessageAndNotifications(
+    messageRecord,
+    notificationRecords,
+    activeRecipients,
+    {
+      channelId,
+      updatedAt: nowIso,
+      senderIds: Array.from(senderIds),
+      messageId: msgId,
+    }
+  );
+
+  let parentLookup: Map<string, any> | undefined;
+  if (payload.replyToMessageId) {
+    const parentRow =
+      parentRowPg ||
+      (loadFallbackStore().comms_messages || []).find(
+        (m: any) => m.id === payload.replyToMessageId
+      );
+    if (parentRow) parentLookup = new Map([[parentRow.id, parentRow]]);
+  }
+
+  const baseMapped = mapMessageRow(messageRecord, parentLookup);
+  const senderSlashResult = projectSlashResultForViewer(
+    slashCommandData,
+    senderCtx,
+    devicesById,
+    serversById
+  );
+  const senderCleanMsg: CommsMessage = {
+    ...baseMapped,
+    metadata: sanitizeCleanMessageMetadata(baseMapped.metadata),
+    slashResult: senderSlashResult,
+  };
+
+  // Per-recipient RBAC projection on live WebSocket broadcast (Zero-Leak)
+  const projectedByMemberKey = new Map<string, CommsMessage>();
+  for (const { key, memberSlash } of memberContextPairs) {
+    projectedByMemberKey.set(key, {
+      ...baseMapped,
+      linkedEntityName: memberSlash?.accessRestricted ? null : baseMapped.linkedEntityName,
+      body: memberSlash?.accessRestricted ? redactedFa : baseMapped.body,
+      bodyEn: memberSlash?.accessRestricted ? redactedEn : baseMapped.bodyEn,
+      metadata: sanitizeCleanMessageMetadata(baseMapped.metadata),
+      slashResult: memberSlash,
+    });
+  }
+
+  broadcastCommsEventToRecipients(
+    members.map((m) => ({ userId: m.userId, username: m.username })),
+    (recipient) => {
+      const key = `${(recipient.userId || '').toLowerCase()}|${(recipient.username || '').toLowerCase()}`;
+      return {
+        type: 'channel:message',
+        channelId,
+        message: projectedByMemberKey.get(key) || senderCleanMsg,
+      };
+    }
+  );
+
+  void addPortalAuditLog({
+    category: 'communications',
+    action: 'CHANNEL_SLASH_COMMAND_EXECUTED',
+    title: `اجرای دستور ChatOps (${rawCommand})`,
+    title_en: `Executed ChatOps Slash Command (${rawCommand})`,
+    actor: {
+      username: senderUser.username,
+      role: senderUser.role || 'Operator',
+      ipAddress: senderIp || '127.0.0.1',
+    },
+    target: {
+      type: 'comms_channel',
+      id: channelId,
+      name: channel.nameEn || channel.name,
+    },
+    severity: payload.priority || 'info',
+    status: 'success',
+    details: `کاربر ${senderUser.username} دستور "${rawCommand}" را در کانال «${channel.name}» اجرا کرد.`,
+    details_en: `User ${senderUser.username} executed "${rawCommand}" in channel "${channel.nameEn || channel.name}".`,
+  }).catch(() => {});
+
+  return senderCleanMsg;
 }

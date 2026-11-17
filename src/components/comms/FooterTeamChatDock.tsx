@@ -30,6 +30,7 @@ import {
   Trash2,
   UserPlus,
   AtSign,
+  Terminal as TerminalIcon,
 } from 'lucide-react';
 import {
   CommsChannel,
@@ -43,6 +44,7 @@ import {
   addCommsChannelMembers,
   clearCommsChannelHistory,
   deleteCommsChannel,
+  executeChannelSlashCommand,
   fetchChannelMessages,
   fetchCommsChannels,
   fetchCommsRecipients,
@@ -58,6 +60,8 @@ import {
   EntityMentionPickerPopover,
   SelectedEntityMentionItem,
 } from './EntityMentionPicker';
+import { SlashCommandCard } from './SlashCommandCard';
+import { SlashCommandPickerPopover } from './SlashCommandPicker';
 
 export interface FooterTeamChatDockProps {
   isEn: boolean;
@@ -135,6 +139,7 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
   const [replyTarget, setReplyTarget] = useState<CommsMessage | null>(null);
   const [selectedEntityMentions, setSelectedEntityMentions] = useState<SelectedEntityMentionItem[]>([]);
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
@@ -271,11 +276,58 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
     const refsSnapshot = selectedEntityMentions;
     if ((!rawText && refsSnapshot.length === 0) || sending || !canSend) return;
 
+    const priorityToSend = draftPriority;
+    const replySnapshot = replyTarget;
+
+    // Route ChatOps slash commands (/ping, /mac, /port, /status, /dns) directly to server
+    if (rawText.startsWith('/')) {
+      setSlashMenuOpen(false);
+      setMentionPickerOpen(false);
+      setErrorMsg(null);
+      setSending(true);
+      try {
+        const res = await executeChannelSlashCommand(channel.id, {
+          commandText: rawText,
+          priority: priorityToSend,
+          replyToMessageId: replySnapshot?.id || null,
+        });
+        setDraftBody('');
+        setDraftPriority('info');
+        setReplyTarget(null);
+        setSelectedEntityMentions([]);
+        setMessages((prev) => {
+          const next = prev.some((m) => m.id === res.message.id) ? prev : [...prev, res.message];
+          appDataCache.set(`comms:channel:${channel.id}:80:0`, {
+            success: true,
+            channel,
+            messages: next,
+            total: next.length,
+          });
+          return next;
+        });
+        window.dispatchEvent(
+          new CustomEvent('nettop-comms-ws-event', {
+            detail: {
+              type: 'channel:message',
+              channelId: channel.id,
+              message: res.message,
+            },
+          })
+        );
+      } catch (err: any) {
+        const localized = !isEn && err?.errorFa ? err.errorFa : err?.message;
+        setErrorMsg(
+          localized || (isEn ? 'Failed to run slash command' : 'خطا در اجرای دستور شبکه')
+        );
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
     const textToSend = rawText || '📌 ارجاع به تجهیز / سرور / پورت شبکه';
     const textToSendEn = rawText || '📌 Referenced Network Entity';
     const entityRefsToSend = refsSnapshot.map((item) => item.ref);
-    const priorityToSend = draftPriority;
-    const replySnapshot = replyTarget;
     const nowIso = new Date().toISOString();
     const tempId = `__opt__${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -1157,6 +1209,14 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
                     isSelf={self}
                     compact
                   />
+
+                  <SlashCommandCard
+                    result={msg.slashResult}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    isSelf={self}
+                    compact
+                  />
                 </div>
 
                 {canSend && (
@@ -1193,7 +1253,10 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
             isLightMode={isLightMode}
             compact
             draftBody={draftBody}
-            onDraftBodyChange={setDraftBody}
+            onDraftBodyChange={(next) => {
+              setDraftBody(next);
+              if (next.trimStart().startsWith('/')) setMentionPickerOpen(false);
+            }}
             selectedItems={selectedEntityMentions}
             onAddItem={(item) =>
               setSelectedEntityMentions((prev) => [...prev, item])
@@ -1203,6 +1266,20 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
             }
             manualOpen={mentionPickerOpen}
             onManualOpenChange={setMentionPickerOpen}
+            disabled={sending}
+          />
+
+          <SlashCommandPickerPopover
+            isEn={isEn}
+            isLightMode={isLightMode}
+            compact
+            draftBody={draftBody}
+            onDraftBodyChange={(next) => {
+              setDraftBody(next);
+              setMentionPickerOpen(false);
+            }}
+            manualOpen={slashMenuOpen}
+            onManualOpenChange={setSlashMenuOpen}
             disabled={sending}
           />
 
@@ -1257,7 +1334,10 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
 
             <button
               type="button"
-              onClick={() => setMentionPickerOpen((v) => !v)}
+              onClick={() => {
+                setSlashMenuOpen(false);
+                setMentionPickerOpen((v) => !v);
+              }}
               className={`h-8 px-2 rounded-lg border flex items-center justify-center cursor-pointer transition shrink-0 ${
                 mentionPickerOpen
                   ? 'bg-indigo-600 border-indigo-500 text-white'
@@ -1270,10 +1350,38 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
               <AtSign className="w-3.5 h-3.5" />
             </button>
 
+            <button
+              type="button"
+              onClick={() => {
+                setMentionPickerOpen(false);
+                setSlashMenuOpen((v) => !v);
+              }}
+              className={`h-8 px-2 rounded-lg border flex items-center justify-center cursor-pointer transition shrink-0 ${
+                slashMenuOpen
+                  ? 'bg-cyan-600 border-cyan-500 text-white'
+                  : isLightMode
+                  ? 'bg-white border-slate-300 text-slate-600 hover:border-cyan-500 hover:text-cyan-700'
+                  : 'bg-slate-900 border-white/15 text-slate-300 hover:border-cyan-400/50 hover:text-cyan-300'
+              }`}
+              title={
+                isEn
+                  ? 'ChatOps commands (/ping, /mac, /port, /status, /dns)'
+                  : 'دستورات زنده شبکه (/ping, /mac, /port, /status, /dns)'
+              }
+            >
+              <TerminalIcon className="w-3.5 h-3.5" />
+            </button>
+
             <textarea
               rows={1}
               value={draftBody}
-              onChange={(e) => setDraftBody(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDraftBody(v);
+                if (v.trimStart().startsWith('/')) {
+                  setMentionPickerOpen(false);
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -1282,8 +1390,8 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
               }}
               placeholder={
                 isEn
-                  ? 'Message or @mention...'
-                  : 'پیام یا @ برای ارجاع...'
+                  ? 'Message, @mention, or /cmd...'
+                  : 'پیام، @ارجاع یا /دستور...'
               }
               className={`flex-1 min-w-0 py-1.5 px-2.5 rounded-lg border text-xs outline-none resize-none max-h-20 ${
                 isLightMode

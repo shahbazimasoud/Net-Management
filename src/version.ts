@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.441.0';
+export const APP_VERSION = '1.442.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.442.0',
+    releaseDate: '2026-11-17',
+    type: 'minor',
+    title: 'فاز ۲ ارتقای چت سازمانی: دستورات اسلش مهندسی (ChatOps) با پینگ، ردیابی MAC، بازرسی پورت، وضعیت و DNS تحت کنترل کامل RBAC',
+    title_en: 'Team Chat Phase 2: RBAC-Enforced ChatOps Slash Commands (/ping, /mac, /port, /status, /dns) with Zero-Leak Projection',
+    changes: [
+      'افزودن موتور اجرای دستورات ChatOps در بک‌اند (`POST /api/comms/channels/:id/slash` و `executeChannelSlashCommand` در `server/commsService.ts`) برای اجرای زنده `/ping`، `/status`، `/port`، `/mac` و `/dns` با اعتبارسنجی دقیق دسترسی‌ها (`ping_keepalive`، `inspect_ports`، `canViewDevices`، `canViewServers`، `canViewPorts` و محدوده تجهیزات/سرورها).',
+      'محدودسازی جستجوی ردیاب MAC/IP (`searchMacOrIp` در `server/macIpTrackerService.ts`) به لیست سوئیچ‌های مجاز کاربر و جداسازی کلیدهای کش درون‌حافظه به‌صورت پر-یوزر (SHA-1 Scope Hash) جهت جلوگیری کامل از نشت اطلاعات بین اپراتورها.',
+      'اجرای معماری Zero-Leak Server-Side Projection در دریافت پیام‌ها، نوتیفیکیشن‌های اینباکس و پخش زنده وب‌سوکت تک‌به‌تک اعضا همراه با کامپوننت‌های `SlashCommandPicker.tsx` و `SlashCommandCard.tsx` در چت کامل (`TeamChannelsPane`) و داک فوتر (`FooterTeamChatDock`).'
+    ],
+    changes_en: [
+      'Implemented backend ChatOps execution (`POST /api/comms/channels/:id/slash` and `executeChannelSlashCommand` in `server/commsService.ts`) for `/ping`, `/status`, `/port`, `/mac`, and `/dns` with strict RBAC enforcement (`ping_keepalive`, `inspect_ports`, `canViewDevices`, `canViewServers`, `canViewPorts`, and scoped target IDs).',
+      'Scoped `searchMacOrIp` (`server/macIpTrackerService.ts`) strictly to `allowedDeviceIds` and partitioned in-memory cache keys using SHA-1 scope hashes so MAC/CAM table results never leak across tenant/role boundaries.',
+      'Applied Zero-Leak per-viewer RBAC projection across channel messages, inbox notifications, and individual WebSocket broadcasts, paired with `SlashCommandPicker.tsx` and `SlashCommandCard.tsx` integrated into both `TeamChannelsPane` and `FooterTeamChatDock`.'
+    ]
+  },
   {
     version: '1.441.0',
     releaseDate: '2026-11-17',

@@ -23,6 +23,7 @@ import {
   LogOut,
   Trash2,
   AtSign,
+  Terminal as TerminalIcon,
 } from 'lucide-react';
 import {
   CommsChannel,
@@ -40,6 +41,7 @@ import {
   clearCommsChannelHistory,
   createGroupCommsChannel,
   deleteCommsChannel,
+  executeChannelSlashCommand,
   fetchChannelMessages,
   fetchCommsChannels,
   fetchCommsRecipients,
@@ -55,6 +57,8 @@ import {
   EntityMentionPickerPopover,
   SelectedEntityMentionItem,
 } from './EntityMentionPicker';
+import { SlashCommandCard } from './SlashCommandCard';
+import { SlashCommandPickerPopover } from './SlashCommandPicker';
 
 interface TeamChannelsPaneProps {
   isLightMode: boolean;
@@ -119,6 +123,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
   const [replyTarget, setReplyTarget] = useState<CommsMessage | null>(null);
   const [selectedEntityMentions, setSelectedEntityMentions] = useState<SelectedEntityMentionItem[]>([]);
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [sending, setSending] = useState(false);
 
   // Members popover strip toggle
@@ -254,6 +259,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
       setReplyTarget(null);
       setSelectedEntityMentions([]);
       setMentionPickerOpen(false);
+      setSlashMenuOpen(false);
     } else {
       setMessages([]);
     }
@@ -432,12 +438,60 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
     const refsSnapshot = selectedEntityMentions;
     if (!activeChannel || (!rawText && refsSnapshot.length === 0) || sending) return;
 
-    const textToSend = rawText || '📌 ارجاع به تجهیز / سرور / پورت شبکه';
-    const textToSendEn = rawText || '📌 Referenced Network Entity';
-    const entityRefsToSend = refsSnapshot.map((item) => item.ref);
     const targetChannelId = activeChannel.id;
     const priorityToSend = draftPriority;
     const replySnapshot = replyTarget;
+
+    // Route ChatOps slash commands (/ping, /mac, /port, /status, /dns) directly to server
+    if (rawText.startsWith('/')) {
+      setSlashMenuOpen(false);
+      setMentionPickerOpen(false);
+      setErrorMsg(null);
+      setSending(true);
+      try {
+        const res = await executeChannelSlashCommand(targetChannelId, {
+          commandText: rawText,
+          priority: priorityToSend,
+          replyToMessageId: replySnapshot?.id || null,
+        });
+        setDraftBody('');
+        setDraftPriority('info');
+        setReplyTarget(null);
+        setSelectedEntityMentions([]);
+        setMessages((prev) => {
+          const next = prev.some((m) => m.id === res.message.id) ? prev : [...prev, res.message];
+          const cached = appDataCache.getOptimistic<any>(`comms:channel:${targetChannelId}:100:0`);
+          appDataCache.set(`comms:channel:${targetChannelId}:100:0`, {
+            success: true,
+            channel: cached?.channel || activeChannel,
+            messages: next,
+            total: next.length,
+          });
+          return next;
+        });
+        window.dispatchEvent(
+          new CustomEvent('nettop-comms-ws-event', {
+            detail: {
+              type: 'channel:message',
+              channelId: targetChannelId,
+              message: res.message,
+            },
+          })
+        );
+      } catch (err: any) {
+        const localized = !isEn && err?.errorFa ? err.errorFa : err?.message;
+        setErrorMsg(
+          localized || (isEn ? 'Failed to run slash command' : 'خطا در اجرای دستور شبکه')
+        );
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    const textToSend = rawText || '📌 ارجاع به تجهیز / سرور / پورت شبکه';
+    const textToSendEn = rawText || '📌 Referenced Network Entity';
+    const entityRefsToSend = refsSnapshot.map((item) => item.ref);
     const nowIso = new Date().toISOString();
     const tempId = `__opt__${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -1749,6 +1803,14 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                             isLightMode={isLightMode}
                             isSelf={self}
                           />
+
+                          {/* RBAC-projected ChatOps slash command telemetry card */}
+                          <SlashCommandCard
+                            result={msg.slashResult}
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                            isSelf={self}
+                          />
                         </div>
 
                         {canSend && (
@@ -1784,7 +1846,10 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                     isEn={isEn}
                     isLightMode={isLightMode}
                     draftBody={draftBody}
-                    onDraftBodyChange={setDraftBody}
+                    onDraftBodyChange={(next) => {
+                      setDraftBody(next);
+                      if (next.trimStart().startsWith('/')) setMentionPickerOpen(false);
+                    }}
                     selectedItems={selectedEntityMentions}
                     onAddItem={(item) =>
                       setSelectedEntityMentions((prev) => [...prev, item])
@@ -1794,6 +1859,19 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                     }
                     manualOpen={mentionPickerOpen}
                     onManualOpenChange={setMentionPickerOpen}
+                    disabled={sending}
+                  />
+
+                  <SlashCommandPickerPopover
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    draftBody={draftBody}
+                    onDraftBodyChange={(next) => {
+                      setDraftBody(next);
+                      setMentionPickerOpen(false);
+                    }}
+                    manualOpen={slashMenuOpen}
+                    onManualOpenChange={setSlashMenuOpen}
                     disabled={sending}
                   />
 
@@ -1849,7 +1927,10 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => setMentionPickerOpen((v) => !v)}
+                      onClick={() => {
+                        setSlashMenuOpen(false);
+                        setMentionPickerOpen((v) => !v);
+                      }}
                       className={`px-2.5 py-2 rounded-lg border text-xs flex items-center gap-1 shrink-0 cursor-pointer transition ${
                         mentionPickerOpen
                           ? 'bg-indigo-600 border-indigo-500 text-white'
@@ -1866,10 +1947,38 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                       <AtSign className="w-3.5 h-3.5" />
                     </button>
 
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMentionPickerOpen(false);
+                        setSlashMenuOpen((v) => !v);
+                      }}
+                      className={`px-2.5 py-2 rounded-lg border text-xs flex items-center gap-1 shrink-0 cursor-pointer transition ${
+                        slashMenuOpen
+                          ? 'bg-cyan-600 border-cyan-500 text-white'
+                          : isLightMode
+                          ? 'bg-white border-slate-300 text-slate-700 hover:border-cyan-500 hover:text-cyan-700'
+                          : 'bg-slate-950 border-white/15 text-slate-300 hover:border-cyan-400/50 hover:text-cyan-300'
+                      }`}
+                      title={
+                        isEn
+                          ? 'ChatOps slash commands (/ping, /mac, /port, /status, /dns)'
+                          : 'دستورات زنده شبکه (/ping, /mac, /port, /status, /dns)'
+                      }
+                    >
+                      <TerminalIcon className="w-3.5 h-3.5" />
+                    </button>
+
                     <textarea
                       rows={2}
                       value={draftBody}
-                      onChange={(e) => setDraftBody(e.target.value)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setDraftBody(v);
+                        if (v.trimStart().startsWith('/')) {
+                          setMentionPickerOpen(false);
+                        }
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
@@ -1878,8 +1987,8 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                       }}
                       placeholder={
                         isEn
-                          ? 'Write a message or type @ to mention a device/port/server (Enter to send)...'
-                          : 'پیام بنویسید یا @ را برای ارجاع به تجهیز/پورت/سرور بزنید (Enter برای ارسال)...'
+                          ? 'Message, @mention, or /ping /mac /port /status /dns (Enter to send)...'
+                          : 'پیام، @ارجاع یا دستور /ping /mac /port /status /dns (Enter برای ارسال)...'
                       }
                       className={`flex-1 px-3 py-2 rounded-xl border text-xs outline-none resize-none ${
                         isLightMode

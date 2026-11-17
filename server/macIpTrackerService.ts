@@ -1,6 +1,7 @@
 import net from 'net';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { Client, ConnectConfig } from 'ssh2';
 import { getAllDevices, addAuditLog, addDeviceCommandLog, getAuditLogs } from './db';
 import { resolveDecryptedDeviceCredentials } from './ciscoConfigEngine';
@@ -1827,6 +1828,7 @@ export interface SearchOptions {
   forceRefresh?: boolean;
   operatorUsername?: string;
   clientIp?: string;
+  allowedDeviceIds?: string[] | null;
 }
 
 /**
@@ -1838,6 +1840,13 @@ export async function searchMacOrIp(options: SearchOptions): Promise<MacIpTracke
   const forceRefresh = Boolean(options.forceRefresh);
   const operatorUsername = options.operatorUsername || 'admin';
   const clientIp = options.clientIp || '127.0.0.1';
+  const allowedDeviceSet = Array.isArray(options.allowedDeviceIds)
+    ? new Set(
+        options.allowedDeviceIds
+          .map((id) => String(id || '').trim().toLowerCase())
+          .filter(Boolean)
+      )
+    : null;
 
   const queryType = detectQueryType(rawQuery);
 
@@ -1854,7 +1863,14 @@ export async function searchMacOrIp(options: SearchOptions): Promise<MacIpTracke
     targetIp = rawQuery;
   }
 
-  const cacheKey = normalizedMac ? `mac:${normalizedMac.clean}` : `ip:${targetIp}`;
+  const scopeTag = allowedDeviceSet
+    ? `scope:${crypto
+        .createHash('sha1')
+        .update(Array.from(allowedDeviceSet).sort().join(','))
+        .digest('hex')
+        .slice(0, 12)}:`
+    : 'scope:all:';
+  const cacheKey = `${scopeTag}${normalizedMac ? `mac:${normalizedMac.clean}` : `ip:${targetIp}`}`;
 
   // Check cache first if not force refresh
   if (!forceRefresh) {
@@ -1868,9 +1884,13 @@ export async function searchMacOrIp(options: SearchOptions): Promise<MacIpTracke
     }
   }
 
-  // Load all registered devices
+  // Load all registered devices (filtered strictly by caller RBAC scope if provided)
   const allDevices = await getAllDevices();
   const switchesAndRouters = allDevices.filter((d: any) => {
+    if (!d?.id) return false;
+    if (allowedDeviceSet !== null && !allowedDeviceSet.has(String(d.id).trim().toLowerCase())) {
+      return false;
+    }
     const t = (d.type || '').toLowerCase();
     const r = (d.role || '').toLowerCase();
     return t === 'switch' || t === 'router' || r.includes('switch') || r.includes('router') || t.includes('switch');

@@ -1265,6 +1265,95 @@ export interface CommsProjectedEntityCard {
   canOpenDeviceView?: boolean;
 }
 
+export type CommsSlashCommandName = 'ping' | 'mac' | 'port' | 'status' | 'dns';
+
+export interface CommsProjectedSlashResult {
+  command: CommsSlashCommandName;
+  rawCommand: string;
+  target: string;
+  executedAt: string;
+  durationMs?: number;
+  success: boolean;
+  accessRestricted?: boolean;
+  restrictionReasonCode?:
+    | 'module_disabled'
+    | 'outside_scope'
+    | 'not_found'
+    | 'ports_restricted'
+    | 'action_denied';
+  restrictionMessageFa?: string;
+  restrictionMessageEn?: string;
+  linkedEntityType?: CommsEntityMentionTargetType;
+  linkedEntityId?: string;
+  portId?: string | null;
+  entityName?: string;
+  entityIp?: string;
+  platform?: string;
+  osType?: string;
+  // /ping & /status
+  isOnline?: boolean;
+  latencyMs?: number | null;
+  packetLoss?: number;
+  rawOutput?: string;
+  location?: string;
+  // /port
+  portsRestricted?: boolean;
+  portsRestrictionMessageFa?: string;
+  portsRestrictionMessageEn?: string;
+  portStatus?: string;
+  portAdminStatus?: string;
+  portMode?: string;
+  portVlan?: number | string;
+  portSpeed?: string;
+  portDescription?: string;
+  connectedDevice?: string;
+  lastSynced?: string;
+  // /mac
+  queryType?: string;
+  resolvedIp?: string | null;
+  resolvedMac?: string | null;
+  vendorName?: string | null;
+  finalEdgePort?: {
+    switchId: string;
+    switchName: string;
+    switchIp: string;
+    port: string;
+    vlan: string;
+    confidence?: string;
+  } | null;
+  camHits?: Array<{
+    switchId: string;
+    switchName: string;
+    switchIp: string;
+    port: string;
+    vlan: string;
+    type: string;
+    isUplink?: boolean;
+    isFinalEdgePort?: boolean;
+  }>;
+  arpHits?: Array<{
+    switchId: string;
+    switchName: string;
+    ip: string;
+    mac: string;
+    interface: string;
+    vlan?: string;
+  }>;
+  restrictedSwitchCount?: number;
+  totalSwitchesMatched?: number;
+  // /dns
+  dnsRecordType?: string;
+  ipv4Addresses?: string[];
+  ipv6Addresses?: string[];
+  mxRecords?: Array<{ exchange: string; priority: number }>;
+  ptrHostnames?: string[];
+  txtRecords?: string[];
+  // RBAC action gates
+  canOpenPorts?: boolean;
+  canOpenTerminal?: boolean;
+  canOpenDeviceView?: boolean;
+}
+
 export interface CommsMessage {
   id: string;
   channelId?: string | null;
@@ -1288,6 +1377,7 @@ export interface CommsMessage {
   linkedEntityId?: string | null;
   linkedEntityName?: string | null;
   entityCards?: CommsProjectedEntityCard[];
+  slashResult?: CommsProjectedSlashResult;
   metadata?: Record<string, any>;
   createdAt: string;
 }

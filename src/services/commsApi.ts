@@ -477,6 +477,31 @@ export async function postChannelMessage(
   return json;
 }
 
+export async function executeChannelSlashCommand(
+  channelId: string,
+  payload: {
+    commandText: string;
+    priority?: CommsSeverity;
+    replyToMessageId?: string | null;
+  }
+): Promise<{ success: boolean; message: CommsMessage }> {
+  const res = await fetch(`/api/comms/channels/${encodeURIComponent(channelId)}/slash`, {
+    method: 'POST',
+    headers: buildAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const json = await safeParseJsonResponse<any>(res);
+  if (!res.ok || !json.success) {
+    const err: any = new Error(json?.error || `HTTP ${res.status}`);
+    if (json?.errorFa) err.errorFa = json.errorFa;
+    if (json?.code) err.code = json.code;
+    throw err;
+  }
+  appDataCache.invalidate(`comms:channel:${channelId}`);
+  appDataCache.invalidate('comms:channels');
+  return json;
+}
+
 export async function replyToInboxNotificationApi(
   notificationId: string,
   payload: { body: string; priority?: CommsSeverity }
