@@ -148,7 +148,7 @@ function buildDirectPortUpdateCli(platform: string, iface: string, updates: Reco
     }
 
     if (!hasCommands) return '';
-    lines.push('end', 'write memory');
+    lines.push('end');
     return lines.join('\n');
   }
 

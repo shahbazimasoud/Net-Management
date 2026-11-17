@@ -670,10 +670,9 @@ def handle_port_action(args):
                     elif mode == "dynamic":
                         cmds.append(" no switchport port-security mac-address sticky")
                     cmds.append("end")
-                    cmds.append("write memory")
                     cli_command = "\n".join(cmds)
                 elif action in ("port_sec_disable", "disable_port_security"):
-                    cli_command = f"clear port-security dynamic interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n no switchport port-security\nend\nwrite memory"
+                    cli_command = f"clear port-security dynamic interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n no switchport port-security\nend"
                 elif action == "port_sec_clear_mac":
                     raw_mac = (params.get("mac") or "").strip()
                     clean_hex = re.sub(r"[^0-9a-fA-F]", "", raw_mac).lower()
@@ -685,12 +684,11 @@ def handle_port_action(args):
                     if formatted_mac:
                         cmds.append(f"clear port-security dynamic address {formatted_mac}")
                     cmds.append("end")
-                    cmds.append("write memory")
                     cli_command = "\n".join(cmds)
                 elif action == "port_sec_clear_all_macs":
-                    cli_command = f"clear port-security dynamic interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n switchport port-security mac-address sticky\nend\nwrite memory"
+                    cli_command = f"clear port-security dynamic interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n switchport port-security mac-address sticky\nend"
                 elif action == "port_sec_recover_errdisable":
-                    cli_command = f"configure terminal\ninterface {interface}\n shutdown\n no shutdown\nend\nwrite memory"
+                    cli_command = f"configure terminal\ninterface {interface}\n shutdown\n no shutdown\nend"
                 elif action == "port_sec_update":
                     enabled = params.get("enabled", True)
                     if not enabled:
@@ -716,8 +714,7 @@ def handle_port_action(args):
                                 cmds.append(f" no switchport port-security mac-address {fmt}")
                         cmds.extend([
                             " no switchport port-security",
-                            "end",
-                            "write memory"
+                            "end"
                         ])
                         cli_command = "\n".join(cmds)
                     else:
@@ -765,7 +762,6 @@ def handle_port_action(args):
                         elif mode == "dynamic":
                             cmds.append(" no switchport port-security mac-address sticky")
                         cmds.append("end")
-                        cmds.append("write memory")
                         cli_command = "\n".join(cmds)
                 elif action in ("save_config", "write_memory", "write-memory"):
                     cli_command = "write memory"
@@ -947,8 +943,7 @@ def handle_port_action(args):
 
                 effective_lines.extend([
                     " no switchport port-security",
-                    "end",
-                    "write memory"
+                    "end"
                 ])
                 cli_command = "\n".join(effective_lines)
             except Exception:

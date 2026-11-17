@@ -58,28 +58,28 @@ export function generatePortOperationCli(
     // CISCO IOS / XE PORT ACTIONS
     // -------------------------------------------------------------
     if (action === 'shutdown' || action === 'disable_interface') {
-      return `configure terminal\ninterface ${iface}\n shutdown\nend\nwrite memory`;
+      return `configure terminal\ninterface ${iface}\n shutdown\nend`;
     }
 
     if (action === 'no_shutdown' || action === 'enable_interface') {
-      return `configure terminal\ninterface ${iface}\n no shutdown\nend\nwrite memory`;
+      return `configure terminal\ninterface ${iface}\n no shutdown\nend`;
     }
 
     if (action === 'mode_trunk') {
-      return `configure terminal\ninterface ${iface}\n switchport trunk encapsulation dot1q\n switchport mode trunk\nend\nwrite memory`;
+      return `configure terminal\ninterface ${iface}\n switchport trunk encapsulation dot1q\n switchport mode trunk\nend`;
     }
 
     if (action === 'mode_access' || action === 'set_vlan' || action === 'change_vlan' || action === 'assign_vlan') {
       const vlan = Number(params.vlan || 1);
-      return `configure terminal\ninterface ${iface}\n switchport mode access\n switchport access vlan ${vlan}\nend\nwrite memory`;
+      return `configure terminal\ninterface ${iface}\n switchport mode access\n switchport access vlan ${vlan}\nend`;
     }
 
     if (action === 'set_description' || action === 'description') {
       const desc = String(params.description || '').trim();
       if (desc) {
-        return `configure terminal\ninterface ${iface}\n description ${desc}\nend\nwrite memory`;
+        return `configure terminal\ninterface ${iface}\n description ${desc}\nend`;
       } else {
-        return `configure terminal\ninterface ${iface}\n no description\nend\nwrite memory`;
+        return `configure terminal\ninterface ${iface}\n no description\nend`;
       }
     }
 
@@ -96,7 +96,6 @@ export function generatePortOperationCli(
         cmds.push(`clear port-security dynamic address ${formattedMac}`);
       }
       cmds.push('end');
-      cmds.push('write memory');
       return cmds.join('\n');
     }
 
@@ -109,7 +108,6 @@ export function generatePortOperationCli(
         ' no switchport port-security mac-address sticky',
         ' switchport port-security mac-address sticky',
         'end',
-        'write memory',
       ].join('\n');
     }
 
@@ -121,7 +119,6 @@ export function generatePortOperationCli(
         ' shutdown',
         ' no shutdown',
         'end',
-        'write memory',
       ].join('\n');
     }
 
@@ -167,7 +164,6 @@ export function generatePortOperationCli(
         }
         cmds.push(' no switchport port-security');
         cmds.push('end');
-        cmds.push('write memory');
         return cmds.join('\n');
       }
 
@@ -216,7 +212,6 @@ export function generatePortOperationCli(
       }
 
       cmds.push('end');
-      cmds.push('write memory');
       return cmds.join('\n');
     }
 
@@ -224,7 +219,7 @@ export function generatePortOperationCli(
       return 'write memory';
     }
 
-    return `configure terminal\ninterface ${iface}\nend\nwrite memory`;
+    return `configure terminal\ninterface ${iface}\nend`;
   } else {
     // -------------------------------------------------------------
     // MIKROTIK ROUTEROS ACTIONS

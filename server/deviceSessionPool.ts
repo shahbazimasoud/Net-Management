@@ -36,7 +36,21 @@ class DeviceSessionManager {
   private commandQueues = new Map<string, QueuedCommand[]>();
   private activeExecutions = new Map<string, boolean>();
   private currentAccumulators = new Map<string, string>();
+  private dataListeners = new Map<string, () => void>();
   private cleanupInterval: NodeJS.Timeout | null = null;
+
+  private static readonly PROMPT_REGEX =
+    /^(?:[A-Za-z0-9_.:/@-]+(?:\[[^\]]+\]|\([^\)]+\))?[#>$]|\[[^\]\r\n]+\]\s*(?:\/[^\s>]*)?>|[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:[^\r\n]*[$#]|[#>])\s*$/;
+  private static readonly MORE_REGEX = /--More--|--- more ---/i;
+
+  private stripAnsiAndCr(text: string): string {
+    if (!text) return '';
+    return text
+      .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+      .replace(/\x1b[@-Z\\-_]/g, '')
+      .replace(/[\x00\r]/g, '');
+  }
 
   constructor() {
     // Background idle cleanup every 60s: close sessions with 0 refCount or inactive for > 15 minutes
@@ -276,11 +290,15 @@ class DeviceSessionManager {
             stream = channel;
             const decoder = new StringDecoder('utf-8');
 
-            // Hook up data streaming
+            // Hook up data streaming (event-driven wake-up for active command listeners)
             stream.on('data', (d: Buffer) => {
               const text = decoder.write(d);
               const current = this.currentAccumulators.get(deviceId) || '';
               this.currentAccumulators.set(deviceId, current + text);
+              const listener = this.dataListeners.get(deviceId);
+              if (listener) {
+                listener();
+              }
             });
 
             stream.on('close', () => {
@@ -292,6 +310,30 @@ class DeviceSessionManager {
               console.warn(`[DeviceSessionPool] Shell stream error on device ${deviceId}:`, sErr?.message);
             });
 
+            this.currentAccumulators.set(deviceId, '');
+            let settleTimer: NodeJS.Timeout | null = null;
+            const completeInitialSettle = () => {
+              if (settleTimer) {
+                clearTimeout(settleTimer);
+                settleTimer = null;
+              }
+              this.dataListeners.delete(deviceId);
+              this.currentAccumulators.set(deviceId, '');
+              finishConnect({ success: true });
+            };
+
+            this.dataListeners.set(deviceId, () => {
+              const cleaned = this.stripAnsiAndCr(this.currentAccumulators.get(deviceId) || '');
+              const lines = cleaned.split('\n');
+              const lastLine = lines[lines.length - 1] || '';
+              if (
+                DeviceSessionManager.PROMPT_REGEX.test(lastLine) &&
+                !DeviceSessionManager.MORE_REGEX.test(lastLine)
+              ) {
+                completeInitialSettle();
+              }
+            });
+
             // Initial setup commands
             if (isCisco) {
               // Disable terminal pagination permanently for this persistent session
@@ -301,10 +343,8 @@ class DeviceSessionManager {
               stream.write('\r\n');
             }
 
-            // Small delay to let initial prompt settle
-            setTimeout(() => {
-              finishConnect({ success: true });
-            }, 600);
+            // Cap initial prompt settle at 350ms so slow banners don't delay modal ready state
+            settleTimer = setTimeout(completeInitialSettle, 350);
           }
         );
       });
@@ -450,57 +490,95 @@ class DeviceSessionManager {
 
     const currentItem = queue.shift()!;
     this.activeExecutions.set(deviceId, true);
-    this.currentAccumulators.set(deviceId, ''); // Reset accumulator
+    this.currentAccumulators.set(deviceId, '');
 
-    const marker = `__END_OF_CMD_${Date.now()}__`;
-    let accumulated = '';
+    const cmdLines = currentItem.cmd
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith('#'));
+
+    if (cmdLines.length === 0) {
+      this.activeExecutions.set(deviceId, false);
+      currentItem.resolve('');
+      this.processQueue(deviceId);
+      return;
+    }
+
     let isDone = false;
+    let safetyInterval: NodeJS.Timeout | null = null;
+    const collectedRawParts: string[] = [];
+    let stepIndex = 0;
+    let sentMoreCount = 0;
 
-    // Check prompt pattern: Router#, Switch#, [admin@MikroTik] >, #, >
-    const promptRegex = /(?:[A-Za-z0-9_-]+(?:\[[^\]]+\]|\([^\)]+\))?[#>$]\s*$)|(?:--More--)/m;
+    const cleanupStepTimers = () => {
+      this.dataListeners.delete(deviceId);
+      if (safetyInterval) {
+        clearInterval(safetyInterval);
+        safetyInterval = null;
+      }
+    };
 
     const timer = setTimeout(() => {
       if (!isDone) {
         isDone = true;
+        cleanupStepTimers();
         this.activeExecutions.set(deviceId, false);
-        currentItem.reject(new Error(`Command timed out after ${currentItem.timeoutMs}ms: ${currentItem.cmd}`));
+        currentItem.reject(
+          new Error(`Command timed out after ${currentItem.timeoutMs}ms: ${currentItem.cmd}`)
+        );
         this.processQueue(deviceId);
       }
     }, currentItem.timeoutMs);
 
-    // Write command
-    const formattedCmd = currentItem.cmd.endsWith('\n') ? currentItem.cmd : `${currentItem.cmd}\n`;
-    session.stream.write(formattedCmd);
+    const checkStepCompletion = () => {
+      if (isDone) return;
 
-    // Polling interval to check if prompt returned
-    const pollInterval = setInterval(() => {
-      if (isDone) {
-        clearInterval(pollInterval);
-        return;
-      }
+      const rawStep = this.currentAccumulators.get(deviceId) || '';
+      const cleanStep = this.stripAnsiAndCr(rawStep);
 
-      accumulated = this.currentAccumulators.get(deviceId) || '';
-
-      // If --More-- pagination appeared, send space
-      if (accumulated.includes('--More--')) {
+      // Advance --More-- pagination only once per new occurrence
+      const moreMatches = cleanStep.match(/--More--|--- more ---/gi);
+      const moreCount = moreMatches ? moreMatches.length : 0;
+      if (moreCount > sentMoreCount && session.status === 'connected' && session.stream.writable) {
+        sentMoreCount = moreCount;
         session.stream.write(' ');
       }
 
-      // Check if command finished: output has lines after the command and ends with prompt
-      const lines = accumulated.split('\n');
+      const lines = cleanStep.split('\n');
       if (lines.length > 1) {
-        const lastFewLines = lines.slice(-3).join('\n');
-        if (promptRegex.test(lastFewLines)) {
-          isDone = true;
-          clearInterval(pollInterval);
-          clearTimeout(timer);
-          this.activeExecutions.set(deviceId, false);
+        const lastLine = lines[lines.length - 1] || '';
+        if (
+          DeviceSessionManager.PROMPT_REGEX.test(lastLine) &&
+          !DeviceSessionManager.MORE_REGEX.test(lastLine)
+        ) {
+          collectedRawParts.push(rawStep);
+          stepIndex++;
 
-          currentItem.resolve(accumulated);
-          this.processQueue(deviceId);
+          if (stepIndex < cmdLines.length) {
+            // Immediately dispatch the next command line event-driven (zero 100ms poll lag)
+            sentMoreCount = 0;
+            this.currentAccumulators.set(deviceId, '');
+            if (session.status === 'connected' && session.stream.writable) {
+              session.stream.write(`${cmdLines[stepIndex]}\n`);
+            }
+          } else {
+            isDone = true;
+            cleanupStepTimers();
+            clearTimeout(timer);
+            this.activeExecutions.set(deviceId, false);
+            currentItem.resolve(collectedRawParts.join('\n'));
+            this.processQueue(deviceId);
+          }
         }
       }
-    }, 100);
+    };
+
+    this.dataListeners.set(deviceId, checkStepCompletion);
+    // Low-frequency safety check in case stream data settles quietly without trailing event
+    safetyInterval = setInterval(checkStepCompletion, 500);
+
+    // Send first line immediately
+    session.stream.write(`${cmdLines[0]}\n`);
   }
 
   /**
@@ -574,6 +652,13 @@ class DeviceSessionManager {
     } catch {}
 
     session.status = 'closed';
+    this.dataListeners.delete(deviceId);
+    const pendingQueue = this.commandQueues.get(deviceId);
+    if (pendingQueue && pendingQueue.length > 0) {
+      while (pendingQueue.length > 0) {
+        pendingQueue.shift()?.reject(new Error(`Session closed: ${reason}`));
+      }
+    }
     this.sessions.delete(deviceId);
     this.commandQueues.delete(deviceId);
     this.activeExecutions.delete(deviceId);

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.440.5';
+export const APP_VERSION = '1.440.6';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.440.6',
+    releaseDate: '2026-11-17',
+    type: 'patch',
+    title: 'افزایش چشمگیر سرعت اعمال و ذخیره تغییرات پورت، بهینه‌سازی استخر سشن SSH و حذف اجرای تکراری write memory',
+    title_en: 'Major Speedup for Port Configuration Saves, Event-Driven SSH Session Pool & Elimination of Per-Port write memory Blocks',
+    changes: [
+      'حذف دستور سنگین `write memory` از انتهای تک‌تک عملیات‌های پورت در `server/ciscoPortOperationHelper.ts`، `buildPortCliCommand` در `server/routes.ts`، `server/commandPreviewBuilder.ts`، `backend/ssh_bridge.py` و `backend/drivers/cisco.py` تا تغییرات فوراً در `running-config` اعمال شوند و فلش NVRAM تنها با دکمه اختصاصی Write Memory نوشته شود.',
+      'بازطراحی موتور اجرای دستورات در `server/deviceSessionPool.ts` به صورت رویدادمحور (`stream.on("data")`) و خط‌به‌خط با پاک‌سازی کدهای ANSI، تشخیص پیشرفته `--More--` و پشتیبانی از نام‌های میزبان دارای `.`, `/`, `:` و `@` بدون معطلی polling 100ms و بدون تایم‌اوت ۲۵ ثانیه‌ای.',
+      'حذف سینک مجدد ۷ دستوری پس از ذخیره در `CiscoPortSecurityModal.tsx`، بارگذاری تنبل (Lazy Mount) تب لاگ‌ها در `PortInspectorModal.tsx` جهت جلوگیری از اجرای پیش‌فرض `show logging`، استفاده از سشن فعال `deviceSessionPool` برای `GET /api/devices/:id/vlans` جهت حذف هندشیک SSH ثانویه و جایگزینی `loadData()` سنگین در `src/App.tsx` با بازخوانی سبک و دیبانس‌شده تجهیزات.'
+    ],
+    changes_en: [
+      'Removed forced per-port `write memory` from `server/ciscoPortOperationHelper.ts`, `buildPortCliCommand` in `server/routes.ts`, `server/commandPreviewBuilder.ts`, `backend/ssh_bridge.py`, and `backend/drivers/cisco.py` so port updates apply immediately to `running-config` while NVRAM flash persistence runs exclusively via Write Memory.',
+      'Upgraded `DeviceSessionManager` (`server/deviceSessionPool.ts`) to event-driven line-by-line execution (`stream.on("data")`) with ANSI/CR stripping, tracked `--More--` paging, fast initial prompt settle, and expanded prompt detection supporting `.`, `/`, `:`, and `@` in hostnames.',
+      'Removed the redundant 7-command live re-sync after saving in `CiscoPortSecurityModal.tsx`, lazy-mounted `DeviceTerminalLogsTab` in `PortInspectorModal.tsx` until Logs is opened, routed `GET /api/devices/:id/vlans` through the active persistent SSH session pool, and replaced full `loadData()` in `src/App.tsx` with a debounced lightweight device refresh on port edits.'
+    ]
+  },
   {
     version: '1.440.5',
     releaseDate: '2026-11-17',

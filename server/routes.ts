@@ -5322,6 +5322,111 @@ apiRouter.use('/devices/:id/vlans', async (req: Request, res: Response, next: Ne
   next();
 });
 
+// Fast Path: Serve Cisco device VLAN list directly over active persistent SSH session pool (avoids secondary Paramiko SSH handshake)
+apiRouter.get('/devices/:id/vlans', async (req: Request, res: Response, next: NextFunction) => {
+  const devId = req.params.id;
+  try {
+    if (!deviceSessionPool.hasActiveSession(devId)) {
+      return next();
+    }
+    const allDevs = await getAllDevices();
+    const device = allDevs.find((d: any) => d.id === devId || d.name === devId);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Device not found' });
+    }
+
+    const platform = String(device.platform || device.role || device.type || '').toLowerCase();
+    const isCisco = !platform.includes('mikrotik') && !platform.includes('routeros') && !platform.includes('linux');
+    if (!isCisco) {
+      return next();
+    }
+
+    console.log(`[DeviceVLANs SessionPool] Querying 'show vlan brief' for ${device.name || devId} over active persistent SSH session`);
+    const poolExec = await deviceSessionPool.executeCommandOnSession(devId, 'show vlan brief', 8000);
+    if (!poolExec.success || !poolExec.output) {
+      return next();
+    }
+
+    const liveVlans: Array<{ id: number; name: string; status: string; ports_count: number }> = [];
+    const seen = new Set<number>();
+    for (const rawLine of poolExec.output.split(/\r?\n/)) {
+      const lineStr = rawLine.trim();
+      const m = lineStr.match(/^(\d+)\s+([A-Za-z0-9_.\-\/]+)\s+(active|act\/unsup|suspended)\s*(.*)$/i);
+      if (m) {
+        const vid = parseInt(m[1], 10);
+        if (!Number.isFinite(vid) || vid <= 0 || vid > 4094 || seen.has(vid)) continue;
+        seen.add(vid);
+        const name = m[2];
+        const statusRaw = m[3].toLowerCase();
+        const portsPart = m[4] || '';
+        const portsList = portsPart ? portsPart.split(',').map((s) => s.trim()).filter(Boolean) : [];
+        liveVlans.push({
+          id: vid,
+          name,
+          status: statusRaw.includes('act') ? 'active' : 'inactive',
+          ports_count: portsList.length,
+        });
+      }
+    }
+
+    if (liveVlans.length === 0) {
+      return next();
+    }
+
+    const vlanPortCounts: Record<number, number> = {};
+    const existingPorts = Array.isArray(device.ports) ? device.ports : [];
+    for (const p of existingPorts) {
+      if (p.vlan !== undefined && p.vlan !== null) {
+        const vid = parseInt(String(p.vlan), 10);
+        if (Number.isFinite(vid) && vid > 0) {
+          vlanPortCounts[vid] = (vlanPortCounts[vid] || 0) + 1;
+        }
+      }
+      if (p.allowed_vlans) {
+        for (const part of String(p.allowed_vlans).split(',')) {
+          const trimmed = part.trim();
+          if (/^\d+$/.test(trimmed)) {
+            const vid = parseInt(trimmed, 10);
+            if (!(vid in vlanPortCounts)) {
+              vlanPortCounts[vid] = 0;
+            }
+          }
+        }
+      }
+    }
+
+    for (const lv of liveVlans) {
+      vlanPortCounts[lv.id] = Math.max(vlanPortCounts[lv.id] || 0, lv.ports_count);
+    }
+    if (!(1 in vlanPortCounts)) {
+      vlanPortCounts[1] = 0;
+    }
+
+    const deviceVlans = Object.keys(vlanPortCounts)
+      .map((k) => Number(k))
+      .sort((a, b) => a - b)
+      .map((vid) => {
+        const liveItem = liveVlans.find((x) => x.id === vid);
+        return {
+          id: vid,
+          name: liveItem?.name || (vid === 1 ? 'Default / Management' : `VLAN ${vid}`),
+          status: liveItem?.status || 'active',
+          ports_count: vlanPortCounts[vid],
+        };
+      });
+
+    return res.json({
+      device_id: devId,
+      device_name: device.name,
+      vlans: deviceVlans,
+      total: deviceVlans.length,
+    });
+  } catch (err: any) {
+    console.warn(`[DeviceVLANs SessionPool Fallback] ${err?.message || err}`);
+    return next();
+  }
+});
+
 apiRouter.use('/devices/:id/unsaved-changes', async (req: Request, res: Response, next: NextFunction) => {
   const check = await assertDeviceScopeAccess(req, req.params.id, 'inspect_ports');
   if (!check.allowed) {
@@ -5849,7 +5954,6 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
     }
     if (!hasCommands) return '';
     lines.push('end');
-    lines.push('write memory');
     return lines.join('\n');
   } else {
     // MikroTik RouterOS

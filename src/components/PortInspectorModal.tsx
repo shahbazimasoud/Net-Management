@@ -321,8 +321,19 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [selectedPort, setSelectedPort] = useState<SwitchPort | null>(null);
   const [activeTab, setActiveTab] = useState<'ports' | 'logs' | 'resources'>('ports');
+  const [logsTabActivated, setLogsTabActivated] = useState(false);
   const [persistentSessionStatus, setPersistentSessionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [autoExecNotice, setAutoExecNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLogsTabActivated(false);
+  }, [device?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'logs') {
+      setLogsTabActivated(true);
+    }
+  }, [activeTab]);
 
   // Maintain authoritative persistent SSH session across all sub-modals (Port Security, VLAN, Write, Logs)
   useEffect(() => {
@@ -2294,13 +2305,15 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
 
         {/* Content Body */}
         <div className={`p-5 overflow-y-auto space-y-4 flex-1 ${activeTab === 'logs' ? 'flex flex-col min-h-[580px] p-3' : ''}`}>
-          {/* Syslog Live Terminal Tab (Kept mounted to preserve state & prevent redundant SSH calls) */}
+          {/* Syslog Live Terminal Tab (Lazy-mounted on first visit to Logs tab, then kept mounted) */}
           <div className={activeTab === 'logs' ? 'flex-1 flex flex-col min-h-[550px] h-[640px]' : 'hidden'}>
-            <DeviceTerminalLogsTab
-              device={device}
-              isEn={isEn}
-              onConnectTerminal={canTerminal ? onConnectTerminal : undefined}
-            />
+            {logsTabActivated && (
+              <DeviceTerminalLogsTab
+                device={device}
+                isEn={isEn}
+                onConnectTerminal={canTerminal ? onConnectTerminal : undefined}
+              />
+            )}
           </div>
 
           {activeTab === 'resources' && (

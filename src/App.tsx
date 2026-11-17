@@ -1239,6 +1239,47 @@ export default function App() {
     }
   }, [isAuthenticated]);
 
+  const portRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (portRefreshTimerRef.current) clearTimeout(portRefreshTimerRef.current);
+    };
+  }, []);
+
+  // Lightweight debounced refresh after port mutations (skips full topology re-fetch)
+  const handleLightweightPortUpdated = useCallback(() => {
+    if (!isAuthenticated) return;
+    if (portRefreshTimerRef.current) {
+      clearTimeout(portRefreshTimerRef.current);
+    }
+    portRefreshTimerRef.current = setTimeout(async () => {
+      try {
+        const devRes = await fetchDevices();
+        if (devRes?.devices && Array.isArray(devRes.devices)) {
+          setDevices(devRes.devices);
+          setActivePortDevices((prevList) => {
+            if (!prevList || prevList.length === 0) return prevList;
+            return prevList.map((d) => {
+              if (!d) return null;
+              const fresh = devRes.devices.find((item: Device) => item.id === d.id);
+              return fresh ? { ...d, ...fresh } : d;
+            });
+          });
+          setActiveTerminals((prevList) => {
+            if (!prevList || prevList.length === 0) return prevList;
+            return prevList.map((d) => {
+              if (!d) return null;
+              const fresh = devRes.devices.find((item: Device) => item.id === d.id);
+              return fresh ? { ...d, ...fresh } : d;
+            });
+          });
+        }
+      } catch (e) {
+        console.warn('[Lightweight Port Refresh] Background sync skipped:', e);
+      }
+    }, 350);
+  }, [isAuthenticated]);
+
   useEffect(() => {
     if (isAuthenticated) {
       loadData();
@@ -1995,10 +2036,10 @@ export default function App() {
         }}
         onDevicesChange={setActivePortDevices}
         allDevices={topology?.devices || devices}
-        onPortUpdated={loadData}
+        onPortUpdated={handleLightweightPortUpdated}
         onConnectTerminal={(dev, initPort) => openTerminal(dev, initPort)}
         onWriteMemory={handleWriteMemory}
-        onDeviceUpdated={loadData}
+        onDeviceUpdated={handleLightweightPortUpdated}
         isLightMode={isLightMode}
       />
 

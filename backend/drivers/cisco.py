@@ -119,7 +119,6 @@ class CiscoDriver(NetworkDeviceDriver):
             elif mode == "dynamic":
                 cmds.append(" no switchport port-security mac-address sticky")
             cmds.append("end")
-            cmds.append("write memory")
             return "\n".join(cmds)
         elif action in ("port_sec_disable", "disable_port_security"):
             raw_mac = (params.get("configured_mac") or params.get("mac") or params.get("previous_mac") or "").strip()
@@ -135,8 +134,7 @@ class CiscoDriver(NetworkDeviceDriver):
                 cmds.append(f" no switchport port-security mac-address {formatted_mac}")
             cmds.extend([
                 " no switchport port-security",
-                "end",
-                "write memory"
+                "end"
             ])
             return "\n".join(cmds)
         elif action == "port_sec_clear_mac":
@@ -150,12 +148,11 @@ class CiscoDriver(NetworkDeviceDriver):
             if formatted_mac:
                 cmds.append(f"clear port-security dynamic address {formatted_mac}")
             cmds.append("end")
-            cmds.append("write memory")
             return "\n".join(cmds)
         elif action == "port_sec_clear_all_macs":
-            return f"clear port-security dynamic interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n switchport port-security mac-address sticky\nend\nwrite memory"
+            return f"clear port-security dynamic interface {interface}\nconfigure terminal\ninterface {interface}\n no switchport port-security mac-address sticky\n switchport port-security mac-address sticky\nend"
         elif action == "port_sec_recover_errdisable":
-            return f"configure terminal\ninterface {interface}\n shutdown\n no shutdown\nend\nwrite memory"
+            return f"configure terminal\ninterface {interface}\n shutdown\n no shutdown\nend"
         elif action == "port_sec_query":
             return (
                 f"terminal length 0\n"
@@ -192,8 +189,7 @@ class CiscoDriver(NetworkDeviceDriver):
                         cmds.append(f" no switchport port-security mac-address {fmt}")
                 cmds.extend([
                     " no switchport port-security",
-                    "end",
-                    "write memory"
+                    "end"
                 ])
                 return "\n".join(cmds)
             max_mac = params.get("max_mac", 1)
@@ -240,7 +236,6 @@ class CiscoDriver(NetworkDeviceDriver):
             elif mode == "dynamic":
                 cmds.append(" no switchport port-security mac-address sticky")
             cmds.append("end")
-            cmds.append("write memory")
             return "\n".join(cmds)
         elif action == "set_description":
             desc = (params.get("description") or "").strip()

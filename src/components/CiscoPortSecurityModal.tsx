@@ -648,24 +648,12 @@ export const CiscoPortSecurityModal: React.FC<CiscoPortSecurityModalProps> = ({
         mode: 'access',
       };
 
-      // 2. Authentically synchronize with the switch's live port security table
-      try {
-        const syncRes = await fetchDevicePorts(device.id, true);
-        if (syncRes && Array.isArray(syncRes.ports)) {
-          const freshPort = syncRes.ports.find((p) => matchPortFlexible(p, portId));
-          if (freshPort) {
-            enrichedPort = freshPort;
-            const freshSec = extractPortSecurityState(freshPort);
-            setEnabled(freshSec.enabled);
-            setMode(freshSec.mode);
-            setMaxMac(freshSec.maxMac);
-            setViolation(freshSec.violation);
-            setConfiguredMac(freshSec.configuredMac);
-          }
-        }
-      } catch (syncErr) {
-        console.warn('Post-save live sync note:', syncErr);
-      }
+      const freshSec = extractPortSecurityState(enrichedPort);
+      setEnabled(freshSec.enabled);
+      setMode(freshSec.mode);
+      setMaxMac(freshSec.maxMac);
+      setViolation(freshSec.violation);
+      setConfiguredMac(freshSec.configuredMac);
 
       if (onPortUpdated) {
         onPortUpdated(enrichedPort);
