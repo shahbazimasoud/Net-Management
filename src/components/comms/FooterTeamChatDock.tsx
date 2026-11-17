@@ -102,7 +102,12 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
   onChannelRead,
   onChannelUpdated,
 }) => {
-  const [messages, setMessages] = useState<CommsMessage[]>([]);
+  const [messages, setMessages] = useState<CommsMessage[]>(() => {
+    const cached80 = appDataCache.getOptimistic<any>(`comms:channel:${channel.id}:80:0`);
+    if (cached80?.messages) return cached80.messages;
+    const cached100 = appDataCache.getOptimistic<any>(`comms:channel:${channel.id}:100:0`);
+    return cached100?.messages || [];
+  });
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [draftBody, setDraftBody] = useState('');
@@ -111,6 +116,8 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
   const [sending, setSending] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const threadEndRef = useRef<HTMLDivElement>(null);
+  const messagesCountRef = useRef<number>(messages.length);
+  messagesCountRef.current = messages.length;
 
   const channelTitle = dedupeParenthesizedTitle(
     isEn ? channel.nameEn || channel.name : channel.name
@@ -119,7 +126,7 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
   const loadMessages = useCallback(
     async (forceRefresh = false) => {
       if (isCollapsed) return;
-      if (messages.length === 0) setLoading(true);
+      if (messagesCountRef.current === 0) setLoading(true);
       setErrorMsg(null);
       try {
         const res = await fetchChannelMessages(channel.id, { limit: 80, forceRefresh });
@@ -135,14 +142,45 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
         setLoading(false);
       }
     },
-    [channel.id, channel.unreadCount, isCollapsed, isEn, messages.length, onChannelRead]
+    [channel.id, channel.unreadCount, isCollapsed, isEn, onChannelRead]
   );
 
   useEffect(() => {
     if (!isCollapsed) {
-      loadMessages(liveRevision > 0);
+      loadMessages(false);
     }
-  }, [channel.id, isCollapsed, liveRevision]);
+  }, [channel.id, isCollapsed, liveRevision, loadMessages]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const evt = (e as CustomEvent<any>).detail;
+      if (evt?.type === 'channel:message' && evt.channelId === channel.id && evt.message) {
+        const incoming: CommsMessage = evt.message;
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === incoming.id)) return prev;
+          const optIdx = prev.findIndex(
+            (m) =>
+              m.id.startsWith('__opt__') &&
+              m.body === incoming.body &&
+              (m.senderUsername || '').toLowerCase() === (incoming.senderUsername || '').toLowerCase()
+          );
+          const next =
+            optIdx !== -1
+              ? prev.map((m, idx) => (idx === optIdx ? incoming : m))
+              : [...prev, incoming];
+          appDataCache.set(`comms:channel:${channel.id}:80:0`, {
+            success: true,
+            channel,
+            messages: next,
+            total: next.length,
+          });
+          return next;
+        });
+      }
+    };
+    window.addEventListener('nettop-comms-ws-event', handler as EventListener);
+    return () => window.removeEventListener('nettop-comms-ws-event', handler as EventListener);
+  }, [channel]);
 
   useEffect(() => {
     if (!isCollapsed) {
@@ -164,23 +202,78 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
 
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!draftBody.trim() || sending || !canSend) return;
-    setSending(true);
+    const textToSend = draftBody.trim();
+    if (!textToSend || sending || !canSend) return;
+
+    const priorityToSend = draftPriority;
+    const replySnapshot = replyTarget;
+    const nowIso = new Date().toISOString();
+    const tempId = `__opt__${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    const optimisticMsg: CommsMessage = {
+      id: tempId,
+      channelId: channel.id,
+      senderUserId: '',
+      senderUsername: currentUsername,
+      senderFullName: currentUsername,
+      messageType: channel.channelType === 'direct' ? 'direct_message' : 'channel_message',
+      priority: priorityToSend,
+      title: '',
+      body: textToSend,
+      bodyEn: textToSend,
+      replyToMessageId: replySnapshot?.id || null,
+      replyToPreview: replySnapshot
+        ? {
+            id: replySnapshot.id,
+            senderName: replySnapshot.senderFullName || replySnapshot.senderUsername,
+            body:
+              replySnapshot.body.length > 100
+                ? `${replySnapshot.body.slice(0, 97)}...`
+                : replySnapshot.body,
+          }
+        : null,
+      createdAt: nowIso,
+    };
+
+    // Instant 0ms local bubble
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setDraftBody('');
+    setDraftPriority('info');
+    setReplyTarget(null);
     setErrorMsg(null);
+    setSending(true);
+
     try {
       const res = await postChannelMessage(channel.id, {
-        body: draftBody.trim(),
-        priority: draftPriority,
-        replyToMessageId: replyTarget?.id || null,
+        body: textToSend,
+        priority: priorityToSend,
+        replyToMessageId: replySnapshot?.id || null,
       });
-      setMessages((prev) =>
-        prev.some((m) => m.id === res.message.id) ? prev : [...prev, res.message]
+      setMessages((prev) => {
+        const alreadyHasReal = prev.some((m) => m.id === res.message.id);
+        const next = alreadyHasReal
+          ? prev.filter((m) => m.id !== tempId)
+          : prev.map((m) => (m.id === tempId ? res.message : m));
+        appDataCache.set(`comms:channel:${channel.id}:80:0`, {
+          success: true,
+          channel,
+          messages: next,
+          total: next.length,
+        });
+        return next;
+      });
+      window.dispatchEvent(
+        new CustomEvent('nettop-comms-ws-event', {
+          detail: {
+            type: 'channel:message',
+            channelId: channel.id,
+            message: res.message,
+          },
+        })
       );
-      setDraftBody('');
-      setDraftPriority('info');
-      setReplyTarget(null);
-      onChannelUpdated();
     } catch (err: any) {
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setDraftBody((curr) => curr || textToSend);
       setErrorMsg(err?.message || (isEn ? 'Failed to send message' : 'خطا در ارسال پیام'));
     } finally {
       setSending(false);
@@ -722,8 +815,13 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
   // LinkedIn-style open conversation tabs & floating boxes
   const [openTabs, setOpenTabs] = useState<OpenChatTabState[]>([]);
 
+  const openTabsRef = useRef<OpenChatTabState[]>(openTabs);
+  const channelsRef = useRef<CommsChannel[]>(channels);
+  openTabsRef.current = openTabs;
+  channelsRef.current = channels;
+
   const loadChannels = useCallback(async (forceRefresh = false) => {
-    if (channels.length === 0) setChannelsLoading(true);
+    if (channelsRef.current.length === 0) setChannelsLoading(true);
     setListError(null);
     try {
       const list = await fetchCommsChannels(forceRefresh);
@@ -735,12 +833,66 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
     } finally {
       setChannelsLoading(false);
     }
-  }, [channels.length, isEn]);
+  }, [isEn]);
 
   // Initial load + live WebSocket sync
   useEffect(() => {
     loadChannels(liveRevision > 0);
-  }, [liveRevision]);
+  }, [liveRevision, loadChannels]);
+
+  // Zero-latency in-place WS listener for chat messages and channel updates
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const evt = (e as CustomEvent<any>).detail;
+      if (!evt) return;
+
+      if (evt.type === 'channel:message' && evt.channelId && evt.message) {
+        const incoming: CommsMessage = evt.message;
+        const preview =
+          incoming.body.length > 90 ? `${incoming.body.slice(0, 87)}...` : incoming.body;
+        const activeOpen = openTabsRef.current.some(
+          (t) => t.channelId === evt.channelId && !t.isCollapsed
+        );
+        const fromSelf =
+          Boolean(user?.username) &&
+          (incoming.senderUsername || '').toLowerCase() === (user?.username || '').toLowerCase();
+
+        setChannels((prev) => {
+          if (!prev.some((c) => c.id === evt.channelId)) return prev;
+          const next = prev.map((c) =>
+            c.id === evt.channelId
+              ? {
+                  ...c,
+                  lastMessagePreview: preview,
+                  lastMessageAt: incoming.createdAt,
+                  updatedAt: incoming.createdAt,
+                  unreadCount: activeOpen || fromSelf ? 0 : (c.unreadCount || 0) + 1,
+                }
+              : c
+          );
+          next.sort((a, b) => {
+            const tA = new Date(a.lastMessageAt || a.updatedAt || a.createdAt).getTime();
+            const tB = new Date(b.lastMessageAt || b.updatedAt || b.createdAt).getTime();
+            return tB - tA;
+          });
+          return next;
+        });
+      } else if (evt.type === 'channel:created' && evt.channel) {
+        setChannels((prev) =>
+          prev.some((c) => c.id === evt.channel.id) ? prev : [evt.channel, ...prev]
+        );
+      } else if (evt.type === 'channel:updated' && evt.channel) {
+        setChannels((prev) =>
+          prev.map((c) => (c.id === evt.channel.id ? evt.channel : c))
+        );
+      } else if (evt.type === 'channel:removed' && evt.channelId) {
+        setChannels((prev) => prev.filter((c) => c.id !== evt.channelId));
+        setOpenTabs((prev) => prev.filter((t) => t.channelId !== evt.channelId));
+      }
+    };
+    window.addEventListener('nettop-comms-ws-event', handler as EventListener);
+    return () => window.removeEventListener('nettop-comms-ws-event', handler as EventListener);
+  }, [user?.username]);
 
   useEffect(() => {
     if (!isListOpen) return;
@@ -928,7 +1080,7 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
         onClick={() => {
           const next = !isListOpen;
           setIsListOpen(next);
-          if (next) loadChannels(true);
+          if (next) loadChannels(false);
         }}
         className={`px-2 py-0.5 rounded flex items-center gap-1.5 font-mono text-[11px] transition cursor-pointer border shrink-0 ${
           isListOpen || openTabs.length > 0

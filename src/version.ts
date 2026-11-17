@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.437.0';
+export const APP_VERSION = '1.438.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.438.0',
+    releaseDate: '2026-11-17',
+    type: 'minor',
+    title: 'افزایش چشمگیر سرعت بارگذاری چت‌ها و ارسال آنی پیام‌های تیمی',
+    title_en: 'High-Speed Team Chat Loading, Batched DB Queries & Instant Optimistic Messaging',
+    changes: [
+      'حذف کامل گلوگاه کوئری‌های ترتیبی N+1 در `listUserChannels` و جایگزینی با ۴ کوئری دسته‌ای موازی (`ANY`, `DISTINCT ON`, `GROUP BY`) به‌همراه کش کوتاه‌مدت دایرکتوری کاربران در `server/commsService.ts`.',
+      'بهینه‌سازی `postChannelMessage` و `persistMessageAndNotifications` با درج دسته‌ای اعلان‌ها، ارزیابی موازی تنظیمات کاربران، یکپارچه‌سازی ثبت لاگ حسابرسی در پس‌زمینه و حذف خواندن/نوشتن تکراری فایل ذخیره.',
+      'افزودن ارسال آنی خوش‌بینانه (Optimistic 0ms Send)، بازیابی فوری پیام‌های کش‌شده هنگام جابه‌جایی بین چت‌ها و به‌روزرسانی مستقیم تردها از طریق رویداد زنده وب‌سوکت بدون رفرش مجدد لیست‌ها.'
+    ],
+    changes_en: [
+      'Eliminated N+1 sequential PostgreSQL queries in `listUserChannels` and `loadHydratedChannelForUser` by batching channel, member, latest message (`DISTINCT ON`), and unread counts into parallel queries with a short-TTL directory cache in `server/commsService.ts`.',
+      'Optimized `postChannelMessage`, `listChannelMessages`, and `persistMessageAndNotifications` via parallel user-preference evaluation, multi-row batched notification INSERTs, single-pass fallback updates, and non-blocking audit/unread fanout.',
+      'Added 0ms optimistic message rendering, instant cached thread switching, and direct in-place WebSocket event routing (`nettop-comms-ws-event`) across `App.tsx`, `TeamChannelsPane.tsx`, and `FooterTeamChatDock.tsx` so sending a chat message no longer triggers redundant global refetches.'
+    ]
+  },
   {
     version: '1.437.0',
     releaseDate: '2026-11-17',

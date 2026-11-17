@@ -131,6 +131,10 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
   const [addMembersBusy, setAddMembersBusy] = useState(false);
 
   const threadEndRef = useRef<HTMLDivElement>(null);
+  const selectedChannelIdRef = useRef<string | null>(selectedChannelId);
+  const channelsRef = useRef<CommsChannel[]>(channels);
+  selectedChannelIdRef.current = selectedChannelId;
+  channelsRef.current = channels;
 
   const ensureDirectory = useCallback(async () => {
     if (directoryOptions.length > 0) return;
@@ -144,12 +148,12 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
 
   const loadChannels = useCallback(
     async (forceRefresh = false) => {
-      if (channels.length === 0) setChannelsLoading(true);
+      if (channelsRef.current.length === 0) setChannelsLoading(true);
       try {
         const list = await fetchCommsChannels(forceRefresh);
         setChannels(list);
         onChannelsLoaded?.(list);
-        if (!selectedChannelId && list.length > 0) {
+        if (!selectedChannelIdRef.current && list.length > 0) {
           onSelectChannelId(list[0].id);
         }
       } catch (err: any) {
@@ -160,42 +164,150 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
         setChannelsLoading(false);
       }
     },
-    [channels.length, isEn, onChannelsLoaded, onSelectChannelId, selectedChannelId]
+    [isEn, onChannelsLoaded, onSelectChannelId]
   );
 
   const loadThread = useCallback(
     async (channelId: string, forceRefresh = false) => {
-      setMessagesLoading((prev) => (messages.length === 0 ? true : prev));
+      const cached = appDataCache.getOptimistic<{
+        channel: CommsChannel;
+        messages: CommsMessage[];
+        total: number;
+      }>(`comms:channel:${channelId}:100:0`);
+
+      if (cached && Array.isArray(cached.messages)) {
+        setMessages(cached.messages);
+        setMessagesLoading(false);
+      } else {
+        setMessages([]);
+        setMessagesLoading(true);
+      }
       setErrorMsg(null);
+
       try {
         const res = await fetchChannelMessages(channelId, { limit: 100, forceRefresh });
-        setMessages(res.messages || []);
+        if (selectedChannelIdRef.current === channelId) {
+          setMessages(res.messages || []);
+        }
         setChannels((prev) =>
           prev.map((c) => (c.id === channelId ? { ...c, unreadCount: 0 } : c))
         );
       } catch (err: any) {
-        setErrorMsg(
-          err?.message || (isEn ? 'Failed to load thread messages' : 'خطا در دریافت پیام‌های گفتگو')
-        );
+        if (selectedChannelIdRef.current === channelId) {
+          setErrorMsg(
+            err?.message || (isEn ? 'Failed to load thread messages' : 'خطا در دریافت پیام‌های گفتگو')
+          );
+        }
       } finally {
-        setMessagesLoading(false);
+        if (selectedChannelIdRef.current === channelId) {
+          setMessagesLoading(false);
+        }
       }
     },
-    [isEn, messages.length]
+    [isEn]
   );
 
   useEffect(() => {
     loadChannels(liveRevision > 0);
-  }, [liveRevision]);
+  }, [liveRevision, loadChannels]);
 
   useEffect(() => {
     if (selectedChannelId) {
-      loadThread(selectedChannelId, liveRevision > 0);
+      loadThread(selectedChannelId, false);
       setReplyTarget(null);
     } else {
       setMessages([]);
     }
-  }, [selectedChannelId, liveRevision]);
+  }, [selectedChannelId, loadThread]);
+
+  // Direct zero-latency WS listener for incoming messages & channel updates (avoids HTTP refetch bursts)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const evt = (e as CustomEvent<any>).detail;
+      if (!evt) return;
+
+      if (evt.type === 'channel:message' && evt.channelId && evt.message) {
+        const incoming: CommsMessage = evt.message;
+        const preview =
+          incoming.body.length > 90 ? `${incoming.body.slice(0, 87)}...` : incoming.body;
+        const isCurrent = evt.channelId === selectedChannelIdRef.current;
+        const fromSelf =
+          Boolean(user?.username) &&
+          (incoming.senderUsername || '').toLowerCase() === (user?.username || '').toLowerCase();
+
+        if (isCurrent) {
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === incoming.id)) return prev;
+            const optIdx = prev.findIndex(
+              (m) =>
+                m.id.startsWith('__opt__') &&
+                m.body === incoming.body &&
+                (m.senderUsername || '').toLowerCase() === (incoming.senderUsername || '').toLowerCase()
+            );
+            const next =
+              optIdx !== -1
+                ? prev.map((m, idx) => (idx === optIdx ? incoming : m))
+                : [...prev, incoming];
+            const cached = appDataCache.getOptimistic<any>(`comms:channel:${evt.channelId}:100:0`);
+            if (cached) {
+              appDataCache.set(`comms:channel:${evt.channelId}:100:0`, {
+                ...cached,
+                messages: next,
+              });
+            }
+            return next;
+          });
+        }
+
+        setChannels((prev) => {
+          const exists = prev.some((c) => c.id === evt.channelId);
+          if (!exists) return prev;
+          const updated = prev.map((c) =>
+            c.id === evt.channelId
+              ? {
+                  ...c,
+                  lastMessagePreview: preview,
+                  lastMessageAt: incoming.createdAt,
+                  updatedAt: incoming.createdAt,
+                  unreadCount: isCurrent || fromSelf ? 0 : (c.unreadCount || 0) + 1,
+                }
+              : c
+          );
+          updated.sort((a, b) => {
+            const tA = new Date(a.lastMessageAt || a.updatedAt || a.createdAt).getTime();
+            const tB = new Date(b.lastMessageAt || b.updatedAt || b.createdAt).getTime();
+            return tB - tA;
+          });
+          onChannelsLoaded?.(updated);
+          return updated;
+        });
+      } else if (evt.type === 'channel:created' && evt.channel) {
+        setChannels((prev) => {
+          if (prev.some((c) => c.id === evt.channel.id)) return prev;
+          const next = [evt.channel, ...prev];
+          onChannelsLoaded?.(next);
+          return next;
+        });
+      } else if (evt.type === 'channel:updated' && evt.channel) {
+        setChannels((prev) => {
+          const next = prev.map((c) => (c.id === evt.channel.id ? evt.channel : c));
+          onChannelsLoaded?.(next);
+          return next;
+        });
+      } else if (evt.type === 'channel:removed' && evt.channelId) {
+        setChannels((prev) => {
+          const next = prev.filter((c) => c.id !== evt.channelId);
+          onChannelsLoaded?.(next);
+          if (selectedChannelIdRef.current === evt.channelId) {
+            onSelectChannelId(next[0]?.id || null);
+          }
+          return next;
+        });
+      }
+    };
+    window.addEventListener('nettop-comms-ws-event', handler as EventListener);
+    return () => window.removeEventListener('nettop-comms-ws-event', handler as EventListener);
+  }, [onChannelsLoaded, onSelectChannelId, user?.username]);
 
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -257,23 +369,103 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
 
   const handleSendThreadMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!activeChannel || !draftBody.trim() || sending) return;
-    setSending(true);
+    const textToSend = draftBody.trim();
+    if (!activeChannel || !textToSend || sending) return;
+
+    const targetChannelId = activeChannel.id;
+    const priorityToSend = draftPriority;
+    const replySnapshot = replyTarget;
+    const nowIso = new Date().toISOString();
+    const tempId = `__opt__${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    const optimisticMsg: CommsMessage = {
+      id: tempId,
+      channelId: targetChannelId,
+      senderUserId: user?.id || '',
+      senderUsername: user?.username || '',
+      senderFullName: user?.fullName || user?.username || '',
+      senderRole: user?.role || 'Operator',
+      messageType: activeChannel.channelType === 'direct' ? 'direct_message' : 'channel_message',
+      priority: priorityToSend,
+      title: '',
+      body: textToSend,
+      bodyEn: textToSend,
+      replyToMessageId: replySnapshot?.id || null,
+      replyToPreview: replySnapshot
+        ? {
+            id: replySnapshot.id,
+            senderName: replySnapshot.senderFullName || replySnapshot.senderUsername,
+            body:
+              replySnapshot.body.length > 100
+                ? `${replySnapshot.body.slice(0, 97)}...`
+                : replySnapshot.body,
+          }
+        : null,
+      createdAt: nowIso,
+    };
+
+    const preview = textToSend.length > 90 ? `${textToSend.slice(0, 87)}...` : textToSend;
+
+    // Immediate 0ms UI feedback
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setDraftBody('');
+    setDraftPriority('info');
+    setReplyTarget(null);
     setErrorMsg(null);
-    try {
-      const res = await postChannelMessage(activeChannel.id, {
-        body: draftBody.trim(),
-        priority: draftPriority,
-        replyToMessageId: replyTarget?.id || null,
-      });
-      setMessages((prev) =>
-        prev.some((m) => m.id === res.message.id) ? prev : [...prev, res.message]
+    setChannels((prev) => {
+      const updated = prev.map((c) =>
+        c.id === targetChannelId
+          ? {
+              ...c,
+              lastMessagePreview: preview,
+              lastMessageAt: nowIso,
+              updatedAt: nowIso,
+              unreadCount: 0,
+            }
+          : c
       );
-      setDraftBody('');
-      setDraftPriority('info');
-      setReplyTarget(null);
-      loadChannels(true);
+      updated.sort((a, b) => {
+        const tA = new Date(a.lastMessageAt || a.updatedAt || a.createdAt).getTime();
+        const tB = new Date(b.lastMessageAt || b.updatedAt || b.createdAt).getTime();
+        return tB - tA;
+      });
+      onChannelsLoaded?.(updated);
+      return updated;
+    });
+
+    setSending(true);
+    try {
+      const res = await postChannelMessage(targetChannelId, {
+        body: textToSend,
+        priority: priorityToSend,
+        replyToMessageId: replySnapshot?.id || null,
+      });
+      setMessages((prev) => {
+        const alreadyHasReal = prev.some((m) => m.id === res.message.id);
+        const next = alreadyHasReal
+          ? prev.filter((m) => m.id !== tempId)
+          : prev.map((m) => (m.id === tempId ? res.message : m));
+        const cached = appDataCache.getOptimistic<any>(`comms:channel:${targetChannelId}:100:0`);
+        appDataCache.set(`comms:channel:${targetChannelId}:100:0`, {
+          success: true,
+          channel: cached?.channel || activeChannel,
+          messages: next,
+          total: next.length,
+        });
+        return next;
+      });
+      window.dispatchEvent(
+        new CustomEvent('nettop-comms-ws-event', {
+          detail: {
+            type: 'channel:message',
+            channelId: targetChannelId,
+            message: res.message,
+          },
+        })
+      );
     } catch (err: any) {
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setDraftBody((curr) => curr || textToSend);
       setErrorMsg(
         err?.message || (isEn ? 'Failed to send message' : 'خطا در ارسال پیام')
       );

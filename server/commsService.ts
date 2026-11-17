@@ -100,32 +100,32 @@ async function resolveDirectoryEmailLookup(): Promise<
     }
   };
 
-  try {
-    const localUsers = (await getAllUsers()).filter((u) => u && u.status !== 'disabled');
-    for (const u of localUsers) {
-      register(
-        { userId: u.id, username: u.username },
-        u.email,
-        u.fullName || u.full_name || u.username
-      );
-    }
-  } catch {}
+  const [localUsersRes, adConfig] = await Promise.all([
+    getAllUsers().catch(() => []),
+    getActiveDirectoryConfig().catch(() => null),
+  ]);
 
-  try {
-    const adConfig = await getActiveDirectoryConfig().catch(() => null);
-    const syncedUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? adConfig.syncedUsers : [];
-    for (const au of syncedUsers) {
-      register(
-        {
-          userId: au.id || au.samAccountName || au.dn,
-          username: au.samAccountName || au.id || au.dn,
-          extraKeys: [au.dn, au.email, au.mail],
-        },
-        au.email || au.mail,
-        au.displayName || au.samAccountName
-      );
-    }
-  } catch {}
+  const localUsers = (localUsersRes || []).filter((u) => u && u.status !== 'disabled');
+  for (const u of localUsers) {
+    register(
+      { userId: u.id, username: u.username },
+      u.email,
+      u.fullName || u.full_name || u.username
+    );
+  }
+
+  const syncedUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? adConfig.syncedUsers : [];
+  for (const au of syncedUsers) {
+    register(
+      {
+        userId: au.id || au.samAccountName || au.dn,
+        username: au.samAccountName || au.id || au.dn,
+        extraKeys: [au.dn, au.email, au.mail],
+      },
+      au.email || au.mail,
+      au.displayName || au.samAccountName
+    );
+  }
 
   return emailMap;
 }
@@ -785,7 +785,13 @@ export async function getCommsRecipients(): Promise<CommsRecipientOption[]> {
     },
   ];
 
-  const localUsers = (await getAllUsers()).filter((u) => u && u.status !== 'disabled');
+  const [localUsersRaw, subjectsResult, localGroups] = await Promise.all([
+    getAllUsers().catch(() => []),
+    getAuthorizedMapSubjects().catch(() => null),
+    getUserGroups().catch(() => []),
+  ]);
+
+  const localUsers = (localUsersRaw || []).filter((u) => u && u.status !== 'disabled');
   for (const u of localUsers) {
     const formatted = formatUserDisplay(u.fullName, u.username);
     options.push({
@@ -799,7 +805,6 @@ export async function getCommsRecipients(): Promise<CommsRecipientOption[]> {
     });
   }
 
-  const subjectsResult = await getAuthorizedMapSubjects().catch(() => null);
   const seenUsernames = new Set(localUsers.map((u) => (u.username || '').toLowerCase()));
 
   if (subjectsResult?.categories?.adUsers) {
@@ -820,8 +825,7 @@ export async function getCommsRecipients(): Promise<CommsRecipientOption[]> {
     }
   }
 
-  const localGroups = await getUserGroups();
-  for (const g of localGroups) {
+  for (const g of localGroups || []) {
     options.push({
       type: 'group',
       id: g.id,
@@ -863,11 +867,14 @@ async function resolveTargetRecipients(
     }
   };
 
-  const localUsers = (await getAllUsers()).filter((u) => u && u.status !== 'disabled');
-  const adConfig = await getActiveDirectoryConfig().catch(() => null);
+  const [localUsersRaw, adConfig, subjectsResult] = await Promise.all([
+    getAllUsers().catch(() => []),
+    getActiveDirectoryConfig().catch(() => null),
+    getAuthorizedMapSubjects().catch(() => null),
+  ]);
+  const localUsers = (localUsersRaw || []).filter((u) => u && u.status !== 'disabled');
   const syncedAdUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? adConfig.syncedUsers : [];
   const syncedAdGroups: any[] = Array.isArray(adConfig?.syncedGroups) ? adConfig.syncedGroups : [];
-  const subjectsResult = await getAuthorizedMapSubjects().catch(() => null);
 
   if (targetType === 'all') {
     for (const u of localUsers) {
@@ -994,11 +1001,17 @@ async function resolveTargetRecipients(
 async function persistMessageAndNotifications(
   messageRecord: any,
   notificationRecords: any[],
-  recipients: ResolvedRecipient[]
+  recipients: ResolvedRecipient[],
+  channelUpdate?: {
+    channelId: string;
+    updatedAt: string;
+    senderIds: string[];
+    messageId: string;
+  }
 ): Promise<CommsNotificationItem[]> {
   const mappedItems = notificationRecords.map(mapNotificationRow);
 
-  // Fallback persistence
+  // Fallback persistence (single read + single write)
   const store = loadFallbackStore();
   if (!Array.isArray(store.comms_messages)) store.comms_messages = [];
   if (!Array.isArray(store.comms_notifications)) store.comms_notifications = [];
@@ -1010,55 +1023,77 @@ async function persistMessageAndNotifications(
     }
   }
 
-  store.comms_notifications.unshift(...notificationRecords);
-  if (store.comms_notifications.length > 10000) {
-    store.comms_notifications = store.comms_notifications.slice(0, 10000);
+  if (notificationRecords.length > 0) {
+    store.comms_notifications.unshift(...notificationRecords);
+    if (store.comms_notifications.length > 10000) {
+      store.comms_notifications = store.comms_notifications.slice(0, 10000);
+    }
   }
+
+  if (channelUpdate) {
+    if (!Array.isArray(store.comms_channels)) store.comms_channels = [];
+    if (!Array.isArray(store.comms_channel_members)) store.comms_channel_members = [];
+    const chIdx = store.comms_channels.findIndex((c: any) => c.id === channelUpdate.channelId);
+    if (chIdx !== -1) store.comms_channels[chIdx].updated_at = channelUpdate.updatedAt;
+    const senderIdSet = new Set(channelUpdate.senderIds);
+    for (const m of store.comms_channel_members) {
+      if (
+        (m.channel_id ?? m.channelId) === channelUpdate.channelId &&
+        memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, senderIdSet)
+      ) {
+        m.last_read_message_id = channelUpdate.messageId;
+      }
+    }
+  }
+
   saveFallbackStore(store);
 
   await ensurePostgresConnection();
   const pool = getPgPool();
   if (isPostgresConnected() && pool) {
     try {
+      const queries: Promise<any>[] = [];
       if (messageRecord) {
-        await pool.query(
-          `INSERT INTO comms_messages (
-            id, channel_id, sender_user_id, sender_username, sender_full_name, sender_role,
-            message_type, priority, title, title_en, body, body_en,
-            linked_entity_type, linked_entity_id, linked_entity_name, metadata, created_at
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-          [
-            messageRecord.id,
-            messageRecord.channel_id,
-            messageRecord.sender_user_id,
-            messageRecord.sender_username,
-            messageRecord.sender_full_name,
-            messageRecord.sender_role,
-            messageRecord.message_type,
-            messageRecord.priority,
-            messageRecord.title,
-            messageRecord.title_en,
-            messageRecord.body,
-            messageRecord.body_en,
-            messageRecord.linked_entity_type,
-            messageRecord.linked_entity_id,
-            messageRecord.linked_entity_name,
-            JSON.stringify(messageRecord.metadata || {}),
-            messageRecord.created_at,
-          ]
+        queries.push(
+          pool.query(
+            `INSERT INTO comms_messages (
+              id, channel_id, sender_user_id, sender_username, sender_full_name, sender_role,
+              message_type, priority, title, title_en, body, body_en,
+              linked_entity_type, linked_entity_id, linked_entity_name, metadata, created_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+            [
+              messageRecord.id,
+              messageRecord.channel_id,
+              messageRecord.sender_user_id,
+              messageRecord.sender_username,
+              messageRecord.sender_full_name,
+              messageRecord.sender_role,
+              messageRecord.message_type,
+              messageRecord.priority,
+              messageRecord.title,
+              messageRecord.title_en,
+              messageRecord.body,
+              messageRecord.body_en,
+              messageRecord.linked_entity_type,
+              messageRecord.linked_entity_id,
+              messageRecord.linked_entity_name,
+              JSON.stringify(messageRecord.metadata || {}),
+              messageRecord.created_at,
+            ]
+          )
         );
       }
 
-      for (const n of notificationRecords) {
-        await pool.query(
-          `INSERT INTO comms_notifications (
-            id, recipient_user_id, recipient_username, source_message_id, channel_id,
-            category, severity, sender_name, sender_role,
-            title, title_en, summary, summary_en, body, body_en,
-            linked_entity_type, linked_entity_id, linked_entity_name, action_tab,
-            is_read, is_archived, requires_acknowledgment, metadata, created_at
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
-          [
+      if (notificationRecords.length > 0) {
+        // Multi-row batch INSERT instead of sequential per-recipient round trips
+        const colCount = 24;
+        const placeholders: string[] = [];
+        const params: any[] = [];
+        notificationRecords.forEach((n, idx) => {
+          const base = idx * colCount;
+          const rowSlots = Array.from({ length: colCount }, (_, c) => `$${base + c + 1}`).join(',');
+          placeholders.push(`(${rowSlots})`);
+          params.push(
             n.id,
             n.recipient_user_id,
             n.recipient_username,
@@ -1082,31 +1117,68 @@ async function persistMessageAndNotifications(
             Boolean(n.is_archived),
             Boolean(n.requires_acknowledgment),
             JSON.stringify(n.metadata || {}),
-            n.created_at,
-          ]
+            n.created_at
+          );
+        });
+        queries.push(
+          pool.query(
+            `INSERT INTO comms_notifications (
+              id, recipient_user_id, recipient_username, source_message_id, channel_id,
+              category, severity, sender_name, sender_role,
+              title, title_en, summary, summary_en, body, body_en,
+              linked_entity_type, linked_entity_id, linked_entity_name, action_tab,
+              is_read, is_archived, requires_acknowledgment, metadata, created_at
+            ) VALUES ${placeholders.join(',')}`,
+            params
+          )
         );
       }
+
+      if (channelUpdate) {
+        queries.push(
+          pool.query(`UPDATE comms_channels SET updated_at = $1 WHERE id = $2`, [
+            channelUpdate.updatedAt,
+            channelUpdate.channelId,
+          ])
+        );
+        if (channelUpdate.senderIds.length > 0) {
+          queries.push(
+            pool.query(
+              `UPDATE comms_channel_members
+               SET last_read_message_id = $1
+               WHERE channel_id = $2
+                 AND (LOWER(user_id) = ANY($3::text[]) OR LOWER(username) = ANY($3::text[]))`,
+              [channelUpdate.messageId, channelUpdate.channelId, channelUpdate.senderIds]
+            )
+          );
+        }
+      }
+
+      await Promise.all(queries);
     } catch (err: any) {
       console.error('[CommsService] PostgreSQL persistMessageAndNotifications error:', err?.message || err);
     }
   }
 
-  // Real-time WebSocket delivery per connected recipient
-  const notifByRecipient = new Map<string, CommsNotificationItem>();
-  for (const item of mappedItems) {
-    notifByRecipient.set(item.recipientUsername.toLowerCase(), item);
-  }
-
-  for (const r of recipients) {
-    const item = notifByRecipient.get(r.username.toLowerCase());
-    if (!item) continue;
-    const counts = await getUnreadNotificationCounts(r).catch(() => null);
-    broadcastCommsEventToRecipients([r], undefined, {
-      type: 'notification:created',
-      notification: item,
-      unreadCount: counts?.unreadCount,
-      countsByFolder: counts?.countsByFolder,
-    });
+  // Real-time WebSocket delivery per connected recipient (parallelized non-blocking so sender gets fast HTTP response)
+  if (recipients.length > 0 && mappedItems.length > 0) {
+    const notifByRecipient = new Map<string, CommsNotificationItem>();
+    for (const item of mappedItems) {
+      notifByRecipient.set(item.recipientUsername.toLowerCase(), item);
+    }
+    void Promise.all(
+      recipients.map(async (r) => {
+        const item = notifByRecipient.get(r.username.toLowerCase());
+        if (!item) return;
+        const counts = await getUnreadNotificationCounts(r).catch(() => null);
+        broadcastCommsEventToRecipients([r], undefined, {
+          type: 'notification:created',
+          notification: item,
+          unreadCount: counts?.unreadCount,
+          countsByFolder: counts?.countsByFolder,
+        });
+      })
+    ).catch(() => {});
   }
 
   return mappedItems;
@@ -1448,60 +1520,96 @@ export function initCommsIntegration(): void {
 // Phase 2: Two-Way Direct Chats, Team Group Channels & Announcement Read Tracker
 // ==============================================================================
 
-async function buildDirectoryUserMap(): Promise<
-  Map<string, { userId: string; username: string; fullName: string; role: string }>
-> {
-  const map = new Map<string, { userId: string; username: string; fullName: string; role: string }>();
-  const register = (id: string, username: string, fullName: string, role: string, email?: string) => {
-    const info = { userId: id, username, fullName: fullName || username, role: role || 'Operator' };
-    for (const key of resolveUserIdentifiers({ userId: id, username })) {
-      if (!map.has(key)) map.set(key, info);
-    }
-    if (email) {
-      for (const key of resolveUserIdentifiers({ username: email })) {
+type DirectoryUserEntry = { userId: string; username: string; fullName: string; role: string };
+
+const DIRECTORY_CACHE_TTL_MS = 15_000;
+let directoryCache: { expiresAt: number; map: Map<string, DirectoryUserEntry> } | null = null;
+let directoryInFlight: Promise<Map<string, DirectoryUserEntry>> | null = null;
+
+export function invalidateCommsDirectoryCache(): void {
+  directoryCache = null;
+}
+
+async function buildDirectoryUserMap(
+  forceRefresh = false
+): Promise<Map<string, DirectoryUserEntry>> {
+  if (!forceRefresh && directoryCache && Date.now() < directoryCache.expiresAt) {
+    return directoryCache.map;
+  }
+  if (!forceRefresh && directoryInFlight) {
+    return directoryInFlight;
+  }
+
+  directoryInFlight = (async () => {
+    const map = new Map<string, DirectoryUserEntry>();
+    const register = (id: string, username: string, fullName: string, role: string, email?: string) => {
+      const info: DirectoryUserEntry = {
+        userId: id,
+        username,
+        fullName: fullName || username,
+        role: role || 'Operator',
+      };
+      for (const key of resolveUserIdentifiers({ userId: id, username })) {
         if (!map.has(key)) map.set(key, info);
       }
+      if (email) {
+        for (const key of resolveUserIdentifiers({ username: email })) {
+          if (!map.has(key)) map.set(key, info);
+        }
+      }
+    };
+
+    const [allUsersRes, subjectsResult, adConfig] = await Promise.all([
+      getAllUsers().catch(() => []),
+      getAuthorizedMapSubjects().catch(() => null),
+      getActiveDirectoryConfig().catch(() => null),
+    ]);
+
+    const localUsers = (allUsersRes || []).filter((u) => u && u.status !== 'disabled');
+    for (const u of localUsers) {
+      register(
+        u.id,
+        u.username,
+        stripDuplicateUsernameSuffix(u.fullName || u.username, u.username),
+        u.role || 'Operator',
+        u.email
+      );
     }
-  };
 
-  const localUsers = (await getAllUsers()).filter((u) => u && u.status !== 'disabled');
-  for (const u of localUsers) {
-    register(
-      u.id,
-      u.username,
-      stripDuplicateUsernameSuffix(u.fullName || u.username, u.username),
-      u.role || 'Operator',
-      u.email
-    );
-  }
+    for (const adu of subjectsResult?.categories?.adUsers || []) {
+      const adUname = adu.name || adu.id;
+      register(
+        adu.rawId || adu.id,
+        adUname,
+        stripDuplicateUsernameSuffix(adu.displayName || adUname, adUname),
+        adu.role || 'AD User',
+        adu.email
+      );
+    }
 
-  const subjectsResult = await getAuthorizedMapSubjects().catch(() => null);
-  for (const adu of subjectsResult?.categories?.adUsers || []) {
-    const adUname = adu.name || adu.id;
-    register(
-      adu.rawId || adu.id,
-      adUname,
-      stripDuplicateUsernameSuffix(adu.displayName || adUname, adUname),
-      adu.role || 'AD User',
-      adu.email
-    );
-  }
+    const syncedAdUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? adConfig.syncedUsers : [];
+    for (const au of syncedAdUsers) {
+      if (!au || au.enabled === false) continue;
+      const adUname = (au.samAccountName || au.email || au.dn || '').trim();
+      if (!adUname) continue;
+      register(
+        au.dn || `ad-${adUname}`,
+        adUname,
+        stripDuplicateUsernameSuffix(au.displayName || adUname, adUname),
+        au.title || 'AD User',
+        au.email
+      );
+    }
 
-  const adConfig = await getActiveDirectoryConfig().catch(() => null);
-  const syncedAdUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? adConfig.syncedUsers : [];
-  for (const au of syncedAdUsers) {
-    if (!au || au.enabled === false) continue;
-    const adUname = (au.samAccountName || au.email || au.dn || '').trim();
-    if (!adUname) continue;
-    register(
-      au.dn || `ad-${adUname}`,
-      adUname,
-      stripDuplicateUsernameSuffix(au.displayName || adUname, adUname),
-      au.title || 'AD User',
-      au.email
-    );
+    directoryCache = { expiresAt: Date.now() + DIRECTORY_CACHE_TTL_MS, map };
+    return map;
+  })();
+
+  try {
+    return await directoryInFlight;
+  } finally {
+    directoryInFlight = null;
   }
-  return map;
 }
 
 async function resolveSingleUser(
@@ -1603,79 +1711,14 @@ function memberMatchesIdentifiers(member: { userId?: string; username?: string }
   return uIds.some((id) => idSet.has(id));
 }
 
-async function loadHydratedChannelForUser(
-  channelId: string,
-  viewerUser: Partial<CommsActor>,
-  dirMap?: Map<string, { userId: string; username: string; fullName: string; role: string }>
-): Promise<CommsChannel | null> {
-  const resolvedDir = dirMap || (await buildDirectoryUserMap());
-  const idList = resolveUserIdentifiers(viewerUser);
-  const idSet = new Set(idList);
-
-  let rawChannel: any = null;
-  let rawMembers: any[] = [];
-  let latestMsg: any = null;
-  let unreadCount = 0;
-
-  await ensurePostgresConnection();
-  const pool = getPgPool();
-  if (isPostgresConnected() && pool) {
-    try {
-      const chRes = await pool.query(`SELECT * FROM comms_channels WHERE id = $1`, [channelId]);
-      if (chRes.rows[0]) {
-        rawChannel = chRes.rows[0];
-        const mRes = await pool.query(
-          `SELECT * FROM comms_channel_members WHERE channel_id = $1 ORDER BY joined_at ASC`,
-          [channelId]
-        );
-        rawMembers = mRes.rows;
-
-        const msgRes = await pool.query(
-          `SELECT body, created_at FROM comms_messages WHERE channel_id = $1 ORDER BY created_at DESC LIMIT 1`,
-          [channelId]
-        );
-        latestMsg = msgRes.rows[0] || null;
-
-        if (idList.length > 0) {
-          const uRes = await pool.query(
-            `SELECT COUNT(*)::int AS cnt FROM comms_notifications
-             WHERE channel_id = $1 AND is_archived = FALSE AND is_read = FALSE
-               AND (LOWER(recipient_user_id) = ANY($2::text[]) OR LOWER(recipient_username) = ANY($2::text[]))`,
-            [channelId, idList]
-          );
-          unreadCount = uRes.rows[0]?.cnt || 0;
-        }
-      }
-    } catch (err: any) {
-      console.error('[CommsService] loadHydratedChannel PG error:', err?.message || err);
-    }
-  }
-
-  if (!rawChannel) {
-    const store = loadFallbackStore();
-    rawChannel = (store.comms_channels || []).find((c: any) => c.id === channelId) || null;
-    if (!rawChannel) return null;
-    rawMembers = (store.comms_channel_members || []).filter(
-      (m: any) => (m.channel_id ?? m.channelId) === channelId
-    );
-    const chMsgs = (store.comms_messages || [])
-      .filter((m: any) => (m.channel_id ?? m.channelId) === channelId)
-      .sort(
-        (a: any, b: any) =>
-          new Date(b.created_at || b.createdAt).getTime() -
-          new Date(a.created_at || a.createdAt).getTime()
-      );
-    latestMsg = chMsgs[0] || null;
-    unreadCount = (store.comms_notifications || []).filter(
-      (n: any) =>
-        (n.channel_id ?? n.channelId) === channelId &&
-        !(n.is_archived ?? n.isArchived) &&
-        !(n.is_read ?? n.isRead) &&
-        (idSet.has((n.recipient_user_id || n.recipientUserId || '').toLowerCase()) ||
-          idSet.has((n.recipient_username || n.recipientUsername || '').toLowerCase()))
-    ).length;
-  }
-
+function assembleHydratedChannel(
+  rawChannel: any,
+  rawMembers: any[],
+  latestMsg: any | null,
+  unreadCount: number,
+  idSet: Set<string>,
+  resolvedDir: Map<string, DirectoryUserEntry>
+): CommsChannel {
   const members = rawMembers.map((m) => mapChannelMemberRow(m, resolvedDir));
   const viewerMembership = members.find((m) => memberMatchesIdentifiers(m, idSet));
   const channelType = (rawChannel.channel_type ?? rawChannel.channelType ?? 'group') as CommsChannelType;
@@ -1722,16 +1765,98 @@ async function loadHydratedChannelForUser(
   };
 }
 
+async function loadHydratedChannelForUser(
+  channelId: string,
+  viewerUser: Partial<CommsActor>,
+  dirMap?: Map<string, DirectoryUserEntry>
+): Promise<CommsChannel | null> {
+  const idList = resolveUserIdentifiers(viewerUser);
+  const idSet = new Set(idList);
+
+  const [resolvedDir] = await Promise.all([
+    dirMap ? Promise.resolve(dirMap) : buildDirectoryUserMap(),
+    ensurePostgresConnection(),
+  ]);
+
+  let rawChannel: any = null;
+  let rawMembers: any[] = [];
+  let latestMsg: any = null;
+  let unreadCount = 0;
+
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      const chRes = await pool.query(`SELECT * FROM comms_channels WHERE id = $1`, [channelId]);
+      if (chRes.rows[0]) {
+        rawChannel = chRes.rows[0];
+        const [mRes, msgRes, uRes] = await Promise.all([
+          pool.query(
+            `SELECT * FROM comms_channel_members WHERE channel_id = $1 ORDER BY joined_at ASC`,
+            [channelId]
+          ),
+          pool.query(
+            `SELECT body, created_at FROM comms_messages WHERE channel_id = $1 ORDER BY created_at DESC LIMIT 1`,
+            [channelId]
+          ),
+          idList.length > 0
+            ? pool.query(
+                `SELECT COUNT(*)::int AS cnt FROM comms_notifications
+                 WHERE channel_id = $1 AND is_archived = FALSE AND is_read = FALSE
+                   AND (LOWER(recipient_user_id) = ANY($2::text[]) OR LOWER(recipient_username) = ANY($2::text[]))`,
+                [channelId, idList]
+              )
+            : Promise.resolve({ rows: [{ cnt: 0 }] }),
+        ]);
+        rawMembers = mRes.rows;
+        latestMsg = msgRes.rows[0] || null;
+        unreadCount = uRes.rows[0]?.cnt || 0;
+      }
+    } catch (err: any) {
+      console.error('[CommsService] loadHydratedChannel PG error:', err?.message || err);
+    }
+  }
+
+  if (!rawChannel) {
+    const store = loadFallbackStore();
+    rawChannel = (store.comms_channels || []).find((c: any) => c.id === channelId) || null;
+    if (!rawChannel) return null;
+    rawMembers = (store.comms_channel_members || []).filter(
+      (m: any) => (m.channel_id ?? m.channelId) === channelId
+    );
+    const chMsgs = (store.comms_messages || [])
+      .filter((m: any) => (m.channel_id ?? m.channelId) === channelId)
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.created_at || b.createdAt).getTime() -
+          new Date(a.created_at || a.createdAt).getTime()
+      );
+    latestMsg = chMsgs[0] || null;
+    unreadCount = (store.comms_notifications || []).filter(
+      (n: any) =>
+        (n.channel_id ?? n.channelId) === channelId &&
+        !(n.is_archived ?? n.isArchived) &&
+        !(n.is_read ?? n.isRead) &&
+        (idSet.has((n.recipient_user_id || n.recipientUserId || '').toLowerCase()) ||
+          idSet.has((n.recipient_username || n.recipientUsername || '').toLowerCase()))
+    ).length;
+  }
+
+  return assembleHydratedChannel(rawChannel, rawMembers, latestMsg, unreadCount, idSet, resolvedDir);
+}
+
 export async function listUserChannels(user: Partial<CommsActor>): Promise<CommsChannel[]> {
   const identifiers = resolveUserIdentifiers(user);
   if (identifiers.length === 0) return [];
   const idSet = new Set(identifiers);
-  const dirMap = await buildDirectoryUserMap();
+
+  const [dirMap] = await Promise.all([
+    buildDirectoryUserMap(),
+    ensurePostgresConnection(),
+  ]);
 
   const channelIds = new Set<string>();
-
-  await ensurePostgresConnection();
   const pool = getPgPool();
+
   if (isPostgresConnected() && pool) {
     try {
       const res = await pool.query(
@@ -1755,10 +1880,123 @@ export async function listUserChannels(user: Partial<CommsActor>): Promise<Comms
     }
   }
 
+  const idArray = Array.from(channelIds);
+  if (idArray.length === 0) return [];
+
+  // Batch PG queries in parallel instead of O(N) sequential per-channel round-trips
+  const pgChannelsMap = new Map<string, any>();
+  const pgMembersMap = new Map<string, any[]>();
+  const pgLatestMsgMap = new Map<string, any>();
+  const pgUnreadMap = new Map<string, number>();
+
+  if (isPostgresConnected() && pool) {
+    try {
+      const [chRes, memRes, msgRes, unreadRes] = await Promise.all([
+        pool.query(`SELECT * FROM comms_channels WHERE id = ANY($1::text[])`, [idArray]),
+        pool.query(
+          `SELECT * FROM comms_channel_members WHERE channel_id = ANY($1::text[]) ORDER BY joined_at ASC`,
+          [idArray]
+        ),
+        pool.query(
+          `SELECT DISTINCT ON (channel_id) channel_id, body, created_at
+           FROM comms_messages
+           WHERE channel_id = ANY($1::text[])
+           ORDER BY channel_id, created_at DESC`,
+          [idArray]
+        ),
+        pool.query(
+          `SELECT channel_id, COUNT(*)::int AS cnt
+           FROM comms_notifications
+           WHERE channel_id = ANY($1::text[])
+             AND is_archived = FALSE AND is_read = FALSE
+             AND (LOWER(recipient_user_id) = ANY($2::text[]) OR LOWER(recipient_username) = ANY($2::text[]))
+           GROUP BY channel_id`,
+          [idArray, identifiers]
+        ),
+      ]);
+
+      for (const row of chRes.rows) pgChannelsMap.set(row.id, row);
+      for (const row of memRes.rows) {
+        const list = pgMembersMap.get(row.channel_id) || [];
+        list.push(row);
+        pgMembersMap.set(row.channel_id, list);
+      }
+      for (const row of msgRes.rows) pgLatestMsgMap.set(row.channel_id, row);
+      for (const row of unreadRes.rows) pgUnreadMap.set(row.channel_id, row.cnt || 0);
+    } catch (err: any) {
+      console.error('[CommsService] listUserChannels batch PG error:', err?.message || err);
+    }
+  }
+
+  // Single-pass index over fallback store ONLY for any channels missing from PG
+  const missingIds = new Set(idArray.filter((cid) => !pgChannelsMap.has(cid)));
+  const fbChannelsMap = new Map<string, any>();
+  const fbMembersMap = new Map<string, any[]>();
+  const fbLatestMsgMap = new Map<string, any>();
+  const fbUnreadMap = new Map<string, number>();
+
+  if (missingIds.size > 0) {
+    for (const c of store.comms_channels || []) {
+      if (missingIds.has(c.id)) fbChannelsMap.set(c.id, c);
+    }
+    for (const m of store.comms_channel_members || []) {
+      const cid = m.channel_id ?? m.channelId;
+      if (!missingIds.has(cid)) continue;
+      const list = fbMembersMap.get(cid) || [];
+      list.push(m);
+      fbMembersMap.set(cid, list);
+    }
+    for (const msg of store.comms_messages || []) {
+      const cid = msg.channel_id ?? msg.channelId;
+      if (!missingIds.has(cid)) continue;
+      const existing = fbLatestMsgMap.get(cid);
+      if (
+        !existing ||
+        new Date(msg.created_at || msg.createdAt).getTime() >
+          new Date(existing.created_at || existing.createdAt).getTime()
+      ) {
+        fbLatestMsgMap.set(cid, msg);
+      }
+    }
+    for (const n of store.comms_notifications || []) {
+      const cid = n.channel_id ?? n.channelId;
+      if (!missingIds.has(cid)) continue;
+      if (n.is_archived ?? n.isArchived) continue;
+      if (n.is_read ?? n.isRead) continue;
+      if (
+        idSet.has((n.recipient_user_id || n.recipientUserId || '').toLowerCase()) ||
+        idSet.has((n.recipient_username || n.recipientUsername || '').toLowerCase())
+      ) {
+        fbUnreadMap.set(cid, (fbUnreadMap.get(cid) || 0) + 1);
+      }
+    }
+  }
+
   const channels: CommsChannel[] = [];
-  for (const cid of channelIds) {
-    const hydrated = await loadHydratedChannelForUser(cid, user, dirMap);
-    if (hydrated) channels.push(hydrated);
+  for (const cid of idArray) {
+    if (pgChannelsMap.has(cid)) {
+      channels.push(
+        assembleHydratedChannel(
+          pgChannelsMap.get(cid),
+          pgMembersMap.get(cid) || [],
+          pgLatestMsgMap.get(cid) || null,
+          pgUnreadMap.get(cid) || 0,
+          idSet,
+          dirMap
+        )
+      );
+    } else if (fbChannelsMap.has(cid)) {
+      channels.push(
+        assembleHydratedChannel(
+          fbChannelsMap.get(cid),
+          fbMembersMap.get(cid) || [],
+          fbLatestMsgMap.get(cid) || null,
+          fbUnreadMap.get(cid) || 0,
+          idSet,
+          dirMap
+        )
+      );
+    }
   }
 
   channels.sort((a, b) => {
@@ -2175,7 +2413,30 @@ export async function listChannelMessages(
   channelId: string,
   options: { limit?: number; offset?: number } = {}
 ): Promise<{ channel: CommsChannel; messages: CommsMessage[]; total: number }> {
-  const channel = await loadHydratedChannelForUser(channelId, user);
+  const limit = Math.min(200, Math.max(1, Number(options.limit) || 100));
+  const offset = Math.max(0, Number(options.offset) || 0);
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  const pgActive = isPostgresConnected() && Boolean(pool);
+
+  // Run channel hydration + COUNT(*) + SELECT page concurrently
+  const [channel, pgCountsAndRows] = await Promise.all([
+    loadHydratedChannelForUser(channelId, user),
+    pgActive && pool
+      ? Promise.all([
+          pool.query(`SELECT COUNT(*)::int AS total FROM comms_messages WHERE channel_id = $1`, [channelId]),
+          pool.query(
+            `SELECT * FROM comms_messages WHERE channel_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+            [channelId, limit, offset]
+          ),
+        ]).catch((err: any) => {
+          console.error('[CommsService] listChannelMessages PG error:', err?.message || err);
+          return null;
+        })
+      : Promise.resolve(null),
+  ]);
+
   if (!channel) {
     throw new Error('Channel not found.');
   }
@@ -2187,29 +2448,12 @@ export async function listChannelMessages(
     throw new Error('ACCESS_DENIED: You are not a member of this channel.');
   }
 
-  const limit = Math.min(200, Math.max(1, Number(options.limit) || 100));
-  const offset = Math.max(0, Number(options.offset) || 0);
-
   let rawMessages: any[] = [];
   let total = 0;
 
-  await ensurePostgresConnection();
-  const pool = getPgPool();
-  if (isPostgresConnected() && pool) {
-    try {
-      const cntRes = await pool.query(
-        `SELECT COUNT(*)::int AS total FROM comms_messages WHERE channel_id = $1`,
-        [channelId]
-      );
-      total = cntRes.rows[0]?.total || 0;
-      const msgRes = await pool.query(
-        `SELECT * FROM comms_messages WHERE channel_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
-        [channelId, limit, offset]
-      );
-      rawMessages = msgRes.rows.reverse();
-    } catch (err: any) {
-      console.error('[CommsService] listChannelMessages PG error:', err?.message || err);
-    }
+  if (pgCountsAndRows) {
+    total = pgCountsAndRows[0].rows[0]?.total || 0;
+    rawMessages = pgCountsAndRows[1].rows.reverse();
   }
 
   if (rawMessages.length === 0) {
@@ -2233,9 +2477,10 @@ export async function listChannelMessages(
   }
   const messages = rawMessages.map((r) => mapMessageRow(r, lookupMap));
 
-  // Mark channel notifications as read automatically when opening thread
+  // Mark channel notifications as read only when actually needed (avoid unnecessary disk writes)
   const newestId = messages[messages.length - 1]?.id || null;
   let clearedAny = false;
+  let fbDirty = false;
 
   const store = loadFallbackStore();
   if (Array.isArray(store.comms_notifications)) {
@@ -2250,6 +2495,7 @@ export async function listChannelMessages(
         n.is_read = true;
         n.read_at = n.read_at || nowIso;
         clearedAny = true;
+        fbDirty = true;
       }
     }
   }
@@ -2257,47 +2503,78 @@ export async function listChannelMessages(
     for (const m of store.comms_channel_members) {
       if (
         (m.channel_id ?? m.channelId) === channelId &&
-        memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet)
+        memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet) &&
+        m.last_read_message_id !== newestId
       ) {
         m.last_read_message_id = newestId;
+        fbDirty = true;
       }
     }
   }
-  if (clearedAny || newestId) {
+  if (fbDirty) {
     saveFallbackStore(store);
   }
 
-  if (isPostgresConnected() && pool && idList.length > 0) {
-    try {
-      const updRes = await pool.query(
-        `UPDATE comms_notifications
-         SET is_read = TRUE, read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
-         WHERE channel_id = $1 AND is_read = FALSE
-           AND (LOWER(recipient_user_id) = ANY($2::text[]) OR LOWER(recipient_username) = ANY($2::text[]))`,
-        [channelId, idList]
-      );
-      if ((updRes.rowCount || 0) > 0) clearedAny = true;
-      if (newestId) {
-        await pool.query(
-          `UPDATE comms_channel_members
-           SET last_read_message_id = $1
-           WHERE channel_id = $2
-             AND (LOWER(user_id) = ANY($3::text[]) OR LOWER(username) = ANY($3::text[]))`,
-          [newestId, channelId, idList]
-        );
-      }
-    } catch {}
-  }
+  // Run read-receipt PG updates + WS sync non-blocking when channel already has no unread notifications,
+  // or fast-await when unread notifications were present so badge sync is accurate.
+  if (pgActive && pool && idList.length > 0) {
+    const syncReadState = async () => {
+      try {
+        const pgOps: Promise<any>[] = [];
+        if (channel.unreadCount > 0 || clearedAny) {
+          pgOps.push(
+            pool.query(
+              `UPDATE comms_notifications
+               SET is_read = TRUE, read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+               WHERE channel_id = $1 AND is_read = FALSE
+                 AND (LOWER(recipient_user_id) = ANY($2::text[]) OR LOWER(recipient_username) = ANY($2::text[]))`,
+              [channelId, idList]
+            )
+          );
+        }
+        if (newestId) {
+          pgOps.push(
+            pool.query(
+              `UPDATE comms_channel_members
+               SET last_read_message_id = $1
+               WHERE channel_id = $2
+                 AND (last_read_message_id IS DISTINCT FROM $1)
+                 AND (LOWER(user_id) = ANY($3::text[]) OR LOWER(username) = ANY($3::text[]))`,
+              [newestId, channelId, idList]
+            )
+          );
+        }
+        const results = await Promise.all(pgOps);
+        const pgCleared =
+          results[0] && 'rowCount' in results[0] && (results[0].rowCount || 0) > 0;
+        if (clearedAny || pgCleared) {
+          const counts = await getUnreadNotificationCounts(user).catch(() => null);
+          if (counts) {
+            broadcastCommsEventToUser(user, {
+              type: 'comms:sync',
+              unreadCount: counts.unreadCount,
+              countsByFolder: counts.countsByFolder,
+            });
+          }
+        }
+      } catch {}
+    };
 
-  if (clearedAny) {
-    const counts = await getUnreadNotificationCounts(user).catch(() => null);
-    if (counts) {
-      broadcastCommsEventToUser(user, {
-        type: 'comms:sync',
-        unreadCount: counts.unreadCount,
-        countsByFolder: counts.countsByFolder,
-      });
+    if (channel.unreadCount > 0) {
+      await syncReadState();
+    } else {
+      void syncReadState();
     }
+  } else if (clearedAny) {
+    void getUnreadNotificationCounts(user)
+      .then((counts) => {
+        broadcastCommsEventToUser(user, {
+          type: 'comms:sync',
+          unreadCount: counts.unreadCount,
+          countsByFolder: counts.countsByFolder,
+        });
+      })
+      .catch(() => {});
   }
 
   return {
@@ -2325,7 +2602,20 @@ export async function postChannelMessage(
   if (!body) {
     throw new Error('Message body is required.');
   }
-  const channel = await loadHydratedChannelForUser(channelId, senderUser);
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+
+  const [channel, parentRowPg] = await Promise.all([
+    loadHydratedChannelForUser(channelId, senderUser),
+    payload.replyToMessageId && isPostgresConnected() && pool
+      ? pool
+          .query(`SELECT * FROM comms_messages WHERE id = $1`, [payload.replyToMessageId])
+          .then((r) => r.rows[0] || null)
+          .catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
   if (!channel) {
     throw new Error('Channel not found.');
   }
@@ -2375,39 +2665,32 @@ export async function postChannelMessage(
     created_at: nowIso,
   };
 
-  // Update channel updated_at + sender last_read in fallback store
-  const store = loadFallbackStore();
-  if (!Array.isArray(store.comms_channels)) store.comms_channels = [];
-  if (!Array.isArray(store.comms_channel_members)) store.comms_channel_members = [];
-  const chIdx = store.comms_channels.findIndex((c: any) => c.id === channelId);
-  if (chIdx !== -1) store.comms_channels[chIdx].updated_at = nowIso;
-  for (const m of store.comms_channel_members) {
-    if (
-      (m.channel_id ?? m.channelId) === channelId &&
-      memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, senderIds)
-    ) {
-      m.last_read_message_id = msgId;
-    }
-  }
-  saveFallbackStore(store);
-
-  // Determine notification recipients (exclude sender and muted members)
+  // Evaluate recipient notification preferences concurrently
   const notifyMembers = members.filter(
     (m) => !memberMatchesIdentifiers(m, senderIds) && !m.isMuted
   );
   const summary = body.length > 140 ? `${body.slice(0, 137)}...` : body;
   const summaryEn = bodyEn.length > 140 ? `${bodyEn.slice(0, 137)}...` : bodyEn;
 
+  const evalResults =
+    notifyMembers.length > 0
+      ? await Promise.all(
+          notifyMembers.map(async (m) => ({
+            m,
+            pref: await evaluateNotificationDeliveryForUser(
+              m,
+              msgType as CommsCategory,
+              payload.priority || 'info',
+              false
+            ),
+          }))
+        )
+      : [];
+
   const notificationRecords: any[] = [];
   const activeRecipients: ResolvedRecipient[] = [];
   const emailTargets: PendingCommsEmailTarget[] = [];
-  for (const m of notifyMembers) {
-    const pref = await evaluateNotificationDeliveryForUser(
-      m,
-      msgType as CommsCategory,
-      payload.priority || 'info',
-      false
-    );
+  for (const { m, pref } of evalResults) {
     if (pref.deliverEmailNotification) {
       emailTargets.push({
         recipient: { userId: m.userId, username: m.username },
@@ -2461,49 +2744,31 @@ export async function postChannelMessage(
     });
   }
 
+  // Persist message, batched notifications, channel timestamp & sender read pointer in one pass
   await persistMessageAndNotifications(
     messageRecord,
     notificationRecords,
-    activeRecipients
+    activeRecipients,
+    {
+      channelId,
+      updatedAt: nowIso,
+      senderIds: Array.from(senderIds),
+      messageId: msgId,
+    }
   );
 
   if (emailTargets.length > 0) {
     void dispatchCommsEmailsAsync(emailTargets);
   }
 
-  // Also update PG channel updated_at and sender last_read
-  await ensurePostgresConnection();
-  const pool = getPgPool();
-  if (isPostgresConnected() && pool) {
-    try {
-      await pool.query(`UPDATE comms_channels SET updated_at = $1 WHERE id = $2`, [nowIso, channelId]);
-      await pool.query(
-        `UPDATE comms_channel_members
-         SET last_read_message_id = $1
-         WHERE channel_id = $2
-           AND (LOWER(user_id) = ANY($3::text[]) OR LOWER(username) = ANY($3::text[]))`,
-        [msgId, channelId, Array.from(senderIds)]
-      );
-    } catch {}
-  }
-
   // Hydrate reply preview if parent exists
   let parentLookup: Map<string, any> | undefined;
   if (payload.replyToMessageId) {
-    let parentRow: any = null;
-    if (isPostgresConnected() && pool) {
-      try {
-        const pRes = await pool.query(`SELECT * FROM comms_messages WHERE id = $1`, [
-          payload.replyToMessageId,
-        ]);
-        parentRow = pRes.rows[0] || null;
-      } catch {}
-    }
-    if (!parentRow) {
-      parentRow = (loadFallbackStore().comms_messages || []).find(
+    const parentRow =
+      parentRowPg ||
+      (loadFallbackStore().comms_messages || []).find(
         (m: any) => m.id === payload.replyToMessageId
       );
-    }
     if (parentRow) {
       parentLookup = new Map([[parentRow.id, parentRow]]);
     }
@@ -2511,7 +2776,7 @@ export async function postChannelMessage(
 
   const mappedMessage = mapMessageRow(messageRecord, parentLookup);
 
-  // Broadcast live thread update to all members (including sender's other tabs)
+  // Broadcast live thread update immediately to all members (synchronous WS frame send)
   broadcastCommsEventToRecipients(
     members.map((m) => ({ userId: m.userId, username: m.username })),
     undefined,
@@ -2522,7 +2787,8 @@ export async function postChannelMessage(
     }
   );
 
-  await addPortalAuditLog({
+  // Record audit trail asynchronously without blocking chat message HTTP response
+  void addPortalAuditLog({
     category: 'communications',
     action: 'CHANNEL_MESSAGE_SENT',
     title: `ارسال پیام در ${channel.channelType === 'direct' ? 'گفتگوی مستقیم' : 'کانال گروهی'}`,

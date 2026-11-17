@@ -179,22 +179,41 @@ export default function App() {
     const conn = connectCommsWebSocket((evt) => {
       if (cancelled) return;
       if (evt.type === 'ping' || evt.type === 'pong') return;
+      window.dispatchEvent(new CustomEvent('nettop-comms-ws-event', { detail: evt }));
+
       const nextUnread = 'unreadCount' in evt && typeof evt.unreadCount === 'number' ? evt.unreadCount : undefined;
       if (nextUnread !== undefined) {
         setUnreadCommsCount(nextUnread);
       }
+
+      if (evt.type === 'channel:message') {
+        appDataCache.invalidate('comms:unread');
+        appDataCache.invalidate('comms:channels');
+        appDataCache.invalidate(`comms:channel:${evt.channelId}`);
+        return;
+      }
+
       if (
         evt.type === 'notification:created' ||
         evt.type === 'notification:updated' ||
         evt.type === 'notification:read_all' ||
-        evt.type === 'channel:message' ||
         evt.type === 'channel:created' ||
         evt.type === 'channel:updated' ||
         evt.type === 'approval:updated' ||
         evt.type === 'jit_grant:updated'
       ) {
-        appDataCache.invalidate('comms:');
-        appDataCache.invalidate('approvals:');
+        if (evt.type === 'channel:created' || evt.type === 'channel:updated') {
+          appDataCache.invalidate('comms:channels');
+        } else {
+          appDataCache.invalidate('comms:');
+        }
+        if (
+          evt.type === 'approval:updated' ||
+          evt.type === 'jit_grant:updated' ||
+          evt.type === 'notification:created'
+        ) {
+          appDataCache.invalidate('approvals:');
+        }
         setCommsLiveRevision((r) => r + 1);
         if (evt.type === 'approval:updated' || evt.type === 'jit_grant:updated') {
           window.dispatchEvent(
