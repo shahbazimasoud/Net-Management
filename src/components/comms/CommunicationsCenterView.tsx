@@ -217,6 +217,11 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  const onUnreadCountSyncRef = useRef(onUnreadCountSync);
+  const onConsumeInitialSelectedIdRef = useRef(onConsumeInitialSelectedId);
+  onUnreadCountSyncRef.current = onUnreadCountSync;
+  onConsumeInitialSelectedIdRef.current = onConsumeInitialSelectedId;
+
   const loadNotifications = useCallback(
     async (forceRefresh = false) => {
       const currentCache = appDataCache.getOptimistic<any>(
@@ -241,7 +246,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
         setItems(res.items || []);
         const nextCounts = res.countsByFolder || DEFAULT_COUNTS;
         setCountsByFolder(nextCounts);
-        onUnreadCountSync?.(res.unreadCount ?? nextCounts.unread ?? 0, nextCounts);
+        onUnreadCountSyncRef.current?.(res.unreadCount ?? nextCounts.unread ?? 0, nextCounts);
         setSelectedId((prev) => {
           if (initialSelectedId && (res.items || []).some((i) => i.id === initialSelectedId)) {
             return initialSelectedId;
@@ -250,7 +255,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
           return res.items?.[0]?.id || null;
         });
         if (initialSelectedId) {
-          onConsumeInitialSelectedId?.();
+          onConsumeInitialSelectedIdRef.current?.();
         }
       } catch (err: any) {
         setErrorMsg(
@@ -262,7 +267,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
         setRefreshing(false);
       }
     },
-    [activeFolder, severityFilter, debouncedQuery, isEn, onUnreadCountSync]
+    [activeFolder, severityFilter, debouncedQuery, initialSelectedId, isEn]
   );
 
   useEffect(() => {
@@ -271,9 +276,9 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
       setViewMode('inbox');
       setActiveFolder('all');
       setSelectedId(initialSelectedId);
-      onConsumeInitialSelectedId?.();
+      onConsumeInitialSelectedIdRef.current?.();
     }
-  }, [initialSelectedId, onConsumeInitialSelectedId]);
+  }, [initialSelectedId]);
 
   useEffect(() => {
     if (initialViewMode || initialApprovalId || initialChannelId) {
@@ -298,18 +303,29 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   }, []);
 
   useEffect(() => {
-    fetchCommsChannels(liveRevision > 0)
+    fetchCommsChannels(false)
       .then(syncChannelUnreadFromList)
       .catch(() => {});
-  }, [liveRevision, syncChannelUnreadFromList]);
+  }, [syncChannelUnreadFromList]);
 
   useEffect(() => {
-    fetchApprovalRequests({ status: 'pending', limit: 1, forceRefresh: liveRevision > 0 })
-      .then((res) => {
-        setPendingApprovalsCount(res.summary?.pending ?? 0);
-      })
-      .catch(() => {});
-  }, [liveRevision]);
+    const loadApprovalsCount = (forceRefresh = false) => {
+      fetchApprovalRequests({ status: 'pending', limit: 1, forceRefresh })
+        .then((res) => {
+          setPendingApprovalsCount(res.summary?.pending ?? 0);
+        })
+        .catch(() => {});
+    };
+    loadApprovalsCount(false);
+    const onWs = (e: Event) => {
+      const evt = (e as CustomEvent<any>).detail;
+      if (evt?.type === 'approval:updated' || evt?.type === 'jit_grant:updated') {
+        loadApprovalsCount(true);
+      }
+    };
+    window.addEventListener('nettop-comms-ws-event', onWs as EventListener);
+    return () => window.removeEventListener('nettop-comms-ws-event', onWs as EventListener);
+  }, []);
 
   const handleApprovalsSummarySync = useCallback((summary: ApprovalQueueSummary) => {
     setPendingApprovalsCount(summary.pending ?? 0);

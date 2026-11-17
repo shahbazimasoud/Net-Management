@@ -38,46 +38,55 @@ async function authenticateApprovalRequest(req: Request): Promise<{
     '127.0.0.1';
   const clientIp = rawIp.replace(/^::ffff:/, '') || '127.0.0.1';
 
-  const authHeader = (req.headers.authorization as string) || '';
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-  if (!token) {
-    return { authenticated: false, statusCode: 401, error: 'Authentication required' };
+  try {
+    const authHeader = (req.headers.authorization as string) || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!token) {
+      return { authenticated: false, statusCode: 401, error: 'Authentication required' };
+    }
+
+    const payload = verifyToken(token);
+    if (!payload) {
+      return { authenticated: false, statusCode: 401, error: 'Invalid or expired session token' };
+    }
+
+    const userRecord =
+      (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
+    if (userRecord && userRecord.status === 'disabled') {
+      return { authenticated: false, statusCode: 403, error: 'Account disabled' };
+    }
+
+    const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
+    const cleanUsername = (userRecord?.username || payload.username || '').trim().toLowerCase();
+    const cleanRole = (userRecord?.role || payload.role || '').trim().toLowerCase();
+    const isSuperAdmin =
+      cleanUsername === 'admin' ||
+      cleanRole.includes('super admin') ||
+      cleanRole.includes('administrator') ||
+      effectivePolicy?.id === 'policy-super-admin';
+
+    const canApproveActions = isSuperAdmin || Boolean(effectivePolicy?.canApproveActions);
+
+    return {
+      authenticated: true,
+      actor: {
+        userId: userRecord?.id || payload.userId,
+        username: userRecord?.username || payload.username,
+        fullName: userRecord?.fullName || payload.fullName || payload.username,
+        role: userRecord?.role || payload.role || 'Operator',
+        isSuperAdmin,
+        canApproveActions,
+        clientIp,
+      },
+    };
+  } catch (err: any) {
+    console.error('[ApprovalAPI authenticateApprovalRequest]', err);
+    return {
+      authenticated: false,
+      statusCode: 500,
+      error: err?.message || 'Internal authentication error',
+    };
   }
-
-  const payload = verifyToken(token);
-  if (!payload) {
-    return { authenticated: false, statusCode: 401, error: 'Invalid or expired session token' };
-  }
-
-  const userRecord =
-    (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
-  if (userRecord && userRecord.status === 'disabled') {
-    return { authenticated: false, statusCode: 403, error: 'Account disabled' };
-  }
-
-  const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
-  const cleanUsername = (userRecord?.username || payload.username || '').trim().toLowerCase();
-  const cleanRole = (userRecord?.role || payload.role || '').trim().toLowerCase();
-  const isSuperAdmin =
-    cleanUsername === 'admin' ||
-    cleanRole.includes('super admin') ||
-    cleanRole.includes('administrator') ||
-    effectivePolicy?.id === 'policy-super-admin';
-
-  const canApproveActions = isSuperAdmin || Boolean(effectivePolicy?.canApproveActions);
-
-  return {
-    authenticated: true,
-    actor: {
-      userId: userRecord?.id || payload.userId,
-      username: userRecord?.username || payload.username,
-      fullName: userRecord?.fullName || payload.fullName || payload.username,
-      role: userRecord?.role || payload.role || 'Operator',
-      isSuperAdmin,
-      canApproveActions,
-      clientIp,
-    },
-  };
 }
 
 // GET /api/approvals/eligible-approvers

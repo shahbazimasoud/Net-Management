@@ -1776,6 +1776,19 @@ apiRouter.post('/auth/resend-2fa', async (req: Request, res: Response) => {
   }
 });
 
+function safeParseGroupIds(raw: any): string[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string') return [];
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 // Verify token / Current User Session with Database Authorization
 apiRouter.get('/auth/me', async (req: Request, res: Response) => {
   const authHeader = req.headers.authorization || '';
@@ -1790,32 +1803,35 @@ apiRouter.get('/auth/me', async (req: Request, res: Response) => {
     return res.status(401).json({ authenticated: false, error: 'Invalid or expired token' });
   }
 
-  // Live database lookup from PostgreSQL
-  const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
-  if (userRecord && userRecord.status === 'disabled') {
-    return res.status(403).json({ authenticated: false, error: 'Account disabled in database' });
+  try {
+    // Live database lookup from PostgreSQL
+    const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
+    if (userRecord && userRecord.status === 'disabled') {
+      return res.status(403).json({ authenticated: false, error: 'Account disabled in database' });
+    }
+
+    const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
+
+    res.json({
+      authenticated: true,
+      user: {
+        id: userRecord?.id || payload.userId,
+        username: userRecord?.username || payload.username,
+        fullName: userRecord?.full_name || payload.fullName,
+        email: userRecord?.email || payload.email,
+        role: userRecord?.role || payload.role,
+        userType: userRecord?.user_type || payload.userType,
+        status: userRecord?.status || 'active',
+        groupIds: safeParseGroupIds(userRecord?.group_ids),
+        isBuiltin: userRecord?.is_builtin ?? false,
+        policyId: effectivePolicy?.id,
+      },
+      effectivePolicy,
+    });
+  } catch (err: any) {
+    console.error('[Auth Session Error]', err);
+    res.status(500).json({ authenticated: false, error: err?.message || 'Session lookup failed' });
   }
-
-  const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
-
-  res.json({
-    authenticated: true,
-    user: {
-      id: userRecord?.id || payload.userId,
-      username: userRecord?.username || payload.username,
-      fullName: userRecord?.full_name || payload.fullName,
-      email: userRecord?.email || payload.email,
-      role: userRecord?.role || payload.role,
-      userType: userRecord?.user_type || payload.userType,
-      status: userRecord?.status || 'active',
-      groupIds: userRecord?.group_ids
-        ? (typeof userRecord.group_ids === 'string' ? JSON.parse(userRecord.group_ids) : userRecord.group_ids)
-        : [],
-      isBuiltin: userRecord?.is_builtin ?? false,
-      policyId: effectivePolicy?.id,
-    },
-    effectivePolicy,
-  });
 });
 
 // Real-time Database-computed Effective Policy Endpoint
@@ -1832,13 +1848,18 @@ apiRouter.get('/auth/effective-policy', async (req: Request, res: Response) => {
     return res.status(401).json({ success: false, error: 'Invalid or expired token' });
   }
 
-  const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
-  if (userRecord && userRecord.status === 'disabled') {
-    return res.status(403).json({ success: false, error: 'Account disabled in database' });
-  }
+  try {
+    const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
+    if (userRecord && userRecord.status === 'disabled') {
+      return res.status(403).json({ success: false, error: 'Account disabled in database' });
+    }
 
-  const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
-  res.json({ success: true, effectivePolicy });
+    const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
+    res.json({ success: true, effectivePolicy });
+  } catch (err: any) {
+    console.error('[Auth Effective Policy Error]', err);
+    res.status(500).json({ success: false, error: err?.message || 'Failed to compute effective policy' });
+  }
 });
 
 // Logout endpoint

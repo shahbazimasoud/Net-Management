@@ -139,7 +139,11 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
   const messagesCountRef = useRef<number>(messages.length);
+  const unreadCountRef = useRef<number>(channel.unreadCount || 0);
+  const onChannelReadRef = useRef(onChannelRead);
   messagesCountRef.current = messages.length;
+  unreadCountRef.current = channel.unreadCount || 0;
+  onChannelReadRef.current = onChannelRead;
 
   const channelTitle = dedupeParenthesizedTitle(
     isEn ? channel.nameEn || channel.name : channel.name
@@ -153,8 +157,8 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
       try {
         const res = await fetchChannelMessages(channel.id, { limit: 80, forceRefresh });
         setMessages(res.messages || []);
-        if (channel.unreadCount > 0) {
-          onChannelRead(channel.id);
+        if (unreadCountRef.current > 0) {
+          onChannelReadRef.current(channel.id);
         }
       } catch (err: any) {
         setErrorMsg(
@@ -164,14 +168,14 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
         setLoading(false);
       }
     },
-    [channel.id, channel.unreadCount, isCollapsed, isEn, onChannelRead]
+    [channel.id, isCollapsed, isEn]
   );
 
   useEffect(() => {
     if (!isCollapsed) {
       loadMessages(false);
     }
-  }, [channel.id, isCollapsed, liveRevision, loadMessages]);
+  }, [channel.id, isCollapsed, loadMessages]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1278,9 +1282,11 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
 
   const openTabsRef = useRef<OpenChatTabState[]>(openTabs);
   const channelsRef = useRef<CommsChannel[]>(channels);
+  const onUnreadChangedRef = useRef(onUnreadChanged);
   const rowMenuRef = useRef<HTMLDivElement>(null);
   openTabsRef.current = openTabs;
   channelsRef.current = channels;
+  onUnreadChangedRef.current = onUnreadChanged;
 
   const loadChannels = useCallback(async (forceRefresh = false) => {
     if (channelsRef.current.length === 0) setChannelsLoading(true);
@@ -1297,10 +1303,10 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
     }
   }, [isEn]);
 
-  // Initial load + live WebSocket sync
+  // Initial load on mount (realtime channel updates arrive in-place via WebSocket)
   useEffect(() => {
-    loadChannels(liveRevision > 0);
-  }, [liveRevision, loadChannels]);
+    loadChannels(false);
+  }, [loadChannels]);
 
   // Zero-latency in-place WS listener for chat messages and channel updates
   useEffect(() => {
@@ -1498,15 +1504,12 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
     setOpenTabs((prev) => prev.filter((t) => t.channelId !== channelId));
   }, []);
 
-  const handleChannelRead = useCallback(
-    (channelId: string) => {
-      setChannels((prev) =>
-        prev.map((c) => (c.id === channelId ? { ...c, unreadCount: 0 } : c))
-      );
-      onUnreadChanged?.();
-    },
-    [onUnreadChanged]
-  );
+  const handleChannelRead = useCallback((channelId: string) => {
+    setChannels((prev) =>
+      prev.map((c) => (c.id === channelId ? { ...c, unreadCount: 0 } : c))
+    );
+    onUnreadChangedRef.current?.();
+  }, []);
 
   const handleOpenNewChatPicker = async () => {
     setIsNewChatMode(true);

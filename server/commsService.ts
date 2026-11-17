@@ -1878,8 +1878,10 @@ export async function listUserChannels(user: Partial<CommsActor>): Promise<Comms
 
   const channelIds = new Set<string>();
   const pool = getPgPool();
+  const pgActive = isPostgresConnected() && Boolean(pool);
+  let pgMembershipLoaded = false;
 
-  if (isPostgresConnected() && pool) {
+  if (pgActive && pool) {
     try {
       const res = await pool.query(
         `SELECT DISTINCT channel_id FROM comms_channel_members
@@ -1890,17 +1892,21 @@ export async function listUserChannels(user: Partial<CommsActor>): Promise<Comms
       for (const r of res.rows) {
         if (r.channel_id) channelIds.add(r.channel_id);
       }
+      pgMembershipLoaded = true;
     } catch (err: any) {
       console.error('[CommsService] listUserChannels PG error:', err?.message || err);
     }
   }
 
-  const store = loadFallbackStore();
-  for (const m of store.comms_channel_members || []) {
-    if (m.is_hidden ?? m.isHidden) continue;
-    if (memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet)) {
-      const cid = m.channel_id ?? m.channelId;
-      if (cid) channelIds.add(cid);
+  let fallbackStoreCache: any = null;
+  if (!pgMembershipLoaded) {
+    fallbackStoreCache = loadFallbackStore();
+    for (const m of fallbackStoreCache.comms_channel_members || []) {
+      if (m.is_hidden ?? m.isHidden) continue;
+      if (memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet)) {
+        const cid = m.channel_id ?? m.channelId;
+        if (cid) channelIds.add(cid);
+      }
     }
   }
 
@@ -1913,7 +1919,7 @@ export async function listUserChannels(user: Partial<CommsActor>): Promise<Comms
   const pgLatestMsgMap = new Map<string, any>();
   const pgUnreadMap = new Map<string, number>();
 
-  if (isPostgresConnected() && pool) {
+  if (pgActive && pool) {
     try {
       const [chRes, memRes, msgRes, unreadRes] = await Promise.all([
         pool.query(`SELECT * FROM comms_channels WHERE id = ANY($1::text[])`, [idArray]),
@@ -1960,6 +1966,7 @@ export async function listUserChannels(user: Partial<CommsActor>): Promise<Comms
   const fbUnreadMap = new Map<string, number>();
 
   if (missingIds.size > 0) {
+    const store = fallbackStoreCache || loadFallbackStore();
     for (const c of store.comms_channels || []) {
       if (missingIds.has(c.id)) fbChannelsMap.set(c.id, c);
     }
@@ -2583,7 +2590,7 @@ export async function listChannelMessages(
     rawMessages = pgCountsAndRows[1].rows.reverse();
   }
 
-  if (rawMessages.length === 0 && (!pgCountsAndRows || total === 0)) {
+  if (!pgCountsAndRows) {
     const store = loadFallbackStore();
     const viewerFbMembers = (store.comms_channel_members || []).filter(
       (m: any) =>
@@ -2621,42 +2628,44 @@ export async function listChannelMessages(
   }
   const messages = rawMessages.map((r) => mapMessageRow(r, lookupMap));
 
-  // Mark channel notifications as read only when actually needed (avoid unnecessary disk writes)
+  // Mark channel notifications as read only when actually needed (skip fallback JSON write when PG is active)
   const newestId = messages[messages.length - 1]?.id || null;
   let clearedAny = false;
-  let fbDirty = false;
 
-  const store = loadFallbackStore();
-  if (Array.isArray(store.comms_notifications)) {
-    const nowIso = new Date().toISOString();
-    for (const n of store.comms_notifications) {
-      if (
-        (n.channel_id ?? n.channelId) === channelId &&
-        !(n.is_read ?? n.isRead) &&
-        (idSet.has((n.recipient_user_id || n.recipientUserId || '').toLowerCase()) ||
-          idSet.has((n.recipient_username || n.recipientUsername || '').toLowerCase()))
-      ) {
-        n.is_read = true;
-        n.read_at = n.read_at || nowIso;
-        clearedAny = true;
-        fbDirty = true;
+  if (!pgActive) {
+    let fbDirty = false;
+    const store = loadFallbackStore();
+    if (Array.isArray(store.comms_notifications)) {
+      const nowIso = new Date().toISOString();
+      for (const n of store.comms_notifications) {
+        if (
+          (n.channel_id ?? n.channelId) === channelId &&
+          !(n.is_read ?? n.isRead) &&
+          (idSet.has((n.recipient_user_id || n.recipientUserId || '').toLowerCase()) ||
+            idSet.has((n.recipient_username || n.recipientUsername || '').toLowerCase()))
+        ) {
+          n.is_read = true;
+          n.read_at = n.read_at || nowIso;
+          clearedAny = true;
+          fbDirty = true;
+        }
       }
     }
-  }
-  if (newestId && Array.isArray(store.comms_channel_members)) {
-    for (const m of store.comms_channel_members) {
-      if (
-        (m.channel_id ?? m.channelId) === channelId &&
-        memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet) &&
-        m.last_read_message_id !== newestId
-      ) {
-        m.last_read_message_id = newestId;
-        fbDirty = true;
+    if (newestId && Array.isArray(store.comms_channel_members)) {
+      for (const m of store.comms_channel_members) {
+        if (
+          (m.channel_id ?? m.channelId) === channelId &&
+          memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet) &&
+          m.last_read_message_id !== newestId
+        ) {
+          m.last_read_message_id = newestId;
+          fbDirty = true;
+        }
       }
     }
-  }
-  if (fbDirty) {
-    saveFallbackStore(store);
+    if (fbDirty) {
+      saveFallbackStore(store);
+    }
   }
 
   // Run read-receipt PG updates + WS sync non-blocking when channel already has no unread notifications,

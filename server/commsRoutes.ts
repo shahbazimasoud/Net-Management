@@ -46,53 +46,63 @@ async function authenticateCommsRequest(req: Request): Promise<CommsAuthContext>
     '127.0.0.1';
   const clientIp = rawIp.replace(/^::ffff:/, '') || '127.0.0.1';
 
-  const authHeader = (req.headers.authorization as string) || '';
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-  if (!token) {
-    return { authenticated: false, statusCode: 401, error: 'Authentication required', clientIp };
-  }
+  try {
+    const authHeader = (req.headers.authorization as string) || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!token) {
+      return { authenticated: false, statusCode: 401, error: 'Authentication required', clientIp };
+    }
 
-  const payload = verifyToken(token);
-  if (!payload) {
-    return { authenticated: false, statusCode: 401, error: 'Invalid or expired session token', clientIp };
-  }
+    const payload = verifyToken(token);
+    if (!payload) {
+      return { authenticated: false, statusCode: 401, error: 'Invalid or expired session token', clientIp };
+    }
 
-  const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
-  if (userRecord && userRecord.status === 'disabled') {
-    return { authenticated: false, statusCode: 403, error: 'Account disabled', clientIp };
-  }
+    const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
+    if (userRecord && userRecord.status === 'disabled') {
+      return { authenticated: false, statusCode: 403, error: 'Account disabled', clientIp };
+    }
 
-  const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
-  const cleanUsername = (userRecord?.username || payload.username || '').trim().toLowerCase();
-  const cleanRole = (userRecord?.role || payload.role || '').trim().toLowerCase();
-  const isSuperAdmin =
-    cleanUsername === 'admin' ||
-    cleanRole.includes('super admin') ||
-    cleanRole.includes('administrator') ||
-    effectivePolicy?.id === 'policy-super-admin';
+    const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
+    const cleanUsername = (userRecord?.username || payload.username || '').trim().toLowerCase();
+    const cleanRole = (userRecord?.role || payload.role || '').trim().toLowerCase();
+    const isSuperAdmin =
+      cleanUsername === 'admin' ||
+      cleanRole.includes('super admin') ||
+      cleanRole.includes('administrator') ||
+      effectivePolicy?.id === 'policy-super-admin';
 
-  if (!isSuperAdmin && effectivePolicy?.canViewCommunications === false) {
+    if (!isSuperAdmin && effectivePolicy?.canViewCommunications === false) {
+      return {
+        authenticated: false,
+        statusCode: 403,
+        error: 'Access denied: Insufficient permissions for Communications & Notifications Center.',
+        clientIp,
+      };
+    }
+
+    return {
+      authenticated: true,
+      actor: {
+        userId: userRecord?.id || payload.userId,
+        username: userRecord?.username || payload.username,
+        fullName: userRecord?.fullName || payload.fullName || payload.username,
+        role: userRecord?.role || payload.role || 'Operator',
+        userType: userRecord?.userType || payload.userType || 'local',
+      },
+      policy: effectivePolicy,
+      isSuperAdmin,
+      clientIp,
+    };
+  } catch (err: any) {
+    console.error('[CommsAPI authenticateCommsRequest]', err);
     return {
       authenticated: false,
-      statusCode: 403,
-      error: 'Access denied: Insufficient permissions for Communications & Notifications Center.',
+      statusCode: 500,
+      error: err?.message || 'Internal authentication error',
       clientIp,
     };
   }
-
-  return {
-    authenticated: true,
-    actor: {
-      userId: userRecord?.id || payload.userId,
-      username: userRecord?.username || payload.username,
-      fullName: userRecord?.fullName || payload.fullName || payload.username,
-      role: userRecord?.role || payload.role || 'Operator',
-      userType: userRecord?.userType || payload.userType || 'local',
-    },
-    policy: effectivePolicy,
-    isSuperAdmin,
-    clientIp,
-  };
 }
 
 // GET /api/comms/notifications

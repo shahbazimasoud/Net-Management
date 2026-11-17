@@ -191,17 +191,19 @@ export default function App() {
         setUnreadCommsCount(nextUnread);
       }
 
-      if (evt.type === 'channel:message') {
+      if (
+        evt.type === 'channel:message' ||
+        evt.type === 'channel:created' ||
+        evt.type === 'channel:updated' ||
+        evt.type === 'channel:removed'
+      ) {
         appDataCache.invalidate('comms:unread');
         appDataCache.invalidate('comms:channels');
-        appDataCache.invalidate(`comms:channel:${evt.channelId}`);
-        return;
-      }
-
-      if (evt.type === 'channel:removed') {
-        appDataCache.invalidate('comms:unread');
-        appDataCache.invalidate('comms:channels');
-        appDataCache.invalidate(`comms:channel:${evt.channelId}`);
+        if ('channelId' in evt && evt.channelId) {
+          appDataCache.invalidate(`comms:channel:${evt.channelId}`);
+        } else if ('channel' in evt && evt.channel?.id) {
+          appDataCache.invalidate(`comms:channel:${evt.channel.id}`);
+        }
         return;
       }
 
@@ -209,16 +211,10 @@ export default function App() {
         evt.type === 'notification:created' ||
         evt.type === 'notification:updated' ||
         evt.type === 'notification:read_all' ||
-        evt.type === 'channel:created' ||
-        evt.type === 'channel:updated' ||
         evt.type === 'approval:updated' ||
         evt.type === 'jit_grant:updated'
       ) {
-        if (evt.type === 'channel:created' || evt.type === 'channel:updated') {
-          appDataCache.invalidate('comms:channels');
-        } else {
-          appDataCache.invalidate('comms:');
-        }
+        appDataCache.invalidate('comms:');
         if (
           evt.type === 'approval:updated' ||
           evt.type === 'jit_grant:updated' ||
@@ -232,12 +228,7 @@ export default function App() {
             new CustomEvent('nettop-jit-grants-updated', { detail: evt })
           );
         }
-        if (
-          nextUnread === undefined &&
-          evt.type !== 'channel:created' &&
-          evt.type !== 'channel:updated' &&
-          evt.type !== 'jit_grant:updated'
-        ) {
+        if (nextUnread === undefined && evt.type !== 'jit_grant:updated') {
           fetchUnreadCommsCounts(true)
             .then((res) => {
               if (!cancelled) setUnreadCommsCount(res.unreadCount ?? 0);

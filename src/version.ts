@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.440.0';
+export const APP_VERSION = '1.440.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.440.1',
+    releaseDate: '2026-11-17',
+    type: 'patch',
+    title: 'رفع خطای JSON.parse و بهینه‌سازی چشمگیر سرعت بارگذاری لیست چت‌ها و پیام‌ها',
+    title_en: 'Fix JSON.parse Unexpected Character Error & Boost Chat List / Message Loading Speed',
+    changes: [
+      'افزودن هم‌افزایی و کش کوتاه‌مدت وضعیت اتصال PostgreSQL (`ensurePostgresConnection` با TTL و Cooldown خطا) و کش درون‌حافظه‌ای مبتنی بر زمان تغییر فایل برای `loadFallbackStore` به‌همراه ذخیره‌سازی اتمیک فشرده در `server/db.ts` جهت حذف گلوگاه خواندن/تجزیه مکرر فایل و خطای اتصال تکراری در هر درخواست API.',
+      'حذف خواندن و نوشتن هم‌زمان غیرضروری فایل پشتیبان در `listUserChannels` و `listChannelMessages` هنگام فعال بودن PostgreSQL، و افزودن Cooldown به `expireStalePendingRequests` و موازی‌سازی کوئری‌های دایرکتوری کاربران و دسترسی‌ها.',
+      'رفع ریشه‌ای خطای `JSON.parse: unexpected character at line 1 column 1` با محافظت `try/catch` روی تمامی مسیرهای احراز هویت `commsRoutes`، `approvalRoutes` و `/api/auth/me`، ایمن‌سازی تجزیه فیلدهای JSON، و افزودن `safeParseJsonResponse` در تمامی متدهای `commsApi` و `approvalApi` برای جلوگیری از کرش در مواجهه با پاسخ‌های HTML یا خالی.',
+      'حذف حلقه‌های درخواست مجدد HTTP در `FooterTeamChatDock`، `TeamChannelsPane`، `CommunicationsCenterView` و `App.tsx` با تثبیت رفرنس کال‌بک‌ها و جلوگیری از رفرش تکراری لیست چت‌ها هنگام رویدادهای زنده وب‌سوکت.'
+    ],
+    changes_en: [
+      'Added singleflight connection coalescing, ping TTL caching, and failure cooldown to `ensurePostgresConnection()`, plus `mtimeMs+size` in-memory caching and compact atomic writes for `loadFallbackStore()`/`saveFallbackStore()` in `server/db.ts` to eliminate repeated file parsing and redundant connection attempts per request.',
+      'Skipped unnecessary fallback store scans and synchronous disk writes inside `listUserChannels` and `listChannelMessages` when PostgreSQL is active, throttled `expireStalePendingRequests()` in `server/approvalService.ts`, and parallelized user/policy/AD directory lookups.',
+      'Fixed `JSON.parse: unexpected character at line 1 column 1` crashes by wrapping `authenticateCommsRequest`, `authenticateApprovalRequest`, and `/api/auth/me` in `try/catch`, guarding server `JSON.parse` calls on policy/group fields, and replacing all raw `res.json()` calls in `commsApi.ts` and `approvalApi.ts` with `safeParseJsonResponse()`.',
+      'Eliminated duplicate HTTP refetches and read-state reload loops in `FooterTeamChatDock`, `TeamChannelsPane`, `CommunicationsCenterView`, and `App.tsx` by stabilizing callback refs and letting in-place WebSocket channel events update state without cascading `forceRefresh` requests.'
+    ]
+  },
   {
     version: '1.440.0',
     releaseDate: '2026-11-17',

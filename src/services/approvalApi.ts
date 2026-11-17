@@ -7,7 +7,7 @@ import {
   CreateApprovalRequestPayload,
 } from '../types';
 import { appDataCache } from './dataCache';
-import { getAuthToken } from './commsApi';
+import { getAuthToken, safeParseJsonResponse } from './commsApi';
 
 function buildHeaders(): Record<string, string> {
   const token = getAuthToken();
@@ -55,7 +55,7 @@ export async function fetchApprovalRequests(
         headers: buildHeaders(),
         cache: 'no-store',
       });
-      const json = await res.json();
+      const json = await safeParseJsonResponse<any>(res);
       if (!res.ok || !json.success) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
@@ -70,7 +70,7 @@ export async function fetchApprovalById(id: string): Promise<ActionApprovalReque
     headers: buildHeaders(),
     cache: 'no-store',
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success || !json.approval) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -85,7 +85,7 @@ export async function fetchApprovalTargets(): Promise<ApprovalTargetOption[]> {
         headers: buildHeaders(),
         cache: 'no-store',
       });
-      const json = await res.json();
+      const json = await safeParseJsonResponse<any>(res);
       if (!res.ok || !json.success) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
@@ -127,7 +127,7 @@ export async function fetchActiveJitGrants(
         headers: buildHeaders(),
         cache: 'no-store',
       });
-      const json = await res.json();
+      const json = await safeParseJsonResponse<any>(res);
       if (!res.ok || !json.success) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
@@ -146,7 +146,7 @@ export async function revokeJitGrantApi(
     headers: buildHeaders(),
     body: JSON.stringify({ reason }),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success || !json.grant) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -163,7 +163,7 @@ export async function submitApprovalRequest(
     headers: buildHeaders(),
     body: JSON.stringify(payload),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success || !json.approval) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -187,7 +187,7 @@ export async function decideApprovalRequestApi(
       ...(options?.emergencyOverride ? { emergencyOverride: true } : {}),
     }),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success || !json.approval) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -201,7 +201,7 @@ export async function cancelApprovalRequestApi(id: string): Promise<ActionApprov
     method: 'POST',
     headers: buildHeaders(),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success || !json.approval) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -219,7 +219,7 @@ export async function executeApprovalPayloadApi(
     headers: buildHeaders(),
     body: JSON.stringify({ executionNote }),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success || !json.approval) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -237,7 +237,7 @@ export async function markApprovalExecutedApi(
     headers: buildHeaders(),
     body: JSON.stringify({ executionNote }),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success || !json.approval) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -296,7 +296,7 @@ export async function checkActionApprovalGate(params: {
     headers: buildHeaders(),
     cache: 'no-store',
   });
-  const json = await res.json().catch(() => null);
+  const json = await safeParseJsonResponse<any>(res).catch(() => null);
   if (!res.ok || !json) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }

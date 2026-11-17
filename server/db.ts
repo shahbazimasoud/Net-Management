@@ -72,6 +72,37 @@ let pool: Pool | null = null;
 let isPostgresReady = false;
 let lastError: string | null = null;
 
+const PG_PING_TTL_MS = 10_000;
+const PG_FAILURE_COOLDOWN_MS = 15_000;
+let lastPgSuccessAt = 0;
+let lastPgFailureAt = 0;
+let lastPgConfigSig = '';
+let pgConnectInFlight: Promise<boolean> | null = null;
+
+function getPgConfigSignature(): string {
+  if (process.env.DATABASE_URL) {
+    return `url:${process.env.DATABASE_URL}`;
+  }
+  return [
+    process.env.DB_HOST || '127.0.0.1',
+    process.env.DB_PORT || '5432',
+    process.env.DB_NAME || 'nettopology_db',
+    process.env.DB_USER || 'nettopology_user',
+  ].join(':');
+}
+
+function safeParseJsonValue<T>(raw: any, fallback: T): T {
+  if (raw === null || raw === undefined) return fallback;
+  if (typeof raw !== 'string') return raw as T;
+  const trimmed = raw.trim();
+  if (!trimmed) return fallback;
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export function getPgPool(): Pool | null {
   return pool;
 }
@@ -80,45 +111,92 @@ export function isPostgresConnected(): boolean {
   return isPostgresReady && pool !== null;
 }
 
-export async function ensurePostgresConnection(): Promise<boolean> {
-  if (isPostgresReady && pool) {
-    try {
-      const pingClient = await pool.connect();
-      pingClient.release();
+export async function ensurePostgresConnection(forceRetry = false): Promise<boolean> {
+  const now = Date.now();
+  const configSig = getPgConfigSignature();
+  const configChanged = configSig !== lastPgConfigSig;
+
+  if (!forceRetry && !configChanged) {
+    if (isPostgresReady && pool && now - lastPgSuccessAt < PG_PING_TTL_MS) {
       return true;
-    } catch {
-      isPostgresReady = false;
-      try {
-        await pool.end();
-      } catch {}
-      pool = null;
+    }
+    if (!isPostgresReady && lastPgFailureAt > 0 && now - lastPgFailureAt < PG_FAILURE_COOLDOWN_MS) {
+      return false;
+    }
+    if (pgConnectInFlight) {
+      return pgConnectInFlight;
     }
   }
 
-  try {
-    const config = getDbConfig();
-    if (!pool) {
-      pool = new Pool(config);
-      pool.on('error', (err) => {
+  const attempt = (async (): Promise<boolean> => {
+    if (isPostgresReady && pool && !configChanged) {
+      try {
+        const pingClient = await pool.connect();
+        pingClient.release();
+        lastPgSuccessAt = Date.now();
+        lastPgFailureAt = 0;
+        lastPgConfigSig = configSig;
+        return true;
+      } catch {
         isPostgresReady = false;
-      });
+        lastPgSuccessAt = 0;
+        try {
+          await pool.end();
+        } catch {}
+        pool = null;
+      }
     }
 
-    const client = await pool.connect();
-    client.release();
-    isPostgresReady = true;
-    lastError = null;
-    return true;
-  } catch (err: any) {
-    isPostgresReady = false;
-    lastError = err.message || 'PostgreSQL not reachable';
-    if (pool) {
+    if (configChanged && pool) {
+      isPostgresReady = false;
+      lastPgSuccessAt = 0;
       try {
         await pool.end();
       } catch {}
       pool = null;
     }
-    return false;
+
+    try {
+      const config = getDbConfig();
+      if (!pool) {
+        pool = new Pool(config);
+        pool.on('error', () => {
+          isPostgresReady = false;
+          lastPgSuccessAt = 0;
+        });
+      }
+
+      const client = await pool.connect();
+      client.release();
+      isPostgresReady = true;
+      lastError = null;
+      lastPgSuccessAt = Date.now();
+      lastPgFailureAt = 0;
+      lastPgConfigSig = configSig;
+      return true;
+    } catch (err: any) {
+      isPostgresReady = false;
+      lastError = err.message || 'PostgreSQL not reachable';
+      lastPgSuccessAt = 0;
+      lastPgFailureAt = Date.now();
+      lastPgConfigSig = configSig;
+      if (pool) {
+        try {
+          await pool.end();
+        } catch {}
+        pool = null;
+      }
+      return false;
+    }
+  })();
+
+  pgConnectInFlight = attempt;
+  try {
+    return await attempt;
+  } finally {
+    if (pgConnectInFlight === attempt) {
+      pgConnectInFlight = null;
+    }
   }
 }
 
@@ -1103,15 +1181,45 @@ export const DEFAULT_SERVER_CATEGORIES: ServerCategory[] = [
 
 export const DEFAULT_REMOTE_SERVERS: RemoteServer[] = [];
 
+let cachedFallbackStore: FallbackStore | null = null;
+let cachedFallbackMtimeMs = -1;
+let cachedFallbackSize = -1;
+let cachedFallbackMissing = false;
+
+export function invalidateFallbackStoreCache(): void {
+  cachedFallbackStore = null;
+  cachedFallbackMtimeMs = -1;
+  cachedFallbackSize = -1;
+  cachedFallbackMissing = false;
+}
+
 export function loadFallbackStore(): FallbackStore {
   let store: any = null;
+  let currentStat: fs.Stats | null = null;
+  let readSucceeded = false;
+
   try {
     if (fs.existsSync(FALLBACK_FILE)) {
+      currentStat = fs.statSync(FALLBACK_FILE);
+      if (
+        cachedFallbackStore &&
+        !cachedFallbackMissing &&
+        currentStat.mtimeMs === cachedFallbackMtimeMs &&
+        currentStat.size === cachedFallbackSize
+      ) {
+        return cachedFallbackStore;
+      }
       const raw = fs.readFileSync(FALLBACK_FILE, 'utf-8');
       store = JSON.parse(raw);
+      readSucceeded = true;
+    } else if (cachedFallbackStore && cachedFallbackMissing) {
+      return cachedFallbackStore;
     }
   } catch (err) {
     console.error('[DB Fallback] Error reading fallback store:', err);
+    if (cachedFallbackStore) {
+      return cachedFallbackStore;
+    }
   }
 
   // Initial admin credentials - reads password configured during panel installation in shell
@@ -1304,15 +1412,39 @@ export function loadFallbackStore(): FallbackStore {
     store.action_approval_grants = [];
   }
 
+  if (readSucceeded && currentStat) {
+    cachedFallbackStore = store;
+    cachedFallbackMtimeMs = currentStat.mtimeMs;
+    cachedFallbackSize = currentStat.size;
+    cachedFallbackMissing = false;
+  } else if (!currentStat) {
+    cachedFallbackStore = store;
+    cachedFallbackMtimeMs = -1;
+    cachedFallbackSize = -1;
+    cachedFallbackMissing = true;
+  }
+
   return store;
 }
 
 export function saveFallbackStore(data: FallbackStore): void {
   try {
     fs.mkdirSync(path.dirname(FALLBACK_FILE), { recursive: true });
-    fs.writeFileSync(FALLBACK_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    const tmpFile = `${FALLBACK_FILE}.tmp.${process.pid}.${Date.now()}`;
+    fs.writeFileSync(tmpFile, JSON.stringify(data), 'utf-8');
+    fs.renameSync(tmpFile, FALLBACK_FILE);
+    try {
+      const st = fs.statSync(FALLBACK_FILE);
+      cachedFallbackStore = data;
+      cachedFallbackMtimeMs = st.mtimeMs;
+      cachedFallbackSize = st.size;
+      cachedFallbackMissing = false;
+    } catch {
+      invalidateFallbackStoreCache();
+    }
   } catch (err) {
     console.error('[DB Fallback] Error saving fallback store:', err);
+    invalidateFallbackStoreCache();
   }
 }
 
@@ -2709,9 +2841,21 @@ export async function initDatabase(): Promise<void> {
     client.release();
     isPostgresReady = true;
     lastError = null;
+    lastPgSuccessAt = Date.now();
+    lastPgFailureAt = 0;
+    lastPgConfigSig = getPgConfigSignature();
   } catch (err: any) {
     isPostgresReady = false;
     lastError = err.message || 'PostgreSQL not available';
+    lastPgSuccessAt = 0;
+    lastPgFailureAt = Date.now();
+    lastPgConfigSig = getPgConfigSignature();
+    if (pool) {
+      try {
+        await pool.end();
+      } catch {}
+      pool = null;
+    }
     console.warn(`[Database Notice] PostgreSQL is not reachable (${lastError}). Using robust file-backed store for persistence.`);
     await initOrLoadSystemSecurityKeys();
     await migrateLegacyDeviceCredentialsToPostgres();
@@ -2945,7 +3089,7 @@ export async function migrateLegacyDeviceCredentialsToPostgres(client?: PoolClie
  * Manually trigger bidirectional database sync
  */
 export async function syncDatabase(): Promise<DbStatus> {
-  const connected = await ensurePostgresConnection();
+  const connected = await ensurePostgresConnection(true);
   if (connected && pool) {
     const client = await pool.connect();
     try {
@@ -3066,7 +3210,7 @@ export async function getAllUsers(): Promise<any[]> {
           role: r.role,
           userType: r.user_type,
           status: r.status,
-          groupIds: typeof r.group_ids === 'string' ? JSON.parse(r.group_ids) : r.group_ids,
+          groupIds: safeParseJsonValue(r.group_ids, []),
           isBuiltin: r.is_builtin,
           lastLogin: r.last_login,
           createdAt: r.created_at,
@@ -3087,7 +3231,7 @@ export async function getAllUsers(): Promise<any[]> {
               role: r.role,
               userType: r.user_type,
               status: r.status,
-              groupIds: typeof r.group_ids === 'string' ? JSON.parse(r.group_ids) : r.group_ids,
+              groupIds: safeParseJsonValue(r.group_ids, []),
               isBuiltin: r.is_builtin,
               lastLogin: r.last_login,
               createdAt: r.created_at,
@@ -3981,9 +4125,7 @@ export async function getUserGroups(): Promise<any[]> {
     try {
       const res = await pool.query('SELECT * FROM user_groups ORDER BY created_at ASC');
       return res.rows.map((r) => {
-        const rawMembers = typeof r.member_user_ids === 'string'
-          ? JSON.parse(r.member_user_ids || '[]')
-          : (r.member_user_ids || []);
+        const rawMembers = safeParseJsonValue<any[]>(r.member_user_ids, []);
         return {
           id: r.id,
           name: r.name,
@@ -4078,7 +4220,7 @@ export async function getAccessPolicies(): Promise<any[]> {
     try {
       const res = await pool.query('SELECT * FROM access_policies ORDER BY priority ASC, created_at ASC');
       return res.rows.map((r) => {
-        const pData = typeof r.policy_data === 'string' ? JSON.parse(r.policy_data) : (r.policy_data || {});
+        const pData = safeParseJsonValue<Record<string, any>>(r.policy_data, {});
         const defaultPerms = pData.defaultServerPermissions || (
           r.id === 'policy-super-admin' || (r.priority || 0) >= 100
             ? { terminal: true, file_explorer: true, server_management: true, web_management: true, database_management: true, power_control: true, edit_properties: true, delete_server: true }
@@ -4248,8 +4390,12 @@ export async function getAuthorizedMapSubjects(): Promise<{
   };
   count: number;
 }> {
-  // 1. Local Users from PostgreSQL/Fallback
-  const localUsersList = await getAllUsers();
+  // 1-2. Local Users, Policies & Active Directory config fetched concurrently
+  const [localUsersList, policies, adConfig] = await Promise.all([
+    getAllUsers(),
+    getAccessPolicies(),
+    getActiveDirectoryConfig(),
+  ]);
   const activeLocalUsers = localUsersList.filter((u) => u && u.status !== 'disabled');
   const localUsers: AuthorizedMapSubject[] = activeLocalUsers.map((u) => ({
     id: (u.username || '').toLowerCase(),
@@ -4265,9 +4411,6 @@ export async function getAuthorizedMapSubjects(): Promise<{
     email: u.email,
   }));
 
-  // 2. Active Directory Users and Groups with assigned policies in database
-  const policies = await getAccessPolicies();
-  const adConfig = await getActiveDirectoryConfig();
   const syncedUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? adConfig.syncedUsers : [];
   const syncedGroups: any[] = Array.isArray(adConfig?.syncedGroups) ? adConfig.syncedGroups : [];
 
@@ -4697,19 +4840,18 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
   const roleName = (hydratedUser.role || '').trim().toLowerCase();
   const isSuperAdmin = cleanUsername === 'admin' || samAccount === 'admin' || roleName.includes('super admin') || roleName.includes('administrator');
 
-  // Load policies from PostgreSQL (or fallback store)
-  const policies = await getAccessPolicies();
-  // Load user groups from PostgreSQL (or fallback store)
-  const userGroups = await getUserGroups();
+  // Load policies and user groups concurrently from PostgreSQL (or cached fallback store)
+  const [policies, userGroups] = await Promise.all([
+    getAccessPolicies(),
+    getUserGroups(),
+  ]);
 
   const matchingPolicies: any[] = [];
   const rawGroupIds: string[] = Array.isArray(hydratedUser.groupIds)
     ? hydratedUser.groupIds
     : Array.isArray(hydratedUser.group_ids)
     ? hydratedUser.group_ids
-    : typeof hydratedUser.group_ids === 'string'
-    ? JSON.parse(hydratedUser.group_ids || '[]')
-    : [];
+    : safeParseJsonValue<string[]>(hydratedUser.group_ids, []);
 
   const rawAdGroups: string[] = Array.isArray(hydratedUser.groups)
     ? hydratedUser.groups
@@ -5511,11 +5653,13 @@ export async function getApprovalEligibleCandidates(overridePolicies?: any[]): P
   users: ApprovalEligibleCandidateRecord[];
   groups: ApprovalEligibleCandidateRecord[];
 }> {
-  const policies = Array.isArray(overridePolicies) ? overridePolicies : await getAccessPolicies();
-  const localUsersList = await getAllUsers();
+  const [policies, localUsersList, rawLocalGroups, adConfig] = await Promise.all([
+    Array.isArray(overridePolicies) ? Promise.resolve(overridePolicies) : getAccessPolicies(),
+    getAllUsers(),
+    getUserGroups(),
+    getActiveDirectoryConfig(),
+  ]);
   const activeLocalUsers = localUsersList.filter((u: any) => u && u.status !== 'disabled');
-  const rawLocalGroups = await getUserGroups();
-  const adConfig = await getActiveDirectoryConfig();
   const syncedUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? adConfig.syncedUsers : [];
   const syncedGroups: any[] = Array.isArray(adConfig?.syncedGroups) ? adConfig.syncedGroups : [];
 
@@ -6900,8 +7044,8 @@ export async function getActiveDirectoryConfig(): Promise<any> {
       const res = await pool.query("SELECT config_data FROM ad_config WHERE id = 'primary' LIMIT 1");
       if (res.rows.length > 0) {
         const raw = res.rows[0].config_data;
-        loadedCfg = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        loadedFromPostgres = true;
+        loadedCfg = safeParseJsonValue(raw, null);
+        loadedFromPostgres = Boolean(loadedCfg);
       }
     } catch (e: any) {
       console.error('[DB Query Error getActiveDirectoryConfig]', e?.message || e);

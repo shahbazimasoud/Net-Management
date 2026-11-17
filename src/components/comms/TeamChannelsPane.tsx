@@ -154,8 +154,16 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
   const threadEndRef = useRef<HTMLDivElement>(null);
   const selectedChannelIdRef = useRef<string | null>(selectedChannelId);
   const channelsRef = useRef<CommsChannel[]>(channels);
+  const onChannelsLoadedRef = useRef(onChannelsLoaded);
+  const onSelectChannelIdRef = useRef(onSelectChannelId);
   selectedChannelIdRef.current = selectedChannelId;
   channelsRef.current = channels;
+  onChannelsLoadedRef.current = onChannelsLoaded;
+  onSelectChannelIdRef.current = onSelectChannelId;
+
+  useEffect(() => {
+    onChannelsLoadedRef.current?.(channels);
+  }, [channels]);
 
   const ensureDirectory = useCallback(async () => {
     if (directoryOptions.length > 0) return;
@@ -173,9 +181,8 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
       try {
         const list = await fetchCommsChannels(forceRefresh);
         setChannels(list);
-        onChannelsLoaded?.(list);
         if (!selectedChannelIdRef.current && list.length > 0) {
-          onSelectChannelId(list[0].id);
+          onSelectChannelIdRef.current(list[0].id);
         }
       } catch (err: any) {
         setErrorMsg(
@@ -185,7 +192,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
         setChannelsLoading(false);
       }
     },
-    [isEn, onChannelsLoaded, onSelectChannelId]
+    [isEn]
   );
 
   const loadThread = useCallback(
@@ -229,8 +236,8 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
   );
 
   useEffect(() => {
-    loadChannels(liveRevision > 0);
-  }, [liveRevision, loadChannels]);
+    loadChannels(false);
+  }, [loadChannels]);
 
   useEffect(() => {
     if (selectedChannelId) {
@@ -302,22 +309,17 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
             const tB = new Date(b.lastMessageAt || b.updatedAt || b.createdAt).getTime();
             return tB - tA;
           });
-          onChannelsLoaded?.(updated);
           return updated;
         });
       } else if (evt.type === 'channel:created' && evt.channel) {
         setChannels((prev) => {
           if (prev.some((c) => c.id === evt.channel.id)) return prev;
-          const next = [evt.channel, ...prev];
-          onChannelsLoaded?.(next);
-          return next;
+          return [evt.channel, ...prev];
         });
       } else if (evt.type === 'channel:updated' && evt.channel) {
-        setChannels((prev) => {
-          const next = prev.map((c) => (c.id === evt.channel.id ? evt.channel : c));
-          onChannelsLoaded?.(next);
-          return next;
-        });
+        setChannels((prev) =>
+          prev.map((c) => (c.id === evt.channel.id ? evt.channel : c))
+        );
         if (
           evt.channel.id === selectedChannelIdRef.current &&
           evt.channel.lastMessagePreview === null &&
@@ -329,10 +331,9 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
       } else if (evt.type === 'channel:removed' && evt.channelId) {
         setChannels((prev) => {
           const next = prev.filter((c) => c.id !== evt.channelId);
-          onChannelsLoaded?.(next);
           if (selectedChannelIdRef.current === evt.channelId) {
             setMessages([]);
-            onSelectChannelId(next[0]?.id || null);
+            onSelectChannelIdRef.current(next[0]?.id || null);
           }
           return next;
         });
@@ -340,7 +341,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
     };
     window.addEventListener('nettop-comms-ws-event', handler as EventListener);
     return () => window.removeEventListener('nettop-comms-ws-event', handler as EventListener);
-  }, [loadChannels, onChannelsLoaded, onSelectChannelId, user?.username]);
+  }, [loadChannels, user?.username]);
 
   useEffect(() => {
     if (!openMenuKey) return;

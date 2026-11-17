@@ -405,7 +405,35 @@ function expireStagesJsonIfPresent(rawStagesJson: string | any[] | null | undefi
   }
 }
 
-async function expireStalePendingRequests(): Promise<void> {
+const EXPIRY_SWEEP_COOLDOWN_MS = 15_000;
+let lastExpirySweepAt = 0;
+let expirySweepInFlight: Promise<void> | null = null;
+
+async function expireStalePendingRequests(force = false): Promise<void> {
+  const now = Date.now();
+  if (!force && lastExpirySweepAt > 0 && now - lastExpirySweepAt < EXPIRY_SWEEP_COOLDOWN_MS) {
+    return;
+  }
+  if (expirySweepInFlight) {
+    return expirySweepInFlight;
+  }
+
+  const run = (async () => {
+    lastExpirySweepAt = Date.now();
+    await runExpireStalePendingRequestsInternal();
+  })();
+
+  expirySweepInFlight = run;
+  try {
+    await run;
+  } finally {
+    if (expirySweepInFlight === run) {
+      expirySweepInFlight = null;
+    }
+  }
+}
+
+async function runExpireStalePendingRequestsInternal(): Promise<void> {
   const nowIso = new Date().toISOString();
   const expiredApprovals: Array<{ id: string; requesterUserId: string; requesterUsername: string; targetEntityType: string; targetEntityId: string; targetEntityName?: string | null; requestedAction: string }> = [];
   const expiredGrants: Array<{ id: string; approvalId: string; requesterUserId: string; requesterUsername: string; targetEntityType: string; targetEntityId: string; targetEntityName?: string | null; actionKey: string }> = [];
@@ -1116,6 +1144,7 @@ function mapGrantRow(row: any, actor?: ApprovalActor): ApprovalExecutionGrant {
 
 async function loadRawGrantRowsFast(actor?: ApprovalActor): Promise<ApprovalExecutionGrant[]> {
   let rows: ApprovalExecutionGrant[] = [];
+  let pgLoaded = false;
 
   await ensurePostgresConnection();
   const pool = getPgPool();
@@ -1125,12 +1154,13 @@ async function loadRawGrantRowsFast(actor?: ApprovalActor): Promise<ApprovalExec
         `SELECT * FROM action_approval_grants ORDER BY granted_at DESC LIMIT 300`
       );
       rows = (res.rows || []).map((r) => mapGrantRow(r, actor));
+      pgLoaded = true;
     } catch (err: any) {
       console.warn('[ApprovalService] PG loadRawGrantRowsFast error:', err?.message || err);
     }
   }
 
-  if (rows.length === 0) {
+  if (!pgLoaded) {
     const store = loadFallbackStore();
     rows = (store.action_approval_grants || [])
       .map((r: any) => mapGrantRow(r, actor))
@@ -1630,6 +1660,7 @@ export async function listApprovalRequests(
   const limit = Math.min(200, Math.max(1, Number(options.limit) || 100));
 
   let allMapped: ActionApprovalRequest[] = [];
+  let pgLoaded = false;
 
   await ensurePostgresConnection();
   const pool = getPgPool();
@@ -1639,12 +1670,13 @@ export async function listApprovalRequests(
         `SELECT * FROM action_approval_requests ORDER BY created_at DESC LIMIT 500`
       );
       allMapped = (res.rows || []).map((row) => mapApprovalRow(row, true));
+      pgLoaded = true;
     } catch (err: any) {
       console.error('[ApprovalService] PG listApprovalRequests error:', err?.message || err);
     }
   }
 
-  if (allMapped.length === 0) {
+  if (!pgLoaded) {
     const store = loadFallbackStore();
     allMapped = (store.action_approval_requests || [])
       .map((row: any) => mapApprovalRow(row, true))

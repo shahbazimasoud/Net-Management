@@ -37,6 +37,33 @@ function buildAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+export async function safeParseJsonResponse<T = any>(res: Response): Promise<T> {
+  const rawText = await res.text();
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    throw new Error('Empty response received from server');
+  }
+  if (trimmed.startsWith('<') || /^<!doctype/i.test(trimmed) || /^<html/i.test(trimmed)) {
+    throw new Error(
+      res.ok
+        ? 'Unexpected HTML response from API endpoint'
+        : `HTTP ${res.status}: Server returned HTML instead of JSON`
+    );
+  }
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    throw new Error(
+      res.ok
+        ? 'Invalid JSON response from server'
+        : `HTTP ${res.status}: Invalid JSON response from server`
+    );
+  }
+}
+
 export interface CommsNotificationsResponse {
   success: boolean;
   items: CommsNotificationItem[];
@@ -81,7 +108,7 @@ export async function fetchCommsNotifications(options: {
         headers: buildAuthHeaders(),
         cache: 'no-store',
       });
-      const json = await res.json();
+      const json = await safeParseJsonResponse<any>(res);
       if (!res.ok || !json.success) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
@@ -107,7 +134,7 @@ export async function fetchUnreadCommsCounts(
         headers: buildAuthHeaders(),
         cache: 'no-store',
       });
-      const json = await res.json();
+      const json = await safeParseJsonResponse<any>(res);
       if (!res.ok || !json.success) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
@@ -131,7 +158,7 @@ export async function markCommsNotificationRead(
     headers: buildAuthHeaders(),
     body: JSON.stringify({ isRead }),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -152,7 +179,7 @@ export async function markAllCommsNotificationsRead(
     headers: buildAuthHeaders(),
     body: JSON.stringify({ folder }),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -170,7 +197,7 @@ export async function acknowledgeCommsNotification(id: string): Promise<{
     method: 'PATCH',
     headers: buildAuthHeaders(),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -192,7 +219,7 @@ export async function archiveCommsNotification(
     headers: buildAuthHeaders(),
     body: JSON.stringify({ archived }),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -208,7 +235,7 @@ export async function fetchCommsRecipients(forceRefresh = false): Promise<CommsR
         headers: buildAuthHeaders(),
         cache: 'no-store',
       });
-      const json = await res.json();
+      const json = await safeParseJsonResponse<any>(res);
       if (!res.ok || !json.success) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
@@ -229,7 +256,7 @@ export async function dispatchCommsMessage(payload: CommsDispatchPayload): Promi
     headers: buildAuthHeaders(),
     body: JSON.stringify(payload),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -245,7 +272,7 @@ export async function fetchCommsChannels(forceRefresh = false): Promise<CommsCha
         headers: buildAuthHeaders(),
         cache: 'no-store',
       });
-      const json = await res.json();
+      const json = await safeParseJsonResponse<any>(res);
       if (!res.ok || !json.success) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
@@ -265,7 +292,7 @@ export async function openDirectCommsChannel(targetUserId: string): Promise<{
     headers: buildAuthHeaders(),
     body: JSON.stringify({ targetUserId }),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -285,7 +312,7 @@ export async function createGroupCommsChannel(payload: {
     headers: buildAuthHeaders(),
     body: JSON.stringify(payload),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -302,7 +329,7 @@ export async function addCommsChannelMembers(
     headers: buildAuthHeaders(),
     body: JSON.stringify({ memberIds }),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -319,7 +346,7 @@ export async function toggleCommsChannelMute(
     headers: buildAuthHeaders(),
     body: JSON.stringify({ isMuted }),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -334,7 +361,7 @@ export async function clearCommsChannelHistory(
     method: 'POST',
     headers: buildAuthHeaders(),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -355,7 +382,7 @@ export async function leaveCommsChannel(
     method: 'POST',
     headers: buildAuthHeaders(),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -372,7 +399,7 @@ export async function deleteCommsChannel(
     method: 'DELETE',
     headers: buildAuthHeaders(),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -399,7 +426,7 @@ export async function fetchChannelMessages(
           cache: 'no-store',
         }
       );
-      const json = await res.json();
+      const json = await safeParseJsonResponse<any>(res);
       if (!res.ok || !json.success) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
@@ -423,7 +450,7 @@ export async function postChannelMessage(
     headers: buildAuthHeaders(),
     body: JSON.stringify(payload),
   });
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -444,7 +471,7 @@ export async function replyToInboxNotificationApi(
       body: JSON.stringify(payload),
     }
   );
-  const json = await res.json();
+  const json = await safeParseJsonResponse<any>(res);
   if (!res.ok || !json.success) {
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
@@ -462,7 +489,7 @@ export async function fetchSentAnnouncements(
         headers: buildAuthHeaders(),
         cache: 'no-store',
       });
-      const json = await res.json();
+      const json = await safeParseJsonResponse<any>(res);
       if (!res.ok || !json.success) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
@@ -486,7 +513,7 @@ export async function fetchAnnouncementReceipts(
           cache: 'no-store',
         }
       );
-      const json = await res.json();
+      const json = await safeParseJsonResponse<any>(res);
       if (!res.ok || !json.success) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
