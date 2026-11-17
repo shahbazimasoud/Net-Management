@@ -775,3 +775,250 @@ export async function sendTwoFactorAuthEmail(
   }
 }
 
+function escapeEmailHtml(raw: string): string {
+  return String(raw || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export interface CommsEmailDispatchItem {
+  to: string;
+  recipientUsername: string;
+  recipientFullName?: string;
+  category:
+    | 'direct_message'
+    | 'channel_message'
+    | 'announcement'
+    | 'security_2fa'
+    | 'approval_request'
+    | 'system_alert';
+  severity: 'info' | 'warning' | 'critical';
+  senderName: string;
+  senderRole?: string;
+  title: string;
+  titleEn?: string;
+  body: string;
+  bodyEn?: string;
+  linkedEntityName?: string | null;
+  channelName?: string | null;
+}
+
+const COMMS_CATEGORY_LABELS: Record<
+  CommsEmailDispatchItem['category'],
+  { en: string; fa: string; accent: string }
+> = {
+  system_alert: { en: 'Operational & System Alert', fa: 'هشدار عملیاتی و سیستمی', accent: '#0ea5e9' },
+  security_2fa: { en: 'Security & Audit Event', fa: 'رویداد امنیتی و ممیزی', accent: '#f43f5e' },
+  direct_message: { en: 'Direct Chat Message (1:1)', fa: 'پیام چت مستقیم (1:1)', accent: '#6366f1' },
+  channel_message: { en: 'Team Channel Message', fa: 'پیام کانال تیمی', accent: '#8b5cf6' },
+  announcement: { en: 'Team Announcement', fa: 'اطلاعیه عمومی تیمی', accent: '#10b981' },
+  approval_request: { en: 'Change Approval Workflow', fa: 'درخواست تایید دو مرحله‌ای', accent: '#f59e0b' },
+};
+
+function isDeliverableEmailAddress(email?: string | null): boolean {
+  if (!email || typeof email !== 'string') return false;
+  const trimmed = email.trim().toLowerCase();
+  if (!trimmed || !trimmed.includes('@') || /\s/.test(trimmed)) return false;
+  const domain = trimmed.split('@')[1] || '';
+  if (!domain || !domain.includes('.') || domain.endsWith('.internal') || domain.endsWith('.local')) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Dispatches notification emails for Inbox / Chat / Alerts / Announcements / Approvals
+ * using the configured Outgoing Mail Server & SMTP Account settings.
+ */
+export async function sendCommsCategoryEmailBatch(
+  items: CommsEmailDispatchItem[]
+): Promise<{ sent: number; skipped: number; failed: number }> {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { sent: 0, skipped: 0, failed: 0 };
+  }
+
+  let config: EmailConfig;
+  let panelTitle = 'NetTopology Pro';
+  let isEn = false;
+
+  try {
+    const { getEmailConfig, getGeneralSettings } = await import('./db');
+    config = await getEmailConfig();
+    const generalSettings = await getGeneralSettings();
+    if (generalSettings?.panelTitle && generalSettings.panelTitle.trim()) {
+      panelTitle = generalSettings.panelTitle.trim();
+    }
+    isEn = generalSettings?.defaultLanguage === 'en';
+  } catch (err: any) {
+    console.warn('[CommsMailer] Unable to read Outgoing Mail Server settings:', err?.message || err);
+    return { sent: 0, skipped: 0, failed: items.length };
+  }
+
+  if (!config?.smtp_host || !config.smtp_host.trim()) {
+    return { sent: 0, skipped: items.length, failed: 0 };
+  }
+
+  const fromAddr = (config.from_email && config.from_email.trim()) || (config.smtp_user || '').trim();
+  if (!fromAddr) {
+    return { sent: 0, skipped: items.length, failed: 0 };
+  }
+  const fromName = (config.from_name && config.from_name.trim()) || `${panelTitle} Alerts`;
+  const from = fromName ? `"${fromName}" <${fromAddr}>` : fromAddr;
+
+  const validItems = items.filter((it) => isDeliverableEmailAddress(it.to));
+  const skipped = items.length - validItems.length;
+  if (validItems.length === 0) {
+    return { sent: 0, skipped, failed: 0 };
+  }
+
+  const transporter = createMailTransport(config);
+  let sent = 0;
+  let failed = 0;
+  const timestampStr = new Date().toLocaleString(isEn ? 'en-US' : 'fa-IR', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+
+  for (const item of validItems) {
+    try {
+      const catMeta = COMMS_CATEGORY_LABELS[item.category] || COMMS_CATEGORY_LABELS.system_alert;
+      const sevLabel =
+        item.severity === 'critical'
+          ? isEn
+            ? 'CRITICAL'
+            : 'بحرانی'
+          : item.severity === 'warning'
+          ? isEn
+            ? 'WARNING'
+            : 'هشدار'
+          : isEn
+          ? 'INFO'
+          : 'اطلاع‌رسانی';
+      const sevBg =
+        item.severity === 'critical'
+          ? 'rgba(244,63,94,0.16)'
+          : item.severity === 'warning'
+          ? 'rgba(245,158,11,0.16)'
+          : 'rgba(14,165,233,0.16)';
+      const sevColor =
+        item.severity === 'critical' ? '#fb7185' : item.severity === 'warning' ? '#fbbf24' : '#38bdf8';
+
+      const displayTitle = isEn
+        ? (item.titleEn || item.title || catMeta.en).trim()
+        : (item.title || item.titleEn || catMeta.fa).trim();
+      const displayBody = isEn
+        ? (item.bodyEn || item.body || '').trim()
+        : (item.body || item.bodyEn || '').trim();
+      const categoryText = isEn ? catMeta.en : catMeta.fa;
+
+      const subject = `[${panelTitle}] ${categoryText}: ${displayTitle}`;
+      const recipientDisplay = item.recipientFullName || item.recipientUsername;
+
+      const textBody = isEn
+        ? `${panelTitle} — ${categoryText} (${sevLabel})\n\nHello ${recipientDisplay},\n\n${displayTitle}\n${displayBody}\n\nFrom: ${item.senderName}${item.senderRole ? ` (${item.senderRole})` : ''}${item.channelName ? `\nChannel: ${item.channelName}` : ''}${item.linkedEntityName ? `\nTarget: ${item.linkedEntityName}` : ''}\nTime: ${timestampStr}\n`
+        : `${panelTitle} — ${categoryText} (${sevLabel})\n\nکاربر گرامی ${recipientDisplay}،\n\n${displayTitle}\n${displayBody}\n\nفرستنده: ${item.senderName}${item.senderRole ? ` (${item.senderRole})` : ''}${item.channelName ? `\nکانال: ${item.channelName}` : ''}${item.linkedEntityName ? `\nموجودیت مرتبط: ${item.linkedEntityName}` : ''}\nزمان: ${timestampStr}\n`;
+
+      const htmlBody = `
+<!DOCTYPE html>
+<html lang="${isEn ? 'en' : 'fa'}" dir="${isEn ? 'ltr' : 'rtl'}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeEmailHtml(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#060b18;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Tahoma,Arial,sans-serif;color:#e2e8f0;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#060b18;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background-color:#0f172a;border:1px solid #1e293b;border-radius:18px;overflow:hidden;text-align:${isEn ? 'left' : 'right'};">
+          <tr>
+            <td style="height:4px;background:${catMeta.accent};"></td>
+          </tr>
+          <tr>
+            <td style="padding:22px 26px;background:linear-gradient(135deg,#1e1b4b 0%,#0f172a 100%);border-bottom:1px solid #1e293b;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:${catMeta.accent};margin-bottom:6px;">
+                ${escapeEmailHtml(panelTitle)} • ${escapeEmailHtml(categoryText)}
+              </div>
+              <h1 style="margin:0;font-size:18px;font-weight:800;color:#ffffff;line-height:1.45;">
+                ${escapeEmailHtml(displayTitle)}
+              </h1>
+              <div style="margin-top:10px;">
+                <span style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;background:${sevBg};color:${sevColor};">
+                  ${escapeEmailHtml(sevLabel)}
+                </span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 26px;">
+              <p style="margin:0 0 14px;font-size:13px;color:#cbd5e1;">
+                ${
+                  isEn
+                    ? `Hello <strong>${escapeEmailHtml(recipientDisplay)}</strong>,`
+                    : `کاربر گرامی <strong>${escapeEmailHtml(recipientDisplay)}</strong>،`
+                }
+              </p>
+              <div style="background:#0b1220;border:1px solid #1e293b;border-radius:12px;padding:16px 18px;font-size:14px;line-height:1.75;color:#f1f5f9;white-space:pre-wrap;word-break:break-word;">
+                ${escapeEmailHtml(displayBody)}
+              </div>
+              <table role="presentation" width="100%" style="margin-top:18px;background:#111c33;border:1px solid #1e293b;border-radius:12px;padding:12px 16px;font-size:12px;color:#94a3b8;">
+                <tr>
+                  <td style="padding:4px 0;"><strong>${isEn ? 'Sender:' : 'فرستنده:'}</strong></td>
+                  <td style="padding:4px 0;color:#e2e8f0;">${escapeEmailHtml(item.senderName)}${item.senderRole ? ` (${escapeEmailHtml(item.senderRole)})` : ''}</td>
+                </tr>
+                ${
+                  item.channelName
+                    ? `<tr><td style="padding:4px 0;"><strong>${isEn ? 'Channel:' : 'کانال:'}</strong></td><td style="padding:4px 0;color:#e2e8f0;">${escapeEmailHtml(item.channelName)}</td></tr>`
+                    : ''
+                }
+                ${
+                  item.linkedEntityName
+                    ? `<tr><td style="padding:4px 0;"><strong>${isEn ? 'Target:' : 'موجودیت مرتبط:'}</strong></td><td style="padding:4px 0;color:#e2e8f0;">${escapeEmailHtml(item.linkedEntityName)}</td></tr>`
+                    : ''
+                }
+                <tr>
+                  <td style="padding:4px 0;"><strong>${isEn ? 'Timestamp:' : 'زمان ثبت:'}</strong></td>
+                  <td style="padding:4px 0;color:#e2e8f0;">${escapeEmailHtml(timestampStr)}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 26px;background:#090e1c;border-top:1px solid #1e293b;text-align:center;font-size:11px;color:#64748b;line-height:1.6;">
+              ${
+                isEn
+                  ? `You received this email based on your Email Notification Preferences in ${escapeEmailHtml(panelTitle)}.`
+                  : `این ایمیل بر اساس تنظیمات ارسال ایمیل اعلانات در پروفایل کاربری شما در ${escapeEmailHtml(panelTitle)} ارسال شده است.`
+              }
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+      await transporter.sendMail({
+        from,
+        to: item.to.trim(),
+        subject,
+        text: textBody,
+        html: htmlBody,
+      });
+      sent++;
+    } catch (err: any) {
+      failed++;
+      const parsed = parseSmtpError(err);
+      console.warn(
+        `[CommsMailer] Failed sending ${item.category} email to ${item.to}: ${parsed.en}`
+      );
+    }
+  }
+
+  return { sent, skipped, failed };
+}
+

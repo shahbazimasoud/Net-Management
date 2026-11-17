@@ -5,6 +5,7 @@ import {
   ensurePostgresConnection,
   findUserById,
   findUserByUsername,
+  getEmailConfig,
   getGeneralSettings,
   getPgPool,
   isPostgresConnected,
@@ -19,6 +20,7 @@ import {
   CommsSeverity,
   TotpEnrollmentPayload,
   TwoFactorMethod,
+  UserEmailNotifyPrefs,
   UserNotifyChannelPrefs,
   UserQuietHours,
   UserSecurityProfile,
@@ -49,6 +51,7 @@ interface StoredSecurityProfileRow {
   totp_verified: boolean;
   backup_codes_hash: HashedBackupCodeRecord[];
   notify_channels: UserNotifyChannelPrefs;
+  email_channels: UserEmailNotifyPrefs;
   quiet_hours: UserQuietHours;
   updated_at: string;
 }
@@ -61,6 +64,15 @@ export const DEFAULT_NOTIFY_CHANNELS: UserNotifyChannelPrefs = {
   announcement: true,
   approval_request: true,
   desktop_sound: true,
+};
+
+export const DEFAULT_EMAIL_CHANNELS: UserEmailNotifyPrefs = {
+  system_alert: true,
+  security_2fa: true,
+  direct_message: true,
+  channel_message: true,
+  announcement: true,
+  approval_request: true,
 };
 
 export const DEFAULT_QUIET_HOURS: UserQuietHours = {
@@ -242,6 +254,27 @@ function normalizeNotifyChannels(raw: any): UserNotifyChannelPrefs {
   };
 }
 
+function normalizeEmailChannels(raw: any): UserEmailNotifyPrefs {
+  const parsed =
+    typeof raw === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return {};
+          }
+        })()
+      : raw || {};
+  return {
+    system_alert: parsed.system_alert !== undefined ? Boolean(parsed.system_alert) : DEFAULT_EMAIL_CHANNELS.system_alert,
+    security_2fa: parsed.security_2fa !== undefined ? Boolean(parsed.security_2fa) : DEFAULT_EMAIL_CHANNELS.security_2fa,
+    direct_message: parsed.direct_message !== undefined ? Boolean(parsed.direct_message) : DEFAULT_EMAIL_CHANNELS.direct_message,
+    channel_message: parsed.channel_message !== undefined ? Boolean(parsed.channel_message) : DEFAULT_EMAIL_CHANNELS.channel_message,
+    announcement: parsed.announcement !== undefined ? Boolean(parsed.announcement) : DEFAULT_EMAIL_CHANNELS.announcement,
+    approval_request: parsed.approval_request !== undefined ? Boolean(parsed.approval_request) : DEFAULT_EMAIL_CHANNELS.approval_request,
+  };
+}
+
 function normalizeQuietHours(raw: any): UserQuietHours {
   const parsed =
     typeof raw === 'string'
@@ -297,6 +330,7 @@ function mapRawRow(row: any, fallbackActor?: Partial<ProfileActor>): StoredSecur
     totp_verified: Boolean(row?.totp_verified),
     backup_codes_hash: normalizeBackupHashes(row?.backup_codes_hash),
     notify_channels: normalizeNotifyChannels(row?.notify_channels),
+    email_channels: normalizeEmailChannels(row?.email_channels),
     quiet_hours: normalizeQuietHours(row?.quiet_hours),
     updated_at: row?.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
   };
@@ -342,6 +376,7 @@ async function saveRawSecurityProfile(row: StoredSecurityProfileRow): Promise<St
   const normalized: StoredSecurityProfileRow = {
     ...row,
     notify_channels: normalizeNotifyChannels(row.notify_channels),
+    email_channels: normalizeEmailChannels(row.email_channels),
     quiet_hours: normalizeQuietHours(row.quiet_hours),
     backup_codes_hash: normalizeBackupHashes(row.backup_codes_hash),
     updated_at: nowIso,
@@ -375,8 +410,8 @@ async function saveRawSecurityProfile(row: StoredSecurityProfileRow): Promise<St
         `INSERT INTO user_security_profiles (
            user_id, username, display_title, phone_ext,
            preferred_2fa_method, totp_secret_enc, totp_verified,
-           backup_codes_hash, notify_channels, quiet_hours, updated_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           backup_codes_hash, notify_channels, email_channels, quiet_hours, updated_at
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          ON CONFLICT (user_id) DO UPDATE SET
            username = EXCLUDED.username,
            display_title = EXCLUDED.display_title,
@@ -386,6 +421,7 @@ async function saveRawSecurityProfile(row: StoredSecurityProfileRow): Promise<St
            totp_verified = EXCLUDED.totp_verified,
            backup_codes_hash = EXCLUDED.backup_codes_hash,
            notify_channels = EXCLUDED.notify_channels,
+           email_channels = EXCLUDED.email_channels,
            quiet_hours = EXCLUDED.quiet_hours,
            updated_at = CURRENT_TIMESTAMP`,
         [
@@ -398,6 +434,7 @@ async function saveRawSecurityProfile(row: StoredSecurityProfileRow): Promise<St
           Boolean(normalized.totp_verified),
           JSON.stringify(normalized.backup_codes_hash),
           JSON.stringify(normalized.notify_channels),
+          JSON.stringify(normalized.email_channels),
           JSON.stringify(normalized.quiet_hours),
           nowIso,
         ]
@@ -421,6 +458,7 @@ function buildDefaultRawRow(actor: ProfileActor): StoredSecurityProfileRow {
     totp_verified: false,
     backup_codes_hash: [],
     notify_channels: { ...DEFAULT_NOTIFY_CHANNELS },
+    email_channels: { ...DEFAULT_EMAIL_CHANNELS },
     quiet_hours: { ...DEFAULT_QUIET_HOURS },
     updated_at: new Date().toISOString(),
   };
@@ -430,10 +468,13 @@ async function toSafeProfileDto(
   actor: ProfileActor,
   raw: StoredSecurityProfileRow | null
 ): Promise<UserSecurityProfile> {
-  const general = await getGeneralSettings().catch(() => ({
-    twoFactorEnabled: false,
-    twoFactorRememberDeviceEnabled: true,
-  }));
+  const [general, smtpConfig] = await Promise.all([
+    getGeneralSettings().catch(() => ({
+      twoFactorEnabled: false,
+      twoFactorRememberDeviceEnabled: true,
+    })),
+    getEmailConfig().catch(() => null),
+  ]);
   const row = raw || buildDefaultRawRow(actor);
   const localRec =
     actor.userType !== 'ad'
@@ -455,7 +496,9 @@ async function toSafeProfileDto(
     backupCodesRemaining: Array.isArray(row.backup_codes_hash) ? row.backup_codes_hash.length : 0,
     globalTwoFactorEnabled: Boolean(general?.twoFactorEnabled),
     globalRememberDeviceEnabled: general?.twoFactorRememberDeviceEnabled !== false,
+    smtpConfigured: Boolean(smtpConfig?.smtp_host && smtpConfig.smtp_host.trim().length > 0),
     notifyChannels: normalizeNotifyChannels(row.notify_channels),
+    emailChannels: normalizeEmailChannels(row.email_channels),
     quietHours: normalizeQuietHours(row.quiet_hours),
     updatedAt: row.updated_at || null,
   };
@@ -477,6 +520,7 @@ export async function updateUserProfileAndPrefs(
     displayTitle?: string;
     phoneExt?: string;
     notifyChannels?: Partial<UserNotifyChannelPrefs>;
+    emailChannels?: Partial<UserEmailNotifyPrefs>;
     quietHours?: Partial<UserQuietHours>;
   }
 ): Promise<UserSecurityProfile> {
@@ -498,6 +542,10 @@ export async function updateUserProfileAndPrefs(
       updates.notifyChannels !== undefined
         ? normalizeNotifyChannels({ ...existing.notify_channels, ...updates.notifyChannels })
         : existing.notify_channels,
+    email_channels:
+      updates.emailChannels !== undefined
+        ? normalizeEmailChannels({ ...existing.email_channels, ...updates.emailChannels })
+        : existing.email_channels,
     quiet_hours:
       updates.quietHours !== undefined
         ? normalizeQuietHours({ ...existing.quiet_hours, ...updates.quietHours })
@@ -982,10 +1030,11 @@ export async function evaluateNotificationDeliveryForUser(
   requiresAck: boolean
 ): Promise<{
   deliverInboxNotification: boolean;
+  deliverEmailNotification: boolean;
   quietHoursMuted: boolean;
   playSound: boolean;
 }> {
-  // Mandatory/critical items must NEVER be suppressed
+  // Mandatory/critical items must NEVER be suppressed in Inbox
   const isMandatory =
     severity === 'critical' ||
     category === 'security_2fa' ||
@@ -994,16 +1043,24 @@ export async function evaluateNotificationDeliveryForUser(
 
   const row = await loadRawSecurityProfile(actor).catch(() => null);
   if (!row) {
-    return { deliverInboxNotification: true, quietHoursMuted: false, playSound: true };
+    return {
+      deliverInboxNotification: true,
+      deliverEmailNotification: DEFAULT_EMAIL_CHANNELS[category] !== false,
+      quietHoursMuted: false,
+      playSound: true,
+    };
   }
 
   const prefs = normalizeNotifyChannels(row.notify_channels);
+  const emailPrefs = normalizeEmailChannels(row.email_channels);
   const quiet = normalizeQuietHours(row.quiet_hours);
   const inQuiet = isWithinQuietHours(quiet);
   const channelEnabled = prefs[category] !== false;
+  const emailEnabled = emailPrefs[category] !== false;
 
   return {
     deliverInboxNotification: isMandatory ? true : channelEnabled,
+    deliverEmailNotification: emailEnabled,
     quietHoursMuted: inQuiet,
     playSound: !inQuiet && prefs.desktop_sound !== false,
   };

@@ -30,6 +30,7 @@ import {
   TotpEnrollmentPayload,
   TrustedDeviceEntry,
   TwoFactorMethod,
+  UserEmailNotifyPrefs,
   UserNotifyChannelPrefs,
   UserQuietHours,
   UserSecurityProfile,
@@ -109,7 +110,7 @@ export const UserProfileSecurityView: React.FC<UserProfileSecurityViewProps> = (
   const [displayTitle, setDisplayTitle] = useState<string>('');
   const [phoneExt, setPhoneExt] = useState<string>('');
 
-  // Editable Notification Preferences & Quiet Hours
+  // Editable Notification Preferences, Email Forwarding & Quiet Hours
   const [notifyChannels, setNotifyChannels] = useState<UserNotifyChannelPrefs>({
     system_alert: true,
     security_2fa: true,
@@ -118,6 +119,14 @@ export const UserProfileSecurityView: React.FC<UserProfileSecurityViewProps> = (
     announcement: true,
     approval_request: true,
     desktop_sound: true,
+  });
+  const [emailChannels, setEmailChannels] = useState<UserEmailNotifyPrefs>({
+    system_alert: true,
+    security_2fa: true,
+    direct_message: true,
+    channel_message: true,
+    announcement: true,
+    approval_request: true,
   });
   const [quietHours, setQuietHours] = useState<UserQuietHours>({
     enabled: false,
@@ -170,6 +179,16 @@ export const UserProfileSecurityView: React.FC<UserProfileSecurityViewProps> = (
       setDisplayTitle(res.profile.displayTitle || '');
       setPhoneExt(res.profile.phoneExt || '');
       setNotifyChannels(res.profile.notifyChannels);
+      setEmailChannels(
+        res.profile.emailChannels || {
+          system_alert: true,
+          security_2fa: true,
+          direct_message: true,
+          channel_message: true,
+          announcement: true,
+          approval_request: true,
+        }
+      );
       setQuietHours(res.profile.quietHours);
     } catch (err: any) {
       setErrorMsg(
@@ -209,14 +228,15 @@ export const UserProfileSecurityView: React.FC<UserProfileSecurityViewProps> = (
     clearAlerts();
     setSaving(true);
     try {
-      const res = await updateUserSecurityProfile({ notifyChannels, quietHours });
+      const res = await updateUserSecurityProfile({ notifyChannels, emailChannels, quietHours });
       setProfile(res.profile);
       setNotifyChannels(res.profile.notifyChannels);
+      setEmailChannels(res.profile.emailChannels);
       setQuietHours(res.profile.quietHours);
       setSuccessMsg(
         isEn
-          ? 'Notification channels & quiet hours saved.'
-          : 'تنظیمات کانال‌های اعلان و ساعات سکوت با موفقیت ذخیره شد.'
+          ? 'Inbox, email notification channels & quiet hours saved.'
+          : 'تنظیمات صندوق اعلانات، ارسال ایمیل و ساعات سکوت با موفقیت ذخیره شد.'
       );
     } catch (err: any) {
       setErrorMsg(
@@ -1283,162 +1303,307 @@ export const UserProfileSecurityView: React.FC<UserProfileSecurityViewProps> = (
             </div>
           )}
 
-          {/* TAB 4: NOTIFICATIONS & QUIET HOURS */}
+          {/* TAB 4: NOTIFICATIONS, EMAIL ALERTS & QUIET HOURS */}
           {subTab === 'notifications' && (
-            <form onSubmit={handleSaveNotifications} className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {/* Notification Category Toggles */}
-              <div className={`rounded-2xl border p-5 space-y-4 ${cardSurface}`}>
-                <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-700/20">
-                  <div className="flex items-center gap-2">
-                    <Bell className="w-4 h-4 text-cyan-500" />
-                    <h2 className="text-sm font-bold">
-                      {isEn ? 'Inbox Category Preferences' : 'تنظیمات دریافت دسته‌بندی اعلانات'}
-                    </h2>
-                  </div>
-                  <FieldInfoTooltip
-                    isEn={isEn}
-                    isLightMode={isLightMode}
-                    title={isEn ? 'Notification Channels' : 'دسته‌بندی اعلانات'}
-                    infoWhatEn="Controls which non-critical alert feeds generate Inbox notifications for your account."
-                    infoWhatFa="تعیین می‌کند کدام یک از رویدادهای غیربحرانی برای حساب شما اعلان صندوق بسازند."
-                    infoWhyEn="Reduces alert fatigue while keeping critical security and approval notices guaranteed."
-                    infoWhyFa="از شلوغی صندوق اعلانات جلوگیری کرده و هم‌زمان هشدارهای حیاتی و امنیتی را همیشه حفظ می‌کند."
-                    infoExampleEn="Keep System Alerts and Security 2FA enabled for infrastructure engineers."
-                    infoExampleFa="برای کارشناسان شبکه، فعال بودن هشدارهای سیستمی و امنیتی توصیه می‌شود."
-                  />
-                </div>
-
-                <div className="space-y-2.5">
-                  {(
-                    [
-                      {
-                        key: 'system_alert',
-                        labelEn: 'System & Daemon Operational Alerts (Non-Critical)',
-                        labelFa: 'هشدارهای عملیاتی سرویس‌ها (بکاپ، لایسنس و سیستم)',
-                      },
-                      {
-                        key: 'direct_message',
-                        labelEn: '1:1 Direct Message Inbox Notifications',
-                        labelFa: 'اعلان صندوق پیام‌های مستقیم (1:1)',
-                      },
-                      {
-                        key: 'channel_message',
-                        labelEn: 'Team Channel Message Notifications',
-                        labelFa: 'اعلان پیام‌های کانال‌های تیمی',
-                      },
-                      {
-                        key: 'announcement',
-                        labelEn: 'Standard Team Announcements (Non-Mandatory)',
-                        labelFa: 'اطلاعیه‌های عمومی تیمی (غیرالزامی)',
-                      },
-                      {
-                        key: 'desktop_sound',
-                        labelEn: 'Live Audio Chime for Incoming Alerts',
-                        labelFa: 'پخش صدای هشدار هنگام دریافت اعلان جدید',
-                      },
-                    ] as { key: keyof UserNotifyChannelPrefs; labelEn: string; labelFa: string }[]
-                  ).map((item) => (
-                    <label
-                      key={item.key}
-                      className={`flex items-center justify-between gap-3 p-3 rounded-xl border cursor-pointer ${
-                        isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
-                      }`}
-                    >
-                      <span className="text-xs font-medium">{isEn ? item.labelEn : item.labelFa}</span>
-                      <input
-                        type="checkbox"
-                        checked={notifyChannels[item.key] !== false}
-                        onChange={(e) =>
-                          setNotifyChannels((prev) => ({ ...prev, [item.key]: e.target.checked }))
-                        }
-                        className="w-4 h-4 rounded accent-indigo-600 cursor-pointer"
-                      />
-                    </label>
-                  ))}
-                  <p className={`text-[11px] pt-1 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                    {isEn
-                      ? 'Note: Critical severity alerts, 2FA security events, and mandatory read-receipt announcements are always delivered for audit compliance.'
-                      : 'نکته: هشدارهای سطح بحرانی (Critical)، رویدادهای امنیتی 2FA و اطلاعیه‌های نیازمند تایید رسمی (Acknowledge) همیشه ارسال می‌شوند.'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Quiet Hours */}
-              <div className={`rounded-2xl border p-5 space-y-4 flex flex-col justify-between ${cardSurface}`}>
-                <div className="space-y-4">
+            <form onSubmit={handleSaveNotifications} className="space-y-5">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {/* Inbox Notification Category Toggles */}
+                <div className={`rounded-2xl border p-5 space-y-4 ${cardSurface}`}>
                   <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-700/20">
                     <div className="flex items-center gap-2">
-                      <Moon className="w-4 h-4 text-indigo-500" />
+                      <Bell className="w-4 h-4 text-cyan-500" />
                       <h2 className="text-sm font-bold">
-                        {isEn ? 'Quiet Hours Schedule' : 'زمان‌بندی ساعات سکوت (Quiet Hours)'}
+                        {isEn ? 'Inbox Category Preferences' : 'تنظیمات دریافت دسته‌بندی اعلانات'}
                       </h2>
                     </div>
                     <FieldInfoTooltip
                       isEn={isEn}
                       isLightMode={isLightMode}
-                      title={isEn ? 'Quiet Hours' : 'ساعات سکوت'}
-                      infoWhatEn="Suppresses notification chimes during off-shift hours while preserving full Inbox records."
-                      infoWhatFa="پخش صدای هشدار و حواس‌پرتی در ساعات غیرکاری را متوقف می‌کند بدون آنکه پیام‌ها حذف شوند."
-                      infoWhyEn="Respects shift rotation boundaries for NOC/IT engineers."
-                      infoWhyFa="به کارشناسان شیفت و تیم IT کمک می‌کند در ساعات استراحت مزاحمت صوتی نداشته باشند."
-                      infoExampleEn="22:00 to 07:00 (Asia/Tehran)"
-                      infoExampleFa="از ۲۲:۰۰ تا ۰۷:۰۰ (منطقه زمانی Asia/Tehran)"
+                      title={isEn ? 'Notification Channels' : 'دسته‌بندی اعلانات'}
+                      infoWhatEn="Controls which non-critical alert feeds generate Inbox notifications for your account."
+                      infoWhatFa="تعیین می‌کند کدام یک از رویدادهای غیربحرانی برای حساب شما اعلان صندوق بسازند."
+                      infoWhyEn="Reduces alert fatigue while keeping critical security and approval notices guaranteed."
+                      infoWhyFa="از شلوغی صندوق اعلانات جلوگیری کرده و هم‌زمان هشدارهای حیاتی و امنیتی را همیشه حفظ می‌کند."
+                      infoExampleEn="Keep System Alerts and Security 2FA enabled for infrastructure engineers."
+                      infoExampleFa="برای کارشناسان شبکه، فعال بودن هشدارهای سیستمی و امنیتی توصیه می‌شود."
                     />
                   </div>
 
-                  <label
-                    className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border cursor-pointer ${
+                  <div className="space-y-2.5">
+                    {(
+                      [
+                        {
+                          key: 'system_alert',
+                          labelEn: 'System & Daemon Operational Alerts (Non-Critical)',
+                          labelFa: 'هشدارهای عملیاتی سرویس‌ها (بکاپ، لایسنس و سیستم)',
+                        },
+                        {
+                          key: 'direct_message',
+                          labelEn: '1:1 Direct Message Inbox Notifications',
+                          labelFa: 'اعلان صندوق پیام‌های مستقیم (1:1)',
+                        },
+                        {
+                          key: 'channel_message',
+                          labelEn: 'Team Channel Message Notifications',
+                          labelFa: 'اعلان پیام‌های کانال‌های تیمی',
+                        },
+                        {
+                          key: 'announcement',
+                          labelEn: 'Standard Team Announcements (Non-Mandatory)',
+                          labelFa: 'اطلاعیه‌های عمومی تیمی (غیرالزامی)',
+                        },
+                        {
+                          key: 'desktop_sound',
+                          labelEn: 'Live Audio Chime for Incoming Alerts',
+                          labelFa: 'پخش صدای هشدار هنگام دریافت اعلان جدید',
+                        },
+                      ] as { key: keyof UserNotifyChannelPrefs; labelEn: string; labelFa: string }[]
+                    ).map((item) => (
+                      <label
+                        key={item.key}
+                        className={`flex items-center justify-between gap-3 p-3 rounded-xl border cursor-pointer ${
+                          isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                        }`}
+                      >
+                        <span className="text-xs font-medium">{isEn ? item.labelEn : item.labelFa}</span>
+                        <input
+                          type="checkbox"
+                          checked={notifyChannels[item.key] !== false}
+                          onChange={(e) =>
+                            setNotifyChannels((prev) => ({ ...prev, [item.key]: e.target.checked }))
+                          }
+                          className="w-4 h-4 rounded accent-indigo-600 cursor-pointer"
+                        />
+                      </label>
+                    ))}
+                    <p className={`text-[11px] pt-1 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {isEn
+                        ? 'Note: Critical severity alerts, 2FA security events, and mandatory read-receipt announcements are always delivered for audit compliance.'
+                        : 'نکته: هشدارهای سطح بحرانی (Critical)، رویدادهای امنیتی 2FA و اطلاعیه‌های نیازمند تایید رسمی (Acknowledge) همیشه ارسال می‌شوند.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Email Notification Category Toggles */}
+                <div className={`rounded-2xl border p-5 space-y-4 ${cardSurface}`}>
+                  <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-700/20">
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-indigo-500" />
+                      <h2 className="text-sm font-bold">
+                        {isEn ? 'Email Notification Preferences' : 'تنظیمات ارسال ایمیل اعلانات'}
+                      </h2>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const allOn = Object.values(emailChannels).every((v) => v !== false);
+                          const nextVal = !allOn;
+                          setEmailChannels({
+                            system_alert: nextVal,
+                            security_2fa: nextVal,
+                            direct_message: nextVal,
+                            channel_message: nextVal,
+                            announcement: nextVal,
+                            approval_request: nextVal,
+                          });
+                        }}
+                        className={`px-2 py-0.5 rounded-lg border text-[10px] font-semibold cursor-pointer transition ${
+                          isLightMode
+                            ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                            : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+                        }`}
+                      >
+                        {Object.values(emailChannels).every((v) => v !== false)
+                          ? isEn
+                            ? 'Uncheck All'
+                            : 'لغو همه'
+                          : isEn
+                          ? 'Enable All'
+                          : 'انتخاب همه'}
+                      </button>
+                      <FieldInfoTooltip
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                        title={isEn ? 'Email Notifications' : 'ارسال ایمیل اعلانات'}
+                        infoWhatEn="Controls which notification categories automatically forward an email copy to your registered account email."
+                        infoWhatFa="تعیین می‌کند برای کدام دسته‌بندی‌ها علاوه بر صندوق داخلی، یک نسخه ایمیل نیز به آدرس ایمیل ثبت‌شده شما ارسال شود."
+                        infoWhyEn="Delivers important team chats, system alerts, and approval requests directly to your inbox via the Outgoing Mail Server & SMTP Account."
+                        infoWhyFa="پیام‌های تیمی، هشدارهای سیستم و درخواست‌های تایید را مستقیماً از طریق تنظیمات سرور ایمیل خروجی (SMTP) به ایمیل شما می‌فرستد."
+                        infoExampleEn="All categories default to enabled; uncheck Chat Channels if you only want email for Critical Alerts and Approvals."
+                        infoExampleFa="به‌صورت پیش‌فرض همه موارد فعال است؛ در صورت نیاز می‌توانید ارسال ایمیل برای چت‌ها یا سایر بخش‌ها را غیرفعال کنید."
+                      />
+                    </div>
+                  </div>
+
+                  {/* Recipient & SMTP Gateway Readiness Indicator */}
+                  <div
+                    className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl border text-[11px] ${
                       isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
                     }`}
                   >
-                    <div>
-                      <span className="text-xs font-bold block">
-                        {isEn ? 'Enable Scheduled Quiet Hours' : 'فعال‌سازی زمان‌بندی ساعات سکوت'}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Mail className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                      <span className={isLightMode ? 'text-slate-600' : 'text-slate-400'}>
+                        {isEn ? 'Target Email:' : 'ایمیل مقصد:'}
                       </span>
-                      <span className={`text-[11px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                        {isEn
-                          ? 'Notifications stay archived/unread in Inbox with audio muted.'
-                          : 'پیام‌ها در صندوق ذخیره می‌شوند ولی صدای اعلان در این بازه غیرفعال است.'}
-                      </span>
+                      <span className="font-mono font-semibold truncate">{profile?.email || '-'}</span>
                     </div>
-                    <input
-                      type="checkbox"
-                      checked={quietHours.enabled}
-                      onChange={(e) => setQuietHours((prev) => ({ ...prev, enabled: e.target.checked }))}
-                      className="w-4 h-4 rounded accent-indigo-600 cursor-pointer"
-                    />
-                  </label>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold mb-1.5 flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{isEn ? 'Start Time' : 'ساعت شروع'}</span>
-                      </label>
-                      <input
-                        type="time"
-                        value={quietHours.startHour}
-                        disabled={!quietHours.enabled}
-                        onChange={(e) => setQuietHours((prev) => ({ ...prev, startHour: e.target.value }))}
-                        className={`w-full px-3 py-2 rounded-xl border text-xs font-mono focus:outline-none disabled:opacity-50 ${inputSurface}`}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold mb-1.5 flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{isEn ? 'End Time' : 'ساعت پایان'}</span>
-                      </label>
-                      <input
-                        type="time"
-                        value={quietHours.endHour}
-                        disabled={!quietHours.enabled}
-                        onChange={(e) => setQuietHours((prev) => ({ ...prev, endHour: e.target.value }))}
-                        className={`w-full px-3 py-2 rounded-xl border text-xs font-mono focus:outline-none disabled:opacity-50 ${inputSurface}`}
-                      />
-                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded-md font-mono font-bold text-[10px] border ${
+                        profile?.smtpConfigured
+                          ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30'
+                          : 'bg-amber-500/15 text-amber-500 border-amber-500/30'
+                      }`}
+                    >
+                      {profile?.smtpConfigured
+                        ? isEn
+                          ? 'SMTP Configured'
+                          : 'سرور SMTP آماده است'
+                        : isEn
+                        ? 'SMTP Not Configured'
+                        : 'SMTP پیکربندی نشده'}
+                    </span>
                   </div>
 
-                  <div>
+                  <div className="space-y-2.5">
+                    {(
+                      [
+                        {
+                          key: 'system_alert',
+                          labelEn: 'Email for System & Daemon Operational Alerts',
+                          labelFa: 'ایمیل هشدارهای عملیاتی سرویس‌ها (بکاپ، لایسنس و سیستم)',
+                        },
+                        {
+                          key: 'security_2fa',
+                          labelEn: 'Email for Security, Audit & Authentication Alerts',
+                          labelFa: 'ایمیل هشدارهای امنیتی، ممیزی و رویدادهای ورود',
+                        },
+                        {
+                          key: 'direct_message',
+                          labelEn: 'Email for 1:1 Direct Chat Messages',
+                          labelFa: 'ایمیل پیام‌های چت مستقیم (1:1)',
+                        },
+                        {
+                          key: 'channel_message',
+                          labelEn: 'Email for Team Channel Chat Messages',
+                          labelFa: 'ایمیل پیام‌های گفتگو و کانال‌های تیمی',
+                        },
+                        {
+                          key: 'announcement',
+                          labelEn: 'Email for Team Announcements & Broadcasts',
+                          labelFa: 'ایمیل اطلاعیه‌های عمومی و سازمانی تیم',
+                        },
+                        {
+                          key: 'approval_request',
+                          labelEn: 'Email for Approval Requests & Change Decisions',
+                          labelFa: 'ایمیل درخواست‌ها و نتایج تاییدیه‌های دو مرحله‌ای',
+                        },
+                      ] as { key: keyof UserEmailNotifyPrefs; labelEn: string; labelFa: string }[]
+                    ).map((item) => (
+                      <label
+                        key={item.key}
+                        className={`flex items-center justify-between gap-3 p-3 rounded-xl border cursor-pointer ${
+                          isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                        }`}
+                      >
+                        <span className="text-xs font-medium">{isEn ? item.labelEn : item.labelFa}</span>
+                        <input
+                          type="checkbox"
+                          checked={emailChannels[item.key] !== false}
+                          onChange={(e) =>
+                            setEmailChannels((prev) => ({ ...prev, [item.key]: e.target.checked }))
+                          }
+                          className="w-4 h-4 rounded accent-indigo-600 cursor-pointer"
+                        />
+                      </label>
+                    ))}
+                    <p className={`text-[11px] pt-1 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {isEn
+                        ? 'Emails are delivered using the Outgoing Mail Server & SMTP Account settings. Ensure your account uses a valid routable email address.'
+                        : 'ایمیل‌ها از طریق تنظیمات «Outgoing Mail Server & SMTP Account» ارسال می‌شوند. برای دریافت، باید آدرس ایمیل معتبر (غیرداخلی) در پروفایل شما ثبت شده باشد.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quiet Hours & Save Bar */}
+              <div className={`rounded-2xl border p-5 space-y-4 ${cardSurface}`}>
+                <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-700/20">
+                  <div className="flex items-center gap-2">
+                    <Moon className="w-4 h-4 text-indigo-500" />
+                    <h2 className="text-sm font-bold">
+                      {isEn ? 'Quiet Hours Schedule' : 'زمان‌بندی ساعات سکوت (Quiet Hours)'}
+                    </h2>
+                  </div>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    title={isEn ? 'Quiet Hours' : 'ساعات سکوت'}
+                    infoWhatEn="Suppresses notification chimes during off-shift hours while preserving full Inbox records."
+                    infoWhatFa="پخش صدای هشدار و حواس‌پرتی در ساعات غیرکاری را متوقف می‌کند بدون آنکه پیام‌ها حذف شوند."
+                    infoWhyEn="Respects shift rotation boundaries for NOC/IT engineers."
+                    infoWhyFa="به کارشناسان شیفت و تیم IT کمک می‌کند در ساعات استراحت مزاحمت صوتی نداشته باشند."
+                    infoExampleEn="22:00 to 07:00 (Asia/Tehran)"
+                    infoExampleFa="از ۲۲:۰۰ تا ۰۷:۰۰ (منطقه زمانی Asia/Tehran)"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
+                  <div className="lg:col-span-5">
+                    <label
+                      className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border cursor-pointer ${
+                        isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                      }`}
+                    >
+                      <div>
+                        <span className="text-xs font-bold block">
+                          {isEn ? 'Enable Scheduled Quiet Hours' : 'فعال‌سازی زمان‌بندی ساعات سکوت'}
+                        </span>
+                        <span className={`text-[11px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn
+                            ? 'Notifications stay archived/unread in Inbox with audio muted.'
+                            : 'پیام‌ها در صندوق ذخیره می‌شوند ولی صدای اعلان در این بازه غیرفعال است.'}
+                        </span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={quietHours.enabled}
+                        onChange={(e) => setQuietHours((prev) => ({ ...prev, enabled: e.target.checked }))}
+                        className="w-4 h-4 rounded accent-indigo-600 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="lg:col-span-2">
+                    <label className="block text-xs font-semibold mb-1.5 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{isEn ? 'Start Time' : 'ساعت شروع'}</span>
+                    </label>
+                    <input
+                      type="time"
+                      value={quietHours.startHour}
+                      disabled={!quietHours.enabled}
+                      onChange={(e) => setQuietHours((prev) => ({ ...prev, startHour: e.target.value }))}
+                      className={`w-full px-3 py-2 rounded-xl border text-xs font-mono focus:outline-none disabled:opacity-50 ${inputSurface}`}
+                    />
+                  </div>
+
+                  <div className="lg:col-span-2">
+                    <label className="block text-xs font-semibold mb-1.5 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{isEn ? 'End Time' : 'ساعت پایان'}</span>
+                    </label>
+                    <input
+                      type="time"
+                      value={quietHours.endHour}
+                      disabled={!quietHours.enabled}
+                      onChange={(e) => setQuietHours((prev) => ({ ...prev, endHour: e.target.value }))}
+                      className={`w-full px-3 py-2 rounded-xl border text-xs font-mono focus:outline-none disabled:opacity-50 ${inputSurface}`}
+                    />
+                  </div>
+
+                  <div className="lg:col-span-3">
                     <label className="block text-xs font-semibold mb-1.5">
                       {isEn ? 'Schedule Timezone' : 'منطقه زمانی (Timezone)'}
                     </label>
@@ -1457,15 +1622,19 @@ export const UserProfileSecurityView: React.FC<UserProfileSecurityViewProps> = (
                   </div>
                 </div>
 
-                <div className="pt-4">
+                <div className="pt-2 flex justify-end">
                   <button
                     type="submit"
                     disabled={saving}
-                    className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50"
+                    className="w-full sm:w-auto py-2.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50"
                   >
                     {saving
-                      ? isEn ? 'Saving Preferences...' : 'در حال ذخیره...'
-                      : isEn ? 'Save Notification Preferences' : 'ذخیره ترجیحات اعلانات'}
+                      ? isEn
+                        ? 'Saving Preferences...'
+                        : 'در حال ذخیره...'
+                      : isEn
+                      ? 'Save Notification & Email Preferences'
+                      : 'ذخیره تنظیمات اعلانات و ایمیل'}
                   </button>
                 </div>
               </div>

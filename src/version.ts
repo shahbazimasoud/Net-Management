@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.434.2';
+export const APP_VERSION = '1.435.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.435.0',
+    releaseDate: '2026-11-16',
+    type: 'minor',
+    title: 'افزودن تنظیمات ارسال ایمیل اعلانات (Email Notification Preferences) به پروفایل کاربر و اتصال به سرور SMTP خروجی',
+    title_en: 'Add Per-Category Email Notification Preferences to User Profile & Dispatch via Outgoing Mail Server (SMTP)',
+    changes: [
+      'افزودن کارت «تنظیمات ارسال ایمیل اعلانات» در تب اعلانات پروفایل کاربری (`UserProfileSecurityView`) هم‌شکل با «تنظیمات دریافت دسته‌بندی اعلانات» با تیک‌های مستقل برای هشدارهای عملیاتی و سیستمی، رویدادهای امنیتی، چت‌های مستقیم ۱:۱، پیام‌های کانال‌های تیمی، اطلاعیه‌های تیمی و درخواست‌های تایید دو مرحله‌ای (همگی فعال به‌صورت پیش‌فرض).',
+      'افزودن ستون `email_channels` در جدول `user_security_profiles` پایگاه‌داده PostgreSQL و پشتیبانی ذخیره دوگانه در `profileService.ts` و مسیر `/api/profile/security`.',
+      'راه‌اندازی ارسال غیرمسدودکننده (Asynchronous Batch) ایمیل‌های اعلانات در `server/emailService.ts` (`sendCommsCategoryEmailBatch`) و یکپارچه‌سازی با تمامی مسیرهای ارسال پیام، چت، اطلاعیه، هشدار سیستم و تاییدیه‌ها در `server/commsService.ts` با استفاده مستقیم از پیکربندی صفحه `Outgoing Mail Server & SMTP Account`.'
+    ],
+    changes_en: [
+      'Added an "Email Notification Preferences" card alongside "Inbox Category Preferences" in `UserProfileSecurityView` with per-category checkboxes (System Alerts, Security & Audit Events, 1:1 Direct Chats, Team Channel Messages, Announcements, and Approval Requests), all enabled by default, plus target email and SMTP readiness indicators.',
+      'Extended `user_security_profiles` in PostgreSQL (`email_channels` JSONB column), `UserEmailNotifyPrefs` types, `profileService.ts`, and `/api/profile/security` to persist and evaluate per-user email preferences.',
+      'Implemented non-blocking HTML/Text batch email dispatching (`sendCommsCategoryEmailBatch`) in `server/emailService.ts` and integrated it into `server/commsService.ts` (`dispatchCommunication`, `emitSystemNotification`, and `sendChannelMessage`) using the global `Outgoing Mail Server & SMTP Account` gateway configuration.'
+    ]
+  },
   {
     version: '1.434.2',
     releaseDate: '2026-11-16',

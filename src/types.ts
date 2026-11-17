@@ -1280,6 +1280,15 @@ export interface UserNotifyChannelPrefs {
   desktop_sound: boolean;
 }
 
+export interface UserEmailNotifyPrefs {
+  system_alert: boolean;
+  security_2fa: boolean;
+  direct_message: boolean;
+  channel_message: boolean;
+  announcement: boolean;
+  approval_request: boolean;
+}
+
 export interface UserQuietHours {
   enabled: boolean;
   startHour: string; // "HH:MM"
@@ -1314,7 +1323,9 @@ export interface UserSecurityProfile {
   backupCodesRemaining: number;
   globalTwoFactorEnabled: boolean;
   globalRememberDeviceEnabled: boolean;
+  smtpConfigured?: boolean;
   notifyChannels: UserNotifyChannelPrefs;
+  emailChannels: UserEmailNotifyPrefs;
   quietHours: UserQuietHours;
   updatedAt?: string | null;
 }

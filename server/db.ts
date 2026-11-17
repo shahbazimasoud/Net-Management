@@ -2618,10 +2618,12 @@ export async function initDatabase(): Promise<void> {
           totp_verified BOOLEAN DEFAULT FALSE,
           backup_codes_hash JSONB NOT NULL DEFAULT '[]'::jsonb,
           notify_channels JSONB NOT NULL DEFAULT '{}'::jsonb,
+          email_channels JSONB NOT NULL DEFAULT '{}'::jsonb,
           quiet_hours JSONB NOT NULL DEFAULT '{}'::jsonb,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      await client.query("ALTER TABLE user_security_profiles ADD COLUMN IF NOT EXISTS email_channels JSONB NOT NULL DEFAULT '{}'::jsonb");
       await client.query("CREATE INDEX IF NOT EXISTS idx_user_sec_profiles_username ON user_security_profiles(username)");
 
       // 29. Two-Step / Multi-Stage Action Approval Requests Queue

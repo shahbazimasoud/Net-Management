@@ -100,11 +100,12 @@ profileRouter.put('/profile/security', async (req: Request, res: Response) => {
   }
 
   try {
-    const { displayTitle, phoneExt, notifyChannels, quietHours } = req.body || {};
+    const { displayTitle, phoneExt, notifyChannels, emailChannels, quietHours } = req.body || {};
     const profile = await updateUserProfileAndPrefs(auth.actor, auth.clientIp, {
       displayTitle,
       phoneExt,
       notifyChannels,
+      emailChannels,
       quietHours,
     });
     return res.json({ success: true, profile });

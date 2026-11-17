@@ -35,6 +35,112 @@ import {
   registerCommsSyncProvider,
 } from './commsWs';
 import { evaluateNotificationDeliveryForUser } from './profileService';
+import { CommsEmailDispatchItem, sendCommsCategoryEmailBatch } from './emailService';
+
+interface PendingCommsEmailTarget {
+  recipient: ResolvedRecipient;
+  category: CommsCategory;
+  severity: CommsSeverity;
+  senderName: string;
+  senderRole?: string;
+  title: string;
+  titleEn?: string;
+  body: string;
+  bodyEn?: string;
+  linkedEntityName?: string | null;
+  channelName?: string | null;
+}
+
+async function resolveDirectoryEmailLookup(): Promise<
+  Map<string, { email: string; fullName?: string }>
+> {
+  const emailMap = new Map<string, { email: string; fullName?: string }>();
+  const register = (
+    identifiersInput: Partial<CommsActor> & { extraKeys?: Array<string | undefined | null> },
+    email?: string | null,
+    fullName?: string | null
+  ) => {
+    const cleanEmail = (email || '').trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) return;
+    const entry = { email: cleanEmail, fullName: (fullName || '').trim() || undefined };
+    for (const key of resolveUserIdentifiers(identifiersInput)) {
+      if (!emailMap.has(key)) emailMap.set(key, entry);
+    }
+    for (const extra of identifiersInput.extraKeys || []) {
+      const k = (extra || '').trim().toLowerCase();
+      if (k && !emailMap.has(k)) emailMap.set(k, entry);
+    }
+  };
+
+  try {
+    const localUsers = (await getAllUsers()).filter((u) => u && u.status !== 'disabled');
+    for (const u of localUsers) {
+      register(
+        { userId: u.id, username: u.username },
+        u.email,
+        u.fullName || u.full_name || u.username
+      );
+    }
+  } catch {}
+
+  try {
+    const adConfig = await getActiveDirectoryConfig().catch(() => null);
+    const syncedUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? adConfig.syncedUsers : [];
+    for (const au of syncedUsers) {
+      register(
+        {
+          userId: au.id || au.samAccountName || au.dn,
+          username: au.samAccountName || au.id || au.dn,
+          extraKeys: [au.dn, au.email, au.mail],
+        },
+        au.email || au.mail,
+        au.displayName || au.samAccountName
+      );
+    }
+  } catch {}
+
+  return emailMap;
+}
+
+async function dispatchCommsEmailsAsync(targets: PendingCommsEmailTarget[]): Promise<void> {
+  if (!Array.isArray(targets) || targets.length === 0) return;
+  try {
+    const emailMap = await resolveDirectoryEmailLookup();
+    const batch: CommsEmailDispatchItem[] = [];
+    for (const t of targets) {
+      const ids = resolveUserIdentifiers({
+        userId: t.recipient.userId,
+        username: t.recipient.username,
+      });
+      let resolved: { email: string; fullName?: string } | undefined;
+      for (const k of ids) {
+        resolved = emailMap.get(k);
+        if (resolved) break;
+      }
+      if (!resolved?.email) continue;
+      batch.push({
+        to: resolved.email,
+        recipientUsername: t.recipient.username,
+        recipientFullName: resolved.fullName,
+        category: t.category,
+        severity: t.severity,
+        senderName: t.senderName,
+        senderRole: t.senderRole,
+        title: t.title,
+        titleEn: t.titleEn,
+        body: t.body,
+        bodyEn: t.bodyEn,
+        linkedEntityName: t.linkedEntityName,
+        channelName: t.channelName,
+      });
+    }
+    if (batch.length > 0) {
+      await sendCommsCategoryEmailBatch(batch);
+    }
+  } catch (err: any) {
+    console.warn('[CommsService] Background email notification notice:', err?.message || err);
+  }
+}
 
 export interface CommsActor {
   userId: string;
@@ -987,6 +1093,7 @@ export async function dispatchCommunication(
 
   const notificationRecords: any[] = [];
   const activeRecipients: ResolvedRecipient[] = [];
+  const emailTargets: PendingCommsEmailTarget[] = [];
   for (const rec of recipients) {
     const pref = await evaluateNotificationDeliveryForUser(
       rec,
@@ -994,6 +1101,20 @@ export async function dispatchCommunication(
       payload.severity || 'info',
       Boolean(payload.requiresAcknowledgment)
     );
+    if (pref.deliverEmailNotification) {
+      emailTargets.push({
+        recipient: rec,
+        category: payload.category,
+        severity: payload.severity || 'info',
+        senderName: senderDisplay,
+        senderRole: senderUser.role || 'Operator',
+        title,
+        titleEn,
+        body,
+        bodyEn,
+        linkedEntityName: payload.linkedEntityName || null,
+      });
+    }
     if (!pref.deliverInboxNotification) continue;
     activeRecipients.push(rec);
     notificationRecords.push({
@@ -1035,6 +1156,10 @@ export async function dispatchCommunication(
     notificationRecords,
     activeRecipients
   );
+
+  if (emailTargets.length > 0) {
+    void dispatchCommsEmailsAsync(emailTargets);
+  }
 
   await addPortalAuditLog({
     category: 'communications',
@@ -1124,12 +1249,27 @@ export async function emitSystemNotification(params: {
 
     const notificationRecords: any[] = [];
     const activeRecipients: ResolvedRecipient[] = [];
+    const emailTargets: PendingCommsEmailTarget[] = [];
     const resolvedCat = params.category || 'system_alert';
     const resolvedSev = params.severity || 'warning';
     const reqAck = Boolean(params.requiresAcknowledgment);
 
     for (const rec of recipients) {
       const pref = await evaluateNotificationDeliveryForUser(rec, resolvedCat, resolvedSev, reqAck);
+      if (pref.deliverEmailNotification) {
+        emailTargets.push({
+          recipient: rec,
+          category: resolvedCat,
+          severity: resolvedSev,
+          senderName: params.senderName || 'System Monitor',
+          senderRole: params.senderRole || 'System Engine',
+          title: params.title,
+          titleEn: params.titleEn,
+          body: params.body,
+          bodyEn: params.bodyEn,
+          linkedEntityName: params.linkedEntityName || null,
+        });
+      }
       if (!pref.deliverInboxNotification) continue;
       activeRecipients.push(rec);
       notificationRecords.push({
@@ -1166,6 +1306,10 @@ export async function emitSystemNotification(params: {
 
     if (notificationRecords.length > 0) {
       await persistMessageAndNotifications(null, notificationRecords, activeRecipients);
+    }
+
+    if (emailTargets.length > 0) {
+      void dispatchCommsEmailsAsync(emailTargets);
     }
   } catch (err: any) {
     console.warn('[CommsService] emitSystemNotification notice:', err?.message || err);
@@ -2157,6 +2301,7 @@ export async function postChannelMessage(
 
   const notificationRecords: any[] = [];
   const activeRecipients: ResolvedRecipient[] = [];
+  const emailTargets: PendingCommsEmailTarget[] = [];
   for (const m of notifyMembers) {
     const pref = await evaluateNotificationDeliveryForUser(
       m,
@@ -2164,6 +2309,21 @@ export async function postChannelMessage(
       payload.priority || 'info',
       false
     );
+    if (pref.deliverEmailNotification) {
+      emailTargets.push({
+        recipient: { userId: m.userId, username: m.username },
+        category: msgType as CommsCategory,
+        severity: payload.priority || 'info',
+        senderName: senderDisplay,
+        senderRole: senderUser.role || 'Operator',
+        title,
+        titleEn,
+        body,
+        bodyEn,
+        linkedEntityName: payload.linkedEntityName || null,
+        channelName: channel.channelType === 'direct' ? null : channel.nameEn || channel.name,
+      });
+    }
     if (!pref.deliverInboxNotification) continue;
     activeRecipients.push({ userId: m.userId, username: m.username });
     notificationRecords.push({
@@ -2207,6 +2367,10 @@ export async function postChannelMessage(
     notificationRecords,
     activeRecipients
   );
+
+  if (emailTargets.length > 0) {
+    void dispatchCommsEmailsAsync(emailTargets);
+  }
 
   // Also update PG channel updated_at and sender last_read
   await ensurePostgresConnection();

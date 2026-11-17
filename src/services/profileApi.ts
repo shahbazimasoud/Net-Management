@@ -2,6 +2,7 @@ import {
   TotpEnrollmentPayload,
   TrustedDeviceEntry,
   TwoFactorMethod,
+  UserEmailNotifyPrefs,
   UserNotifyChannelPrefs,
   UserQuietHours,
   UserSecurityProfile,
@@ -68,6 +69,7 @@ export async function updateUserSecurityProfile(payload: {
   displayTitle?: string;
   phoneExt?: string;
   notifyChannels?: Partial<UserNotifyChannelPrefs>;
+  emailChannels?: Partial<UserEmailNotifyPrefs>;
   quietHours?: Partial<UserQuietHours>;
 }): Promise<{ profile: UserSecurityProfile }> {
   const res = await fetch('/api/profile/security', {
