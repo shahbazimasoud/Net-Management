@@ -32,6 +32,7 @@ import {
   RefreshCw,
   Lock,
   Unlock,
+  Share2,
 } from 'lucide-react';
 import { Device, SwitchPort, VlanInfo } from '../types';
 import {
@@ -46,6 +47,9 @@ import {
   syncDevicePorts,
 } from '../services/api';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useAuth } from '../context/AuthContext';
+import { isUserSuperAdmin } from '../utils/rbac';
+import { dispatchShareToTeamChat } from './comms/ShareToChatModal';
 import { logDeviceCommand, evaluateCommandRisk } from '../services/auditLogger';
 import { CiscoWriteConfirmModal, WriteChangeItem } from './CiscoWriteConfirmModal';
 import { renderAnsiFormattedText, stripAnsi } from './servers/terminalAnsi';
@@ -128,6 +132,10 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
   initialPort: propInitialPort,
 }) => {
   const { t, isEn } = useLanguage();
+  const { user, effectivePolicy } = useAuth();
+  const canShareToChat =
+    isUserSuperAdmin(user, effectivePolicy) ||
+    Boolean(effectivePolicy?.canSendCommunications || effectivePolicy?.canSendAnnouncements);
   const [terminalBgColor, setTerminalBgColor] = useState<string>(() => {
     try {
       return localStorage.getItem('cisco_terminal_bg_color') || '#020617';
@@ -1993,6 +2001,36 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                   <span>Write Memory</span>
                 </button>
               </div>
+            )}
+
+            {/* Share Terminal Output to Team Chat (RBAC-gated) */}
+            {canShareToChat && (
+              <button
+                type="button"
+                onClick={() => {
+                  const selected = xtermRef.current?.getSelection()?.trim() || '';
+                  const fallbackLines = lines.slice(-45).map((l) => l.text).join('\n');
+                  const captured = (selected || xtermRef.current?.getRecentLines(60) || fallbackLines).trim();
+                  const snippetText =
+                    captured ||
+                    `# ${device.name} (${device.ip})\n# ${isEn ? 'No terminal output captured yet' : 'هنوز خروجی در ترمینال ثبت نشده است'}`;
+                  dispatchShareToTeamChat({
+                    sourceType: 'terminal_output',
+                    sourceEntityType: 'device',
+                    sourceEntityId: device.id,
+                    platform: isMikroTik ? 'mikrotik_routeros' : isGenericLinux ? 'linux_ssh' : 'cisco_ios',
+                    title: `${device.name} — ${isMikroTik ? 'RouterOS' : isGenericLinux ? 'Linux SSH' : 'Cisco CLI'} Output`,
+                    content: snippetText,
+                  });
+                }}
+                className="px-2 py-1 rounded-lg border text-xs flex items-center gap-1.5 transition-colors cursor-pointer bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border-indigo-500/35"
+                title={isEn ? 'Share terminal selection or recent output to Team Chat' : 'ارسال متن انتخاب‌شده یا خروجی اخیر به چت تیمی'}
+              >
+                <Share2 className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline font-medium text-[11px]">
+                  {isEn ? 'Share to Chat' : 'ارسال به چت'}
+                </span>
+              </button>
             )}
 
             {/* Terminal Appearance Menu Popover (Button-based to prevent clutter) */}

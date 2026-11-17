@@ -59,6 +59,7 @@ import {
 } from './EntityMentionPicker';
 import { SlashCommandCard } from './SlashCommandCard';
 import { SlashCommandPickerPopover } from './SlashCommandPicker';
+import { SnippetDiffCard } from './SnippetDiffCard';
 
 interface TeamChannelsPaneProps {
   isLightMode: boolean;
@@ -1807,6 +1808,14 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                           {/* RBAC-projected ChatOps slash command telemetry card */}
                           <SlashCommandCard
                             result={msg.slashResult}
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                            isSelf={self}
+                          />
+
+                          {/* RBAC-projected & secret-scrubbed Snippet / Config Diff card */}
+                          <SnippetDiffCard
+                            result={msg.snippetResult}
                             isEn={isEn}
                             isLightMode={isLightMode}
                             isSelf={self}

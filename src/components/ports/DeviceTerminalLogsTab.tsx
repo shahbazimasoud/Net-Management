@@ -22,9 +22,13 @@ import {
   Sliders,
   Shield,
   Activity,
+  Share2,
 } from 'lucide-react';
 import { Device, isMikroTikDevice } from '../../types';
 import { fetchDeviceLogs, clearDeviceLogs } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { isUserSuperAdmin } from '../../utils/rbac';
+import { dispatchShareToTeamChat } from '../comms/ShareToChatModal';
 
 export interface DeviceTerminalLogsTabProps {
   device: Device;
@@ -51,6 +55,10 @@ export const DeviceTerminalLogsTab: React.FC<DeviceTerminalLogsTabProps> = ({
   isLightMode = false,
   onConnectTerminal,
 }) => {
+  const { user, effectivePolicy } = useAuth();
+  const canShareToChat =
+    isUserSuperAdmin(user, effectivePolicy) ||
+    Boolean(effectivePolicy?.canSendCommunications || effectivePolicy?.canSendAnnouncements);
   const [logs, setLogs] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isLiveActive, setIsLiveActive] = useState<boolean>(true);
@@ -495,6 +503,38 @@ export const DeviceTerminalLogsTab: React.FC<DeviceTerminalLogsTabProps> = ({
           >
             <Download className="w-3.5 h-3.5 text-emerald-400" />
           </button>
+
+          {/* Share Logs to Team Chat (RBAC-gated) */}
+          {canShareToChat && (
+            <button
+              type="button"
+              onClick={() => {
+                const selected = typeof window !== 'undefined' ? window.getSelection()?.toString()?.trim() || '' : '';
+                const captured =
+                  selected ||
+                  filteredLogs
+                    .slice(-60)
+                    .map((l) => l.raw)
+                    .join('\n')
+                    .trim();
+                dispatchShareToTeamChat({
+                  sourceType: 'device_log',
+                  sourceEntityType: 'device',
+                  sourceEntityId: device.id,
+                  platform: isMikro ? 'mikrotik_routeros' : 'syslog',
+                  title: `${device.name} — ${isMikro ? 'RouterOS Syslog' : 'Device Syslog'}`,
+                  content:
+                    captured ||
+                    `# ${device.name} (${device.ip})\n# ${isEn ? 'No syslog lines matching active filters' : 'لاگی منطبق با فیلتر فعال یافت نشد'}`,
+                });
+              }}
+              className="px-2 py-1 rounded-lg border bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border-indigo-500/35 text-xs flex items-center gap-1 transition cursor-pointer"
+              title={isEn ? 'Share selected or filtered device logs to Team Chat' : 'ارسال لاگ‌های انتخاب‌شده یا فیلترشده به چت تیمی'}
+            >
+              <Share2 className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="hidden sm:inline">{isEn ? 'Share to Chat' : 'ارسال به چت'}</span>
+            </button>
+          )}
 
           {/* Open Full CLI Terminal */}
           {onConnectTerminal && (

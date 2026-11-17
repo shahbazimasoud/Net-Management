@@ -112,6 +112,7 @@ import {
   registerApprovalGateHandler,
 } from './utils/approvalGateBridge';
 import { FooterTeamChatDock } from './components/comms/FooterTeamChatDock';
+import { ShareToChatModal } from './components/comms/ShareToChatModal';
 
 export default function App() {
   const { t, isRtl, isEn, language, setLanguage } = useLanguage();
@@ -1099,12 +1100,28 @@ export default function App() {
         entityType?: 'device' | 'server' | 'port';
         entityId?: string;
         portId?: string;
-        action?: 'ports' | 'terminal' | 'view';
+        action?: 'ports' | 'terminal' | 'view' | 'logs';
         name?: string;
       }>)?.detail;
       if (!detail?.entityType || !detail?.entityId) return;
 
       if (detail.entityType === 'server') {
+        if (detail.action === 'logs') {
+          if (
+            !isSuperAdmin &&
+            (effectivePolicy?.canViewLogs === false ||
+              !isTabAllowed('logs', effectivePolicy, user))
+          ) {
+            showToast(
+              isEn
+                ? 'Access Denied (RBAC): Audit Logs module is restricted in your policy.'
+                : 'عدم دسترسی (RBAC): ماژول لاگ‌های ممیزی در پالیسی کاربری شما مجاز نیست.'
+            );
+            return;
+          }
+          setActiveTab('logs');
+          return;
+        }
         if (
           !isSuperAdmin &&
           (effectivePolicy?.canViewServers === false ||
@@ -1144,6 +1161,36 @@ export default function App() {
 
       if (detail.action === 'terminal') {
         void openTerminal(targetDev, detail.portId);
+        return;
+      }
+
+      if (detail.action === 'logs') {
+        if (!isSuperAdmin && effectivePolicy?.canViewLogs === false) {
+          showToast(
+            isEn
+              ? 'Access Denied (RBAC): Audit & Device Logs are restricted in your policy.'
+              : 'عدم دسترسی (RBAC): مشاهده لاگ‌های تجهیز در پالیسی کاربری شما غیرفعال است.'
+          );
+          return;
+        }
+        const portDecision = evaluateDeviceActionDecision(
+          authEffectivePolicy || effectivePolicy,
+          targetDev.id,
+          'inspect_ports'
+        );
+        if (isSuperAdmin || (portDecision !== 'deny' && effectivePolicy?.canViewPorts !== false)) {
+          handleInspectPorts(targetDev);
+          return;
+        }
+        if (isTabAllowed('logs', effectivePolicy, user)) {
+          setActiveTab('logs');
+          return;
+        }
+        showToast(
+          isEn
+            ? `Access Denied (RBAC): Cannot open logs for ${targetDev.name || targetDev.ip}.`
+            : `عدم دسترسی (RBAC): امکان باز کردن لاگ‌های تجهیز ${targetDev.name || targetDev.ip} وجود ندارد.`
+        );
         return;
       }
 
@@ -2365,6 +2412,22 @@ export default function App() {
         }}
         isLightMode={isLightMode}
       />
+
+      {/* 13. Global Secret-Scrubbed Share-to-Chat Modal Host */}
+      {isAuthenticated && (
+        <ShareToChatModal
+          isEn={isEn}
+          isLightMode={isLightMode}
+          isRtl={isRtl}
+          onShared={(channelName) =>
+            showToast(
+              isEn
+                ? `Snippet securely shared to ${channelName}`
+                : `قطعه خروجی با فیلتر امنیتی در کانال ${channelName} ارسال شد`
+            )
+          }
+        />
+      )}
     </div>
   );
 }

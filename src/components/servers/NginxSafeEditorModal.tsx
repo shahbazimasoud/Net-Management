@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   Play,
   Save,
+  Share2,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -34,6 +35,9 @@ import {
   fetchNginxFileBackups,
   restoreNginxFileBackup,
 } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { isUserSuperAdmin } from '../../utils/rbac';
+import { dispatchShareToTeamChat } from '../comms/ShareToChatModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface NginxSafeEditorModalProps {
@@ -157,6 +161,10 @@ export const NginxSafeEditorModal: React.FC<NginxSafeEditorModalProps> = ({
   const [activeView, setActiveView] = useState<'editor' | 'diff' | 'backups'>('editor');
 
   // Content states
+  const { user, effectivePolicy } = useAuth();
+  const canShareToChat =
+    isUserSuperAdmin(user, effectivePolicy) ||
+    Boolean(effectivePolicy?.canSendCommunications || effectivePolicy?.canSendAnnouncements);
   const [originalContent, setOriginalContent] = useState('');
   const [editedContent, setEditedContent] = useState('');
   const [isLoadingFile, setIsLoadingFile] = useState(false);
@@ -418,6 +426,48 @@ export const NginxSafeEditorModal: React.FC<NginxSafeEditorModalProps> = ({
             >
               <Download className="w-4 h-4" />
             </button>
+
+            {canShareToChat && server && filePath && (
+              <button
+                type="button"
+                onClick={() => {
+                  const computed = isDirty ? computeLineDiff(originalContent, editedContent) : [];
+                  let added = 0;
+                  let removed = 0;
+                  let bodyText = editedContent;
+                  if (isDirty) {
+                    const diffOut: string[] = [`--- a${filePath}`, `+++ b${filePath}`];
+                    for (const line of computed) {
+                      if (line.type === 'added') {
+                        added++;
+                        diffOut.push(`+ ${line.content}`);
+                      } else if (line.type === 'removed') {
+                        removed++;
+                        diffOut.push(`- ${line.content}`);
+                      } else {
+                        diffOut.push(`  ${line.content}`);
+                      }
+                    }
+                    bodyText = diffOut.join('\n');
+                  }
+                  dispatchShareToTeamChat({
+                    sourceType: 'backup_diff',
+                    sourceEntityType: 'server',
+                    sourceEntityId: server.id,
+                    platform: 'nginx',
+                    filePath,
+                    title: `${server.name} — ${filePath} ${isDirty ? '(Config Diff)' : '(Nginx Config)'}`,
+                    content: bodyText,
+                    diffStats: isDirty ? { added, removed } : undefined,
+                  });
+                }}
+                title={isEn ? 'Share Nginx config or pending diff to Team Chat' : 'ارسال فایل پیکربندی یا تغییرات انجین‌ایکس به چت تیمی'}
+                className="px-2 py-1 rounded-lg border border-indigo-500/35 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 text-xs font-medium flex items-center gap-1 transition cursor-pointer"
+              >
+                <Share2 className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline">{isEn ? 'Share' : 'ارسال'}</span>
+              </button>
+            )}
 
             <div className="h-4 w-px bg-slate-700 mx-1" />
 

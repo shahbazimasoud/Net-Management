@@ -41,9 +41,13 @@ import {
   CommsNotificationItem,
   CommsProjectedEntityCard,
   CommsProjectedSlashResult,
+  CommsProjectedSnippetResult,
   CommsRecipientOption,
   CommsSeverity,
   CommsSlashCommandName,
+  CommsSnippetPlatform,
+  CommsSnippetSharePayload,
+  CommsSnippetSourceType,
 } from '../src/types';
 import {
   broadcastCommsEventToRecipients,
@@ -2988,9 +2992,10 @@ export async function searchScopedEntityMentions(
 
 function sanitizeCleanMessageMetadata(meta: Record<string, any> | undefined): Record<string, any> | undefined {
   if (!meta) return undefined;
-  if (!('slashCommandData' in meta)) return meta;
+  if (!('slashCommandData' in meta) && !('snippetData' in meta)) return meta;
   const copy = { ...meta };
   delete copy.slashCommandData;
+  delete copy.snippetData;
   return copy;
 }
 
@@ -3272,6 +3277,338 @@ function projectSlashResultForViewer(
   };
 }
 
+// ==============================================================================
+// Phase 3: Server-Side Secret Scrubbing & Zero-Leak Snippet / Diff Projection
+// ==============================================================================
+
+const VALID_SNIPPET_SOURCE_TYPES = new Set<CommsSnippetSourceType>([
+  'terminal_output',
+  'backup_diff',
+  'device_log',
+  'server_log',
+]);
+
+const VALID_SNIPPET_PLATFORMS = new Set<CommsSnippetPlatform>([
+  'cisco_ios',
+  'mikrotik_routeros',
+  'linux_ssh',
+  'nginx',
+  'apache',
+  'syslog',
+  'config_diff',
+  'generic',
+]);
+
+export function scrubSensitiveSnippetContent(rawText: string): {
+  scrubbedText: string;
+  redactedCount: number;
+  redactedCategories: string[];
+} {
+  let text = String(rawText || '').replace(/\r\n/g, '\n');
+  let redactedCount = 0;
+  const categories = new Set<string>();
+
+  const applyMask = (
+    regex: RegExp,
+    category: string,
+    replacer: (...args: any[]) => string
+  ) => {
+    text = text.replace(regex, (...args: any[]) => {
+      const full = String(args[0] || '');
+      if (full.includes('***REDACTED')) return full;
+      redactedCount += 1;
+      categories.add(category);
+      return replacer(...args);
+    });
+  };
+
+  // 1. PEM Private Keys (PKCS#1, PKCS#8, EC, OpenSSH, DSA, Encrypted)
+  applyMask(
+    /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g,
+    'private_key',
+    () => '-----BEGIN PRIVATE KEY-----\n***REDACTED_PRIVATE_KEY***\n-----END PRIVATE KEY-----'
+  );
+
+  // 2. Database / Service Connection Strings containing passwords (proto://user:pass@host)
+  applyMask(
+    /((?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss|amqp|ftp|ftps|https?):\/\/[^:\s/@"']+:)(?!\*{3}REDACTED)([^@\s/"']+)(@)/gi,
+    'connection_password',
+    (_m, p1, _secret, p3) => `${p1}***REDACTED***${p3}`
+  );
+
+  // 3. HTTP Authorization headers & Bearer tokens & JWT tokens
+  applyMask(
+    /(\bAuthorization\s*:\s*(?:Bearer|Basic|Token)\s+)(?!\*{3}REDACTED)([A-Za-z0-9\-._~+/]+=*)/gi,
+    'auth_token',
+    (_m, p1) => `${p1}***REDACTED***`
+  );
+  applyMask(
+    /(\bBearer\s+)(?!\*{3}REDACTED)([A-Za-z0-9\-._~+/]{12,}=*)/g,
+    'auth_token',
+    (_m, p1) => `${p1}***REDACTED***`
+  );
+  applyMask(
+    /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}\b/g,
+    'jwt',
+    () => '***REDACTED_JWT***'
+  );
+
+  // 4. Cisco IOS / NX-OS secrets, enable passwords, TACACS/RADIUS keys, SNMP communities
+  applyMask(
+    /(\benable\s+(?:secret|password)\s+(?:(?:level\s+\d+|\d+)\s+)?)(?!\*{3}REDACTED)([^\s\r\n]+)/gi,
+    'cisco_secret',
+    (_m, p1) => `${p1}***REDACTED***`
+  );
+  applyMask(
+    /(\busername\s+\S+[^\r\n]*?\b(?:secret|password)\s+(?:\d+\s+)?)(?!\*{3}REDACTED)([^\s\r\n]+)/gi,
+    'cisco_password',
+    (_m, p1) => `${p1}***REDACTED***`
+  );
+  applyMask(
+    /(\bsnmp-server\s+community\s+)(?!\*{3}REDACTED)([^\s\r\n]+)/gi,
+    'snmp_community',
+    (_m, p1) => `${p1}***REDACTED***`
+  );
+  applyMask(
+    /(\b(?:tacacs-server\s+key|radius-server\s+key|key-string|wpa-psk\s+ascii|pre-shared-key|AuthPass|PrivPass)\s+(?:\d+\s+)?)(?!\*{3}REDACTED)([^\s\r\n]+)/gi,
+    'network_key',
+    (_m, p1) => `${p1}***REDACTED***`
+  );
+  applyMask(
+    /(^[ \t]*(?:password|secret)\s+(?:\d+\s+)?)(?!\*{3}REDACTED)([^\s\r\n;=:"']+)/gim,
+    'device_password',
+    (_m, p1) => `${p1}***REDACTED***`
+  );
+
+  // 5. MikroTik RouterOS & CLI parameters (password=..., secret=..., preshared-key=..., passphrase=...)
+  applyMask(
+    /(\b(?:password|secret|preshared-key|private-key|wpa2-pre-shared-key|wpa-pre-shared-key|passphrase|auth-password|priv-password|enc-password|community)\s*=\s*)(?:"(?!\*{3}REDACTED)[^"]*"|'(?!\*{3}REDACTED)[^']*'|(?![*"'])\S+)/gi,
+    'routeros_secret',
+    (_m, p1) => `${p1}***REDACTED***`
+  );
+
+  // 6. JSON quoted key-value secrets ("password": "...", "dbPassword": "...", "token": "...")
+  applyMask(
+    /("(?:[a-z0-9_-]*?(?:password|passwd|pwd|secret|api_?key|access_?token|auth_?token|refresh_?token|private_?key|client_?secret|signing_?key|encryption_?key|passphrase|preshared_?key|bot_?token))"\s*:\s*")((?!\*{3}REDACTED)[^"]*)(")/gi,
+    'json_secret',
+    (_m, p1, _val, p3) => `${p1}***REDACTED***${p3}`
+  );
+
+  // 7. Generic ENV / INI / Nginx / Apache key=value or key: value credentials
+  applyMask(
+    /(\b(?:[A-Z0-9_]*?(?:PASSWORD|PASSWD|SECRET|API_?KEY|ACCESS_?TOKEN|AUTH_?TOKEN|REFRESH_?TOKEN|PRIVATE_?KEY|SIGNING_?KEY|ENCRYPTION_?KEY|BOT_?TOKEN)|password|passwd|pwd|secret|api_key|apikey|access_token|auth_token|refresh_token|private_key|client_secret|db_pass|db_password|dbPassword|smtp_pass|smtpPassword|bot_token|webhook_secret|session_secret|signing_key|preshared_key|PGPASSWORD|MYSQL_PWD|REDIS_PASSWORD|JWT_SECRET|SSH_PASS|WINRM_PASS)\b\s*[:=]\s*)(["']?)(?!\*{3}REDACTED)([^"'\s\r\n,;]+)\2/gi,
+    'credential',
+    (_m, p1, q) => `${p1}${q}***REDACTED***${q}`
+  );
+
+  return {
+    scrubbedText: text,
+    redactedCount,
+    redactedCategories: Array.from(categories),
+  };
+}
+
+function checkSnippetGranularPermission(
+  ctx: CommsViewerAccessContext,
+  sourceType: CommsSnippetSourceType,
+  sourceEntityType: 'device' | 'server',
+  sourceEntityId: string,
+  platform?: CommsSnippetPlatform
+): boolean {
+  if (ctx.isSuperAdmin || !ctx.policy) return true;
+
+  if (sourceType === 'device_log' || sourceType === 'server_log') {
+    return ctx.policy.canViewLogs !== false;
+  }
+
+  if (sourceType === 'terminal_output') {
+    return sourceEntityType === 'device'
+      ? isDeviceActionPermitted(ctx.policy, sourceEntityId, 'terminal')
+      : isServerActionPermitted(ctx.policy, sourceEntityId, 'terminal');
+  }
+
+  if (sourceType === 'backup_diff') {
+    if (ctx.policy.canExportBackup === false) return false;
+    if (sourceEntityType === 'device' && platform === 'mikrotik_routeros') {
+      return isDeviceActionPermitted(ctx.policy, sourceEntityId, 'mikrotik_backup');
+    }
+    return true;
+  }
+
+  return true;
+}
+
+function projectSnippetForViewer(
+  rawSnippetData: any,
+  ctx: CommsViewerAccessContext,
+  devicesById: Map<string, any>,
+  serversById: Map<string, any>
+): CommsProjectedSnippetResult | undefined {
+  if (!rawSnippetData || typeof rawSnippetData !== 'object') return undefined;
+
+  const snippetId = String(rawSnippetData.snippetId || 'snip');
+  const sourceType = VALID_SNIPPET_SOURCE_TYPES.has(rawSnippetData.sourceType)
+    ? (rawSnippetData.sourceType as CommsSnippetSourceType)
+    : 'terminal_output';
+  const sourceEntityType: 'device' | 'server' =
+    rawSnippetData.sourceEntityType === 'server' ? 'server' : 'device';
+  const sourceEntityId = String(rawSnippetData.sourceEntityId || '').trim();
+  const platform = VALID_SNIPPET_PLATFORMS.has(rawSnippetData.platform)
+    ? (rawSnippetData.platform as CommsSnippetPlatform)
+    : 'generic';
+  const sharedAt = String(rawSnippetData.sharedAt || new Date().toISOString());
+
+  if (!sourceEntityId) return undefined;
+
+  const baseRestricted = {
+    snippetId,
+    sourceType,
+    sourceEntityType,
+    sourceEntityId,
+    platform,
+    sharedAt,
+    accessRestricted: true as const,
+  };
+
+  if (sourceEntityType === 'server') {
+    const gate = isServerVisibleInViewerCtx(sourceEntityId, ctx);
+    if (!gate.allowed) {
+      return {
+        ...baseRestricted,
+        restrictionReasonCode: gate.reasonCode === 'module_disabled' ? 'module_disabled' : 'outside_scope',
+        restrictionMessageFa:
+          gate.reasonCode === 'module_disabled'
+            ? 'عدم دسترسی RBAC: ماژول سرورهای ریموت برای مشاهده این خروجی/بکاپ در پالیسی شما غیرفعال است.'
+            : 'عدم دسترسی RBAC: شما مجوز مشاهده خروجی، لاگ یا تغییرات این سرور را ندارید.',
+        restrictionMessageEn:
+          gate.reasonCode === 'module_disabled'
+            ? 'Access Restricted (RBAC): Remote Servers module is disabled in your policy.'
+            : 'Access Denied (RBAC): This snippet belongs to a server outside your authorized scope.',
+      };
+    }
+
+    if (!checkSnippetGranularPermission(ctx, sourceType, 'server', sourceEntityId, platform)) {
+      return {
+        ...baseRestricted,
+        restrictionReasonCode: 'action_denied',
+        restrictionMessageFa:
+          sourceType === 'server_log'
+            ? 'عدم دسترسی RBAC: مجوز مشاهده لاگ‌های سرور (canViewLogs) در پالیسی شما محدود شده است.'
+            : sourceType === 'backup_diff'
+            ? 'عدم دسترسی RBAC: مجوز مشاهده بکاپ و تغییرات کانفیگ این سرور برای شما غیرفعال است.'
+            : 'عدم دسترسی RBAC: مجوز دسترسی به خروجی ترمینال این سرور برای شما فعال نیست.',
+        restrictionMessageEn:
+          sourceType === 'server_log'
+            ? 'Access Restricted (RBAC): Server log inspection permission (canViewLogs) is denied in your policy.'
+            : sourceType === 'backup_diff'
+            ? 'Access Restricted (RBAC): Backup & configuration diff access is restricted in your policy.'
+            : 'Access Restricted (RBAC): Terminal output permission for this server is denied in your policy.',
+      };
+    }
+
+    const srv = serversById.get(sourceEntityId.toLowerCase());
+    const canTerminal =
+      ctx.isSuperAdmin || !ctx.policy || isServerActionPermitted(ctx.policy, sourceEntityId, 'terminal');
+    const canLogs = ctx.isSuperAdmin || ctx.policy?.canViewLogs !== false;
+
+    return {
+      snippetId,
+      sourceType,
+      sourceEntityType: 'server',
+      sourceEntityId,
+      platform,
+      sharedAt,
+      accessRestricted: false,
+      sourceEntityName: srv?.name || rawSnippetData.sourceEntityName || sourceEntityId,
+      sourceEntityIp: srv?.host || srv?.ip || rawSnippetData.sourceEntityIp || '',
+      title: rawSnippetData.title,
+      titleEn: rawSnippetData.titleEn,
+      filePath: rawSnippetData.filePath,
+      content: String(rawSnippetData.content || ''),
+      lineCount: Number(rawSnippetData.lineCount || 0),
+      truncated: Boolean(rawSnippetData.truncated),
+      redactedCount: Number(rawSnippetData.redactedCount || 0),
+      redactedCategories: Array.isArray(rawSnippetData.redactedCategories)
+        ? rawSnippetData.redactedCategories
+        : [],
+      diffStats: rawSnippetData.diffStats || undefined,
+      canOpenSourceTerminal: canTerminal,
+      canOpenSourceLogs: canLogs,
+      canOpenSourceView: true,
+    };
+  }
+
+  // Device snippet projection
+  const devGate = isDeviceVisibleInViewerCtx(sourceEntityId, ctx);
+  if (!devGate.allowed) {
+    return {
+      ...baseRestricted,
+      restrictionReasonCode: devGate.reasonCode === 'module_disabled' ? 'module_disabled' : 'outside_scope',
+      restrictionMessageFa:
+        devGate.reasonCode === 'module_disabled'
+          ? 'عدم دسترسی RBAC: ماژول تجهیزات شبکه برای مشاهده این خروجی/بکاپ در پالیسی شما غیرفعال است.'
+          : 'عدم دسترسی RBAC: شما دسترسی مشاهده خروجی، لاگ یا بکاپ این تجهیز را ندارید.',
+      restrictionMessageEn:
+        devGate.reasonCode === 'module_disabled'
+          ? 'Access Restricted (RBAC): Network Devices module is disabled in your policy.'
+          : 'Access Denied (RBAC): This snippet belongs to a device outside your authorized scope.',
+    };
+  }
+
+  if (!checkSnippetGranularPermission(ctx, sourceType, 'device', sourceEntityId, platform)) {
+    return {
+      ...baseRestricted,
+      restrictionReasonCode: 'action_denied',
+      restrictionMessageFa:
+        sourceType === 'device_log'
+          ? 'عدم دسترسی RBAC: مجوز مشاهده لاگ‌های تجهیزات (canViewLogs) در پالیسی شما محدود شده است.'
+          : sourceType === 'backup_diff'
+          ? 'عدم دسترسی RBAC: مجوز مشاهده بکاپ و خروجی تنظیمات این تجهیز برای شما فعال نیست.'
+          : 'عدم دسترسی RBAC: مجوز مشاهده خروجی ترمینال CLI این تجهیز در پالیسی شما محدود شده است.',
+      restrictionMessageEn:
+        sourceType === 'device_log'
+          ? 'Access Restricted (RBAC): Device syslog inspection (canViewLogs) is denied in your policy.'
+          : sourceType === 'backup_diff'
+          ? 'Access Restricted (RBAC): Backup & configuration export access for this device is denied.'
+          : 'Access Restricted (RBAC): Terminal access for this device is restricted in your policy.',
+    };
+  }
+
+  const dev = devicesById.get(sourceEntityId.toLowerCase());
+  const canTerminal =
+    ctx.isSuperAdmin || !ctx.policy || isDeviceActionPermitted(ctx.policy, sourceEntityId, 'terminal');
+  const canLogs =
+    ctx.isSuperAdmin ||
+    (ctx.policy?.canViewLogs !== false &&
+      (!ctx.policy || isDeviceActionPermitted(ctx.policy, sourceEntityId, 'inspect_ports')));
+
+  return {
+    snippetId,
+    sourceType,
+    sourceEntityType: 'device',
+    sourceEntityId,
+    platform,
+    sharedAt,
+    accessRestricted: false,
+    sourceEntityName: dev?.name || rawSnippetData.sourceEntityName || sourceEntityId,
+    sourceEntityIp: dev?.ip || dev?.ssh_host || rawSnippetData.sourceEntityIp || '',
+    title: rawSnippetData.title,
+    titleEn: rawSnippetData.titleEn,
+    filePath: rawSnippetData.filePath,
+    content: String(rawSnippetData.content || ''),
+    lineCount: Number(rawSnippetData.lineCount || 0),
+    truncated: Boolean(rawSnippetData.truncated),
+    redactedCount: Number(rawSnippetData.redactedCount || 0),
+    redactedCategories: Array.isArray(rawSnippetData.redactedCategories)
+      ? rawSnippetData.redactedCategories
+      : [],
+    diffStats: rawSnippetData.diffStats || undefined,
+    canOpenSourceTerminal: canTerminal,
+    canOpenSourceLogs: canLogs,
+    canOpenSourceView: true,
+  };
+}
+
 export async function listChannelMessages(
   user: CommsActor,
   isSuperAdmin: boolean,
@@ -3382,17 +3719,20 @@ export async function listChannelMessages(
   }
   const messages = rawMessages.map((r) => mapMessageRow(r, lookupMap));
 
-  // Project entity mentions & ChatOps slash results strictly through the viewer's RBAC policy (Zero-Leak)
+  // Project entity mentions, ChatOps slash results, and Shared Snippets strictly through the viewer's RBAC policy (Zero-Leak)
   const needsDeviceLookup = messages.some(
     (m) =>
       extractMessageEntityRefs(m).some(
         (ref) => ref.entityType === 'device' || ref.entityType === 'port'
-      ) || Boolean(m.metadata?.slashCommandData)
+      ) ||
+      Boolean(m.metadata?.slashCommandData) ||
+      Boolean(m.metadata?.snippetData)
   );
   const needsServerLookup = messages.some(
     (m) =>
       extractMessageEntityRefs(m).some((ref) => ref.entityType === 'server') ||
-      Boolean(m.metadata?.slashCommandData)
+      Boolean(m.metadata?.slashCommandData) ||
+      Boolean(m.metadata?.snippetData)
   );
   if (needsDeviceLookup || needsServerLookup) {
     const [viewerCtx, allDevices, allServers] = await Promise.all([
@@ -3412,7 +3752,7 @@ export async function listChannelMessages(
     );
     for (const m of messages) {
       const refs = extractMessageEntityRefs(m);
-      if (refs.length > 0) {
+      if (refs.length > 0 && !m.metadata?.snippetData) {
         const cards = buildProjectedCardsForViewer(refs, viewerCtx, devicesById, serversById);
         m.entityCards = cards;
         if (cards.some((c) => c.accessRestricted)) {
@@ -3434,8 +3774,24 @@ export async function listChannelMessages(
             m.bodyEn = '🔒 ChatOps output (Entity access restricted by RBAC)';
           }
         }
-        m.metadata = sanitizeCleanMessageMetadata(m.metadata);
       }
+      if (m.metadata?.snippetData) {
+        const projectedSnippet = projectSnippetForViewer(
+          m.metadata.snippetData,
+          viewerCtx,
+          devicesById,
+          serversById
+        );
+        if (projectedSnippet) {
+          m.snippetResult = projectedSnippet;
+          if (projectedSnippet.accessRestricted) {
+            m.linkedEntityName = null;
+            m.body = '🔒 خروجی ترمینال/لاگ/بکاپ (دسترسی به تجهیز/سرور محدود شده است)';
+            m.bodyEn = '🔒 Terminal/Log/Diff snippet (Entity access restricted by RBAC)';
+          }
+        }
+      }
+      m.metadata = sanitizeCleanMessageMetadata(m.metadata);
     }
   }
 
@@ -5339,6 +5695,386 @@ export async function executeChannelSlashCommand(
     status: 'success',
     details: `کاربر ${senderUser.username} دستور "${rawCommand}" را در کانال «${channel.name}» اجرا کرد.`,
     details_en: `User ${senderUser.username} executed "${rawCommand}" in channel "${channel.nameEn || channel.name}".`,
+  }).catch(() => {});
+
+  return senderCleanMsg;
+}
+
+export async function shareChannelSnippet(
+  senderUser: CommsActor,
+  isSuperAdmin: boolean,
+  senderIp: string,
+  channelId: string,
+  payload: CommsSnippetSharePayload
+): Promise<CommsMessage> {
+  const sourceType = VALID_SNIPPET_SOURCE_TYPES.has(payload?.sourceType)
+    ? payload.sourceType
+    : null;
+  if (!sourceType) {
+    throw new Error(
+      'BAD_SNIPPET: Unsupported snippet source type. | نوع منبع خروجی برای اشتراک‌گذاری معتبر نیست.'
+    );
+  }
+  const sourceEntityType: 'device' | 'server' =
+    payload?.sourceEntityType === 'server' ? 'server' : 'device';
+  const sourceEntityId = String(payload?.sourceEntityId || '').trim();
+  if (!sourceEntityId) {
+    throw new Error(
+      'BAD_SNIPPET: Source device or server identifier is required. | شناسه تجهیز یا سرور مبدا الزامی است.'
+    );
+  }
+  const rawContent = String(payload?.content || '').trim();
+  if (!rawContent) {
+    throw new Error(
+      'BAD_SNIPPET: Snippet or diff content cannot be empty. | محتوای خروجی یا تغییرات نمی‌تواند خالی باشد.'
+    );
+  }
+
+  const platform: CommsSnippetPlatform = VALID_SNIPPET_PLATFORMS.has(
+    payload?.platform as CommsSnippetPlatform
+  )
+    ? (payload.platform as CommsSnippetPlatform)
+    : 'generic';
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+
+  const [channel, senderCtx, allDevices, allServers, parentRowPg] = await Promise.all([
+    loadHydratedChannelForUser(channelId, senderUser),
+    resolveCommsViewerAccessContext(senderUser, isSuperAdmin),
+    sourceEntityType === 'device' ? getAllDevices().catch(() => []) : Promise.resolve([]),
+    sourceEntityType === 'server' ? getAllRemoteServers().catch(() => []) : Promise.resolve([]),
+    payload?.replyToMessageId && isPostgresConnected() && pool
+      ? pool
+          .query(`SELECT * FROM comms_messages WHERE id = $1`, [payload.replyToMessageId])
+          .then((r) => r.rows[0] || null)
+          .catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  if (!channel) {
+    throw new Error('NOT_FOUND: Channel not found. | کانال گفتگو یافت نشد.');
+  }
+
+  const senderIds = new Set(resolveUserIdentifiers(senderUser));
+  const members = channel.members || [];
+  if (!members.some((m) => memberMatchesIdentifiers(m, senderIds))) {
+    throw new Error(
+      'ACCESS_DENIED: You are not a member of this channel. | شما عضو این کانال گفتگو نیستید.'
+    );
+  }
+
+  const devicesById = new Map<string, any>(
+    (allDevices || []).filter((d: any) => d?.id).map((d: any) => [String(d.id).trim().toLowerCase(), d])
+  );
+  const serversById = new Map<string, any>(
+    (allServers || []).filter((s: any) => s?.id).map((s: any) => [String(s.id).trim().toLowerCase(), s])
+  );
+
+  // Enforce sender scope & granular RBAC permission BEFORE scrubbing or storing
+  if (sourceEntityType === 'server') {
+    const gate = isServerVisibleInViewerCtx(sourceEntityId, senderCtx);
+    if (!gate.allowed) {
+      throw new Error(
+        `ACCESS_DENIED: You do not have RBAC permission to share outputs from this server. | عدم دسترسی RBAC: شما مجوز اشتراک‌گذاری خروجی این سرور را ندارید.`
+      );
+    }
+    if (!checkSnippetGranularPermission(senderCtx, sourceType, 'server', sourceEntityId, platform)) {
+      throw new Error(
+        `ACCESS_DENIED: Missing granular permission (${sourceType}) for this server. | عدم دسترسی RBAC: مجوز لازم برای اشتراک‌گذاری این نوع خروجی سرور را ندارید.`
+      );
+    }
+  } else {
+    const gate = isDeviceVisibleInViewerCtx(sourceEntityId, senderCtx);
+    if (!gate.allowed) {
+      throw new Error(
+        `ACCESS_DENIED: You do not have RBAC permission to share outputs from this device. | عدم دسترسی RBAC: شما مجوز اشتراک‌گذاری خروجی این تجهیز را ندارید.`
+      );
+    }
+    if (!checkSnippetGranularPermission(senderCtx, sourceType, 'device', sourceEntityId, platform)) {
+      throw new Error(
+        `ACCESS_DENIED: Missing granular permission (${sourceType}) for this device. | عدم دسترسی RBAC: مجوز لازم برای اشتراک‌گذاری این نوع خروجی تجهیز را ندارید.`
+      );
+    }
+  }
+
+  const dev = sourceEntityType === 'device' ? devicesById.get(sourceEntityId.toLowerCase()) : null;
+  const srv = sourceEntityType === 'server' ? serversById.get(sourceEntityId.toLowerCase()) : null;
+  const entityName =
+    (sourceEntityType === 'device' ? dev?.name : srv?.name) ||
+    payload.sourceEntityName ||
+    sourceEntityId;
+  const entityIp =
+    (sourceEntityType === 'device' ? dev?.ip || dev?.ssh_host : srv?.host || srv?.ip) ||
+    payload.sourceEntityIp ||
+    '';
+
+  // Server-side Secret Scrubbing & Size Limiting
+  const { scrubbedText, redactedCount, redactedCategories } = scrubSensitiveSnippetContent(rawContent);
+  const allLines = scrubbedText.split('\n');
+  const maxLines = 250;
+  const maxChars = 24000;
+  let clippedText = allLines.slice(0, maxLines).join('\n');
+  let truncated = allLines.length > maxLines;
+  if (clippedText.length > maxChars) {
+    clippedText = clippedText.slice(0, maxChars);
+    truncated = true;
+  }
+
+  const nowIso = new Date().toISOString();
+  const snippetId = makeId('snip');
+  const defaultTitleMap: Record<CommsSnippetSourceType, { fa: string; en: string }> = {
+    terminal_output: { fa: 'خروجی زنده ترمینال CLI', en: 'CLI Terminal Output' },
+    backup_diff: { fa: 'اسنیپت بکاپ / مقایسه تغییرات کانفیگ', en: 'Backup / Config Diff' },
+    device_log: { fa: 'لاگ سیستمی تجهیز شبکه (Syslog)', en: 'Device System Logs' },
+    server_log: { fa: 'لاگ دستورات و عملیات سرور', en: 'Server Audit / Activity Log' },
+  };
+
+  const titleClean = (payload.title || '').trim() || defaultTitleMap[sourceType].fa;
+  const titleEnClean = (payload.titleEn || '').trim() || defaultTitleMap[sourceType].en;
+
+  const snippetData = {
+    snippetId,
+    sourceType,
+    sourceEntityType,
+    sourceEntityId,
+    sourceEntityName: entityName,
+    sourceEntityIp: entityIp,
+    platform,
+    title: titleClean,
+    titleEn: titleEnClean,
+    filePath: payload.filePath ? String(payload.filePath).slice(0, 300) : undefined,
+    content: clippedText,
+    lineCount: allLines.length,
+    truncated,
+    redactedCount,
+    redactedCategories,
+    diffStats:
+      payload.diffStats &&
+      typeof payload.diffStats.added === 'number' &&
+      typeof payload.diffStats.removed === 'number'
+        ? {
+            added: Math.max(0, Math.round(payload.diffStats.added)),
+            removed: Math.max(0, Math.round(payload.diffStats.removed)),
+          }
+        : undefined,
+    sharedAt: nowIso,
+  };
+
+  const noteClean = (payload.note || '').trim();
+  const body = noteClean
+    ? noteClean
+    : `📎 اشتراک‌گذاری ${defaultTitleMap[sourceType].fa}: ${entityName}${entityIp ? ` (${entityIp})` : ''}`;
+  const bodyEn = noteClean
+    ? noteClean
+    : `📎 Shared ${defaultTitleMap[sourceType].en}: ${entityName}${entityIp ? ` (${entityIp})` : ''}`;
+
+  const msgId = makeId('cmsg');
+  const msgType = channel.channelType === 'direct' ? 'direct_message' : 'channel_message';
+  const senderDisplay = formatUserDisplay(senderUser.fullName, senderUser.username);
+  const title =
+    channel.channelType === 'direct'
+      ? `اسنیپت مهندسی از ${senderDisplay}`
+      : `${channel.name}: اسنیپت مهندسی از ${senderDisplay}`;
+  const titleEn =
+    channel.channelType === 'direct'
+      ? `Shared Output from ${senderDisplay}`
+      : `${channel.nameEn || channel.name}: Shared Output from ${senderDisplay}`;
+
+  const messageRecord = {
+    id: msgId,
+    channel_id: channelId,
+    sender_user_id: senderUser.userId,
+    sender_username: senderUser.username,
+    sender_full_name: senderUser.fullName || senderUser.username,
+    sender_role: senderUser.role || 'Operator',
+    message_type: msgType,
+    priority: payload.priority || 'info',
+    title,
+    title_en: titleEn,
+    body,
+    body_en: bodyEn,
+    linked_entity_type: sourceEntityType,
+    linked_entity_id: sourceEntityId,
+    linked_entity_name: entityName,
+    metadata: {
+      channelType: channel.channelType,
+      replyToMessageId: payload.replyToMessageId || null,
+      senderUsername: senderUser.username,
+      snippetData,
+    },
+    created_at: nowIso,
+  };
+
+  // Pre-compute per-member RBAC projection (Zero-Leak across notifications + WS)
+  const memberContextPairs = await Promise.all(
+    members.map(async (m) => {
+      const key = `${(m.userId || '').toLowerCase()}|${(m.username || '').toLowerCase()}`;
+      const memberCtx = await resolveCommsViewerAccessContext(
+        { userId: m.userId, username: m.username, role: m.role },
+        false
+      );
+      const memberSnippet = projectSnippetForViewer(
+        snippetData,
+        memberCtx,
+        devicesById,
+        serversById
+      );
+      return { key, m, memberSnippet };
+    })
+  );
+  const snippetByMemberKey = new Map(memberContextPairs.map((p) => [p.key, p.memberSnippet]));
+
+  const notifyMembers = members.filter(
+    (m) => !memberMatchesIdentifiers(m, senderIds) && !m.isMuted
+  );
+  const evalResults =
+    notifyMembers.length > 0
+      ? await Promise.all(
+          notifyMembers.map(async (m) => ({
+            m,
+            pref: await evaluateNotificationDeliveryForUser(
+              m,
+              msgType as CommsCategory,
+              payload.priority || 'info',
+              false
+            ),
+          }))
+        )
+      : [];
+
+  const redactedFa = '🔒 خروجی ترمینال/لاگ/بکاپ (دسترسی به تجهیز/سرور محدود شده است)';
+  const redactedEn = '🔒 Terminal/Log/Diff snippet (Entity access restricted by RBAC)';
+  const notificationRecords: any[] = [];
+  const activeRecipients: ResolvedRecipient[] = [];
+  for (const { m, pref } of evalResults) {
+    if (!pref.deliverInboxNotification) continue;
+    const key = `${(m.userId || '').toLowerCase()}|${(m.username || '').toLowerCase()}`;
+    const memberSnippet = snippetByMemberKey.get(key);
+    const notifTitleFa = memberSnippet?.accessRestricted
+      ? `${channel.name}: 🔒 اسنیپت محافظت‌شده (RBAC)`
+      : title;
+    const notifTitleEn = memberSnippet?.accessRestricted
+      ? `${channel.nameEn || channel.name}: 🔒 RBAC Protected Snippet`
+      : titleEn;
+    const notifBodyFa = memberSnippet?.accessRestricted ? redactedFa : body;
+    const notifBodyEn = memberSnippet?.accessRestricted ? redactedEn : bodyEn;
+    activeRecipients.push({ userId: m.userId, username: m.username });
+    notificationRecords.push({
+      id: makeId('notif'),
+      recipient_user_id: m.userId,
+      recipient_username: m.username,
+      source_message_id: msgId,
+      channel_id: channelId,
+      category: msgType,
+      severity: payload.priority || 'info',
+      sender_name: senderDisplay,
+      sender_role: senderUser.role || 'Operator',
+      title: notifTitleFa,
+      title_en: notifTitleEn,
+      summary: notifBodyFa.slice(0, 140),
+      summary_en: notifBodyEn.slice(0, 140),
+      body: notifBodyFa,
+      body_en: notifBodyEn,
+      linked_entity_type: null,
+      linked_entity_id: null,
+      linked_entity_name: null,
+      action_tab: 'communications',
+      is_read: false,
+      is_archived: false,
+      requires_acknowledgment: false,
+      metadata: {
+        channelId,
+        channelType: channel.channelType,
+        sourceMessageId: msgId,
+        senderUsername: senderUser.username,
+        replyToMessageId: payload.replyToMessageId || null,
+        quietHoursMuted: pref.quietHoursMuted,
+        playSound: pref.playSound,
+      },
+      created_at: nowIso,
+    });
+  }
+
+  await persistMessageAndNotifications(
+    messageRecord,
+    notificationRecords,
+    activeRecipients,
+    {
+      channelId,
+      updatedAt: nowIso,
+      senderIds: Array.from(senderIds),
+      messageId: msgId,
+    }
+  );
+
+  let parentLookup: Map<string, any> | undefined;
+  if (payload.replyToMessageId) {
+    const parentRow =
+      parentRowPg ||
+      (loadFallbackStore().comms_messages || []).find(
+        (m: any) => m.id === payload.replyToMessageId
+      );
+    if (parentRow) parentLookup = new Map([[parentRow.id, parentRow]]);
+  }
+
+  const baseMapped = mapMessageRow(messageRecord, parentLookup);
+  const senderSnippetResult = projectSnippetForViewer(
+    snippetData,
+    senderCtx,
+    devicesById,
+    serversById
+  );
+  const senderCleanMsg: CommsMessage = {
+    ...baseMapped,
+    metadata: sanitizeCleanMessageMetadata(baseMapped.metadata),
+    snippetResult: senderSnippetResult,
+  };
+
+  // Per-recipient Zero-Leak WebSocket broadcast
+  const projectedByMemberKey = new Map<string, CommsMessage>();
+  for (const { key, memberSnippet } of memberContextPairs) {
+    projectedByMemberKey.set(key, {
+      ...baseMapped,
+      linkedEntityName: memberSnippet?.accessRestricted ? null : baseMapped.linkedEntityName,
+      body: memberSnippet?.accessRestricted ? redactedFa : baseMapped.body,
+      bodyEn: memberSnippet?.accessRestricted ? redactedEn : baseMapped.bodyEn,
+      metadata: sanitizeCleanMessageMetadata(baseMapped.metadata),
+      snippetResult: memberSnippet,
+    });
+  }
+
+  broadcastCommsEventToRecipients(
+    members.map((m) => ({ userId: m.userId, username: m.username })),
+    (recipient) => {
+      const key = `${(recipient.userId || '').toLowerCase()}|${(recipient.username || '').toLowerCase()}`;
+      return {
+        type: 'channel:message',
+        channelId,
+        message: projectedByMemberKey.get(key) || senderCleanMsg,
+      };
+    }
+  );
+
+  void addPortalAuditLog({
+    category: 'communications',
+    action: 'CHANNEL_SNIPPET_SHARED',
+    title: `اشتراک‌گذاری خروجی/تغییرات (${defaultTitleMap[sourceType].fa})`,
+    title_en: `Shared ${defaultTitleMap[sourceType].en} (${entityName})`,
+    actor: {
+      username: senderUser.username,
+      role: senderUser.role || 'Operator',
+      ipAddress: senderIp || '127.0.0.1',
+    },
+    target: {
+      type: sourceEntityType,
+      id: sourceEntityId,
+      name: entityName,
+    },
+    severity: payload.priority || 'info',
+    status: 'success',
+    details: `کاربر ${senderUser.username} یک اسنیپت ${sourceType} مربوط به «${entityName}» را با پاکسازی ${redactedCount} مورد محرمانه در کانال «${channel.name}» به اشتراک گذاشت.`,
+    details_en: `User ${senderUser.username} shared a ${sourceType} snippet for "${entityName}" in channel "${channel.nameEn || channel.name}" (${redactedCount} secret(s) scrubbed).`,
   }).catch(() => {});
 
   return senderCleanMsg;

@@ -42,9 +42,13 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  Share2,
 } from 'lucide-react';
 import { RemoteServer } from '../../types';
 import { getRemoteServerWebSocketUrl } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { isUserSuperAdmin } from '../../utils/rbac';
+import { dispatchShareToTeamChat } from '../comms/ShareToChatModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { renderAnsiFormattedText, stripAnsi } from './terminalAnsi';
 import {
@@ -853,6 +857,10 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   isLightMode = false,
   isEn = true,
 }) => {
+  const { user, effectivePolicy } = useAuth();
+  const canShareToChat =
+    isUserSuperAdmin(user, effectivePolicy) ||
+    Boolean(effectivePolicy?.canSendCommunications || effectivePolicy?.canSendAnnouncements);
   const [isMaximized, setIsMaximized] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<'snippets' | 'specs' | 'history'>('snippets');
@@ -2785,6 +2793,42 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Share Active Pane Output to Team Chat (RBAC-gated) */}
+            {canShareToChat && activePane?.server && (
+              <button
+                type="button"
+                onClick={() => {
+                  const targetServer = resolveValidServer(activePane.server, server);
+                  const activeHandle = xtermRefs.current[activePaneId];
+                  const selected = activeHandle?.getSelection()?.trim() || '';
+                  const recent = activeHandle?.getRecentLines(60)?.trim() || '';
+                  const fallbackLines = (activePane.lines || [])
+                    .slice(-45)
+                    .map((l) => stripAnsi(l.text))
+                    .join('\n')
+                    .trim();
+                  const snippetText =
+                    selected ||
+                    recent ||
+                    fallbackLines ||
+                    `# ${targetServer.name} (${targetServer.ip})\n# ${isEn ? 'No terminal output captured yet' : 'هنوز خروجی در ترمینال ثبت نشده است'}`;
+                  dispatchShareToTeamChat({
+                    sourceType: 'terminal_output',
+                    sourceEntityType: 'server',
+                    sourceEntityId: targetServer.id,
+                    platform: 'linux_ssh',
+                    title: `${targetServer.name} — SSH Terminal Output`,
+                    content: snippetText,
+                  });
+                }}
+                title={isEn ? 'Share terminal selection or recent output to Team Chat' : 'ارسال متن انتخاب‌شده یا خروجی اخیر به چت تیمی'}
+                className="px-2.5 py-1.5 rounded-lg border border-indigo-500/35 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Share2 className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline">{isEn ? 'Share to Chat' : 'ارسال به چت'}</span>
+              </button>
+            )}
 
             {/* Toggle Sidebar Button */}
             <button

@@ -1354,6 +1354,77 @@ export interface CommsProjectedSlashResult {
   canOpenDeviceView?: boolean;
 }
 
+export type CommsSnippetSourceType =
+  | 'terminal_output'
+  | 'backup_diff'
+  | 'device_log'
+  | 'server_log';
+
+export type CommsSnippetPlatform =
+  | 'cisco_ios'
+  | 'mikrotik_routeros'
+  | 'linux_ssh'
+  | 'nginx'
+  | 'apache'
+  | 'syslog'
+  | 'config_diff'
+  | 'generic';
+
+export interface CommsSnippetSharePayload {
+  sourceType: CommsSnippetSourceType;
+  sourceEntityType: 'device' | 'server';
+  sourceEntityId: string;
+  sourceEntityName?: string;
+  sourceEntityIp?: string;
+  platform?: CommsSnippetPlatform;
+  title?: string;
+  titleEn?: string;
+  filePath?: string;
+  content: string;
+  diffStats?: {
+    added: number;
+    removed: number;
+  };
+  note?: string;
+  priority?: CommsSeverity;
+  replyToMessageId?: string | null;
+}
+
+export interface CommsProjectedSnippetResult {
+  snippetId: string;
+  sourceType: CommsSnippetSourceType;
+  sourceEntityType: 'device' | 'server';
+  sourceEntityId: string;
+  platform?: CommsSnippetPlatform;
+  sharedAt: string;
+  accessRestricted: boolean;
+  restrictionReasonCode?:
+    | 'module_disabled'
+    | 'outside_scope'
+    | 'not_found'
+    | 'action_denied';
+  restrictionMessageFa?: string;
+  restrictionMessageEn?: string;
+  // Populated ONLY when accessRestricted === false (Zero-Leak)
+  sourceEntityName?: string;
+  sourceEntityIp?: string;
+  title?: string;
+  titleEn?: string;
+  filePath?: string;
+  content?: string;
+  lineCount?: number;
+  truncated?: boolean;
+  redactedCount?: number;
+  redactedCategories?: string[];
+  diffStats?: {
+    added: number;
+    removed: number;
+  };
+  canOpenSourceTerminal?: boolean;
+  canOpenSourceLogs?: boolean;
+  canOpenSourceView?: boolean;
+}
+
 export interface CommsMessage {
   id: string;
   channelId?: string | null;
@@ -1378,6 +1449,7 @@ export interface CommsMessage {
   linkedEntityName?: string | null;
   entityCards?: CommsProjectedEntityCard[];
   slashResult?: CommsProjectedSlashResult;
+  snippetResult?: CommsProjectedSnippetResult;
   metadata?: Record<string, any>;
   createdAt: string;
 }

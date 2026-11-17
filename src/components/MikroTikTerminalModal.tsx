@@ -28,9 +28,13 @@ import {
   Lock,
   Unlock,
   Cable,
+  Share2,
 } from 'lucide-react';
 import { Device, SwitchPort } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useAuth } from '../context/AuthContext';
+import { isUserSuperAdmin } from '../utils/rbac';
+import { dispatchShareToTeamChat } from './comms/ShareToChatModal';
 import { fetchDevicePorts, syncDevicePorts, sshConnect, sshExecute, sshDisconnect, getTerminalWebSocketUrl } from '../services/api';
 import { WinBoxLauncherModal } from './terminal/WinBoxLauncherModal';
 import { renderAnsiFormattedText, stripAnsi } from './servers/terminalAnsi';
@@ -98,6 +102,10 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
   initialPort: propInitialPort,
 }) => {
   const { t, isEn } = useLanguage();
+  const { user, effectivePolicy } = useAuth();
+  const canShareToChat =
+    isUserSuperAdmin(user, effectivePolicy) ||
+    Boolean(effectivePolicy?.canSendCommunications || effectivePolicy?.canSendAnnouncements);
   const [lines, setLines] = useState<TerminalLine[]>([]);
   const [input, setInput] = useState('');
   const [history, setHistory] = useState<string[]>([]);
@@ -896,6 +904,40 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Share Terminal Output to Team Chat (RBAC-gated) */}
+            {canShareToChat && (
+              <button
+                type="button"
+                onClick={() => {
+                  const selected = xtermRef.current?.getSelection()?.trim() || '';
+                  const fallbackLines = lines.slice(-45).map((l) => l.text).join('\n');
+                  const captured = (selected || xtermRef.current?.getRecentLines(60) || fallbackLines).trim();
+                  const snippetText =
+                    captured ||
+                    `# ${device.name} (${device.ip})\n# ${isEn ? 'No RouterOS output captured yet' : 'هنوز خروجی از RouterOS ثبت نشده است'}`;
+                  dispatchShareToTeamChat({
+                    sourceType: 'terminal_output',
+                    sourceEntityType: 'device',
+                    sourceEntityId: device.id,
+                    platform: 'mikrotik_routeros',
+                    title: `${device.name} — RouterOS CLI Output`,
+                    content: snippetText,
+                  });
+                }}
+                className={`px-2 py-1 rounded-lg border text-xs flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  isLightMode
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                    : 'bg-indigo-500/15 text-indigo-300 border-indigo-500/35 hover:bg-indigo-500/25'
+                }`}
+                title={isEn ? 'Share terminal selection or recent output to Team Chat' : 'ارسال متن انتخاب‌شده یا خروجی اخیر به چت تیمی'}
+              >
+                <Share2 className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline font-medium text-[11px]">
+                  {isEn ? 'Share to Chat' : 'ارسال به چت'}
+                </span>
+              </button>
+            )}
+
             {/* Terminal Appearance Menu Popover (Button-based to prevent clutter) */}
             <div className="relative" ref={appearanceMenuRef}>
               <button

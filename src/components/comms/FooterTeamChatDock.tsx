@@ -62,6 +62,7 @@ import {
 } from './EntityMentionPicker';
 import { SlashCommandCard } from './SlashCommandCard';
 import { SlashCommandPickerPopover } from './SlashCommandPicker';
+import { SnippetDiffCard } from './SnippetDiffCard';
 
 export interface FooterTeamChatDockProps {
   isEn: boolean;
@@ -1212,6 +1213,14 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
 
                   <SlashCommandCard
                     result={msg.slashResult}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    isSelf={self}
+                    compact
+                  />
+
+                  <SnippetDiffCard
+                    result={msg.snippetResult}
                     isEn={isEn}
                     isLightMode={isLightMode}
                     isSelf={self}

@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   Play,
   Save,
+  Share2,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -34,6 +35,9 @@ import {
   listApacheFileBackups,
   restoreApacheFileBackup,
 } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { isUserSuperAdmin } from '../../utils/rbac';
+import { dispatchShareToTeamChat } from '../comms/ShareToChatModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface ApacheSafeEditorModalProps {
@@ -148,6 +152,10 @@ export const ApacheSafeEditorModal: React.FC<ApacheSafeEditorModalProps> = ({
   isLightMode = false,
   isEn = true,
 }) => {
+  const { user, effectivePolicy } = useAuth();
+  const canShareToChat =
+    isUserSuperAdmin(user, effectivePolicy) ||
+    Boolean(effectivePolicy?.canSendCommunications || effectivePolicy?.canSendAnnouncements);
   const [isMaximized, setIsMaximized] = useState(false);
   const [content, setContent] = useState('');
   const [originalContent, setOriginalContent] = useState('');
@@ -536,6 +544,53 @@ export const ApacheSafeEditorModal: React.FC<ApacheSafeEditorModalProps> = ({
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               <span>{copied ? (isEn ? 'Copied' : 'کپی شد') : isEn ? 'Copy' : 'کپی'}</span>
             </button>
+
+            {/* Share Apache Config / Diff to Team Chat (RBAC-gated) */}
+            {canShareToChat && server && filePath && (
+              <button
+                type="button"
+                onClick={() => {
+                  const computed = isDirty ? computeLineDiff(originalContent, content) : [];
+                  let added = 0;
+                  let removed = 0;
+                  let bodyText = content;
+                  if (isDirty) {
+                    const diffOut: string[] = [`--- a${filePath}`, `+++ b${filePath}`];
+                    for (const line of computed) {
+                      if (line.type === 'added') {
+                        added++;
+                        diffOut.push(`+ ${line.content}`);
+                      } else if (line.type === 'removed') {
+                        removed++;
+                        diffOut.push(`- ${line.content}`);
+                      } else {
+                        diffOut.push(`  ${line.content}`);
+                      }
+                    }
+                    bodyText = diffOut.join('\n');
+                  }
+                  dispatchShareToTeamChat({
+                    sourceType: 'backup_diff',
+                    sourceEntityType: 'server',
+                    sourceEntityId: server.id,
+                    platform: 'apache',
+                    filePath,
+                    title: `${server.name} — ${filePath} ${isDirty ? '(Config Diff)' : '(Apache Config)'}`,
+                    content: bodyText,
+                    diffStats: isDirty ? { added, removed } : undefined,
+                  });
+                }}
+                className={`px-2.5 py-1.5 rounded-lg border flex items-center gap-1 transition cursor-pointer ${
+                  isLightMode
+                    ? 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                    : 'border-indigo-500/35 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25'
+                }`}
+                title={isEn ? 'Share Apache config or pending diff to Team Chat' : 'ارسال فایل پیکربندی یا تغییرات آپاچی به چت تیمی'}
+              >
+                <Share2 className="w-3.5 h-3.5 text-indigo-400" />
+                <span>{isEn ? 'Share to Chat' : 'ارسال به چت'}</span>
+              </button>
+            )}
 
             {/* Reset button */}
             {isDirty && (

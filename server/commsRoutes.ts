@@ -25,9 +25,15 @@ import {
   postChannelMessage,
   replyToInboxNotification,
   searchScopedEntityMentions,
+  shareChannelSnippet,
   toggleChannelMute,
 } from './commsService';
-import { CommsDispatchPayload, CommsFolder, CommsSeverity } from '../src/types';
+import {
+  CommsDispatchPayload,
+  CommsFolder,
+  CommsSeverity,
+  CommsSnippetSharePayload,
+} from '../src/types';
 
 export const commsRouter = Router();
 
@@ -549,6 +555,67 @@ commsRouter.post('/comms/channels/:id/slash', async (req: Request, res: Response
     return res.status(status).json({
       success: false,
       error: cleanEn || 'ChatOps command failed',
+      errorFa: (faPart || '').trim() || undefined,
+      code: rawMsg.startsWith('ACCESS_DENIED') ? 'ACCESS_DENIED' : undefined,
+    });
+  }
+});
+
+// POST /api/comms/channels/:id/snippet
+commsRouter.post('/comms/channels/:id/snippet', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  if (!auth.isSuperAdmin && !auth.policy?.canSendCommunications && !auth.policy?.canSendAnnouncements) {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: Insufficient permissions to share outputs or diffs in team channels.',
+      errorFa: 'عدم دسترسی: سطح دسترسی شما برای ارسال پیام و اشتراک‌گذاری خروجی‌ها در کانال‌ها فقط-خواندنی است.',
+      code: 'ACCESS_DENIED',
+    });
+  }
+  try {
+    const payload: CommsSnippetSharePayload = {
+      sourceType: req.body?.sourceType,
+      sourceEntityType: req.body?.sourceEntityType,
+      sourceEntityId: String(req.body?.sourceEntityId || ''),
+      sourceEntityName: req.body?.sourceEntityName ? String(req.body.sourceEntityName) : undefined,
+      sourceEntityIp: req.body?.sourceEntityIp ? String(req.body.sourceEntityIp) : undefined,
+      platform: req.body?.platform,
+      title: req.body?.title ? String(req.body.title) : undefined,
+      titleEn: req.body?.titleEn ? String(req.body.titleEn) : undefined,
+      filePath: req.body?.filePath ? String(req.body.filePath) : undefined,
+      content: String(req.body?.content || ''),
+      diffStats: req.body?.diffStats,
+      note: req.body?.note ? String(req.body.note) : undefined,
+      priority: (req.body?.priority || 'info') as CommsSeverity,
+      replyToMessageId: req.body?.replyToMessageId || null,
+    };
+    const message = await shareChannelSnippet(
+      auth.actor,
+      Boolean(auth.isSuperAdmin),
+      auth.clientIp,
+      req.params.id,
+      payload
+    );
+    return res.json({ success: true, message });
+  } catch (err: any) {
+    const rawMsg = String(err?.message || '');
+    const [enPart, faPart] = rawMsg.split('|');
+    const cleanEn = (enPart || rawMsg)
+      .replace(/^(ACCESS_DENIED|NOT_FOUND|BAD_SNIPPET):\s*/i, '')
+      .trim();
+    const status = rawMsg.startsWith('ACCESS_DENIED')
+      ? 403
+      : rawMsg.startsWith('NOT_FOUND') || rawMsg.includes('not found')
+      ? 404
+      : rawMsg.startsWith('BAD_SNIPPET')
+      ? 400
+      : 500;
+    return res.status(status).json({
+      success: false,
+      error: cleanEn || 'Failed to share snippet',
       errorFa: (faPart || '').trim() || undefined,
       code: rawMsg.startsWith('ACCESS_DENIED') ? 'ACCESS_DENIED' : undefined,
     });

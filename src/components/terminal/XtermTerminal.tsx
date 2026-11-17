@@ -18,6 +18,8 @@ export interface XtermTerminalHandle {
     cellHeight: number;
     isAlternate: boolean;
   } | null;
+  getSelection: () => string;
+  getRecentLines: (maxLines?: number) => string;
 }
 
 export interface XtermTerminalProps {
@@ -225,6 +227,37 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
             cellHeight,
             isAlternate: term.buffer.active.type === 'alternate',
           };
+        },
+        getSelection: () => {
+          try {
+            return terminalRef.current?.getSelection() || '';
+          } catch {
+            return '';
+          }
+        },
+        getRecentLines: (maxLines = 60) => {
+          const term = terminalRef.current;
+          if (!term) return '';
+          try {
+            const buf = term.buffer.active;
+            const total = buf.length;
+            const collected: string[] = [];
+            for (let i = Math.max(0, total - Math.max(1, maxLines * 2)); i < total; i++) {
+              const line = buf.getLine(i);
+              if (line) {
+                collected.push(line.translateToString(true));
+              }
+            }
+            while (collected.length > 0 && !collected[collected.length - 1].trim()) {
+              collected.pop();
+            }
+            while (collected.length > 0 && !collected[0].trim()) {
+              collected.shift();
+            }
+            return collected.slice(-Math.max(1, maxLines)).join('\n');
+          } catch {
+            return '';
+          }
         },
       }),
       []

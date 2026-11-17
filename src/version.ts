@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.442.0';
+export const APP_VERSION = '1.443.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.443.0',
+    releaseDate: '2026-11-17',
+    type: 'minor',
+    title: 'فاز ۳ ارتقای چت سازمانی: اشتراک‌گذاری ایمن خروجی ترمینال، لاگ‌ها و Diff بکاپ با پاکسازی خودکار اسرار و کنترل دسترسی RBAC',
+    title_en: 'Team Chat Phase 3: Secret-Scrubbed Terminal, Log & Config Diff Sharing with Zero-Leak Source-Bound RBAC',
+    changes: [
+      'پیاده‌سازی موتور پاکسازی خودکار اسرار و کلیدهای حساس (`scrubSensitiveSnippetContent` در `server/commsService.ts`) برای پوشاندن رمزهای عبور و اسرار Cisco IOS (`enable secret/password`, `username ... secret`, `snmp-server community`, کلیدهای TACACS/RADIUS)، پارامترهای MikroTik (`password=`, `preshared-key=`, `priv-password=`)، کلیدهای خصوصی PEM، توکن‌های Bearer/JWT، رشته‌های اتصال دیتابیس و کلیدهای JSON/ENV با برچسب `***REDACTED***` پیش از ذخیره و ارسال.',
+      'افزودن اندپوینت و سرویس `POST /api/comms/channels/:id/snippet` (`shareChannelSnippet`) با بررسی دوسطحی دسترسی‌های RBAC مبدا (`terminal`, `canViewLogs`, `canExportBackup`, `mikrotik_backup` و محدوده تجهیزات/سرورها) و اعمال معماری Zero-Leak بر روی پیام‌ها، اعلان‌های اینباکس و پخش زنده وب‌سوکت تک‌به‌تک اعضا (حذف `metadata.snippetData` و نمایش کارت قفل‌شده برای کاربران فاقد مجوز بدون افشای IP، نام یا محتوا).',
+      'ساخت پنجره اشتراک‌گذاری سراسری `ShareToChatModal.tsx` منطبق با ۵ قانون جامع مودال‌ها (دکمه‌های سه‌گانه هدر و مینیمایز به داک، حریم فوتر `bottom-8`، راهنمای سه‌بخشی `FieldInfoTooltip`، تم تیره/روشن و دوزبانگی کامل) همراه با کارت نمایشگر کد و مقایسه خط‌به‌خط `SnippetDiffCard.tsx` در چت کامل و داک فوتر و افزودن دکمه «ارسال به چت» کنترل‌شده با RBAC در ترمینال‌های سیسکو، میکروتیک و لینوکس، تب لاگ تجهیزات، ممیزی دستورات سرور، خروجی `.rsc` میکروتیک و ویرایشگرهای امن Apache و Nginx.'
+    ],
+    changes_en: [
+      'Implemented server-side automatic secret scrubbing (`scrubSensitiveSnippetContent` in `server/commsService.ts`) masking Cisco IOS credentials (`enable secret/password`, `username ... secret`, `snmp-server community`, TACACS/RADIUS keys), MikroTik secrets (`password=`, `preshared-key=`, `priv-password=`), PEM private keys, Bearer/JWT tokens, database URL credentials, and JSON/ENV secret fields with `***REDACTED***` before persistence.',
+      'Added `POST /api/comms/channels/:id/snippet` and `shareChannelSnippet` enforcing sender-side and per-viewer source-bound RBAC (`terminal`, `canViewLogs`, `canExportBackup`, `mikrotik_backup`, and entity scope) across channel history, inbox notifications, and per-recipient WebSocket frames while stripping raw `metadata.snippetData` and locking restricted views with zero leaked IPs, names, or payloads.',
+      'Built `ShareToChatModal.tsx` (compliant with all 5 Universal Modal Standards including dock minimization, `bottom-8` footer clearance, 3-part `FieldInfoTooltip`, Light/Dark themes, and strict bilingual UI) and `SnippetDiffCard.tsx` in both `TeamChannelsPane` and `FooterTeamChatDock`, plus RBAC-gated Share to Chat triggers across Cisco, MikroTik, and Linux terminals, `DeviceTerminalLogsTab`, `ServerCommandLogsSection`, MikroTik `.rsc` export, and Apache/Nginx Safe Editors.'
+    ]
+  },
   {
     version: '1.442.0',
     releaseDate: '2026-11-17',

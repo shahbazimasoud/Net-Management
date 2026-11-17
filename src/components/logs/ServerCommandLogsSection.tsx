@@ -39,8 +39,12 @@ import {
   RefreshCw,
   Download,
   Mail,
+  Share2,
 } from 'lucide-react';
 import { ServerCommandAuditLogEntry, CommandRiskLevel, ServerCommandChannel, ServerActionModule } from '../../types';
+import { useAuth } from '../../context/AuthContext';
+import { isUserSuperAdmin } from '../../utils/rbac';
+import { dispatchShareToTeamChat } from '../comms/ShareToChatModal';
 
 interface ServerCommandLogsSectionProps {
   isLightMode?: boolean;
@@ -75,6 +79,10 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
   onClearLogs,
   onOpenEmailReport,
 }) => {
+  const { user, effectivePolicy } = useAuth();
+  const canShareToChat =
+    isUserSuperAdmin(user, effectivePolicy) ||
+    Boolean(effectivePolicy?.canSendCommunications || effectivePolicy?.canSendAnnouncements);
   const [groupMode, setGroupMode] = useState<ServerGroupMode>('server');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedChannel, setSelectedChannel] = useState<string>('all');
@@ -1330,7 +1338,45 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-white/10 bg-black/30 flex justify-end">
+            <div className="p-4 border-t border-white/10 bg-black/30 flex items-center justify-end gap-2">
+              {canShareToChat && inspectedLog.serverId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const summaryText =
+                      (isEn
+                        ? inspectedLog.outputSummaryEn || inspectedLog.outputSummary
+                        : inspectedLog.outputSummary || inspectedLog.outputSummaryEn) || '';
+                    const lines: string[] = [
+                      `# Server: ${inspectedLog.serverName} (${inspectedLog.serverIp})`,
+                      `# Operator: ${inspectedLog.actor?.username || '-'} (${inspectedLog.actor?.role || '-'})`,
+                      `# Time: ${formatDateTime(inspectedLog.timestamp)}`,
+                      `# Status: ${inspectedLog.status} | Risk: ${inspectedLog.riskLevel} | Module: ${inspectedLog.actionModule}`,
+                    ];
+                    if (inspectedLog.command) {
+                      lines.push(`$ ${inspectedLog.command}`);
+                    }
+                    if (summaryText) {
+                      lines.push(summaryText);
+                    }
+                    if (inspectedLog.parameters && Object.keys(inspectedLog.parameters).length > 0) {
+                      lines.push(JSON.stringify(inspectedLog.parameters, null, 2));
+                    }
+                    dispatchShareToTeamChat({
+                      sourceType: 'server_log',
+                      sourceEntityType: 'server',
+                      sourceEntityId: inspectedLog.serverId,
+                      platform: 'linux_ssh',
+                      title: `${inspectedLog.serverName} — ${isEn ? inspectedLog.actionNameEn || inspectedLog.actionName : inspectedLog.actionName}`,
+                      content: lines.join('\n'),
+                    });
+                  }}
+                  className="px-4 py-2 rounded-xl bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>{isEn ? 'Share to Team Chat' : 'ارسال به چت تیمی'}</span>
+                </button>
+              )}
               <button
                 onClick={() => setInspectedLog(null)}
                 className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition cursor-pointer"
