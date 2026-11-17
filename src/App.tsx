@@ -30,7 +30,7 @@ import { TelegramAlertsSettingsView } from './components/settings/TelegramAlerts
 import { LogRetentionSettingsView } from './components/settings/LogRetentionSettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
 import { CommunicationsCenterView } from './components/comms/CommunicationsCenterView';
-import { UserProfileSecurityView } from './components/profile/UserProfileSecurityView';
+import { UserProfileSecurityView, ProfileSubTab } from './components/profile/UserProfileSecurityView';
 import { RemoteServersView } from './components/servers/RemoteServersView';
 import { LicensesView } from './components/licenses/LicensesView';
 import { ContractsView } from './components/licenses/ContractsView';
@@ -129,6 +129,11 @@ export default function App() {
   const [focusedCommsViewMode, setFocusedCommsViewMode] = useState<'inbox' | 'channels' | 'tracker' | 'approvals' | null>(null);
   const [focusedApprovalId, setFocusedApprovalId] = useState<string | null>(null);
   const [focusedCommsChannelId, setFocusedCommsChannelId] = useState<string | null>(null);
+  const [focusedProfileSubTab, setFocusedProfileSubTab] = useState<ProfileSubTab | null>(null);
+  const openNotificationSettings = useCallback(() => {
+    setFocusedProfileSubTab('notifications');
+    setActiveTab('profile-security');
+  }, []);
   const [approvalGateState, setApprovalGateState] = useState<{
     isOpen: boolean;
     payload: ApprovalGatePayload | null;
@@ -1638,6 +1643,7 @@ export default function App() {
             <CommunicationsCenterView
               isLightMode={isLightMode}
               onNavigateToTab={(tab) => setActiveTab(tab)}
+              onOpenNotificationSettings={openNotificationSettings}
               onUnreadCountSync={(cnt) => setUnreadCommsCount(cnt)}
               liveRevision={commsLiveRevision}
               initialSelectedId={focusedCommsNotificationId}
@@ -1657,6 +1663,8 @@ export default function App() {
             <UserProfileSecurityView
               isLightMode={isLightMode}
               onNavigateToCommunications={() => setActiveTab('communications')}
+              initialSubTab={focusedProfileSubTab}
+              onConsumeInitialSubTab={() => setFocusedProfileSubTab(null)}
             />
           )}
 
@@ -1861,6 +1869,7 @@ export default function App() {
                 setFocusedCommsChannelId(channelId || null);
                 setActiveTab('communications');
               }}
+              onOpenNotificationSettings={openNotificationSettings}
               onUnreadChanged={() => {
                 fetchUnreadCommsCounts(true)
                   .then((res) => setUnreadCommsCount(res.unreadCount ?? 0))

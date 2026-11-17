@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   AlertCircle,
   CornerDownRight,
+  Settings,
 } from 'lucide-react';
 import {
   CommsChannel,
@@ -49,6 +50,7 @@ interface TeamChannelsPaneProps {
   selectedChannelId: string | null;
   onSelectChannelId: (id: string | null) => void;
   onChannelsLoaded?: (channels: CommsChannel[]) => void;
+  onOpenNotificationSettings?: () => void;
 }
 
 const DIRECT_MODAL_ID = 'comms-direct-chat-modal';
@@ -81,6 +83,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
   selectedChannelId,
   onSelectChannelId,
   onChannelsLoaded,
+  onOpenNotificationSettings,
 }) => {
   const { isEn, isRtl } = useLanguage();
   const { user } = useAuth();
@@ -641,6 +644,34 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
               isLightMode ? 'border-slate-200' : 'border-white/10'
             }`}
           >
+            <div className="flex items-center justify-between gap-2">
+              <span
+                className={`text-xs font-bold tracking-tight ${
+                  isLightMode ? 'text-slate-800' : 'text-slate-100'
+                }`}
+              >
+                {isEn ? 'Conversations' : 'فهرست گفتگوها'}
+              </span>
+              {onOpenNotificationSettings && (
+                <button
+                  type="button"
+                  onClick={onOpenNotificationSettings}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-medium transition cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
+                      : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-300 hover:text-white'
+                  }`}
+                  title={
+                    isEn
+                      ? 'Notifications & Quiet Hours Settings'
+                      : 'تنظیمات اعلانات و ساعات سکوت'
+                  }
+                >
+                  <Settings className="w-3 h-3 text-indigo-400 shrink-0" />
+                  <span>{isEn ? 'Settings' : 'تنظیمات'}</span>
+                </button>
+              )}
+            </div>
             {canSend && (
               <div className="flex flex-wrap gap-1.5">
                 <button

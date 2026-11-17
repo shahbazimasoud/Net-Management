@@ -52,9 +52,11 @@ import { ModalHeaderControls } from '../common/ModalHeaderControls';
 interface UserProfileSecurityViewProps {
   isLightMode?: boolean;
   onNavigateToCommunications?: () => void;
+  initialSubTab?: ProfileSubTab | null;
+  onConsumeInitialSubTab?: () => void;
 }
 
-type ProfileSubTab = 'profile' | 'security' | 'devices' | 'notifications';
+export type ProfileSubTab = 'profile' | 'security' | 'devices' | 'notifications';
 
 const COMMON_TIMEZONES = [
   'Asia/Tehran',
@@ -93,11 +95,13 @@ function summarizeUserAgent(ua?: string | null, isEn = true): string {
 export const UserProfileSecurityView: React.FC<UserProfileSecurityViewProps> = ({
   isLightMode = false,
   onNavigateToCommunications,
+  initialSubTab = null,
+  onConsumeInitialSubTab,
 }) => {
   const { isEn, isRtl } = useLanguage();
   const { user } = useAuth();
 
-  const [subTab, setSubTab] = useState<ProfileSubTab>('profile');
+  const [subTab, setSubTab] = useState<ProfileSubTab>(initialSubTab || 'profile');
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -203,6 +207,13 @@ export const UserProfileSecurityView: React.FC<UserProfileSecurityViewProps> = (
   useEffect(() => {
     loadProfileData();
   }, [loadProfileData]);
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setSubTab(initialSubTab);
+      onConsumeInitialSubTab?.();
+    }
+  }, [initialSubTab, onConsumeInitialSubTab]);
 
   const handleSaveProfileMeta = async (e: React.FormEvent) => {
     e.preventDefault();

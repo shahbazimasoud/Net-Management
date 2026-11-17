@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.438.0';
+export const APP_VERSION = '1.439.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.439.0',
+    releaseDate: '2026-11-17',
+    type: 'minor',
+    title: 'افزودن دکمه دسترسی سریع تنظیمات اعلانات در هدر صفحه چت و مرکز پیام‌ها',
+    title_en: 'Direct Notification Settings Shortcut in Chat & Inbox Header',
+    changes: [
+      'افزودن دکمه «تنظیمات اعلانات / Notification Settings» در نوار بالایی صفحه مرکز پیام‌ها و چت (`CommunicationsCenterView`)، سرستون لیست گفتگوها (`TeamChannelsPane`) و هدر داک چت فوتر (`FooterTeamChatDock`).',
+      'افزودن پشتیبانی هدایت مستقیم (`initialSubTab`) به کامپوننت `UserProfileSecurityView` برای باز شدن مستقیم تب «اعلانات و ساعات سکوت» (`Notifications & Quiet Hours`) بدون نیاز به جابه‌جایی دستی در پروفایل.'
+    ],
+    changes_en: [
+      'Added a direct "Notification Settings" button to the `CommunicationsCenterView` top header, `TeamChannelsPane` conversations rail header, and `FooterTeamChatDock` header.',
+      'Extended `UserProfileSecurityView` and `App.tsx` navigation state with `initialSubTab` routing so clicking Notification Settings jumps directly to User Profile -> `Notifications & Quiet Hours`.'
+    ]
+  },
   {
     version: '1.438.0',
     releaseDate: '2026-11-17',

@@ -30,6 +30,7 @@ import {
   Layers,
   BarChart3,
   XCircle,
+  Settings,
 } from 'lucide-react';
 import {
   ActionApprovalRequest,
@@ -76,6 +77,7 @@ import { ApprovalsQueuePane } from './ApprovalsQueuePane';
 interface CommunicationsCenterViewProps {
   isLightMode?: boolean;
   onNavigateToTab?: (tab: ActiveTab) => void;
+  onOpenNotificationSettings?: () => void;
   onUnreadCountSync?: (unreadCount: number, countsByFolder?: CommsCountsByFolder) => void;
   liveRevision?: number;
   initialSelectedId?: string | null;
@@ -101,6 +103,7 @@ const COMPOSE_MODAL_ID = 'comms-compose-modal';
 export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> = ({
   isLightMode: isLightModeProp,
   onNavigateToTab,
+  onOpenNotificationSettings,
   onUnreadCountSync,
   liveRevision = 0,
   initialSelectedId = null,
@@ -946,9 +949,28 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
             </p>
           </div>
 
-          {/* RBAC-Gated Compose Button */}
-          {canSend && (
-            <div className="flex items-center flex-wrap gap-2.5 shrink-0 relative z-10">
+          {/* Top-right Action Cluster: Notification Settings + RBAC-Gated Compose Button */}
+          <div className="flex items-center flex-wrap gap-2.5 shrink-0 relative z-10">
+            {onOpenNotificationSettings && (
+              <button
+                type="button"
+                onClick={onOpenNotificationSettings}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium transition active:scale-95 whitespace-nowrap cursor-pointer ${
+                  isLightMode
+                    ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-800 shadow-xs'
+                    : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200 hover:text-white'
+                }`}
+                title={
+                  isEn
+                    ? 'Manage chat & alert delivery in Notifications & Quiet Hours'
+                    : 'مدیریت تنظیمات اعلانات و ساعات سکوت چت‌ها'
+                }
+              >
+                <Settings className="w-3.5 h-3.5 text-indigo-400" />
+                <span>{isEn ? 'Notification Settings' : 'تنظیمات اعلانات'}</span>
+              </button>
+            )}
+            {canSend && (
               <button
                 type="button"
                 onClick={openComposeModal}
@@ -957,8 +979,8 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                 <Send className="w-3.5 h-3.5" />
                 <span>{isEn ? 'New Message' : 'ارسال پیام / اطلاعیه'}</span>
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Tier 2: Sub-View Navigation Tabs & Search/Actions Toolbar */}
@@ -1167,6 +1189,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
           selectedChannelId={activeChannelId}
           onSelectChannelId={setActiveChannelId}
           onChannelsLoaded={syncChannelUnreadFromList}
+          onOpenNotificationSettings={onOpenNotificationSettings}
         />
       ) : viewMode === 'approvals' ? (
         <ApprovalsQueuePane

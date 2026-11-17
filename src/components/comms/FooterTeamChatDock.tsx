@@ -23,6 +23,7 @@ import {
   Maximize2,
   Minimize2,
   ArrowLeft,
+  Settings,
 } from 'lucide-react';
 import {
   CommsChannel,
@@ -48,6 +49,7 @@ export interface FooterTeamChatDockProps {
   isRtl: boolean;
   liveRevision: number;
   onOpenInCenter: (channelId?: string) => void;
+  onOpenNotificationSettings?: () => void;
   onUnreadChanged?: () => void;
 }
 
@@ -787,6 +789,7 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
   isRtl,
   liveRevision,
   onOpenInCenter,
+  onOpenNotificationSettings,
   onUnreadChanged,
 }) => {
   const { user, effectivePolicy } = useAuth();
@@ -1236,6 +1239,27 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                         <RefreshCw
                           className={`w-3.5 h-3.5 ${channelsLoading ? 'animate-spin' : ''}`}
                         />
+                      </button>
+                    )}
+                    {onOpenNotificationSettings && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsListOpen(false);
+                          onOpenNotificationSettings();
+                        }}
+                        className={`p-1.5 rounded-lg transition cursor-pointer ${
+                          isLightMode
+                            ? 'text-slate-500 hover:bg-slate-200 hover:text-indigo-700'
+                            : 'text-slate-400 hover:bg-white/10 hover:text-indigo-300'
+                        }`}
+                        title={
+                          isEn
+                            ? 'Notifications & Quiet Hours Settings'
+                            : 'تنظیمات اعلانات و ساعات سکوت چت'
+                        }
+                      >
+                        <Settings className="w-3.5 h-3.5" />
                       </button>
                     )}
                     <button
