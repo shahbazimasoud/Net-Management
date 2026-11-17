@@ -861,71 +861,93 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
 
   return (
     <div
-      className="flex flex-col gap-4 h-full min-h-[calc(100vh-11rem)] w-full min-w-0"
+      className={`flex flex-col gap-5 p-4 sm:p-6 max-w-7xl mx-auto w-full min-w-0 ${
+        isRtl ? 'text-right' : 'text-left'
+      }`}
       dir={isRtl ? 'rtl' : 'ltr'}
     >
-      {/* Top Action & Filter Header (2-Tier Responsive Containment for 14" & Desktop Viewports) */}
+      {/* Top Banner & View Switcher (Aligned with Enterprise Dashboard Banner) */}
       <div
-        className={`flex flex-col gap-3 px-4 py-3.5 rounded-2xl border w-full min-w-0 overflow-hidden ${
-          isLightMode
-            ? 'bg-white border-slate-200 shadow-xs'
-            : 'bg-slate-900/75 border-white/10'
+        className={`spatial-glass rounded-2xl border shadow-2xl p-5 flex flex-col gap-4 backdrop-blur-xl relative shrink-0 w-full min-w-0 ${
+          isLightMode ? 'border-slate-200' : 'border-white/10'
         }`}
       >
         {/* Tier 1: Identity & Primary Compose CTA */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
-            <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-                isLightMode
-                  ? 'bg-indigo-50 border-indigo-200 text-indigo-600'
-                  : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300'
-              }`}
-            >
-              <Bell className="w-5 h-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h2
-                  className={`text-base sm:text-lg font-bold tracking-tight ${
-                    isLightMode ? 'text-slate-900' : 'text-white'
-                  }`}
-                >
-                  {isEn ? 'Inbox & Notifications Center' : 'مرکز پیام‌ها و اعلانات'}
-                </h2>
-                <span
-                  className={`text-xs font-medium tabular-nums ${
-                    isLightMode ? 'text-slate-600' : 'text-slate-400'
-                  }`}
-                >
-                  {countsByFolder.unread > 0
-                    ? isEn
-                      ? `${countsByFolder.unread} unread`
-                      : `${countsByFolder.unread} مورد خوانده‌نشده`
-                    : isEn
-                    ? 'All caught up'
-                    : 'همه موارد مطالعه شده'}
-                </span>
-              </div>
-              <p
-                className={`text-xs mt-0.5 line-clamp-1 ${
-                  isLightMode ? 'text-slate-500' : 'text-slate-400'
+        <div className="flex flex-wrap items-center justify-between gap-4 relative z-10 min-w-0">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2.5 mb-2">
+              <span
+                className={`px-2.5 py-0.5 rounded-lg border text-[10px] font-mono font-bold uppercase tracking-wider ${
+                  isLightMode
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                    : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-[0_0_10px_rgba(99,102,241,0.2)]'
                 }`}
               >
-                {isEn
-                  ? 'Unified real-time feed for system alerts, security events, team messages, and announcements'
-                  : 'صندوق متمرکز و زنده هشدارهای سیستم، رویدادهای امنیتی، مکاتبات تیمی و اطلاعیه‌های مدیر'}
-              </p>
+                {isEn ? 'COMMS & WORKFLOWS' : 'مرکز ارتباطات و تاییدها'}
+              </span>
+              <span
+                className={`flex items-center gap-1.5 text-[10px] font-mono font-bold px-2 py-0.5 rounded border tabular-nums ${
+                  countsByFolder.unread > 0
+                    ? isLightMode
+                      ? 'text-amber-700 bg-amber-50 border-amber-200'
+                      : 'text-amber-300 bg-amber-500/10 border-amber-500/30'
+                    : isLightMode
+                    ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                    : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    countsByFolder.unread > 0 ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'
+                  }`}
+                />
+                {countsByFolder.unread > 0
+                  ? isEn
+                    ? `${countsByFolder.unread} UNREAD`
+                    : `${countsByFolder.unread} خوانده‌نشده`
+                  : isEn
+                  ? 'ALL CAUGHT UP'
+                  : 'همه موارد مطالعه شده'}
+              </span>
             </div>
+
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${
+                  isLightMode
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-600'
+                    : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300'
+                }`}
+              >
+                <Bell className="w-4.5 h-4.5" />
+              </div>
+              <h2
+                className={`text-lg sm:text-xl font-bold tracking-tight ${
+                  isLightMode ? 'text-slate-900' : 'text-white glow-text-cyan'
+                }`}
+              >
+                {isEn ? 'Inbox & Notifications Center' : 'مرکز پیام‌ها و اعلانات'}
+              </h2>
+            </div>
+
+            <p
+              className={`text-xs mt-1.5 max-w-2xl leading-relaxed ${
+                isLightMode ? 'text-slate-600' : 'text-slate-300/80'
+              }`}
+            >
+              {isEn
+                ? 'Unified real-time feed for system alerts, security events, team messages, and announcements'
+                : 'صندوق متمرکز و زنده هشدارهای سیستم، رویدادهای امنیتی، مکاتبات تیمی و اطلاعیه‌های مدیر'}
+            </p>
           </div>
 
           {/* RBAC-Gated Compose Button */}
           {canSend && (
-            <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+            <div className="flex items-center flex-wrap gap-2.5 shrink-0 relative z-10">
               <button
                 type="button"
                 onClick={openComposeModal}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-semibold shadow-sm whitespace-nowrap transition cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-medium text-xs shadow-[0_0_20px_rgba(99,102,241,0.35)] transition border border-white/15 active:scale-95 whitespace-nowrap cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5" />
                 <span>{isEn ? 'New Message' : 'ارسال پیام / اطلاعیه'}</span>
@@ -936,26 +958,26 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
 
         {/* Tier 2: Sub-View Navigation Tabs & Search/Actions Toolbar */}
         <div
-          className={`flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t min-w-0 ${
+          className={`flex flex-wrap items-center justify-between gap-3 pt-4 border-t relative z-10 min-w-0 ${
             isLightMode ? 'border-slate-200/80' : 'border-white/10'
           }`}
         >
           {/* Sub-View Segmented Switcher */}
           <div
-            className={`flex items-center flex-wrap gap-1 p-1 rounded-xl border max-w-full min-w-0 ${
+            className={`flex items-center flex-wrap gap-1.5 p-1 rounded-xl border max-w-full min-w-0 ${
               isLightMode
                 ? 'bg-slate-100 border-slate-200'
-                : 'bg-slate-950/70 border-white/10'
+                : 'bg-slate-950/60 border-white/10'
             }`}
           >
             <button
               type="button"
               onClick={() => setViewMode('inbox')}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
                 viewMode === 'inbox'
                   ? isLightMode
                     ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-indigo-600 text-white'
+                    : 'bg-indigo-600 text-white shadow-sm'
                   : isLightMode
                   ? 'text-slate-600 hover:text-slate-900'
                   : 'text-slate-300 hover:text-white'
@@ -973,11 +995,11 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
             <button
               type="button"
               onClick={() => setViewMode('channels')}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
                 viewMode === 'channels'
                   ? isLightMode
                     ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-indigo-600 text-white'
+                    : 'bg-indigo-600 text-white shadow-sm'
                   : isLightMode
                   ? 'text-slate-600 hover:text-slate-900'
                   : 'text-slate-300 hover:text-white'
@@ -995,11 +1017,11 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
             <button
               type="button"
               onClick={() => setViewMode('approvals')}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
                 viewMode === 'approvals'
                   ? isLightMode
                     ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-indigo-600 text-white'
+                    : 'bg-indigo-600 text-white shadow-sm'
                   : isLightMode
                   ? 'text-slate-600 hover:text-slate-900'
                   : 'text-slate-300 hover:text-white'
@@ -1018,11 +1040,11 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
               <button
                 type="button"
                 onClick={() => setViewMode('tracker')}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition ${
                   viewMode === 'tracker'
                     ? isLightMode
                       ? 'bg-white text-slate-900 shadow-xs'
-                      : 'bg-indigo-600 text-white'
+                      : 'bg-indigo-600 text-white shadow-sm'
                     : isLightMode
                     ? 'text-slate-600 hover:text-slate-900'
                     : 'text-slate-300 hover:text-white'
@@ -1036,7 +1058,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
 
           {/* Live Search & Actions (Inbox view) */}
           {viewMode === 'inbox' && (
-            <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[260px] sm:justify-end max-w-full">
+            <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[240px] lg:justify-end max-w-full">
               <div className="relative flex-1 min-w-[160px] sm:max-w-[240px]">
                 <Search
                   className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 ${
@@ -1048,7 +1070,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={isEn ? 'Search inbox...' : 'جستجو در عنوان، متن یا فرستنده...'}
-                  className={`w-full py-1.5 rounded-lg border text-xs outline-none transition ${
+                  className={`w-full py-1.5 rounded-xl border text-xs outline-none transition ${
                     isRtl ? 'pr-8 pl-7' : 'pl-8 pr-7'
                   } ${
                     isLightMode
@@ -1074,10 +1096,10 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                 type="button"
                 onClick={handleMarkAllRead}
                 disabled={markingAll || countsByFolder.unread === 0}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium whitespace-nowrap shrink-0 transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium whitespace-nowrap shrink-0 transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
                   isLightMode
                     ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
-                    : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
+                    : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-200'
                 }`}
               >
                 <CheckCheck className="w-3.5 h-3.5" />
@@ -1089,10 +1111,10 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                 type="button"
                 onClick={() => loadNotifications(true)}
                 disabled={refreshing}
-                className={`flex items-center justify-center p-1.5 rounded-lg border text-xs font-medium shrink-0 transition cursor-pointer ${
+                className={`flex items-center justify-center p-2 rounded-xl border text-xs font-medium shrink-0 transition cursor-pointer ${
                   isLightMode
                     ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
-                    : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
+                    : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-200'
                 }`}
                 title={isEn ? 'Refresh' : 'تازه‌سازی'}
               >

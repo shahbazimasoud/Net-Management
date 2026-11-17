@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.434.1';
+export const APP_VERSION = '1.434.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.434.2',
+    releaseDate: '2026-11-16',
+    type: 'patch',
+    title: 'اصلاح چیدمان و جلوگیری از فشردگی هدر صفحه مرکز پیام‌ها و اعلانات هم‌تراز با بنر داشبورد اصلی',
+    title_en: 'Fix Inbox & Notifications Center Header Squishing & Align Banner Layout with Enterprise Dashboard',
+    changes: [
+      'حذف محدودیت ارتفاع `h-full` از کانتینر ریشه صفحه مرکز پیام‌ها و اعلانات (`CommunicationsCenterView`) و افزودن `shrink-0` و فاصله‌گذاری استاندارد صفحه تا هدر در نمایشگرهای کوچک و لپ‌تاپ‌ها فشرده یا بریده نشود.',
+      'بازطراحی بنر بالایی هم‌تراز با بنر صفحه داشبورد کنترل زیرساخت (`DashboardView`) با استایل `spatial-glass`، نمایش کامل تیتر، دکمه «ارسال پیام / اطلاعیه» و تب‌های چهارگانه (`Inbox Feed`، `Team Chat & Channels`، `Approvals Queue`، `Read Tracker`) بدون افتادن زیر پنل‌های پایینی.'
+    ],
+    changes_en: [
+      'Removed the constraining `h-full` height cap on `CommunicationsCenterView` and added `shrink-0` plus standard `p-4 sm:p-6 max-w-7xl mx-auto` page spacing so the banner never compresses vertically or clips behind lower panes on smaller displays.',
+      'Aligned the top banner layout and visual hierarchy with `DashboardView` (`spatial-glass`, clear module/unread status pills, full unwrapped title & description, gradient New Message CTA, and cleanly wrapped segmented sub-view tabs).'
+    ]
+  },
   {
     version: '1.434.1',
     releaseDate: '2026-11-16',
