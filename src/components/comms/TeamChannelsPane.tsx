@@ -22,6 +22,7 @@ import {
   Eraser,
   LogOut,
   Trash2,
+  AtSign,
 } from 'lucide-react';
 import {
   CommsChannel,
@@ -48,6 +49,12 @@ import {
   toggleCommsChannelMute,
 } from '../../services/commsApi';
 import { appDataCache } from '../../services/dataCache';
+import { EntityMentionCardList } from './EntityMentionCardList';
+import {
+  EntityMentionChips,
+  EntityMentionPickerPopover,
+  SelectedEntityMentionItem,
+} from './EntityMentionPicker';
 
 interface TeamChannelsPaneProps {
   isLightMode: boolean;
@@ -110,6 +117,8 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
   const [draftBody, setDraftBody] = useState('');
   const [draftPriority, setDraftPriority] = useState<CommsSeverity>('info');
   const [replyTarget, setReplyTarget] = useState<CommsMessage | null>(null);
+  const [selectedEntityMentions, setSelectedEntityMentions] = useState<SelectedEntityMentionItem[]>([]);
+  const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
   const [sending, setSending] = useState(false);
 
   // Members popover strip toggle
@@ -243,6 +252,8 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
     if (selectedChannelId) {
       loadThread(selectedChannelId, false);
       setReplyTarget(null);
+      setSelectedEntityMentions([]);
+      setMentionPickerOpen(false);
     } else {
       setMessages([]);
     }
@@ -417,9 +428,13 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
 
   const handleSendThreadMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    const textToSend = draftBody.trim();
-    if (!activeChannel || !textToSend || sending) return;
+    const rawText = draftBody.trim();
+    const refsSnapshot = selectedEntityMentions;
+    if (!activeChannel || (!rawText && refsSnapshot.length === 0) || sending) return;
 
+    const textToSend = rawText || '📌 ارجاع به تجهیز / سرور / پورت شبکه';
+    const textToSendEn = rawText || '📌 Referenced Network Entity';
+    const entityRefsToSend = refsSnapshot.map((item) => item.ref);
     const targetChannelId = activeChannel.id;
     const priorityToSend = draftPriority;
     const replySnapshot = replyTarget;
@@ -437,7 +452,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
       priority: priorityToSend,
       title: '',
       body: textToSend,
-      bodyEn: textToSend,
+      bodyEn: textToSendEn,
       replyToMessageId: replySnapshot?.id || null,
       replyToPreview: replySnapshot
         ? {
@@ -452,13 +467,16 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
       createdAt: nowIso,
     };
 
-    const preview = textToSend.length > 90 ? `${textToSend.slice(0, 87)}...` : textToSend;
+    const previewSource = rawText || (isEn ? textToSendEn : textToSend);
+    const preview = previewSource.length > 90 ? `${previewSource.slice(0, 87)}...` : previewSource;
 
     // Immediate 0ms UI feedback
     setMessages((prev) => [...prev, optimisticMsg]);
     setDraftBody('');
     setDraftPriority('info');
     setReplyTarget(null);
+    setSelectedEntityMentions([]);
+    setMentionPickerOpen(false);
     setErrorMsg(null);
     setChannels((prev) => {
       const updated = prev.map((c) =>
@@ -484,9 +502,10 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
     setSending(true);
     try {
       const res = await postChannelMessage(targetChannelId, {
-        body: textToSend,
+        body: rawText,
         priority: priorityToSend,
         replyToMessageId: replySnapshot?.id || null,
+        entityRefs: entityRefsToSend.length > 0 ? entityRefsToSend : undefined,
       });
       setMessages((prev) => {
         const alreadyHasReal = prev.some((m) => m.id === res.message.id);
@@ -513,7 +532,10 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
       );
     } catch (err: any) {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      setDraftBody((curr) => curr || textToSend);
+      if (rawText) setDraftBody((curr) => curr || rawText);
+      if (refsSnapshot.length > 0) {
+        setSelectedEntityMentions((curr) => (curr.length > 0 ? curr : refsSnapshot));
+      }
       setErrorMsg(
         err?.message || (isEn ? 'Failed to send message' : 'خطا در ارسال پیام')
       );
@@ -1719,6 +1741,14 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                           <div className="whitespace-pre-wrap leading-relaxed break-words text-xs sm:text-[13px]">
                             {isEn ? msg.bodyEn || msg.body : msg.body}
                           </div>
+
+                          {/* RBAC-projected live entity cards (Device / Port / Server) */}
+                          <EntityMentionCardList
+                            cards={msg.entityCards}
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                            isSelf={self}
+                          />
                         </div>
 
                         {canSend && (
@@ -1746,10 +1776,27 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
               {canSend ? (
                 <form
                   onSubmit={handleSendThreadMessage}
-                  className={`p-3 border-t flex flex-col gap-2 ${
+                  className={`relative p-3 border-t flex flex-col gap-2 ${
                     isLightMode ? 'border-slate-200 bg-slate-50/50' : 'border-white/10 bg-slate-950/40'
                   }`}
                 >
+                  <EntityMentionPickerPopover
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    draftBody={draftBody}
+                    onDraftBodyChange={setDraftBody}
+                    selectedItems={selectedEntityMentions}
+                    onAddItem={(item) =>
+                      setSelectedEntityMentions((prev) => [...prev, item])
+                    }
+                    onRemoveItem={(idx) =>
+                      setSelectedEntityMentions((prev) => prev.filter((_, i) => i !== idx))
+                    }
+                    manualOpen={mentionPickerOpen}
+                    onManualOpenChange={setMentionPickerOpen}
+                    disabled={sending}
+                  />
+
                   {replyTarget && (
                     <div
                       className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border text-xs ${
@@ -1775,6 +1822,15 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                     </div>
                   )}
 
+                  <EntityMentionChips
+                    items={selectedEntityMentions}
+                    onRemove={(idx) =>
+                      setSelectedEntityMentions((prev) => prev.filter((_, i) => i !== idx))
+                    }
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
+
                   <div className="flex items-end gap-2">
                     <select
                       value={draftPriority}
@@ -1791,6 +1847,25 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                       <option value="critical">{isEn ? 'Critical' : 'بحرانی'}</option>
                     </select>
 
+                    <button
+                      type="button"
+                      onClick={() => setMentionPickerOpen((v) => !v)}
+                      className={`px-2.5 py-2 rounded-lg border text-xs flex items-center gap-1 shrink-0 cursor-pointer transition ${
+                        mentionPickerOpen
+                          ? 'bg-indigo-600 border-indigo-500 text-white'
+                          : isLightMode
+                          ? 'bg-white border-slate-300 text-slate-700 hover:border-indigo-400 hover:text-indigo-700'
+                          : 'bg-slate-950 border-white/15 text-slate-300 hover:border-indigo-400/50 hover:text-indigo-300'
+                      }`}
+                      title={
+                        isEn
+                          ? 'Mention a permitted device, port, or server (@)'
+                          : 'ارجاع به تجهیز، پورت یا سرور مجاز (@)'
+                      }
+                    >
+                      <AtSign className="w-3.5 h-3.5" />
+                    </button>
+
                     <textarea
                       rows={2}
                       value={draftBody}
@@ -1803,8 +1878,8 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                       }}
                       placeholder={
                         isEn
-                          ? 'Write a message (Enter to send, Shift+Enter for new line)...'
-                          : 'پیام خود را بنویسید (Enter برای ارسال، Shift+Enter برای خط جدید)...'
+                          ? 'Write a message or type @ to mention a device/port/server (Enter to send)...'
+                          : 'پیام بنویسید یا @ را برای ارجاع به تجهیز/پورت/سرور بزنید (Enter برای ارسال)...'
                       }
                       className={`flex-1 px-3 py-2 rounded-xl border text-xs outline-none resize-none ${
                         isLightMode
@@ -1815,7 +1890,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
 
                     <button
                       type="submit"
-                      disabled={sending || !draftBody.trim()}
+                      disabled={sending || (!draftBody.trim() && selectedEntityMentions.length === 0)}
                       className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 transition"
                     >
                       <Send className="w-3.5 h-3.5" />

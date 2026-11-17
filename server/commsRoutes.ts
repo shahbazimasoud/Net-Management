@@ -23,6 +23,7 @@ import {
   markNotificationRead,
   postChannelMessage,
   replyToInboxNotification,
+  searchScopedEntityMentions,
   toggleChannelMute,
 } from './commsService';
 import { CommsDispatchPayload, CommsFolder, CommsSeverity } from '../src/types';
@@ -236,6 +237,28 @@ commsRouter.get('/comms/recipients', async (req: Request, res: Response) => {
     return res.json({ success: true, options });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch recipients' });
+  }
+});
+
+// GET /api/comms/entities/mention-search?q=...
+commsRouter.get('/comms/entities/mention-search', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    const candidates = await searchScopedEntityMentions(
+      auth.actor,
+      Boolean(auth.isSuperAdmin),
+      q
+    );
+    return res.json({ success: true, candidates });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to search authorized entities',
+    });
   }
 });
 
@@ -474,6 +497,7 @@ commsRouter.post('/comms/channels/:id/messages', async (req: Request, res: Respo
       linkedEntityType: req.body?.linkedEntityType || null,
       linkedEntityId: req.body?.linkedEntityId || null,
       linkedEntityName: req.body?.linkedEntityName || null,
+      entityRefs: Array.isArray(req.body?.entityRefs) ? req.body.entityRefs : undefined,
     });
     return res.json({ success: true, message });
   } catch (err: any) {

@@ -29,6 +29,7 @@ import {
   LogOut,
   Trash2,
   UserPlus,
+  AtSign,
 } from 'lucide-react';
 import {
   CommsChannel,
@@ -51,6 +52,12 @@ import {
   toggleCommsChannelMute,
 } from '../../services/commsApi';
 import { appDataCache } from '../../services/dataCache';
+import { EntityMentionCardList } from './EntityMentionCardList';
+import {
+  EntityMentionChips,
+  EntityMentionPickerPopover,
+  SelectedEntityMentionItem,
+} from './EntityMentionPicker';
 
 export interface FooterTeamChatDockProps {
   isEn: boolean;
@@ -126,6 +133,8 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
   const [draftBody, setDraftBody] = useState('');
   const [draftPriority, setDraftPriority] = useState<CommsSeverity>('info');
   const [replyTarget, setReplyTarget] = useState<CommsMessage | null>(null);
+  const [selectedEntityMentions, setSelectedEntityMentions] = useState<SelectedEntityMentionItem[]>([]);
+  const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
@@ -258,9 +267,13 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
 
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    const textToSend = draftBody.trim();
-    if (!textToSend || sending || !canSend) return;
+    const rawText = draftBody.trim();
+    const refsSnapshot = selectedEntityMentions;
+    if ((!rawText && refsSnapshot.length === 0) || sending || !canSend) return;
 
+    const textToSend = rawText || '📌 ارجاع به تجهیز / سرور / پورت شبکه';
+    const textToSendEn = rawText || '📌 Referenced Network Entity';
+    const entityRefsToSend = refsSnapshot.map((item) => item.ref);
     const priorityToSend = draftPriority;
     const replySnapshot = replyTarget;
     const nowIso = new Date().toISOString();
@@ -276,7 +289,7 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
       priority: priorityToSend,
       title: '',
       body: textToSend,
-      bodyEn: textToSend,
+      bodyEn: textToSendEn,
       replyToMessageId: replySnapshot?.id || null,
       replyToPreview: replySnapshot
         ? {
@@ -296,14 +309,17 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
     setDraftBody('');
     setDraftPriority('info');
     setReplyTarget(null);
+    setSelectedEntityMentions([]);
+    setMentionPickerOpen(false);
     setErrorMsg(null);
     setSending(true);
 
     try {
       const res = await postChannelMessage(channel.id, {
-        body: textToSend,
+        body: rawText,
         priority: priorityToSend,
         replyToMessageId: replySnapshot?.id || null,
+        entityRefs: entityRefsToSend.length > 0 ? entityRefsToSend : undefined,
       });
       setMessages((prev) => {
         const alreadyHasReal = prev.some((m) => m.id === res.message.id);
@@ -329,7 +345,10 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
       );
     } catch (err: any) {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      setDraftBody((curr) => curr || textToSend);
+      if (rawText) setDraftBody((curr) => curr || rawText);
+      if (refsSnapshot.length > 0) {
+        setSelectedEntityMentions((curr) => (curr.length > 0 ? curr : refsSnapshot));
+      }
       setErrorMsg(err?.message || (isEn ? 'Failed to send message' : 'خطا در ارسال پیام'));
     } finally {
       setSending(false);
@@ -1130,6 +1149,14 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
                   <div className="whitespace-pre-wrap break-words leading-relaxed">
                     {isEn ? msg.bodyEn || msg.body : msg.body}
                   </div>
+
+                  <EntityMentionCardList
+                    cards={msg.entityCards}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    isSelf={self}
+                    compact
+                  />
                 </div>
 
                 {canSend && (
@@ -1157,10 +1184,28 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
       {canSend ? (
         <form
           onSubmit={handleSend}
-          className={`p-2.5 border-t flex flex-col gap-1.5 shrink-0 ${
+          className={`relative p-2.5 border-t flex flex-col gap-1.5 shrink-0 ${
             isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-white/10'
           }`}
         >
+          <EntityMentionPickerPopover
+            isEn={isEn}
+            isLightMode={isLightMode}
+            compact
+            draftBody={draftBody}
+            onDraftBodyChange={setDraftBody}
+            selectedItems={selectedEntityMentions}
+            onAddItem={(item) =>
+              setSelectedEntityMentions((prev) => [...prev, item])
+            }
+            onRemoveItem={(idx) =>
+              setSelectedEntityMentions((prev) => prev.filter((_, i) => i !== idx))
+            }
+            manualOpen={mentionPickerOpen}
+            onManualOpenChange={setMentionPickerOpen}
+            disabled={sending}
+          />
+
           {replyTarget && (
             <div
               className={`flex items-center justify-between gap-2 px-2 py-1 rounded-lg border text-[10.5px] ${
@@ -1184,6 +1229,16 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
             </div>
           )}
 
+          <EntityMentionChips
+            items={selectedEntityMentions}
+            onRemove={(idx) =>
+              setSelectedEntityMentions((prev) => prev.filter((_, i) => i !== idx))
+            }
+            isEn={isEn}
+            isLightMode={isLightMode}
+            compact
+          />
+
           <div className="flex items-end gap-1.5">
             <select
               value={draftPriority}
@@ -1200,6 +1255,21 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
               <option value="critical">{isEn ? 'Crit' : 'بحرانی'}</option>
             </select>
 
+            <button
+              type="button"
+              onClick={() => setMentionPickerOpen((v) => !v)}
+              className={`h-8 px-2 rounded-lg border flex items-center justify-center cursor-pointer transition shrink-0 ${
+                mentionPickerOpen
+                  ? 'bg-indigo-600 border-indigo-500 text-white'
+                  : isLightMode
+                  ? 'bg-white border-slate-300 text-slate-600 hover:border-indigo-400 hover:text-indigo-700'
+                  : 'bg-slate-900 border-white/15 text-slate-300 hover:border-indigo-400/50 hover:text-indigo-300'
+              }`}
+              title={isEn ? 'Mention device / port / server (@)' : 'ارجاع به تجهیز / پورت / سرور (@)'}
+            >
+              <AtSign className="w-3.5 h-3.5" />
+            </button>
+
             <textarea
               rows={1}
               value={draftBody}
@@ -1211,7 +1281,9 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
                 }
               }}
               placeholder={
-                isEn ? 'Write a message... (Enter to send)' : 'پیام خود را بنویسید... (Enter برای ارسال)'
+                isEn
+                  ? 'Message or @mention...'
+                  : 'پیام یا @ برای ارجاع...'
               }
               className={`flex-1 min-w-0 py-1.5 px-2.5 rounded-lg border text-xs outline-none resize-none max-h-20 ${
                 isLightMode
@@ -1222,7 +1294,7 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
 
             <button
               type="submit"
-              disabled={!draftBody.trim() || sending}
+              disabled={(!draftBody.trim() && selectedEntityMentions.length === 0) || sending}
               className="h-8 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white flex items-center justify-center cursor-pointer transition shrink-0"
               title={isEn ? 'Send' : 'ارسال'}
             >

@@ -1092,6 +1092,104 @@ export default function App() {
     setActiveTerminals([devWithPort]);
   }, [isModalMinimized, handleRestoreStandardModal, authEffectivePolicy, isEn, showToast]);
 
+  // Phase 1 Team Chat: Handle RBAC-checked jumps from live Device / Port / Server chat cards
+  useEffect(() => {
+    const onOpenMentionedEntity = (e: Event) => {
+      const detail = (e as CustomEvent<{
+        entityType?: 'device' | 'server' | 'port';
+        entityId?: string;
+        portId?: string;
+        action?: 'ports' | 'terminal' | 'view';
+        name?: string;
+      }>)?.detail;
+      if (!detail?.entityType || !detail?.entityId) return;
+
+      if (detail.entityType === 'server') {
+        if (
+          !isSuperAdmin &&
+          (effectivePolicy?.canViewServers === false ||
+            !isTabAllowed('remote-servers', effectivePolicy, user))
+        ) {
+          showToast(
+            isEn
+              ? 'Access Denied (RBAC): Remote Servers module is restricted in your policy.'
+              : 'عدم دسترسی (RBAC): ماژول سرورهای ریموت در پالیسی کاربری شما مجاز نیست.'
+          );
+          return;
+        }
+        setActiveTab('remote-servers');
+        return;
+      }
+
+      if (!isSuperAdmin && effectivePolicy?.canViewDevices === false) {
+        showToast(
+          isEn
+            ? 'Access Denied (RBAC): Network Devices module is restricted in your policy.'
+            : 'عدم دسترسی (RBAC): ماژول تجهیزات شبکه در پالیسی کاربری شما غیرفعال است.'
+        );
+        return;
+      }
+
+      const targetDev = authorizedDevices.find(
+        (d) => d.id.toLowerCase() === detail.entityId!.trim().toLowerCase()
+      );
+      if (!targetDev) {
+        showToast(
+          isEn
+            ? 'Access Denied (RBAC): This device is outside your authorized scope or no longer exists.'
+            : 'عدم دسترسی (RBAC): این تجهیز خارج از محدوده دسترسی مجاز شما است یا حذف شده است.'
+        );
+        return;
+      }
+
+      if (detail.action === 'terminal') {
+        void openTerminal(targetDev, detail.portId);
+        return;
+      }
+
+      if (detail.action === 'ports') {
+        const portDecision = evaluateDeviceActionDecision(
+          authEffectivePolicy || effectivePolicy,
+          targetDev.id,
+          'inspect_ports'
+        );
+        if (
+          !isSuperAdmin &&
+          (effectivePolicy?.canViewPorts === false || portDecision === 'deny')
+        ) {
+          showToast(
+            isEn
+              ? `Access Denied (RBAC): You do not have permission to inspect ports on ${targetDev.name || targetDev.ip}.`
+              : `عدم دسترسی (RBAC): شما مجوز مشاهده پورت‌های تجهیز ${targetDev.name || targetDev.ip} را ندارید.`
+          );
+          return;
+        }
+        handleInspectPorts(targetDev);
+        return;
+      }
+
+      if (isTabAllowed('devices', effectivePolicy, user)) {
+        setActiveTab('devices');
+      } else if (isTabAllowed('schematic', effectivePolicy, user)) {
+        setActiveTab('schematic');
+      }
+    };
+
+    window.addEventListener('nettop-comms-open-entity', onOpenMentionedEntity as EventListener);
+    return () =>
+      window.removeEventListener('nettop-comms-open-entity', onOpenMentionedEntity as EventListener);
+  }, [
+    authorizedDevices,
+    effectivePolicy,
+    authEffectivePolicy,
+    isSuperAdmin,
+    user,
+    isEn,
+    showToast,
+    openTerminal,
+    handleInspectPorts,
+  ]);
+
   const handleOpenApplyTemplate = useCallback((dev: Device, templateId?: string) => {
     if (isModalMinimized('apply_template')) {
       triggerDockAttention(

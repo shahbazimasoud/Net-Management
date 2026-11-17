@@ -12,6 +12,13 @@ import {
   getActiveDirectoryConfig,
   addPortalAuditLog,
   registerCommsAuditAlertHook,
+  findUserById,
+  findUserByUsername,
+  getEffectivePolicyForUser,
+  getAllDevices,
+  getAllRemoteServers,
+  isDeviceActionPermitted,
+  isServerActionPermitted,
 } from './db';
 import {
   CommsAnnouncementReadReceipt,
@@ -23,9 +30,12 @@ import {
   CommsChannelType,
   CommsCountsByFolder,
   CommsDispatchPayload,
+  CommsEntityMentionRef,
   CommsFolder,
+  CommsMentionCandidate,
   CommsMessage,
   CommsNotificationItem,
+  CommsProjectedEntityCard,
   CommsRecipientOption,
   CommsSeverity,
 } from '../src/types';
@@ -2518,6 +2528,456 @@ export async function toggleChannelMute(
   return { channelId, isMuted };
 }
 
+interface CommsViewerAccessContext {
+  isSuperAdmin: boolean;
+  policy: any | null;
+  allowedDeviceSet: Set<string> | null;
+  allowedServerSet: Set<string> | null;
+}
+
+async function resolveCommsViewerAccessContext(
+  user: Partial<CommsActor>,
+  explicitIsSuperAdmin = false
+): Promise<CommsViewerAccessContext> {
+  let dbUser: any = null;
+  try {
+    dbUser =
+      (user.userId ? await findUserById(user.userId) : null) ||
+      (user.username ? await findUserByUsername(user.username) : null);
+  } catch {}
+
+  if (dbUser && dbUser.status === 'disabled') {
+    return {
+      isSuperAdmin: false,
+      policy: {
+        canViewDevices: false,
+        canViewServers: false,
+        canViewPorts: false,
+        canViewCommunications: false,
+      },
+      allowedDeviceSet: new Set<string>(),
+      allowedServerSet: new Set<string>(),
+    };
+  }
+
+  const effectiveUser = dbUser || {
+    id: user.userId,
+    username: user.username,
+    role: user.role,
+    userType: user.userType,
+  };
+  const policy = await getEffectivePolicyForUser(effectiveUser).catch(() => null);
+  const cleanUsername = (dbUser?.username || user.username || '').trim().toLowerCase();
+  const cleanRole = (dbUser?.role || user.role || '').trim().toLowerCase();
+  const isSuperAdmin =
+    Boolean(explicitIsSuperAdmin) ||
+    cleanUsername === 'admin' ||
+    cleanRole.includes('super admin') ||
+    cleanRole.includes('administrator') ||
+    policy?.id === 'policy-super-admin';
+
+  if (isSuperAdmin) {
+    return {
+      isSuperAdmin: true,
+      policy,
+      allowedDeviceSet: null,
+      allowedServerSet: null,
+    };
+  }
+
+  let allowedDeviceSet: Set<string> | null = null;
+  if (Array.isArray(policy?.allowedDeviceIds)) {
+    allowedDeviceSet = new Set(
+      policy.allowedDeviceIds.map((id: string) => (id || '').trim().toLowerCase()).filter(Boolean)
+    );
+  } else if (policy?.targetScope === 'specific' && Array.isArray(policy?.targetDeviceIds)) {
+    allowedDeviceSet = new Set(
+      policy.targetDeviceIds.map((id: string) => (id || '').trim().toLowerCase()).filter(Boolean)
+    );
+  }
+
+  let allowedServerSet: Set<string> | null = null;
+  if (Array.isArray(policy?.allowedServerIds)) {
+    allowedServerSet = new Set(
+      policy.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()).filter(Boolean)
+    );
+  } else if (
+    (policy?.targetServerScope === 'specific' || policy?.targetScope === 'specific') &&
+    Array.isArray(policy?.targetServerIds)
+  ) {
+    allowedServerSet = new Set(
+      policy.targetServerIds.map((id: string) => (id || '').trim().toLowerCase()).filter(Boolean)
+    );
+  }
+
+  return {
+    isSuperAdmin: false,
+    policy,
+    allowedDeviceSet,
+    allowedServerSet,
+  };
+}
+
+function sanitizeEntityRefs(raw: any): CommsEntityMentionRef[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const clean: CommsEntityMentionRef[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const entityType = item.entityType;
+    if (entityType !== 'device' && entityType !== 'server' && entityType !== 'port') continue;
+    const entityId = String(item.entityId || '').trim();
+    if (!entityId) continue;
+    const portId = entityType === 'port' ? String(item.portId || '').trim() : null;
+    if (entityType === 'port' && !portId) continue;
+    const dedupeKey = `${entityType}:${entityId.toLowerCase()}:${(portId || '').toLowerCase()}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    clean.push({
+      entityType,
+      entityId,
+      portId: portId || null,
+    });
+    if (clean.length >= 6) break;
+  }
+  return clean;
+}
+
+function extractMessageEntityRefs(msg: {
+  metadata?: Record<string, any>;
+  linkedEntityType?: string | null;
+  linkedEntityId?: string | null;
+}): CommsEntityMentionRef[] {
+  const fromMeta = sanitizeEntityRefs(msg.metadata?.entityRefs);
+  if (fromMeta.length > 0) return fromMeta;
+  if (
+    (msg.linkedEntityType === 'device' || msg.linkedEntityType === 'server') &&
+    msg.linkedEntityId
+  ) {
+    return [
+      {
+        entityType: msg.linkedEntityType,
+        entityId: String(msg.linkedEntityId),
+        portId: null,
+      },
+    ];
+  }
+  return [];
+}
+
+function isDeviceVisibleInViewerCtx(deviceId: string, ctx: CommsViewerAccessContext): {
+  allowed: boolean;
+  reasonCode?: 'module_disabled' | 'outside_scope';
+} {
+  if (ctx.isSuperAdmin) return { allowed: true };
+  if (ctx.policy?.canViewDevices === false) {
+    return { allowed: false, reasonCode: 'module_disabled' };
+  }
+  if (ctx.allowedDeviceSet !== null && !ctx.allowedDeviceSet.has(deviceId.trim().toLowerCase())) {
+    return { allowed: false, reasonCode: 'outside_scope' };
+  }
+  return { allowed: true };
+}
+
+function isServerVisibleInViewerCtx(serverId: string, ctx: CommsViewerAccessContext): {
+  allowed: boolean;
+  reasonCode?: 'module_disabled' | 'outside_scope';
+} {
+  if (ctx.isSuperAdmin) return { allowed: true };
+  if (ctx.policy?.canViewServers === false) {
+    return { allowed: false, reasonCode: 'module_disabled' };
+  }
+  if (ctx.allowedServerSet !== null && !ctx.allowedServerSet.has(serverId.trim().toLowerCase())) {
+    return { allowed: false, reasonCode: 'outside_scope' };
+  }
+  return { allowed: true };
+}
+
+function buildProjectedCardsForViewer(
+  refs: CommsEntityMentionRef[],
+  ctx: CommsViewerAccessContext,
+  devicesById: Map<string, any>,
+  serversById: Map<string, any>
+): CommsProjectedEntityCard[] {
+  if (!refs || refs.length === 0) return [];
+  const cards: CommsProjectedEntityCard[] = [];
+
+  for (const ref of refs) {
+    if (ref.entityType === 'device' || ref.entityType === 'port') {
+      const gate = isDeviceVisibleInViewerCtx(ref.entityId, ctx);
+      if (!gate.allowed) {
+        cards.push({
+          entityType: ref.entityType,
+          entityId: ref.entityId,
+          portId: ref.portId || null,
+          accessRestricted: true,
+          restrictionReasonCode: gate.reasonCode,
+          restrictionMessageFa:
+            gate.reasonCode === 'module_disabled'
+              ? 'عدم دسترسی RBAC: ماژول تجهیزات شبکه در پالیسی کاربری شما غیرفعال است.'
+              : 'عدم دسترسی RBAC: این تجهیز خارج از محدوده گروه‌ها و تجهیزات مجاز شما قرار دارد.',
+          restrictionMessageEn:
+            gate.reasonCode === 'module_disabled'
+              ? 'Access Restricted (RBAC): Network Devices module is disabled in your policy.'
+              : 'Access Denied (RBAC): This device is outside your authorized device scope.',
+        });
+        continue;
+      }
+
+      const dev = devicesById.get(ref.entityId.trim().toLowerCase());
+      if (!dev) {
+        cards.push({
+          entityType: ref.entityType,
+          entityId: ref.entityId,
+          portId: ref.portId || null,
+          accessRestricted: true,
+          restrictionReasonCode: 'not_found',
+          restrictionMessageFa: 'این تجهیز در فهرست تجهیزات پنل یافت نشد یا حذف شده است.',
+          restrictionMessageEn: 'Device not found or has been removed from inventory.',
+        });
+        continue;
+      }
+
+      const canInspectPorts =
+        ctx.isSuperAdmin ||
+        (ctx.policy?.canViewPorts !== false &&
+          (!ctx.policy || isDeviceActionPermitted(ctx.policy, dev.id, 'inspect_ports')));
+      const canTerminal =
+        ctx.isSuperAdmin ||
+        (!ctx.policy || isDeviceActionPermitted(ctx.policy, dev.id, 'terminal'));
+
+      const baseCard: CommsProjectedEntityCard = {
+        entityType: ref.entityType,
+        entityId: dev.id,
+        portId: ref.portId || null,
+        accessRestricted: false,
+        name: dev.name || dev.id,
+        ip: dev.ip || dev.ssh_host || '',
+        platform: dev.platform || dev.type || 'switch',
+        deviceType: dev.type || 'switch',
+        isOnline: dev.is_online !== undefined ? Boolean(dev.is_online) : true,
+        location:
+          dev.location ||
+          [dev.building, dev.floor, dev.rack].filter(Boolean).join(' / ') ||
+          undefined,
+        canOpenPorts: canInspectPorts,
+        canOpenTerminal: canTerminal,
+        canOpenDeviceView: true,
+      };
+
+      if (ref.entityType === 'port') {
+        if (!canInspectPorts) {
+          baseCard.portsRestricted = true;
+          baseCard.portsRestrictionMessageFa =
+            'دسترسی محدود: شما مجوز مشاهده وضعیت پورت‌های این تجهیز را ندارید (canViewPorts / inspect_ports).';
+          baseCard.portsRestrictionMessageEn =
+            'Port Details Restricted: You lack inspect_ports permission for this device.';
+        } else {
+          const portsArr: any[] = Array.isArray(dev.ports) ? dev.ports : [];
+          const targetLower = (ref.portId || '').trim().toLowerCase();
+          const matchedPort = portsArr.find((p: any) => {
+            const pId = String(p?.port_id || p?.port || p?.name || '').trim().toLowerCase();
+            return pId === targetLower;
+          });
+          if (matchedPort) {
+            baseCard.portStatus = matchedPort.status || 'down';
+            baseCard.portAdminStatus = matchedPort.admin_status || 'enabled';
+            baseCard.portMode = matchedPort.mode || 'access';
+            baseCard.portVlan = matchedPort.vlan;
+            baseCard.portDescription = matchedPort.description || undefined;
+            baseCard.portSpeed = matchedPort.speed || undefined;
+          } else {
+            baseCard.portStatus = 'unknown';
+          }
+        }
+      }
+
+      cards.push(baseCard);
+    } else if (ref.entityType === 'server') {
+      const gate = isServerVisibleInViewerCtx(ref.entityId, ctx);
+      if (!gate.allowed) {
+        cards.push({
+          entityType: 'server',
+          entityId: ref.entityId,
+          accessRestricted: true,
+          restrictionReasonCode: gate.reasonCode,
+          restrictionMessageFa:
+            gate.reasonCode === 'module_disabled'
+              ? 'عدم دسترسی RBAC: ماژول مدیریت سرورها در پالیسی کاربری شما غیرفعال است.'
+              : 'عدم دسترسی RBAC: این سرور خارج از محدوده سرورهای مجاز شما قرار دارد.',
+          restrictionMessageEn:
+            gate.reasonCode === 'module_disabled'
+              ? 'Access Restricted (RBAC): Remote Servers module is disabled in your policy.'
+              : 'Access Denied (RBAC): This server is outside your authorized server scope.',
+        });
+        continue;
+      }
+
+      const srv = serversById.get(ref.entityId.trim().toLowerCase());
+      if (!srv) {
+        cards.push({
+          entityType: 'server',
+          entityId: ref.entityId,
+          accessRestricted: true,
+          restrictionReasonCode: 'not_found',
+          restrictionMessageFa: 'این سرور در فهرست سرورهای پنل یافت نشد یا حذف شده است.',
+          restrictionMessageEn: 'Server not found or has been removed from inventory.',
+        });
+        continue;
+      }
+
+      const canServerTerminal =
+        ctx.isSuperAdmin ||
+        (!ctx.policy || isServerActionPermitted(ctx.policy, srv.id, 'terminal'));
+
+      cards.push({
+        entityType: 'server',
+        entityId: srv.id,
+        accessRestricted: false,
+        name: srv.name || srv.id,
+        ip: srv.host || '',
+        osType: srv.os_type || 'linux',
+        platform: srv.distro || srv.os_type || 'linux',
+        isOnline: srv.status === 'online',
+        location: srv.location || srv.category || undefined,
+        canOpenTerminal: canServerTerminal,
+        canOpenRemoteConsole: canServerTerminal,
+        canOpenDeviceView: true,
+      });
+    }
+  }
+
+  return cards;
+}
+
+export async function searchScopedEntityMentions(
+  actor: CommsActor,
+  isSuperAdmin: boolean,
+  query: string
+): Promise<CommsMentionCandidate[]> {
+  const ctx = await resolveCommsViewerAccessContext(actor, isSuperAdmin);
+  const q = (query || '').trim().toLowerCase();
+  const candidates: CommsMentionCandidate[] = [];
+
+  const canDevices = ctx.isSuperAdmin || ctx.policy?.canViewDevices !== false;
+  const canServers = ctx.isSuperAdmin || ctx.policy?.canViewServers !== false;
+  const canPortsModule = ctx.isSuperAdmin || ctx.policy?.canViewPorts !== false;
+
+  const [allDevices, allServers] = await Promise.all([
+    canDevices ? getAllDevices().catch(() => []) : Promise.resolve([]),
+    canServers ? getAllRemoteServers().catch(() => []) : Promise.resolve([]),
+  ]);
+
+  if (canDevices && Array.isArray(allDevices)) {
+    const permittedDevices = allDevices.filter((d: any) => {
+      if (!d || !d.id) return false;
+      if (ctx.allowedDeviceSet !== null) {
+        return ctx.allowedDeviceSet.has(String(d.id).trim().toLowerCase());
+      }
+      return true;
+    });
+
+    for (const dev of permittedDevices) {
+      const name = String(dev.name || dev.id);
+      const ip = String(dev.ip || dev.ssh_host || '');
+      const platform = String(dev.platform || dev.type || 'switch');
+      const devMatch =
+        !q ||
+        name.toLowerCase().includes(q) ||
+        ip.toLowerCase().includes(q) ||
+        platform.toLowerCase().includes(q) ||
+        String(dev.model || '').toLowerCase().includes(q);
+
+      if (devMatch) {
+        candidates.push({
+          entityType: 'device',
+          entityId: dev.id,
+          name,
+          subtitle: `${ip}${dev.model ? ` · ${dev.model}` : ''}`,
+          ip,
+          platform,
+          isOnline: dev.is_online !== undefined ? Boolean(dev.is_online) : true,
+        });
+      }
+
+      const canDevPorts =
+        canPortsModule &&
+        (ctx.isSuperAdmin || !ctx.policy || isDeviceActionPermitted(ctx.policy, dev.id, 'inspect_ports'));
+
+      if (canDevPorts && Array.isArray(dev.ports) && dev.ports.length > 0 && q.length >= 1) {
+        let portAddedForDev = 0;
+        for (const p of dev.ports) {
+          if (portAddedForDev >= 5) break;
+          const pId = String(p?.port_id || p?.port || p?.name || '').trim();
+          if (!pId) continue;
+          const desc = String(p?.description || '').trim();
+          const portHit =
+            pId.toLowerCase().includes(q) ||
+            desc.toLowerCase().includes(q) ||
+            `${name.toLowerCase()} ${pId.toLowerCase()}`.includes(q) ||
+            `${name.toLowerCase()}:${pId.toLowerCase()}`.includes(q) ||
+            `${name.toLowerCase()}/${pId.toLowerCase()}`.includes(q);
+          if (portHit) {
+            candidates.push({
+              entityType: 'port',
+              entityId: dev.id,
+              portId: pId,
+              name: `${name} · ${pId}`,
+              subtitle: desc
+                ? `${ip} · VLAN ${p.vlan ?? '-'} · ${desc}`
+                : `${ip} · VLAN ${p.vlan ?? '-'}`,
+              ip,
+              platform,
+              isOnline: dev.is_online !== undefined ? Boolean(dev.is_online) : true,
+              portStatus: p.status || 'down',
+              portVlan: p.vlan,
+              portDescription: desc || undefined,
+            });
+            portAddedForDev++;
+          }
+        }
+      }
+    }
+  }
+
+  if (canServers && Array.isArray(allServers)) {
+    const permittedServers = allServers.filter((s: any) => {
+      if (!s || !s.id) return false;
+      if (ctx.allowedServerSet !== null) {
+        return ctx.allowedServerSet.has(String(s.id).trim().toLowerCase());
+      }
+      return true;
+    });
+
+    for (const srv of permittedServers) {
+      const name = String(srv.name || srv.id);
+      const host = String(srv.host || '');
+      const osType = String(srv.os_type || 'linux');
+      const srvMatch =
+        !q ||
+        name.toLowerCase().includes(q) ||
+        host.toLowerCase().includes(q) ||
+        osType.toLowerCase().includes(q) ||
+        String(srv.distro || '').toLowerCase().includes(q);
+
+      if (srvMatch) {
+        candidates.push({
+          entityType: 'server',
+          entityId: srv.id,
+          name,
+          subtitle: `${host} · ${srv.distro || osType}`,
+          ip: host,
+          osType,
+          platform: srv.distro || osType,
+          isOnline: srv.status === 'online',
+        });
+      }
+    }
+  }
+
+  return candidates.slice(0, 25);
+}
+
 export async function listChannelMessages(
   user: CommsActor,
   isSuperAdmin: boolean,
@@ -2627,6 +3087,37 @@ export async function listChannelMessages(
     lookupMap.set(r.id, r);
   }
   const messages = rawMessages.map((r) => mapMessageRow(r, lookupMap));
+
+  // Project any attached entity mentions strictly through the viewer's RBAC policy (Zero-Leak)
+  const needsDeviceLookup = messages.some((m) =>
+    extractMessageEntityRefs(m).some((ref) => ref.entityType === 'device' || ref.entityType === 'port')
+  );
+  const needsServerLookup = messages.some((m) =>
+    extractMessageEntityRefs(m).some((ref) => ref.entityType === 'server')
+  );
+  if (needsDeviceLookup || needsServerLookup) {
+    const [viewerCtx, allDevices, allServers] = await Promise.all([
+      resolveCommsViewerAccessContext(user, isSuperAdmin),
+      needsDeviceLookup ? getAllDevices().catch(() => []) : Promise.resolve([]),
+      needsServerLookup ? getAllRemoteServers().catch(() => []) : Promise.resolve([]),
+    ]);
+    const devicesById = new Map<string, any>(
+      (allDevices || []).filter((d: any) => d?.id).map((d: any) => [String(d.id).trim().toLowerCase(), d])
+    );
+    const serversById = new Map<string, any>(
+      (allServers || []).filter((s: any) => s?.id).map((s: any) => [String(s.id).trim().toLowerCase(), s])
+    );
+    for (const m of messages) {
+      const refs = extractMessageEntityRefs(m);
+      if (refs.length > 0) {
+        const cards = buildProjectedCardsForViewer(refs, viewerCtx, devicesById, serversById);
+        m.entityCards = cards;
+        if (cards[0]?.accessRestricted) {
+          m.linkedEntityName = null;
+        }
+      }
+    }
+  }
 
   // Mark channel notifications as read only when actually needed (skip fallback JSON write when PG is active)
   const newestId = messages[messages.length - 1]?.id || null;
@@ -3145,11 +3636,16 @@ export async function postChannelMessage(
     linkedEntityType?: string | null;
     linkedEntityId?: string | null;
     linkedEntityName?: string | null;
+    entityRefs?: CommsEntityMentionRef[];
   }
 ): Promise<CommsMessage> {
-  const body = (payload.body || '').trim();
-  if (!body) {
+  const entityRefs = sanitizeEntityRefs(payload.entityRefs);
+  let body = (payload.body || '').trim();
+  if (!body && entityRefs.length === 0) {
     throw new Error('Message body is required.');
+  }
+  if (!body && entityRefs.length > 0) {
+    body = '📌 ارجاع به تجهیز / سرور / پورت شبکه';
   }
 
   await ensurePostgresConnection();
@@ -3175,9 +3671,42 @@ export async function postChannelMessage(
     throw new Error('ACCESS_DENIED: You are not a member of this channel.');
   }
 
+  // Strictly validate sender RBAC access for any attached entity mentions (prevent IDOR / spoofing)
+  let devicesById = new Map<string, any>();
+  let serversById = new Map<string, any>();
+  let senderProjectedCards: CommsProjectedEntityCard[] = [];
+  if (entityRefs.length > 0) {
+    const needDevs = entityRefs.some((r) => r.entityType === 'device' || r.entityType === 'port');
+    const needSrvs = entityRefs.some((r) => r.entityType === 'server');
+    const [senderCtx, allDevs, allSrvs] = await Promise.all([
+      resolveCommsViewerAccessContext(senderUser, false),
+      needDevs ? getAllDevices().catch(() => []) : Promise.resolve([]),
+      needSrvs ? getAllRemoteServers().catch(() => []) : Promise.resolve([]),
+    ]);
+    devicesById = new Map(
+      (allDevs || []).filter((d: any) => d?.id).map((d: any) => [String(d.id).trim().toLowerCase(), d])
+    );
+    serversById = new Map(
+      (allSrvs || []).filter((s: any) => s?.id).map((s: any) => [String(s.id).trim().toLowerCase(), s])
+    );
+    senderProjectedCards = buildProjectedCardsForViewer(entityRefs, senderCtx, devicesById, serversById);
+    const forbidden = senderProjectedCards.find((c) => c.accessRestricted || c.portsRestricted);
+    if (forbidden) {
+      throw new Error(
+        `ACCESS_DENIED: ${
+          forbidden.restrictionMessageEn ||
+          forbidden.portsRestrictionMessageEn ||
+          'You do not have RBAC permission to reference this entity.'
+        }`
+      );
+    }
+  }
+
   const nowIso = new Date().toISOString();
   const msgId = makeId('cmsg');
-  const bodyEn = (payload.bodyEn || '').trim() || body;
+  const bodyEn =
+    (payload.bodyEn || '').trim() ||
+    ((payload.body || '').trim() ? body : '📌 Referenced Network Entity');
   const msgType = channel.channelType === 'direct' ? 'direct_message' : 'channel_message';
   const senderDisplay = formatUserDisplay(senderUser.fullName, senderUser.username);
 
@@ -3190,6 +3719,7 @@ export async function postChannelMessage(
       ? `Message from ${senderDisplay}`
       : `${channel.nameEn || channel.name}: New message from ${senderDisplay}`;
 
+  const primaryRef = entityRefs[0] || null;
   const messageRecord = {
     id: msgId,
     channel_id: channelId,
@@ -3203,13 +3733,14 @@ export async function postChannelMessage(
     title_en: titleEn,
     body,
     body_en: bodyEn,
-    linked_entity_type: payload.linkedEntityType || null,
-    linked_entity_id: payload.linkedEntityId || null,
+    linked_entity_type: payload.linkedEntityType || primaryRef?.entityType || null,
+    linked_entity_id: payload.linkedEntityId || primaryRef?.entityId || null,
     linked_entity_name: payload.linkedEntityName || null,
     metadata: {
       channelType: channel.channelType,
       replyToMessageId: payload.replyToMessageId || null,
       senderUsername: senderUser.username,
+      ...(entityRefs.length > 0 ? { entityRefs } : {}),
     },
     created_at: nowIso,
   };
@@ -3324,17 +3855,57 @@ export async function postChannelMessage(
   }
 
   const mappedMessage = mapMessageRow(messageRecord, parentLookup);
+  if (senderProjectedCards.length > 0) {
+    mappedMessage.entityCards = senderProjectedCards;
+  }
 
-  // Broadcast live thread update immediately to all members (synchronous WS frame send)
-  broadcastCommsEventToRecipients(
-    members.map((m) => ({ userId: m.userId, username: m.username })),
-    undefined,
-    {
-      type: 'channel:message',
-      channelId,
-      message: mappedMessage,
-    }
-  );
+  // Project entity cards per-recipient RBAC policy before broadcasting over WebSocket (Zero-Leak)
+  if (entityRefs.length > 0) {
+    const projectedByMemberKey = new Map<string, CommsMessage>();
+    await Promise.all(
+      members.map(async (m) => {
+        const key = `${(m.userId || '').toLowerCase()}|${(m.username || '').toLowerCase()}`;
+        const memberCtx = await resolveCommsViewerAccessContext(
+          { userId: m.userId, username: m.username, role: m.role },
+          false
+        );
+        const memberCards = buildProjectedCardsForViewer(
+          entityRefs,
+          memberCtx,
+          devicesById,
+          serversById
+        );
+        projectedByMemberKey.set(key, {
+          ...mappedMessage,
+          linkedEntityName: memberCards[0]?.accessRestricted ? null : mappedMessage.linkedEntityName,
+          entityCards: memberCards,
+        });
+      })
+    );
+
+    broadcastCommsEventToRecipients(
+      members.map((m) => ({ userId: m.userId, username: m.username })),
+      (recipient) => {
+        const key = `${(recipient.userId || '').toLowerCase()}|${(recipient.username || '').toLowerCase()}`;
+        return {
+          type: 'channel:message',
+          channelId,
+          message: projectedByMemberKey.get(key) || mappedMessage,
+        };
+      }
+    );
+  } else {
+    // Broadcast live thread update immediately to all members (synchronous WS frame send)
+    broadcastCommsEventToRecipients(
+      members.map((m) => ({ userId: m.userId, username: m.username })),
+      undefined,
+      {
+        type: 'channel:message',
+        channelId,
+        message: mappedMessage,
+      }
+    );
+  }
 
   // Record audit trail asynchronously without blocking chat message HTTP response
   void addPortalAuditLog({

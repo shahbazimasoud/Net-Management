@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.440.8';
+export const APP_VERSION = '1.441.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.441.0',
+    releaseDate: '2026-11-17',
+    type: 'minor',
+    title: 'فاز ۱ ارتقای چت سازمانی: منشن زنده تجهیزات، پورت‌ها و سرورها با فیلتر دقیق RBAC و جلوگیری کامل از نشت اطلاعات',
+    title_en: 'Team Chat Phase 1: RBAC-Scoped Device, Port & Server Mentions with Zero-Leak Live Card Projection',
+    changes: [
+      'افزودن موتور جستجوی منشن `@` در بک‌اند (`GET /api/comms/entities/mention-search`) با اعمال کامل سیاست‌های RBAC کاربر (`canViewDevices`، `canViewServers`، `canViewPorts`، `allowedDeviceIds`، `allowedServerIds` و مجوز `inspect_ports`) بدون نمایش تجهیزات غیرمجاز یا اعتبارنامه‌ها.',
+      'پیاده‌سازی معماری Zero-Leak Server-Side Projection در `server/commsService.ts` برای بارگذاری پیام‌ها (`listChannelMessages`) و ارسال زنده وب‌سوکت تک‌به‌تک دریافت‌کنندگان (`postChannelMessage`) به‌گونه‌ای که در صورت نداشتن دسترسی کاربر، هیچ نام، IP، لوکیشن یا جزئیات پورتی به مرورگر ارسال نشده و کارت قفل‌شده با پیام صریح محدودیت RBAC نمایش داده می‌شود.',
+      'ساخت کامپوننت‌های `EntityMentionPicker.tsx` و `EntityMentionCardList.tsx` و ادغام کامل در پنجره گفتگوی مرکز ارتباطات (`TeamChannelsPane.tsx`) و داک چت فوتر (`FooterTeamChatDock.tsx`) به‌همراه دکمه‌های کنترلی مجاز (مدیریت پورت‌ها، ترمینال، مشاهده سرورها) با پشتیبانی کامل از تم روشن/تیره و دوزبانگی دقیق.'
+    ],
+    changes_en: [
+      'Added RBAC-scoped `@` entity mention search (`GET /api/comms/entities/mention-search`) filtering devices, ports, and remote servers strictly against the caller policy (`canViewDevices`, `canViewServers`, `canViewPorts`, `allowedDeviceIds`, `allowedServerIds`, `inspect_ports`) with zero credential exposure.',
+      'Implemented Zero-Leak per-viewer RBAC projection across both `listChannelMessages` and per-recipient WebSocket broadcasts in `server/commsService.ts`, stripping unauthorized IPs, names, locations, and port telemetry on the server and returning explicit RBAC restriction cards instead.',
+      'Built `EntityMentionPicker.tsx` and `EntityMentionCardList.tsx`, integrated them into both `TeamChannelsPane.tsx` and `FooterTeamChatDock.tsx`, and wired RBAC-checked `nettop-comms-open-entity` actions in `App.tsx` with full Light/Dark theme contrast and strict bilingual support.'
+    ]
+  },
   {
     version: '1.440.8',
     releaseDate: '2026-11-17',

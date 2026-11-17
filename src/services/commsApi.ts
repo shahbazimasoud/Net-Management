@@ -4,7 +4,9 @@ import {
   CommsChannel,
   CommsCountsByFolder,
   CommsDispatchPayload,
+  CommsEntityMentionRef,
   CommsFolder,
+  CommsMentionCandidate,
   CommsMessage,
   CommsNotificationItem,
   CommsRecipientOption,
@@ -437,12 +439,28 @@ export async function fetchChannelMessages(
   );
 }
 
+export async function searchCommsMentionEntities(
+  query: string
+): Promise<CommsMentionCandidate[]> {
+  const qs = new URLSearchParams({ q: (query || '').trim() });
+  const res = await fetch(`/api/comms/entities/mention-search?${qs.toString()}`, {
+    headers: buildAuthHeaders(),
+    cache: 'no-store',
+  });
+  const json = await safeParseJsonResponse<any>(res);
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  return Array.isArray(json.candidates) ? json.candidates : [];
+}
+
 export async function postChannelMessage(
   channelId: string,
   payload: {
     body: string;
     priority?: CommsSeverity;
     replyToMessageId?: string | null;
+    entityRefs?: CommsEntityMentionRef[];
   }
 ): Promise<{ success: boolean; message: CommsMessage }> {
   const res = await fetch(`/api/comms/channels/${encodeURIComponent(channelId)}/messages`, {

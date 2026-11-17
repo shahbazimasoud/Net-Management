@@ -1211,6 +1211,60 @@ export interface CommsChannel {
   updatedAt: string;
 }
 
+export type CommsEntityMentionTargetType = 'device' | 'server' | 'port';
+
+export interface CommsEntityMentionRef {
+  entityType: CommsEntityMentionTargetType;
+  entityId: string;
+  portId?: string | null;
+  label?: string;
+}
+
+export interface CommsMentionCandidate {
+  entityType: CommsEntityMentionTargetType;
+  entityId: string;
+  portId?: string | null;
+  name: string;
+  subtitle: string;
+  ip?: string;
+  platform?: string;
+  osType?: string;
+  isOnline?: boolean;
+  portStatus?: string;
+  portVlan?: number | string;
+  portDescription?: string;
+}
+
+export interface CommsProjectedEntityCard {
+  entityType: CommsEntityMentionTargetType;
+  entityId: string;
+  portId?: string | null;
+  accessRestricted: boolean;
+  restrictionReasonCode?: 'module_disabled' | 'outside_scope' | 'not_found' | 'ports_restricted';
+  restrictionMessageFa?: string;
+  restrictionMessageEn?: string;
+  name?: string;
+  ip?: string;
+  platform?: string;
+  deviceType?: string;
+  osType?: string;
+  isOnline?: boolean;
+  location?: string;
+  portsRestricted?: boolean;
+  portsRestrictionMessageFa?: string;
+  portsRestrictionMessageEn?: string;
+  portStatus?: string;
+  portAdminStatus?: string;
+  portMode?: string;
+  portVlan?: number | string;
+  portDescription?: string;
+  portSpeed?: string;
+  canOpenPorts?: boolean;
+  canOpenTerminal?: boolean;
+  canOpenRemoteConsole?: boolean;
+  canOpenDeviceView?: boolean;
+}
+
 export interface CommsMessage {
   id: string;
   channelId?: string | null;
@@ -1233,6 +1287,7 @@ export interface CommsMessage {
   linkedEntityType?: string | null;
   linkedEntityId?: string | null;
   linkedEntityName?: string | null;
+  entityCards?: CommsProjectedEntityCard[];
   metadata?: Record<string, any>;
   createdAt: string;
 }
