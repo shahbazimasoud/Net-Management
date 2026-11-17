@@ -32,7 +32,6 @@ import {
 import { Device, SwitchPort } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 import { fetchDevicePorts, syncDevicePorts, sshConnect, sshExecute, sshDisconnect, getTerminalWebSocketUrl } from '../services/api';
-import { CompactTerminalFaceplate } from './terminal/CompactTerminalFaceplate';
 import { WinBoxLauncherModal } from './terminal/WinBoxLauncherModal';
 import { renderAnsiFormattedText, stripAnsi } from './servers/terminalAnsi';
 import { XtermTerminal, XtermTerminalHandle } from './XtermTerminal';
@@ -115,8 +114,6 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
   const [interfaceSearch, setInterfaceSearch] = useState('');
   const [showAppearanceMenu, setShowAppearanceMenu] = useState(false);
   const appearanceMenuRef = useRef<HTMLDivElement>(null);
-  const lastClickedPortRef = useRef<SwitchPort | null>(null);
-  const lastInsertedPortTextRef = useRef<string | null>(null);
 
   // Real SSH / Telnet Session State
   const [sshSessionMode, setSshSessionMode] = useState<'connecting' | 'real_ssh' | 'simulated' | 'failed'>('connecting');
@@ -347,7 +344,6 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
       setSelectedPort(null);
       setSelectedPortIds([]);
     }
-    lastClickedPortRef.current = null;
     fetchDevicePorts(device.id)
       .then((res) => {
         if (res && res.ports) {
@@ -366,7 +362,6 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
             if (found) {
               setSelectedPort(found);
               setSelectedPortIds([found.port_id]);
-              lastClickedPortRef.current = found;
             }
           }
         }
@@ -399,85 +394,6 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showAppearanceMenu]);
-
-  // Handle MikroTik port click with intelligent insertion and Ctrl+Click range support
-  const handlePortClick = (port: SwitchPort, e: React.MouseEvent) => {
-    const isRangeAction = (e.ctrlKey || e.metaKey || e.shiftKey) && lastClickedPortRef.current !== null;
-    let newSelectedIds: string[] = [];
-    let isRange = false;
-    let rangeStr = '';
-
-    const pId = port.port_id || (port as any).port || port.name;
-    if (!pId) return;
-
-    if (isRangeAction && lastClickedPortRef.current) {
-      const lastId = lastClickedPortRef.current?.port_id || (lastClickedPortRef.current as any)?.port || lastClickedPortRef.current?.name;
-      const idxA = ports.findIndex((p) => (p.port_id || (p as any).port || p.name) === lastId);
-      const idxB = ports.findIndex((p) => (p.port_id || (p as any).port || p.name) === pId);
-      if (idxA !== -1 && idxB !== -1) {
-        const minIdx = Math.min(idxA, idxB);
-        const maxIdx = Math.max(idxA, idxB);
-        const rangePorts = ports.slice(minIdx, maxIdx + 1);
-        newSelectedIds = rangePorts.map((p) => p.port_id || (p as any).port || p.name).filter(Boolean);
-        isRange = true;
-        rangeStr = newSelectedIds.join(',');
-      } else {
-        newSelectedIds = [pId];
-        lastClickedPortRef.current = port;
-      }
-    } else {
-      newSelectedIds = [pId];
-      lastClickedPortRef.current = port;
-    }
-
-    setSelectedPort(port);
-    setSelectedPortIds(newSelectedIds);
-
-    const targetText = isRange ? rangeStr : pId;
-
-    setInput((prevInput) => {
-      // 1. If empty or whitespace only
-      if (!prevInput.trim()) {
-        lastInsertedPortTextRef.current = targetText;
-        if (isRange) {
-          return `/interface print where name in (${newSelectedIds.map((id) => `"${id}"`).join(',')})`;
-        }
-        return `/interface print where name="${port.port_id}"`;
-      }
-
-      // 2. If prevInput contains the previously inserted port/range token
-      const lastInserted = lastInsertedPortTextRef.current;
-      if (lastInserted && prevInput.includes(lastInserted)) {
-        lastInsertedPortTextRef.current = targetText;
-        return prevInput.replace(lastInserted, targetText);
-      }
-
-      // 3. If prevInput contains any known port ID from current device
-      for (const p of ports) {
-        if (prevInput.includes(p.port_id)) {
-          lastInsertedPortTextRef.current = targetText;
-          return prevInput.replace(p.port_id, targetText);
-        }
-      }
-
-      // 4. Regex for interface tokens like ether1, sfp-sfpplus1
-      const mtkRegex = /\b(?:ether\d+|sfp(?:-sfpplus)?\d+)\b/i;
-      const match = prevInput.match(mtkRegex);
-      if (match) {
-        lastInsertedPortTextRef.current = targetText;
-        return prevInput.replace(match[0], targetText);
-      }
-
-      // 5. Append target port/range to user's existing typed command without clearing
-      lastInsertedPortTextRef.current = targetText;
-      const needsSpace = prevInput.length > 0 && !prevInput.endsWith(' ');
-      return `${prevInput}${needsSpace ? ' ' : ''}${targetText}`;
-    });
-
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 10);
-  };
 
   const inputRef = useRef<HTMLInputElement>(null);
   const terminalEndRef = useRef<HTMLDivElement>(null);
@@ -851,7 +767,6 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
 
     setHistory((prev) => [rawCmd, ...prev.filter((c) => c !== rawCmd)].slice(0, 50));
     setHistoryIndex(-1);
-    lastInsertedPortTextRef.current = null;
 
     // Clear command handled locally for terminal screen buffer
     const cmdLower = rawCmd.toLowerCase();
@@ -882,13 +797,6 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
       setLines((prev) => [...prev, userLine]);
       clearPredictions();
       wsRef.current.send(JSON.stringify({ type: 'input', data: rawCmd + '\r' }));
-      if (
-        cmdLower.includes('interface') ||
-        cmdLower.includes('/export') ||
-        cmdLower.includes('ip address')
-      ) {
-        setTimeout(() => handleSyncPorts(true), 1200);
-      }
       setInput('');
       return;
     }
@@ -1251,21 +1159,6 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
             </button>
           </div>
         </div>
-
-        {/* Graphic Port Faceplate Box (Half-size ports - Request 5) */}
-        {ports && ports.length > 0 && (
-          <CompactTerminalFaceplate
-            device={device}
-            ports={ports}
-            isMikroTik={true}
-            isLightMode={isLightMode}
-            onPortClick={handlePortClick}
-            selectedPortId={selectedPort ? (selectedPort.port_id || (selectedPort as any).port || selectedPort.name) : undefined}
-            selectedPortIds={selectedPortIds}
-            onSyncPorts={() => handleSyncPorts(false)}
-            isSyncing={isSyncingPorts}
-          />
-        )}
 
         {/* Body (Screen + Guide Sidebar) */}
         <div className="flex-1 flex overflow-hidden">

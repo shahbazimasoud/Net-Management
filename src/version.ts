@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.440.6';
+export const APP_VERSION = '1.440.7';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.440.7',
+    releaseDate: '2026-11-17',
+    type: 'patch',
+    title: 'حذف بخش Hardware Port Faceplate از مودال‌های ترمینال سیسکو و میکروتیک و توقف همگام‌سازی خودکار پورت در پس‌زمینه',
+    title_en: 'Remove Hardware Port Faceplate from Cisco & MikroTik Terminals and Eliminate Background Auto-Sync Port Queries',
+    changes: [
+      'حذف کامل کامپوننت `CompactTerminalFaceplate` (بخش `Hardware Port Faceplate`) از بالای صفحه ترمینال در `CiscoTerminalModal.tsx` و `MikroTikTerminalModal.tsx` جهت ساده‌سازی رابط کاربری، فضای بیشتر کنسول و افزایش سرعت باز شدن ترمینال.',
+      'حذف همگام‌سازی‌های خودکار پس‌زمینه (`handleSyncPorts(true)`) که پس از اجرای دستورات در ترمینال‌های سیسکو و میکروتیک به‌صورت خودکار دستورات چندگانه بررسی وضعیت پورت‌ها را روی SSH ارسال می‌کردند (دکمه دستی Sync SSH در تب Interfaces سایدبار همچنان در دسترس است).'
+    ],
+    changes_en: [
+      'Removed the `CompactTerminalFaceplate` (`Hardware Port Faceplate`) panel from both `CiscoTerminalModal.tsx` and `MikroTikTerminalModal.tsx` for a cleaner, faster-opening terminal workspace.',
+      'Removed automatic background `handleSyncPorts(true)` calls triggered after interactive terminal commands in both Cisco and MikroTik terminals so no extra multi-command SSH port queries run behind the scenes (manual Sync SSH remains available in the Interfaces sidebar tab).'
+    ]
+  },
   {
     version: '1.440.6',
     releaseDate: '2026-11-17',

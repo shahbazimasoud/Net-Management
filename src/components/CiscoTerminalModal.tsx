@@ -47,7 +47,6 @@ import {
 } from '../services/api';
 import { useLanguage } from '../i18n/LanguageContext';
 import { logDeviceCommand, evaluateCommandRisk } from '../services/auditLogger';
-import { CompactTerminalFaceplate } from './terminal/CompactTerminalFaceplate';
 import { CiscoWriteConfirmModal, WriteChangeItem } from './CiscoWriteConfirmModal';
 import { renderAnsiFormattedText, stripAnsi } from './servers/terminalAnsi';
 import { XtermTerminal, XtermTerminalHandle } from './XtermTerminal';
@@ -237,8 +236,6 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
   const [selectedPortIds, setSelectedPortIds] = useState<string[]>([]);
   const [showAppearanceMenu, setShowAppearanceMenu] = useState(false);
   const appearanceMenuRef = useRef<HTMLDivElement>(null);
-  const lastClickedPortRef = useRef<SwitchPort | null>(null);
-  const lastInsertedPortTextRef = useRef<string | null>(null);
 
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const terminalScreenRef = useRef<HTMLDivElement>(null);
@@ -534,120 +531,6 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showAppearanceMenu]);
 
-  // Handle port click with intelligent insertion and Ctrl+Click range support
-  const handlePortClick = (port: SwitchPort, e: React.MouseEvent) => {
-    const isRangeAction = (e.ctrlKey || e.metaKey || e.shiftKey) && lastClickedPortRef.current !== null;
-    let newSelectedIds: string[] = [];
-    let isRange = false;
-    let rangeStr = '';
-
-    const pId = port.port_id || (port as any).port || port.name;
-    if (!pId) return;
-
-    if (isRangeAction && lastClickedPortRef.current) {
-      const lastId = lastClickedPortRef.current?.port_id || (lastClickedPortRef.current as any)?.port || lastClickedPortRef.current?.name;
-      const idxA = ports.findIndex((p) => (p.port_id || (p as any).port || p.name) === lastId);
-      const idxB = ports.findIndex((p) => (p.port_id || (p as any).port || p.name) === pId);
-      if (idxA !== -1 && idxB !== -1) {
-        const minIdx = Math.min(idxA, idxB);
-        const maxIdx = Math.max(idxA, idxB);
-        const rangePorts = ports.slice(minIdx, maxIdx + 1);
-        newSelectedIds = rangePorts.map((p) => p.port_id || (p as any).port || p.name).filter(Boolean);
-        isRange = true;
-
-        const firstPort = rangePorts[0].port_id || (rangePorts[0] as any).port || rangePorts[0].name;
-        const lastPort = rangePorts[rangePorts.length - 1].port_id || (rangePorts[rangePorts.length - 1] as any).port || rangePorts[rangePorts.length - 1].name;
-        const matchFirst = firstPort.match(/^(.*?)(\d+)$/);
-        const matchLast = lastPort.match(/^(.*?)(\d+)$/);
-        if (matchFirst && matchLast && matchFirst[1] === matchLast[1]) {
-          rangeStr = `${firstPort} - ${matchLast[2]}`;
-        } else {
-          rangeStr = rangePorts.map((p) => p.port_id || (p as any).port || p.name).join(', ');
-        }
-      } else {
-        newSelectedIds = [pId];
-        lastClickedPortRef.current = port;
-      }
-    } else {
-      newSelectedIds = [pId];
-      lastClickedPortRef.current = port;
-    }
-
-    setSelectedPort(port);
-    setSelectedPortIds(newSelectedIds);
-
-    const targetText = isRange ? rangeStr : port.port_id;
-
-    setCurrentInput((prevInput) => {
-      // 1. If empty or whitespace only
-      if (!prevInput.trim()) {
-        const cmd =
-          cliMode === 'GLOBAL_CONFIG' || cliMode === 'INTERFACE_CONFIG'
-            ? isRange
-              ? `interface range ${targetText}`
-              : `interface ${targetText}`
-            : isRange
-            ? `show interfaces ${targetText}`
-            : `show interface ${targetText}`;
-        lastInsertedPortTextRef.current = targetText;
-        return cmd;
-      }
-
-      // 2. If prevInput contains the previously inserted port/range token
-      const lastInserted = lastInsertedPortTextRef.current;
-      if (lastInserted && prevInput.includes(lastInserted)) {
-        let replaced = prevInput.replace(lastInserted, targetText);
-        if (isRange && !replaced.includes('interface range ') && replaced.includes('interface ')) {
-          replaced = replaced.replace('interface ', 'interface range ');
-        } else if (!isRange && replaced.includes('interface range ')) {
-          replaced = replaced.replace('interface range ', 'interface ');
-        }
-        lastInsertedPortTextRef.current = targetText;
-        return replaced;
-      }
-
-      // 3. If prevInput contains any known port ID from current device
-      for (const p of ports) {
-        if (prevInput.includes(p.port_id)) {
-          let replaced = prevInput.replace(p.port_id, targetText);
-          if (isRange && !replaced.includes('interface range ') && replaced.includes('interface ')) {
-            replaced = replaced.replace('interface ', 'interface range ');
-          } else if (!isRange && replaced.includes('interface range ')) {
-            replaced = replaced.replace('interface range ', 'interface ');
-          }
-          lastInsertedPortTextRef.current = targetText;
-          return replaced;
-        }
-      }
-
-      // 4. Regex for interface abbreviations like Gi0/1, Fa0/1, Eth1, GigabitEthernet0/1
-      const shortPortRegex = /\b(?:Gi|Fa|Te|Eth|Ge|FastEthernet|GigabitEthernet|TenGigabitEthernet)\d+(?:\/\d+)*(?:\s*-\s*\d+)?\b/i;
-      const match = prevInput.match(shortPortRegex);
-      if (match) {
-        let replaced = prevInput.replace(match[0], targetText);
-        if (isRange && !replaced.includes('interface range ') && replaced.includes('interface ')) {
-          replaced = replaced.replace('interface ', 'interface range ');
-        } else if (!isRange && replaced.includes('interface range ')) {
-          replaced = replaced.replace('interface range ', 'interface ');
-        }
-        lastInsertedPortTextRef.current = targetText;
-        return replaced;
-      }
-
-      // 5. Append target port/range to user's existing typed command without clearing
-      lastInsertedPortTextRef.current = targetText;
-      if (isRange && prevInput.trim().endsWith('interface')) {
-        return `${prevInput.trim()} range ${targetText}`;
-      }
-      const needsSpace = prevInput.length > 0 && !prevInput.endsWith(' ');
-      return `${prevInput}${needsSpace ? ' ' : ''}${targetText}`;
-    });
-
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 10);
-  };
-
   const lastLineEndedWithNewlineRef = useRef<boolean>(true);
 
   // Helper to append line
@@ -918,7 +801,6 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
       setHasUnsavedChanges(!!curDev.has_unsaved_changes);
       setSshSessionMode('connecting');
       setSshLatency(null);
-      lastClickedPortRef.current = null;
       loadPortsAndVlans(curDev.id, effectiveInitialPort);
 
       const hostDisplay = targetHost || (isEn ? 'No IP Configured' : 'بدون آی‌پی');
@@ -1147,7 +1029,6 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
         if (found) {
           setSelectedPort(found);
           setSelectedPortIds([found.port_id]);
-          lastClickedPortRef.current = found;
         } else {
           setSelectedPortIds([portToMatch]);
         }
@@ -1237,9 +1118,6 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
       appendLines([{ id: String(Date.now()), type: 'input', text: getPrompt() }]);
       return;
     }
-
-    // Reset last inserted port token on command execution so subsequent clicks behave freshly
-    lastInsertedPortTextRef.current = null;
 
     // Save to history
     setHistory((prev) => [trimmed, ...prev]);
@@ -1335,25 +1213,6 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
 
       clearPredictions();
       wsRef.current.send(JSON.stringify({ type: 'input', data: trimmed + '\r' }));
-      if (
-        cmdLower.startsWith('sh ') ||
-        cmdLower.startsWith('show ') ||
-        cmdLower === 'write memory' ||
-        cmdLower === 'wr' ||
-        cmdLower.startsWith('copy run') ||
-        cmdLower.startsWith('description ') ||
-        cmdLower.startsWith('desc ') ||
-        cmdLower === 'shutdown' ||
-        cmdLower === 'shut' ||
-        cmdLower === 'no shutdown' ||
-        cmdLower === 'no shut' ||
-        cmdLower.startsWith('switchport') ||
-        cmdLower.startsWith('vlan ') ||
-        cmdLower === 'exit' ||
-        cmdLower === 'end'
-      ) {
-        setTimeout(() => handleSyncPorts(true), 1200);
-      }
       return;
     }
 
@@ -1394,25 +1253,6 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           appendLines([
             { id: String(Date.now() + 1), type: 'output', text: res.output || '(Command executed on device)' },
           ]);
-          if (
-            cmdLower.startsWith('sh ') ||
-            cmdLower.startsWith('show ') ||
-            cmdLower === 'write memory' ||
-            cmdLower === 'wr' ||
-            cmdLower.startsWith('copy run') ||
-            cmdLower.startsWith('description ') ||
-            cmdLower.startsWith('desc ') ||
-            cmdLower === 'shutdown' ||
-            cmdLower === 'shut' ||
-            cmdLower === 'no shutdown' ||
-            cmdLower === 'no shut' ||
-            cmdLower.startsWith('switchport') ||
-            cmdLower.startsWith('vlan ') ||
-            cmdLower === 'exit' ||
-            cmdLower === 'end'
-          ) {
-            setTimeout(() => handleSyncPorts(true), 1200);
-          }
         } else {
           appendLines([
             {
@@ -2370,21 +2210,6 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
             </button>
           </div>
         </div>
-
-        {/* Graphic Port Faceplate Box (Half-size ports - Request 5) */}
-        {ports && ports.length > 0 && (
-          <CompactTerminalFaceplate
-            device={device}
-            ports={ports}
-            isMikroTik={false}
-            isLightMode={isLightMode}
-            onPortClick={handlePortClick}
-            selectedPortId={selectedPort ? (selectedPort.port_id || (selectedPort as any).port || selectedPort.name) : (effectiveInitialPort || undefined)}
-            selectedPortIds={selectedPortIds.length > 0 ? selectedPortIds : (effectiveInitialPort ? [effectiveInitialPort] : [])}
-            onSyncPorts={() => handleSyncPorts(false)}
-            isSyncing={isSyncingPorts}
-          />
-        )}
 
         {/* Main Body: Terminal Screen + Sidebar Guides */}
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
