@@ -322,6 +322,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   const [selectedPort, setSelectedPort] = useState<SwitchPort | null>(null);
   const [activeTab, setActiveTab] = useState<'ports' | 'logs' | 'resources'>('ports');
   const [persistentSessionStatus, setPersistentSessionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
+  const [autoExecNotice, setAutoExecNotice] = useState<string | null>(null);
 
   // Maintain authoritative persistent SSH session across all sub-modals (Port Security, VLAN, Write, Logs)
   useEffect(() => {
@@ -1154,6 +1155,83 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
       }
     }
   }, [device?.id, isOpen, handleSyncPorts]);
+
+  // Clear auto-execute banner when switching devices or closing modal
+  useEffect(() => {
+    setAutoExecNotice(null);
+  }, [device?.id, isOpen]);
+
+  // Real-time refresh when an approved change auto-executes on this switch/router via WebSocket
+  useEffect(() => {
+    if (!isOpen || !device?.id) return;
+    let active = true;
+
+    const handleCommsWsEvent = (e: Event) => {
+      const evt = (e as CustomEvent<any>).detail;
+      if (!evt || evt.type !== 'approval:updated') return;
+      const isExecuted = evt.status === 'executed' || evt.executionStatus === 'succeeded';
+      if (!isExecuted) return;
+      if (evt.targetEntityId && evt.targetEntityId !== device.id) return;
+
+      fetchDevicePorts(device.id)
+        .then((res) => {
+          if (!active) return;
+          if (res?.ports && Array.isArray(res.ports) && res.ports.length > 0) {
+            const freshNormalized = res.ports.map((p: any, idx: number) => {
+              const rawStat = String(p.status || '').toLowerCase().trim();
+              const rawAdmin = String(p.admin_status || '').toLowerCase().trim();
+              const isDis =
+                rawAdmin === 'disabled' ||
+                rawAdmin === 'shutdown' ||
+                rawStat === 'disabled' ||
+                rawStat === 'err-disabled' ||
+                rawStat === 'administratively down';
+              const isConn =
+                !isDis &&
+                (rawStat === 'up' || rawStat === 'connected' || rawStat === 'active' || rawStat === 'running');
+              const sec = extractPortSecurityState(p);
+              return {
+                ...p,
+                port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+                status: isConn ? 'up' : 'down',
+                admin_status: isDis ? 'disabled' : 'enabled',
+                mode: String(p.mode || 'access').toLowerCase().trim() === 'trunk' ? 'trunk' : 'access',
+                port_security_enabled: sec.enabled,
+                port_security_mode: sec.mode,
+                port_security_max_mac: sec.maxMac,
+                port_security_violation: sec.violation,
+                port_security_configured_mac: sec.configuredMac,
+                port_security_learned_macs: sec.learnedMacs,
+                port_security_status: sec.statusText,
+              };
+            });
+            setPorts(freshNormalized);
+            setSelectedPort((prev) => {
+              if (!prev) return freshNormalized[0];
+              const prevId = (prev.port_id || (prev as any).port || prev.name || '').toLowerCase();
+              const match = freshNormalized.find(
+                (p: any) => (p.port_id || (p as any).port || p.name || '').toLowerCase() === prevId
+              );
+              return match || freshNormalized[0];
+            });
+            (device as any).ports = freshNormalized;
+          }
+          setAutoExecNotice(
+            isEn
+              ? 'Approved operation executed — port states synchronized.'
+              : 'عملیات تاییدشده اجرا شد — وضعیت پورت‌ها به‌صورت زنده همگام‌سازی گردید.'
+          );
+          onPortUpdatedRef.current?.();
+        })
+        .catch(() => {});
+    };
+
+    window.addEventListener('nettop-comms-ws-event', handleCommsWsEvent as EventListener);
+    return () => {
+      active = false;
+      window.removeEventListener('nettop-comms-ws-event', handleCommsWsEvent as EventListener);
+    };
+  }, [isOpen, device?.id, isEn]);
 
   // Live Port Watch (Cisco terminal monitor / MikroTik link event streamer)
   const [isLiveWatchActive, setIsLiveWatchActive] = useState<boolean>(false);
@@ -2236,6 +2314,23 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
 
           {activeTab === 'ports' && (
             <>
+          {autoExecNotice && (
+            <div className="px-3.5 py-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-xs flex items-center justify-between gap-2 font-medium shadow-sm">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{autoExecNotice}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAutoExecNotice(null)}
+                className="p-1 rounded hover:bg-emerald-500/20 text-emerald-300 cursor-pointer"
+                aria-label={isEn ? 'Dismiss notice' : 'بستن اعلان'}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Switch Faceplate (Visual Rack Interface) */}
           <div className="bg-slate-900 border border-slate-800 rounded-lg p-3.5 shadow-inner">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">

@@ -572,6 +572,13 @@ export type CommsWsEvent =
       type: 'approval:updated';
       approvalId: string;
       status: string;
+      executionStatus?: string;
+      autoExecuted?: boolean;
+      currentStageOrder?: number;
+      totalStages?: number;
+      targetEntityType?: string;
+      targetEntityId?: string;
+      actionKey?: string;
     }
   | {
       type: 'jit_grant:updated';

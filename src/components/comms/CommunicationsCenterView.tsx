@@ -21,6 +21,8 @@ import {
   ArrowUpRight,
   Clock,
   CheckCircle2,
+  Copy,
+  Play,
   User,
   Users,
   X,
@@ -143,6 +145,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   const [inlineDecisionNote, setInlineDecisionNote] = useState('');
   const [inlineApprovalBusy, setInlineApprovalBusy] = useState(false);
   const [inlineOverrideUnlocked, setInlineOverrideUnlocked] = useState(false);
+  const [copiedInlineOutput, setCopiedInlineOutput] = useState(false);
   const [inlineApprovalFeedback, setInlineApprovalFeedback] = useState<{
     type: 'success' | 'error';
     text: string;
@@ -416,12 +419,28 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
       setInlineDecisionNote('');
       setInlineOverrideUnlocked(false);
       const movedToNextStage = decision === 'approved' && updated.status === 'pending';
+      const autoSucceeded =
+        decision === 'approved' &&
+        (updated.status === 'executed' || updated.executionStatus === 'succeeded');
+      const autoFailed =
+        decision === 'approved' &&
+        updated.status === 'approved' &&
+        updated.executionStatus === 'failed';
+
       setInlineApprovalFeedback({
-        type: 'success',
+        type: autoFailed ? 'error' : 'success',
         text: movedToNextStage
           ? isEn
             ? `Stage approved and routed to Stage ${updated.currentStageOrder}/${updated.totalStages}.`
             : `مرحله تایید شد و درخواست به مرحله ${updated.currentStageOrder} از ${updated.totalStages} ارسال گردید.`
+          : autoSucceeded
+          ? isEn
+            ? 'Final approval granted and payload auto-executed cleanly on target.'
+            : 'تایید نهایی انجام شد و عملیات به‌صورت خودکار روی هدف اجرا گردید.'
+          : autoFailed
+          ? isEn
+            ? 'Final approval granted, but auto-execution failed. Review output below and click "Retry Auto-Execute Now".'
+            : 'تایید نهایی انجام شد، اما اجرای خودکار با خطا مواجه گردید. خروجی زیر را بررسی کرده و روی «تلاش مجدد اجرای خودکار» بزنید.'
           : decision === 'approved'
           ? isEn
             ? 'Request approved and requester notified.'
@@ -430,6 +449,9 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
           ? 'Request rejected and requester notified.'
           : 'درخواست رد شد و نتیجه به متقاضی اطلاع‌رسانی گردید.',
       });
+      if (decision === 'approved' && updated.status !== 'pending') {
+        window.dispatchEvent(new CustomEvent('nettop-jit-grants-updated'));
+      }
       fetchApprovalRequests({ status: 'pending', limit: 1, forceRefresh: true })
         .then((res) => setPendingApprovalsCount(res.summary?.pending ?? 0))
         .catch(() => {});
@@ -2003,8 +2025,57 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
 
                       {linkedApproval.executionOutput && (
                         <div className="space-y-1">
-                          <div className="text-[11px] font-bold">
-                            {isEn ? 'Execution Output:' : 'خروجی اجرای سرور:'}
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-[11px] font-bold">
+                              {isEn ? 'Execution Output:' : 'خروجی اجرای سرور:'}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  try {
+                                    navigator.clipboard.writeText(linkedApproval.executionOutput || '');
+                                    setCopiedInlineOutput(true);
+                                    setTimeout(() => setCopiedInlineOutput(false), 1800);
+                                  } catch {}
+                                }}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-medium cursor-pointer transition ${
+                                  isLightMode
+                                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                                    : 'bg-white/5 border-white/15 text-slate-300 hover:bg-white/10'
+                                }`}
+                              >
+                                {copiedInlineOutput ? (
+                                  <>
+                                    <Check className="w-3 h-3 text-emerald-500" />
+                                    <span className="text-emerald-500">{isEn ? 'Copied' : 'کپی شد'}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3" />
+                                    <span>{isEn ? 'Copy Log' : 'کپی خروجی'}</span>
+                                  </>
+                                )}
+                              </button>
+                              {linkedApproval.executionStatus && (
+                                <span
+                                  className={`font-mono text-[10px] font-bold ${
+                                    linkedApproval.executionStatus === 'succeeded' ||
+                                    linkedApproval.executionStatus === 'jit_active'
+                                      ? 'text-emerald-500'
+                                      : linkedApproval.executionStatus === 'failed'
+                                      ? 'text-rose-500'
+                                      : 'text-amber-500'
+                                  }`}
+                                >
+                                  {linkedApproval.executionStatus === 'succeeded'
+                                    ? isEn ? 'SUCCEEDED' : 'موفق (SUCCEEDED)'
+                                    : linkedApproval.executionStatus === 'failed'
+                                    ? isEn ? 'FAILED' : 'ناموفق (FAILED)'
+                                    : linkedApproval.executionStatus.toUpperCase()}
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <pre
                             dir="ltr"
@@ -2028,10 +2099,25 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                               type="button"
                               disabled={inlineApprovalBusy}
                               onClick={handleInlineExecutePayload}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs cursor-pointer disabled:opacity-50 transition"
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white font-semibold text-xs cursor-pointer disabled:opacity-50 transition ${
+                                linkedApproval.executionStatus === 'failed'
+                                  ? 'bg-rose-600 hover:bg-rose-500'
+                                  : 'bg-emerald-600 hover:bg-emerald-500'
+                              }`}
                             >
+                              {linkedApproval.executionStatus === 'failed' ? (
+                                <RefreshCw className={`w-3.5 h-3.5 ${inlineApprovalBusy ? 'animate-spin' : ''}`} />
+                              ) : (
+                                <Play className="w-3.5 h-3.5 fill-current" />
+                              )}
                               <span>
-                                {isEn ? 'Execute Approved Payload Now' : 'اجرای فوری عملیات تاییدشده'}
+                                {linkedApproval.executionStatus === 'failed'
+                                  ? isEn
+                                    ? 'Retry Auto-Execute Now'
+                                    : 'تلاش مجدد اجرای خودکار'
+                                  : isEn
+                                  ? 'Execute Approved Payload Now'
+                                  : 'اجرای فوری عملیات تاییدشده'}
                               </span>
                             </button>
                           )}

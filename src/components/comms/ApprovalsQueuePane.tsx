@@ -6,6 +6,7 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Copy,
   Layers,
   Play,
   Plus,
@@ -125,6 +126,7 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
   const [executionNote, setExecutionNote] = useState('');
   const [actionBusy, setActionBusy] = useState(false);
   const [overrideUnlocked, setOverrideUnlocked] = useState(false);
+  const [copiedOutputId, setCopiedOutputId] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
   // New Approval / JIT Request Modal
@@ -321,12 +323,28 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
       setOverrideUnlocked(false);
       setDecisionNote('');
       const movedToNextStage = decision === 'approved' && updated.status === 'pending';
+      const autoSucceeded =
+        decision === 'approved' &&
+        (updated.status === 'executed' || updated.executionStatus === 'succeeded');
+      const autoFailed =
+        decision === 'approved' &&
+        updated.status === 'approved' &&
+        updated.executionStatus === 'failed';
+
       setFeedbackMsg({
-        type: 'success',
+        type: autoFailed ? 'error' : 'success',
         text: movedToNextStage
           ? isEn
             ? `Stage approved cleanly. Request routed to Stage ${updated.currentStageOrder}/${updated.totalStages}.`
             : `مرحله فعلی تایید شد و درخواست به مرحله ${updated.currentStageOrder} از ${updated.totalStages} ارسال گردید.`
+          : autoSucceeded
+          ? isEn
+            ? 'Final approval granted and action auto-executed cleanly against the target device/server.'
+            : 'تایید نهایی انجام شد و عملیات به‌صورت خودکار با موفقیت بر روی هدف اجرا گردید.'
+          : autoFailed
+          ? isEn
+            ? 'Final approval granted, but auto-execution failed. Review the Server Execution Output below and use "Retry Auto-Execute Now".'
+            : 'تایید نهایی انجام شد، اما اجرای خودکار با خطا مواجه گردید. خروجی خطای زیر را بررسی کرده و دکمه «تلاش مجدد اجرای خودکار» را بزنید.'
           : decision === 'approved'
           ? isEn
             ? 'Change request approved cleanly and audit logged.'
@@ -335,6 +353,9 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
           ? 'Change request rejected cleanly and requester notified.'
           : 'درخواست رد شد و به درخواست‌کننده اطلاع‌رسانی گردید.',
       });
+      if (decision === 'approved' && updated.status !== 'pending') {
+        window.dispatchEvent(new CustomEvent('nettop-jit-grants-updated'));
+      }
       await loadApprovals(true);
     } catch (err: any) {
       setFeedbackMsg({
@@ -830,6 +851,24 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                       <span className={risk.cls}>{isEn ? risk.labelEn : risk.labelFa}</span>
                     </div>
 
+                    {item.status === 'approved' && item.executionStatus === 'failed' ? (
+                      <div className="flex items-center gap-1 text-[10px] font-semibold text-rose-500">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        <span>
+                          {isEn
+                            ? 'Auto-execute failed — retry ready'
+                            : 'خطا در اجرای خودکار — آماده تلاش مجدد'}
+                        </span>
+                      </div>
+                    ) : item.status === 'executed' && item.autoExecuteOnApprove ? (
+                      <div className="flex items-center gap-1 text-[10px] font-semibold text-emerald-500">
+                        <CheckCircle2 className="w-3 h-3 shrink-0" />
+                        <span>
+                          {isEn ? 'Auto-executed cleanly' : 'اجرای خودکار موفق'}
+                        </span>
+                      </div>
+                    ) : null}
+
                     {/* Multi-stage progress bar & awaiting indicator */}
                     {((item.totalStages || 1) > 1 || item.isAssignedToCurrentActor) && (
                       <div className="flex items-center justify-between gap-2 flex-wrap pt-0.5">
@@ -1212,20 +1251,34 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                 </p>
               </div>
 
-              {/* Active JIT Ticket / Grant Ready Notice */}
-              {selectedItem.status === 'approved' && (
+              {/* Active JIT Ticket / Grant Ready / Auto-Execute Retry Notice */}
+              {selectedItem.status === 'approved' && (() => {
+                const isAutoExecFailed = selectedItem.executionStatus === 'failed';
+                return (
                 <div
                   className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs ${
-                    isLightMode
+                    isAutoExecFailed
+                      ? isLightMode
+                        ? 'bg-rose-50 border-rose-300 text-rose-900'
+                        : 'bg-rose-500/15 border-rose-500/40 text-rose-100'
+                      : isLightMode
                       ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
                       : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-100'
                   }`}
                 >
                   <div className="flex items-start gap-2 min-w-0 flex-1">
-                    <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                    {isAutoExecFailed ? (
+                      <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                    ) : (
+                      <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                    )}
                     <div className="min-w-0">
                       <div className="font-bold">
-                        {selectedItem.executionMode === 'jit_session'
+                        {isAutoExecFailed
+                          ? isEn
+                            ? 'Approved — Auto-Execution Failed (Retry Available)'
+                            : 'تایید شده — اجرای خودکار ناموفق (آماده تلاش مجدد)'
+                          : selectedItem.executionMode === 'jit_session'
                           ? isEn
                             ? `Active Time-Limited JIT Pass (${selectedItem.activeGrant?.id || selectedItem.grantId || selectedItem.id})`
                             : `پاس زمانی فعال (JIT Pass) برای نشست‌های تعاملی`
@@ -1234,7 +1287,11 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                           : 'تیکت اجرای عملیات تاییدشده (JIT) فعال است'}
                       </div>
                       <div className="text-[11px] opacity-85 mt-0.5">
-                        {selectedItem.executionMode === 'jit_session'
+                        {isAutoExecFailed
+                          ? isEn
+                            ? 'Approval ticket and JIT window remain active. Inspect the error log below, check device reachability, then click "Retry Auto-Execute Now".'
+                            : 'تیکت تایید و پنجره زمانی JIT همچنان فعال است. خروجی خطای زیر را بررسی کرده، وضعیت اتصال به تجهیز را چک کنید و دکمه «تلاش مجدد اجرای خودکار» را بزنید.'
+                          : selectedItem.executionMode === 'jit_session'
                           ? isEn
                             ? `Session access stays open & reconnectable until timer expiry${selectedItem.activeGrant?.useCount ? ` · Uses recorded: ${selectedItem.activeGrant.useCount}` : ''}. Revoking immediately kills active SSH/RDP sessions.`
                             : `دسترسی نشست تا پایان زمان اعتبار و در اتصال‌های مجدد فعال می‌ماند${selectedItem.activeGrant?.useCount ? ` · دفعات استفاده: ${selectedItem.activeGrant.useCount}` : ''}. لغو فوری تمام نشست‌های فعال را قطع می‌کند.`
@@ -1272,7 +1329,8 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                     )}
                   </div>
                 </div>
-              )}
+                );
+              })()}
 
               {/* Structured Action Parameters (strip internal _httpExecution) */}
               {selectedItem.actionParams &&
@@ -1312,20 +1370,57 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                       <Terminal className="w-3.5 h-3.5 text-emerald-500" />
                       <span>{isEn ? 'Server Execution Output' : 'خروجی واقعی اجرا در سرور'}</span>
                     </span>
-                    {selectedItem.executionStatus && (
-                      <span
-                        className={`font-mono text-[11px] font-bold ${
-                          selectedItem.executionStatus === 'succeeded' ||
-                          selectedItem.executionStatus === 'jit_active'
-                            ? 'text-emerald-500'
+                    <div className="flex items-center gap-2">
+                      {selectedItem.executionOutput && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            try {
+                              navigator.clipboard.writeText(selectedItem.executionOutput || '');
+                              setCopiedOutputId(selectedItem.id);
+                              setTimeout(() => {
+                                setCopiedOutputId((prev) => (prev === selectedItem.id ? null : prev));
+                              }, 1800);
+                            } catch {}
+                          }}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] font-medium cursor-pointer transition ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                              : 'bg-white/5 border-white/15 text-slate-300 hover:bg-white/10'
+                          }`}
+                        >
+                          {copiedOutputId === selectedItem.id ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-500" />
+                              <span className="text-emerald-500">{isEn ? 'Copied' : 'کپی شد'}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>{isEn ? 'Copy Log' : 'کپی خروجی'}</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                      {selectedItem.executionStatus && (
+                        <span
+                          className={`font-mono text-[11px] font-bold ${
+                            selectedItem.executionStatus === 'succeeded' ||
+                            selectedItem.executionStatus === 'jit_active'
+                              ? 'text-emerald-500'
+                              : selectedItem.executionStatus === 'failed'
+                              ? 'text-rose-500'
+                              : 'text-amber-500'
+                          }`}
+                        >
+                          {selectedItem.executionStatus === 'succeeded'
+                            ? isEn ? 'SUCCEEDED' : 'اجرای موفق (SUCCEEDED)'
                             : selectedItem.executionStatus === 'failed'
-                            ? 'text-rose-500'
-                            : 'text-amber-500'
-                        }`}
-                      >
-                        {selectedItem.executionStatus.toUpperCase()}
-                      </span>
-                    )}
+                            ? isEn ? 'FAILED' : 'خطا در اجرا (FAILED)'
+                            : selectedItem.executionStatus.toUpperCase()}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {selectedItem.executionOutput && (
                     <pre
@@ -1575,11 +1670,25 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                         type="button"
                         disabled={actionBusy}
                         onClick={handleExecutePayload}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-xs font-bold cursor-pointer disabled:opacity-50 ${
+                          selectedItem.executionStatus === 'failed'
+                            ? 'bg-rose-600 hover:bg-rose-500'
+                            : 'bg-emerald-600 hover:bg-emerald-500'
+                        }`}
                       >
-                        <Play className="w-3.5 h-3.5 fill-current" />
+                        {selectedItem.executionStatus === 'failed' ? (
+                          <RefreshCw className={`w-3.5 h-3.5 ${actionBusy ? 'animate-spin' : ''}`} />
+                        ) : (
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                        )}
                         <span>
-                          {isEn ? 'Execute Approved Payload Now' : 'اجرای فوری عملیات امضاشده'}
+                          {selectedItem.executionStatus === 'failed'
+                            ? isEn
+                              ? 'Retry Auto-Execute Now'
+                              : 'تلاش مجدد اجرای خودکار'
+                            : isEn
+                            ? 'Execute Approved Payload Now'
+                            : 'اجرای فوری عملیات امضاشده'}
                         </span>
                       </button>
                     )}

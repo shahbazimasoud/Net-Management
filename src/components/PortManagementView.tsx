@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Server, Cable, Zap, Shield, ShieldCheck, Search, Filter, Edit3, Save, CheckCircle2, AlertCircle, AlertTriangle, Layers, MoreVertical, RefreshCw, Radio } from 'lucide-react';
+import { Server, Cable, Zap, Shield, ShieldCheck, Search, Filter, Edit3, Save, CheckCircle2, AlertCircle, AlertTriangle, Layers, MoreVertical, RefreshCw, Radio, X } from 'lucide-react';
 import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
 import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
 import { CiscoPortContextMenu } from './CiscoPortContextMenu';
@@ -87,6 +87,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
   const [portLoadError, setPortLoadError] = useState<string | null>(null);
   const [isLivePorts, setIsLivePorts] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [autoExecNotice, setAutoExecNotice] = useState<string | null>(null);
 
   // Live Terminal Monitor (Cisco terminal monitor / MikroTik link event streamer)
   const [isLiveWatchActive, setIsLiveWatchActive] = useState<boolean>(false);
@@ -309,10 +310,82 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
   const currentDevice = devices.find((d) => d.id === selectedDeviceId);
 
   useEffect(() => {
+    setAutoExecNotice(null);
     if (selectedDeviceId) {
       loadPorts(selectedDeviceId);
     }
   }, [selectedDeviceId]);
+
+  useEffect(() => {
+    if (!selectedDeviceId) return;
+    let active = true;
+
+    const handleCommsWsEvent = (e: Event) => {
+      const evt = (e as CustomEvent<any>).detail;
+      if (!evt || evt.type !== 'approval:updated') return;
+      const isExecuted = evt.status === 'executed' || evt.executionStatus === 'succeeded';
+      if (!isExecuted) return;
+      if (evt.targetEntityId && evt.targetEntityId !== selectedDeviceId) return;
+
+      fetchDevicePorts(selectedDeviceId)
+        .then((res) => {
+          if (!active) return;
+          const rawPorts = res?.ports || [];
+          if (Array.isArray(rawPorts) && rawPorts.length > 0) {
+            const normalizedPorts = rawPorts.map((p: any, idx: number) => {
+              const rawStat = String(p.status || '').toLowerCase().trim();
+              const rawAdmin = String(p.admin_status || '').toLowerCase().trim();
+              const isDis =
+                rawAdmin === 'disabled' ||
+                rawAdmin === 'shutdown' ||
+                rawStat === 'disabled' ||
+                rawStat === 'err-disabled' ||
+                rawStat === 'administratively down';
+              const isConn =
+                !isDis &&
+                (rawStat === 'up' || rawStat === 'connected' || rawStat === 'active' || rawStat === 'running');
+              const sec = extractPortSecurityState(p);
+              return {
+                ...p,
+                port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+                status: isConn ? 'up' : 'down',
+                admin_status: isDis ? 'disabled' : 'enabled',
+                mode: String(p.mode || 'access').toLowerCase().trim() === 'trunk' ? 'trunk' : 'access',
+                port_security_enabled: sec.enabled,
+                port_security_mode: sec.mode,
+                port_security_max_mac: sec.maxMac,
+                port_security_violation: sec.violation,
+                port_security_configured_mac: sec.configuredMac,
+                port_security_learned_macs: sec.learnedMacs,
+                port_security_status: sec.statusText,
+              };
+            });
+            setPorts(normalizedPorts);
+            setIsLivePorts(!!res.is_live);
+            setSelectedPort((prev) => {
+              if (!prev) return normalizedPorts[0];
+              const prevId = (prev.port_id || (prev as any).port || prev.name || '').toLowerCase();
+              const match = normalizedPorts.find(
+                (p: any) => (p.port_id || (p as any).port || p.name || '').toLowerCase() === prevId
+              );
+              return match || normalizedPorts[0];
+            });
+          }
+          setAutoExecNotice(
+            isEn
+              ? 'Approved operation executed — port states synchronized cleanly.'
+              : 'عملیات تاییدشده با موفقیت اجرا شد — وضعیت پورت‌ها به‌صورت زنده همگام‌سازی گردید.'
+          );
+        })
+        .catch(() => {});
+    };
+
+    window.addEventListener('nettop-comms-ws-event', handleCommsWsEvent as EventListener);
+    return () => {
+      active = false;
+      window.removeEventListener('nettop-comms-ws-event', handleCommsWsEvent as EventListener);
+    };
+  }, [selectedDeviceId, isEn]);
 
   const loadPorts = async (devId: string) => {
     try {
@@ -1083,6 +1156,23 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices,
               <div className="text-purple-400 font-bold font-mono text-base">{trunkCount}</div>
             </div>
           </div>
+        </div>
+      )}
+
+      {autoExecNotice && (
+        <div className="px-3.5 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-xs flex items-center justify-between gap-2 font-medium shadow-sm">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{autoExecNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAutoExecNotice(null)}
+            className="p-1 rounded hover:bg-emerald-500/20 text-emerald-300 cursor-pointer"
+            aria-label={isEn ? 'Dismiss notice' : 'بستن اعلان'}
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.440.4';
+export const APP_VERSION = '1.440.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.440.5',
+    releaseDate: '2026-11-17',
+    type: 'patch',
+    title: 'تکمیل فاز ۳: نمایش بلادرنگ نتیجه اجرای خودکار، دکمه تلاش مجدد و همگام‌سازی خودکار پورت‌ها عبر وب‌سوکت',
+    title_en: 'Phase 3 Fix: Real-Time Auto-Execute Status Feedback, Retry CTA & Live WebSocket Port Refresh',
+    changes: [
+      'افزودن فیلدهای هدف (`targetEntityType`، `targetEntityId`، `actionKey`) و وضعیت اجرا (`executionStatus`) به رویدادهای وب‌سوکت `approval:updated` در `server/approvalService.ts` و به‌روزرسانی تایپ‌های `CommsWsEvent` در `src/services/commsApi.ts`.',
+      'ارتقای رابط کاربری `ApprovalsQueuePane` و کارت تایید درون‌صفحه‌ای `CommunicationsCenterView` برای تفکیک دقیق اجرای خودکار موفق از خطای اجرا، پخش رویداد همگام‌سازی پاس JIT، دکمه کپی خروجی سرور و دکمه اختصاصی «تلاش مجدد اجرای خودکار» در صورت خطا.',
+      'افزودن شنونده زنده رویداد `nettop-comms-ws-event` در `PortInspectorModal` و `PortManagementView` جهت بازخوانی خودکار وضعیت پورت‌های تجهیز هدف بدون برهم‌زدن پورت انتخاب‌شده به‌محض اتمام اجرای تاییدشده.'
+    ],
+    changes_en: [
+      'Enriched `approval:updated` WebSocket broadcasts in `server/approvalService.ts` with `targetEntityType`, `targetEntityId`, `actionKey`, and `executionStatus`, and updated `CommsWsEvent` typing in `src/services/commsApi.ts`.',
+      'Enhanced `ApprovalsQueuePane` and the inline approval card in `CommunicationsCenterView` to distinguish auto-execution success vs. failure on decision, dispatch JIT grant sync updates, add a Copy Log control, and switch the execution button to "Retry Auto-Execute Now" upon failures.',
+      'Subscribed `PortInspectorModal` and `PortManagementView` to `nettop-comms-ws-event` so approved device operations trigger an automatic, non-blocking port-state refresh while preserving the active port selection.'
+    ]
+  },
   {
     version: '1.440.4',
     releaseDate: '2026-11-17',

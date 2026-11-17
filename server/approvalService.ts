@@ -2473,6 +2473,9 @@ export async function decideApprovalRequest(
       status: nextRequestStatus,
       currentStageOrder: nextStageOrder,
       totalStages,
+      targetEntityType: existing.targetEntityType,
+      targetEntityId: existing.targetEntityId,
+      actionKey: existing.actionKey,
     }
   );
 
@@ -2626,6 +2629,9 @@ export async function decideApprovalRequest(
           status: 'approved',
           executionStatus: 'failed',
           autoExecuted: true,
+          targetEntityType: existing.targetEntityType,
+          targetEntityId: existing.targetEntityId,
+          actionKey: existing.actionKey,
         }
       );
 
@@ -2916,6 +2922,9 @@ export async function executeApprovalTicketPayload(
     status: nextStatus,
     executionStatus: nextExecStatus,
     autoExecuted: Boolean(options?.isAuto),
+    targetEntityType: existingInternal.targetEntityType,
+    targetEntityId: existingInternal.targetEntityId,
+    actionKey: existingInternal.actionKey,
   });
   broadcastCommsEventToRecipients(dedupedRecipients, undefined, {
     type: 'jit_grant:updated',
@@ -3025,6 +3034,10 @@ export async function markApprovalRequestExecuted(
       type: 'approval:updated',
       approvalId,
       status: 'executed',
+      executionStatus: 'succeeded',
+      targetEntityType: existing.targetEntityType,
+      targetEntityId: existing.targetEntityId,
+      actionKey: existing.actionKey,
     }
   );
   broadcastCommsEventToRecipients(
