@@ -175,11 +175,20 @@ export function installGlobalApprovalFetchInterceptor(): void {
   if (typeof window === 'undefined') return;
   const w = window as any;
   if (w.__nettopApprovalFetchInstalled) return;
-  w.__nettopApprovalFetchInstalled = true;
 
-  const origFetch = window.fetch.bind(window);
+  const currentFetch =
+    typeof window.fetch === 'function'
+      ? window.fetch
+      : typeof fetch === 'function'
+      ? fetch
+      : null;
+  if (!currentFetch) return;
+  const origFetch = currentFetch.bind(window);
 
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const interceptedFetch = async (
+    input: RequestInfo | URL,
+    init?: RequestInit
+  ): Promise<Response> => {
     const { isApi, pathname } = isSameOriginApiCall(input);
     if (!isApi) {
       return origFetch(input, init);
@@ -293,4 +302,26 @@ export function installGlobalApprovalFetchInterceptor(): void {
       }
     );
   };
+
+  try {
+    const desc = Object.getOwnPropertyDescriptor(window, 'fetch');
+    if (!desc || desc.configurable) {
+      Object.defineProperty(window, 'fetch', {
+        value: interceptedFetch,
+        writable: true,
+        enumerable: desc ? desc.enumerable : true,
+        configurable: true,
+      });
+      w.__nettopApprovalFetchInstalled = true;
+    } else if (desc.writable || typeof desc.set === 'function') {
+      window.fetch = interceptedFetch;
+      w.__nettopApprovalFetchInstalled = true;
+    } else {
+      console.warn(
+        '[ApprovalGateBridge] window.fetch is non-configurable and read-only; global fetch interceptor skipped.'
+      );
+    }
+  } catch (err) {
+    console.warn('[ApprovalGateBridge] Could not override window.fetch safely:', err);
+  }
 }

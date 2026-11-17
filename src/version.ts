@@ -10,9 +10,22 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.435.1';
+export const APP_VERSION = '1.435.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.435.2',
+    releaseDate: '2026-11-16',
+    type: 'patch',
+    title: 'رفع خطای زمان اجرا هنگام نصب رهگیر سراسری `window.fetch` در محیط‌های دارای getter اختصاصی',
+    title_en: 'Fix Runtime TypeError When Installing Global Fetch Interceptor on Getter-Only window.fetch Environments',
+    changes: [
+      'جایگزینی انتساب مستقیم `window.fetch = ...` در `src/utils/approvalGateBridge.ts` با `Object.defineProperty` سازگار با توصیف‌گرهای getter-only (دارای `configurable: true`) و محافظت کامل در برابر خطا برای محیط‌های غیرقابل بازتعریف تا برنامه در بارگذاری اولیه دچار خطای `Cannot set property fetch of #<Window> which has only a getter` نشود.'
+    ],
+    changes_en: [
+      'Replaced direct `window.fetch = ...` assignment in `src/utils/approvalGateBridge.ts` (`installGlobalApprovalFetchInterceptor`) with descriptor-aware `Object.defineProperty` when configurable plus safe fallback/try-catch handling, preventing `TypeError: Cannot set property fetch of #<Window> which has only a getter` crashes in instrumented preview environments.'
+    ]
+  },
   {
     version: '1.435.1',
     releaseDate: '2026-11-16',
