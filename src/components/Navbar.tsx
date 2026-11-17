@@ -324,7 +324,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Bell className={`w-4 h-4 ${isLightMode ? 'text-indigo-600' : 'text-indigo-400'}`} />
               {unreadCommsCount > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.2 rounded-md bg-rose-600 text-white text-[10px] font-bold font-mono tabular-nums leading-tight">
+                <span
+                  className={`ms-1 inline-flex items-center justify-center rounded-full bg-rose-600 text-white font-bold font-mono tabular-nums leading-none shrink-0 shadow-xs ${
+                    unreadCommsCount > 99
+                      ? 'min-w-[18px] h-[16px] px-1 text-[8px]'
+                      : unreadCommsCount >= 10
+                      ? 'w-[17px] h-[17px] text-[8.5px]'
+                      : 'w-4 h-4 text-[9px]'
+                  }`}
+                >
                   {unreadCommsCount > 99 ? '99+' : unreadCommsCount}
                 </span>
               )}

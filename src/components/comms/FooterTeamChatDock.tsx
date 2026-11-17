@@ -500,8 +500,16 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
           </div>
           <span className="text-xs font-semibold truncate">{channelTitle}</span>
           {channel.unreadCount > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[10px] font-mono tabular-nums font-bold shrink-0">
-              {channel.unreadCount}
+            <span
+              className={`inline-flex items-center justify-center rounded-full bg-indigo-600 text-white font-mono tabular-nums font-bold leading-none shrink-0 ${
+                channel.unreadCount > 99
+                  ? 'min-w-[18px] h-[16px] px-1 text-[8px]'
+                  : channel.unreadCount >= 10
+                  ? 'w-[17px] h-[17px] text-[8.5px]'
+                  : 'w-4 h-4 text-[9px]'
+              }`}
+            >
+              {channel.unreadCount > 99 ? '99+' : channel.unreadCount}
             </span>
           )}
         </div>
@@ -1668,7 +1676,15 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
           {isEn ? 'chat' : 'چت تیمی'}
         </span>
         {totalChannelUnread > 0 && (
-          <span className="px-1 py-0.2 rounded-full bg-indigo-600 text-white text-[9.5px] font-bold tabular-nums leading-none">
+          <span
+            className={`inline-flex items-center justify-center rounded-full bg-indigo-600 text-white font-bold font-mono tabular-nums leading-none shrink-0 ${
+              totalChannelUnread > 99
+                ? 'min-w-[17px] h-[15px] px-1 text-[8px]'
+                : totalChannelUnread >= 10
+                ? 'w-[16px] h-[16px] text-[8px]'
+                : 'w-[15px] h-[15px] text-[8.5px]'
+            }`}
+          >
             {totalChannelUnread > 99 ? '99+' : totalChannelUnread}
           </span>
         )}
@@ -2136,8 +2152,16 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                                       <BellOff className="w-3 h-3 text-slate-400" />
                                     )}
                                     {ch.unreadCount > 0 && (
-                                      <span className="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[10px] font-mono tabular-nums font-bold">
-                                        {ch.unreadCount}
+                                      <span
+                                        className={`inline-flex items-center justify-center rounded-full bg-indigo-600 text-white font-mono tabular-nums font-bold leading-none shrink-0 ${
+                                          ch.unreadCount > 99
+                                            ? 'min-w-[18px] h-[16px] px-1 text-[8px]'
+                                            : ch.unreadCount >= 10
+                                            ? 'w-[17px] h-[17px] text-[8.5px]'
+                                            : 'w-4 h-4 text-[9px]'
+                                        }`}
+                                      >
+                                        {ch.unreadCount > 99 ? '99+' : ch.unreadCount}
                                       </span>
                                     )}
                                     <button

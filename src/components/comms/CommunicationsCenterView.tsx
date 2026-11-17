@@ -1051,8 +1051,16 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
               <Hash className="w-3.5 h-3.5 shrink-0" />
               <span>{isEn ? 'Team Chat & Channels' : 'گفتگوی تیمی و کانال‌ها'}</span>
               {channelUnreadCount > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full bg-indigo-500 text-white font-mono tabular-nums text-[10px]">
-                  {channelUnreadCount}
+                <span
+                  className={`inline-flex items-center justify-center rounded-full bg-indigo-500 text-white font-mono tabular-nums font-bold leading-none shrink-0 ${
+                    channelUnreadCount > 99
+                      ? 'min-w-[18px] h-[16px] px-1 text-[8px]'
+                      : channelUnreadCount >= 10
+                      ? 'w-[17px] h-[17px] text-[8.5px]'
+                      : 'w-4 h-4 text-[9px]'
+                  }`}
+                >
+                  {channelUnreadCount > 99 ? '99+' : channelUnreadCount}
                 </span>
               )}
             </button>

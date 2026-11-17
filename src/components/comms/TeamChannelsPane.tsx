@@ -965,8 +965,16 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                               <div className="flex items-center gap-1 shrink-0">
                                 {ch.isMuted && <BellOff className="w-3 h-3 text-slate-400" />}
                                 {ch.unreadCount > 0 && (
-                                  <span className="px-1.5 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-mono tabular-nums">
-                                    {ch.unreadCount}
+                                  <span
+                                    className={`inline-flex items-center justify-center rounded-full bg-indigo-600 text-white font-mono tabular-nums font-bold leading-none shrink-0 ${
+                                      ch.unreadCount > 99
+                                        ? 'min-w-[18px] h-[16px] px-1 text-[8px]'
+                                        : ch.unreadCount >= 10
+                                        ? 'w-[17px] h-[17px] text-[8.5px]'
+                                        : 'w-4 h-4 text-[9px]'
+                                    }`}
+                                  >
+                                    {ch.unreadCount > 99 ? '99+' : ch.unreadCount}
                                   </span>
                                 )}
                                 <button
@@ -1150,8 +1158,16 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                               <div className="flex items-center gap-1 shrink-0">
                                 {ch.isMuted && <BellOff className="w-3 h-3 text-slate-400" />}
                                 {ch.unreadCount > 0 && (
-                                  <span className="px-1.5 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-mono tabular-nums">
-                                    {ch.unreadCount}
+                                  <span
+                                    className={`inline-flex items-center justify-center rounded-full bg-indigo-600 text-white font-mono tabular-nums font-bold leading-none shrink-0 ${
+                                      ch.unreadCount > 99
+                                        ? 'min-w-[18px] h-[16px] px-1 text-[8px]'
+                                        : ch.unreadCount >= 10
+                                        ? 'w-[17px] h-[17px] text-[8.5px]'
+                                        : 'w-4 h-4 text-[9px]'
+                                    }`}
+                                  >
+                                    {ch.unreadCount > 99 ? '99+' : ch.unreadCount}
                                   </span>
                                 )}
                                 <button

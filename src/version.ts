@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.440.1';
+export const APP_VERSION = '1.440.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.440.2',
+    releaseDate: '2026-11-17',
+    type: 'patch',
+    title: 'اصلاح شکل دایره‌ای و کوچک‌سازی شمارنده اعلان‌های زنگوله و چت‌ها',
+    title_en: 'Circular Compact Notification Counter Badges for Navbar Bell & Team Chats',
+    changes: [
+      'تبدیل بج شمارنده اعلان‌های زنگوله نوار بالا (`Navbar`) از کادر مستطیلی (`rounded-md`) به دایره متقارن با سایز کوچکتر و تراز مرکزی عدد (`w-4 h-4` / `w-[17px] h-[17px]`).',
+      'تبدیل بج‌های شمارنده پیام‌های خوانده‌نشده در دکمه چت فوتر، هدر پنجره‌های شناور و ردیف گفتگوهای `FooterTeamChatDock`، `TeamChannelsPane` و تب چت `CommunicationsCenterView` به دایره‌های متقارن و یکنواخت با فونت خوانا و کوچکتر.'
+    ],
+    changes_en: [
+      'Converted the Navbar notification bell counter badge from a rectangular box (`rounded-md`) into a crisp proportional circle (`rounded-full`, fixed square dimensions for 1–2 digit counts) with a smaller centered numeral.',
+      'Unified unread counter badges across the footer chat trigger, floating chat headers, channel list rows (`FooterTeamChatDock`, `TeamChannelsPane`), and the Team Chat tab (`CommunicationsCenterView`) into matching compact circles with centered tabular numerals.'
+    ]
+  },
   {
     version: '1.440.1',
     releaseDate: '2026-11-17',
