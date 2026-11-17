@@ -327,6 +327,61 @@ export async function toggleCommsChannelMute(
   return json;
 }
 
+export async function clearCommsChannelHistory(
+  channelId: string
+): Promise<{ success: boolean; channelId: string; clearedAt: string }> {
+  const res = await fetch(`/api/comms/channels/${encodeURIComponent(channelId)}/clear`, {
+    method: 'POST',
+    headers: buildAuthHeaders(),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate(`comms:channel:${channelId}`);
+  appDataCache.invalidate('comms:channels');
+  appDataCache.invalidate('comms:unread');
+  return json;
+}
+
+export async function leaveCommsChannel(
+  channelId: string
+): Promise<{
+  success: boolean;
+  channelId: string;
+  mode: 'hidden_direct' | 'left_group' | 'deleted_empty_group';
+}> {
+  const res = await fetch(`/api/comms/channels/${encodeURIComponent(channelId)}/leave`, {
+    method: 'POST',
+    headers: buildAuthHeaders(),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate(`comms:channel:${channelId}`);
+  appDataCache.invalidate('comms:channels');
+  appDataCache.invalidate('comms:unread');
+  return json;
+}
+
+export async function deleteCommsChannel(
+  channelId: string
+): Promise<{ success: boolean; channelId: string }> {
+  const res = await fetch(`/api/comms/channels/${encodeURIComponent(channelId)}`, {
+    method: 'DELETE',
+    headers: buildAuthHeaders(),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate(`comms:channel:${channelId}`);
+  appDataCache.invalidate('comms:channels');
+  appDataCache.invalidate('comms:unread');
+  return json;
+}
+
 export async function fetchChannelMessages(
   channelId: string,
   options: { limit?: number; offset?: number; forceRefresh?: boolean } = {}
@@ -476,6 +531,10 @@ export type CommsWsEvent =
   | {
       type: 'channel:updated';
       channel: CommsChannel;
+    }
+  | {
+      type: 'channel:removed';
+      channelId: string;
     }
   | {
       type: 'channel:message';

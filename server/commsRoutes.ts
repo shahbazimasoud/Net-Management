@@ -5,13 +5,16 @@ import {
   acknowledgeNotification,
   addChannelMembers,
   archiveNotification,
+  clearChannelHistoryForUser,
   CommsActor,
   createGroupChannel,
   createOrOpenDirectChannel,
+  deleteGroupChannel,
   dispatchCommunication,
   getAnnouncementReceipts,
   getCommsRecipients,
   getUnreadNotificationCounts,
+  leaveOrDeleteChannelForUser,
   listChannelMessages,
   listSentAnnouncements,
   listUserChannels,
@@ -329,11 +332,15 @@ commsRouter.post('/comms/channels/:id/members', async (req: Request, res: Respon
   }
   try {
     const memberIds = Array.isArray(req.body?.memberIds) ? req.body.memberIds : [];
+    const canAddPolicy = Boolean(
+      auth.isSuperAdmin || auth.policy?.canSendCommunications || auth.policy?.canSendAnnouncements
+    );
     const channel = await addChannelMembers(
       auth.actor,
       Boolean(auth.isSuperAdmin),
       req.params.id,
-      memberIds
+      memberIds,
+      canAddPolicy
     );
     return res.json({ success: true, channel });
   } catch (err: any) {
@@ -354,6 +361,64 @@ commsRouter.patch('/comms/channels/:id/mute', async (req: Request, res: Response
     return res.json({ success: true, ...result });
   } catch (err: any) {
     return res.status(400).json({ success: false, error: err?.message || 'Failed to update mute state' });
+  }
+});
+
+// POST /api/comms/channels/:id/clear
+commsRouter.post('/comms/channels/:id/clear', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const result = await clearChannelHistoryForUser(auth.actor, req.params.id);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    const msg = String(err?.message || '');
+    const status = msg.startsWith('ACCESS_DENIED') ? 403 : msg.includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, error: msg || 'Failed to clear chat history' });
+  }
+});
+
+// POST /api/comms/channels/:id/leave
+commsRouter.post('/comms/channels/:id/leave', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const result = await leaveOrDeleteChannelForUser(
+      auth.actor,
+      Boolean(auth.isSuperAdmin),
+      req.params.id,
+      auth.clientIp
+    );
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    const msg = String(err?.message || '');
+    const status = msg.startsWith('ACCESS_DENIED') ? 403 : msg.includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, error: msg || 'Failed to leave channel' });
+  }
+});
+
+// DELETE /api/comms/channels/:id
+commsRouter.delete('/comms/channels/:id', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const result = await deleteGroupChannel(
+      auth.actor,
+      Boolean(auth.isSuperAdmin),
+      req.params.id,
+      auth.clientIp
+    );
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    const msg = String(err?.message || '');
+    const status = msg.startsWith('ACCESS_DENIED') ? 403 : msg.includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, error: msg || 'Failed to delete channel' });
   }
 });
 

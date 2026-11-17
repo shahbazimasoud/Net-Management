@@ -198,6 +198,13 @@ export default function App() {
         return;
       }
 
+      if (evt.type === 'channel:removed') {
+        appDataCache.invalidate('comms:unread');
+        appDataCache.invalidate('comms:channels');
+        appDataCache.invalidate(`comms:channel:${evt.channelId}`);
+        return;
+      }
+
       if (
         evt.type === 'notification:created' ||
         evt.type === 'notification:updated' ||

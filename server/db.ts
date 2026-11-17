@@ -2545,6 +2545,8 @@ export async function initDatabase(): Promise<void> {
           PRIMARY KEY (channel_id, user_id)
         )
       `);
+      await client.query("ALTER TABLE comms_channel_members ADD COLUMN IF NOT EXISTS cleared_at TIMESTAMP WITH TIME ZONE");
+      await client.query("ALTER TABLE comms_channel_members ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT FALSE");
       await client.query("CREATE INDEX IF NOT EXISTS idx_comms_members_user ON comms_channel_members(user_id)");
 
       // 26. Communications Messages & Broadcast Announcements Ledger

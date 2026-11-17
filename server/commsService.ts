@@ -1037,8 +1037,11 @@ async function persistMessageAndNotifications(
     if (chIdx !== -1) store.comms_channels[chIdx].updated_at = channelUpdate.updatedAt;
     const senderIdSet = new Set(channelUpdate.senderIds);
     for (const m of store.comms_channel_members) {
+      if ((m.channel_id ?? m.channelId) !== channelUpdate.channelId) continue;
+      if (m.is_hidden || m.isHidden) {
+        m.is_hidden = false;
+      }
       if (
-        (m.channel_id ?? m.channelId) === channelUpdate.channelId &&
         memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, senderIdSet)
       ) {
         m.last_read_message_id = channelUpdate.messageId;
@@ -1141,11 +1144,19 @@ async function persistMessageAndNotifications(
             channelUpdate.channelId,
           ])
         );
+        queries.push(
+          pool.query(
+            `UPDATE comms_channel_members
+             SET is_hidden = FALSE
+             WHERE channel_id = $1 AND COALESCE(is_hidden, FALSE) = TRUE`,
+            [channelUpdate.channelId]
+          )
+        );
         if (channelUpdate.senderIds.length > 0) {
           queries.push(
             pool.query(
               `UPDATE comms_channel_members
-               SET last_read_message_id = $1
+               SET last_read_message_id = $1, is_hidden = FALSE
                WHERE channel_id = $2
                  AND (LOWER(user_id) = ANY($3::text[]) OR LOWER(username) = ANY($3::text[]))`,
               [channelUpdate.messageId, channelUpdate.channelId, channelUpdate.senderIds]
@@ -1721,6 +1732,17 @@ function assembleHydratedChannel(
 ): CommsChannel {
   const members = rawMembers.map((m) => mapChannelMemberRow(m, resolvedDir));
   const viewerMembership = members.find((m) => memberMatchesIdentifiers(m, idSet));
+  const rawViewerMember = rawMembers.find((m) =>
+    memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet)
+  );
+  const viewerClearedAtRaw = rawViewerMember?.cleared_at ?? rawViewerMember?.clearedAt ?? null;
+  const viewerClearedAtMs = viewerClearedAtRaw ? new Date(viewerClearedAtRaw).getTime() : 0;
+  const latestMsgMs = latestMsg
+    ? new Date(latestMsg.created_at ?? latestMsg.createdAt ?? 0).getTime()
+    : 0;
+  const visibleLatestMsg =
+    latestMsg && (!viewerClearedAtMs || latestMsgMs > viewerClearedAtMs) ? latestMsg : null;
+
   const channelType = (rawChannel.channel_type ?? rawChannel.channelType ?? 'group') as CommsChannelType;
 
   let displayName = rawChannel.name || '';
@@ -1734,7 +1756,7 @@ function assembleHydratedChannel(
     }
   }
 
-  const lastBody = latestMsg?.body || null;
+  const lastBody = visibleLatestMsg?.body || null;
   const lastMessagePreview =
     lastBody && lastBody.length > 90 ? `${lastBody.slice(0, 87)}...` : lastBody;
 
@@ -1752,9 +1774,9 @@ function assembleHydratedChannel(
     memberCount: members.length,
     unreadCount,
     lastMessagePreview,
-    lastMessageAt: latestMsg?.created_at
-      ? new Date(latestMsg.created_at).toISOString()
-      : latestMsg?.createdAt || null,
+    lastMessageAt: visibleLatestMsg?.created_at
+      ? new Date(visibleLatestMsg.created_at).toISOString()
+      : visibleLatestMsg?.createdAt || null,
     members,
     createdAt: rawChannel.created_at
       ? new Date(rawChannel.created_at).toISOString()
@@ -1861,7 +1883,8 @@ export async function listUserChannels(user: Partial<CommsActor>): Promise<Comms
     try {
       const res = await pool.query(
         `SELECT DISTINCT channel_id FROM comms_channel_members
-         WHERE LOWER(user_id) = ANY($1::text[]) OR LOWER(username) = ANY($1::text[])`,
+         WHERE COALESCE(is_hidden, FALSE) = FALSE
+           AND (LOWER(user_id) = ANY($1::text[]) OR LOWER(username) = ANY($1::text[]))`,
         [identifiers]
       );
       for (const r of res.rows) {
@@ -1874,6 +1897,7 @@ export async function listUserChannels(user: Partial<CommsActor>): Promise<Comms
 
   const store = loadFallbackStore();
   for (const m of store.comms_channel_members || []) {
+    if (m.is_hidden ?? m.isHidden) continue;
     if (memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet)) {
       const cid = m.channel_id ?? m.channelId;
       if (cid) channelIds.add(cid);
@@ -2022,19 +2046,97 @@ export async function createOrOpenDirectChannel(
     throw new Error('Cannot start a direct chat with yourself.');
   }
 
-  // Search existing 1:1 direct channels between sender and target
-  const senderChannels = await listUserChannels(senderUser);
-  const existing = senderChannels.find(
-    (c) =>
-      c.channelType === 'direct' &&
-      c.members &&
-      c.members.length === 2 &&
-      c.members.some((m) =>
-        memberMatchesIdentifiers(m, new Set(resolveUserIdentifiers(target)))
-      )
-  );
-  if (existing) {
-    return { channel: existing, created: false };
+  // Search existing 1:1 direct channels between sender and target (including previously hidden DMs)
+  const senderIds = resolveUserIdentifiers(senderUser);
+  const targetIds = resolveUserIdentifiers(target);
+  const targetIdSet = new Set(targetIds);
+  let existingChannelId: string | null = null;
+
+  await ensurePostgresConnection();
+  const poolDirect = getPgPool();
+  if (isPostgresConnected() && poolDirect) {
+    try {
+      const res = await poolDirect.query(
+        `SELECT c.id
+         FROM comms_channels c
+         WHERE c.channel_type = 'direct'
+           AND EXISTS (
+             SELECT 1 FROM comms_channel_members m1
+             WHERE m1.channel_id = c.id
+               AND (LOWER(m1.user_id) = ANY($1::text[]) OR LOWER(m1.username) = ANY($1::text[]))
+           )
+           AND EXISTS (
+             SELECT 1 FROM comms_channel_members m2
+             WHERE m2.channel_id = c.id
+               AND (LOWER(m2.user_id) = ANY($2::text[]) OR LOWER(m2.username) = ANY($2::text[]))
+           )
+         LIMIT 1`,
+        [senderIds, targetIds]
+      );
+      if (res.rows[0]?.id) existingChannelId = res.rows[0].id;
+    } catch {}
+  }
+
+  if (!existingChannelId) {
+    const fbStore = loadFallbackStore();
+    const membersByChannel = new Map<string, any[]>();
+    for (const m of fbStore.comms_channel_members || []) {
+      const cid = m.channel_id ?? m.channelId;
+      if (!cid) continue;
+      const list = membersByChannel.get(cid) || [];
+      list.push(m);
+      membersByChannel.set(cid, list);
+    }
+    const found = (fbStore.comms_channels || []).find((c: any) => {
+      if ((c.channel_type ?? c.channelType) !== 'direct') return false;
+      const mems = membersByChannel.get(c.id) || [];
+      return (
+        mems.length === 2 &&
+        mems.some((m) => memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, senderIdSet)) &&
+        mems.some((m) => memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, targetIdSet))
+      );
+    });
+    if (found) existingChannelId = found.id;
+  }
+
+  if (existingChannelId) {
+    // Un-hide caller membership if they previously deleted/hid the DM
+    const fbStore = loadFallbackStore();
+    let fbModified = false;
+    for (const m of fbStore.comms_channel_members || []) {
+      if (
+        (m.channel_id ?? m.channelId) === existingChannelId &&
+        memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, senderIdSet) &&
+        (m.is_hidden || m.isHidden)
+      ) {
+        m.is_hidden = false;
+        fbModified = true;
+      }
+    }
+    if (fbModified) saveFallbackStore(fbStore);
+
+    if (isPostgresConnected() && poolDirect) {
+      await poolDirect
+        .query(
+          `UPDATE comms_channel_members
+           SET is_hidden = FALSE
+           WHERE channel_id = $1 AND COALESCE(is_hidden, FALSE) = TRUE
+             AND (LOWER(user_id) = ANY($2::text[]) OR LOWER(username) = ANY($2::text[]))`,
+          [existingChannelId, senderIds]
+        )
+        .catch(() => {});
+    }
+
+    const hydratedExisting = await loadHydratedChannelForUser(existingChannelId, senderUser);
+    if (hydratedExisting) {
+      if (fbModified) {
+        broadcastCommsEventToUser(senderUser, {
+          type: 'channel:created',
+          channel: hydratedExisting,
+        });
+      }
+      return { channel: hydratedExisting, created: false };
+    }
   }
 
   const nowIso = new Date().toISOString();
@@ -2292,7 +2394,8 @@ export async function addChannelMembers(
   actor: CommsActor,
   isSuperAdmin: boolean,
   channelId: string,
-  memberIds: string[]
+  memberIds: string[],
+  canAddMembersPolicy = false
 ): Promise<CommsChannel> {
   const existing = await loadHydratedChannelForUser(channelId, actor);
   if (!existing) {
@@ -2304,8 +2407,9 @@ export async function addChannelMembers(
 
   const actorIds = new Set(resolveUserIdentifiers(actor));
   const actorMember = (existing.members || []).find((m) => memberMatchesIdentifiers(m, actorIds));
-  if (!isSuperAdmin && actorMember?.role !== 'owner' && existing.createdByUserId !== actor.userId) {
-    throw new Error('ACCESS_DENIED: Only channel owner or Super Admin can add members.');
+  const isOwner = actorMember?.role === 'owner' || existing.createdByUserId === actor.userId;
+  if (!isSuperAdmin && !isOwner && !(actorMember && canAddMembersPolicy)) {
+    throw new Error('ACCESS_DENIED: Only channel owner, authorized members, or Super Admin can add members.');
   }
 
   const resolved = await resolveTargetRecipients('users', memberIds);
@@ -2415,20 +2519,45 @@ export async function listChannelMessages(
 ): Promise<{ channel: CommsChannel; messages: CommsMessage[]; total: number }> {
   const limit = Math.min(200, Math.max(1, Number(options.limit) || 100));
   const offset = Math.max(0, Number(options.offset) || 0);
+  const idList = resolveUserIdentifiers(user);
+  const idSet = new Set(idList);
 
   await ensurePostgresConnection();
   const pool = getPgPool();
   const pgActive = isPostgresConnected() && Boolean(pool);
 
-  // Run channel hydration + COUNT(*) + SELECT page concurrently
+  // Run channel hydration + viewer-cleared COUNT(*) + viewer-cleared SELECT page concurrently
   const [channel, pgCountsAndRows] = await Promise.all([
     loadHydratedChannelForUser(channelId, user),
     pgActive && pool
       ? Promise.all([
-          pool.query(`SELECT COUNT(*)::int AS total FROM comms_messages WHERE channel_id = $1`, [channelId]),
           pool.query(
-            `SELECT * FROM comms_messages WHERE channel_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
-            [channelId, limit, offset]
+            `WITH viewer AS (
+               SELECT MAX(cleared_at) AS cleared_at
+               FROM comms_channel_members
+               WHERE channel_id = $1
+                 AND (LOWER(user_id) = ANY($2::text[]) OR LOWER(username) = ANY($2::text[]))
+             )
+             SELECT COUNT(*)::int AS total
+             FROM comms_messages, viewer
+             WHERE channel_id = $1
+               AND (viewer.cleared_at IS NULL OR created_at > viewer.cleared_at)`,
+            [channelId, idList]
+          ),
+          pool.query(
+            `WITH viewer AS (
+               SELECT MAX(cleared_at) AS cleared_at
+               FROM comms_channel_members
+               WHERE channel_id = $1
+                 AND (LOWER(user_id) = ANY($2::text[]) OR LOWER(username) = ANY($2::text[]))
+             )
+             SELECT m.*
+             FROM comms_messages m, viewer
+             WHERE m.channel_id = $1
+               AND (viewer.cleared_at IS NULL OR m.created_at > viewer.cleared_at)
+             ORDER BY m.created_at DESC
+             LIMIT $3 OFFSET $4`,
+            [channelId, idList, limit, offset]
           ),
         ]).catch((err: any) => {
           console.error('[CommsService] listChannelMessages PG error:', err?.message || err);
@@ -2441,8 +2570,6 @@ export async function listChannelMessages(
     throw new Error('Channel not found.');
   }
 
-  const idList = resolveUserIdentifiers(user);
-  const idSet = new Set(idList);
   const isMember = (channel.members || []).some((m) => memberMatchesIdentifiers(m, idSet));
   if (!isMember && !isSuperAdmin) {
     throw new Error('ACCESS_DENIED: You are not a member of this channel.');
@@ -2456,10 +2583,27 @@ export async function listChannelMessages(
     rawMessages = pgCountsAndRows[1].rows.reverse();
   }
 
-  if (rawMessages.length === 0) {
+  if (rawMessages.length === 0 && (!pgCountsAndRows || total === 0)) {
     const store = loadFallbackStore();
+    const viewerFbMembers = (store.comms_channel_members || []).filter(
+      (m: any) =>
+        (m.channel_id ?? m.channelId) === channelId &&
+        memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet)
+    );
+    let clearedAtMs = 0;
+    for (const m of viewerFbMembers) {
+      const ca = m.cleared_at ?? m.clearedAt;
+      if (ca) {
+        const ms = new Date(ca).getTime();
+        if (ms > clearedAtMs) clearedAtMs = ms;
+      }
+    }
     const allForChannel = (store.comms_messages || [])
-      .filter((m: any) => (m.channel_id ?? m.channelId) === channelId)
+      .filter((m: any) => {
+        if ((m.channel_id ?? m.channelId) !== channelId) return false;
+        if (!clearedAtMs) return true;
+        return new Date(m.created_at || m.createdAt).getTime() > clearedAtMs;
+      })
       .sort(
         (a: any, b: any) =>
           new Date(a.created_at || a.createdAt).getTime() -
@@ -2582,6 +2726,402 @@ export async function listChannelMessages(
     messages,
     total,
   };
+}
+
+export async function clearChannelHistoryForUser(
+  actor: CommsActor,
+  channelId: string
+): Promise<{ channelId: string; clearedAt: string }> {
+  const existing = await loadHydratedChannelForUser(channelId, actor);
+  if (!existing) {
+    throw new Error('Channel not found.');
+  }
+  const idList = resolveUserIdentifiers(actor);
+  const idSet = new Set(idList);
+  const isMember = (existing.members || []).some((m) => memberMatchesIdentifiers(m, idSet));
+  if (!isMember) {
+    throw new Error('ACCESS_DENIED: You are not a member of this channel.');
+  }
+
+  const nowIso = new Date().toISOString();
+
+  // Update fallback store per-user cleared_at & unread notifications
+  const store = loadFallbackStore();
+  for (const m of store.comms_channel_members || []) {
+    if (
+      (m.channel_id ?? m.channelId) === channelId &&
+      memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet)
+    ) {
+      m.cleared_at = nowIso;
+      m.last_read_message_id = null;
+    }
+  }
+  for (const n of store.comms_notifications || []) {
+    if (
+      (n.channel_id ?? n.channelId) === channelId &&
+      !(n.is_read ?? n.isRead) &&
+      (idSet.has((n.recipient_user_id || n.recipientUserId || '').toLowerCase()) ||
+        idSet.has((n.recipient_username || n.recipientUsername || '').toLowerCase()))
+    ) {
+      n.is_read = true;
+      n.read_at = n.read_at || nowIso;
+    }
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool && idList.length > 0) {
+    try {
+      await Promise.all([
+        pool.query(
+          `UPDATE comms_channel_members
+           SET cleared_at = $1, last_read_message_id = NULL
+           WHERE channel_id = $2
+             AND (LOWER(user_id) = ANY($3::text[]) OR LOWER(username) = ANY($3::text[]))`,
+          [nowIso, channelId, idList]
+        ),
+        pool.query(
+          `UPDATE comms_notifications
+           SET is_read = TRUE, read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+           WHERE channel_id = $1 AND is_read = FALSE
+             AND (LOWER(recipient_user_id) = ANY($2::text[]) OR LOWER(recipient_username) = ANY($2::text[]))`,
+          [channelId, idList]
+        ),
+      ]);
+    } catch (err: any) {
+      console.error('[CommsService] clearChannelHistoryForUser PG error:', err?.message || err);
+    }
+  }
+
+  const hydrated = await loadHydratedChannelForUser(channelId, actor);
+  if (hydrated) {
+    broadcastCommsEventToUser(actor, {
+      type: 'channel:updated',
+      channel: { ...hydrated, lastMessagePreview: null, lastMessageAt: null, unreadCount: 0 },
+    });
+  }
+  const counts = await getUnreadNotificationCounts(actor).catch(() => null);
+  if (counts) {
+    broadcastCommsEventToUser(actor, {
+      type: 'comms:sync',
+      unreadCount: counts.unreadCount,
+      countsByFolder: counts.countsByFolder,
+    });
+  }
+
+  return { channelId, clearedAt: nowIso };
+}
+
+export async function leaveOrDeleteChannelForUser(
+  actor: CommsActor,
+  isSuperAdmin: boolean,
+  channelId: string,
+  senderIp = '127.0.0.1'
+): Promise<{ channelId: string; mode: 'hidden_direct' | 'left_group' | 'deleted_empty_group' }> {
+  const existing = await loadHydratedChannelForUser(channelId, actor);
+  if (!existing) {
+    throw new Error('Channel not found.');
+  }
+
+  const idList = resolveUserIdentifiers(actor);
+  const idSet = new Set(idList);
+  const isMember = (existing.members || []).some((m) => memberMatchesIdentifiers(m, idSet));
+  if (!isMember && !isSuperAdmin) {
+    throw new Error('ACCESS_DENIED: You are not a member of this channel.');
+  }
+
+  const nowIso = new Date().toISOString();
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+
+  if (existing.channelType === 'direct') {
+    const store = loadFallbackStore();
+    for (const m of store.comms_channel_members || []) {
+      if (
+        (m.channel_id ?? m.channelId) === channelId &&
+        memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet)
+      ) {
+        m.is_hidden = true;
+        m.cleared_at = nowIso;
+        m.last_read_message_id = null;
+      }
+    }
+    for (const n of store.comms_notifications || []) {
+      if (
+        (n.channel_id ?? n.channelId) === channelId &&
+        (idSet.has((n.recipient_user_id || n.recipientUserId || '').toLowerCase()) ||
+          idSet.has((n.recipient_username || n.recipientUsername || '').toLowerCase()))
+      ) {
+        n.is_read = true;
+        n.is_archived = true;
+        n.read_at = n.read_at || nowIso;
+      }
+    }
+    saveFallbackStore(store);
+
+    if (isPostgresConnected() && pool && idList.length > 0) {
+      try {
+        await Promise.all([
+          pool.query(
+            `UPDATE comms_channel_members
+             SET is_hidden = TRUE, cleared_at = $1, last_read_message_id = NULL
+             WHERE channel_id = $2
+               AND (LOWER(user_id) = ANY($3::text[]) OR LOWER(username) = ANY($3::text[]))`,
+            [nowIso, channelId, idList]
+          ),
+          pool.query(
+            `UPDATE comms_notifications
+             SET is_read = TRUE, is_archived = TRUE, read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+             WHERE channel_id = $1
+               AND (LOWER(recipient_user_id) = ANY($2::text[]) OR LOWER(recipient_username) = ANY($2::text[]))`,
+            [channelId, idList]
+          ),
+        ]);
+      } catch (err: any) {
+        console.error('[CommsService] leaveOrDeleteDirect PG error:', err?.message || err);
+      }
+    }
+
+    broadcastCommsEventToUser(actor, { type: 'channel:removed', channelId } as any);
+    const counts = await getUnreadNotificationCounts(actor).catch(() => null);
+    if (counts) {
+      broadcastCommsEventToUser(actor, {
+        type: 'comms:sync',
+        unreadCount: counts.unreadCount,
+        countsByFolder: counts.countsByFolder,
+      });
+    }
+    return { channelId, mode: 'hidden_direct' };
+  }
+
+  // Group channel leave
+  const store = loadFallbackStore();
+  store.comms_channel_members = (store.comms_channel_members || []).filter(
+    (m: any) =>
+      !(
+        (m.channel_id ?? m.channelId) === channelId &&
+        memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, idSet)
+      )
+  );
+  for (const n of store.comms_notifications || []) {
+    if (
+      (n.channel_id ?? n.channelId) === channelId &&
+      (idSet.has((n.recipient_user_id || n.recipientUserId || '').toLowerCase()) ||
+        idSet.has((n.recipient_username || n.recipientUsername || '').toLowerCase()))
+    ) {
+      n.is_read = true;
+      n.is_archived = true;
+      n.read_at = n.read_at || nowIso;
+    }
+  }
+  const fbRemaining = (store.comms_channel_members || []).filter(
+    (m: any) => (m.channel_id ?? m.channelId) === channelId
+  );
+  if (fbRemaining.length === 0) {
+    store.comms_channels = (store.comms_channels || []).filter((c: any) => c.id !== channelId);
+    store.comms_messages = (store.comms_messages || []).filter(
+      (m: any) => (m.channel_id ?? m.channelId) !== channelId
+    );
+    store.comms_notifications = (store.comms_notifications || []).filter(
+      (n: any) => (n.channel_id ?? n.channelId) !== channelId
+    );
+  } else if (!fbRemaining.some((m: any) => m.role === 'owner')) {
+    fbRemaining[0].role = 'owner';
+  }
+  saveFallbackStore(store);
+
+  let mode: 'left_group' | 'deleted_empty_group' =
+    fbRemaining.length === 0 ? 'deleted_empty_group' : 'left_group';
+  let remainingRecipients: Array<{ userId: string; username: string }> = fbRemaining.map((m: any) => ({
+    userId: m.user_id ?? m.userId,
+    username: m.username,
+  }));
+
+  if (isPostgresConnected() && pool && idList.length > 0) {
+    try {
+      await Promise.all([
+        pool.query(
+          `DELETE FROM comms_channel_members
+           WHERE channel_id = $1
+             AND (LOWER(user_id) = ANY($2::text[]) OR LOWER(username) = ANY($2::text[]))`,
+          [channelId, idList]
+        ),
+        pool.query(
+          `UPDATE comms_notifications
+           SET is_read = TRUE, is_archived = TRUE, read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+           WHERE channel_id = $1
+             AND (LOWER(recipient_user_id) = ANY($2::text[]) OR LOWER(recipient_username) = ANY($2::text[]))`,
+          [channelId, idList]
+        ),
+      ]);
+
+      const remRes = await pool.query(
+        `SELECT user_id, username, role FROM comms_channel_members WHERE channel_id = $1 ORDER BY joined_at ASC`,
+        [channelId]
+      );
+      if (remRes.rows.length === 0) {
+        mode = 'deleted_empty_group';
+        remainingRecipients = [];
+        await Promise.all([
+          pool.query(`DELETE FROM comms_notifications WHERE channel_id = $1`, [channelId]),
+          pool.query(`DELETE FROM comms_messages WHERE channel_id = $1`, [channelId]),
+          pool.query(`DELETE FROM comms_channels WHERE id = $1`, [channelId]),
+        ]);
+      } else {
+        mode = 'left_group';
+        remainingRecipients = remRes.rows.map((r: any) => ({
+          userId: r.user_id,
+          username: r.username,
+        }));
+        if (!remRes.rows.some((r: any) => r.role === 'owner')) {
+          await pool.query(
+            `UPDATE comms_channel_members SET role = 'owner' WHERE channel_id = $1 AND user_id = $2`,
+            [channelId, remRes.rows[0].user_id]
+          );
+        }
+      }
+    } catch (err: any) {
+      console.error('[CommsService] leaveOrDeleteGroup PG error:', err?.message || err);
+    }
+  }
+
+  broadcastCommsEventToUser(actor, { type: 'channel:removed', channelId } as any);
+  const counts = await getUnreadNotificationCounts(actor).catch(() => null);
+  if (counts) {
+    broadcastCommsEventToUser(actor, {
+      type: 'comms:sync',
+      unreadCount: counts.unreadCount,
+      countsByFolder: counts.countsByFolder,
+    });
+  }
+
+  if (mode === 'left_group' && remainingRecipients.length > 0) {
+    const refreshed = await loadHydratedChannelForUser(channelId, remainingRecipients[0]);
+    if (refreshed) {
+      broadcastCommsEventToRecipients(remainingRecipients, undefined, {
+        type: 'channel:updated',
+        channel: refreshed,
+      });
+    }
+  }
+
+  void addPortalAuditLog({
+    category: 'communications',
+    action: 'CHANNEL_LEFT',
+    title: `خروج از کانال: ${existing.name}`,
+    title_en: `Left Group Channel: ${existing.nameEn || existing.name}`,
+    actor: {
+      username: actor.username,
+      role: actor.role || 'Operator',
+      ipAddress: senderIp || '127.0.0.1',
+    },
+    target: {
+      type: 'comms_channel',
+      id: channelId,
+      name: existing.nameEn || existing.name,
+    },
+    severity: 'info',
+    status: 'success',
+    details: `کاربر ${actor.username} از کانال «${existing.name}» خارج شد.`,
+    details_en: `User ${actor.username} left channel "${existing.nameEn || existing.name}".`,
+  }).catch(() => {});
+
+  return { channelId, mode };
+}
+
+export async function deleteGroupChannel(
+  actor: CommsActor,
+  isSuperAdmin: boolean,
+  channelId: string,
+  senderIp = '127.0.0.1'
+): Promise<{ channelId: string }> {
+  const existing = await loadHydratedChannelForUser(channelId, actor);
+  if (!existing) {
+    throw new Error('Channel not found.');
+  }
+  if (existing.channelType !== 'group') {
+    await leaveOrDeleteChannelForUser(actor, isSuperAdmin, channelId, senderIp);
+    return { channelId };
+  }
+
+  const actorIds = new Set(resolveUserIdentifiers(actor));
+  const actorMember = (existing.members || []).find((m) => memberMatchesIdentifiers(m, actorIds));
+  const isOwner = actorMember?.role === 'owner' || existing.createdByUserId === actor.userId;
+  if (!isSuperAdmin && !isOwner) {
+    throw new Error('ACCESS_DENIED: Only channel owner or Super Admin can delete this channel.');
+  }
+
+  const formerRecipients = (existing.members || []).map((m) => ({
+    userId: m.userId,
+    username: m.username,
+  }));
+
+  const store = loadFallbackStore();
+  store.comms_channels = (store.comms_channels || []).filter((c: any) => c.id !== channelId);
+  store.comms_channel_members = (store.comms_channel_members || []).filter(
+    (m: any) => (m.channel_id ?? m.channelId) !== channelId
+  );
+  store.comms_messages = (store.comms_messages || []).filter(
+    (m: any) => (m.channel_id ?? m.channelId) !== channelId
+  );
+  store.comms_notifications = (store.comms_notifications || []).filter(
+    (n: any) => (n.channel_id ?? n.channelId) !== channelId
+  );
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool) {
+    try {
+      await Promise.all([
+        pool.query(`DELETE FROM comms_notifications WHERE channel_id = $1`, [channelId]),
+        pool.query(`DELETE FROM comms_messages WHERE channel_id = $1`, [channelId]),
+        pool.query(`DELETE FROM comms_channel_members WHERE channel_id = $1`, [channelId]),
+        pool.query(`DELETE FROM comms_channels WHERE id = $1`, [channelId]),
+      ]);
+    } catch (err: any) {
+      console.error('[CommsService] deleteGroupChannel PG error:', err?.message || err);
+    }
+  }
+
+  if (formerRecipients.length > 0) {
+    broadcastCommsEventToRecipients(formerRecipients, undefined, {
+      type: 'channel:removed',
+      channelId,
+    } as any);
+  }
+  const counts = await getUnreadNotificationCounts(actor).catch(() => null);
+  if (counts) {
+    broadcastCommsEventToUser(actor, {
+      type: 'comms:sync',
+      unreadCount: counts.unreadCount,
+      countsByFolder: counts.countsByFolder,
+    });
+  }
+
+  void addPortalAuditLog({
+    category: 'communications',
+    action: 'CHANNEL_DELETED',
+    title: `حذف کامل کانال گروهی: ${existing.name}`,
+    title_en: `Group Channel Deleted: ${existing.nameEn || existing.name}`,
+    actor: {
+      username: actor.username,
+      role: actor.role || 'Operator',
+      ipAddress: senderIp || '127.0.0.1',
+    },
+    target: {
+      type: 'comms_channel',
+      id: channelId,
+      name: existing.nameEn || existing.name,
+    },
+    severity: 'warning',
+    status: 'success',
+    details: `کانال «${existing.name}» به‌صورت کامل توسط ${actor.username} حذف شد.`,
+    details_en: `Group channel "${existing.nameEn || existing.name}" deleted by ${actor.username}.`,
+  }).catch(() => {});
+
+  return { channelId };
 }
 
 export async function postChannelMessage(

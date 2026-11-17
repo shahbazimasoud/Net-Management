@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.439.0';
+export const APP_VERSION = '1.440.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.440.0',
+    releaseDate: '2026-11-17',
+    type: 'minor',
+    title: 'افزودن منوی اکشن چت‌ها (افزودن عضو، پاک کردن تاریخچه، خروج از گروه و حذف گفتگو سمت کاربر)',
+    title_en: 'Per-Chat Actions Menu (Add Member, Clear History, Leave Group & Delete Chat)',
+    changes: [
+      'افزودن ستون‌های `cleared_at` و `is_hidden` در جدول `comms_channel_members` و پیاده‌سازی سرویس‌ها و مسیرهای API سمت سرور برای پاک کردن تاریخچه پیام‌ها فقط از سمت کاربر (`POST /api/comms/channels/:id/clear`)، خروج از گروه یا مخفی‌سازی چت مستقیم از سمت کاربر (`POST /api/comms/channels/:id/leave`)، و حذف کامل کانال گروهی توسط مالک یا سوپرادمین (`DELETE /api/comms/channels/:id`).',
+      'بازگشایی خودکار چت‌های مستقیم مخفی‌شده هنگام دریافت پیام جدید یا شروع مجدد گفتگو ضمن حفظ `cleared_at` اختصاصی هر کاربر بدون تاثیر روی تاریخچه طرف مقابل و همراه با همگام‌سازی فوری وب‌سوکت (`channel:removed` و `channel:updated`).',
+      'افزودن منوی عملیات سه نقطه (`MoreVertical`) روی ردیف‌های لیست چت و هدر ترد در `TeamChannelsPane` (همراه با مودال تایید مطابق استاندارد Rule-7) و در پنجره‌های شناور و لیست داک فوتر (`FooterTeamChatDock`) برای دسترسی سریع به افزودن عضو جدید، بی‌صدا کردن، پاک کردن تاریخچه، خروج از گروه و حذف گفتگو.'
+    ],
+    changes_en: [
+      'Added per-membership `cleared_at` and `is_hidden` columns on `comms_channel_members` alongside backend endpoints and storage logic (`server/commsService.ts`, `server/commsRoutes.ts`) for per-user chat history clearing (`POST /api/comms/channels/:id/clear`), leaving groups / hiding direct chats on the user side (`POST /api/comms/channels/:id/leave`), and permanent channel deletion by owners or Super Admins (`DELETE /api/comms/channels/:id`).',
+      'Updated message persistence, direct-channel reopening, and WebSocket event dispatch (`channel:updated` / `channel:removed`) so cleared history stays filtered per user while new messages automatically un-hide previously hidden 1:1 threads without exposing prior messages.',
+      'Added three-dot (`MoreVertical`) per-chat action menus across conversation rows and headers in `TeamChannelsPane` (with Rule-7 bilingual confirmation modal) and inside `FooterTeamChatDock` floating chat boxes and drawer list items (with inline two-step confirmation and inline member addition) for Add Member, Mute/Unmute, Clear Chat History, Leave Group, Delete Chat, and Delete Channel.'
+    ]
+  },
   {
     version: '1.439.0',
     releaseDate: '2026-11-17',

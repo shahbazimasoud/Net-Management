@@ -18,6 +18,10 @@ import {
   AlertCircle,
   CornerDownRight,
   Settings,
+  MoreVertical,
+  Eraser,
+  LogOut,
+  Trash2,
 } from 'lucide-react';
 import {
   CommsChannel,
@@ -32,10 +36,13 @@ import { ModalHeaderControls } from '../common/ModalHeaderControls';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import {
   addCommsChannelMembers,
+  clearCommsChannelHistory,
   createGroupCommsChannel,
+  deleteCommsChannel,
   fetchChannelMessages,
   fetchCommsChannels,
   fetchCommsRecipients,
+  leaveCommsChannel,
   openDirectCommsChannel,
   postChannelMessage,
   toggleCommsChannelMute,
@@ -56,6 +63,7 @@ interface TeamChannelsPaneProps {
 const DIRECT_MODAL_ID = 'comms-direct-chat-modal';
 const GROUP_MODAL_ID = 'comms-group-channel-modal';
 const MEMBERS_MODAL_ID = 'comms-channel-members-modal';
+const ACTION_CONFIRM_MODAL_ID = 'comms-chat-action-confirm-modal';
 
 function dedupeParenthesizedTitle(value?: string | null): string {
   const clean = (value || '').trim();
@@ -130,8 +138,18 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
   // Add Members Modal
   const [addMembersOpen, setAddMembersOpen] = useState(false);
   const [addMembersMaximized, setAddMembersMaximized] = useState(false);
+  const [membersTargetChannelId, setMembersTargetChannelId] = useState<string | null>(null);
   const [extraMemberIds, setExtraMemberIds] = useState<string[]>([]);
   const [addMembersBusy, setAddMembersBusy] = useState(false);
+
+  // Per-Chat Actions Menu & Rule-7 Confirmation Modal
+  const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
+  const [actionConfirm, setActionConfirm] = useState<{
+    kind: 'clear' | 'leave' | 'delete';
+    channel: CommsChannel;
+  } | null>(null);
+  const [actionConfirmMaximized, setActionConfirmMaximized] = useState(false);
+  const [actionConfirmBusy, setActionConfirmBusy] = useState(false);
 
   const threadEndRef = useRef<HTMLDivElement>(null);
   const selectedChannelIdRef = useRef<string | null>(selectedChannelId);
@@ -264,7 +282,10 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
 
         setChannels((prev) => {
           const exists = prev.some((c) => c.id === evt.channelId);
-          if (!exists) return prev;
+          if (!exists) {
+            void loadChannels(true);
+            return prev;
+          }
           const updated = prev.map((c) =>
             c.id === evt.channelId
               ? {
@@ -297,11 +318,20 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
           onChannelsLoaded?.(next);
           return next;
         });
+        if (
+          evt.channel.id === selectedChannelIdRef.current &&
+          evt.channel.lastMessagePreview === null &&
+          evt.channel.lastMessageAt === null
+        ) {
+          setMessages([]);
+          appDataCache.invalidate(`comms:channel:${evt.channel.id}`);
+        }
       } else if (evt.type === 'channel:removed' && evt.channelId) {
         setChannels((prev) => {
           const next = prev.filter((c) => c.id !== evt.channelId);
           onChannelsLoaded?.(next);
           if (selectedChannelIdRef.current === evt.channelId) {
+            setMessages([]);
             onSelectChannelId(next[0]?.id || null);
           }
           return next;
@@ -310,7 +340,21 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
     };
     window.addEventListener('nettop-comms-ws-event', handler as EventListener);
     return () => window.removeEventListener('nettop-comms-ws-event', handler as EventListener);
-  }, [onChannelsLoaded, onSelectChannelId, user?.username]);
+  }, [loadChannels, onChannelsLoaded, onSelectChannelId, user?.username]);
+
+  useEffect(() => {
+    if (!openMenuKey) return;
+    const handleOutside = () => setOpenMenuKey(null);
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenMenuKey(null);
+    };
+    window.addEventListener('click', handleOutside);
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      window.removeEventListener('click', handleOutside);
+      window.removeEventListener('keydown', handleEsc);
+    };
+  }, [openMenuKey]);
 
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -477,17 +521,22 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
     }
   };
 
-  const handleToggleMute = async () => {
-    if (!activeChannel) return;
-    const nextMuted = !activeChannel.isMuted;
+  const handleToggleMuteForChannel = async (ch: CommsChannel) => {
+    const nextMuted = !ch.isMuted;
+    setOpenMenuKey(null);
     try {
-      await toggleCommsChannelMute(activeChannel.id, nextMuted);
+      await toggleCommsChannelMute(ch.id, nextMuted);
       setChannels((prev) =>
-        prev.map((c) => (c.id === activeChannel.id ? { ...c, isMuted: nextMuted } : c))
+        prev.map((c) => (c.id === ch.id ? { ...c, isMuted: nextMuted } : c))
       );
     } catch (err: any) {
       setErrorMsg(err?.message || (isEn ? 'Mute update failed' : 'خطا در تغییر وضعیت سکوت'));
     }
+  };
+
+  const handleToggleMute = async () => {
+    if (!activeChannel) return;
+    await handleToggleMuteForChannel(activeChannel);
   };
 
   // Direct Chat Modal handlers
@@ -517,12 +566,12 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
   };
 
   // Group Channel Modal handlers
-  const openGroupModal = () => {
+  const openGroupModal = (initialMemberUsernames: string[] = [], suggestedName = '') => {
     undockModal(GROUP_MODAL_ID);
-    setGroupName('');
+    setGroupName(suggestedName);
     setGroupDescription('');
     setGroupLinkedId('');
-    setGroupMemberIds([]);
+    setGroupMemberIds(initialMemberUsernames);
     setGroupModalOpen(true);
     ensureDirectory();
   };
@@ -552,22 +601,43 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
     }
   };
 
+  const membersTargetChannel = useMemo(
+    () => channels.find((c) => c.id === membersTargetChannelId) || activeChannel || null,
+    [channels, membersTargetChannelId, activeChannel]
+  );
+
   // Add Members Modal handlers
-  const openAddMembersModal = () => {
-    if (!activeChannel) return;
+  const openAddMembersForChannel = (ch: CommsChannel | null) => {
+    if (!ch) return;
+    setOpenMenuKey(null);
+    if (ch.channelType === 'direct') {
+      const me = (user?.username || '').toLowerCase();
+      const peers = (ch.members || [])
+        .map((m) => m.username)
+        .filter((u) => u && u.toLowerCase() !== me);
+      openGroupModal(peers, '');
+      return;
+    }
     undockModal(MEMBERS_MODAL_ID);
+    setMembersTargetChannelId(ch.id);
     setExtraMemberIds([]);
     setAddMembersOpen(true);
     ensureDirectory();
   };
 
+  const openAddMembersModal = () => {
+    openAddMembersForChannel(activeChannel || null);
+  };
+
   const handleAddMembersSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeChannel || extraMemberIds.length === 0) return;
+    const targetCh = membersTargetChannel;
+    if (!targetCh || extraMemberIds.length === 0) return;
     setAddMembersBusy(true);
     try {
-      await addCommsChannelMembers(activeChannel.id, extraMemberIds);
+      await addCommsChannelMembers(targetCh.id, extraMemberIds);
       setAddMembersOpen(false);
+      setMembersTargetChannelId(null);
       undockModal(MEMBERS_MODAL_ID);
       await loadChannels(true);
     } catch (err: any) {
@@ -577,20 +647,113 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
     }
   };
 
-  const canManageChannelMembers = useMemo(() => {
-    if (!activeChannel || activeChannel.channelType !== 'group') return false;
-    if (isSuperAdmin) return true;
-    const uname = (user?.username || '').toLowerCase();
-    return Boolean(
-      activeChannel.members?.some(
-        (m) => m.username.toLowerCase() === uname && m.role === 'owner'
-      )
-    );
-  }, [activeChannel, isSuperAdmin, user?.username]);
+  const canManageChannelByRule = useCallback(
+    (ch: CommsChannel | null | undefined) => {
+      if (!ch || ch.channelType !== 'group') return false;
+      if (isSuperAdmin) return true;
+      const uname = (user?.username || '').toLowerCase();
+      return Boolean(
+        ch.members?.some((m) => m.username.toLowerCase() === uname && m.role === 'owner')
+      );
+    },
+    [isSuperAdmin, user?.username]
+  );
+
+  const canAddMembersToChannel = useCallback(
+    (ch: CommsChannel | null | undefined) => {
+      if (!ch) return false;
+      if (ch.channelType === 'direct') return canSend;
+      return canManageChannelByRule(ch) || canSend;
+    },
+    [canManageChannelByRule, canSend]
+  );
+
+  const canManageChannelMembers = useMemo(
+    () => canAddMembersToChannel(activeChannel),
+    [activeChannel, canAddMembersToChannel]
+  );
+
+  const handleConfirmChatAction = async () => {
+    if (!actionConfirm || actionConfirmBusy) return;
+    const { kind, channel } = actionConfirm;
+    setActionConfirmBusy(true);
+    setErrorMsg(null);
+    try {
+      if (kind === 'clear') {
+        await clearCommsChannelHistory(channel.id);
+        if (selectedChannelIdRef.current === channel.id) {
+          setMessages([]);
+        }
+        setChannels((prev) => {
+          const next = prev.map((c) =>
+            c.id === channel.id
+              ? { ...c, lastMessagePreview: null, lastMessageAt: null, unreadCount: 0 }
+              : c
+          );
+          onChannelsLoaded?.(next);
+          return next;
+        });
+        const clearedChannel = {
+          ...channel,
+          lastMessagePreview: null,
+          lastMessageAt: null,
+          unreadCount: 0,
+        };
+        window.dispatchEvent(
+          new CustomEvent('nettop-comms-ws-event', {
+            detail: { type: 'channel:updated', channel: clearedChannel },
+          })
+        );
+      } else if (kind === 'leave') {
+        await leaveCommsChannel(channel.id);
+        setChannels((prev) => {
+          const next = prev.filter((c) => c.id !== channel.id);
+          onChannelsLoaded?.(next);
+          if (selectedChannelIdRef.current === channel.id) {
+            setMessages([]);
+            onSelectChannelId(next[0]?.id || null);
+          }
+          return next;
+        });
+        window.dispatchEvent(
+          new CustomEvent('nettop-comms-ws-event', {
+            detail: { type: 'channel:removed', channelId: channel.id },
+          })
+        );
+      } else if (kind === 'delete') {
+        await deleteCommsChannel(channel.id);
+        setChannels((prev) => {
+          const next = prev.filter((c) => c.id !== channel.id);
+          onChannelsLoaded?.(next);
+          if (selectedChannelIdRef.current === channel.id) {
+            setMessages([]);
+            onSelectChannelId(next[0]?.id || null);
+          }
+          return next;
+        });
+        window.dispatchEvent(
+          new CustomEvent('nettop-comms-ws-event', {
+            detail: { type: 'channel:removed', channelId: channel.id },
+          })
+        );
+      }
+      setActionConfirm(null);
+      undockModal(ACTION_CONFIRM_MODAL_ID);
+    } catch (err: any) {
+      setErrorMsg(
+        err?.message || (isEn ? 'Failed to perform chat action' : 'خطا در اجرای عملیات روی گفتگو')
+      );
+    } finally {
+      setActionConfirmBusy(false);
+    }
+  };
 
   const existingMemberUsernames = useMemo(
-    () => new Set((activeChannel?.members || []).map((m) => m.username.toLowerCase())),
-    [activeChannel]
+    () =>
+      new Set(
+        (membersTargetChannel?.members || []).map((m) => m.username.toLowerCase())
+      ),
+    [membersTargetChannel]
   );
 
   const isMessageSelf = (msg: CommsMessage) => {
@@ -688,7 +851,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={openGroupModal}
+                  onClick={() => openGroupModal()}
                   className="flex-1 min-w-[105px] flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap cursor-pointer transition"
                 >
                   <Plus className="w-3.5 h-3.5 shrink-0" />
@@ -759,12 +922,22 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                     </div>
                     {groupChannels.map((ch) => {
                       const active = ch.id === selectedChannelId;
+                      const menuKey = `row:${ch.id}`;
+                      const menuOpen = openMenuKey === menuKey;
+                      const isOwnerOrAdmin = canManageChannelByRule(ch);
                       return (
-                        <button
+                        <div
                           key={ch.id}
-                          type="button"
+                          role="button"
+                          tabIndex={0}
                           onClick={() => onSelectChannelId(ch.id)}
-                          className={`w-full flex items-start gap-2.5 px-2.5 py-2 rounded-xl text-start transition cursor-pointer ${
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              onSelectChannelId(ch.id);
+                            }
+                          }}
+                          className={`group relative w-full flex items-start gap-2.5 px-2.5 py-2 rounded-xl text-start transition cursor-pointer ${
                             active
                               ? isLightMode
                                 ? 'bg-indigo-50 border border-indigo-200 text-indigo-900'
@@ -795,6 +968,25 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                                     {ch.unreadCount}
                                   </span>
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenMenuKey((prev) => (prev === menuKey ? null : menuKey));
+                                  }}
+                                  className={`p-0.5 rounded-md transition cursor-pointer ${
+                                    menuOpen
+                                      ? isLightMode
+                                        ? 'bg-indigo-100 text-indigo-700'
+                                        : 'bg-white/15 text-white'
+                                      : isLightMode
+                                      ? 'text-slate-400 hover:bg-slate-200 hover:text-slate-800'
+                                      : 'text-slate-400 hover:bg-white/10 hover:text-white'
+                                  }`}
+                                  title={isEn ? 'Conversation actions' : 'عملیات گفتگو'}
+                                >
+                                  <MoreVertical className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             </div>
                             <p
@@ -808,7 +1000,97 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                                   : `${ch.memberCount} عضو`)}
                             </p>
                           </div>
-                        </button>
+
+                          {menuOpen && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className={`absolute top-9 ${
+                                isRtl ? 'left-2' : 'right-2'
+                              } z-40 w-48 rounded-xl border shadow-xl py-1 text-xs ${
+                                isLightMode
+                                  ? 'bg-white border-slate-200 text-slate-800'
+                                  : 'bg-slate-900 border-slate-700 text-slate-100'
+                              }`}
+                            >
+                              {canAddMembersToChannel(ch) && (
+                                <button
+                                  type="button"
+                                  onClick={() => openAddMembersForChannel(ch)}
+                                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition ${
+                                    isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/10'
+                                  }`}
+                                >
+                                  <UserPlus className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                                  <span>{isEn ? 'Add Member' : 'افزودن عضو جدید'}</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleMuteForChannel(ch)}
+                                className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition ${
+                                  isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/10'
+                                }`}
+                              >
+                                {ch.isMuted ? (
+                                  <Bell className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                ) : (
+                                  <BellOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                )}
+                                <span>
+                                  {ch.isMuted
+                                    ? isEn
+                                      ? 'Unmute Channel'
+                                      : 'لغو بی‌صدا'
+                                    : isEn
+                                    ? 'Mute Notifications'
+                                    : 'بی‌صدا کردن'}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenMenuKey(null);
+                                  setActionConfirm({ kind: 'clear', channel: ch });
+                                }}
+                                className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition ${
+                                  isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/10'
+                                }`}
+                              >
+                                <Eraser className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                <span>{isEn ? 'Clear Chat History' : 'پاک کردن تاریخچه پیام‌ها'}</span>
+                              </button>
+                              <div className={`my-1 border-t ${isLightMode ? 'border-slate-200' : 'border-white/10'}`} />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenMenuKey(null);
+                                  setActionConfirm({ kind: 'leave', channel: ch });
+                                }}
+                                className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition text-amber-500 ${
+                                  isLightMode ? 'hover:bg-amber-50' : 'hover:bg-amber-500/10'
+                                }`}
+                              >
+                                <LogOut className="w-3.5 h-3.5 shrink-0" />
+                                <span>{isEn ? 'Leave Channel' : 'خروج از کانال'}</span>
+                              </button>
+                              {isOwnerOrAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setOpenMenuKey(null);
+                                    setActionConfirm({ kind: 'delete', channel: ch });
+                                  }}
+                                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition text-rose-500 ${
+                                    isLightMode ? 'hover:bg-rose-50' : 'hover:bg-rose-500/10'
+                                  }`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                                  <span>{isEn ? 'Delete Channel' : 'حذف کامل کانال'}</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -826,12 +1108,21 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                     </div>
                     {directChannels.map((ch) => {
                       const active = ch.id === selectedChannelId;
+                      const menuKey = `row:${ch.id}`;
+                      const menuOpen = openMenuKey === menuKey;
                       return (
-                        <button
+                        <div
                           key={ch.id}
-                          type="button"
+                          role="button"
+                          tabIndex={0}
                           onClick={() => onSelectChannelId(ch.id)}
-                          className={`w-full flex items-start gap-2.5 px-2.5 py-2 rounded-xl text-start transition cursor-pointer ${
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              onSelectChannelId(ch.id);
+                            }
+                          }}
+                          className={`group relative w-full flex items-start gap-2.5 px-2.5 py-2 rounded-xl text-start transition cursor-pointer ${
                             active
                               ? isLightMode
                                 ? 'bg-indigo-50 border border-indigo-200 text-indigo-900'
@@ -862,6 +1153,25 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                                     {ch.unreadCount}
                                   </span>
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenMenuKey((prev) => (prev === menuKey ? null : menuKey));
+                                  }}
+                                  className={`p-0.5 rounded-md transition cursor-pointer ${
+                                    menuOpen
+                                      ? isLightMode
+                                        ? 'bg-indigo-100 text-indigo-700'
+                                        : 'bg-white/15 text-white'
+                                      : isLightMode
+                                      ? 'text-slate-400 hover:bg-slate-200 hover:text-slate-800'
+                                      : 'text-slate-400 hover:bg-white/10 hover:text-white'
+                                  }`}
+                                  title={isEn ? 'Conversation actions' : 'عملیات گفتگو'}
+                                >
+                                  <MoreVertical className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             </div>
                             <p
@@ -873,7 +1183,82 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                                 (isEn ? 'No messages yet' : 'بدون پیام')}
                             </p>
                           </div>
-                        </button>
+
+                          {menuOpen && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className={`absolute top-9 ${
+                                isRtl ? 'left-2' : 'right-2'
+                              } z-40 w-48 rounded-xl border shadow-xl py-1 text-xs ${
+                                isLightMode
+                                  ? 'bg-white border-slate-200 text-slate-800'
+                                  : 'bg-slate-900 border-slate-700 text-slate-100'
+                              }`}
+                            >
+                              {canSend && (
+                                <button
+                                  type="button"
+                                  onClick={() => openAddMembersForChannel(ch)}
+                                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition ${
+                                    isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/10'
+                                  }`}
+                                >
+                                  <UserPlus className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                                  <span>{isEn ? 'Add Member (New Group)' : 'افزودن عضو (ساخت گروه)'}</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleMuteForChannel(ch)}
+                                className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition ${
+                                  isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/10'
+                                }`}
+                              >
+                                {ch.isMuted ? (
+                                  <Bell className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                ) : (
+                                  <BellOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                )}
+                                <span>
+                                  {ch.isMuted
+                                    ? isEn
+                                      ? 'Unmute Chat'
+                                      : 'لغو بی‌صدا'
+                                    : isEn
+                                    ? 'Mute Notifications'
+                                    : 'بی‌صدا کردن'}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenMenuKey(null);
+                                  setActionConfirm({ kind: 'clear', channel: ch });
+                                }}
+                                className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition ${
+                                  isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/10'
+                                }`}
+                              >
+                                <Eraser className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                <span>{isEn ? 'Clear Chat History' : 'پاک کردن پیام‌ها'}</span>
+                              </button>
+                              <div className={`my-1 border-t ${isLightMode ? 'border-slate-200' : 'border-white/10'}`} />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenMenuKey(null);
+                                  setActionConfirm({ kind: 'leave', channel: ch });
+                                }}
+                                className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition text-rose-500 ${
+                                  isLightMode ? 'hover:bg-rose-50' : 'hover:bg-rose-500/10'
+                                }`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                                <span>{isEn ? 'Delete Chat (My Side)' : 'حذف گفتگو برای من'}</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -1050,6 +1435,137 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
                   </button>
+
+                  {/* Thread Header Actions Dropdown */}
+                  <div className="relative" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenMenuKey((prev) => (prev === 'header' ? null : 'header'))
+                      }
+                      className={`p-1.5 rounded-lg border cursor-pointer transition ${
+                        openMenuKey === 'header'
+                          ? isLightMode
+                            ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                            : 'bg-indigo-500/20 border-indigo-500/40 text-indigo-200'
+                          : isLightMode
+                          ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                          : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-200'
+                      }`}
+                      title={isEn ? 'Conversation actions' : 'عملیات گفتگو'}
+                    >
+                      <MoreVertical className="w-3.5 h-3.5" />
+                    </button>
+
+                    {openMenuKey === 'header' && (
+                      <div
+                        className={`absolute top-9 ${
+                          isRtl ? 'left-0' : 'right-0'
+                        } z-40 w-52 rounded-xl border shadow-2xl py-1 text-xs ${
+                          isLightMode
+                            ? 'bg-white border-slate-200 text-slate-800'
+                            : 'bg-slate-900 border-slate-700 text-slate-100'
+                        }`}
+                      >
+                        {canAddMembersToChannel(activeChannel) && (
+                          <button
+                            type="button"
+                            onClick={() => openAddMembersForChannel(activeChannel)}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-start cursor-pointer transition ${
+                              isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/10'
+                            }`}
+                          >
+                            <UserPlus className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                            <span>
+                              {activeChannel.channelType === 'direct'
+                                ? isEn
+                                  ? 'Add Member (New Group)'
+                                  : 'افزودن عضو (ساخت گروه)'
+                                : isEn
+                                ? 'Add Channel Members'
+                                : 'افزودن عضو جدید'}
+                            </span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleToggleMute}
+                          className={`w-full flex items-center gap-2 px-3 py-2 text-start cursor-pointer transition ${
+                            isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/10'
+                          }`}
+                        >
+                          {activeChannel.isMuted ? (
+                            <Bell className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          ) : (
+                            <BellOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          )}
+                          <span>
+                            {activeChannel.isMuted
+                              ? isEn
+                                ? 'Unmute Notifications'
+                                : 'لغو بی‌صدا کردن'
+                              : isEn
+                              ? 'Mute Notifications'
+                              : 'بی‌صدا کردن اعلان‌ها'}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenMenuKey(null);
+                            setActionConfirm({ kind: 'clear', channel: activeChannel });
+                          }}
+                          className={`w-full flex items-center gap-2 px-3 py-2 text-start cursor-pointer transition ${
+                            isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/10'
+                          }`}
+                        >
+                          <Eraser className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                          <span>
+                            {isEn ? 'Clear Chat History (My Side)' : 'پاک کردن تاریخچه پیام‌ها'}
+                          </span>
+                        </button>
+                        <div className={`my-1 border-t ${isLightMode ? 'border-slate-200' : 'border-white/10'}`} />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenMenuKey(null);
+                            setActionConfirm({ kind: 'leave', channel: activeChannel });
+                          }}
+                          className={`w-full flex items-center gap-2 px-3 py-2 text-start cursor-pointer transition text-amber-500 ${
+                            isLightMode ? 'hover:bg-amber-50' : 'hover:bg-amber-500/10'
+                          }`}
+                        >
+                          <LogOut className="w-3.5 h-3.5 shrink-0" />
+                          <span>
+                            {activeChannel.channelType === 'direct'
+                              ? isEn
+                                ? 'Delete Chat (My Side)'
+                                : 'حذف چت برای من'
+                              : isEn
+                              ? 'Leave Group Channel'
+                              : 'خروج از کانال گروهی'}
+                          </span>
+                        </button>
+                        {canManageChannelByRule(activeChannel) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenMenuKey(null);
+                              setActionConfirm({ kind: 'delete', channel: activeChannel });
+                            }}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-start cursor-pointer transition text-rose-500 ${
+                              isLightMode ? 'hover:bg-rose-50' : 'hover:bg-rose-500/10'
+                            }`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                            <span>
+                              {isEn ? 'Delete Channel Permanently' : 'حذف کامل کانال برای همه'}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1710,7 +2226,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
 
       {/* Modal 3: Add Members to Group Channel (5 MODAL_GUIDELINES rules) */}
       {addMembersOpen &&
-        activeChannel &&
+        membersTargetChannel &&
         typeof document !== 'undefined' &&
         createPortal(
           <div
@@ -1831,6 +2347,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                     type="button"
                     onClick={() => {
                       setAddMembersOpen(false);
+                      setMembersTargetChannelId(null);
                       undockModal(MEMBERS_MODAL_ID);
                     }}
                     className={`px-4 py-2 rounded-lg border text-xs font-medium cursor-pointer ${
@@ -1856,6 +2373,199 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                   </button>
                 </div>
               </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Modal 4: Confirm Chat Action (Rule 7 Compliant: bottom-8 clearance, 3 header controls, theme contrast, bilingual, FieldInfoTooltip) */}
+      {actionConfirm &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed top-0 left-0 right-0 bottom-8 z-[9999] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm"
+            dir={isRtl ? 'rtl' : 'ltr'}
+          >
+            <div
+              className={`flex flex-col border shadow-2xl overflow-hidden transition-all ${
+                actionConfirmMaximized
+                  ? 'w-full h-full rounded-xl'
+                  : 'w-full max-w-md max-h-full rounded-2xl'
+              } ${
+                isLightMode
+                  ? 'bg-white border-slate-200 text-slate-900'
+                  : 'bg-slate-900 border-slate-700/80 text-slate-100'
+              }`}
+            >
+              <div
+                className={`flex items-center justify-between px-4 py-3 border-b shrink-0 ${
+                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {actionConfirm.kind === 'clear' ? (
+                    <Eraser className="w-4 h-4 text-sky-500 shrink-0" />
+                  ) : actionConfirm.kind === 'leave' ? (
+                    <LogOut className="w-4 h-4 text-amber-500 shrink-0" />
+                  ) : (
+                    <Trash2 className="w-4 h-4 text-rose-500 shrink-0" />
+                  )}
+                  <h3 className="text-sm font-bold truncate">
+                    {actionConfirm.kind === 'clear'
+                      ? isEn
+                        ? 'Clear Chat History'
+                        : 'پاک کردن تاریخچه پیام‌ها'
+                      : actionConfirm.kind === 'leave'
+                      ? actionConfirm.channel.channelType === 'direct'
+                        ? isEn
+                          ? 'Delete Direct Chat'
+                          : 'حذف گفتگوی مستقیم'
+                        : isEn
+                        ? 'Leave Group Channel'
+                        : 'خروج از کانال گروهی'
+                      : isEn
+                      ? 'Delete Channel Permanently'
+                      : 'حذف کامل کانال گروهی'}
+                  </h3>
+                </div>
+                <ModalHeaderControls
+                  isMaximized={actionConfirmMaximized}
+                  onMaximizeToggle={() => setActionConfirmMaximized((v) => !v)}
+                  onMinimize={() => {
+                    const snapshot = actionConfirm;
+                    setActionConfirm(null);
+                    dockModal({
+                      id: ACTION_CONFIRM_MODAL_ID,
+                      labelEn: 'Confirm Chat Action',
+                      labelFa: 'تایید عملیات گفتگو',
+                      category: 'system',
+                      onRestore: () => setActionConfirm(snapshot),
+                      onClose: () => setActionConfirm(null),
+                    });
+                  }}
+                  onClose={() => {
+                    setActionConfirm(null);
+                    undockModal(ACTION_CONFIRM_MODAL_ID);
+                  }}
+                  isLightMode={isLightMode}
+                  isEn={isEn}
+                />
+              </div>
+
+              <div className="p-4 space-y-4 overflow-y-auto">
+                <div className="flex items-start justify-between gap-2">
+                  <p
+                    className={`text-xs leading-relaxed ${
+                      isLightMode ? 'text-slate-700' : 'text-slate-300'
+                    }`}
+                  >
+                    {actionConfirm.kind === 'clear'
+                      ? isEn
+                        ? `Clear all existing messages in "${dedupeParenthesizedTitle(
+                            actionConfirm.channel.nameEn || actionConfirm.channel.name
+                          )}" for your account only? Other participants will keep their message history.`
+                        : `آیا مطمئن هستید می‌خواهید تمام پیام‌های فعلی در گفتگوی «${dedupeParenthesizedTitle(
+                            actionConfirm.channel.name
+                          )}» را فقط برای حساب خودتان پاک کنید؟ تاریخچه سایر اعضا دست‌نخورده باقی می‌ماند.`
+                      : actionConfirm.kind === 'leave'
+                      ? actionConfirm.channel.channelType === 'direct'
+                        ? isEn
+                          ? `Remove "${dedupeParenthesizedTitle(
+                              actionConfirm.channel.nameEn || actionConfirm.channel.name
+                            )}" from your conversation list and clear its messages on your side? It will reappear automatically if they message you later.`
+                          : `آیا می‌خواهید گفتگوی «${dedupeParenthesizedTitle(
+                              actionConfirm.channel.name
+                            )}» از فهرست شما حذف شده و پیام‌های قبلی برایتان پاک شود؟ در صورت ارسال پیام جدید توسط طرف مقابل، دوباره نمایان خواهد شد.`
+                        : isEn
+                        ? `Leave group channel "${dedupeParenthesizedTitle(
+                            actionConfirm.channel.nameEn || actionConfirm.channel.name
+                          )}"? You will stop receiving messages from this channel unless invited again.`
+                        : `آیا می‌خواهید از کانال گروهی «${dedupeParenthesizedTitle(
+                            actionConfirm.channel.name
+                          )}» خارج شوید؟ پس از خروج، پیام‌های این کانال برایتان ارسال نخواهد شد.`
+                      : isEn
+                      ? `Permanently delete channel "${dedupeParenthesizedTitle(
+                          actionConfirm.channel.nameEn || actionConfirm.channel.name
+                        )}" and all its messages for ALL members? This action cannot be undone.`
+                      : `آیا مطمئن هستید که می‌خواهید کانال «${dedupeParenthesizedTitle(
+                          actionConfirm.channel.name
+                        )}» و تمام پیام‌های آن را برای همه اعضا به‌صورت کامل حذف کنید؟ این عمل غیرقابل بازگشت است.`}
+                  </p>
+                  <FieldInfoTooltip
+                    title={isEn ? 'Personal vs Global Scope' : 'محدوده اثر عملیات'}
+                    whatIsIt={
+                      isEn
+                        ? 'Controls whether conversation cleanup affects only your view or all participants.'
+                        : 'تعیین می‌کند عملیات حذف یا پاک‌سازی فقط در حساب شما اعمال شود یا برای کل اعضا.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Prevents accidental deletion of shared operational audit threads while keeping individual inboxes tidy.'
+                        : 'از حذف ناخواسته تاریخچه تیمی جلوگیری کرده و در عین حال امکان خلوت کردن گفتگوهای شخصی را می‌دهد.'
+                    }
+                    practicalExample={
+                      isEn
+                        ? 'Use Clear History to reset your view without affecting teammates.'
+                        : 'برای خلوت کردن چت خودتان بدون اثر روی همکاران از پاک کردن تاریخچه استفاده کنید.'
+                    }
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
+                </div>
+
+                <div
+                  className={`flex justify-end gap-2 pt-3 border-t ${
+                    isLightMode ? 'border-slate-200' : 'border-slate-800'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionConfirm(null);
+                      undockModal(ACTION_CONFIRM_MODAL_ID);
+                    }}
+                    className={`px-4 py-2 rounded-lg border text-xs font-medium cursor-pointer ${
+                      isLightMode
+                        ? 'bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200'
+                        : 'bg-white/5 border-white/15 text-slate-200 hover:bg-white/10'
+                    }`}
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionConfirmBusy}
+                    onClick={handleConfirmChatAction}
+                    className={`px-4 py-2 rounded-lg text-white text-xs font-semibold cursor-pointer disabled:opacity-50 ${
+                      actionConfirm.kind === 'delete'
+                        ? 'bg-rose-600 hover:bg-rose-500'
+                        : actionConfirm.kind === 'leave'
+                        ? 'bg-amber-600 hover:bg-amber-500'
+                        : 'bg-sky-600 hover:bg-sky-500'
+                    }`}
+                  >
+                    {actionConfirmBusy
+                      ? isEn
+                        ? 'Applying...'
+                        : 'در حال اجرا...'
+                      : actionConfirm.kind === 'clear'
+                      ? isEn
+                        ? 'Clear My History'
+                        : 'پاک کردن تاریخچه'
+                      : actionConfirm.kind === 'leave'
+                      ? actionConfirm.channel.channelType === 'direct'
+                        ? isEn
+                          ? 'Delete Chat'
+                          : 'حذف گفتگو'
+                        : isEn
+                        ? 'Leave Channel'
+                        : 'خروج از کانال'
+                      : isEn
+                      ? 'Delete Permanently'
+                      : 'حذف کامل کانال'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>,
           document.body
