@@ -51,6 +51,34 @@ interface PendingCommsEmailTarget {
   channelName?: string | null;
 }
 
+function stripDuplicateUsernameSuffix(
+  fullName: string | null | undefined,
+  username: string | null | undefined
+): string {
+  const cleanFull = (fullName || '').trim();
+  const cleanUser = (username || '').trim();
+  if (!cleanFull) return cleanUser;
+  let cleaned = cleanFull.replace(/(\s*\([^)]+\))(\1)+$/gi, '$1').trim();
+  if (cleanUser) {
+    const escapedUser = cleanUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    cleaned = cleaned.replace(new RegExp(`(?:\\s*\\(${escapedUser}\\))+$`, 'i'), '').trim();
+  }
+  return cleaned || cleanUser;
+}
+
+function formatUserDisplay(
+  fullName: string | null | undefined,
+  username: string | null | undefined
+): string {
+  const cleanUser = (username || '').trim();
+  const baseName = stripDuplicateUsernameSuffix(fullName, cleanUser);
+  if (!cleanUser) return baseName;
+  if (!baseName || baseName.toLowerCase() === cleanUser.toLowerCase()) {
+    return cleanUser;
+  }
+  return `${baseName} (${cleanUser})`;
+}
+
 async function resolveDirectoryEmailLookup(): Promise<
   Map<string, { email: string; fullName?: string }>
 > {
@@ -759,12 +787,13 @@ export async function getCommsRecipients(): Promise<CommsRecipientOption[]> {
 
   const localUsers = (await getAllUsers()).filter((u) => u && u.status !== 'disabled');
   for (const u of localUsers) {
+    const formatted = formatUserDisplay(u.fullName, u.username);
     options.push({
       type: 'user',
       id: u.id,
       username: u.username,
-      label: u.fullName ? `${u.fullName} (${u.username})` : u.username,
-      labelEn: u.fullName ? `${u.fullName} (${u.username})` : u.username,
+      label: formatted,
+      labelEn: formatted,
       roleOrType: u.role || 'Local User',
       source: 'local',
     });
@@ -778,12 +807,13 @@ export async function getCommsRecipients(): Promise<CommsRecipientOption[]> {
       const uname = (adUser.name || adUser.id || '').toLowerCase();
       if (!uname || seenUsernames.has(uname)) continue;
       seenUsernames.add(uname);
+      const formattedAd = formatUserDisplay(adUser.displayName, adUser.name || adUser.id);
       options.push({
         type: 'user',
         id: adUser.rawId || adUser.id,
         username: adUser.name,
-        label: adUser.displayName,
-        labelEn: adUser.displayName,
+        label: formattedAd,
+        labelEn: formattedAd,
         roleOrType: adUser.role || 'AD User',
         source: 'ad',
       });
@@ -1063,9 +1093,7 @@ export async function dispatchCommunication(
 
   const nowIso = new Date().toISOString();
   const messageId = makeId('msg');
-  const senderDisplay = senderUser.fullName
-    ? `${senderUser.fullName} (${senderUser.username})`
-    : senderUser.username;
+  const senderDisplay = formatUserDisplay(senderUser.fullName, senderUser.username);
 
   const messageRecord = {
     id: messageId,
@@ -1387,15 +1415,21 @@ async function buildDirectoryUserMap(): Promise<
 
   const localUsers = (await getAllUsers()).filter((u) => u && u.status !== 'disabled');
   for (const u of localUsers) {
-    register(u.id, u.username, u.fullName || u.username, u.role || 'Operator');
+    register(
+      u.id,
+      u.username,
+      stripDuplicateUsernameSuffix(u.fullName || u.username, u.username),
+      u.role || 'Operator'
+    );
   }
 
   const subjectsResult = await getAuthorizedMapSubjects().catch(() => null);
   for (const adu of subjectsResult?.categories?.adUsers || []) {
+    const adUname = adu.name || adu.id;
     register(
       adu.rawId || adu.id,
-      adu.name || adu.id,
-      adu.displayName || adu.name || adu.id,
+      adUname,
+      stripDuplicateUsernameSuffix(adu.displayName || adUname, adUname),
       adu.role || 'AD User'
     );
   }
@@ -1430,7 +1464,10 @@ function mapChannelMemberRow(
     channelId: row.channel_id ?? row.channelId ?? '',
     userId,
     username,
-    fullName: row.full_name ?? row.fullName ?? dirInfo?.fullName ?? username,
+    fullName: stripDuplicateUsernameSuffix(
+      row.full_name ?? row.fullName ?? dirInfo?.fullName ?? username,
+      username
+    ),
     role: row.role ?? 'member',
     isMuted: Boolean(row.is_muted ?? row.isMuted),
     lastReadMessageId: row.last_read_message_id ?? row.lastReadMessageId ?? null,
@@ -1469,7 +1506,11 @@ function mapMessageRow(row: any, lookupById?: Map<string, any>): CommsMessage {
     channelId: row.channel_id ?? row.channelId ?? null,
     senderUserId: row.sender_user_id ?? row.senderUserId ?? '',
     senderUsername: row.sender_username ?? row.senderUsername ?? '',
-    senderFullName: row.sender_full_name ?? row.senderFullName ?? null,
+    senderFullName:
+      stripDuplicateUsernameSuffix(
+        row.sender_full_name ?? row.senderFullName,
+        row.sender_username ?? row.senderUsername
+      ) || null,
     senderRole: row.sender_role ?? row.senderRole ?? null,
     messageType: row.message_type ?? row.messageType ?? 'text',
     priority: (row.priority || 'info') as CommsSeverity,
@@ -1577,10 +1618,7 @@ async function loadHydratedChannelForUser(
   if (channelType === 'direct' && members.length > 0) {
     const peer = members.find((m) => !memberMatchesIdentifiers(m, idSet)) || members[0];
     if (peer) {
-      displayName =
-        peer.fullName && peer.fullName !== peer.username
-          ? `${peer.fullName} (${peer.username})`
-          : peer.username;
+      displayName = formatUserDisplay(peer.fullName, peer.username);
       displayNameEn = displayName;
     }
   }
@@ -1695,13 +1733,8 @@ export async function createOrOpenDirectChannel(
 
   const nowIso = new Date().toISOString();
   const channelId = makeId('chan');
-  const senderDisplay = senderUser.fullName
-    ? `${senderUser.fullName} (${senderUser.username})`
-    : senderUser.username;
-  const targetDisplay =
-    target.fullName && target.fullName !== target.username
-      ? `${target.fullName} (${target.username})`
-      : target.username;
+  const senderDisplay = formatUserDisplay(senderUser.fullName, senderUser.username);
+  const targetDisplay = formatUserDisplay(target.fullName, target.username);
 
   const channelRec = {
     id: channelId,
@@ -2239,9 +2272,7 @@ export async function postChannelMessage(
   const msgId = makeId('cmsg');
   const bodyEn = (payload.bodyEn || '').trim() || body;
   const msgType = channel.channelType === 'direct' ? 'direct_message' : 'channel_message';
-  const senderDisplay = senderUser.fullName
-    ? `${senderUser.fullName} (${senderUser.username})`
-    : senderUser.username;
+  const senderDisplay = formatUserDisplay(senderUser.fullName, senderUser.username);
 
   const title =
     channel.channelType === 'direct'
@@ -2625,8 +2656,7 @@ export async function listSentAnnouncements(
       titleEn: m.title_en ?? m.titleEn ?? null,
       body: m.body || '',
       priority: (m.priority || 'info') as CommsSeverity,
-      senderName:
-        senderFull && senderFull !== senderUser ? `${senderFull} (${senderUser})` : senderUser || 'Manager',
+      senderName: formatUserDisplay(senderFull, senderUser) || 'Manager',
       requiresAcknowledgment: Boolean(meta.requiresAcknowledgment),
       totalRecipients: stats.total,
       readCount: stats.read,
@@ -2733,8 +2763,7 @@ export async function getAnnouncementReceipts(
       titleEn: msgRow.title_en ?? msgRow.titleEn ?? null,
       body: msgRow.body || '',
       priority: (msgRow.priority || 'info') as CommsSeverity,
-      senderName:
-        senderFull && senderFull !== senderUser ? `${senderFull} (${senderUser})` : senderUser || 'Manager',
+      senderName: formatUserDisplay(senderFull, senderUser) || 'Manager',
       requiresAcknowledgment: Boolean(meta.requiresAcknowledgment),
       totalRecipients: recipients.length,
       readCount,

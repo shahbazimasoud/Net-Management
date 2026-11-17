@@ -55,6 +55,24 @@ const DIRECT_MODAL_ID = 'comms-direct-chat-modal';
 const GROUP_MODAL_ID = 'comms-group-channel-modal';
 const MEMBERS_MODAL_ID = 'comms-channel-members-modal';
 
+function dedupeParenthesizedTitle(value?: string | null): string {
+  const clean = (value || '').trim();
+  if (!clean) return '';
+  return clean.replace(/(\s*\([^)]+\))(\1)+$/gi, '$1').trim();
+}
+
+function formatSenderLabel(fullName?: string | null, username?: string | null): string {
+  const cleanUser = (username || '').trim();
+  let cleanFull = dedupeParenthesizedTitle(fullName);
+  if (cleanFull && cleanUser) {
+    const esc = cleanUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    cleanFull = cleanFull.replace(new RegExp(`(?:\\s*\\(${esc}\\))+$`, 'i'), '').trim();
+  }
+  if (!cleanUser) return cleanFull;
+  if (!cleanFull || cleanFull.toLowerCase() === cleanUser.toLowerCase()) return cleanUser;
+  return `${cleanFull} (${cleanUser})`;
+}
+
 export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
   isLightMode,
   canSend,
@@ -545,7 +563,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-1.5">
                               <span className="text-xs font-semibold truncate">
-                                {isEn ? ch.nameEn || ch.name : ch.name}
+                                {dedupeParenthesizedTitle(isEn ? ch.nameEn || ch.name : ch.name)}
                               </span>
                               <div className="flex items-center gap-1 shrink-0">
                                 {ch.isMuted && <BellOff className="w-3 h-3 text-slate-400" />}
@@ -612,7 +630,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-1.5">
                               <span className="text-xs font-semibold truncate">
-                                {isEn ? ch.nameEn || ch.name : ch.name}
+                                {dedupeParenthesizedTitle(isEn ? ch.nameEn || ch.name : ch.name)}
                               </span>
                               <div className="flex items-center gap-1 shrink-0">
                                 {ch.isMuted && <BellOff className="w-3 h-3 text-slate-400" />}
@@ -696,7 +714,9 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                         isLightMode ? 'text-slate-900' : 'text-white'
                       }`}
                     >
-                      {isEn ? activeChannel.nameEn || activeChannel.name : activeChannel.name}
+                      {dedupeParenthesizedTitle(
+                        isEn ? activeChannel.nameEn || activeChannel.name : activeChannel.name
+                      )}
                     </h3>
                     <div
                       className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] ${
@@ -866,9 +886,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                 ) : (
                   messages.map((msg) => {
                     const self = isMessageSelf(msg);
-                    const senderLabel = msg.senderFullName
-                      ? `${msg.senderFullName} (${msg.senderUsername})`
-                      : msg.senderUsername;
+                    const senderLabel = formatSenderLabel(msg.senderFullName, msg.senderUsername);
 
                     return (
                       <div

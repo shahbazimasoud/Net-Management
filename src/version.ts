@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.436.0';
+export const APP_VERSION = '1.436.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.436.1',
+    releaseDate: '2026-11-17',
+    type: 'patch',
+    title: 'رفع تکرار پرانتز نام کاربری در نام گفتگوها و پیام‌های چت تیمی',
+    title_en: 'Fix Duplicate Parenthesized Username Suffix in Direct Chat Names & Messages',
+    changes: [
+      'رفع ریشه‌ای تکرار نام کاربری در `buildDirectoryUserMap` و `loadHydratedChannelForUser` در `server/commsService.ts` برای جلوگیری از نمایش دوگانه مانند `Delavar Fadaei (D.Fadaei) (D.Fadaei)` در لیست چت‌ها و پنجره گفتگو.',
+      'افزودن توابع یکپارچه نرمال‌سازی نام نمایشی در سمت سرور و کامپوننت‌های چت (`TeamChannelsPane` و `FooterTeamChatDock`) برای پاک‌سازی پرانتزهای تکراری در عناوین کانال‌ها و نام فرستنده پیام‌ها.'
+    ],
+    changes_en: [
+      'Fixed root-cause double username suffixing in `server/commsService.ts` (`buildDirectoryUserMap`, `loadHydratedChannelForUser`, `createOrOpenDirectChannel`, `getCommsRecipients`, and `postChannelMessage`) where AD display names containing `(username)` had `(username)` appended a second time.',
+      'Added defensive display-title and sender-label normalization across `TeamChannelsPane.tsx` and `FooterTeamChatDock.tsx` so direct chat headers, recipient pickers, and message sender names never render duplicate parenthesized usernames.'
+    ]
+  },
   {
     version: '1.436.0',
     releaseDate: '2026-11-17',

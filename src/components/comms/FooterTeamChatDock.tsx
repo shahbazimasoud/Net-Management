@@ -79,6 +79,12 @@ const MAX_EXPANDED_WINDOWS_WIDE = 2;
 const MAX_EXPANDED_WINDOWS_NARROW = 1;
 const MAX_OPEN_TABS = 4;
 
+function dedupeParenthesizedTitle(value?: string | null): string {
+  const clean = (value || '').trim();
+  if (!clean) return '';
+  return clean.replace(/(\s*\([^)]+\))(\1)+$/gi, '$1').trim();
+}
+
 const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
   channel,
   isCollapsed,
@@ -106,7 +112,9 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
   const [showMembers, setShowMembers] = useState(false);
   const threadEndRef = useRef<HTMLDivElement>(null);
 
-  const channelTitle = isEn ? channel.nameEn || channel.name : channel.name;
+  const channelTitle = dedupeParenthesizedTitle(
+    isEn ? channel.nameEn || channel.name : channel.name
+  );
 
   const loadMessages = useCallback(
     async (forceRefresh = false) => {
@@ -500,7 +508,9 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
         ) : (
           messages.map((msg) => {
             const self = isSelf(msg);
-            const senderDisplay = msg.senderFullName || msg.senderUsername;
+            const senderDisplay = dedupeParenthesizedTitle(
+              msg.senderFullName || msg.senderUsername
+            );
             return (
               <div
                 key={msg.id}
@@ -1158,7 +1168,9 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                       ) : (
                         userRecipients.map((u) => {
                           const targetVal = u.username || u.id;
-                          const displayLabel = isEn ? u.labelEn || u.label : u.label;
+                          const displayLabel = dedupeParenthesizedTitle(
+                            isEn ? u.labelEn || u.label : u.label
+                          );
                           const sub = [u.roleOrType, u.username].filter(Boolean).join(' · ');
                           return (
                             <button
@@ -1319,7 +1331,9 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                       ) : (
                         filteredChannels.map((ch) => {
                           const isOpened = openTabs.some((t) => t.channelId === ch.id);
-                          const title = isEn ? ch.nameEn || ch.name : ch.name;
+                          const title = dedupeParenthesizedTitle(
+                            isEn ? ch.nameEn || ch.name : ch.name
+                          );
                           return (
                             <button
                               key={ch.id}
