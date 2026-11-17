@@ -24,6 +24,7 @@ import {
   Trash2,
   AtSign,
   Terminal as TerminalIcon,
+  FileText,
 } from 'lucide-react';
 import {
   CommsChannel,
@@ -60,6 +61,8 @@ import {
 import { SlashCommandCard } from './SlashCommandCard';
 import { SlashCommandPickerPopover } from './SlashCommandPicker';
 import { SnippetDiffCard } from './SnippetDiffCard';
+import { ApprovalChatCard } from './ApprovalChatCard';
+import { dispatchOpenChannelHandover } from './ChannelHandoverModal';
 
 interface TeamChannelsPaneProps {
   isLightMode: boolean;
@@ -355,11 +358,16 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
           }
           return next;
         });
+      } else if (evt.type === 'approval:updated' || evt.type === 'jit_grant:updated') {
+        const curChannelId = selectedChannelIdRef.current;
+        if (curChannelId) {
+          void loadThread(curChannelId, true);
+        }
       }
     };
     window.addEventListener('nettop-comms-ws-event', handler as EventListener);
     return () => window.removeEventListener('nettop-comms-ws-event', handler as EventListener);
-  }, [loadChannels, user?.username]);
+  }, [loadChannels, loadThread, user?.username]);
 
   useEffect(() => {
     if (!openMenuKey) return;
@@ -1607,6 +1615,26 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                           type="button"
                           onClick={() => {
                             setOpenMenuKey(null);
+                            dispatchOpenChannelHandover({
+                              channelId: activeChannel.id,
+                              channelName: isEn
+                                ? activeChannel.nameEn || activeChannel.name
+                                : activeChannel.name,
+                            });
+                          }}
+                          className={`w-full flex items-center gap-2 px-3 py-2 text-start cursor-pointer transition ${
+                            isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/10'
+                          }`}
+                        >
+                          <FileText className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>
+                            {isEn ? 'Export Shift Handover' : 'خروجی گزارش تحویل شیفت'}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenMenuKey(null);
                             setActionConfirm({ kind: 'clear', channel: activeChannel });
                           }}
                           className={`w-full flex items-center gap-2 px-3 py-2 text-start cursor-pointer transition ${
@@ -1819,6 +1847,15 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                             isEn={isEn}
                             isLightMode={isLightMode}
                             isSelf={self}
+                          />
+
+                          {/* RBAC-projected Interactive Approval Ticket card */}
+                          <ApprovalChatCard
+                            card={msg.approvalCard}
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                            isSelf={self}
+                            onDecided={() => void loadThread(activeChannel.id, true)}
                           />
                         </div>
 

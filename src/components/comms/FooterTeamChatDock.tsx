@@ -31,6 +31,7 @@ import {
   UserPlus,
   AtSign,
   Terminal as TerminalIcon,
+  FileText,
 } from 'lucide-react';
 import {
   CommsChannel,
@@ -63,6 +64,8 @@ import {
 import { SlashCommandCard } from './SlashCommandCard';
 import { SlashCommandPickerPopover } from './SlashCommandPicker';
 import { SnippetDiffCard } from './SnippetDiffCard';
+import { ApprovalChatCard } from './ApprovalChatCard';
+import { dispatchOpenChannelHandover } from './ChannelHandoverModal';
 
 export interface FooterTeamChatDockProps {
   isEn: boolean;
@@ -225,11 +228,15 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
       ) {
         setMessages([]);
         appDataCache.invalidate(`comms:channel:${channel.id}`);
+      } else if (evt?.type === 'approval:updated' || evt?.type === 'jit_grant:updated') {
+        if (!isCollapsed) {
+          void loadMessages(true);
+        }
       }
     };
     window.addEventListener('nettop-comms-ws-event', handler as EventListener);
     return () => window.removeEventListener('nettop-comms-ws-event', handler as EventListener);
-  }, [channel]);
+  }, [channel, isCollapsed, loadMessages]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -930,6 +937,22 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
                       type="button"
                       onClick={() => {
                         setMenuOpen(false);
+                        dispatchOpenChannelHandover({
+                          channelId: channel.id,
+                          channelName: channelTitle,
+                        });
+                      }}
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition ${
+                        isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/10'
+                      }`}
+                    >
+                      <FileText className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{isEn ? 'Export Shift Handover' : 'خروجی گزارش شیفت'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
                         onOpenInCenter(channel.id);
                       }}
                       className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition ${
@@ -1225,6 +1248,15 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
                     isLightMode={isLightMode}
                     isSelf={self}
                     compact
+                  />
+
+                  <ApprovalChatCard
+                    card={msg.approvalCard}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    isSelf={self}
+                    compact
+                    onDecided={() => void loadMessages(true)}
                   />
                 </div>
 

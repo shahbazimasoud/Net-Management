@@ -10,12 +10,13 @@ import {
   Cpu,
   Globe,
   Gauge,
+  ShieldCheck,
 } from 'lucide-react';
 import { CommsMentionCandidate } from '../../types';
 import { searchCommsMentionEntities } from '../../services/commsApi';
 
 export interface SlashCommandDescriptor {
-  cmd: 'ping' | 'mac' | 'port' | 'status' | 'dns';
+  cmd: 'ping' | 'mac' | 'port' | 'status' | 'dns' | 'approval';
   syntax: string;
   example: string;
   descEn: string;
@@ -64,6 +65,14 @@ export const SLASH_COMMANDS_CATALOG: SlashCommandDescriptor[] = [
     descFa: 'استعلام مستقیم رکوردهای واقعی DNS (A / AAAA / MX / PTR / TXT)',
     needsEntityAutocomplete: false,
   },
+  {
+    cmd: 'approval',
+    syntax: '/approval <approval-id> [note]',
+    example: '/approval apr-17318001 Please review failover',
+    descEn: 'Embed a live RBAC-projected Approval Ticket card for team review & decision',
+    descFa: 'درج کارت زنده تیکت تایید عملیات برای بررسی و تایید/رد در کانال با کنترل RBAC',
+    needsEntityAutocomplete: false,
+  },
 ];
 
 function getCmdIcon(cmd: SlashCommandDescriptor['cmd']) {
@@ -78,6 +87,8 @@ function getCmdIcon(cmd: SlashCommandDescriptor['cmd']) {
       return Gauge;
     case 'dns':
       return Globe;
+    case 'approval':
+      return ShieldCheck;
   }
 }
 
@@ -132,6 +143,8 @@ export const SlashCommandPickerPopover: React.FC<SlashCommandPickerProps> = ({
           ? 'status'
           : cmdRaw === 'dns'
           ? 'dns'
+          : cmdRaw === 'approval' || cmdRaw === 'ticket'
+          ? 'approval'
           : null;
 
       if (cmdNorm === 'ping' || cmdNorm === 'status' || cmdNorm === 'port') {
@@ -143,7 +156,7 @@ export const SlashCommandPickerPopover: React.FC<SlashCommandPickerProps> = ({
           argQuery: argMatch[2] || '',
         };
       }
-      if (cmdNorm === 'mac' || cmdNorm === 'dns') {
+      if (cmdNorm === 'mac' || cmdNorm === 'dns' || cmdNorm === 'approval') {
         return {
           startsWithSlash: true,
           mode: 'hint' as const,

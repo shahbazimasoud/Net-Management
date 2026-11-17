@@ -1,11 +1,13 @@
 import {
   CommsAnnouncementSummary,
   CommsAnnouncementTrackerResponse,
+  CommsApprovalSharePayload,
   CommsChannel,
   CommsCountsByFolder,
   CommsDispatchPayload,
   CommsEntityMentionRef,
   CommsFolder,
+  CommsHandoverSummaryResponse,
   CommsMentionCandidate,
   CommsMessage,
   CommsNotificationItem,
@@ -522,6 +524,48 @@ export async function shareChannelSnippet(
   appDataCache.invalidate(`comms:channel:${channelId}`);
   appDataCache.invalidate('comms:channels');
   return json;
+}
+
+export async function shareChannelApproval(
+  channelId: string,
+  payload: CommsApprovalSharePayload
+): Promise<{ success: boolean; message: CommsMessage }> {
+  const res = await fetch(`/api/comms/channels/${encodeURIComponent(channelId)}/approval`, {
+    method: 'POST',
+    headers: buildAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const json = await safeParseJsonResponse<any>(res);
+  if (!res.ok || !json.success) {
+    const err: any = new Error(json?.error || `HTTP ${res.status}`);
+    if (json?.errorFa) err.errorFa = json.errorFa;
+    if (json?.code) err.code = json.code;
+    throw err;
+  }
+  appDataCache.invalidate(`comms:channel:${channelId}`);
+  appDataCache.invalidate('comms:channels');
+  return json;
+}
+
+export async function fetchChannelHandover(
+  channelId: string,
+  options: { limit?: number } = {}
+): Promise<CommsHandoverSummaryResponse> {
+  const limit = options.limit || 150;
+  const res = await fetch(
+    `/api/comms/channels/${encodeURIComponent(channelId)}/handover?limit=${limit}`,
+    {
+      headers: buildAuthHeaders(),
+      cache: 'no-store',
+    }
+  );
+  const json = await safeParseJsonResponse<any>(res);
+  if (!res.ok || !json.success || !json.handover) {
+    const err: any = new Error(json?.error || `HTTP ${res.status}`);
+    if (json?.errorFa) err.errorFa = json.errorFa;
+    throw err;
+  }
+  return json.handover;
 }
 
 export async function replyToInboxNotificationApi(

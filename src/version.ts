@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.443.0';
+export const APP_VERSION = '1.444.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.444.0',
+    releaseDate: '2026-11-17',
+    type: 'minor',
+    title: 'فاز ۴ ارتقای چت سازمانی: کارت تعاملی تیکت‌های تایید عملیات (JIT/Four-Eyes) و گزارش تحویل شیفت فیلترشده با RBAC',
+    title_en: 'Team Chat Phase 4: Zero-Leak Interactive Approval Ticket Cards & RBAC-Filtered Shift Handover Export',
+    changes: [
+      'افزودن اندپوینت `POST /api/comms/channels/:id/approval` (`shareChannelApproval`) و دستور ChatOps `/approval <id>` برای ارجاع و اشتراک‌گذاری زنده تیکت‌های تایید چندمرحله‌ای در کانال‌های گفتگو همراه با پاکسازی اسرار از `commandPreview` و ارزیابی بلادرنگ RBAC برای هر بیننده (Zero-Leak Projection در تاریخچه، نوتیفیکیشن‌ها و پخش زنده وب‌سوکت).',
+      'پیاده‌سازی کارت تعاملی `ApprovalChatCard.tsx` با نمایش وضعیت زنده مراحل و انقضای تیکت، اعمال قانون Four-Eyes در فرانت و بک‌اند (ممنوعیت تایید خودکار درخواست‌کننده در صورت وجود تاییدکننده دیگر)، دکمه‌های تایید/رد مستقیم برای تاییدکنندگان مجاز، بروزرسانی خودکار با رویدادهای وب‌سوکت `approval:updated`/`jit_grant:updated` و دکمه «ارسال به چت» در صف تاییدیه‌ها (`ApprovalsQueuePane.tsx`).',
+      'افزودن موتور گزارش‌گیر تحویل شیفت `GET /api/comms/channels/:id/handover` (`exportChannelHandoverSummary`) و پنجره استاندارد ۵-قانونه `ChannelHandoverModal.tsx` (پورتال سراسری با حفظ حریم فوتر `bottom-8`، دکمه‌های سه‌گانه و مینیمایز، راهنمای سه‌بخشی `FieldInfoTooltip`، تم روشن/تیره و دوزبانگی کامل) برای خروجی Markdown و JSON با سانسور کامل اقلام خارج از دسترس RBAC.'
+    ],
+    changes_en: [
+      'Added `POST /api/comms/channels/:id/approval` (`shareChannelApproval`) and the `/approval <id>` ChatOps slash command to share live multi-stage/JIT approval tickets inside Team Chat channels with `commandPreview` secret scrubbing and strict per-viewer Zero-Leak RBAC projection across message history, inbox notifications, and WebSocket broadcasts.',
+      'Built interactive `ApprovalChatCard.tsx` displaying live multi-stage workflow status, risk level, scrubbed commands, Four-Eyes-enforced inline Approve/Reject controls for authorized approvers, live WS refresh via `approval:updated`/`jit_grant:updated`, and RBAC-gated "Share to Chat" triggers inside `ApprovalsQueuePane.tsx`.',
+      'Implemented RBAC-filtered shift handover generation via `GET /api/comms/channels/:id/handover` (`exportChannelHandoverSummary`) and the 5-rule compliant `ChannelHandoverModal.tsx` (`createPortal`, `bottom-8` footer clearance, dock minimization, 3-part `FieldInfoTooltip`, Light/Dark contrast, strict i18n) supporting redacted Markdown and JSON export.'
+    ]
+  },
   {
     version: '1.443.0',
     releaseDate: '2026-11-17',

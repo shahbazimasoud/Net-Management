@@ -8,6 +8,7 @@ import {
   Clock,
   Copy,
   Layers,
+  MessageSquare,
   Play,
   Plus,
   RefreshCw,
@@ -49,6 +50,7 @@ import {
 } from '../../services/approvalApi';
 import { ActiveJitPassBar } from '../common/ActiveJitPassBar';
 import { ActiveTab } from '../Sidebar';
+import { dispatchShareApprovalToTeamChat } from './ShareToChatModal';
 
 interface ApprovalsQueuePaneProps {
   isLightMode?: boolean;
@@ -104,6 +106,10 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
 
   const isSuperAdmin = isUserSuperAdmin(user, effectivePolicy);
   const canApprove = isSuperAdmin || Boolean(effectivePolicy?.canApproveActions);
+  const canShareToChat =
+    isSuperAdmin ||
+    Boolean(effectivePolicy?.canSendCommunications) ||
+    Boolean(effectivePolicy?.canSendAnnouncements);
 
   const [statusFilter, setStatusFilter] = useState<'all' | ApprovalRequestStatus>('all');
   const [scopeFilter, setScopeFilter] = useState<'all' | 'mine' | 'assigned_to_me'>(
@@ -993,16 +999,48 @@ export const ApprovalsQueuePane: React.FC<ApprovalsQueuePaneProps> = ({
                     </div>
                   </div>
 
-                  {(() => {
-                    const st = getStatusMeta(selectedItem.status);
-                    const StIcon = st.icon;
-                    return (
-                      <div className={`flex items-center gap-1.5 text-xs font-bold ${st.textClass}`}>
-                        <StIcon className="w-4 h-4" />
-                        <span>{isEn ? st.labelEn : st.labelFa}</span>
-                      </div>
-                    );
-                  })()}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {canShareToChat && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          dispatchShareApprovalToTeamChat({
+                            approvalId: selectedItem.id,
+                            requestedAction: selectedItem.requestedAction,
+                            targetEntityType: selectedItem.targetEntityType,
+                            targetEntityId: selectedItem.targetEntityId,
+                            targetEntityName: selectedItem.targetEntityName,
+                            riskLevel: selectedItem.riskLevel,
+                            status: selectedItem.status,
+                            commandPreview: selectedItem.commandPreview,
+                          })
+                        }
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold cursor-pointer transition ${
+                          isLightMode
+                            ? 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700'
+                            : 'bg-indigo-500/15 hover:bg-indigo-500/25 border-indigo-500/35 text-indigo-300'
+                        }`}
+                        title={
+                          isEn
+                            ? 'Share this approval ticket as a live interactive card in Team Chat'
+                            : 'اشتراک‌گذاری این تیکت به صورت کارت زنده در چت تیمی'
+                        }
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Share to Chat' : 'ارسال به چت تیمی'}</span>
+                      </button>
+                    )}
+                    {(() => {
+                      const st = getStatusMeta(selectedItem.status);
+                      const StIcon = st.icon;
+                      return (
+                        <div className={`flex items-center gap-1.5 text-xs font-bold ${st.textClass}`}>
+                          <StIcon className="w-4 h-4" />
+                          <span>{isEn ? st.labelEn : st.labelFa}</span>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
 
                 <div

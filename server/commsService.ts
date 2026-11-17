@@ -28,6 +28,7 @@ import {
   CommsAnnouncementReadReceipt,
   CommsAnnouncementSummary,
   CommsAnnouncementTrackerResponse,
+  CommsApprovalSharePayload,
   CommsCategory,
   CommsChannel,
   CommsChannelMember,
@@ -36,9 +37,11 @@ import {
   CommsDispatchPayload,
   CommsEntityMentionRef,
   CommsFolder,
+  CommsHandoverSummaryResponse,
   CommsMentionCandidate,
   CommsMessage,
   CommsNotificationItem,
+  CommsProjectedApprovalCard,
   CommsProjectedEntityCard,
   CommsProjectedSlashResult,
   CommsProjectedSnippetResult,
@@ -49,6 +52,7 @@ import {
   CommsSnippetSharePayload,
   CommsSnippetSourceType,
 } from '../src/types';
+import type { RawApprovalCommsSnapshot } from './approvalService';
 import {
   broadcastCommsEventToRecipients,
   broadcastCommsEventToUser,
@@ -2992,10 +2996,13 @@ export async function searchScopedEntityMentions(
 
 function sanitizeCleanMessageMetadata(meta: Record<string, any> | undefined): Record<string, any> | undefined {
   if (!meta) return undefined;
-  if (!('slashCommandData' in meta) && !('snippetData' in meta)) return meta;
+  if (!('slashCommandData' in meta) && !('snippetData' in meta) && !('approvalCardData' in meta)) {
+    return meta;
+  }
   const copy = { ...meta };
   delete copy.slashCommandData;
   delete copy.snippetData;
+  delete copy.approvalCardData;
   return copy;
 }
 
@@ -3609,6 +3616,163 @@ function projectSnippetForViewer(
   };
 }
 
+function projectApprovalCardForViewer(
+  rawApprovalData: any,
+  snapshot: RawApprovalCommsSnapshot | undefined,
+  viewer: Pick<CommsActor, 'userId' | 'username' | 'role'>,
+  ctx: CommsViewerAccessContext,
+  devicesById: Map<string, any>,
+  serversById: Map<string, any>
+): CommsProjectedApprovalCard | undefined {
+  if (!rawApprovalData || typeof rawApprovalData !== 'object') return undefined;
+  const approvalId = String(rawApprovalData.approvalId || '').trim();
+  if (!approvalId) return undefined;
+
+  if (!snapshot) {
+    return {
+      approvalId,
+      accessRestricted: true,
+      restrictionReasonCode: 'not_found',
+      restrictionMessageFa: 'درخواست تایید مرتبط یافت نشد یا حذف شده است.',
+      restrictionMessageEn: 'Referenced approval ticket was not found or has been removed.',
+    };
+  }
+
+  const approval = snapshot.approval;
+  const canApproveActions = ctx.isSuperAdmin || Boolean(ctx.policy?.canApproveActions);
+  const approvalActor = {
+    userId: String(viewer.userId || ''),
+    username: String(viewer.username || ''),
+    role: viewer.role || 'Operator',
+    isSuperAdmin: ctx.isSuperAdmin,
+    canApproveActions,
+  };
+
+  const isRequester = snapshot.isRequester(approvalActor);
+  const isAssignedStageApprover = canApproveActions && snapshot.isAssignedAnyStage(approvalActor);
+  const targetType = approval.targetEntityType;
+  const targetId = String(approval.targetEntityId || '').trim();
+
+  let allowedToInspect = ctx.isSuperAdmin || isRequester || isAssignedStageApprover;
+  let reasonCode: 'module_disabled' | 'outside_scope' | 'action_denied' = 'outside_scope';
+
+  if (!allowedToInspect) {
+    if (targetType === 'device') {
+      const gate = isDeviceVisibleInViewerCtx(targetId, ctx);
+      if (gate.allowed) {
+        allowedToInspect = true;
+      } else {
+        reasonCode = gate.reasonCode === 'module_disabled' ? 'module_disabled' : 'outside_scope';
+      }
+    } else if (targetType === 'server') {
+      const gate = isServerVisibleInViewerCtx(targetId, ctx);
+      if (gate.allowed) {
+        allowedToInspect = true;
+      } else {
+        reasonCode = gate.reasonCode === 'module_disabled' ? 'module_disabled' : 'outside_scope';
+      }
+    } else if (canApproveActions) {
+      allowedToInspect = true;
+    } else {
+      reasonCode = 'action_denied';
+    }
+  }
+
+  if (!allowedToInspect) {
+    const restrictionMessageFa =
+      reasonCode === 'module_disabled'
+        ? targetType === 'server'
+          ? 'عدم دسترسی RBAC: ماژول سرورهای ریموت برای مشاهده این تیکت تایید در پالیسی شما غیرفعال است.'
+          : 'عدم دسترسی RBAC: ماژول تجهیزات شبکه برای مشاهده این تیکت تایید در پالیسی شما غیرفعال است.'
+        : reasonCode === 'action_denied'
+        ? 'عدم دسترسی RBAC: شما مجوز مشاهده یا تصمیم‌گیری برای این تیکت تایید را در پالیسی خود ندارید.'
+        : 'عدم دسترسی RBAC: این تیکت تایید مربوط به تجهیز یا سروری خارج از محدوده مجاز شماست.';
+    const restrictionMessageEn =
+      reasonCode === 'module_disabled'
+        ? targetType === 'server'
+          ? 'Access Restricted (RBAC): Remote Servers module is disabled in your policy.'
+          : 'Access Restricted (RBAC): Network Devices module is disabled in your policy.'
+        : reasonCode === 'action_denied'
+        ? 'Access Restricted (RBAC): Your policy does not permit inspecting this approval ticket.'
+        : 'Access Denied (RBAC): This approval ticket targets an entity outside your authorized scope.';
+    return {
+      approvalId,
+      accessRestricted: true,
+      restrictionReasonCode: reasonCode,
+      restrictionMessageFa,
+      restrictionMessageEn,
+    };
+  }
+
+  const dev = targetType === 'device' ? devicesById.get(targetId.toLowerCase()) : null;
+  const srv = targetType === 'server' ? serversById.get(targetId.toLowerCase()) : null;
+  const targetEntityName =
+    (targetType === 'device' ? dev?.name : srv?.name) ||
+    approval.targetEntityName ||
+    targetId;
+  const targetEntityIp =
+    targetType === 'device'
+      ? dev?.ip || dev?.ssh_host || undefined
+      : targetType === 'server'
+      ? srv?.host || srv?.ip || undefined
+      : undefined;
+
+  const activeStage =
+    (approval.stages || []).find(
+      (s) => s.status === 'pending' && s.stageOrder === (approval.currentStageOrder || 1)
+    ) ||
+    (approval.stages || []).find((s) => s.status === 'pending') ||
+    (approval.stages || [])[Math.max(0, (approval.currentStageOrder || 1) - 1)];
+
+  const safeCmdPreview = approval.commandPreview
+    ? scrubSensitiveSnippetContent(approval.commandPreview).scrubbedText
+    : null;
+  const safeExecOutput = approval.executionOutput
+    ? scrubSensitiveSnippetContent(approval.executionOutput).scrubbedText
+    : null;
+
+  const canOpenEntity =
+    targetType === 'device'
+      ? isDeviceVisibleInViewerCtx(targetId, ctx).allowed
+      : targetType === 'server'
+      ? isServerVisibleInViewerCtx(targetId, ctx).allowed
+      : false;
+
+  return {
+    approvalId,
+    accessRestricted: false,
+    status: approval.status,
+    riskLevel: approval.riskLevel,
+    targetEntityType: targetType,
+    targetEntityId: targetId,
+    targetEntityName,
+    targetEntityIp,
+    requestedAction: approval.requestedAction,
+    actionKey: approval.actionKey || null,
+    reason: approval.reason,
+    commandPreview: safeCmdPreview,
+    executionOutput: safeExecOutput,
+    executionStatus: approval.executionStatus || null,
+    executionMode: approval.executionMode,
+    autoExecuteOnApprove: Boolean(approval.autoExecuteOnApprove),
+    requesterUserId: approval.requesterUserId,
+    requesterUsername: approval.requesterUsername,
+    requesterFullName: approval.requesterFullName || approval.requesterUsername,
+    approverUsername: approval.approverUsername || null,
+    decisionNote: approval.decisionNote || null,
+    currentStageOrder: approval.currentStageOrder || 1,
+    totalStages: approval.totalStages || (approval.stages || []).length || 1,
+    activeStageTitleEn: activeStage?.titleEn,
+    activeStageTitleFa: activeStage?.titleFa,
+    createdAt: approval.createdAt,
+    expiresAt: approval.expiresAt,
+    decidedAt: approval.decidedAt || null,
+    canActOnCurrentStage: snapshot.canActorActOnCurrentStage(approvalActor),
+    isRequesterSelf: isRequester,
+    canOpenEntity,
+  };
+}
+
 export async function listChannelMessages(
   user: CommsActor,
   isSuperAdmin: boolean,
@@ -3719,26 +3883,36 @@ export async function listChannelMessages(
   }
   const messages = rawMessages.map((r) => mapMessageRow(r, lookupMap));
 
-  // Project entity mentions, ChatOps slash results, and Shared Snippets strictly through the viewer's RBAC policy (Zero-Leak)
+  // Project entity mentions, ChatOps slash results, Shared Snippets, and Approval Cards strictly through viewer RBAC (Zero-Leak)
+  const approvalIdsForLookup = messages
+    .map((m) => String(m.metadata?.approvalCardData?.approvalId || '').trim())
+    .filter(Boolean);
   const needsDeviceLookup = messages.some(
     (m) =>
       extractMessageEntityRefs(m).some(
         (ref) => ref.entityType === 'device' || ref.entityType === 'port'
       ) ||
       Boolean(m.metadata?.slashCommandData) ||
-      Boolean(m.metadata?.snippetData)
+      Boolean(m.metadata?.snippetData) ||
+      Boolean(m.metadata?.approvalCardData)
   );
   const needsServerLookup = messages.some(
     (m) =>
       extractMessageEntityRefs(m).some((ref) => ref.entityType === 'server') ||
       Boolean(m.metadata?.slashCommandData) ||
-      Boolean(m.metadata?.snippetData)
+      Boolean(m.metadata?.snippetData) ||
+      Boolean(m.metadata?.approvalCardData)
   );
-  if (needsDeviceLookup || needsServerLookup) {
-    const [viewerCtx, allDevices, allServers] = await Promise.all([
+  if (needsDeviceLookup || needsServerLookup || approvalIdsForLookup.length > 0) {
+    const [viewerCtx, allDevices, allServers, approvalsMap] = await Promise.all([
       resolveCommsViewerAccessContext(user, isSuperAdmin),
       needsDeviceLookup ? getAllDevices().catch(() => []) : Promise.resolve([]),
       needsServerLookup ? getAllRemoteServers().catch(() => []) : Promise.resolve([]),
+      approvalIdsForLookup.length > 0
+        ? import('./approvalService')
+            .then((mod) => mod.getRawApprovalSnapshotsMapForComms(approvalIdsForLookup))
+            .catch(() => new Map<string, RawApprovalCommsSnapshot>())
+        : Promise.resolve(new Map<string, RawApprovalCommsSnapshot>()),
     ]);
     const devicesById = new Map<string, any>(
       (allDevices || [])
@@ -3752,7 +3926,7 @@ export async function listChannelMessages(
     );
     for (const m of messages) {
       const refs = extractMessageEntityRefs(m);
-      if (refs.length > 0 && !m.metadata?.snippetData) {
+      if (refs.length > 0 && !m.metadata?.snippetData && !m.metadata?.approvalCardData) {
         const cards = buildProjectedCardsForViewer(refs, viewerCtx, devicesById, serversById);
         m.entityCards = cards;
         if (cards.some((c) => c.accessRestricted)) {
@@ -3791,6 +3965,29 @@ export async function listChannelMessages(
           }
         }
       }
+      if (m.metadata?.approvalCardData) {
+        const aid = String(m.metadata.approvalCardData.approvalId || '').trim();
+        const projectedApproval = projectApprovalCardForViewer(
+          m.metadata.approvalCardData,
+          approvalsMap.get(aid),
+          user,
+          viewerCtx,
+          devicesById,
+          serversById
+        );
+        if (projectedApproval) {
+          m.approvalCard = projectedApproval;
+          if (projectedApproval.accessRestricted) {
+            m.linkedEntityName = null;
+            m.body = '🔒 کارت درخواست تایید عملیات (دسترسی به این تیکت/تجهیز محدود شده است)';
+            m.bodyEn = '🔒 Action Approval Ticket (Access restricted by RBAC)';
+          }
+        }
+      }
+      m.metadata = sanitizeCleanMessageMetadata(m.metadata);
+    }
+  } else {
+    for (const m of messages) {
       m.metadata = sanitizeCleanMessageMetadata(m.metadata);
     }
   }
@@ -5027,6 +5224,23 @@ export async function executeChannelSlashCommand(
 
   const tokens = rawCommand.split(/\s+/).filter(Boolean);
   const cmdRaw = (tokens[0] || '').slice(1).toLowerCase();
+
+  if (cmdRaw === 'approval' || cmdRaw === 'ticket') {
+    const approvalIdArg = (tokens[1] || '').trim();
+    if (!approvalIdArg) {
+      throw new Error(
+        'BAD_COMMAND: Usage: /approval <approval-id> [optional note]|نحوه استفاده: /approval <شناسه تیکت> [توضیح اختیاری]'
+      );
+    }
+    const extraNote = tokens.slice(2).join(' ').trim();
+    return await shareChannelApproval(senderUser, isSuperAdmin, senderIp, channelId, {
+      approvalId: approvalIdArg,
+      note: extraNote || undefined,
+      priority: payload.priority,
+      replyToMessageId: payload.replyToMessageId,
+    });
+  }
+
   const cmdNormalized: CommsSlashCommandName | null =
     cmdRaw === 'ping'
       ? 'ping'
@@ -5042,7 +5256,7 @@ export async function executeChannelSlashCommand(
 
   if (!cmdNormalized) {
     throw new Error(
-      `UNSUPPORTED_COMMAND: Unknown command "/${cmdRaw}". Supported: /ping, /mac, /port, /status, /dns`
+      `UNSUPPORTED_COMMAND: Unknown command "/${cmdRaw}". Supported: /ping, /mac, /port, /status, /dns, /approval`
     );
   }
 
@@ -6078,4 +6292,614 @@ export async function shareChannelSnippet(
   }).catch(() => {});
 
   return senderCleanMsg;
+}
+
+export async function shareChannelApproval(
+  senderUser: CommsActor,
+  isSuperAdmin: boolean,
+  senderIp: string,
+  channelId: string,
+  payload: CommsApprovalSharePayload
+): Promise<CommsMessage> {
+  const approvalId = String(payload?.approvalId || '').trim();
+  if (!approvalId) {
+    throw new Error(
+      'BAD_APPROVAL: Approval ticket ID is required. | شناسه تیکت تایید عملیات الزامی است.'
+    );
+  }
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  const approvalMod = await import('./approvalService');
+
+  const [channel, senderCtx, approvalSnapshot, allDevices, allServers, parentRowPg] =
+    await Promise.all([
+      loadHydratedChannelForUser(channelId, senderUser),
+      resolveCommsViewerAccessContext(senderUser, isSuperAdmin),
+      approvalMod.getRawApprovalSnapshotForComms(approvalId),
+      getAllDevices().catch(() => []),
+      getAllRemoteServers().catch(() => []),
+      payload?.replyToMessageId && isPostgresConnected() && pool
+        ? pool
+            .query(`SELECT * FROM comms_messages WHERE id = $1`, [payload.replyToMessageId])
+            .then((r) => r.rows[0] || null)
+            .catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+  if (!channel) {
+    throw new Error('NOT_FOUND: Channel not found. | کانال گفتگو یافت نشد.');
+  }
+
+  const senderIds = new Set(resolveUserIdentifiers(senderUser));
+  const members = channel.members || [];
+  if (!members.some((m) => memberMatchesIdentifiers(m, senderIds))) {
+    throw new Error(
+      'ACCESS_DENIED: You are not a member of this channel. | شما عضو این کانال گفتگو نیستید.'
+    );
+  }
+
+  if (!approvalSnapshot) {
+    throw new Error(
+      'NOT_FOUND: Approval ticket not found. | تیکت تایید عملیات یافت نشد.'
+    );
+  }
+
+  const devicesById = new Map<string, any>(
+    (allDevices || []).filter((d: any) => d?.id).map((d: any) => [String(d.id).trim().toLowerCase(), d])
+  );
+  const serversById = new Map<string, any>(
+    (allServers || []).filter((s: any) => s?.id).map((s: any) => [String(s.id).trim().toLowerCase(), s])
+  );
+
+  const approvalCardData = { approvalId };
+  const senderProjected = projectApprovalCardForViewer(
+    approvalCardData,
+    approvalSnapshot,
+    senderUser,
+    senderCtx,
+    devicesById,
+    serversById
+  );
+  if (!senderProjected || senderProjected.accessRestricted) {
+    throw new Error(
+      'ACCESS_DENIED: You do not have RBAC permission to inspect or share this approval ticket. | عدم دسترسی RBAC: شما مجوز مشاهده یا اشتراک‌گذاری این درخواست تایید را ندارید.'
+    );
+  }
+
+  const approval = approvalSnapshot.approval;
+  const nowIso = new Date().toISOString();
+  const noteClean = (payload?.note || '').trim();
+  const entityLabel = senderProjected.targetEntityName || approval.targetEntityName || approval.targetEntityId;
+  const body = noteClean
+    ? noteClean
+    : `🛡️ ارجاع تیکت تایید عملیات: «${approval.requestedAction}» روی ${entityLabel}`;
+  const bodyEn = noteClean
+    ? noteClean
+    : `🛡️ Shared Approval Ticket: "${approval.requestedAction}" on ${entityLabel}`;
+
+  const msgId = makeId('cmsg');
+  const msgType = channel.channelType === 'direct' ? 'direct_message' : 'channel_message';
+  const senderDisplay = formatUserDisplay(senderUser.fullName, senderUser.username);
+  const title =
+    channel.channelType === 'direct'
+      ? `تیکت تایید عملیات از ${senderDisplay}`
+      : `${channel.name}: تیکت تایید عملیات از ${senderDisplay}`;
+  const titleEn =
+    channel.channelType === 'direct'
+      ? `Approval Ticket from ${senderDisplay}`
+      : `${channel.nameEn || channel.name}: Approval Ticket from ${senderDisplay}`;
+
+  const linkedTypeForMsg =
+    approval.targetEntityType === 'device' || approval.targetEntityType === 'server'
+      ? approval.targetEntityType
+      : null;
+
+  const messageRecord = {
+    id: msgId,
+    channel_id: channelId,
+    sender_user_id: senderUser.userId,
+    sender_username: senderUser.username,
+    sender_full_name: senderUser.fullName || senderUser.username,
+    sender_role: senderUser.role || 'Operator',
+    message_type: msgType,
+    priority:
+      payload?.priority ||
+      (approval.riskLevel === 'critical' ? 'critical' : approval.riskLevel === 'high' ? 'warning' : 'info'),
+    title,
+    title_en: titleEn,
+    body,
+    body_en: bodyEn,
+    linked_entity_type: linkedTypeForMsg,
+    linked_entity_id: linkedTypeForMsg ? approval.targetEntityId : null,
+    linked_entity_name: linkedTypeForMsg ? entityLabel : null,
+    metadata: {
+      channelType: channel.channelType,
+      replyToMessageId: payload?.replyToMessageId || null,
+      senderUsername: senderUser.username,
+      approvalCardData: { approvalId, sharedAt: nowIso },
+    },
+    created_at: nowIso,
+  };
+
+  // Pre-compute Zero-Leak per-recipient approval projection
+  const memberContextPairs = await Promise.all(
+    members.map(async (m) => {
+      const key = `${(m.userId || '').toLowerCase()}|${(m.username || '').toLowerCase()}`;
+      const memberCtx = await resolveCommsViewerAccessContext(
+        { userId: m.userId, username: m.username, role: m.role },
+        false
+      );
+      const memberCard = projectApprovalCardForViewer(
+        approvalCardData,
+        approvalSnapshot,
+        { userId: m.userId, username: m.username, role: m.role },
+        memberCtx,
+        devicesById,
+        serversById
+      );
+      return { key, m, memberCard };
+    })
+  );
+  const cardByMemberKey = new Map(memberContextPairs.map((p) => [p.key, p.memberCard]));
+
+  const notifyMembers = members.filter(
+    (m) => !memberMatchesIdentifiers(m, senderIds) && !m.isMuted
+  );
+  const evalResults =
+    notifyMembers.length > 0
+      ? await Promise.all(
+          notifyMembers.map(async (m) => ({
+            m,
+            pref: await evaluateNotificationDeliveryForUser(
+              m,
+              msgType as CommsCategory,
+              messageRecord.priority as CommsSeverity,
+              false
+            ),
+          }))
+        )
+      : [];
+
+  const redactedFa = '🔒 کارت درخواست تایید عملیات (دسترسی به این تیکت/تجهیز محدود شده است)';
+  const redactedEn = '🔒 Action Approval Ticket (Access restricted by RBAC)';
+  const notificationRecords: any[] = [];
+  const activeRecipients: ResolvedRecipient[] = [];
+  for (const { m, pref } of evalResults) {
+    if (!pref.deliverInboxNotification) continue;
+    const key = `${(m.userId || '').toLowerCase()}|${(m.username || '').toLowerCase()}`;
+    const memberCard = cardByMemberKey.get(key);
+    const notifTitleFa = memberCard?.accessRestricted
+      ? `${channel.name}: 🔒 تیکت تایید محافظت‌شده (RBAC)`
+      : title;
+    const notifTitleEn = memberCard?.accessRestricted
+      ? `${channel.nameEn || channel.name}: 🔒 RBAC Protected Approval Ticket`
+      : titleEn;
+    const notifBodyFa = memberCard?.accessRestricted ? redactedFa : body;
+    const notifBodyEn = memberCard?.accessRestricted ? redactedEn : bodyEn;
+    activeRecipients.push({ userId: m.userId, username: m.username });
+    notificationRecords.push({
+      id: makeId('notif'),
+      recipient_user_id: m.userId,
+      recipient_username: m.username,
+      source_message_id: msgId,
+      channel_id: channelId,
+      category: msgType,
+      severity: messageRecord.priority,
+      sender_name: senderDisplay,
+      sender_role: senderUser.role || 'Operator',
+      title: notifTitleFa,
+      title_en: notifTitleEn,
+      summary: notifBodyFa.slice(0, 140),
+      summary_en: notifBodyEn.slice(0, 140),
+      body: notifBodyFa,
+      body_en: notifBodyEn,
+      linked_entity_type: null,
+      linked_entity_id: null,
+      linked_entity_name: null,
+      action_tab: 'communications',
+      is_read: false,
+      is_archived: false,
+      requires_acknowledgment: false,
+      metadata: {
+        channelId,
+        channelType: channel.channelType,
+        sourceMessageId: msgId,
+        senderUsername: senderUser.username,
+        replyToMessageId: payload?.replyToMessageId || null,
+        quietHoursMuted: pref.quietHoursMuted,
+        playSound: pref.playSound,
+      },
+      created_at: nowIso,
+    });
+  }
+
+  await persistMessageAndNotifications(
+    messageRecord,
+    notificationRecords,
+    activeRecipients,
+    {
+      channelId,
+      updatedAt: nowIso,
+      senderIds: Array.from(senderIds),
+      messageId: msgId,
+    }
+  );
+
+  let parentLookup: Map<string, any> | undefined;
+  if (payload?.replyToMessageId) {
+    const parentRow =
+      parentRowPg ||
+      (loadFallbackStore().comms_messages || []).find(
+        (m: any) => m.id === payload.replyToMessageId
+      );
+    if (parentRow) parentLookup = new Map([[parentRow.id, parentRow]]);
+  }
+
+  const baseMapped = mapMessageRow(messageRecord, parentLookup);
+  const senderCleanMsg: CommsMessage = {
+    ...baseMapped,
+    metadata: sanitizeCleanMessageMetadata(baseMapped.metadata),
+    approvalCard: senderProjected,
+  };
+
+  // Per-recipient Zero-Leak WebSocket broadcast
+  const projectedByMemberKey = new Map<string, CommsMessage>();
+  for (const { key, memberCard } of memberContextPairs) {
+    projectedByMemberKey.set(key, {
+      ...baseMapped,
+      linkedEntityName: memberCard?.accessRestricted ? null : baseMapped.linkedEntityName,
+      body: memberCard?.accessRestricted ? redactedFa : baseMapped.body,
+      bodyEn: memberCard?.accessRestricted ? redactedEn : baseMapped.bodyEn,
+      metadata: sanitizeCleanMessageMetadata(baseMapped.metadata),
+      approvalCard: memberCard,
+    });
+  }
+
+  broadcastCommsEventToRecipients(
+    members.map((m) => ({ userId: m.userId, username: m.username })),
+    (recipient) => {
+      const key = `${(recipient.userId || '').toLowerCase()}|${(recipient.username || '').toLowerCase()}`;
+      return {
+        type: 'channel:message',
+        channelId,
+        message: projectedByMemberKey.get(key) || senderCleanMsg,
+      };
+    }
+  );
+
+  void addPortalAuditLog({
+    category: 'communications',
+    action: 'CHANNEL_APPROVAL_SHARED',
+    title: `اشتراک‌گذاری تیکت تایید عملیات (${approvalId})`,
+    title_en: `Shared Approval Ticket (${approvalId}) in Team Chat`,
+    actor: {
+      username: senderUser.username,
+      role: senderUser.role || 'Operator',
+      ipAddress: senderIp || '127.0.0.1',
+    },
+    target: {
+      type: 'comms_channel',
+      id: channelId,
+      name: channel.nameEn || channel.name,
+    },
+    severity: messageRecord.priority as CommsSeverity,
+    status: 'success',
+    details: `کاربر ${senderUser.username} تیکت تایید «${approval.requestedAction}» (${approvalId}) را در کانال «${channel.name}» به اشتراک گذاشت.`,
+    details_en: `User ${senderUser.username} shared approval ticket "${approval.requestedAction}" (${approvalId}) in channel "${channel.nameEn || channel.name}".`,
+  }).catch(() => {});
+
+  return senderCleanMsg;
+}
+
+export async function exportChannelHandoverSummary(
+  viewerUser: CommsActor,
+  isSuperAdmin: boolean,
+  viewerIp: string,
+  channelId: string,
+  options: { limit?: number } = {}
+): Promise<CommsHandoverSummaryResponse> {
+  const windowLimit = Math.min(200, Math.max(20, Number(options.limit) || 150));
+  // Calling listChannelMessages enforces 100% Zero-Leak per-viewer RBAC projection on every message
+  const { channel, messages } = await listChannelMessages(viewerUser, isSuperAdmin, channelId, {
+    limit: windowLimit,
+    offset: 0,
+  });
+
+  const participantMap = new Map<
+    string,
+    { username: string; fullName?: string; role?: string | null; messageCount: number }
+  >();
+  const mentionedEntityMap = new Map<
+    string,
+    {
+      entityType: 'device' | 'server' | 'port';
+      entityName: string;
+      entityIp?: string;
+      portId?: string | null;
+      isOnline?: boolean | null;
+    }
+  >();
+  const diagnostics: CommsHandoverSummaryResponse['diagnostics'] = [];
+  const snippets: CommsHandoverSummaryResponse['snippets'] = [];
+  const approvalMap = new Map<string, CommsHandoverSummaryResponse['approvals'][number]>();
+  const timelineHighlights: CommsHandoverSummaryResponse['timelineHighlights'] = [];
+  let restrictedItemsRedactedCount = 0;
+
+  for (const m of messages) {
+    const pKey = (m.senderUsername || m.senderUserId || 'system').toLowerCase();
+    const existingP = participantMap.get(pKey);
+    if (existingP) {
+      existingP.messageCount += 1;
+    } else {
+      participantMap.set(pKey, {
+        username: m.senderUsername,
+        fullName: m.senderFullName || undefined,
+        role: m.senderRole || null,
+        messageCount: 1,
+      });
+    }
+
+    let messageHasRestricted = false;
+
+    for (const card of m.entityCards || []) {
+      if (card.accessRestricted) {
+        restrictedItemsRedactedCount += 1;
+        messageHasRestricted = true;
+      } else {
+        const key = `${card.entityType}:${card.entityId.toLowerCase()}:${(card.portId || '').toLowerCase()}`;
+        if (!mentionedEntityMap.has(key)) {
+          mentionedEntityMap.set(key, {
+            entityType: card.entityType,
+            entityName: card.name || card.entityId,
+            entityIp: card.ip,
+            portId: card.portId || null,
+            isOnline: card.isOnline ?? null,
+          });
+        }
+      }
+    }
+
+    if (m.slashResult) {
+      if (m.slashResult.accessRestricted) {
+        restrictedItemsRedactedCount += 1;
+        messageHasRestricted = true;
+      } else {
+        const sr = m.slashResult;
+        const summaryParts: string[] = [];
+        if (typeof sr.latencyMs === 'number') summaryParts.push(`${sr.latencyMs}ms`);
+        if (typeof sr.packetLoss === 'number') summaryParts.push(`${sr.packetLoss}% loss`);
+        if (sr.portId && sr.portStatus) summaryParts.push(`${sr.portId}: ${sr.portStatus}`);
+        if (sr.finalEdgePort) {
+          summaryParts.push(`${sr.finalEdgePort.switchName} [${sr.finalEdgePort.port}]`);
+        }
+        if (Array.isArray(sr.ipv4Addresses) && sr.ipv4Addresses.length > 0) {
+          summaryParts.push(sr.ipv4Addresses.slice(0, 3).join(', '));
+        }
+        diagnostics.push({
+          command: sr.command,
+          rawCommand: sr.rawCommand,
+          target: sr.target,
+          success: sr.success,
+          executedAt: sr.executedAt,
+          summary: summaryParts.join(' · ') || (sr.success ? 'OK' : 'Failed'),
+        });
+      }
+    }
+
+    if (m.snippetResult) {
+      if (m.snippetResult.accessRestricted) {
+        restrictedItemsRedactedCount += 1;
+        messageHasRestricted = true;
+      } else {
+        snippets.push({
+          title: m.snippetResult.titleEn || m.snippetResult.title || m.snippetResult.sourceType,
+          sourceType: m.snippetResult.sourceType,
+          sourceEntityName:
+            m.snippetResult.sourceEntityName || m.snippetResult.sourceEntityId,
+          sourceEntityIp: m.snippetResult.sourceEntityIp,
+          redactedSecretsCount: m.snippetResult.redactedCount || 0,
+          sharedAt: m.snippetResult.sharedAt,
+        });
+      }
+    }
+
+    if (m.approvalCard) {
+      if (m.approvalCard.accessRestricted) {
+        restrictedItemsRedactedCount += 1;
+        messageHasRestricted = true;
+      } else {
+        const ac = m.approvalCard;
+        approvalMap.set(ac.approvalId, {
+          approvalId: ac.approvalId,
+          status: ac.status || 'pending',
+          riskLevel: ac.riskLevel || 'high',
+          requestedAction: ac.requestedAction || ac.approvalId,
+          targetEntityName: ac.targetEntityName || ac.targetEntityId || '-',
+          requesterUsername: ac.requesterUsername || '-',
+          stageSummary: `Stage ${ac.currentStageOrder || 1}/${ac.totalStages || 1}`,
+          createdAt: ac.createdAt || m.createdAt,
+        });
+      }
+    }
+
+    const cleanExcerpt = messageHasRestricted
+      ? '[RBAC RESTRICTED]'
+      : (m.bodyEn || m.body || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+    timelineHighlights.push({
+      createdAt: m.createdAt,
+      sender: m.senderFullName || m.senderUsername,
+      priority: m.priority,
+      excerpt: cleanExcerpt,
+      isRestricted: messageHasRestricted,
+    });
+  }
+
+  const participants = Array.from(participantMap.values()).sort(
+    (a, b) => b.messageCount - a.messageCount
+  );
+  const mentionedEntities = Array.from(mentionedEntityMap.values());
+  const approvals = Array.from(approvalMap.values());
+  const generatedAt = new Date().toISOString();
+  const safeTimeline = timelineHighlights.slice(-25);
+
+  const mdEnLines: string[] = [
+    `# Shift & Incident Handover Report — ${channel.nameEn || channel.name}`,
+    `- **Channel ID:** \`${channel.id}\` (${channel.channelType})`,
+    `- **Generated At:** ${generatedAt}`,
+    `- **Generated By (RBAC Scope):** ${viewerUser.fullName || viewerUser.username} (\`${viewerUser.username}\`)`,
+    `- **Messages Evaluated:** ${messages.length} · **Participants:** ${participants.length} · **RBAC Redacted Items:** ${restrictedItemsRedactedCount}`,
+    '',
+    '## 1. Active Participants',
+    ...(participants.length > 0
+      ? participants.map(
+          (p) =>
+            `- **${p.fullName || p.username}** (\`${p.username}\`${p.role ? ` · ${p.role}` : ''}): ${p.messageCount} message(s)`
+        )
+      : ['- _No message activity in selected window._']),
+    '',
+    '## 2. Referenced Infrastructure (Permitted Scope)',
+    ...(mentionedEntities.length > 0
+      ? mentionedEntities.map(
+          (e) =>
+            `- **[${e.entityType.toUpperCase()}]** ${e.entityName}${e.portId ? ` · Port ${e.portId}` : ''}${e.entityIp ? ` (\`${e.entityIp}\`)` : ''}${e.isOnline === true ? ' — Online' : e.isOnline === false ? ' — Offline' : ''}`
+        )
+      : ['- _No permitted infrastructure mentions in window._']),
+    '',
+    '## 3. Live Diagnostics & ChatOps Probes',
+    ...(diagnostics.length > 0
+      ? diagnostics.map(
+          (d) => `- \`${d.rawCommand}\` (${d.success ? 'PASS' : 'WARN'}) — ${d.summary}`
+        )
+      : ['- _No permitted diagnostics recorded._']),
+    '',
+    '## 4. Secret-Scrubbed Snippets & Diffs',
+    ...(snippets.length > 0
+      ? snippets.map(
+          (s) =>
+            `- **${s.title}** on ${s.sourceEntityName}${s.sourceEntityIp ? ` (\`${s.sourceEntityIp}\`)` : ''} — ${s.redactedSecretsCount} secret(s) scrubbed`
+        )
+      : ['- _No permitted snippets or config diffs shared._']),
+    '',
+    '## 5. Action Approval Tickets',
+    ...(approvals.length > 0
+      ? approvals.map(
+          (a) =>
+            `- \`${a.approvalId}\` **[${a.status.toUpperCase()} · ${a.riskLevel}]** ${a.requestedAction} on ${a.targetEntityName} (${a.stageSummary}, by \`${a.requesterUsername}\`)`
+        )
+      : ['- _No permitted approval tickets linked in thread._']),
+    '',
+    '## 6. Recent Timeline Highlights',
+    ...(safeTimeline.length > 0
+      ? safeTimeline.map(
+          (t) => `- [${t.createdAt}] **${t.sender}** (${t.priority}): ${t.excerpt}`
+        )
+      : ['- _Empty thread._']),
+  ];
+
+  const mdFaLines: string[] = [
+    `# گزارش تحویل شیفت و رخداد — ${channel.name}`,
+    `- **شناسه کانال:** \`${channel.id}\` (${channel.channelType})`,
+    `- **زمان تولید:** ${generatedAt}`,
+    `- **تهیه‌کننده (مطابق سطح دسترسی RBAC):** ${viewerUser.fullName || viewerUser.username} (\`${viewerUser.username}\`)`,
+    `- **تعداد پیام‌های بررسی‌شده:** ${messages.length} · **مشارکت‌کنندگان:** ${participants.length} · **موارد فیلترشده RBAC:** ${restrictedItemsRedactedCount}`,
+    '',
+    '## ۱. مشارکت‌کنندگان فعال',
+    ...(participants.length > 0
+      ? participants.map(
+          (p) =>
+            `- **${p.fullName || p.username}** (\`${p.username}\`${p.role ? ` · ${p.role}` : ''}): ${p.messageCount} پیام`
+        )
+      : ['- _فعالیتی در این بازه ثبت نشده است._']),
+    '',
+    '## ۲. تجهیزات و سرورهای اشاره‌شده (در محدوده مجاز شما)',
+    ...(mentionedEntities.length > 0
+      ? mentionedEntities.map(
+          (e) =>
+            `- **[${e.entityType.toUpperCase()}]** ${e.entityName}${e.portId ? ` · پورت ${e.portId}` : ''}${e.entityIp ? ` (\`${e.entityIp}\`)` : ''}${e.isOnline === true ? ' — آنلاین' : e.isOnline === false ? ' — آفلاین' : ''}`
+        )
+      : ['- _تجهیز یا سرور مجازی در این بازه ذکر نشده است._']),
+    '',
+    '## ۳. نتایج دستورات و تست‌های زنده شبکه (ChatOps)',
+    ...(diagnostics.length > 0
+      ? diagnostics.map(
+          (d) => `- \`${d.rawCommand}\` (${d.success ? 'موفق' : 'ناموفق/هشدار'}) — ${d.summary}`
+        )
+      : ['- _تست شبکه مجازی ثبت نشده است._']),
+    '',
+    '## ۴. اسنیپت‌ها و تغییرات کانفیگ (پاکسازی‌شده)',
+    ...(snippets.length > 0
+      ? snippets.map(
+          (s) =>
+            `- **${s.title}** روی ${s.sourceEntityName}${s.sourceEntityIp ? ` (\`${s.sourceEntityIp}\`)` : ''} — پاکسازی ${s.redactedSecretsCount} مورد محرمانه`
+        )
+      : ['- _اسنیپت یا تغییری در محدوده مجاز به اشتراک گذاشته نشده است._']),
+    '',
+    '## ۵. تیکت‌های تایید عملیات حساس',
+    ...(approvals.length > 0
+      ? approvals.map(
+          (a) =>
+            `- \`${a.approvalId}\` **[${a.status.toUpperCase()} · ${a.riskLevel}]** ${a.requestedAction} روی ${a.targetEntityName} (${a.stageSummary}، درخواست: \`${a.requesterUsername}\`)`
+        )
+      : ['- _تیکت تایید مجازی در این گفتگو ثبت نشده است._']),
+    '',
+    '## ۶. خلاصه خط زمانی پیام‌های اخیر',
+    ...(safeTimeline.length > 0
+      ? safeTimeline.map(
+          (t) => `- [${t.createdAt}] **${t.sender}** (${t.priority}): ${t.excerpt}`
+        )
+      : ['- _گفتگو خالی است._']),
+  ];
+
+  void addPortalAuditLog({
+    category: 'communications',
+    action: 'CHANNEL_HANDOVER_EXPORTED',
+    title: `دریافت گزارش تحویل شیفت کانال (${channel.name})`,
+    title_en: `Exported RBAC-Filtered Shift Handover (${channel.nameEn || channel.name})`,
+    actor: {
+      username: viewerUser.username,
+      role: viewerUser.role || 'Operator',
+      ipAddress: viewerIp || '127.0.0.1',
+    },
+    target: {
+      type: 'comms_channel',
+      id: channelId,
+      name: channel.nameEn || channel.name,
+    },
+    severity: 'info',
+    status: 'success',
+    details: `کاربر ${viewerUser.username} گزارش تحویل شیفت کانال «${channel.name}» را با فیلتر کامل RBAC تولید کرد (${messages.length} پیام، ${restrictedItemsRedactedCount} مورد محدودشده).`,
+    details_en: `User ${viewerUser.username} generated an RBAC-filtered shift handover for channel "${channel.nameEn || channel.name}" (${messages.length} messages evaluated, ${restrictedItemsRedactedCount} restricted item(s) redacted).`,
+  }).catch(() => {});
+
+  return {
+    channelId: channel.id,
+    channelName: channel.name,
+    channelNameEn: channel.nameEn || null,
+    channelType: channel.channelType,
+    generatedAt,
+    generatedBy: {
+      userId: viewerUser.userId,
+      username: viewerUser.username,
+      fullName: viewerUser.fullName,
+    },
+    windowLimit,
+    stats: {
+      totalMessagesEvaluated: messages.length,
+      participantCount: participants.length,
+      permittedMentionsCount: mentionedEntities.length,
+      restrictedItemsRedactedCount,
+      diagnosticsCount: diagnostics.length,
+      snippetsCount: snippets.length,
+      approvalsCount: approvals.length,
+    },
+    participants,
+    mentionedEntities,
+    diagnostics,
+    snippets,
+    approvals,
+    timelineHighlights: safeTimeline,
+    markdown: mdFaLines.join('\n'),
+    markdownEn: mdEnLines.join('\n'),
+  };
 }

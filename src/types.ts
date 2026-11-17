@@ -1425,6 +1425,126 @@ export interface CommsProjectedSnippetResult {
   canOpenSourceView?: boolean;
 }
 
+export interface CommsApprovalSharePayload {
+  approvalId: string;
+  note?: string;
+  priority?: CommsSeverity;
+  replyToMessageId?: string | null;
+}
+
+export interface CommsProjectedApprovalCard {
+  approvalId: string;
+  accessRestricted: boolean;
+  restrictionReasonCode?:
+    | 'module_disabled'
+    | 'outside_scope'
+    | 'not_found'
+    | 'action_denied';
+  restrictionMessageFa?: string;
+  restrictionMessageEn?: string;
+  // Populated ONLY when accessRestricted === false (Zero-Leak)
+  status?: ApprovalRequestStatus;
+  riskLevel?: ApprovalRiskLevel;
+  targetEntityType?: ApprovalTargetEntityType | string;
+  targetEntityId?: string;
+  targetEntityName?: string | null;
+  targetEntityIp?: string;
+  requestedAction?: string;
+  actionKey?: string | null;
+  reason?: string;
+  commandPreview?: string | null;
+  executionOutput?: string | null;
+  executionStatus?: ApprovalExecutionStatus | null;
+  executionMode?: ApprovalExecutionMode;
+  autoExecuteOnApprove?: boolean;
+  requesterUserId?: string;
+  requesterUsername?: string;
+  requesterFullName?: string;
+  approverUsername?: string | null;
+  decisionNote?: string | null;
+  currentStageOrder?: number;
+  totalStages?: number;
+  activeStageTitleEn?: string;
+  activeStageTitleFa?: string;
+  createdAt?: string;
+  expiresAt?: string;
+  decidedAt?: string | null;
+  canActOnCurrentStage?: boolean;
+  isRequesterSelf?: boolean;
+  canOpenEntity?: boolean;
+}
+
+export interface CommsHandoverSummaryResponse {
+  channelId: string;
+  channelName: string;
+  channelNameEn?: string | null;
+  channelType: CommsChannelType;
+  generatedAt: string;
+  generatedBy: {
+    userId: string;
+    username: string;
+    fullName?: string;
+  };
+  windowLimit: number;
+  stats: {
+    totalMessagesEvaluated: number;
+    participantCount: number;
+    permittedMentionsCount: number;
+    restrictedItemsRedactedCount: number;
+    diagnosticsCount: number;
+    snippetsCount: number;
+    approvalsCount: number;
+  };
+  participants: Array<{
+    username: string;
+    fullName?: string;
+    role?: string | null;
+    messageCount: number;
+  }>;
+  mentionedEntities: Array<{
+    entityType: 'device' | 'server' | 'port';
+    entityName: string;
+    entityIp?: string;
+    portId?: string | null;
+    isOnline?: boolean | null;
+  }>;
+  diagnostics: Array<{
+    command: string;
+    rawCommand: string;
+    target: string;
+    success: boolean;
+    executedAt: string;
+    summary: string;
+  }>;
+  snippets: Array<{
+    title: string;
+    sourceType: CommsSnippetSourceType;
+    sourceEntityName: string;
+    sourceEntityIp?: string;
+    redactedSecretsCount: number;
+    sharedAt: string;
+  }>;
+  approvals: Array<{
+    approvalId: string;
+    status: string;
+    riskLevel: string;
+    requestedAction: string;
+    targetEntityName: string;
+    requesterUsername: string;
+    stageSummary: string;
+    createdAt: string;
+  }>;
+  timelineHighlights: Array<{
+    createdAt: string;
+    sender: string;
+    priority: CommsSeverity;
+    excerpt: string;
+    isRestricted: boolean;
+  }>;
+  markdown: string;
+  markdownEn: string;
+}
+
 export interface CommsMessage {
   id: string;
   channelId?: string | null;
@@ -1450,6 +1570,7 @@ export interface CommsMessage {
   entityCards?: CommsProjectedEntityCard[];
   slashResult?: CommsProjectedSlashResult;
   snippetResult?: CommsProjectedSnippetResult;
+  approvalCard?: CommsProjectedApprovalCard;
   metadata?: Record<string, any>;
   createdAt: string;
 }

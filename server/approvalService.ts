@@ -1185,6 +1185,115 @@ async function loadRawApprovalRowById(approvalId: string): Promise<any | null> {
   return (store.action_approval_requests || []).find((r: any) => r.id === approvalId) || null;
 }
 
+export interface RawApprovalCommsSnapshot {
+  approval: ActionApprovalRequest;
+  isRequester: (actor: Pick<ApprovalActor, 'userId' | 'username'>) => boolean;
+  isAssignedAnyStage: (actor: ApprovalActor) => boolean;
+  canActorActOnCurrentStage: (actor: ApprovalActor) => boolean;
+}
+
+function buildRawApprovalCommsSnapshot(
+  rawRow: any,
+  snapshot: ApprovalDirectorySnapshot
+): RawApprovalCommsSnapshot {
+  const approval = mapApprovalRow(rawRow, true);
+  const activeStage =
+    (approval.stages || []).find(
+      (s) => s.status === 'pending' && s.stageOrder === (approval.currentStageOrder || 1)
+    ) || (approval.stages || []).find((s) => s.status === 'pending');
+
+  return {
+    approval,
+    isRequester: (actor) =>
+      isRowOwnedByActor(approval, {
+        userId: actor.userId,
+        username: actor.username,
+        isSuperAdmin: false,
+        canApproveActions: false,
+      }),
+    isAssignedAnyStage: (actor) => isActorInAnyStage(approval, actor, snapshot),
+    canActorActOnCurrentStage: (actor) => {
+      if (approval.status !== 'pending') return false;
+      if (!actor.isSuperAdmin && !actor.canApproveActions) return false;
+      const assignedToStage = isActorAssignedToStageWithSnapshot(actor, activeStage, snapshot);
+      const stageRecipients = activeStage
+        ? resolveStageRecipientsFromSnapshot(activeStage, snapshot)
+        : [];
+      if (!assignedToStage && !(actor.isSuperAdmin && stageRecipients.length === 0)) {
+        return false;
+      }
+      const isSelf = isRowOwnedByActor(approval, actor);
+      if (isSelf) {
+        const actorIds = new Set(resolveUserIdentifiers(actor));
+        const effectivePool =
+          stageRecipients.length > 0 ? stageRecipients : snapshot.privilegedUsers;
+        const otherApprovers = effectivePool.filter(
+          (u) => ![...u.identifiers].some((id) => actorIds.has(id))
+        );
+        if (!actor.isSuperAdmin || otherApprovers.length > 0) return false;
+      }
+      return true;
+    },
+  };
+}
+
+export async function getRawApprovalSnapshotForComms(
+  approvalId: string
+): Promise<RawApprovalCommsSnapshot | null> {
+  await expireStalePendingRequests();
+  const cleanId = String(approvalId || '').trim();
+  if (!cleanId) return null;
+  const rawRow = await loadRawApprovalRowById(cleanId);
+  if (!rawRow) return null;
+  const snapshot = await loadApprovalDirectorySnapshot();
+  return buildRawApprovalCommsSnapshot(rawRow, snapshot);
+}
+
+export async function getRawApprovalSnapshotsMapForComms(
+  approvalIds: string[]
+): Promise<Map<string, RawApprovalCommsSnapshot>> {
+  const result = new Map<string, RawApprovalCommsSnapshot>();
+  const cleanIds = Array.from(
+    new Set((approvalIds || []).map((id) => String(id || '').trim()).filter(Boolean))
+  );
+  if (cleanIds.length === 0) return result;
+
+  await expireStalePendingRequests();
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+
+  let rawRows: any[] = [];
+  let pgLoaded = false;
+  if (isPostgresConnected() && pool) {
+    try {
+      const res = await pool.query(
+        `SELECT * FROM action_approval_requests WHERE id = ANY($1::text[])`,
+        [cleanIds]
+      );
+      rawRows = res.rows || [];
+      pgLoaded = true;
+    } catch {}
+  }
+
+  if (!pgLoaded || rawRows.length < cleanIds.length) {
+    const store = loadFallbackStore();
+    const idSet = new Set(cleanIds);
+    const fbRows = (store.action_approval_requests || []).filter((r: any) => idSet.has(r?.id));
+    const seen = new Set(rawRows.map((r: any) => r.id));
+    for (const r of fbRows) {
+      if (!seen.has(r.id)) rawRows.push(r);
+    }
+  }
+
+  if (rawRows.length === 0) return result;
+  const snapshot = await loadApprovalDirectorySnapshot();
+  for (const row of rawRows) {
+    if (!row?.id) continue;
+    result.set(String(row.id), buildRawApprovalCommsSnapshot(row, snapshot));
+  }
+  return result;
+}
+
 async function issueJitGrantForApproval(
   approval: ActionApprovalRequest,
   approver: { userId: string; username: string },

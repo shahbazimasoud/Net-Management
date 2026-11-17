@@ -17,21 +17,47 @@ import {
   User,
 } from 'lucide-react';
 import {
+  ApprovalRiskLevel,
+  ApprovalTargetEntityType,
   CommsChannel,
   CommsSeverity,
   CommsSnippetSharePayload,
 } from '../../types';
-import { fetchCommsChannels, shareChannelSnippet } from '../../services/commsApi';
+import {
+  fetchCommsChannels,
+  shareChannelApproval,
+  shareChannelSnippet,
+} from '../../services/commsApi';
 import { useModalDock } from '../../context/ModalDockContext';
 import { ModalHeaderControls } from '../common/ModalHeaderControls';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 const SHARE_TO_CHAT_MODAL_ID = 'comms-share-snippet-modal';
 
+export interface ShareApprovalToChatDraft {
+  approvalId: string;
+  requestedAction: string;
+  targetEntityType: ApprovalTargetEntityType | string;
+  targetEntityId: string;
+  targetEntityName?: string | null;
+  riskLevel: ApprovalRiskLevel;
+  status: string;
+  commandPreview?: string | null;
+}
+
 export function dispatchShareToTeamChat(payload: CommsSnippetSharePayload): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(
     new CustomEvent<CommsSnippetSharePayload>('nettop-open-share-to-chat', {
+      detail: payload,
+    })
+  );
+}
+
+export function dispatchShareApprovalToTeamChat(payload: ShareApprovalToChatDraft): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent<ShareApprovalToChatDraft>('nettop-open-share-approval-to-chat', {
       detail: payload,
     })
   );
@@ -52,6 +78,7 @@ export const ShareToChatModal: React.FC<ShareToChatModalProps> = ({
 }) => {
   const { dockModal, undockModal } = useModalDock();
   const [draft, setDraft] = useState<CommsSnippetSharePayload | null>(null);
+  const [approvalDraft, setApprovalDraft] = useState<ShareApprovalToChatDraft | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -90,6 +117,7 @@ export const ShareToChatModal: React.FC<ShareToChatModalProps> = ({
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<CommsSnippetSharePayload>)?.detail;
       if (!detail || !detail.sourceEntityId || !detail.content) return;
+      setApprovalDraft(null);
       setDraft(detail);
       setEditableContent(detail.content);
       setNote(detail.note || '');
@@ -100,9 +128,35 @@ export const ShareToChatModal: React.FC<ShareToChatModalProps> = ({
       undockModal(SHARE_TO_CHAT_MODAL_ID);
       void loadChannelsList();
     };
+    const approvalHandler = (e: Event) => {
+      const detail = (e as CustomEvent<ShareApprovalToChatDraft>)?.detail;
+      if (!detail || !detail.approvalId) return;
+      setDraft(null);
+      setApprovalDraft(detail);
+      setEditableContent('');
+      setNote('');
+      setPriority(
+        detail.riskLevel === 'critical'
+          ? 'critical'
+          : detail.riskLevel === 'high'
+          ? 'warning'
+          : 'info'
+      );
+      setErrorMsg(null);
+      setSentOk(false);
+      setIsOpen(true);
+      undockModal(SHARE_TO_CHAT_MODAL_ID);
+      void loadChannelsList();
+    };
     window.addEventListener('nettop-open-share-to-chat', handler as EventListener);
-    return () =>
+    window.addEventListener('nettop-open-share-approval-to-chat', approvalHandler as EventListener);
+    return () => {
       window.removeEventListener('nettop-open-share-to-chat', handler as EventListener);
+      window.removeEventListener(
+        'nettop-open-share-approval-to-chat',
+        approvalHandler as EventListener
+      );
+    };
   }, [loadChannelsList, undockModal]);
 
   const filteredChannels = useMemo(() => {
@@ -118,6 +172,7 @@ export const ShareToChatModal: React.FC<ShareToChatModalProps> = ({
   const handleClose = () => {
     setIsOpen(false);
     setDraft(null);
+    setApprovalDraft(null);
     undockModal(SHARE_TO_CHAT_MODAL_ID);
   };
 
@@ -125,10 +180,14 @@ export const ShareToChatModal: React.FC<ShareToChatModalProps> = ({
     setIsOpen(false);
     dockModal({
       id: SHARE_TO_CHAT_MODAL_ID,
-      labelEn: draft?.sourceEntityName
+      labelEn: approvalDraft
+        ? `Share Ticket (${approvalDraft.approvalId})`
+        : draft?.sourceEntityName
         ? `Share Snippet (${draft.sourceEntityName})`
         : 'Share to Team Chat',
-      labelFa: draft?.sourceEntityName
+      labelFa: approvalDraft
+        ? `ارجاع تیکت تایید`
+        : draft?.sourceEntityName
         ? `ارسال اسنیپت (${draft.sourceEntityName})`
         : 'ارسال به چت تیمی',
       category: 'system',
@@ -136,22 +195,32 @@ export const ShareToChatModal: React.FC<ShareToChatModalProps> = ({
       onClose: () => {
         setIsOpen(false);
         setDraft(null);
+        setApprovalDraft(null);
       },
     });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!draft || !selectedChannelId || !editableContent.trim() || sending) return;
+    if ((!draft && !approvalDraft) || !selectedChannelId || sending) return;
+    if (draft && !editableContent.trim()) return;
     setSending(true);
     setErrorMsg(null);
     try {
-      await shareChannelSnippet(selectedChannelId, {
-        ...draft,
-        content: editableContent,
-        note: note.trim() || undefined,
-        priority,
-      });
+      if (approvalDraft) {
+        await shareChannelApproval(selectedChannelId, {
+          approvalId: approvalDraft.approvalId,
+          note: note.trim() || undefined,
+          priority,
+        });
+      } else if (draft) {
+        await shareChannelSnippet(selectedChannelId, {
+          ...draft,
+          content: editableContent,
+          note: note.trim() || undefined,
+          priority,
+        });
+      }
       const chosen = channels.find((c) => c.id === selectedChannelId);
       const chName = chosen ? (isEn ? chosen.nameEn || chosen.name : chosen.name) : '';
       setSentOk(true);
@@ -159,46 +228,51 @@ export const ShareToChatModal: React.FC<ShareToChatModalProps> = ({
       setTimeout(() => {
         setIsOpen(false);
         setDraft(null);
+        setApprovalDraft(null);
         undockModal(SHARE_TO_CHAT_MODAL_ID);
       }, 450);
     } catch (err: any) {
       setErrorMsg(
         isEn
-          ? err?.message || 'Failed to share snippet to Team Chat.'
-          : err?.errorFa || err?.message || 'خطا در اشتراک‌گذاری اسنیپت در چت تیمی.'
+          ? err?.message || 'Failed to share item to Team Chat.'
+          : err?.errorFa || err?.message || 'خطا در اشتراک‌گذاری در چت تیمی.'
       );
     } finally {
       setSending(false);
     }
   };
 
-  if (!isOpen || !draft || typeof document === 'undefined') return null;
+  if (!isOpen || (!draft && !approvalDraft) || typeof document === 'undefined') return null;
 
-  const sourceLabel =
-    draft.sourceType === 'backup_diff'
-      ? isEn
-        ? 'Backup / Config Diff'
-        : 'مقایسه بکاپ / کانفیگ'
-      : draft.sourceType === 'device_log'
-      ? isEn
-        ? 'Device Syslog'
-        : 'لاگ تجهیز شبکه'
-      : draft.sourceType === 'server_log'
-      ? isEn
-        ? 'Server Audit Log'
-        : 'لاگ سرور'
-      : isEn
-      ? 'Terminal CLI Output'
-      : 'خروجی زنده ترمینال';
+  const sourceLabel = approvalDraft
+    ? isEn
+      ? 'Approval Ticket Card'
+      : 'کارت تیکت تایید'
+    : draft?.sourceType === 'backup_diff'
+    ? isEn
+      ? 'Backup / Config Diff'
+      : 'مقایسه بکاپ / کانفیگ'
+    : draft?.sourceType === 'device_log'
+    ? isEn
+      ? 'Device Syslog'
+      : 'لاگ تجهیز شبکه'
+    : draft?.sourceType === 'server_log'
+    ? isEn
+      ? 'Server Audit Log'
+      : 'لاگ سرور'
+    : isEn
+    ? 'Terminal CLI Output'
+    : 'خروجی زنده ترمینال';
 
-  const sourceIcon =
-    draft.sourceType === 'backup_diff' ? (
-      <GitCompare className="w-4 h-4 text-cyan-500" />
-    ) : draft.sourceType === 'device_log' || draft.sourceType === 'server_log' ? (
-      <ScrollText className="w-4 h-4 text-indigo-500" />
-    ) : (
-      <Terminal className="w-4 h-4 text-emerald-500" />
-    );
+  const sourceIcon = approvalDraft ? (
+    <ShieldCheck className="w-4 h-4 text-amber-500" />
+  ) : draft?.sourceType === 'backup_diff' ? (
+    <GitCompare className="w-4 h-4 text-cyan-500" />
+  ) : draft?.sourceType === 'device_log' || draft?.sourceType === 'server_log' ? (
+    <ScrollText className="w-4 h-4 text-indigo-500" />
+  ) : (
+    <Terminal className="w-4 h-4 text-emerald-500" />
+  );
 
   return createPortal(
     <div
@@ -235,7 +309,13 @@ export const ShareToChatModal: React.FC<ShareToChatModalProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold truncate">
-                  {isEn ? 'Share Output to Team Chat' : 'اشتراک‌گذاری خروجی در چت تیمی'}
+                  {approvalDraft
+                    ? isEn
+                      ? 'Share Approval Ticket to Team Chat'
+                      : 'ارجاع تیکت تایید در چت تیمی'
+                    : isEn
+                    ? 'Share Output to Team Chat'
+                    : 'اشتراک‌گذاری خروجی در چت تیمی'}
                 </h3>
                 <span
                   className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border shrink-0 ${
@@ -248,18 +328,23 @@ export const ShareToChatModal: React.FC<ShareToChatModalProps> = ({
                 </span>
               </div>
               <div className="flex items-center gap-1.5 text-[11px] opacity-75 mt-0.5 truncate">
-                {draft.sourceEntityType === 'server' ? (
+                {(approvalDraft?.targetEntityType || draft?.sourceEntityType) === 'server' ? (
                   <Server className="w-3 h-3 shrink-0" />
                 ) : (
                   <Router className="w-3 h-3 shrink-0" />
                 )}
                 <span className="truncate font-medium">
-                  {draft.sourceEntityName || draft.sourceEntityId}
+                  {approvalDraft
+                    ? approvalDraft.targetEntityName || approvalDraft.targetEntityId
+                    : draft?.sourceEntityName || draft?.sourceEntityId}
                 </span>
-                {draft.sourceEntityIp && (
+                {draft?.sourceEntityIp && (
                   <span className="font-mono">({draft.sourceEntityIp})</span>
                 )}
-                {draft.filePath && (
+                {approvalDraft && (
+                  <span className="font-mono opacity-80">({approvalDraft.approvalId})</span>
+                )}
+                {draft?.filePath && (
                   <span className="font-mono truncate inline-flex items-center gap-1">
                     <FileCode2 className="w-3 h-3 shrink-0" />
                     {draft.filePath}
@@ -438,27 +523,50 @@ export const ShareToChatModal: React.FC<ShareToChatModalProps> = ({
             </div>
           </div>
 
-          {/* Editable Snippet / Diff Preview */}
-          <div className="flex flex-col flex-1 min-h-0">
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-semibold">
-                {isEn
-                  ? 'Captured Snippet / Diff Preview (Editable before sending)'
-                  : 'پیش‌نمایش متن خروجی / تغییرات (قابل ویرایش پیش از ارسال)'}
-              </label>
-              <span className="text-[10.5px] font-mono opacity-75">
-                {editableContent.split('\n').length} {isEn ? 'lines' : 'خط'}
-              </span>
+          {/* Approval Preview OR Editable Snippet / Diff Preview */}
+          {approvalDraft ? (
+            <div
+              className={`rounded-xl border p-3 text-xs space-y-1.5 ${
+                isLightMode
+                  ? 'bg-slate-50 border-slate-200 text-slate-800'
+                  : 'bg-slate-950/70 border-slate-800 text-slate-100'
+              }`}
+            >
+              <div className="font-bold">{approvalDraft.requestedAction}</div>
+              <div className="text-[11px] opacity-80 font-mono">
+                {approvalDraft.approvalId} · {approvalDraft.status} · {approvalDraft.riskLevel}
+              </div>
+              {approvalDraft.commandPreview && (
+                <pre
+                  dir="ltr"
+                  className="mt-1 p-2 rounded-lg bg-slate-950 border border-slate-700 text-emerald-300 font-mono text-[11px] overflow-x-auto"
+                >
+                  {approvalDraft.commandPreview}
+                </pre>
+              )}
             </div>
-            <textarea
-              dir="ltr"
-              rows={isMaximized ? 14 : 8}
-              value={editableContent}
-              onChange={(e) => setEditableContent(e.target.value)}
-              spellCheck={false}
-              className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-slate-950 text-slate-100 font-mono text-[11px] leading-relaxed outline-none focus:border-indigo-500 resize-y"
-            />
-          </div>
+          ) : (
+            <div className="flex flex-col flex-1 min-h-0">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold">
+                  {isEn
+                    ? 'Captured Snippet / Diff Preview (Editable before sending)'
+                    : 'پیش‌نمایش متن خروجی / تغییرات (قابل ویرایش پیش از ارسال)'}
+                </label>
+                <span className="text-[10.5px] font-mono opacity-75">
+                  {editableContent.split('\n').length} {isEn ? 'lines' : 'خط'}
+                </span>
+              </div>
+              <textarea
+                dir="ltr"
+                rows={isMaximized ? 14 : 8}
+                value={editableContent}
+                onChange={(e) => setEditableContent(e.target.value)}
+                spellCheck={false}
+                className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-slate-950 text-slate-100 font-mono text-[11px] leading-relaxed outline-none focus:border-indigo-500 resize-y"
+              />
+            </div>
+          )}
 
           {errorMsg && (
             <div
@@ -506,7 +614,7 @@ export const ShareToChatModal: React.FC<ShareToChatModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={!selectedChannelId || !editableContent.trim() || sending}
+              disabled={!selectedChannelId || (!approvalDraft && !editableContent.trim()) || sending}
               className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-45 transition"
             >
               <Send className={`w-3.5 h-3.5 ${isRtl ? 'rotate-180' : ''}`} />

@@ -113,6 +113,7 @@ import {
 } from './utils/approvalGateBridge';
 import { FooterTeamChatDock } from './components/comms/FooterTeamChatDock';
 import { ShareToChatModal } from './components/comms/ShareToChatModal';
+import { ChannelHandoverModal } from './components/comms/ChannelHandoverModal';
 
 export default function App() {
   const { t, isRtl, isEn, language, setLanguage } = useLanguage();
@@ -1222,9 +1223,28 @@ export default function App() {
       }
     };
 
+    const onOpenApprovalTicket = (e: Event) => {
+      const detail = (e as CustomEvent<{ approvalId?: string }>).detail;
+      if (!detail?.approvalId) return;
+      if (!isTabAllowed('communications', effectivePolicy, user)) {
+        showToast(
+          isEn
+            ? 'Access denied by RBAC policy.'
+            : 'عدم دسترسی به مرکز ارتباطات و تاییدیه‌ها مطابق پالیسی کاربری.'
+        );
+        return;
+      }
+      setFocusedCommsViewMode('approvals');
+      setFocusedApprovalId(detail.approvalId);
+      setActiveTab('communications');
+    };
+
     window.addEventListener('nettop-comms-open-entity', onOpenMentionedEntity as EventListener);
-    return () =>
+    window.addEventListener('nettop-comms-open-approval', onOpenApprovalTicket as EventListener);
+    return () => {
       window.removeEventListener('nettop-comms-open-entity', onOpenMentionedEntity as EventListener);
+      window.removeEventListener('nettop-comms-open-approval', onOpenApprovalTicket as EventListener);
+    };
   }, [
     authorizedDevices,
     effectivePolicy,
@@ -2413,20 +2433,27 @@ export default function App() {
         isLightMode={isLightMode}
       />
 
-      {/* 13. Global Secret-Scrubbed Share-to-Chat Modal Host */}
+      {/* 13. Global Secret-Scrubbed Share-to-Chat & Shift Handover Modal Hosts */}
       {isAuthenticated && (
-        <ShareToChatModal
-          isEn={isEn}
-          isLightMode={isLightMode}
-          isRtl={isRtl}
-          onShared={(channelName) =>
-            showToast(
-              isEn
-                ? `Snippet securely shared to ${channelName}`
-                : `قطعه خروجی با فیلتر امنیتی در کانال ${channelName} ارسال شد`
-            )
-          }
-        />
+        <>
+          <ShareToChatModal
+            isEn={isEn}
+            isLightMode={isLightMode}
+            isRtl={isRtl}
+            onShared={(channelName) =>
+              showToast(
+                isEn
+                  ? `Shared securely to ${channelName}`
+                  : `با فیلتر امنیتی در کانال ${channelName} ارسال شد`
+              )
+            }
+          />
+          <ChannelHandoverModal
+            isEn={isEn}
+            isLightMode={isLightMode}
+            isRtl={isRtl}
+          />
+        </>
       )}
     </div>
   );
