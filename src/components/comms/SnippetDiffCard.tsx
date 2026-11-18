@@ -77,6 +77,7 @@ export const SnippetDiffCard: React.FC<SnippetDiffCardProps> = ({
   const [copied, setCopied] = useState(false);
 
   if (!result) return null;
+  const selfDark = isSelf && !isLightMode;
 
   // Strict Zero-Leak RBAC Restricted Card
   if (result.accessRestricted) {
@@ -88,8 +89,8 @@ export const SnippetDiffCard: React.FC<SnippetDiffCardProps> = ({
 
     return (
       <div
-        className={`mt-2 rounded-xl border px-2.5 py-2 flex items-start gap-2 ${
-          isSelf
+        className={`comms-chat-card mt-2 rounded-xl border px-2.5 py-2 flex items-start gap-2 ${
+          selfDark
             ? 'bg-slate-950/35 border-amber-300/40 text-amber-100'
             : isLightMode
             ? 'bg-amber-50 border-amber-200 text-amber-900'
@@ -98,7 +99,7 @@ export const SnippetDiffCard: React.FC<SnippetDiffCardProps> = ({
       >
         <div
           className={`p-1 rounded-lg shrink-0 mt-0.5 ${
-            isSelf
+            selfDark
               ? 'bg-amber-400/20 text-amber-200'
               : isLightMode
               ? 'bg-amber-100 text-amber-700'
@@ -114,7 +115,7 @@ export const SnippetDiffCard: React.FC<SnippetDiffCardProps> = ({
             </span>
             <span
               className={`px-1.5 py-0.5 rounded font-mono text-[9.5px] font-semibold ${
-                isSelf
+                selfDark
                   ? 'bg-amber-300/20 text-amber-100'
                   : isLightMode
                   ? 'bg-amber-200/70 text-amber-900'
@@ -130,25 +131,25 @@ export const SnippetDiffCard: React.FC<SnippetDiffCardProps> = ({
     );
   }
 
-  const cardContainerCls = isSelf
+  const cardContainerCls = selfDark
     ? 'bg-slate-950/40 border-white/20 text-white'
     : isLightMode
     ? 'bg-white border-slate-200 text-slate-900 shadow-xs'
     : 'bg-slate-950/75 border-white/15 text-slate-100';
 
-  const subTextCls = isSelf
+  const subTextCls = selfDark
     ? 'text-indigo-100/85'
     : isLightMode
     ? 'text-slate-600'
     : 'text-slate-400';
 
-  const pillCls = isSelf
+  const pillCls = selfDark
     ? 'bg-white/15 border-white/20 text-white'
     : isLightMode
     ? 'bg-slate-100 border-slate-200 text-slate-700'
     : 'bg-white/5 border-white/15 text-slate-300';
 
-  const actionBtnCls = isSelf
+  const actionBtnCls = selfDark
     ? 'bg-white/15 hover:bg-white/25 text-white border-white/25'
     : isLightMode
     ? 'bg-slate-100 hover:bg-indigo-50 text-slate-800 hover:text-indigo-700 border-slate-200 hover:border-indigo-300'
@@ -183,7 +184,7 @@ export const SnippetDiffCard: React.FC<SnippetDiffCardProps> = ({
 
   return (
     <div
-      className={`mt-2 rounded-xl border ${compact ? 'p-2' : 'p-2.5'} text-[11px] ${cardContainerCls}`}
+      className={`comms-chat-card mt-2 rounded-xl border ${compact ? 'p-2' : 'p-2.5'} text-[11px] ${cardContainerCls}`}
     >
       {/* Top Meta Header */}
       <div className="flex items-start justify-between gap-2">
@@ -191,7 +192,7 @@ export const SnippetDiffCard: React.FC<SnippetDiffCardProps> = ({
           <div className="flex items-center gap-1.5 flex-wrap">
             <span
               className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border font-semibold text-[10px] ${
-                isSelf
+                selfDark
                   ? 'bg-cyan-400/20 border-cyan-300/35 text-cyan-100'
                   : isLightMode
                   ? 'bg-cyan-50 border-cyan-200 text-cyan-800'
@@ -203,7 +204,7 @@ export const SnippetDiffCard: React.FC<SnippetDiffCardProps> = ({
             </span>
 
             {result.diffStats && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-900/90 border border-slate-700 font-mono text-[10px]">
+              <span className="dark-terminal-box inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-900/90 border border-slate-700 font-mono text-[10px]">
                 <span className="text-emerald-400 font-bold">+{result.diffStats.added}</span>
                 <span className="text-rose-400 font-bold">-{result.diffStats.removed}</span>
               </span>
@@ -212,7 +213,7 @@ export const SnippetDiffCard: React.FC<SnippetDiffCardProps> = ({
             {Number(result.redactedCount || 0) > 0 && (
               <span
                 className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-medium ${
-                  isSelf
+                  selfDark
                     ? 'bg-emerald-400/20 border-emerald-300/40 text-emerald-100'
                     : isLightMode
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
@@ -313,7 +314,7 @@ export const SnippetDiffCard: React.FC<SnippetDiffCardProps> = ({
       {/* Monospace Code / Diff Viewer (Always crisp dark console for terminal/code readability) */}
       <div
         dir="ltr"
-        className={`mt-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-100 font-mono text-[10.5px] leading-relaxed overflow-x-auto ${
+        className={`dark-terminal-box mt-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-100 font-mono text-[10.5px] leading-relaxed overflow-x-auto ${
           expanded ? 'max-h-72 overflow-y-auto custom-scrollbar' : 'max-h-32 overflow-hidden'
         } p-2`}
       >

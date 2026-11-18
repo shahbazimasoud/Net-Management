@@ -33,6 +33,7 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
   compact = false,
 }) => {
   if (!result) return null;
+  const selfDark = isSelf && !isLightMode;
 
   // Strict Zero-Leak RBAC Locked View
   if (result.accessRestricted) {
@@ -44,8 +45,8 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
 
     return (
       <div
-        className={`mt-2 rounded-xl border px-2.5 py-2 flex items-start gap-2 ${
-          isSelf
+        className={`comms-chat-card mt-2 rounded-xl border px-2.5 py-2 flex items-start gap-2 ${
+          selfDark
             ? 'bg-slate-950/35 border-amber-300/40 text-amber-100'
             : isLightMode
             ? 'bg-amber-50 border-amber-200 text-amber-900'
@@ -54,7 +55,7 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
       >
         <div
           className={`p-1 rounded-lg shrink-0 mt-0.5 ${
-            isSelf
+            selfDark
               ? 'bg-amber-400/20 text-amber-200'
               : isLightMode
               ? 'bg-amber-100 text-amber-700'
@@ -70,7 +71,7 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
             </span>
             <span
               className={`px-1.5 py-0.5 rounded font-mono text-[9.5px] font-bold ${
-                isSelf
+                selfDark
                   ? 'bg-amber-300/20 text-amber-100'
                   : isLightMode
                   ? 'bg-amber-200/70 text-amber-900'
@@ -86,25 +87,25 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
     );
   }
 
-  const cardContainerCls = isSelf
+  const cardContainerCls = selfDark
     ? 'bg-slate-950/35 border-white/20 text-white'
     : isLightMode
     ? 'bg-white border-slate-200 text-slate-900 shadow-xs'
     : 'bg-slate-950/75 border-white/15 text-slate-100';
 
-  const subTextCls = isSelf
+  const subTextCls = selfDark
     ? 'text-indigo-100/85'
     : isLightMode
     ? 'text-slate-600'
     : 'text-slate-400';
 
-  const actionBtnCls = isSelf
+  const actionBtnCls = selfDark
     ? 'bg-white/15 hover:bg-white/25 text-white border-white/25'
     : isLightMode
     ? 'bg-slate-100 hover:bg-indigo-50 text-slate-800 hover:text-indigo-700 border-slate-200 hover:border-indigo-300'
     : 'bg-white/5 hover:bg-indigo-500/20 text-slate-200 hover:text-indigo-200 border-white/15 hover:border-indigo-400/40';
 
-  const pillCls = isSelf
+  const pillCls = selfDark
     ? 'bg-white/15 border-white/20 text-white'
     : isLightMode
     ? 'bg-slate-100 border-slate-200 text-slate-700'
@@ -163,13 +164,13 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
   const txtList = Array.isArray(result.txtRecords) ? result.txtRecords : [];
 
   return (
-    <div className={`mt-2 rounded-xl border px-2.5 py-2 transition ${cardContainerCls}`}>
+    <div className={`comms-chat-card mt-2 rounded-xl border px-2.5 py-2 transition ${cardContainerCls}`}>
       {/* Header Row */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <div
             className={`p-1.5 rounded-lg shrink-0 ${
-              isSelf
+              selfDark
                 ? 'bg-white/15 text-white'
                 : isLightMode
                 ? 'bg-cyan-50 text-cyan-700'
@@ -182,7 +183,7 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
             <div className="flex items-center gap-1.5 flex-wrap">
               <span
                 className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-bold ${
-                  isSelf
+                  selfDark
                     ? 'bg-white/20 text-white'
                     : isLightMode
                     ? 'bg-cyan-100 text-cyan-800'
@@ -226,12 +227,12 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
             <span
               className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold ${
                 result.isOnline
-                  ? isSelf
+                  ? selfDark
                     ? 'bg-emerald-400/25 text-emerald-100'
                     : isLightMode
                     ? 'bg-emerald-100 text-emerald-800'
                     : 'bg-emerald-500/20 text-emerald-300'
-                  : isSelf
+                  : selfDark
                   ? 'bg-rose-400/25 text-rose-100'
                   : isLightMode
                   ? 'bg-rose-100 text-rose-700'
@@ -268,8 +269,8 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
               </summary>
               <pre
                 dir="ltr"
-                className={`mt-1 p-2 rounded-lg border font-mono text-[10px] leading-relaxed overflow-x-auto max-h-32 ${
-                  isSelf
+                className={`dark-terminal-box mt-1 p-2 rounded-lg border font-mono text-[10px] leading-relaxed overflow-x-auto max-h-32 ${
+                  selfDark
                     ? 'bg-black/35 border-white/15 text-slate-100'
                     : isLightMode
                     ? 'bg-slate-900 border-slate-700 text-emerald-300'
@@ -289,7 +290,7 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
           {result.portsRestricted ? (
             <div
               className={`rounded-lg px-2 py-1.5 text-[10.5px] flex items-center gap-1.5 border ${
-                isSelf
+                selfDark
                   ? 'bg-amber-400/20 border-amber-300/40 text-amber-100'
                   : isLightMode
                   ? 'bg-amber-50 border-amber-200 text-amber-800'
@@ -312,13 +313,13 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
                   <span
                     className={`px-1.5 py-0.5 rounded font-semibold ${
                       isPortUp
-                        ? isSelf
+                        ? selfDark
                           ? 'bg-emerald-400/25 text-emerald-100'
                           : isLightMode
                           ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-emerald-500/20 text-emerald-300'
                         : isPortDown
-                        ? isSelf
+                        ? selfDark
                           ? 'bg-rose-400/25 text-rose-100'
                           : isLightMode
                           ? 'bg-rose-100 text-rose-700'
@@ -382,7 +383,7 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
           {result.finalEdgePort && (
             <div
               className={`rounded-lg border px-2 py-1.5 text-[11px] flex items-center justify-between gap-2 flex-wrap ${
-                isSelf
+                selfDark
                   ? 'bg-emerald-500/20 border-emerald-300/40 text-white'
                   : isLightMode
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
@@ -397,7 +398,7 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
                 </span>
               </div>
               <div className="flex items-center gap-1.5 font-mono text-[10.5px] font-bold shrink-0">
-                <span className="px-1.5 py-0.5 rounded bg-black/15">
+                <span className={`px-1.5 py-0.5 rounded ${isLightMode ? 'bg-emerald-100 text-emerald-900' : 'bg-black/15'}`}>
                   {result.finalEdgePort.port}
                 </span>
                 <span>VLAN {result.finalEdgePort.vlan}</span>
@@ -452,7 +453,7 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
           {result.portsRestricted && (
             <div
               className={`rounded-lg px-2 py-1 text-[10.5px] flex items-center gap-1.5 border ${
-                isSelf
+                selfDark
                   ? 'bg-amber-400/20 border-amber-300/40 text-amber-100'
                   : isLightMode
                   ? 'bg-amber-50 border-amber-200 text-amber-800'
@@ -473,7 +474,7 @@ export const SlashCommandCard: React.FC<SlashCommandCardProps> = ({
           {(result.restrictedSwitchCount || 0) > 0 && (
             <div
               className={`rounded-lg px-2 py-1 text-[10.5px] flex items-center gap-1.5 border ${
-                isSelf
+                selfDark
                   ? 'bg-amber-400/20 border-amber-300/40 text-amber-100'
                   : isLightMode
                   ? 'bg-amber-50 border-amber-200 text-amber-800'

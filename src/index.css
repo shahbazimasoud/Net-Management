@@ -910,11 +910,11 @@
 }
 
 /* Light Theme Text Contrast Fixes (low specificity so badges, CTAs, and hardware widgets always win cleanly) */
-.theme-light :where(h1, h2, h3, h4, h5, h6, .text-white, .text-slate-100):not(:where(.xterm *, .cisco-terminal-screen *, .xterm-terminal-container *, .rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *)) {
+.theme-light :where(h1, h2, h3, h4, h5, h6, .text-white, .text-slate-100):not(:where(.xterm *, .cisco-terminal-screen *, .xterm-terminal-container *, .rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *, .dark-terminal-box, .dark-terminal-box *)) {
   color: #0f172a !important;
 }
 
-.theme-light :where(p, span, label):not(:where(.xterm *, .cisco-terminal-screen *, .xterm-terminal-container *, .rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *)) {
+.theme-light :where(p, span, label):not(:where(.xterm *, .cisco-terminal-screen *, .xterm-terminal-container *, .rack-cabinet-dark *, .tower-cabinet-dark *, .switch-faceplate-chassis *, .dark-terminal-box, .dark-terminal-box *)) {
   color: #334155 !important;
 }
 
@@ -1827,10 +1827,25 @@
   box-shadow: 0 4px 14px rgba(99, 102, 241, 0.28) !important;
 }
 
-.theme-light.theme-light :where(.bg-indigo-600, .bg-purple-600, .bg-indigo-500, .bg-purple-500, .bg-indigo-700, .bg-purple-700, .bg-indigo-800, .bg-purple-800) *,
-.theme-light.theme-light [class*="bg-gradient-to"]:where([class*="from-indigo-500"]:not([class*="from-indigo-500/"]), [class*="from-indigo-600"]:not([class*="from-indigo-600/"]), [class*="from-indigo-700"]:not([class*="from-indigo-700/"]), [class*="from-purple-500"]:not([class*="from-purple-500/"]), [class*="from-purple-600"]:not([class*="from-purple-600/"]), [class*="from-purple-700"]:not([class*="from-purple-700/"])) * {
+.theme-light.theme-light :where(.bg-indigo-600, .bg-purple-600, .bg-indigo-500, .bg-purple-500, .bg-indigo-700, .bg-purple-700, .bg-indigo-800, .bg-purple-800) *:not(:where(.comms-chat-card, .comms-chat-card *)),
+.theme-light.theme-light [class*="bg-gradient-to"]:where([class*="from-indigo-500"]:not([class*="from-indigo-500/"]), [class*="from-indigo-600"]:not([class*="from-indigo-600/"]), [class*="from-indigo-700"]:not([class*="from-indigo-700/"]), [class*="from-purple-500"]:not([class*="from-purple-500/"]), [class*="from-purple-600"]:not([class*="from-purple-600/"]), [class*="from-purple-700"]:not([class*="from-purple-700/"])) *:not(:where(.comms-chat-card, .comms-chat-card *)) {
   color: #ffffff !important;
 }
+
+.theme-light.theme-light .comms-chat-card {
+  color: #0f172a;
+}
+
+.theme-light.theme-light .comms-chat-card .dark-terminal-box,
+.theme-light.theme-light .comms-chat-card .dark-terminal-box pre {
+  background-color: #020617 !important;
+  color: #e2e8f0 !important;
+}
+
+.theme-light.theme-light .comms-chat-card .dark-terminal-box .text-emerald-300 { color: #6ee7b7 !important; }
+.theme-light.theme-light .comms-chat-card .dark-terminal-box .text-rose-300 { color: #fda4af !important; }
+.theme-light.theme-light .comms-chat-card .dark-terminal-box .text-cyan-300 { color: #67e8f9 !important; }
+.theme-light.theme-light .comms-chat-card .dark-terminal-box .text-slate-300 { color: #cbd5e1 !important; }
 
 /* Deepen saturated 500 buttons & dark-text badges in Light Mode so rich background pairs with crisp white text */
 .theme-light.theme-light button:where(.bg-cyan-500, .bg-cyan-600, .bg-cyan-700),

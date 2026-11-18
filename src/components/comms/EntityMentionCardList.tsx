@@ -48,6 +48,7 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
   compact = false,
 }) => {
   if (!Array.isArray(cards) || cards.length === 0) return null;
+  const selfDark = isSelf && !isLightMode;
 
   return (
     <div className={`mt-2 flex flex-col ${compact ? 'gap-1.5' : 'gap-2'}`}>
@@ -64,8 +65,8 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
           return (
             <div
               key={key}
-              className={`rounded-xl border px-2.5 py-2 flex items-start gap-2 ${
-                isSelf
+              className={`comms-chat-card rounded-xl border px-2.5 py-2 flex items-start gap-2 ${
+                selfDark
                   ? 'bg-slate-950/35 border-amber-300/40 text-amber-100'
                   : isLightMode
                   ? 'bg-amber-50 border-amber-200 text-amber-900'
@@ -74,7 +75,7 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
             >
               <div
                 className={`p-1 rounded-lg shrink-0 mt-0.5 ${
-                  isSelf
+                  selfDark
                     ? 'bg-amber-400/20 text-amber-200'
                     : isLightMode
                     ? 'bg-amber-100 text-amber-700'
@@ -90,7 +91,7 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
                   </span>
                   <span
                     className={`px-1.5 py-0.2 rounded text-[9.5px] font-semibold uppercase ${
-                      isSelf
+                      selfDark
                         ? 'bg-amber-300/20 text-amber-100'
                         : isLightMode
                         ? 'bg-amber-200/70 text-amber-900'
@@ -122,32 +123,32 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
         const isPortUp = portStatusLower === 'up' || portStatusLower === 'connected';
         const isPortDown = portStatusLower === 'down' || portStatusLower === 'notconnect' || portStatusLower === 'disabled';
 
-        const cardContainerCls = isSelf
+        const cardContainerCls = selfDark
           ? 'bg-slate-950/35 border-white/20 text-white'
           : isLightMode
           ? 'bg-white border-slate-200 text-slate-900 shadow-xs'
           : 'bg-slate-950/75 border-white/15 text-slate-100';
 
-        const subTextCls = isSelf
+        const subTextCls = selfDark
           ? 'text-indigo-100/85'
           : isLightMode
           ? 'text-slate-600'
           : 'text-slate-400';
 
-        const actionBtnCls = isSelf
+        const actionBtnCls = selfDark
           ? 'bg-white/15 hover:bg-white/25 text-white border-white/25'
           : isLightMode
           ? 'bg-slate-100 hover:bg-indigo-50 text-slate-800 hover:text-indigo-700 border-slate-200 hover:border-indigo-300'
           : 'bg-white/5 hover:bg-indigo-500/20 text-slate-200 hover:text-indigo-200 border-white/15 hover:border-indigo-400/40';
 
         return (
-          <div key={key} className={`rounded-xl border px-2.5 py-2 transition ${cardContainerCls}`}>
+          <div key={key} className={`comms-chat-card rounded-xl border px-2.5 py-2 transition ${cardContainerCls}`}>
             {/* Header line: icon + live dot + name + IP */}
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <div
                   className={`p-1.5 rounded-lg shrink-0 ${
-                    isSelf
+                    selfDark
                       ? 'bg-white/15 text-white'
                       : isServer
                       ? isLightMode
@@ -191,7 +192,7 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
                     {isPort && card.portId && (
                       <span
                         className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-bold ${
-                          isSelf
+                          selfDark
                             ? 'bg-white/20 text-white'
                             : isLightMode
                             ? 'bg-cyan-100 text-cyan-800'
@@ -221,12 +222,12 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
               <span
                 className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold shrink-0 ${
                   card.isOnline
-                    ? isSelf
+                    ? selfDark
                       ? 'bg-emerald-400/25 text-emerald-100'
                       : isLightMode
                       ? 'bg-emerald-100 text-emerald-800'
                       : 'bg-emerald-500/20 text-emerald-300'
-                    : isSelf
+                    : selfDark
                     ? 'bg-rose-400/25 text-rose-100'
                     : isLightMode
                     ? 'bg-rose-100 text-rose-700'
@@ -243,7 +244,7 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
                 {card.portsRestricted ? (
                   <div
                     className={`rounded-lg px-2 py-1 text-[10.5px] flex items-center gap-1.5 border ${
-                      isSelf
+                      selfDark
                         ? 'bg-amber-400/20 border-amber-300/40 text-amber-100'
                         : isLightMode
                         ? 'bg-amber-50 border-amber-200 text-amber-800'
@@ -265,18 +266,18 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
                       <span
                         className={`px-1.5 py-0.5 rounded font-semibold ${
                           isPortUp
-                            ? isSelf
+                            ? selfDark
                               ? 'bg-emerald-400/25 text-emerald-100'
                               : isLightMode
                               ? 'bg-emerald-100 text-emerald-800'
                               : 'bg-emerald-500/20 text-emerald-300'
                             : isPortDown
-                            ? isSelf
+                            ? selfDark
                               ? 'bg-rose-400/25 text-rose-100'
                               : isLightMode
                               ? 'bg-rose-100 text-rose-700'
                               : 'bg-rose-500/20 text-rose-300'
-                            : isSelf
+                            : selfDark
                             ? 'bg-white/15 text-white'
                             : isLightMode
                             ? 'bg-slate-200 text-slate-700'
@@ -287,12 +288,24 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
                       </span>
                     )}
                     {card.portMode && (
-                      <span className="px-1.5 py-0.5 rounded bg-black/10 border border-current/15 font-mono">
+                      <span
+                        className={`px-1.5 py-0.5 rounded border font-mono ${
+                          isLightMode
+                            ? 'bg-slate-100 border-slate-200 text-slate-700'
+                            : 'bg-black/10 border-current/15'
+                        }`}
+                      >
                         {card.portMode}
                       </span>
                     )}
                     {card.portVlan !== undefined && card.portVlan !== null && (
-                      <span className="px-1.5 py-0.5 rounded bg-black/10 border border-current/15 font-mono">
+                      <span
+                        className={`px-1.5 py-0.5 rounded border font-mono ${
+                          isLightMode
+                            ? 'bg-slate-100 border-slate-200 text-slate-700'
+                            : 'bg-black/10 border-current/15'
+                        }`}
+                      >
                         VLAN {String(card.portVlan)}
                       </span>
                     )}

@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.444.0';
+export const APP_VERSION = '1.444.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.444.1',
+    releaseDate: '2026-11-17',
+    type: 'patch',
+    title: 'رفع مشکل هم‌رنگ شدن متن با پس‌زمینه در کارت‌های منشن و پیام‌های ساختاریافته ارسالی توسط خود کاربر در تم روشن (Light Mode)',
+    title_en: 'Fix invisible white-on-white text inside self-sent mention and structured chat cards in Light Theme',
+    changes: [
+      'ایزوله‌سازی کلاس `.comms-chat-card` از قاعده سراسری سفیدسازی متون حباب `.bg-indigo-600` در `src/index.css` و حفظ کنتراست کادرهای ترمینال تیره (`.dark-terminal-box`) در تم روشن.',
+      'بروزرسانی رندر کارت‌های `EntityMentionCardList`، `SlashCommandCard`، `SnippetDiffCard` و `ApprovalChatCard` با متغیر `selfDark = isSelf && !isLightMode` جهت نمایش کارت‌های روشن با متن خوانا در پیام‌های ارسالی خود کاربر در تم لایت.'
+    ],
+    changes_en: [
+      'Excluded `.comms-chat-card` descendants from the global `.theme-light .bg-indigo-600 *` forced white text rule in `src/index.css` while preserving crisp console foreground colors inside `.dark-terminal-box`.',
+      'Updated `EntityMentionCardList`, `SlashCommandCard`, `SnippetDiffCard`, and `ApprovalChatCard` to use `selfDark = isSelf && !isLightMode` so self-sent rich cards render with dark readable text on light card surfaces in Light Theme.'
+    ]
+  },
   {
     version: '1.444.0',
     releaseDate: '2026-11-17',

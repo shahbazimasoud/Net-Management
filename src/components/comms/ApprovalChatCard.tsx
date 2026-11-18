@@ -104,17 +104,18 @@ export const ApprovalChatCard: React.FC<ApprovalChatCardProps> = ({
   const [localDoneMsg, setLocalDoneMsg] = useState<string | null>(null);
 
   if (!card) return null;
+  const selfDark = isSelf && !isLightMode;
 
   if (card.accessRestricted) {
     return (
       <div
-        className={`mt-2 rounded-xl border flex items-start gap-2 ${
+        className={`comms-chat-card mt-2 rounded-xl border flex items-start gap-2 ${
           compact ? 'px-2.5 py-2 text-[11px]' : 'px-3 py-2.5 text-xs'
         } ${
-          isSelf
+          selfDark
             ? 'bg-black/20 border-white/20 text-white/90'
             : isLightMode
-            ? 'bg-slate-100 border-slate-300 text-slate-700'
+            ? 'bg-amber-50 border-amber-200 text-amber-900'
             : 'bg-slate-950/70 border-amber-500/30 text-amber-200'
         }`}
       >
@@ -189,10 +190,10 @@ export const ApprovalChatCard: React.FC<ApprovalChatCardProps> = ({
 
   return (
     <div
-      className={`mt-2 rounded-xl border overflow-hidden ${
+      className={`comms-chat-card mt-2 rounded-xl border overflow-hidden ${
         compact ? 'text-[11px]' : 'text-xs'
       } ${
-        isSelf
+        selfDark
           ? 'bg-slate-950/65 border-white/20 text-slate-100'
           : isLightMode
           ? 'bg-white border-slate-200 text-slate-800 shadow-xs'
@@ -202,7 +203,7 @@ export const ApprovalChatCard: React.FC<ApprovalChatCardProps> = ({
       {/* Header strip */}
       <div
         className={`flex items-center justify-between gap-2 flex-wrap px-2.5 py-2 border-b ${
-          isSelf
+          selfDark
             ? 'bg-white/5 border-white/15'
             : isLightMode
             ? 'bg-slate-50 border-slate-200'
@@ -294,8 +295,8 @@ export const ApprovalChatCard: React.FC<ApprovalChatCardProps> = ({
         {card.commandPreview && (
           <div
             dir="ltr"
-            className={`rounded-lg border px-2 py-1.5 font-mono text-[10.5px] overflow-x-auto whitespace-pre-wrap break-all ${
-              isSelf
+            className={`dark-terminal-box rounded-lg border px-2 py-1.5 font-mono text-[10.5px] overflow-x-auto whitespace-pre-wrap break-all ${
+              selfDark
                 ? 'bg-black/35 border-white/15 text-emerald-200'
                 : isLightMode
                 ? 'bg-slate-900 border-slate-700 text-emerald-300'
@@ -350,7 +351,7 @@ export const ApprovalChatCard: React.FC<ApprovalChatCardProps> = ({
                     : 'توضیح اختیاری برای تایید یا رد...'
                 }
                 className={`w-full px-2 py-1 rounded-lg border text-[11px] outline-none ${
-                  isSelf || !isLightMode
+                  selfDark || !isLightMode
                     ? 'bg-slate-900 border-white/20 text-white placeholder:text-slate-400'
                     : 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400'
                 }`}
@@ -422,7 +423,7 @@ export const ApprovalChatCard: React.FC<ApprovalChatCardProps> = ({
                   type="button"
                   onClick={handleOpenEntity}
                   className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-medium cursor-pointer transition ${
-                    isSelf
+                    selfDark
                       ? 'bg-white/10 hover:bg-white/20 border-white/20 text-white'
                       : isLightMode
                       ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
@@ -437,7 +438,7 @@ export const ApprovalChatCard: React.FC<ApprovalChatCardProps> = ({
               type="button"
               onClick={() => dispatchOpenApprovalTicket(card.approvalId)}
               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-semibold cursor-pointer transition ${
-                isSelf
+                selfDark
                   ? 'bg-indigo-500/35 hover:bg-indigo-500/50 border-indigo-300/40 text-white'
                   : isLightMode
                   ? 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700'
