@@ -9,13 +9,16 @@ import {
   CommandRiskLevel,
   CommandChannel,
   AuditLogCategory,
-  AuditLogSeverity
+  AuditLogSeverity,
+  UserLoginAuditEvent,
+  UserLoginReportsResponse,
 } from '../types';
 import {
   fetchDeviceCommandLogsApi,
   recordDeviceCommandLogApi,
   fetchPortalAuditLogsApi,
   recordPortalAuditLogApi,
+  fetchUserLoginReportsApi,
 } from './api';
 
 const STORAGE_KEYS = {
@@ -311,6 +314,17 @@ export async function fetchPortalAuditLogs(options: {
     console.warn('[AuditLogger] Fallback to local storage for portal audit logs:', err);
   }
   return loadPortalAuditLogs();
+}
+
+export async function fetchUserLoginReports(options: {
+  timeframe?: 'all' | '1h' | '24h' | '7d' | '30d';
+  username?: string;
+  outcome?: string;
+  authMethod?: string;
+  search?: string;
+  limit?: number;
+} = {}): Promise<UserLoginReportsResponse> {
+  return await fetchUserLoginReportsApi(options);
 }
 
 export function loadPortalAuditLogs(): PortalAuditLogEntry[] {
@@ -845,7 +859,53 @@ export function exportServerCommandLogsAsCsv(): void {
   downloadBlob(csvContent, `nettopology_server_command_logs_${formatDateForFile(new Date())}.csv`, 'text/csv;charset=utf-8;');
 }
 
-export function exportAllLogsAsJson(): void {
+export function exportLoginReportsAsCsv(events: UserLoginAuditEvent[]): void {
+  const headers = [
+    'ID',
+    'Timestamp',
+    'Username',
+    'Full Name',
+    'Role',
+    'User Type',
+    'Outcome',
+    'Auth Method',
+    'IP Address',
+    'Browser',
+    'OS',
+    'Device Type',
+    'Action',
+    'Target',
+    'Details',
+    'Raw User-Agent',
+  ];
+  const rows = (events || []).map((ev) => [
+    ev.id,
+    ev.timestamp,
+    `"${(ev.username || '').replace(/"/g, '""')}"`,
+    `"${(ev.fullName || '').replace(/"/g, '""')}"`,
+    `"${(ev.role || '').replace(/"/g, '""')}"`,
+    ev.userType,
+    ev.outcome,
+    ev.authMethod,
+    ev.ipAddress || '',
+    `"${(ev.browserLabel || '').replace(/"/g, '""')}"`,
+    `"${(ev.osLabel || '').replace(/"/g, '""')}"`,
+    ev.deviceType,
+    `"${(ev.action || '').replace(/"/g, '""')}"`,
+    `"${(ev.target || '').replace(/"/g, '""')}"`,
+    `"${(ev.details || '').replace(/"/g, '""')}"`,
+    `"${(ev.rawUserAgent || '').replace(/"/g, '""')}"`,
+  ]);
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+  downloadBlob(
+    csvContent,
+    `nettopology_user_login_reports_${formatDateForFile(new Date())}.csv`,
+    'text/csv;charset=utf-8;'
+  );
+}
+
+export function exportAllLogsAsJson(loginEvents: UserLoginAuditEvent[] = []): void {
   const portalLogs = loadPortalAuditLogs();
   const commandLogs = loadDeviceCommandLogs();
   const serverLogs = loadLocalServerCommandLogs();
@@ -857,10 +917,12 @@ export function exportAllLogsAsJson(): void {
       totalPortalEvents: portalLogs.length,
       totalDeviceCommands: commandLogs.length,
       totalServerCommands: serverLogs.length,
+      totalUserLoginEvents: loginEvents.length,
     },
     portalAuditLogs: portalLogs,
     deviceCommandLogs: commandLogs,
     serverCommandLogs: serverLogs,
+    userLoginAuditLogs: loginEvents,
   };
 
   const jsonStr = JSON.stringify(exportPayload, null, 2);

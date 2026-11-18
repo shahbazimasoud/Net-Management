@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.446.0';
+export const APP_VERSION = '1.447.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.447.0',
+    releaseDate: '2026-11-18',
+    type: 'minor',
+    title: 'افزودن بخش جامع گزارشات ورود، IP، مرورگر، سیستم‌عامل و دفعات لاگین کاربران در صفحه Audit & Command Logs',
+    title_en: 'Add User Login & Session Reports section with IP, browser/OS parsing, timestamps, login counts, and live presence in Audit & Command Logs',
+    changes: [
+      'افزودن موتور تحلیل تلمتری احراز هویت سمت سرور (`getUserLoginReports`, `parseUserAgentDetails`, `normalizeAuditIpAddress` در `server/db.ts`) متصل مستقیم به جدول `audit_logs` پستگرس بدون داده جعلی و همراه با استخراج دقیق نام و نسخه مرورگر (Chrome, Edge, Firefox, Safari, Opera, API Clients)، سیستم‌عامل، نوع دستگاه، IP مبدا نرمال‌شده، تعداد ورود موفق/ناموفق/مسدودی/خروج و نخستین و آخرین تاریخ و ساعت ورود هر کاربر.',
+      'ایجاد اندپوینت احراز هویت‌شده و تحت حاکمیت RBAC (`GET /api/audit-logs/logins` در `server/routes.ts`) با کنترل مجوز `canViewLogs` و ثبت ممیزی تلاش‌های ورود حساب‌های غیرفعال.',
+      'طراحی و یکپارچه‌سازی کامپوننت `UserLoginReportsSection` در `AuditLogsView` شامل تب اختصاصی «گزارش‌های ورود کاربران»، نمای کاربرمحور (شامل فهرست IPهای استفاده‌شده، مرورگرها و تاریخچه ورود کاربر انتخاب‌شده)، نمای خط زمانی جامع با صفحه‌بندی، نمایش وضعیت حضور سه‌حالته زنده (Online/Idle/Offline)، فیلتر وضعیت و روش احراز هویت (Local/AD/2FA/Trusted Device)، خروجی CSV/SIEM JSON و مودال بازرسی منطبق با استانداردهای Rule 7 و تم روشن/تیره.'
+    ],
+    changes_en: [
+      'Added server-side authentication telemetry aggregation (`getUserLoginReports`, `parseUserAgentDetails`, `normalizeAuditIpAddress` in `server/db.ts`) backed directly by PostgreSQL `audit_logs` (zero mock data), parsing browser family/version, OS, device form factor, normalized source IPs, login/failed/blocked/logout counts, and exact first/latest timestamps.',
+      'Exposed RBAC-guarded endpoint `GET /api/audit-logs/logins` in `server/routes.ts` enforcing valid JWT and `canViewLogs` authorization, alongside disabled-account login audit logging and normalized `getClientIp` proxy/IPv6 extraction.',
+      'Built and integrated `UserLoginReportsSection` into `AuditLogsView` with Per-User Summary (source IP breakdown, browsers/OS breakdown, login counts, first/latest timestamps, per-user history) and paginated Login Timeline views, live 3-state presence badges (`Online`/`Idle`/`Offline`), filters, CSV & SIEM JSON export, and a Rule 7 compliant forensic inspection modal supporting Light and Dark themes.'
+    ]
+  },
   {
     version: '1.446.0',
     releaseDate: '2026-11-17',

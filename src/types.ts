@@ -2174,6 +2174,112 @@ export interface ServerCommandAuditLogEntry {
 }
 
 // -------------------------------------------------------------
+// User Login & Session Audit Reports (PostgreSQL audit_logs)
+// -------------------------------------------------------------
+
+export type LoginAuditOutcome =
+  | 'login_success'
+  | 'login_failed'
+  | 'login_blocked'
+  | '2fa_challenge'
+  | 'logout';
+
+export type LoginAuditAuthMethod = 'local' | 'ad' | '2fa' | 'trusted_device';
+
+export interface UserLoginIpBreakdown {
+  ip: string;
+  count: number;
+  successCount: number;
+  failedCount: number;
+  lastSeenAt: string;
+}
+
+export interface UserLoginBrowserBreakdown {
+  label: string;
+  browserName: string;
+  osLabel: string;
+  deviceType: string;
+  count: number;
+  lastSeenAt: string;
+}
+
+export interface UserLoginAuditSummary {
+  username: string;
+  fullName: string;
+  role: string;
+  userType: 'local' | 'ad' | 'unknown';
+  accountStatus: string;
+  totalLogins: number;
+  failedAttempts: number;
+  blockedAttempts: number;
+  twoFactorChallenges: number;
+  trustedBypassCount: number;
+  logoutCount: number;
+  totalEvents: number;
+  firstLoginAt: string | null;
+  lastLoginAt: string | null;
+  lastEventAt: string;
+  lastFailedAt: string | null;
+  lastIp: string;
+  lastBrowser: string;
+  lastOs: string;
+  lastDeviceType: string;
+  lastUserAgent: string;
+  lastAuthMethod: LoginAuditAuthMethod;
+  lastOutcome: LoginAuditOutcome;
+  lastAction: string;
+  ips: UserLoginIpBreakdown[];
+  browsers: UserLoginBrowserBreakdown[];
+  authMethods: LoginAuditAuthMethod[];
+}
+
+export interface UserLoginAuditEvent {
+  id: string;
+  timestamp: string;
+  username: string;
+  fullName: string;
+  role: string;
+  userType: 'local' | 'ad' | 'unknown';
+  outcome: LoginAuditOutcome;
+  authMethod: LoginAuditAuthMethod;
+  trustedBypass: boolean;
+  status: string;
+  action: string;
+  target: string;
+  details: string;
+  ipAddress: string;
+  browserName: string;
+  browserVersion: string;
+  browserLabel: string;
+  osName: string;
+  osVersion: string;
+  osLabel: string;
+  deviceType: 'desktop' | 'mobile' | 'tablet' | 'api_client' | 'unknown';
+  rawUserAgent: string;
+}
+
+export interface UserLoginReportsSummaryStats {
+  totalEvents: number;
+  successfulLogins: number;
+  failedAttempts: number;
+  blockedAttempts: number;
+  twoFactorChallenges: number;
+  logoutEvents: number;
+  uniqueUsers: number;
+  uniqueLoggedInUsers: number;
+  uniqueIps: number;
+  uniqueBrowsers: number;
+}
+
+export interface UserLoginReportsResponse {
+  success: boolean;
+  summary: UserLoginReportsSummaryStats;
+  users: UserLoginAuditSummary[];
+  events: UserLoginAuditEvent[];
+  error?: string;
+}
+
+// -------------------------------------------------------------
 // Automated Audit & Command Logs Scheduled Reporting
 // -------------------------------------------------------------
 

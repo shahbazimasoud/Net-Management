@@ -48,13 +48,16 @@ import {
   ToggleLeft,
   ToggleRight,
   Play,
+  LogIn,
 } from 'lucide-react';
 import { AuditEmailReportModal } from './AuditEmailReportModal';
 import { ServerCommandLogsSection } from './ServerCommandLogsSection';
+import { UserLoginReportsSection } from './UserLoginReportsSection';
 import {
   PortalAuditLogEntry,
   DeviceCommandLogEntry,
   ServerCommandAuditLogEntry,
+  UserLoginReportsResponse,
   AuditLogCategory,
   AuditLogSeverity,
   CommandRiskLevel,
@@ -67,10 +70,12 @@ import {
   loadDeviceCommandLogs,
   fetchPortalAuditLogs,
   fetchDeviceCommandLogs,
+  fetchUserLoginReports,
   loadServerCommandLogs,
   exportPortalLogsAsCsv,
   exportCommandLogsAsCsv,
   exportServerCommandLogsAsCsv,
+  exportLoginReportsAsCsv,
   exportAllLogsAsJson,
   clearPortalLogs,
   clearCommandLogs,
@@ -86,7 +91,7 @@ import {
 } from '../../services/api';
 import { useLanguage } from '../../i18n/LanguageContext';
 
-type ActiveLogSection = 'commands' | 'server_commands' | 'portal' | 'reports';
+type ActiveLogSection = 'commands' | 'server_commands' | 'portal' | 'logins' | 'reports';
 type CommandGroupMode = 'device' | 'user' | 'timeline';
 
 interface WatchLogSession {
@@ -120,6 +125,9 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
   const [portalLogs, setPortalLogs] = useState<PortalAuditLogEntry[]>([]);
   const [commandLogs, setCommandLogs] = useState<DeviceCommandLogEntry[]>([]);
   const [serverLogs, setServerLogs] = useState<ServerCommandAuditLogEntry[]>([]);
+  const [loginReports, setLoginReports] = useState<UserLoginReportsResponse | null>(null);
+  const [isLoginReportsLoading, setIsLoginReportsLoading] = useState(false);
+  const [loginReportsError, setLoginReportsError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Automated Email Report Modal state
@@ -284,22 +292,53 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
   const isRefreshingRef = useRef(false);
   const debounceTimerRef = useRef<any>(null);
 
+  const loadLoginReports = async () => {
+    setIsLoginReportsLoading(true);
+    setLoginReportsError(null);
+    try {
+      const data = await fetchUserLoginReports({ limit: 5000 });
+      if (data?.success) {
+        setLoginReports(data);
+      } else {
+        setLoginReportsError(
+          data?.error || (isEn ? 'Failed to fetch login audit reports.' : 'خطا در دریافت گزارشات ورود کاربران.')
+        );
+      }
+    } catch (err: any) {
+      setLoginReportsError(
+        err?.message || (isEn ? 'Failed to fetch login audit reports.' : 'خطا در دریافت گزارشات ورود کاربران.')
+      );
+    } finally {
+      setIsLoginReportsLoading(false);
+    }
+  };
+
   // Authoritative live refresh directly from PostgreSQL backend with optimistic cache fallback
   const refreshData = async () => {
     if (isRefreshingRef.current) return;
     isRefreshingRef.current = true;
     setIsRefreshing(true);
     try {
-      const [pLogs, cLogs, sLogs, statsData] = await Promise.all([
+      const [pLogs, cLogs, sLogs, statsData, lReports] = await Promise.all([
         fetchPortalAuditLogs(),
         fetchDeviceCommandLogs(),
         loadServerCommandLogs(),
         fetchAuditStorageStatsApi().catch(() => null),
+        fetchUserLoginReports({ limit: 5000 }).catch((err: any) => {
+          setLoginReportsError(
+            err?.message || (isEn ? 'Failed to fetch login audit reports.' : 'خطا در دریافت گزارشات ورود کاربران.')
+          );
+          return null;
+        }),
       ]);
       setPortalLogs(pLogs);
       setCommandLogs(cLogs);
       if (sLogs) setServerLogs(sLogs);
       if (statsData?.stats) setStorageStats(statsData.stats);
+      if (lReports?.success) {
+        setLoginReports(lReports);
+        setLoginReportsError(null);
+      }
     } catch (err) {
       console.warn('[AuditLogsView] Failed to live-refresh audit logs from PostgreSQL:', err);
     } finally {
@@ -1052,6 +1091,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
             onClick={() => {
               if (activeSection === 'portal') exportPortalLogsAsCsv();
               else if (activeSection === 'server_commands') exportServerCommandLogsAsCsv();
+              else if (activeSection === 'logins') exportLoginReportsAsCsv(loginReports?.events || []);
               else exportCommandLogsAsCsv();
             }}
             className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 text-white border border-white/10 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
@@ -1062,7 +1102,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
           </button>
 
           <button
-            onClick={exportAllLogsAsJson}
+            onClick={() => exportAllLogsAsJson(loginReports?.events || [])}
             className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 text-white border border-white/10 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
             title={isEn ? 'Export all logs as JSON for SIEM integration' : 'خروجی کامل به فرمت JSON برای ممیزی و SIEM'}
           >
@@ -1070,14 +1110,16 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
             <span>{isEn ? 'SIEM JSON' : 'خروجی JSON'}</span>
           </button>
 
-          <button
-            onClick={() => setIsConfirmPurgeOpen(true)}
-            className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 text-rose-400 border border-rose-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
-            title={isEn ? 'Purge logs' : 'پاکسازی لاگ‌ها'}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>{isEn ? 'Clear' : 'پاکسازی'}</span>
-          </button>
+          {activeSection !== 'logins' && activeSection !== 'reports' && (
+            <button
+              onClick={() => setIsConfirmPurgeOpen(true)}
+              className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 text-rose-400 border border-rose-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+              title={isEn ? 'Purge logs' : 'پاکسازی لاگ‌ها'}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Clear' : 'پاکسازی'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1207,6 +1249,26 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
             <span>{isEn ? 'Portal & Administrative Events' : 'لاگ‌های ثبتی پورتال و سیستم'}</span>
             <span className="px-2 py-0.5 rounded-full text-[11px] font-mono bg-black/20 text-white border border-white/10">
               {portalLogs.length}
+            </span>
+          </button>
+
+          {/* Section 5: User Login & Session Reports */}
+          <button
+            onClick={() => {
+              setActiveSection('logins');
+              setSelectedCategory('all');
+              if (!loginReports) loadLoginReports();
+            }}
+            className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs md:text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeSection === 'logins'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25 border border-indigo-400/40'
+                : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <LogIn className="w-4 h-4 text-emerald-400" />
+            <span>{isEn ? 'User Login Reports' : 'گزارش‌های ورود کاربران'}</span>
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-mono bg-black/20 text-white border border-white/10">
+              {loginReports?.summary?.successfulLogins ?? 0}
             </span>
           </button>
 
@@ -2129,6 +2191,24 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* SECTION 5: USER LOGIN & SESSION AUDIT REPORTS */}
+      {activeSection === 'logins' && (
+        <UserLoginReportsSection
+          isLightMode={isLightMode}
+          isEn={isEn}
+          isRtl={isRtl}
+          loginReports={loginReports}
+          isLoading={isLoginReportsLoading}
+          loadError={loginReportsError}
+          selectedTimeframe={selectedTimeframe}
+          isWithinTimeframe={isWithinTimeframe}
+          formatDateTime={formatDateTime}
+          formatDateOnly={formatDateOnly}
+          onRefresh={loadLoginReports}
+          onExportCsv={(eventsToExport) => exportLoginReportsAsCsv(eventsToExport)}
+        />
       )}
 
       {/* SECTION 3: EMAIL REPORTS & MULTI-SCHEDULE MANAGEMENT */}

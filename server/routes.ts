@@ -108,6 +108,7 @@ import {
   updateDevicePlacement,
   getAuditLogs,
   addAuditLog,
+  getUserLoginReports,
   getDeviceCommandLogs,
   addDeviceCommandLog,
   getPortalAuditLogs,
@@ -787,10 +788,20 @@ function isMutatingServerRequest(req: Request, action: string): boolean {
 // Helper to get client IP
 function getClientIp(req: Request): string {
   const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
-    return forwarded.split(',')[0].trim();
+  let rawIp = '';
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    rawIp = forwarded.split(',')[0].trim();
+  } else if (Array.isArray(forwarded) && forwarded.length > 0) {
+    rawIp = String(forwarded[0]).split(',')[0].trim();
+  } else if (typeof req.headers['x-real-ip'] === 'string' && req.headers['x-real-ip'].trim()) {
+    rawIp = req.headers['x-real-ip'].trim();
+  } else {
+    rawIp = req.socket.remoteAddress || req.ip || '127.0.0.1';
   }
-  return req.socket.remoteAddress || '127.0.0.1';
+  if (rawIp.startsWith('::ffff:')) {
+    return rawIp.slice(7);
+  }
+  return rawIp;
 }
 
 // Helper to get authenticated or active operator identity from request
@@ -1036,6 +1047,17 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       }
 
       if (user.status === 'disabled') {
+        await addAuditLog({
+          userName: username,
+          action: 'Local Login Blocked (Account Disabled)',
+          category: 'security',
+          target: 'Auth Gateway',
+          status: 'warning',
+          details: `Disabled local account "${username}" attempted login from IP ${ip}.`,
+          ipAddress: ip,
+          userAgent: req.headers['user-agent'],
+        });
+
         return res.status(403).json({
           success: false,
           error: 'Account disabled',
@@ -2891,6 +2913,77 @@ apiRouter.post('/audit-logs/portal', async (req: Request, res: Response) => {
       log: savedLog,
       message: 'Portal audit event recorded successfully.',
       message_fa: 'رویداد پرتال با موفقیت در پایگاه داده ثبت شد.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/audit-logs/logins - Authenticated & RBAC-guarded User Login & Session Reports
+apiRouter.get('/audit-logs/logins', async (req: Request, res: Response) => {
+  try {
+    const authHeader = (req.headers.authorization as string) || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required to view login audit reports.',
+        message: 'احراز هویت برای مشاهده گزارشات ورود کاربران الزامی است.',
+      });
+    }
+
+    const payload = verifyToken(token);
+    if (!payload) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid or expired authentication session.',
+        message: 'نشست کاربری نامعتبر یا منقضی شده است.',
+      });
+    }
+
+    const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
+    if (userRecord && userRecord.status === 'disabled') {
+      return res.status(403).json({
+        success: false,
+        error: 'Account has been disabled.',
+        message: 'این حساب کاربری غیرفعال شده است.',
+      });
+    }
+
+    const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
+    const isSuperAdmin =
+      userRecord?.role === 'Super Administrator' ||
+      payload.role === 'Super Administrator' ||
+      effectivePolicy?.id === 'policy-super-admin';
+
+    if (!isSuperAdmin && effectivePolicy?.canViewLogs === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Active RBAC policy does not permit viewing audit & login logs.',
+        message: 'دسترسی مسدود شد: پالیسی RBAC فعال شما مجوز مشاهده گزارشات ممیزی و ورود را ندارد.',
+      });
+    }
+
+    const timeframeRaw = String(req.query.timeframe || 'all');
+    const timeframe = (['all', '1h', '24h', '7d', '30d'].includes(timeframeRaw) ? timeframeRaw : 'all') as
+      | 'all'
+      | '1h'
+      | '24h'
+      | '7d'
+      | '30d';
+
+    const report = await getUserLoginReports({
+      timeframe,
+      username: req.query.username as string | undefined,
+      outcome: req.query.outcome as string | undefined,
+      authMethod: req.query.authMethod as string | undefined,
+      search: req.query.search as string | undefined,
+      limit: parseInt(req.query.limit as string, 10) || 5000,
+    });
+
+    res.json({
+      success: true,
+      ...report,
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

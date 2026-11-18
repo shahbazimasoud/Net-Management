@@ -7865,8 +7865,8 @@ export async function addAuditLog(log: any): Promise<void> {
 
   const store = loadFallbackStore();
   store.audit_logs.push(record);
-  if (store.audit_logs.length > 500) {
-    store.audit_logs = store.audit_logs.slice(-500);
+  if (store.audit_logs.length > 2000) {
+    store.audit_logs = store.audit_logs.slice(-2000);
   }
   saveFallbackStore(store);
 
@@ -7892,6 +7892,783 @@ export async function addAuditLog(log: any): Promise<void> {
       console.error('[DB Query Error]', e);
     }
   }
+}
+
+export type LoginAuditOutcome =
+  | 'login_success'
+  | 'login_failed'
+  | 'login_blocked'
+  | '2fa_challenge'
+  | 'logout';
+
+export type LoginAuditAuthMethod = 'local' | 'ad' | '2fa' | 'trusted_device';
+
+export interface ParsedUserAgentInfo {
+  browserName: string;
+  browserVersion: string;
+  browserLabel: string;
+  osName: string;
+  osVersion: string;
+  osLabel: string;
+  deviceType: 'desktop' | 'mobile' | 'tablet' | 'api_client' | 'unknown';
+  rawUserAgent: string;
+}
+
+export function normalizeAuditIpAddress(rawIp: string | null | undefined): string {
+  if (!rawIp || typeof rawIp !== 'string') return 'Unknown';
+  const first = rawIp.split(',')[0].trim();
+  if (!first) return 'Unknown';
+  if (first.startsWith('::ffff:')) {
+    return first.slice(7);
+  }
+  return first;
+}
+
+export function parseUserAgentDetails(rawUa: string | null | undefined): ParsedUserAgentInfo {
+  const ua = (rawUa || '').trim();
+  if (!ua) {
+    return {
+      browserName: 'Unknown',
+      browserVersion: '',
+      browserLabel: 'Unknown',
+      osName: 'Unknown',
+      osVersion: '',
+      osLabel: 'Unknown',
+      deviceType: 'unknown',
+      rawUserAgent: '',
+    };
+  }
+
+  // 1. Detect OS & Device Type
+  let osName = 'Unknown';
+  let osVersion = '';
+  let deviceType: ParsedUserAgentInfo['deviceType'] = 'desktop';
+
+  if (/iPad/i.test(ua)) {
+    osName = 'iPadOS';
+    const m = ua.match(/OS (\d+[_\.]\d+)/i);
+    if (m) osVersion = m[1].replace(/_/g, '.');
+    deviceType = 'tablet';
+  } else if (/iPhone|iPod/i.test(ua)) {
+    osName = 'iOS';
+    const m = ua.match(/OS (\d+[_\.]\d+)/i);
+    if (m) osVersion = m[1].replace(/_/g, '.');
+    deviceType = 'mobile';
+  } else if (/Android/i.test(ua)) {
+    osName = 'Android';
+    const m = ua.match(/Android\s+(\d+(?:\.\d+)?)/i);
+    if (m) osVersion = m[1];
+    deviceType = /Mobile/i.test(ua) ? 'mobile' : 'tablet';
+  } else if (/Windows NT 10\.0/i.test(ua)) {
+    osName = 'Windows';
+    osVersion = '10/11';
+    deviceType = 'desktop';
+  } else if (/Windows NT 6\.3/i.test(ua)) {
+    osName = 'Windows';
+    osVersion = '8.1';
+    deviceType = 'desktop';
+  } else if (/Windows NT 6\.2/i.test(ua)) {
+    osName = 'Windows';
+    osVersion = '8';
+    deviceType = 'desktop';
+  } else if (/Windows NT 6\.1/i.test(ua)) {
+    osName = 'Windows';
+    osVersion = '7';
+    deviceType = 'desktop';
+  } else if (/Mac OS X|Macintosh/i.test(ua)) {
+    osName = 'macOS';
+    const m = ua.match(/Mac OS X\s+(\d+[_\.]\d+(?:[_\.]\d+)?)/i);
+    if (m) osVersion = m[1].replace(/_/g, '.');
+    deviceType = 'desktop';
+  } else if (/CrOS/i.test(ua)) {
+    osName = 'ChromeOS';
+    deviceType = 'desktop';
+  } else if (/Ubuntu/i.test(ua)) {
+    osName = 'Ubuntu Linux';
+    deviceType = 'desktop';
+  } else if (/Linux/i.test(ua)) {
+    osName = 'Linux';
+    deviceType = 'desktop';
+  }
+
+  // 2. Detect Browser / Client
+  let browserName = 'Unknown';
+  let browserVersion = '';
+
+  const edg = ua.match(/EdgA?\/(\d+(?:\.\d+)?)/);
+  const opr = ua.match(/(?:OPR|Opera)\/(\d+(?:\.\d+)?)/);
+  const samsung = ua.match(/SamsungBrowser\/(\d+(?:\.\d+)?)/);
+  const yandex = ua.match(/YaBrowser\/(\d+(?:\.\d+)?)/);
+  const firefox = ua.match(/(?:Firefox|FxiOS)\/(\d+(?:\.\d+)?)/);
+  const chrome = ua.match(/(?:Chrome|CriOS)\/(\d+(?:\.\d+)?)/);
+  const safariVer = ua.match(/Version\/(\d+(?:\.\d+)?).*Safari\//);
+  const curlMatch = ua.match(/curl\/(\d+(?:\.\d+)?)/i);
+  const postmanMatch = ua.match(/PostmanRuntime\/(\d+(?:\.\d+)?)/i);
+  const pythonMatch = ua.match(/python-requests\/(\d+(?:\.\d+)?)/i);
+  const nodeMatch = ua.match(/(?:node-fetch|undici|axios)(?:\/(\d+(?:\.\d+)?))?/i);
+
+  if (edg) {
+    browserName = 'Microsoft Edge';
+    browserVersion = edg[1];
+  } else if (opr) {
+    browserName = 'Opera';
+    browserVersion = opr[1];
+  } else if (samsung) {
+    browserName = 'Samsung Internet';
+    browserVersion = samsung[1];
+  } else if (yandex) {
+    browserName = 'Yandex Browser';
+    browserVersion = yandex[1];
+  } else if (firefox) {
+    browserName = 'Mozilla Firefox';
+    browserVersion = firefox[1];
+  } else if (chrome && !/Chromium/i.test(ua)) {
+    browserName = 'Google Chrome';
+    browserVersion = chrome[1];
+  } else if (/Chromium\/(\d+(?:\.\d+)?)/.test(ua)) {
+    browserName = 'Chromium';
+    browserVersion = ua.match(/Chromium\/(\d+(?:\.\d+)?)/)?.[1] || '';
+  } else if (safariVer) {
+    browserName = 'Apple Safari';
+    browserVersion = safariVer[1];
+  } else if (/Safari\//i.test(ua)) {
+    browserName = 'Apple Safari';
+  } else if (curlMatch) {
+    browserName = 'cURL CLI';
+    browserVersion = curlMatch[1];
+    deviceType = 'api_client';
+    if (osName === 'Unknown') osName = 'CLI / Shell';
+  } else if (postmanMatch) {
+    browserName = 'Postman';
+    browserVersion = postmanMatch[1];
+    deviceType = 'api_client';
+  } else if (pythonMatch) {
+    browserName = 'Python Client';
+    browserVersion = pythonMatch[1];
+    deviceType = 'api_client';
+  } else if (nodeMatch) {
+    browserName = 'Node HTTP Client';
+    browserVersion = nodeMatch[1] || '';
+    deviceType = 'api_client';
+    if (osName === 'Unknown') osName = 'Node.js';
+  } else if (/NetTopology/i.test(ua)) {
+    browserName = 'NetTopology Service';
+    deviceType = 'api_client';
+  } else {
+    browserName = ua.slice(0, 36);
+  }
+
+  const browserLabel = browserVersion ? `${browserName} ${browserVersion.split('.')[0]}` : browserName;
+  const osLabel = osVersion ? `${osName} ${osVersion}` : osName;
+
+  return {
+    browserName,
+    browserVersion,
+    browserLabel,
+    osName,
+    osVersion,
+    osLabel,
+    deviceType,
+    rawUserAgent: ua,
+  };
+}
+
+function classifyAuthAuditRow(row: any): {
+  outcome: LoginAuditOutcome | null;
+  authMethod: LoginAuditAuthMethod;
+  trustedBypass: boolean;
+} {
+  const action = String(row?.action || '');
+  const actionLower = action.toLowerCase();
+  const targetLower = String(row?.target || '').toLowerCase();
+  const detailsLower = String(row?.details || '').toLowerCase();
+
+  const isAuthTarget =
+    targetLower === 'auth gateway' ||
+    targetLower.startsWith('ad dc') ||
+    actionLower.includes('login') ||
+    actionLower.includes('logout') ||
+    actionLower.includes('two-factor') ||
+    actionLower.includes('ورود') ||
+    actionLower.includes('اکتیو دایرکتوری');
+
+  if (!isAuthTarget) {
+    return { outcome: null, authMethod: 'local', trustedBypass: false };
+  }
+
+  let authMethod: LoginAuditAuthMethod = 'local';
+  const trustedBypass =
+    actionLower.includes('trusted device') || detailsLower.includes('trusted device');
+
+  if (trustedBypass) {
+    authMethod = targetLower.startsWith('ad dc') || actionLower.includes('ad)') ? 'ad' : 'trusted_device';
+  } else if (
+    targetLower.startsWith('ad dc') ||
+    actionLower.includes('active directory') ||
+    actionLower.includes('اکتیو دایرکتوری')
+  ) {
+    authMethod = 'ad';
+  } else if (actionLower.includes('two-factor') || actionLower.includes('2fa')) {
+    authMethod = '2fa';
+  }
+
+  // Note: ignore redundant "Trusted Device (2FA Bypassed)" log when immediately paired or classify clearly
+  if (actionLower === 'user logout') {
+    return { outcome: 'logout', authMethod, trustedBypass: false };
+  }
+
+  if (
+    actionLower.includes('blocked') ||
+    actionLower.includes('rate limit') ||
+    actionLower.includes('مسدودسازی')
+  ) {
+    return { outcome: 'login_blocked', authMethod, trustedBypass: false };
+  }
+
+  if (
+    actionLower.includes('failed') ||
+    actionLower.includes('ناموفق')
+  ) {
+    return { outcome: 'login_failed', authMethod, trustedBypass: false };
+  }
+
+  if (actionLower.includes('challenge initiated')) {
+    return { outcome: '2fa_challenge', authMethod: '2fa', trustedBypass: false };
+  }
+
+  if (
+    actionLower.includes('successful user login') ||
+    actionLower.includes('user login success') ||
+    actionLower.includes('active directory login success') ||
+    actionLower.includes('successful two-factor authentication login') ||
+    actionLower.includes('resilient authentication') ||
+    actionLower.includes('احراز هویت منعطف')
+  ) {
+    return { outcome: 'login_success', authMethod, trustedBypass };
+  }
+
+  // Bypass notification itself precedes User Login Success / Active Directory Login Success by <1ms; treat it separately or fold cleanly
+  if (actionLower.includes('trusted device (2fa bypassed')) {
+    return { outcome: null, authMethod, trustedBypass: true };
+  }
+
+  return { outcome: null, authMethod, trustedBypass: false };
+}
+
+export async function getUserLoginReports(options: {
+  timeframe?: 'all' | '1h' | '24h' | '7d' | '30d';
+  username?: string;
+  outcome?: string;
+  authMethod?: string;
+  search?: string;
+  limit?: number;
+} = {}): Promise<{
+  summary: {
+    totalEvents: number;
+    successfulLogins: number;
+    failedAttempts: number;
+    blockedAttempts: number;
+    twoFactorChallenges: number;
+    logoutEvents: number;
+    uniqueUsers: number;
+    uniqueLoggedInUsers: number;
+    uniqueIps: number;
+    uniqueBrowsers: number;
+  };
+  users: Array<{
+    username: string;
+    fullName: string;
+    role: string;
+    userType: 'local' | 'ad' | 'unknown';
+    accountStatus: string;
+    totalLogins: number;
+    failedAttempts: number;
+    blockedAttempts: number;
+    twoFactorChallenges: number;
+    trustedBypassCount: number;
+    logoutCount: number;
+    totalEvents: number;
+    firstLoginAt: string | null;
+    lastLoginAt: string | null;
+    lastEventAt: string;
+    lastFailedAt: string | null;
+    lastIp: string;
+    lastBrowser: string;
+    lastOs: string;
+    lastDeviceType: string;
+    lastUserAgent: string;
+    lastAuthMethod: LoginAuditAuthMethod;
+    lastOutcome: LoginAuditOutcome;
+    lastAction: string;
+    ips: Array<{
+      ip: string;
+      count: number;
+      successCount: number;
+      failedCount: number;
+      lastSeenAt: string;
+    }>;
+    browsers: Array<{
+      label: string;
+      browserName: string;
+      osLabel: string;
+      deviceType: string;
+      count: number;
+      lastSeenAt: string;
+    }>;
+    authMethods: LoginAuditAuthMethod[];
+  }>;
+  events: Array<{
+    id: string;
+    timestamp: string;
+    username: string;
+    fullName: string;
+    role: string;
+    userType: 'local' | 'ad' | 'unknown';
+    outcome: LoginAuditOutcome;
+    authMethod: LoginAuditAuthMethod;
+    trustedBypass: boolean;
+    status: string;
+    action: string;
+    target: string;
+    details: string;
+    ipAddress: string;
+    browserName: string;
+    browserVersion: string;
+    browserLabel: string;
+    osName: string;
+    osVersion: string;
+    osLabel: string;
+    deviceType: ParsedUserAgentInfo['deviceType'];
+    rawUserAgent: string;
+  }>;
+}> {
+  await ensurePostgresConnection();
+
+  const scanLimit = Math.min(Math.max(Number(options.limit) || 5000, 100), 10000);
+  let rawRows: any[] = [];
+
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query(
+        `SELECT id, timestamp, user_name, action, category, target, status, details, ip_address, user_agent
+         FROM audit_logs
+         WHERE category = 'security'
+            OR target = 'Auth Gateway'
+            OR target LIKE 'AD DC%'
+         ORDER BY timestamp DESC
+         LIMIT $1`,
+        [scanLimit]
+      );
+      rawRows = res.rows || [];
+    } catch (e) {
+      console.error('[DB Query Error in getUserLoginReports]', e);
+    }
+  }
+
+  if (rawRows.length === 0) {
+    const store = loadFallbackStore();
+    rawRows = [...(store.audit_logs || [])]
+      .filter((r: any) => {
+        if (!r) return false;
+        const cat = String(r.category || '').toLowerCase();
+        const tgt = String(r.target || '');
+        return cat === 'security' || tgt === 'Auth Gateway' || tgt.startsWith('AD DC');
+      })
+      .sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())
+      .slice(0, scanLimit);
+  }
+
+  // Enrich with safe identity metadata from local + AD directory (zero secrets)
+  const directoryMap = new Map<string, { username: string; fullName: string; role: string; userType: 'local' | 'ad'; status: string }>();
+  try {
+    const localUsers = await getAllUsers();
+    for (const u of localUsers || []) {
+      if (!u?.username) continue;
+      directoryMap.set(String(u.username).trim().toLowerCase(), {
+        username: String(u.username).trim(),
+        fullName: u.fullName || u.username,
+        role: u.role || 'Operator',
+        userType: u.userType === 'ad' ? 'ad' : 'local',
+        status: u.status || 'active',
+      });
+    }
+  } catch {}
+
+  try {
+    const adCfg = await getActiveDirectoryConfig();
+    const synced: any[] = Array.isArray(adCfg?.syncedUsers) ? adCfg.syncedUsers : [];
+    for (const u of synced) {
+      const keys = [u?.email, u?.samAccountName, u?.dn].filter((x) => typeof x === 'string' && x.trim());
+      for (const k of keys) {
+        const lower = String(k).trim().toLowerCase();
+        if (!directoryMap.has(lower)) {
+          directoryMap.set(lower, {
+            username: u.email || u.samAccountName || String(k),
+            fullName: u.displayName || u.samAccountName || String(k),
+            role: u.title || 'Domain User (AD)',
+            userType: 'ad',
+            status: u.enabled === false ? 'disabled' : 'active',
+          });
+        }
+      }
+    }
+  } catch {}
+
+  // Timeframe window
+  const nowMs = Date.now();
+  const tf = options.timeframe || 'all';
+  let cutoffMs = 0;
+  if (tf === '1h') cutoffMs = nowMs - 3600 * 1000;
+  else if (tf === '24h') cutoffMs = nowMs - 24 * 3600 * 1000;
+  else if (tf === '7d') cutoffMs = nowMs - 7 * 24 * 3600 * 1000;
+  else if (tf === '30d') cutoffMs = nowMs - 30 * 24 * 3600 * 1000;
+
+  const parsedEvents: Array<{
+    id: string;
+    timestamp: string;
+    username: string;
+    fullName: string;
+    role: string;
+    userType: 'local' | 'ad' | 'unknown';
+    accountStatus: string;
+    outcome: LoginAuditOutcome;
+    authMethod: LoginAuditAuthMethod;
+    trustedBypass: boolean;
+    status: string;
+    action: string;
+    target: string;
+    details: string;
+    ipAddress: string;
+    browserName: string;
+    browserVersion: string;
+    browserLabel: string;
+    osName: string;
+    osVersion: string;
+    osLabel: string;
+    deviceType: ParsedUserAgentInfo['deviceType'];
+    rawUserAgent: string;
+  }> = [];
+
+  for (const row of rawRows) {
+    const classified = classifyAuthAuditRow(row);
+    if (!classified.outcome) continue;
+
+    const tsIso =
+      row.timestamp instanceof Date
+        ? row.timestamp.toISOString()
+        : String(row.timestamp || new Date().toISOString());
+    const tsMs = new Date(tsIso).getTime();
+    if (cutoffMs > 0 && (!Number.isFinite(tsMs) || tsMs < cutoffMs)) {
+      continue;
+    }
+
+    const rawUsername = String(row.user_name || row.userName || 'Unknown').trim() || 'Unknown';
+    const cleanLookupKey = rawUsername.toLowerCase();
+    const baseLookupKey = cleanLookupKey.includes('@')
+      ? cleanLookupKey.split('@')[0]
+      : cleanLookupKey.includes('\\')
+      ? cleanLookupKey.split('\\')[1]
+      : cleanLookupKey;
+    const dirMatch = directoryMap.get(cleanLookupKey) || directoryMap.get(baseLookupKey);
+
+    const ipAddress = normalizeAuditIpAddress(row.ip_address || row.ipAddress);
+    const uaInfo = parseUserAgentDetails(row.user_agent || row.userAgent);
+
+    parsedEvents.push({
+      id: String(row.id || `auth-${tsMs}-${Math.random().toString(36).slice(2, 6)}`),
+      timestamp: tsIso,
+      username: dirMatch?.username || rawUsername,
+      fullName: dirMatch?.fullName || rawUsername,
+      role: dirMatch?.role || (classified.authMethod === 'ad' ? 'Domain User (AD)' : 'Unregistered / External'),
+      userType: dirMatch?.userType || (classified.authMethod === 'ad' ? 'ad' : 'unknown'),
+      accountStatus: dirMatch?.status || 'active',
+      outcome: classified.outcome,
+      authMethod: classified.authMethod,
+      trustedBypass: classified.trustedBypass,
+      status: String(row.status || 'info'),
+      action: String(row.action || ''),
+      target: String(row.target || 'Auth Gateway'),
+      details: String(row.details || ''),
+      ipAddress,
+      browserName: uaInfo.browserName,
+      browserVersion: uaInfo.browserVersion,
+      browserLabel: uaInfo.browserLabel,
+      osName: uaInfo.osName,
+      osVersion: uaInfo.osVersion,
+      osLabel: uaInfo.osLabel,
+      deviceType: uaInfo.deviceType,
+      rawUserAgent: uaInfo.rawUserAgent,
+    });
+  }
+
+  // Apply optional filters (username, outcome, authMethod, search)
+  const filterUsername = (options.username || '').trim().toLowerCase();
+  const filterOutcome = (options.outcome || '').trim().toLowerCase();
+  const filterMethod = (options.authMethod || '').trim().toLowerCase();
+  const filterSearch = (options.search || '').trim().toLowerCase();
+
+  const filteredEvents = parsedEvents.filter((ev) => {
+    if (filterUsername && filterUsername !== 'all' && ev.username.toLowerCase() !== filterUsername) {
+      return false;
+    }
+    if (filterOutcome && filterOutcome !== 'all') {
+      if (filterOutcome === 'failed_or_blocked') {
+        if (ev.outcome !== 'login_failed' && ev.outcome !== 'login_blocked') return false;
+      } else if (ev.outcome !== filterOutcome) {
+        return false;
+      }
+    }
+    if (filterMethod && filterMethod !== 'all' && ev.authMethod !== filterMethod) {
+      return false;
+    }
+    if (filterSearch) {
+      const hay = [
+        ev.username,
+        ev.fullName,
+        ev.role,
+        ev.ipAddress,
+        ev.browserLabel,
+        ev.osLabel,
+        ev.action,
+        ev.details,
+        ev.rawUserAgent,
+      ]
+        .join(' ')
+        .toLowerCase();
+      if (!hay.includes(filterSearch)) return false;
+    }
+    return true;
+  });
+
+  // Aggregate per user across filtered events
+  const userMap = new Map<
+    string,
+    {
+      username: string;
+      fullName: string;
+      role: string;
+      userType: 'local' | 'ad' | 'unknown';
+      accountStatus: string;
+      totalLogins: number;
+      failedAttempts: number;
+      blockedAttempts: number;
+      twoFactorChallenges: number;
+      trustedBypassCount: number;
+      logoutCount: number;
+      totalEvents: number;
+      firstLoginAt: string | null;
+      lastLoginAt: string | null;
+      lastEventAt: string;
+      lastFailedAt: string | null;
+      lastIp: string;
+      lastBrowser: string;
+      lastOs: string;
+      lastDeviceType: string;
+      lastUserAgent: string;
+      lastAuthMethod: LoginAuditAuthMethod;
+      lastOutcome: LoginAuditOutcome;
+      lastAction: string;
+      ipMap: Map<string, { ip: string; count: number; successCount: number; failedCount: number; lastSeenAt: string }>;
+      browserMap: Map<string, { label: string; browserName: string; osLabel: string; deviceType: string; count: number; lastSeenAt: string }>;
+      authMethodsSet: Set<LoginAuditAuthMethod>;
+    }
+  >();
+
+  const uniqueIpsSet = new Set<string>();
+  const uniqueBrowsersSet = new Set<string>();
+  let successfulLogins = 0;
+  let failedAttempts = 0;
+  let blockedAttempts = 0;
+  let twoFactorChallenges = 0;
+  let logoutEvents = 0;
+
+  for (const ev of filteredEvents) {
+    if (ev.ipAddress && ev.ipAddress !== 'Unknown') uniqueIpsSet.add(ev.ipAddress);
+    if (ev.browserLabel && ev.browserLabel !== 'Unknown') uniqueBrowsersSet.add(ev.browserLabel);
+
+    if (ev.outcome === 'login_success') successfulLogins += 1;
+    else if (ev.outcome === 'login_failed') failedAttempts += 1;
+    else if (ev.outcome === 'login_blocked') blockedAttempts += 1;
+    else if (ev.outcome === '2fa_challenge') twoFactorChallenges += 1;
+    else if (ev.outcome === 'logout') logoutEvents += 1;
+
+    const uKey = ev.username.toLowerCase();
+    let entry = userMap.get(uKey);
+    if (!entry) {
+      entry = {
+        username: ev.username,
+        fullName: ev.fullName,
+        role: ev.role,
+        userType: ev.userType,
+        accountStatus: ev.accountStatus,
+        totalLogins: 0,
+        failedAttempts: 0,
+        blockedAttempts: 0,
+        twoFactorChallenges: 0,
+        trustedBypassCount: 0,
+        logoutCount: 0,
+        totalEvents: 0,
+        firstLoginAt: null,
+        lastLoginAt: null,
+        lastEventAt: ev.timestamp,
+        lastFailedAt: null,
+        lastIp: ev.ipAddress,
+        lastBrowser: ev.browserLabel,
+        lastOs: ev.osLabel,
+        lastDeviceType: ev.deviceType,
+        lastUserAgent: ev.rawUserAgent,
+        lastAuthMethod: ev.authMethod,
+        lastOutcome: ev.outcome,
+        lastAction: ev.action,
+        ipMap: new Map(),
+        browserMap: new Map(),
+        authMethodsSet: new Set(),
+      };
+      userMap.set(uKey, entry);
+    }
+
+    entry.totalEvents += 1;
+    entry.authMethodsSet.add(ev.authMethod);
+
+    if (new Date(ev.timestamp).getTime() > new Date(entry.lastEventAt).getTime()) {
+      entry.lastEventAt = ev.timestamp;
+      entry.lastIp = ev.ipAddress;
+      entry.lastBrowser = ev.browserLabel;
+      entry.lastOs = ev.osLabel;
+      entry.lastDeviceType = ev.deviceType;
+      entry.lastUserAgent = ev.rawUserAgent;
+      entry.lastAuthMethod = ev.authMethod;
+      entry.lastOutcome = ev.outcome;
+      entry.lastAction = ev.action;
+    }
+
+    if (ev.outcome === 'login_success') {
+      entry.totalLogins += 1;
+      if (ev.trustedBypass) entry.trustedBypassCount += 1;
+      if (!entry.lastLoginAt || new Date(ev.timestamp).getTime() > new Date(entry.lastLoginAt).getTime()) {
+        entry.lastLoginAt = ev.timestamp;
+        entry.lastIp = ev.ipAddress;
+        entry.lastBrowser = ev.browserLabel;
+        entry.lastOs = ev.osLabel;
+        entry.lastDeviceType = ev.deviceType;
+        entry.lastUserAgent = ev.rawUserAgent;
+      }
+      if (!entry.firstLoginAt || new Date(ev.timestamp).getTime() < new Date(entry.firstLoginAt).getTime()) {
+        entry.firstLoginAt = ev.timestamp;
+      }
+    } else if (ev.outcome === 'login_failed') {
+      entry.failedAttempts += 1;
+      if (!entry.lastFailedAt || new Date(ev.timestamp).getTime() > new Date(entry.lastFailedAt).getTime()) {
+        entry.lastFailedAt = ev.timestamp;
+      }
+    } else if (ev.outcome === 'login_blocked') {
+      entry.blockedAttempts += 1;
+      if (!entry.lastFailedAt || new Date(ev.timestamp).getTime() > new Date(entry.lastFailedAt).getTime()) {
+        entry.lastFailedAt = ev.timestamp;
+      }
+    } else if (ev.outcome === '2fa_challenge') {
+      entry.twoFactorChallenges += 1;
+    } else if (ev.outcome === 'logout') {
+      entry.logoutCount += 1;
+    }
+
+    // Track distinct IPs for this user
+    let ipEntry = entry.ipMap.get(ev.ipAddress);
+    if (!ipEntry) {
+      ipEntry = {
+        ip: ev.ipAddress,
+        count: 0,
+        successCount: 0,
+        failedCount: 0,
+        lastSeenAt: ev.timestamp,
+      };
+      entry.ipMap.set(ev.ipAddress, ipEntry);
+    }
+    ipEntry.count += 1;
+    if (ev.outcome === 'login_success') ipEntry.successCount += 1;
+    if (ev.outcome === 'login_failed' || ev.outcome === 'login_blocked') ipEntry.failedCount += 1;
+    if (new Date(ev.timestamp).getTime() > new Date(ipEntry.lastSeenAt).getTime()) {
+      ipEntry.lastSeenAt = ev.timestamp;
+    }
+
+    // Track distinct Browser + OS combinations for this user
+    const browserKey = `${ev.browserLabel} | ${ev.osLabel}`;
+    let bEntry = entry.browserMap.get(browserKey);
+    if (!bEntry) {
+      bEntry = {
+        label: ev.browserLabel,
+        browserName: ev.browserName,
+        osLabel: ev.osLabel,
+        deviceType: ev.deviceType,
+        count: 0,
+        lastSeenAt: ev.timestamp,
+      };
+      entry.browserMap.set(browserKey, bEntry);
+    }
+    bEntry.count += 1;
+    if (new Date(ev.timestamp).getTime() > new Date(bEntry.lastSeenAt).getTime()) {
+      bEntry.lastSeenAt = ev.timestamp;
+    }
+  }
+
+  const users = Array.from(userMap.values())
+    .map((u) => ({
+      username: u.username,
+      fullName: u.fullName,
+      role: u.role,
+      userType: u.userType,
+      accountStatus: u.accountStatus,
+      totalLogins: u.totalLogins,
+      failedAttempts: u.failedAttempts,
+      blockedAttempts: u.blockedAttempts,
+      twoFactorChallenges: u.twoFactorChallenges,
+      trustedBypassCount: u.trustedBypassCount,
+      logoutCount: u.logoutCount,
+      totalEvents: u.totalEvents,
+      firstLoginAt: u.firstLoginAt,
+      lastLoginAt: u.lastLoginAt,
+      lastEventAt: u.lastEventAt,
+      lastFailedAt: u.lastFailedAt,
+      lastIp: u.lastIp,
+      lastBrowser: u.lastBrowser,
+      lastOs: u.lastOs,
+      lastDeviceType: u.lastDeviceType,
+      lastUserAgent: u.lastUserAgent,
+      lastAuthMethod: u.lastAuthMethod,
+      lastOutcome: u.lastOutcome,
+      lastAction: u.lastAction,
+      ips: Array.from(u.ipMap.values()).sort(
+        (a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime()
+      ),
+      browsers: Array.from(u.browserMap.values()).sort(
+        (a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime()
+      ),
+      authMethods: Array.from(u.authMethodsSet),
+    }))
+    .sort((a, b) => {
+      const aTime = new Date(a.lastLoginAt || a.lastEventAt).getTime();
+      const bTime = new Date(b.lastLoginAt || b.lastEventAt).getTime();
+      return bTime - aTime;
+    });
+
+  const uniqueLoggedInUsers = users.filter((u) => u.totalLogins > 0).length;
+
+  return {
+    summary: {
+      totalEvents: filteredEvents.length,
+      successfulLogins,
+      failedAttempts,
+      blockedAttempts,
+      twoFactorChallenges,
+      logoutEvents,
+      uniqueUsers: users.length,
+      uniqueLoggedInUsers,
+      uniqueIps: uniqueIpsSet.size,
+      uniqueBrowsers: uniqueBrowsersSet.size,
+    },
+    users,
+    events: filteredEvents.map(({ accountStatus: _acc, ...rest }) => rest),
+  };
 }
 
 // -------------------------------------------------------------

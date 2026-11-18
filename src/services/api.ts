@@ -8288,6 +8288,30 @@ export async function fetchAuditStorageStatsApi(): Promise<{ success: boolean; s
   return await res.json();
 }
 
+export async function fetchUserLoginReportsApi(options: {
+  timeframe?: 'all' | '1h' | '24h' | '7d' | '30d';
+  username?: string;
+  outcome?: string;
+  authMethod?: string;
+  search?: string;
+  limit?: number;
+} = {}): Promise<any> {
+  const params = new URLSearchParams();
+  if (options.timeframe && options.timeframe !== 'all') params.append('timeframe', options.timeframe);
+  if (options.username && options.username !== 'all') params.append('username', options.username);
+  if (options.outcome && options.outcome !== 'all') params.append('outcome', options.outcome);
+  if (options.authMethod && options.authMethod !== 'all') params.append('authMethod', options.authMethod);
+  if (options.search) params.append('search', options.search);
+  if (options.limit) params.append('limit', String(options.limit));
+
+  const res = await fetchWithRetry(`${API_BASE}/audit-logs/logins?${params.toString()}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.message || data?.error || `HTTP error ${res.status}`);
+  }
+  return data;
+}
+
 export async function fetchLogRetentionConfigApi(): Promise<{ success: boolean; config: any; stats?: any }> {
   const res = await fetchWithRetry(`${API_BASE}/settings/log-retention`);
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
