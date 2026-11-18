@@ -108,6 +108,12 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(25);
 
+  // Per-user directory & history controls
+  const [showAllUsersGrid, setShowAllUsersGrid] = useState<boolean>(false);
+  const [userHistoryFilter, setUserHistoryFilter] = useState<'all' | 'success' | 'failed_blocked' | 'other'>('all');
+  const [userHistoryPage, setUserHistoryPage] = useState<number>(1);
+  const [userHistoryPageSize, setUserHistoryPageSize] = useState<number>(15);
+
   // Inspection modal state (Rule 7 compliant)
   const [inspectedEvent, setInspectedEvent] = useState<UserLoginAuditEvent | null>(null);
   const [isModalMaximized, setIsModalMaximized] = useState(false);
@@ -419,6 +425,32 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
       (ev) => ev.username.toLowerCase() === activeUserSummary.username.toLowerCase()
     );
   }, [filteredEvents, activeUserSummary]);
+
+  const filteredActiveUserEvents = useMemo(() => {
+    if (userHistoryFilter === 'all') return activeUserEvents;
+    if (userHistoryFilter === 'success') {
+      return activeUserEvents.filter((ev) => ev.outcome === 'login_success');
+    }
+    if (userHistoryFilter === 'failed_blocked') {
+      return activeUserEvents.filter(
+        (ev) => ev.outcome === 'login_failed' || ev.outcome === 'login_blocked'
+      );
+    }
+    return activeUserEvents.filter(
+      (ev) => ev.outcome === '2fa_challenge' || ev.outcome === 'logout'
+    );
+  }, [activeUserEvents, userHistoryFilter]);
+
+  // Reset user history pagination when switching users or local filter
+  useEffect(() => {
+    setUserHistoryPage(1);
+  }, [activeUsername, userHistoryFilter, searchQuery, selectedOutcome, selectedAuthMethod, selectedTimeframe]);
+
+  const userHistoryTotalPages = Math.max(1, Math.ceil(filteredActiveUserEvents.length / userHistoryPageSize));
+  const paginatedActiveUserEvents = useMemo(() => {
+    const start = (userHistoryPage - 1) * userHistoryPageSize;
+    return filteredActiveUserEvents.slice(start, start + userHistoryPageSize);
+  }, [filteredActiveUserEvents, userHistoryPage, userHistoryPageSize]);
 
   // Pagination for timeline
   const totalPages = Math.max(1, Math.ceil(filteredEvents.length / pageSize));
@@ -999,53 +1031,112 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
           </p>
         </div>
       ) : viewMode === 'user_summary' ? (
-        /* VIEW 1: PER-USER AGGREGATED LOGIN SUMMARY (SPLIT VIEW) */
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-          {/* Left Column (5 cols): Users List */}
-          <div className="lg:col-span-5 audit-glass-panel rounded-2xl border border-white/10 p-4 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-white/10">
-              <h2 className={`text-xs font-bold flex items-center gap-2 ${isLightMode ? 'text-slate-800' : 'text-white'}`}>
-                <Users className="w-4 h-4 text-indigo-400" />
-                <span>{isEn ? 'Accounts with Login Telemetry' : 'کاربران دارای گزارش ورود'}</span>
-              </h2>
-              <span className={`text-[11px] font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                {userSummaries.length} {isEn ? 'users' : 'کاربر'}
-              </span>
+        /* VIEW 1: PER-USER AGGREGATED LOGIN SUMMARY (FULL-WIDTH RESPONSIVE WORKSPACE) */
+        <div className="space-y-4">
+          {/* Top Full-Width Accounts Selector Strip */}
+          <div className="audit-glass-panel rounded-2xl border border-white/10 p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-white/10">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Users className="w-4 h-4 text-indigo-400 shrink-0" />
+                <h2 className={`text-xs sm:text-sm font-bold ${isLightMode ? 'text-slate-800' : 'text-white'}`}>
+                  {isEn ? 'Accounts with Login Telemetry' : 'کاربران دارای گزارش ورود'}
+                </h2>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-mono font-bold ${
+                    isLightMode ? 'bg-slate-200 text-slate-700' : 'bg-white/10 text-slate-200'
+                  }`}
+                >
+                  {userSummaries.length} {isEn ? 'users' : 'کاربر'}
+                </span>
+              </div>
+
+              {userSummaries.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[11px] font-medium ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                      {isEn ? 'Select account:' : 'انتخاب سریع کاربر:'}
+                    </span>
+                    <select
+                      value={activeUserSummary?.username || ''}
+                      onChange={(e) => setActiveUsername(e.target.value)}
+                      className={`text-xs py-1.5 px-2.5 rounded-xl border font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/50 cursor-pointer ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-900'
+                          : 'bg-black/30 border-white/15 text-white'
+                      }`}
+                    >
+                      {userSummaries.map((u) => (
+                        <option
+                          key={u.username}
+                          value={u.username}
+                          className={isLightMode ? 'bg-white text-slate-900' : 'bg-slate-900 text-white'}
+                        >
+                          {u.username} ({u.totalLogins} {isEn ? 'logins' : 'ورود'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {userSummaries.length > 4 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllUsersGrid((v) => !v)}
+                      className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold transition cursor-pointer ${
+                        isLightMode
+                          ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                          : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-200'
+                      }`}
+                    >
+                      {showAllUsersGrid
+                        ? isEn
+                          ? 'Collapse List'
+                          : 'نمایش فشرده'
+                        : isEn
+                        ? `Show All (${userSummaries.length})`
+                        : `نمایش همه (${userSummaries.length})`}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
-            <div className="space-y-2.5 max-h-[680px] overflow-y-auto pr-1 custom-scrollbar">
-              {userSummaries.length === 0 ? (
-                <div className="py-12 text-center text-slate-400">
-                  <Users className="w-9 h-9 mx-auto opacity-30 mb-2" />
-                  <p className="text-xs">
-                    {isEn
-                      ? 'No user login telemetry matched current filters.'
-                      : 'گزارش ورودی مطابق با فیلتر فعلی یافت نشد.'}
-                  </p>
-                </div>
-              ) : (
-                userSummaries.map((u) => {
+            {userSummaries.length === 0 ? (
+              <div className="py-10 text-center text-slate-400">
+                <Users className="w-9 h-9 mx-auto opacity-30 mb-2" />
+                <p className="text-xs">
+                  {isEn
+                    ? 'No user login telemetry matched current filters.'
+                    : 'گزارش ورودی مطابق با فیلتر فعلی یافت نشد.'}
+                </p>
+              </div>
+            ) : (
+              <div
+                className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 ${
+                  showAllUsersGrid ? 'max-h-[420px] overflow-y-auto pr-1 custom-scrollbar' : ''
+                }`}
+              >
+                {(showAllUsersGrid ? userSummaries : userSummaries.slice(0, 8)).map((u) => {
                   const isActive = activeUserSummary?.username === u.username;
                   return (
                     <div
                       key={u.username}
                       onClick={() => setActiveUsername(u.username)}
-                      className={`p-3.5 rounded-xl border transition-all cursor-pointer audit-card-item ${
+                      className={`p-3 rounded-xl border transition-all cursor-pointer audit-card-item flex flex-col justify-between gap-2 ${
                         isActive
-                          ? 'active shadow-lg'
+                          ? 'active shadow-lg ring-1 ring-indigo-500/40'
                           : isLightMode
                           ? 'bg-white border-slate-200 hover:border-slate-300'
-                          : 'bg-white/[0.03] hover:bg-white/[0.06] border-white/5 hover:border-white/15'
+                          : 'bg-white/[0.03] hover:bg-white/[0.06] border-white/10 hover:border-white/20'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center text-white font-bold text-xs shadow-sm shrink-0">
+                          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center text-white font-bold text-xs shadow-sm shrink-0">
                             {u.username.slice(0, 2).toUpperCase()}
                           </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className={`font-bold text-sm font-mono truncate ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                              <span className={`font-bold text-xs sm:text-sm font-mono truncate ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
                                 {u.username}
                               </span>
                               {renderPresenceIndicator(u.username)}
@@ -1070,41 +1161,37 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
                         </div>
 
                         <div className="flex flex-col items-end gap-1 shrink-0">
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 tabular-nums">
-                            {u.totalLogins} {isEn ? 'logins' : 'ورود'}
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 tabular-nums">
+                            {u.totalLogins} {isEn ? 'ok' : 'ورود'}
                           </span>
                           {u.failedAttempts + u.blockedAttempts > 0 && (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30 tabular-nums">
-                              {u.failedAttempts + u.blockedAttempts} {isEn ? 'failed' : 'ناموفق'}
+                              {u.failedAttempts + u.blockedAttempts} {isEn ? 'fail' : 'ناموفق'}
                             </span>
                           )}
                         </div>
                       </div>
 
-                      <div className={`mt-2.5 pt-2 border-t flex items-center justify-between gap-2 text-[11px] flex-wrap ${isLightMode ? 'border-slate-200 text-slate-600' : 'border-white/5 text-slate-400'}`}>
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-mono text-cyan-500">{u.lastIp}</span>
-                          <span>•</span>
-                          <span className="truncate">{u.lastBrowser}</span>
-                        </div>
-                        <span className="font-mono text-[10px] tabular-nums shrink-0">
+                      <div className={`pt-2 border-t flex items-center justify-between gap-2 text-[10px] ${isLightMode ? 'border-slate-200 text-slate-600' : 'border-white/5 text-slate-400'}`}>
+                        <span className="font-mono text-cyan-500 truncate">{u.lastIp}</span>
+                        <span className="font-mono tabular-nums shrink-0">
                           {formatDateTime(u.lastLoginAt || u.lastEventAt)}
                         </span>
                       </div>
                     </div>
                   );
-                })
-              )}
-            </div>
+                })}
+              </div>
+            )}
           </div>
 
-          {/* Right Column (7 cols): Detailed User Login Telemetry */}
-          <div className="lg:col-span-7 audit-glass-panel rounded-2xl border border-white/10 p-5 space-y-5">
-            {activeUserSummary ? (
-              <>
-                {/* User Identity Header */}
+          {/* Full-Width Selected User Telemetry Workspace */}
+          {activeUserSummary ? (
+            <div className="space-y-4">
+              {/* 1. User Identity & KPI Summary Panel */}
+              <div className="audit-glass-panel rounded-2xl border border-white/10 p-4 sm:p-5 space-y-4">
                 <div
-                  className={`p-4 rounded-xl border flex items-center justify-between gap-4 flex-wrap ${
+                  className={`p-4 rounded-xl border flex flex-col lg:flex-row lg:items-center justify-between gap-4 ${
                     isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-black/25 border-white/10'
                   }`}
                 >
@@ -1114,7 +1201,7 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h2 className={`text-base font-bold font-mono ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                        <h2 className={`text-base sm:text-lg font-bold font-mono ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
                           {activeUserSummary.username}
                         </h2>
                         {renderPresenceIndicator(activeUserSummary.username)}
@@ -1149,8 +1236,8 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <div className="flex items-center gap-4 text-xs">
+                  <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+                    <div className="flex items-center gap-4 text-xs flex-wrap">
                       <div>
                         <span className={`text-[10px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                           {isEn ? 'First Login' : 'نخستین ورود'}
@@ -1159,7 +1246,7 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
                           {formatExactDateAndTime(activeUserSummary.firstLoginAt)}
                         </span>
                       </div>
-                      <div className={`h-7 w-px ${isLightMode ? 'bg-slate-200' : 'bg-white/10'}`} />
+                      <div className={`hidden sm:block h-7 w-px ${isLightMode ? 'bg-slate-200' : 'bg-white/10'}`} />
                       <div>
                         <span className={`text-[10px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                           {isEn ? 'Latest Login' : 'آخرین ورود'}
@@ -1175,7 +1262,7 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
                         <button
                           type="button"
                           onClick={onNavigateToBlockedPage}
-                          className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer ${
+                          className={`px-3 py-2 rounded-xl border text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer ${
                             isLightMode
                               ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
                               : 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-500/30 text-rose-300'
@@ -1188,7 +1275,7 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
                         <button
                           type="button"
                           onClick={() => onOpenBlockModal('user', activeUserSummary.username)}
-                          className="px-3 py-1.5 rounded-xl bg-rose-600/90 hover:bg-rose-500 text-white text-[11px] font-bold shadow-sm inline-flex items-center gap-1.5 transition cursor-pointer"
+                          className="px-3.5 py-2 rounded-xl bg-rose-600/90 hover:bg-rose-500 text-white text-xs font-bold shadow-sm inline-flex items-center gap-1.5 transition cursor-pointer"
                           title={isEn ? 'Block this user from signing in' : 'مسدود کردن ورود این کاربر'}
                         >
                           <UserX className="w-3.5 h-3.5" />
@@ -1200,272 +1287,747 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
                 </div>
 
                 {/* Counters Row */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/10'}`}>
-                    <span className={`text-[10px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                      {isEn ? 'Total Logins' : 'تعداد دفعات ورود'}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className={`p-3.5 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/10'}`}>
+                    <span className={`text-[11px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {isEn ? 'Total Successful Logins' : 'تعداد دفعات ورود موفق'}
                     </span>
-                    <span className={`text-lg font-black font-mono tabular-nums ${isLightMode ? 'text-emerald-700' : 'text-emerald-400'}`}>
+                    <span className={`text-xl font-black font-mono tabular-nums mt-0.5 block ${isLightMode ? 'text-emerald-700' : 'text-emerald-400'}`}>
                       {activeUserSummary.totalLogins}
                     </span>
                   </div>
-                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/10'}`}>
-                    <span className={`text-[10px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                      {isEn ? 'Failed / Blocked' : 'تلاش ناموفق / مسدود'}
+                  <div className={`p-3.5 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/10'}`}>
+                    <span className={`text-[11px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {isEn ? 'Failed / Blocked Attempts' : 'تلاش ناموفق / مسدودشده'}
                     </span>
-                    <span className={`text-lg font-black font-mono tabular-nums ${isLightMode ? 'text-rose-700' : 'text-rose-400'}`}>
+                    <span className={`text-xl font-black font-mono tabular-nums mt-0.5 block ${isLightMode ? 'text-rose-700' : 'text-rose-400'}`}>
                       {activeUserSummary.failedAttempts + activeUserSummary.blockedAttempts}
                     </span>
                   </div>
-                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/10'}`}>
-                    <span className={`text-[10px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                      {isEn ? 'Distinct IPs Used' : 'تعداد IP یکتا'}
+                  <div className={`p-3.5 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/10'}`}>
+                    <span className={`text-[11px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {isEn ? 'Distinct Source IPs' : 'تعداد IP مبدا یکتا'}
                     </span>
-                    <span className={`text-lg font-black font-mono tabular-nums ${isLightMode ? 'text-cyan-700' : 'text-cyan-400'}`}>
+                    <span className={`text-xl font-black font-mono tabular-nums mt-0.5 block ${isLightMode ? 'text-cyan-700' : 'text-cyan-400'}`}>
                       {activeUserSummary.ips.length}
                     </span>
                   </div>
-                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/10'}`}>
-                    <span className={`text-[10px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                  <div className={`p-3.5 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/10'}`}>
+                    <span className={`text-[11px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                       {isEn ? 'Logouts Recorded' : 'خروج ثبت‌شده'}
                     </span>
-                    <span className={`text-lg font-black font-mono tabular-nums ${isLightMode ? 'text-slate-800' : 'text-slate-200'}`}>
+                    <span className={`text-xl font-black font-mono tabular-nums mt-0.5 block ${isLightMode ? 'text-slate-800' : 'text-slate-200'}`}>
                       {activeUserSummary.logoutCount}
                     </span>
                   </div>
                 </div>
+              </div>
 
-                {/* IP Addresses & Browsers / OS Breakdown */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* IPs used */}
-                  <div className={`p-3.5 rounded-xl border space-y-2.5 ${isLightMode ? 'bg-slate-50/70 border-slate-200' : 'bg-black/20 border-white/10'}`}>
-                    <div className="flex items-center justify-between">
-                      <h3 className={`text-xs font-bold flex items-center gap-1.5 ${isLightMode ? 'text-slate-800' : 'text-white'}`}>
-                        <Network className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>{isEn ? 'Source IP Addresses' : 'آدرس‌های IP مورد استفاده'}</span>
+              {/* 2. FULL-WIDTH Source IP Addresses Panel */}
+              <div className="audit-glass-panel rounded-2xl border border-white/10 overflow-hidden shadow-lg">
+                <div
+                  className={`px-4 py-3.5 border-b flex flex-wrap items-center justify-between gap-2 ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.03] border-white/10'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Network className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <div>
+                      <h3 className={`text-xs sm:text-sm font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                        {isEn
+                          ? `Source IP Addresses (${activeUserSummary.ips.length})`
+                          : `آدرس‌های IP مورد استفاده (${activeUserSummary.ips.length})`}
                       </h3>
-                      <span className={`text-[10px] font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                        {activeUserSummary.ips.length}
-                      </span>
+                      <p className={`text-[11px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {isEn
+                          ? `All client IP addresses observed for "${activeUserSummary.username}" with success/failure counts, exact last-seen timestamp, and block actions.`
+                          : `فهرست کامل آدرس‌های IP ثبت‌شده برای «${activeUserSummary.username}» همراه با آمار ورود موفق/ناموفق، آخرین زمان دقیق و کنترل مسدودسازی.`}
+                      </p>
                     </div>
-                    <div className="space-y-1.5 max-h-44 overflow-y-auto custom-scrollbar">
+                  </div>
+                </div>
+
+                {/* Desktop/Tablet Full-Width IP Table */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-left rtl:text-right border-collapse text-xs audit-table">
+                    <thead>
+                      <tr className="border-b border-white/10 text-slate-300 font-semibold">
+                        <th className="py-2.5 px-4">{isEn ? 'Source IP Address' : 'آدرس IP مبدا'}</th>
+                        <th className="py-2.5 px-4">{isEn ? 'Status' : 'وضعیت دسترسی'}</th>
+                        <th className="py-2.5 px-4">{isEn ? 'Successful Logins' : 'ورودهای موفق'}</th>
+                        <th className="py-2.5 px-4">{isEn ? 'Failed / Blocked' : 'ناموفق / مسدود'}</th>
+                        <th className="py-2.5 px-4">{isEn ? 'Total Events' : 'کل رویدادها'}</th>
+                        <th className="py-2.5 px-4">{isEn ? 'Last Seen (Date & Time)' : 'آخرین مشاهده (تاریخ و ساعت)'}</th>
+                        <th className="py-2.5 px-4 text-center">{isEn ? 'Action' : 'عملیات'}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
                       {activeUserSummary.ips.map((ipItem) => {
                         const ipIsBlocked = isIpBlocked(ipItem.ip);
                         const ipValidForBlock = Boolean(ipItem.ip && ipItem.ip !== 'Unknown');
                         return (
-                          <div
-                            key={ipItem.ip}
-                            className={`px-2.5 py-2 rounded-lg border flex items-center justify-between gap-2 text-xs ${
-                              isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/5'
-                            }`}
-                          >
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <span className={`font-mono font-bold truncate ${isLightMode ? 'text-slate-900' : 'text-cyan-300'}`}>
-                                {ipItem.ip}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => handleCopy(ipItem.ip, `ip-${ipItem.ip}`)}
-                                className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-400 cursor-pointer shrink-0"
-                                title={isEn ? 'Copy IP' : 'کپی IP'}
+                          <tr key={ipItem.ip} className="hover:bg-white/[0.03] transition">
+                            <td className="py-3 px-4">
+                              <div className="inline-flex items-center gap-2">
+                                <span
+                                  className={`font-mono font-bold text-xs sm:text-sm ${
+                                    isLightMode ? 'text-cyan-700' : 'text-cyan-300'
+                                  }`}
+                                >
+                                  {ipItem.ip}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(ipItem.ip, `ip-${ipItem.ip}`)}
+                                  className={`p-1 rounded transition cursor-pointer ${
+                                    isLightMode
+                                      ? 'hover:bg-slate-200 text-slate-500 hover:text-cyan-700'
+                                      : 'hover:bg-white/10 text-slate-400 hover:text-cyan-400'
+                                  }`}
+                                  title={isEn ? 'Copy IP' : 'کپی IP'}
+                                >
+                                  {copiedId === `ip-${ipItem.ip}` ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              {ipIsBlocked ? (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                                    isLightMode
+                                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                      : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                                  }`}
+                                >
+                                  <Ban className="w-3 h-3" />
+                                  <span>{isEn ? 'Blocked' : 'مسدود شده'}</span>
+                                </span>
+                              ) : (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                                    isLightMode
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                                  }`}
+                                >
+                                  <ShieldCheck className="w-3 h-3" />
+                                  <span>{isEn ? 'Allowed' : 'مجاز'}</span>
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg font-mono text-[11px] font-bold tabular-nums border ${
+                                  isLightMode
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/25'
+                                }`}
                               >
-                                {copiedId === `ip-${ipItem.ip}` ? (
-                                  <Check className="w-3 h-3 text-emerald-400" />
-                                ) : (
-                                  <Copy className="w-3 h-3" />
-                                )}
-                              </button>
-                              {ipValidForBlock && onOpenBlockModal && (
+                                {ipItem.successCount} {isEn ? 'ok' : 'موفق'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              {ipItem.failedCount > 0 ? (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg font-mono text-[11px] font-bold tabular-nums border ${
+                                    isLightMode
+                                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                      : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                                  }`}
+                                >
+                                  {ipItem.failedCount} {isEn ? 'failed' : 'ناموفق'}
+                                </span>
+                              ) : (
+                                <span className={`font-mono text-[11px] ${isLightMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                                  0
+                                </span>
+                              )}
+                            </td>
+                            <td className={`py-3 px-4 font-mono text-xs font-semibold tabular-nums whitespace-nowrap ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                              {ipItem.count}
+                            </td>
+                            <td className={`py-3 px-4 font-mono text-xs whitespace-nowrap tabular-nums ${isLightMode ? 'text-slate-700' : 'text-slate-200'}`}>
+                              {formatExactDateAndTime(ipItem.lastSeenAt)}
+                            </td>
+                            <td className="py-3 px-4 text-center whitespace-nowrap">
+                              {ipValidForBlock && onOpenBlockModal ? (
                                 ipIsBlocked ? (
                                   <button
                                     type="button"
                                     onClick={onNavigateToBlockedPage}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold border inline-flex items-center gap-1 cursor-pointer shrink-0 ${
+                                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition ${
                                       isLightMode
-                                        ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                        : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                                        ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                                        : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border-rose-500/30'
                                     }`}
-                                    title={isEn ? 'Blocked — click to manage/unblock' : 'مسدود است — کلیک برای مدیریت'}
                                   >
-                                    <Ban className="w-2.5 h-2.5" />
-                                    <span>{isEn ? 'Blocked' : 'مسدود'}</span>
+                                    <Ban className="w-3 h-3" />
+                                    <span>{isEn ? 'Manage / Unblock' : 'مدیریت / رفع مسدودی'}</span>
                                   </button>
                                 ) : (
                                   <button
                                     type="button"
                                     onClick={() => onOpenBlockModal('ip', ipItem.ip)}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border inline-flex items-center gap-1 transition cursor-pointer shrink-0 ${
+                                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer ${
                                       isLightMode
                                         ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
-                                        : 'bg-rose-500/10 hover:bg-rose-500/25 text-rose-300 border-rose-500/25'
+                                        : 'bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border-rose-500/30'
                                     }`}
-                                    title={isEn ? `Block IP ${ipItem.ip}` : `مسدود کردن IP ${ipItem.ip}`}
                                   >
-                                    <Ban className="w-2.5 h-2.5" />
-                                    <span>{isEn ? 'Block IP' : 'مسدود'}</span>
+                                    <Ban className="w-3 h-3" />
+                                    <span>{isEn ? 'Block IP' : 'مسدود کردن IP'}</span>
                                   </button>
                                 )
+                              ) : (
+                                <span className="text-[11px] text-slate-500">—</span>
                               )}
-                            </div>
-                            <div className="text-right shrink-0">
-                              <span className={`font-mono text-[11px] font-bold block tabular-nums ${isLightMode ? 'text-slate-800' : 'text-white'}`}>
-                                {ipItem.successCount} {isEn ? 'ok' : 'موفق'}
-                                {ipItem.failedCount > 0 ? ` / ${ipItem.failedCount} ${isEn ? 'fail' : 'خطا'}` : ''}
-                              </span>
-                              <span className={`text-[10px] font-mono block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                                {formatDateTime(ipItem.lastSeenAt)}
-                              </span>
-                            </div>
-                          </div>
+                            </td>
+                          </tr>
                         );
                       })}
-                    </div>
-                  </div>
-
-                  {/* Browsers & OS used */}
-                  <div className={`p-3.5 rounded-xl border space-y-2.5 ${isLightMode ? 'bg-slate-50/70 border-slate-200' : 'bg-black/20 border-white/10'}`}>
-                    <div className="flex items-center justify-between">
-                      <h3 className={`text-xs font-bold flex items-center gap-1.5 ${isLightMode ? 'text-slate-800' : 'text-white'}`}>
-                        <Monitor className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>{isEn ? 'Browsers, OS & Devices' : 'مرورگرها، سیستم‌عامل و دستگاه‌ها'}</span>
-                      </h3>
-                      <span className={`text-[10px] font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                        {activeUserSummary.browsers.length}
-                      </span>
-                    </div>
-                    <div className="space-y-1.5 max-h-44 overflow-y-auto custom-scrollbar">
-                      {activeUserSummary.browsers.map((bItem, idx) => (
-                        <div
-                          key={`${bItem.label}-${bItem.osLabel}-${idx}`}
-                          className={`px-2.5 py-2 rounded-lg border flex items-center justify-between gap-2 text-xs ${
-                            isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/5'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            {renderDeviceIcon(bItem.deviceType)}
-                            <div className="min-w-0">
-                              <span className={`font-semibold block truncate ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                                {bItem.label}
-                              </span>
-                              <span className={`text-[10px] block truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                                {bItem.osLabel} • {getDeviceTypeLabel(bItem.deviceType)}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <span className={`font-mono text-[11px] font-bold block tabular-nums ${isLightMode ? 'text-indigo-700' : 'text-indigo-300'}`}>
-                              {bItem.count}×
-                            </span>
-                            <span className={`text-[10px] font-mono block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                              {formatDateOnly(bItem.lastSeenAt)}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                    </tbody>
+                  </table>
                 </div>
 
-                {/* Selected User's Chronological Login History Table */}
-                <div className="space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <h3 className={`text-xs font-bold flex items-center gap-1.5 ${isLightMode ? 'text-slate-800' : 'text-white'}`}>
-                      <Calendar className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>
+                {/* Mobile Small-Viewport Cards for Source IPs */}
+                <div className="sm:hidden p-3 space-y-2.5">
+                  {activeUserSummary.ips.map((ipItem) => {
+                    const ipIsBlocked = isIpBlocked(ipItem.ip);
+                    const ipValidForBlock = Boolean(ipItem.ip && ipItem.ip !== 'Unknown');
+                    return (
+                      <div
+                        key={`mob-ip-${ipItem.ip}`}
+                        className={`p-3 rounded-xl border space-y-2 text-xs ${
+                          isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/10'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`font-mono font-bold text-sm break-all ${isLightMode ? 'text-cyan-700' : 'text-cyan-300'}`}>
+                              {ipItem.ip}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(ipItem.ip, `mob-ip-${ipItem.ip}`)}
+                              className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-400 cursor-pointer shrink-0"
+                            >
+                              {copiedId === `mob-ip-${ipItem.ip}` ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+                          {ipIsBlocked && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30 shrink-0">
+                              {isEn ? 'Blocked' : 'مسدود'}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2 py-0.5 rounded-md font-mono text-[11px] font-bold bg-emerald-500/15 text-emerald-400">
+                            {ipItem.successCount} {isEn ? 'ok' : 'موفق'}
+                          </span>
+                          {ipItem.failedCount > 0 && (
+                            <span className="px-2 py-0.5 rounded-md font-mono text-[11px] font-bold bg-rose-500/15 text-rose-400">
+                              {ipItem.failedCount} {isEn ? 'fail' : 'ناموفق'}
+                            </span>
+                          )}
+                          <span className={`text-[11px] font-mono ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                            {formatExactDateAndTime(ipItem.lastSeenAt)}
+                          </span>
+                        </div>
+
+                        {ipValidForBlock && onOpenBlockModal && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              ipIsBlocked && onNavigateToBlockedPage
+                                ? onNavigateToBlockedPage()
+                                : onOpenBlockModal('ip', ipItem.ip)
+                            }
+                            className={`w-full py-1.5 rounded-lg border text-[11px] font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer ${
+                              isLightMode
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                            }`}
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                            <span>
+                              {ipIsBlocked
+                                ? isEn
+                                  ? 'Blocked — Manage'
+                                  : 'مسدود است — مدیریت'
+                                : isEn
+                                ? 'Block IP'
+                                : 'مسدود کردن IP'}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 3. FULL-WIDTH Browsers, OS & Devices Panel */}
+              <div className="audit-glass-panel rounded-2xl border border-white/10 p-4 space-y-3 shadow-lg">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <h3 className={`text-xs sm:text-sm font-bold flex items-center gap-2 ${isLightMode ? 'text-slate-800' : 'text-white'}`}>
+                    <Monitor className="w-4 h-4 text-indigo-400" />
+                    <span>
+                      {isEn
+                        ? `Browsers, OS & Devices (${activeUserSummary.browsers.length})`
+                        : `مرورگرها، سیستم‌عامل و دستگاه‌ها (${activeUserSummary.browsers.length})`}
+                    </span>
+                  </h3>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {activeUserSummary.browsers.map((bItem, idx) => (
+                    <div
+                      key={`${bItem.label}-${bItem.osLabel}-${idx}`}
+                      className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/10'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className={`p-2 rounded-lg shrink-0 ${isLightMode ? 'bg-slate-100' : 'bg-white/5'}`}>
+                          {renderDeviceIcon(bItem.deviceType)}
+                        </div>
+                        <div className="min-w-0">
+                          <span className={`font-bold block break-words ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                            {bItem.label}
+                          </span>
+                          <span className={`text-[11px] block mt-0.5 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                            {bItem.osLabel} • {getDeviceTypeLabel(bItem.deviceType)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className={`font-mono text-xs font-bold block tabular-nums ${isLightMode ? 'text-indigo-700' : 'text-indigo-300'}`}>
+                          {bItem.count}×
+                        </span>
+                        <span className={`text-[10px] font-mono block whitespace-nowrap ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {formatExactDateAndTime(bItem.lastSeenAt)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 4. FULL-WIDTH Redesigned Login & Session History Panel */}
+              <div className="audit-glass-panel rounded-2xl border border-white/10 overflow-hidden shadow-lg">
+                <div
+                  className={`p-4 border-b flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-white/[0.03] border-white/10'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <Calendar className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div>
+                      <h3 className={`text-xs sm:text-sm font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
                         {isEn
-                          ? `Login & Session History (${activeUserEvents.length})`
-                          : `تاریخچه ورود و خروج کاربر (${activeUserEvents.length} رویداد)`}
-                      </span>
-                    </h3>
+                          ? `Login & Session History (${filteredActiveUserEvents.length}${
+                              filteredActiveUserEvents.length !== activeUserEvents.length
+                                ? ` of ${activeUserEvents.length}`
+                                : ''
+                            })`
+                          : `تاریخچه ورود و خروج کاربر (${filteredActiveUserEvents.length}${
+                              filteredActiveUserEvents.length !== activeUserEvents.length
+                                ? ` از ${activeUserEvents.length}`
+                                : ''
+                            } رویداد)`}
+                      </h3>
+                      <p className={`text-[11px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {isEn
+                          ? `Full chronological login, 2FA, failure, and logout records for "${activeUserSummary.username}".`
+                          : `گزارش کامل زمان‌بندی‌شده ورود، احراز دو مرحله‌ای، تلاش‌های ناموفق و خروج برای «${activeUserSummary.username}».`}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Quick Outcome Filter for This User's History */}
+                    <div
+                      className={`inline-flex items-center gap-1 p-1 rounded-xl border flex-wrap ${
+                        isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-black/30 border-white/10'
+                      }`}
+                    >
+                      {(
+                        [
+                          { id: 'all', labelEn: 'All', labelFa: 'همه' },
+                          { id: 'success', labelEn: 'Success', labelFa: 'موفق' },
+                          { id: 'failed_blocked', labelEn: 'Failed / Blocked', labelFa: 'ناموفق / مسدود' },
+                          { id: 'other', labelEn: '2FA / Logout', labelFa: '۲ مرحله‌ای / خروج' },
+                        ] as const
+                      ).map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setUserHistoryFilter(tab.id)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                            userHistoryFilter === tab.id
+                              ? 'bg-indigo-600 text-white shadow-sm'
+                              : isLightMode
+                              ? 'text-slate-700 hover:bg-white'
+                              : 'text-slate-300 hover:text-white hover:bg-white/5'
+                          }`}
+                        >
+                          {isEn ? tab.labelEn : tab.labelFa}
+                        </button>
+                      ))}
+                    </div>
+
                     <button
                       type="button"
-                      onClick={() => onExportCsv(activeUserEvents)}
-                      className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition ${
+                      onClick={() => onExportCsv(filteredActiveUserEvents)}
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition ${
                         isLightMode
                           ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
                           : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-200'
                       }`}
                     >
-                      <Download className="w-3 h-3 text-emerald-400" />
+                      <Download className="w-3.5 h-3.5 text-emerald-400" />
                       <span>{isEn ? 'Export User CSV' : 'خروجی CSV کاربر'}</span>
                     </button>
                   </div>
+                </div>
 
-                  <div className="overflow-x-auto rounded-xl border border-white/10">
-                    <table className="w-full text-left rtl:text-right border-collapse text-xs audit-table">
-                      <thead>
-                        <tr className="border-b border-white/10 text-slate-300 font-semibold">
-                          <th className="py-2.5 px-3">{isEn ? 'Date & Time' : 'تاریخ و ساعت'}</th>
-                          <th className="py-2.5 px-3">{isEn ? 'Outcome' : 'وضعیت'}</th>
-                          <th className="py-2.5 px-3">{isEn ? 'Method' : 'روش'}</th>
-                          <th className="py-2.5 px-3">{isEn ? 'IP Address' : 'آدرس IP'}</th>
-                          <th className="py-2.5 px-3">{isEn ? 'Browser & OS' : 'مرورگر و سیستم‌عامل'}</th>
-                          <th className="py-2.5 px-3 text-center">{isEn ? 'Inspect' : 'جزئیات'}</th>
+                {/* Desktop/Laptop Full-Width History Table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left rtl:text-right border-collapse text-xs audit-table">
+                    <thead>
+                      <tr className="border-b border-white/10 text-slate-300 font-semibold">
+                        <th className="py-3 px-4">{isEn ? 'Date & Time' : 'تاریخ و ساعت'}</th>
+                        <th className="py-3 px-4">{isEn ? 'Outcome' : 'وضعیت'}</th>
+                        <th className="py-3 px-4">{isEn ? 'Method' : 'روش احراز هویت'}</th>
+                        <th className="py-3 px-4">{isEn ? 'Source IP Address' : 'آدرس IP مبدا'}</th>
+                        <th className="py-3 px-4">{isEn ? 'Browser, OS & Device' : 'مرورگر، سیستم‌عامل و دستگاه'}</th>
+                        <th className="py-3 px-4 hidden xl:table-cell">{isEn ? 'Event Summary' : 'شرح رویداد'}</th>
+                        <th className="py-3 px-4 text-center">{isEn ? 'Actions' : 'عملیات'}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {paginatedActiveUserEvents.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-10 text-center text-slate-400">
+                            {isEn
+                              ? 'No session records match the selected status filter.'
+                              : 'رکوردی با وضعیت انتخاب‌شده برای این کاربر یافت نشد.'}
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5">
-                        {activeUserEvents.slice(0, 50).map((ev) => (
-                          <tr key={ev.id} className="hover:bg-white/[0.03] transition">
-                            <td className={`py-2.5 px-3 font-mono text-[11px] whitespace-nowrap tabular-nums ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                              {formatExactDateAndTime(ev.timestamp)}
-                            </td>
-                            <td className="py-2.5 px-3 whitespace-nowrap">
-                              {getOutcomeBadge(ev.outcome, ev.trustedBypass)}
-                            </td>
-                            <td className="py-2.5 px-3 whitespace-nowrap">
-                              {getAuthMethodBadge(ev.authMethod)}
-                            </td>
-                            <td className={`py-2.5 px-3 font-mono text-[11px] whitespace-nowrap ${isLightMode ? 'text-cyan-700 font-semibold' : 'text-cyan-300'}`}>
-                              {ev.ipAddress}
-                            </td>
-                            <td className="py-2.5 px-3">
-                              <div className="flex items-center gap-1.5">
-                                {renderDeviceIcon(ev.deviceType)}
-                                <div className="min-w-0">
-                                  <span className={`font-semibold block truncate max-w-[160px] ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                                    {ev.browserLabel}
+                      ) : (
+                        paginatedActiveUserEvents.map((ev) => {
+                          const evIpBlocked = isIpBlocked(ev.ipAddress);
+                          return (
+                            <tr key={ev.id} className="hover:bg-white/[0.03] transition">
+                              <td className={`py-3 px-4 font-mono text-xs whitespace-nowrap tabular-nums ${isLightMode ? 'text-slate-700' : 'text-slate-200'}`}>
+                                {formatExactDateAndTime(ev.timestamp)}
+                              </td>
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                {getOutcomeBadge(ev.outcome, ev.trustedBypass)}
+                              </td>
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                {getAuthMethodBadge(ev.authMethod)}
+                              </td>
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                <div className="inline-flex items-center gap-1.5">
+                                  <span className={`font-mono text-xs font-bold ${isLightMode ? 'text-cyan-700' : 'text-cyan-300'}`}>
+                                    {ev.ipAddress}
                                   </span>
-                                  <span className={`text-[10px] block truncate max-w-[160px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                                    {ev.osLabel}
-                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(ev.ipAddress, `u-ev-ip-${ev.id}`)}
+                                    className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-400 cursor-pointer"
+                                    title={isEn ? 'Copy IP' : 'کپی IP'}
+                                  >
+                                    {copiedId === `u-ev-ip-${ev.id}` ? (
+                                      <Check className="w-3 h-3 text-emerald-400" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                  </button>
+                                  {evIpBlocked && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                                      {isEn ? 'Blocked' : 'مسدود'}
+                                    </span>
+                                  )}
                                 </div>
-                              </div>
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
+                              </td>
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-2">
+                                  {renderDeviceIcon(ev.deviceType)}
+                                  <div className="min-w-0">
+                                    <span className={`font-semibold block ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                                      {ev.browserLabel}
+                                    </span>
+                                    <span className={`text-[11px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                                      {ev.osLabel} • {getDeviceTypeLabel(ev.deviceType)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className={`py-3 px-4 hidden xl:table-cell text-[11px] max-w-xs ${isLightMode ? 'text-slate-600' : 'text-slate-300'}`}>
+                                <span className="line-clamp-2" title={ev.details || ev.action}>
+                                  {ev.action}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-center whitespace-nowrap">
+                                <div className="inline-flex items-center gap-1.5">
+                                  {onOpenBlockModal && ev.ipAddress && ev.ipAddress !== 'Unknown' && !evIpBlocked && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onOpenBlockModal('ip', ev.ipAddress)}
+                                      className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                                        isLightMode
+                                          ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
+                                          : 'bg-rose-500/10 hover:bg-rose-500/25 border-rose-500/25 text-rose-300'
+                                      }`}
+                                      title={isEn ? `Block IP ${ev.ipAddress}` : `مسدود کردن IP ${ev.ipAddress}`}
+                                    >
+                                      <Ban className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setInspectedEvent(ev);
+                                      setIsModalMinimized(false);
+                                    }}
+                                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 transition cursor-pointer ${
+                                      isLightMode
+                                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                        : 'bg-white/5 hover:bg-white/15 text-slate-200 hover:text-white'
+                                    }`}
+                                    title={isEn ? 'Inspect full login telemetry' : 'مشاهده جزئیات کامل'}
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Inspect' : 'جزئیات'}</span>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Small Screen / Mobile Cards for Login & Session History */}
+                <div className="md:hidden p-3 space-y-2.5">
+                  {paginatedActiveUserEvents.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-slate-400">
+                      {isEn
+                        ? 'No session records match the selected status filter.'
+                        : 'رکوردی با وضعیت انتخاب‌شده یافت نشد.'}
+                    </div>
+                  ) : (
+                    paginatedActiveUserEvents.map((ev) => {
+                      const evIpBlocked = isIpBlocked(ev.ipAddress);
+                      return (
+                        <div
+                          key={`mob-ev-${ev.id}`}
+                          className={`p-3.5 rounded-xl border space-y-2.5 text-xs ${
+                            isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/10'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className={`font-mono text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-200'}`}>
+                              {formatExactDateAndTime(ev.timestamp)}
+                            </span>
+                            {getOutcomeBadge(ev.outcome, ev.trustedBypass)}
+                          </div>
+
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`font-mono font-bold ${isLightMode ? 'text-cyan-700' : 'text-cyan-300'}`}>
+                                {ev.ipAddress}
+                              </span>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setInspectedEvent(ev);
-                                  setIsModalMinimized(false);
-                                }}
-                                className={`p-1.5 rounded-lg transition cursor-pointer ${
-                                  isLightMode
-                                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                                    : 'bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white'
-                                }`}
-                                title={isEn ? 'Inspect full login telemetry' : 'مشاهده جزئیات کامل'}
+                                onClick={() => handleCopy(ev.ipAddress, `mob-ev-ip-${ev.id}`)}
+                                className="p-1 rounded hover:bg-white/10 text-slate-400 cursor-pointer"
                               >
-                                <Eye className="w-3.5 h-3.5" />
+                                {copiedId === `mob-ev-ip-${ev.id}` ? (
+                                  <Check className="w-3 h-3 text-emerald-400" />
+                                ) : (
+                                  <Copy className="w-3 h-3" />
+                                )}
                               </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                            </div>
+                            {getAuthMethodBadge(ev.authMethod)}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {renderDeviceIcon(ev.deviceType)}
+                            <span className={`font-medium ${isLightMode ? 'text-slate-800' : 'text-slate-200'}`}>
+                              {ev.browserLabel} • {ev.osLabel} ({getDeviceTypeLabel(ev.deviceType)})
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-end gap-2 pt-1.5 border-t border-white/5">
+                            {onOpenBlockModal && ev.ipAddress && ev.ipAddress !== 'Unknown' && !evIpBlocked && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenBlockModal('ip', ev.ipAddress)}
+                                className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer ${
+                                  isLightMode
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                    : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                                }`}
+                              >
+                                <Ban className="w-3 h-3" />
+                                <span>{isEn ? 'Block IP' : 'مسدود IP'}</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInspectedEvent(ev);
+                                setIsModalMinimized(false);
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer ${
+                                isLightMode
+                                  ? 'bg-slate-100 text-slate-800'
+                                  : 'bg-white/10 text-white'
+                              }`}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>{isEn ? 'Inspect Details' : 'مشاهده جزئیات'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
-              </>
-            ) : (
-              <div className="py-16 text-center text-slate-400">
-                <User className="w-10 h-10 mx-auto opacity-30 mb-2" />
-                <p className="text-xs">
-                  {isEn
-                    ? 'Select a user from the left panel to inspect their IP addresses, browsers, login counts, and timestamps.'
-                    : 'برای مشاهده آی‌پی‌ها، مرورگرها، تعداد دفعات و ساعت ورود، یک کاربر را از ستون کناری انتخاب کنید.'}
-                </p>
+
+                {/* Pagination Footer for User History */}
+                {filteredActiveUserEvents.length > 0 && (
+                  <div
+                    className={`flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t text-xs ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-600'
+                        : 'bg-black/25 border-white/10 text-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span>
+                        {isEn
+                          ? `Showing ${Math.min((userHistoryPage - 1) * userHistoryPageSize + 1, filteredActiveUserEvents.length)}–${Math.min(
+                              userHistoryPage * userHistoryPageSize,
+                              filteredActiveUserEvents.length
+                            )} of ${filteredActiveUserEvents.length} records`
+                          : `نمایش ${Math.min(
+                              (userHistoryPage - 1) * userHistoryPageSize + 1,
+                              filteredActiveUserEvents.length
+                            )} تا ${Math.min(userHistoryPage * userHistoryPageSize, filteredActiveUserEvents.length)} از مجموع ${
+                              filteredActiveUserEvents.length
+                            } رکورد`}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] opacity-75">{isEn ? 'Per page:' : 'در صفحه:'}</span>
+                        <select
+                          value={userHistoryPageSize}
+                          onChange={(e) => {
+                            setUserHistoryPageSize(Number(e.target.value));
+                            setUserHistoryPage(1);
+                          }}
+                          className={`py-1 px-2 rounded-lg border text-xs cursor-pointer ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-800'
+                              : 'bg-slate-900 border-white/10 text-white'
+                          }`}
+                        >
+                          <option value={15}>15</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setUserHistoryPage(1)}
+                        disabled={userHistoryPage <= 1}
+                        className={`px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer disabled:opacity-30 ${
+                          isLightMode
+                            ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
+                            : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
+                        }`}
+                      >
+                        «
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUserHistoryPage((p) => Math.max(1, p - 1))}
+                        disabled={userHistoryPage <= 1}
+                        className={`px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer disabled:opacity-30 ${
+                          isLightMode
+                            ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
+                            : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
+                        }`}
+                      >
+                        ‹
+                      </button>
+                      <span
+                        className={`px-3 py-1 rounded-lg font-mono font-bold text-xs ${
+                          isLightMode
+                            ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                            : 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
+                        }`}
+                      >
+                        {userHistoryPage} / {userHistoryTotalPages}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setUserHistoryPage((p) => Math.min(userHistoryTotalPages, p + 1))}
+                        disabled={userHistoryPage >= userHistoryTotalPages}
+                        className={`px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer disabled:opacity-30 ${
+                          isLightMode
+                            ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
+                            : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
+                        }`}
+                      >
+                        ›
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUserHistoryPage(userHistoryTotalPages)}
+                        disabled={userHistoryPage >= userHistoryTotalPages}
+                        className={`px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer disabled:opacity-30 ${
+                          isLightMode
+                            ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
+                            : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
+                        }`}
+                      >
+                        »
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="audit-glass-panel rounded-2xl border border-white/10 py-14 text-center text-slate-400">
+              <User className="w-10 h-10 mx-auto opacity-30 mb-2" />
+              <p className="text-xs">
+                {isEn
+                  ? 'Select an account above to inspect its source IPs, browsers, login counts, and session history.'
+                  : 'برای مشاهده آی‌پی‌ها، مرورگرها، تعداد دفعات و تاریخچه ورود، یک کاربر را از فهرست بالا انتخاب کنید.'}
+              </p>
+            </div>
+          )}
         </div>
       ) : (
         /* VIEW 2: FULL CHRONOLOGICAL TIMELINE TABLE */

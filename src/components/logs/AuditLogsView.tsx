@@ -1068,7 +1068,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
   };
 
   return (
-    <div className="p-3 sm:p-5 md:p-6 space-y-6 max-w-7xl mx-auto font-sans animate-fadeIn">
+    <div className="p-3 sm:p-5 md:p-6 space-y-6 max-w-[1600px] mx-auto font-sans animate-fadeIn">
       {/* Dynamic Header Banner - Theme Harmonized with spatial-glass */}
       <div className="flex flex-col gap-4 p-5 rounded-2xl audit-glass-panel shadow-xl backdrop-blur-xl">
         {/* Top: Title, SIEM Badge and Subtitle */}

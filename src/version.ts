@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.448.0';
+export const APP_VERSION = '1.448.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.448.1',
+    releaseDate: '2026-11-18',
+    type: 'patch',
+    title: 'بازطراحی تمام‌عرض و واکنش‌گرای بخش Source IP Addresses و تاریخچه ورود کاربر در صفحه گزارش به تفکیک کاربر (By User Report)',
+    title_en: 'Redesign By User Report with full-width Source IP Addresses, Browsers grid, and paginated Login & Session History for small and wide displays',
+    changes: [
+      'جایگزینی چیدمان دو‌ستونه باریک در «گزارش به تفکیک کاربر» (`UserLoginReportsSection`) با نوار انتخابگر افقی کاربران در بالا (شامل منوی کشویی انتخاب سریع و قابلیت باز/بسته کردن فهرست) تا تمام عرض صفحه به جزئیات کاربر اختصاص یابد و عرض بخش‌ها در مانیتورهای کوچک و لپ‌تاپ‌ها به حداکثر برسد.',
+      'بازطراحی بخش `Source IP Addresses` به‌صورت جدول تمام‌عرض در دسکتاپ/تبلت و کارت‌های خوانای موبایل با ستون‌های مجزای آدرس IP کامل، وضعیت مجاز/مسدود، تعداد ورود موفق، تعداد ناموفق/مسدود، کل رویدادها، تاریخ و ساعت دقیق آخرین مشاهده و دکمه مسدودسازی/مدیریت.',
+      'بازطراحی جدول `Login & Session History` به‌صورت تمام‌عرض با حذف برش متنی مرورگرها، افزودن فیلتر سریع وضعیت (همه/موفق/ناموفق/دو‌مرحله‌ای و خروج)، صفحه‌بندی کامل تاریخچه کاربر (به جای محدودیت ۵۰ رکورد) و کارت‌های واکنش‌گرا در صفحات کوچک، به همراه تعریض کانتینر `AuditLogsView` به `max-w-[1600px]`.'
+    ],
+    changes_en: [
+      'Replaced the narrow 5/7 vertical split in `UserLoginReportsSection` (`By User Report`) with a top full-width Account Selector Strip (including a quick-switch account dropdown and expand/collapse toggle), giving user telemetry sections 100% horizontal workspace width on compact laptops and small monitors.',
+      'Redesigned `Source IP Addresses` into a dedicated full-width structured table on tablet/desktop (with mobile card fallback) displaying non-truncated IPs, Allowed/Blocked status pills, separate Successful and Failed/Blocked counters, total event counts, exact last-seen date/time, and full Block IP / Manage action buttons.',
+      'Redesigned `Browsers, OS & Devices` as a full-width responsive multi-column grid and `Login & Session History` into a full-width paginated table (with per-user outcome quick filters, responsive small-screen cards, and non-truncated browser/OS labels), while widening the `AuditLogsView` wrapper to `max-w-[1600px]`.'
+    ]
+  },
   {
     version: '1.448.0',
     releaseDate: '2026-11-18',
