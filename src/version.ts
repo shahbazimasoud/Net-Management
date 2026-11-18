@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.444.2';
+export const APP_VERSION = '1.445.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.445.0',
+    releaseDate: '2026-11-17',
+    type: 'minor',
+    title: 'افزودن قابلیت منشن افراد و همکاران (@User) در کنار منشن تجهیزات، پورت‌ها و سرورها در چت تیمی',
+    title_en: 'Add @User team member mentions alongside devices, ports, and servers in Team Chat',
+    changes: [
+      'توسعه جستجوی منشن (`GET /api/comms/entities/mention-search` و `searchScopedEntityMentions` در `server/commsService.ts`) برای پشتیبانی از منشن همکاران فعال محلی و Active Directory با اولویت‌بندی اعضای کانال فعلی، نمایش وضعیت آنلاین بلادرنگ از وب‌سوکت (`isCommsUserOnline`) و حذف کامل اطلاعات محرمانه (Zero-Leak).',
+      'پشتیبانی از استخراج خودکار `@username` در متن پیام و ثبت ارجاعات ساختاری `entityType: user` در `postChannelMessage` همراه با اعلان اختصاصی «منشن شدید» برای عضو اشاره‌شده و پخش زنده به‌روزرسانی‌شده در وب‌سوکت.',
+      'ارتقای `EntityMentionPicker.tsx`، `EntityMentionCardList.tsx`، `FooterTeamChatDock.tsx` و `TeamChannelsPane.tsx` برای نمایش چیپ و کارت تعاملی افراد با بج «عضو کانال / کاربر»، وضعیت آنلاین واقعی و دکمه «گفتگوی مستقیم» با سازگاری کامل با تم روشن و تیره.'
+    ],
+    changes_en: [
+      'Extended `@` mention search (`GET /api/comms/entities/mention-search` & `searchScopedEntityMentions` in `server/commsService.ts`) to surface active local and Active Directory users alongside permitted devices, ports, and servers with channel-member prioritization, real-time WebSocket online presence (`isCommsUserOnline`), and Zero-Leak sanitization.',
+      'Added inline `@username` detection and structured `entityType: user` projection inside `postChannelMessage` and `listChannelMessages`, triggering dedicated mentioned-user inbox/email notification titles and per-recipient WebSocket updates.',
+      'Upgraded `EntityMentionPicker.tsx`, `EntityMentionCardList.tsx`, `FooterTeamChatDock.tsx`, and `TeamChannelsPane.tsx` to render `@user` chips and Light/Dark-compatible colleague mention cards with live online dots, member badges, and one-click Direct Chat launch.'
+    ]
+  },
   {
     version: '1.444.2',
     releaseDate: '2026-11-17',

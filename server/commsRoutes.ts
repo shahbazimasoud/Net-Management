@@ -258,10 +258,12 @@ commsRouter.get('/comms/entities/mention-search', async (req: Request, res: Resp
   }
   try {
     const q = typeof req.query.q === 'string' ? req.query.q : '';
+    const channelId = typeof req.query.channelId === 'string' ? req.query.channelId.trim() : undefined;
     const candidates = await searchScopedEntityMentions(
       auth.actor,
       Boolean(auth.isSuperAdmin),
-      q
+      q,
+      channelId
     );
     return res.json({ success: true, candidates });
   } catch (err: any) {

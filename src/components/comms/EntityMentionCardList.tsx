@@ -4,6 +4,8 @@ import {
   Router,
   Server,
   Cable,
+  User,
+  MessageSquare,
   Terminal,
   ExternalLink,
   Network,
@@ -20,6 +22,7 @@ export interface EntityMentionCardListProps {
   isLightMode: boolean;
   isSelf?: boolean;
   compact?: boolean;
+  onOpenDirectUser?: (username: string) => void;
 }
 
 export function dispatchOpenMentionedEntity(
@@ -46,6 +49,7 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
   isLightMode,
   isSelf = false,
   compact = false,
+  onOpenDirectUser,
 }) => {
   if (!Array.isArray(cards) || cards.length === 0) return null;
   const selfDark = isSelf && !isLightMode;
@@ -98,7 +102,11 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
                         : 'bg-amber-500/20 text-amber-300'
                     }`}
                   >
-                    {card.entityType === 'server'
+                    {card.entityType === 'user'
+                      ? isEn
+                        ? 'User'
+                        : 'کاربر'
+                      : card.entityType === 'server'
                       ? isEn
                         ? 'Server'
                         : 'سرور'
@@ -117,6 +125,7 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
           );
         }
 
+        const isUser = card.entityType === 'user';
         const isServer = card.entityType === 'server';
         const isPort = card.entityType === 'port';
         const portStatusLower = (card.portStatus || '').toLowerCase();
@@ -140,6 +149,100 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
           : isLightMode
           ? 'bg-slate-100 hover:bg-indigo-50 text-slate-800 hover:text-indigo-700 border-slate-200 hover:border-indigo-300'
           : 'bg-white/5 hover:bg-indigo-500/20 text-slate-200 hover:text-indigo-200 border-white/15 hover:border-indigo-400/40';
+
+        if (isUser) {
+          const uname = card.username || card.entityId;
+          return (
+            <div key={key} className={`comms-chat-card rounded-xl border px-2.5 py-2 transition ${cardContainerCls}`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className={`p-1.5 rounded-lg shrink-0 ${
+                      selfDark
+                        ? 'bg-white/15 text-white'
+                        : isLightMode
+                        ? 'bg-sky-50 text-sky-700'
+                        : 'bg-sky-500/15 text-sky-300'
+                    }`}
+                  >
+                    <User className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          card.isOnline ? 'bg-emerald-400' : 'bg-slate-400'
+                        }`}
+                        title={
+                          card.isOnline
+                            ? isEn
+                              ? 'Online'
+                              : 'آنلاین'
+                            : isEn
+                            ? 'Offline'
+                            : 'آفلاین'
+                        }
+                      />
+                      <span className="font-bold text-xs truncate">{card.name || uname}</span>
+                      {card.isChannelMember && (
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${
+                            selfDark
+                              ? 'bg-white/15 text-white'
+                              : isLightMode
+                              ? 'bg-indigo-50 text-indigo-700'
+                              : 'bg-indigo-500/20 text-indigo-200'
+                          }`}
+                        >
+                          {isEn ? 'Member' : 'عضو کانال'}
+                        </span>
+                      )}
+                    </div>
+                    <div className={`flex items-center gap-1.5 flex-wrap text-[10.5px] mt-0.5 ${subTextCls}`}>
+                      <span className="font-mono">@{uname}</span>
+                      {card.role && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span>{card.role}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {card.canOpenDirectChat && onOpenDirectUser ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenDirectUser(uname)}
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[10.5px] font-semibold cursor-pointer transition shrink-0 ${actionBtnCls}`}
+                    title={isEn ? 'Open Direct Chat' : 'شروع گفتگوی مستقیم'}
+                  >
+                    <MessageSquare className="w-3 h-3" />
+                    {!compact && <span>{isEn ? 'Direct Chat' : 'گفتگوی مستقیم'}</span>}
+                  </button>
+                ) : (
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold shrink-0 ${
+                      card.isOnline
+                        ? selfDark
+                          ? 'bg-emerald-400/25 text-emerald-100'
+                          : isLightMode
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-emerald-500/20 text-emerald-300'
+                        : selfDark
+                        ? 'bg-white/15 text-white'
+                        : isLightMode
+                        ? 'bg-slate-100 text-slate-600'
+                        : 'bg-white/10 text-slate-300'
+                    }`}
+                  >
+                    {card.isOnline ? (isEn ? 'Online' : 'آنلاین') : isEn ? 'Offline' : 'آفلاین'}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        }
 
         return (
           <div key={key} className={`comms-chat-card rounded-xl border px-2.5 py-2 transition ${cardContainerCls}`}>

@@ -1211,7 +1211,7 @@ export interface CommsChannel {
   updatedAt: string;
 }
 
-export type CommsEntityMentionTargetType = 'device' | 'server' | 'port';
+export type CommsEntityMentionTargetType = 'device' | 'server' | 'port' | 'user';
 
 export interface CommsEntityMentionRef {
   entityType: CommsEntityMentionTargetType;
@@ -1233,6 +1233,9 @@ export interface CommsMentionCandidate {
   portStatus?: string;
   portVlan?: number | string;
   portDescription?: string;
+  username?: string;
+  role?: string;
+  isChannelMember?: boolean;
 }
 
 export interface CommsProjectedEntityCard {
@@ -1263,6 +1266,10 @@ export interface CommsProjectedEntityCard {
   canOpenTerminal?: boolean;
   canOpenRemoteConsole?: boolean;
   canOpenDeviceView?: boolean;
+  username?: string;
+  role?: string;
+  isChannelMember?: boolean;
+  canOpenDirectChat?: boolean;
 }
 
 export type CommsSlashCommandName = 'ping' | 'mac' | 'port' | 'status' | 'dns';
@@ -1502,7 +1509,7 @@ export interface CommsHandoverSummaryResponse {
     messageCount: number;
   }>;
   mentionedEntities: Array<{
-    entityType: 'device' | 'server' | 'port';
+    entityType: 'device' | 'server' | 'port' | 'user';
     entityName: string;
     entityIp?: string;
     portId?: string | null;

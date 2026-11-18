@@ -443,9 +443,13 @@ export async function fetchChannelMessages(
 }
 
 export async function searchCommsMentionEntities(
-  query: string
+  query: string,
+  channelId?: string | null
 ): Promise<CommsMentionCandidate[]> {
   const qs = new URLSearchParams({ q: (query || '').trim() });
+  if (channelId && channelId.trim()) {
+    qs.set('channelId', channelId.trim());
+  }
   const res = await fetch(`/api/comms/entities/mention-search?${qs.toString()}`, {
     headers: buildAuthHeaders(),
     cache: 'no-store',

@@ -143,8 +143,8 @@ export const ComposerActionsMenu: React.FC<ComposerActionsMenuProps> = ({
                     }`}
                   >
                     {isEn
-                      ? 'Device, port, or server card'
-                      : 'تجهیز، پورت یا سرور شبکه'}
+                      ? 'People, devices, ports, or servers'
+                      : 'افراد، تجهیزات، پورت‌ها یا سرورها'}
                   </div>
                 </div>
               </div>

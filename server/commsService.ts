@@ -56,6 +56,7 @@ import type { RawApprovalCommsSnapshot } from './approvalService';
 import {
   broadcastCommsEventToRecipients,
   broadcastCommsEventToUser,
+  isCommsUserOnline,
   registerCommsSyncProvider,
 } from './commsWs';
 import { evaluateNotificationDeliveryForUser } from './profileService';
@@ -2641,7 +2642,14 @@ function sanitizeEntityRefs(raw: any): CommsEntityMentionRef[] {
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
     const entityType = item.entityType;
-    if (entityType !== 'device' && entityType !== 'server' && entityType !== 'port') continue;
+    if (
+      entityType !== 'device' &&
+      entityType !== 'server' &&
+      entityType !== 'port' &&
+      entityType !== 'user'
+    ) {
+      continue;
+    }
     const entityId = String(item.entityId || '').trim();
     if (!entityId) continue;
     const portId = entityType === 'port' ? String(item.portId || '').trim() : null;
@@ -2659,6 +2667,18 @@ function sanitizeEntityRefs(raw: any): CommsEntityMentionRef[] {
   return clean;
 }
 
+function extractInlineUserMentionTokens(body: string): string[] {
+  if (!body) return [];
+  const tokens: string[] = [];
+  const regex = /(?:^|\s)@([a-zA-Z0-9._-]{2,48})(?=\s|$|[,.:;!?()[\]{}])/g;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(body)) !== null) {
+    const clean = (m[1] || '').trim().toLowerCase();
+    if (clean) tokens.push(clean);
+  }
+  return Array.from(new Set(tokens));
+}
+
 function extractMessageEntityRefs(msg: {
   metadata?: Record<string, any>;
   linkedEntityType?: string | null;
@@ -2667,7 +2687,9 @@ function extractMessageEntityRefs(msg: {
   const fromMeta = sanitizeEntityRefs(msg.metadata?.entityRefs);
   if (fromMeta.length > 0) return fromMeta;
   if (
-    (msg.linkedEntityType === 'device' || msg.linkedEntityType === 'server') &&
+    (msg.linkedEntityType === 'device' ||
+      msg.linkedEntityType === 'server' ||
+      msg.linkedEntityType === 'user') &&
     msg.linkedEntityId
   ) {
     return [
@@ -2713,7 +2735,10 @@ function buildProjectedCardsForViewer(
   refs: CommsEntityMentionRef[],
   ctx: CommsViewerAccessContext,
   devicesById: Map<string, any>,
-  serversById: Map<string, any>
+  serversById: Map<string, any>,
+  directoryMap?: Map<string, DirectoryUserEntry>,
+  channelMemberIdSet?: Set<string>,
+  viewerUserIdSet?: Set<string>
 ): CommsProjectedEntityCard[] {
   if (!refs || refs.length === 0) return [];
   const cards: CommsProjectedEntityCard[] = [];
@@ -2860,6 +2885,50 @@ function buildProjectedCardsForViewer(
         canOpenRemoteConsole: canServerTerminal,
         canOpenDeviceView: true,
       });
+    } else if (ref.entityType === 'user') {
+      const lookupKey = ref.entityId.trim().toLowerCase();
+      const dirEntry = directoryMap?.get(lookupKey);
+      if (!dirEntry) {
+        cards.push({
+          entityType: 'user',
+          entityId: ref.entityId,
+          accessRestricted: false,
+          name: ref.entityId,
+          username: ref.entityId,
+          isOnline: false,
+          canOpenDirectChat: false,
+          canOpenDeviceView: false,
+        });
+        continue;
+      }
+
+      const cleanName = formatUserDisplay(dirEntry.fullName, dirEntry.username);
+      const userIds = resolveUserIdentifiers({
+        userId: dirEntry.userId,
+        username: dirEntry.username,
+      });
+      const isSelfViewer = viewerUserIdSet
+        ? userIds.some((id) => viewerUserIdSet.has(id))
+        : false;
+      const isMember = channelMemberIdSet
+        ? userIds.some((id) => channelMemberIdSet.has(id))
+        : undefined;
+
+      cards.push({
+        entityType: 'user',
+        entityId: dirEntry.username,
+        accessRestricted: false,
+        name: cleanName,
+        username: dirEntry.username,
+        role: dirEntry.role,
+        isOnline: isCommsUserOnline({
+          userId: dirEntry.userId,
+          username: dirEntry.username,
+        }),
+        isChannelMember: isMember,
+        canOpenDirectChat: !isSelfViewer,
+        canOpenDeviceView: false,
+      });
     }
   }
 
@@ -2869,20 +2938,93 @@ function buildProjectedCardsForViewer(
 export async function searchScopedEntityMentions(
   actor: CommsActor,
   isSuperAdmin: boolean,
-  query: string
+  query: string,
+  channelId?: string
 ): Promise<CommsMentionCandidate[]> {
   const ctx = await resolveCommsViewerAccessContext(actor, isSuperAdmin);
   const q = (query || '').trim().toLowerCase();
-  const candidates: CommsMentionCandidate[] = [];
 
   const canDevices = ctx.isSuperAdmin || ctx.policy?.canViewDevices !== false;
   const canServers = ctx.isSuperAdmin || ctx.policy?.canViewServers !== false;
   const canPortsModule = ctx.isSuperAdmin || ctx.policy?.canViewPorts !== false;
 
-  const [allDevices, allServers] = await Promise.all([
+  const [allDevices, allServers, directoryMap, channel] = await Promise.all([
     canDevices ? getAllDevices().catch(() => []) : Promise.resolve([]),
     canServers ? getAllRemoteServers().catch(() => []) : Promise.resolve([]),
+    buildDirectoryUserMap().catch(() => new Map<string, DirectoryUserEntry>()),
+    channelId ? loadHydratedChannelForUser(channelId, actor).catch(() => null) : Promise.resolve(null),
   ]);
+
+  const actorIds = new Set(resolveUserIdentifiers(actor));
+  const channelMemberIds = new Set<string>();
+  if (
+    channel &&
+    (isSuperAdmin || (channel.members || []).some((m) => memberMatchesIdentifiers(m, actorIds)))
+  ) {
+    for (const m of channel.members || []) {
+      for (const id of resolveUserIdentifiers({ userId: m.userId, username: m.username })) {
+        channelMemberIds.add(id);
+      }
+    }
+  }
+
+  // Deduplicate active directory users (exclude passwords/emails/restricted fields — Zero-Leak)
+  const uniqueUsers = new Map<string, DirectoryUserEntry>();
+  for (const entry of directoryMap.values()) {
+    const key = (entry.username || entry.userId || '').trim().toLowerCase();
+    if (!key || uniqueUsers.has(key)) continue;
+    uniqueUsers.set(key, entry);
+  }
+
+  const matchedUsers: Array<{ cand: CommsMentionCandidate; isSelf: boolean }> = [];
+  for (const entry of uniqueUsers.values()) {
+    const display = stripDuplicateUsernameSuffix(entry.fullName || entry.username, entry.username);
+    const uname = entry.username || entry.userId;
+    const role = entry.role || 'Operator';
+    const userMatch =
+      !q ||
+      uname.toLowerCase().includes(q) ||
+      display.toLowerCase().includes(q) ||
+      role.toLowerCase().includes(q);
+    if (!userMatch) continue;
+
+    const entryIds = resolveUserIdentifiers({ userId: entry.userId, username: uname });
+    const isSelf = entryIds.some((id) => actorIds.has(id));
+    const isChannelMember =
+      channelMemberIds.size > 0 ? entryIds.some((id) => channelMemberIds.has(id)) : false;
+    const isOnline = isCommsUserOnline({ userId: entry.userId, username: uname });
+
+    matchedUsers.push({
+      isSelf,
+      cand: {
+        entityType: 'user',
+        entityId: uname,
+        username: uname,
+        role,
+        isChannelMember,
+        name: display && display.toLowerCase() !== uname.toLowerCase() ? display : uname,
+        subtitle: `@${uname} · ${role}`,
+        isOnline,
+      },
+    });
+  }
+
+  matchedUsers.sort((a, b) => {
+    if (a.cand.isChannelMember !== b.cand.isChannelMember) {
+      return a.cand.isChannelMember ? -1 : 1;
+    }
+    if (a.isSelf !== b.isSelf) {
+      return a.isSelf ? 1 : -1;
+    }
+    if (Boolean(a.cand.isOnline) !== Boolean(b.cand.isOnline)) {
+      return a.cand.isOnline ? -1 : 1;
+    }
+    return a.cand.name.localeCompare(b.cand.name);
+  });
+
+  const userCandidates = matchedUsers.map((u) => u.cand);
+  const deviceCandidates: CommsMentionCandidate[] = [];
+  const serverCandidates: CommsMentionCandidate[] = [];
 
   if (canDevices && Array.isArray(allDevices)) {
     const permittedDevices = allDevices.filter((d: any) => {
@@ -2905,7 +3047,7 @@ export async function searchScopedEntityMentions(
         String(dev.model || '').toLowerCase().includes(q);
 
       if (devMatch) {
-        candidates.push({
+        deviceCandidates.push({
           entityType: 'device',
           entityId: dev.id,
           name,
@@ -2934,7 +3076,7 @@ export async function searchScopedEntityMentions(
             `${name.toLowerCase()}:${pId.toLowerCase()}`.includes(q) ||
             `${name.toLowerCase()}/${pId.toLowerCase()}`.includes(q);
           if (portHit) {
-            candidates.push({
+            deviceCandidates.push({
               entityType: 'port',
               entityId: dev.id,
               portId: pId,
@@ -2977,7 +3119,7 @@ export async function searchScopedEntityMentions(
         String(srv.distro || '').toLowerCase().includes(q);
 
       if (srvMatch) {
-        candidates.push({
+        serverCandidates.push({
           entityType: 'server',
           entityId: srv.id,
           name,
@@ -2991,7 +3133,19 @@ export async function searchScopedEntityMentions(
     }
   }
 
-  return candidates.slice(0, 25);
+  if (!q) {
+    return [
+      ...userCandidates.slice(0, 8),
+      ...deviceCandidates.slice(0, 12),
+      ...serverCandidates.slice(0, 5),
+    ].slice(0, 25);
+  }
+
+  return [
+    ...userCandidates.slice(0, 10),
+    ...deviceCandidates.slice(0, 14),
+    ...serverCandidates.slice(0, 6),
+  ].slice(0, 30);
 }
 
 function sanitizeCleanMessageMetadata(meta: Record<string, any> | undefined): Record<string, any> | undefined {
@@ -3903,8 +4057,11 @@ export async function listChannelMessages(
       Boolean(m.metadata?.snippetData) ||
       Boolean(m.metadata?.approvalCardData)
   );
-  if (needsDeviceLookup || needsServerLookup || approvalIdsForLookup.length > 0) {
-    const [viewerCtx, allDevices, allServers, approvalsMap] = await Promise.all([
+  const needsUserLookup = messages.some((m) =>
+    extractMessageEntityRefs(m).some((ref) => ref.entityType === 'user')
+  );
+  if (needsDeviceLookup || needsServerLookup || needsUserLookup || approvalIdsForLookup.length > 0) {
+    const [viewerCtx, allDevices, allServers, approvalsMap, directoryMap] = await Promise.all([
       resolveCommsViewerAccessContext(user, isSuperAdmin),
       needsDeviceLookup ? getAllDevices().catch(() => []) : Promise.resolve([]),
       needsServerLookup ? getAllRemoteServers().catch(() => []) : Promise.resolve([]),
@@ -3913,6 +4070,9 @@ export async function listChannelMessages(
             .then((mod) => mod.getRawApprovalSnapshotsMapForComms(approvalIdsForLookup))
             .catch(() => new Map<string, RawApprovalCommsSnapshot>())
         : Promise.resolve(new Map<string, RawApprovalCommsSnapshot>()),
+      needsUserLookup
+        ? buildDirectoryUserMap().catch(() => new Map<string, DirectoryUserEntry>())
+        : Promise.resolve(new Map<string, DirectoryUserEntry>()),
     ]);
     const devicesById = new Map<string, any>(
       (allDevices || [])
@@ -3924,10 +4084,24 @@ export async function listChannelMessages(
         .filter((s: any) => s?.id)
         .map((s: any) => [String(s.id).trim().toLowerCase(), s])
     );
+    const channelMemberIdSet = new Set<string>();
+    for (const cm of channel.members || []) {
+      for (const cid of resolveUserIdentifiers({ userId: cm.userId, username: cm.username })) {
+        channelMemberIdSet.add(cid);
+      }
+    }
     for (const m of messages) {
       const refs = extractMessageEntityRefs(m);
       if (refs.length > 0 && !m.metadata?.snippetData && !m.metadata?.approvalCardData) {
-        const cards = buildProjectedCardsForViewer(refs, viewerCtx, devicesById, serversById);
+        const cards = buildProjectedCardsForViewer(
+          refs,
+          viewerCtx,
+          devicesById,
+          serversById,
+          directoryMap,
+          channelMemberIdSet,
+          idSet
+        );
         m.entityCards = cards;
         if (cards.some((c) => c.accessRestricted)) {
           m.linkedEntityName = null;
@@ -4512,13 +4686,21 @@ export async function postChannelMessage(
     entityRefs?: CommsEntityMentionRef[];
   }
 ): Promise<CommsMessage> {
-  const entityRefs = sanitizeEntityRefs(payload.entityRefs);
+  let entityRefs = sanitizeEntityRefs(payload.entityRefs);
   let body = (payload.body || '').trim();
+  const inlineUserTokens = extractInlineUserMentionTokens(body);
+
   if (!body && entityRefs.length === 0) {
     throw new Error('Message body is required.');
   }
+  const hasOnlyUserMentions =
+    entityRefs.length > 0 && entityRefs.every((r) => r.entityType === 'user');
+  const hasUserMentions =
+    entityRefs.some((r) => r.entityType === 'user') || inlineUserTokens.length > 0;
   if (!body && entityRefs.length > 0) {
-    body = '📌 ارجاع به تجهیز / سرور / پورت شبکه';
+    body = hasOnlyUserMentions
+      ? '📌 ارجاع / منشن کاربر'
+      : '📌 ارجاع به کاربر / تجهیز / سرور شبکه';
   }
 
   await ensurePostgresConnection();
@@ -4547,14 +4729,24 @@ export async function postChannelMessage(
   // Strictly validate sender RBAC access for any attached entity mentions (prevent IDOR / spoofing)
   let devicesById = new Map<string, any>();
   let serversById = new Map<string, any>();
+  let directoryMap = new Map<string, DirectoryUserEntry>();
+  const channelMemberIdSet = new Set<string>();
+  for (const cm of members) {
+    for (const cid of resolveUserIdentifiers({ userId: cm.userId, username: cm.username })) {
+      channelMemberIdSet.add(cid);
+    }
+  }
   let senderProjectedCards: CommsProjectedEntityCard[] = [];
-  if (entityRefs.length > 0) {
+  if (entityRefs.length > 0 || inlineUserTokens.length > 0) {
     const needDevs = entityRefs.some((r) => r.entityType === 'device' || r.entityType === 'port');
     const needSrvs = entityRefs.some((r) => r.entityType === 'server');
-    const [senderCtx, allDevs, allSrvs] = await Promise.all([
+    const [senderCtx, allDevs, allSrvs, dirMap] = await Promise.all([
       resolveCommsViewerAccessContext(senderUser, false),
       needDevs ? getAllDevices().catch(() => []) : Promise.resolve([]),
       needSrvs ? getAllRemoteServers().catch(() => []) : Promise.resolve([]),
+      hasUserMentions
+        ? buildDirectoryUserMap().catch(() => new Map<string, DirectoryUserEntry>())
+        : Promise.resolve(new Map<string, DirectoryUserEntry>()),
     ]);
     devicesById = new Map(
       (allDevs || []).filter((d: any) => d?.id).map((d: any) => [String(d.id).trim().toLowerCase(), d])
@@ -4562,8 +4754,53 @@ export async function postChannelMessage(
     serversById = new Map(
       (allSrvs || []).filter((s: any) => s?.id).map((s: any) => [String(s.id).trim().toLowerCase(), s])
     );
-    senderProjectedCards = buildProjectedCardsForViewer(entityRefs, senderCtx, devicesById, serversById);
-    const forbidden = senderProjectedCards.find((c) => c.accessRestricted || c.portsRestricted);
+    directoryMap = dirMap;
+
+    // Auto-append valid inline @username mentions found in message text (up to max 6 total refs)
+    if (inlineUserTokens.length > 0 && entityRefs.length < 6) {
+      const seenUserKeys = new Set(
+        entityRefs
+          .filter((r) => r.entityType === 'user')
+          .map((r) => r.entityId.trim().toLowerCase())
+      );
+      for (const tok of inlineUserTokens) {
+        if (entityRefs.length >= 6) break;
+        const matchedDir = directoryMap.get(tok);
+        if (!matchedDir) continue;
+        const canonicalUsername = matchedDir.username.trim().toLowerCase();
+        if (seenUserKeys.has(canonicalUsername) || seenUserKeys.has(matchedDir.userId.trim().toLowerCase())) {
+          continue;
+        }
+        seenUserKeys.add(canonicalUsername);
+        entityRefs = [
+          ...entityRefs,
+          {
+            entityType: 'user',
+            entityId: matchedDir.username,
+            portId: null,
+          },
+        ];
+      }
+    }
+
+    // Drop any nonexistent user refs silently while strictly checking device/server/port RBAC
+    entityRefs = entityRefs.filter((ref) => {
+      if (ref.entityType !== 'user') return true;
+      return directoryMap.has(ref.entityId.trim().toLowerCase());
+    });
+
+    senderProjectedCards = buildProjectedCardsForViewer(
+      entityRefs,
+      senderCtx,
+      devicesById,
+      serversById,
+      directoryMap,
+      channelMemberIdSet,
+      senderIds
+    );
+    const forbidden = senderProjectedCards.find(
+      (c) => c.entityType !== 'user' && (c.accessRestricted || c.portsRestricted)
+    );
     if (forbidden) {
       throw new Error(
         `ACCESS_DENIED: ${
@@ -4579,7 +4816,11 @@ export async function postChannelMessage(
   const msgId = makeId('cmsg');
   const bodyEn =
     (payload.bodyEn || '').trim() ||
-    ((payload.body || '').trim() ? body : '📌 Referenced Network Entity');
+    ((payload.body || '').trim()
+      ? body
+      : hasOnlyUserMentions
+      ? '📌 Mentioned Team Member'
+      : '📌 Referenced Network Entity / Team Member');
   const msgType = channel.channelType === 'direct' ? 'direct_message' : 'channel_message';
   const senderDisplay = formatUserDisplay(senderUser.fullName, senderUser.username);
 
@@ -4591,6 +4832,21 @@ export async function postChannelMessage(
     channel.channelType === 'direct'
       ? `Message from ${senderDisplay}`
       : `${channel.nameEn || channel.name}: New message from ${senderDisplay}`;
+
+  const mentionedUserIds = new Set<string>();
+  for (const ref of entityRefs) {
+    if (ref.entityType !== 'user') continue;
+    const entry = directoryMap.get(ref.entityId.trim().toLowerCase());
+    if (entry) {
+      for (const uid of resolveUserIdentifiers({ userId: entry.userId, username: entry.username })) {
+        mentionedUserIds.add(uid);
+      }
+    } else {
+      for (const uid of resolveUserIdentifiers({ username: ref.entityId })) {
+        mentionedUserIds.add(uid);
+      }
+    }
+  }
 
   const primaryRef = entityRefs[0] || null;
   const messageRecord = {
@@ -4644,6 +4900,17 @@ export async function postChannelMessage(
   const activeRecipients: ResolvedRecipient[] = [];
   const emailTargets: PendingCommsEmailTarget[] = [];
   for (const { m, pref } of evalResults) {
+    const isMentionedMember =
+      mentionedUserIds.size > 0 && memberMatchesIdentifiers(m, mentionedUserIds);
+    const memberNotifTitle = isMentionedMember
+      ? `📣 ${senderDisplay} در ${channel.channelType === 'direct' ? 'گفتگو' : channel.name} شما را منشن کرد`
+      : title;
+    const memberNotifTitleEn = isMentionedMember
+      ? `📣 ${senderDisplay} mentioned you in ${
+          channel.channelType === 'direct' ? 'Direct Chat' : channel.nameEn || channel.name
+        }`
+      : titleEn;
+
     if (pref.deliverEmailNotification) {
       emailTargets.push({
         recipient: { userId: m.userId, username: m.username },
@@ -4651,8 +4918,8 @@ export async function postChannelMessage(
         severity: payload.priority || 'info',
         senderName: senderDisplay,
         senderRole: senderUser.role || 'Operator',
-        title,
-        titleEn,
+        title: memberNotifTitle,
+        titleEn: memberNotifTitleEn,
         body,
         bodyEn,
         linkedEntityName: payload.linkedEntityName || null,
@@ -4671,8 +4938,8 @@ export async function postChannelMessage(
       severity: payload.priority || 'info',
       sender_name: senderDisplay,
       sender_role: senderUser.role || 'Operator',
-      title,
-      title_en: titleEn,
+      title: memberNotifTitle,
+      title_en: memberNotifTitleEn,
       summary,
       summary_en: summaryEn,
       body,
@@ -4692,6 +4959,7 @@ export async function postChannelMessage(
         replyToMessageId: payload.replyToMessageId || null,
         quietHoursMuted: pref.quietHoursMuted,
         playSound: pref.playSound,
+        ...(isMentionedMember ? { isMentioned: true } : {}),
       },
       created_at: nowIso,
     });
@@ -4742,11 +5010,17 @@ export async function postChannelMessage(
           { userId: m.userId, username: m.username, role: m.role },
           false
         );
+        const memberIdSet = new Set(
+          resolveUserIdentifiers({ userId: m.userId, username: m.username })
+        );
         const memberCards = buildProjectedCardsForViewer(
           entityRefs,
           memberCtx,
           devicesById,
-          serversById
+          serversById,
+          directoryMap,
+          channelMemberIdSet,
+          memberIdSet
         );
         projectedByMemberKey.set(key, {
           ...mappedMessage,
@@ -6612,13 +6886,7 @@ export async function exportChannelHandoverSummary(
   >();
   const mentionedEntityMap = new Map<
     string,
-    {
-      entityType: 'device' | 'server' | 'port';
-      entityName: string;
-      entityIp?: string;
-      portId?: string | null;
-      isOnline?: boolean | null;
-    }
+    CommsHandoverSummaryResponse['mentionedEntities'][number]
   >();
   const diagnostics: CommsHandoverSummaryResponse['diagnostics'] = [];
   const snippets: CommsHandoverSummaryResponse['snippets'] = [];

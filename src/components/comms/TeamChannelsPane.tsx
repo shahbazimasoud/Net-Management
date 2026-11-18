@@ -497,8 +497,13 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
       return;
     }
 
-    const textToSend = rawText || '📌 ارجاع به تجهیز / سرور / پورت شبکه';
-    const textToSendEn = rawText || '📌 Referenced Network Entity';
+    const hasOnlyUsers =
+      refsSnapshot.length > 0 && refsSnapshot.every((item) => item.ref.entityType === 'user');
+    const textToSend =
+      rawText || (hasOnlyUsers ? '📌 ارجاع / منشن کاربر' : '📌 ارجاع به کاربر / تجهیز / سرور شبکه');
+    const textToSendEn =
+      rawText ||
+      (hasOnlyUsers ? '📌 Mentioned Team Member' : '📌 Referenced Network Entity / Team Member');
     const entityRefsToSend = refsSnapshot.map((item) => item.ref);
     const nowIso = new Date().toISOString();
     const tempId = `__opt__${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -622,6 +627,20 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
   const handleToggleMute = async () => {
     if (!activeChannel) return;
     await handleToggleMuteForChannel(activeChannel);
+  };
+
+  const handleOpenDirectUserFromMention = async (targetUsername: string) => {
+    if (!targetUsername || !canSend) return;
+    setErrorMsg(null);
+    try {
+      const res = await openDirectCommsChannel(targetUsername);
+      await loadChannels(true);
+      onSelectChannelId(res.channel.id);
+    } catch (err: any) {
+      setErrorMsg(
+        err?.message || (isEn ? 'Failed to start direct chat' : 'خطا در شروع گفتگوی مستقیم')
+      );
+    }
   };
 
   // Direct Chat Modal handlers
@@ -1824,12 +1843,13 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                             {isEn ? msg.bodyEn || msg.body : msg.body}
                           </div>
 
-                          {/* RBAC-projected live entity cards (Device / Port / Server) */}
+                          {/* RBAC-projected live entity cards (User / Device / Port / Server) */}
                           <EntityMentionCardList
                             cards={msg.entityCards}
                             isEn={isEn}
                             isLightMode={isLightMode}
                             isSelf={self}
+                            onOpenDirectUser={canSend ? handleOpenDirectUserFromMention : undefined}
                           />
 
                           {/* RBAC-projected ChatOps slash command telemetry card */}
@@ -1890,6 +1910,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                   <EntityMentionPickerPopover
                     isEn={isEn}
                     isLightMode={isLightMode}
+                    channelId={activeChannel.id}
                     draftBody={draftBody}
                     onDraftBodyChange={(next) => {
                       setDraftBody(next);

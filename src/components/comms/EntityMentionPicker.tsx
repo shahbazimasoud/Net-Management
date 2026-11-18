@@ -3,6 +3,7 @@ import {
   Router,
   Server,
   Cable,
+  User,
   X,
   Search,
   Loader2,
@@ -22,6 +23,7 @@ export interface EntityMentionPickerProps {
   isEn: boolean;
   isLightMode: boolean;
   compact?: boolean;
+  channelId?: string | null;
   draftBody: string;
   onDraftBodyChange: (nextBody: string) => void;
   selectedItems: SelectedEntityMentionItem[];
@@ -64,7 +66,9 @@ export const EntityMentionChips: React.FC<{
       {items.map((item, idx) => {
         const key = `${item.ref.entityType}:${item.ref.entityId}:${item.ref.portId || ''}:${idx}`;
         const Icon =
-          item.ref.entityType === 'server'
+          item.ref.entityType === 'user'
+            ? User
+            : item.ref.entityType === 'server'
             ? Server
             : item.ref.entityType === 'port'
             ? Cable
@@ -74,14 +78,18 @@ export const EntityMentionChips: React.FC<{
           <span
             key={key}
             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[11px] font-medium max-w-full ${
-              isLightMode
+              item.ref.entityType === 'user'
+                ? isLightMode
+                  ? 'bg-sky-50 border-sky-200 text-sky-800'
+                  : 'bg-sky-500/15 border-sky-400/30 text-sky-200'
+                : isLightMode
                 ? 'bg-indigo-50 border-indigo-200 text-indigo-800'
                 : 'bg-indigo-500/15 border-indigo-400/30 text-indigo-200'
             }`}
           >
             <Icon className="w-3 h-3 shrink-0" />
             <span className={`truncate ${compact ? 'max-w-[140px]' : 'max-w-[200px]'}`}>
-              {item.label}
+              {item.ref.entityType === 'user' ? `@${item.ref.entityId}` : item.label}
             </span>
             <button
               type="button"
@@ -102,6 +110,7 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
   isEn,
   isLightMode,
   compact = false,
+  channelId,
   draftBody,
   onDraftBodyChange,
   selectedItems,
@@ -131,7 +140,7 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
       setLoading(true);
       setSearchError(null);
       try {
-        const list = await searchCommsMentionEntities(activeQuery);
+        const list = await searchCommsMentionEntities(activeQuery, channelId);
         if (!cancelled) {
           setResults(Array.isArray(list) ? list : []);
         }
@@ -151,7 +160,7 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [isOpen, activeQuery, isEn]);
+  }, [isOpen, activeQuery, channelId, isEn]);
 
   if (!isOpen) return null;
 
@@ -211,8 +220,8 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
           <AtSign className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
           <span className="truncate">
             {isEn
-              ? 'Mention Device, Port, or Server (RBAC Scoped)'
-              : 'ارجاع به تجهیز، پورت یا سرور مجاز (RBAC)'}
+              ? 'Mention Team Member, Device, Port, or Server'
+              : 'منشن همکار، تجهیز، پورت یا سرور مجاز'}
           </span>
         </div>
         <button
@@ -241,8 +250,8 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
               onChange={(e) => setManualSearch(e.target.value)}
               placeholder={
                 isEn
-                  ? 'Search name, IP, or port (e.g. Gi1/0/1)...'
-                  : 'جستجوی نام، IP یا پورت (مثلاً Gi1/0/1)...'
+                  ? 'Search user, device, IP, or port (e.g. Gi1/0/1)...'
+                  : 'جستجوی کاربر، تجهیز، IP یا پورت (مثلاً Gi1/0/1)...'
               }
               className={`w-full ps-8 pe-2.5 py-1.5 rounded-lg border text-xs outline-none ${
                 isLightMode
@@ -258,21 +267,25 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
         {selectedItems.length >= 6 ? (
           <div className="px-3 py-3 text-center text-[11px] text-amber-500">
             {isEn
-              ? 'Maximum of 6 entity references per message reached.'
-              : 'حداکثر ۶ تجهیز یا سرور در هر پیام قابل ارجاع است.'}
+              ? 'Maximum of 6 references per message reached.'
+              : 'حداکثر ۶ مورد در هر پیام قابل منشن و ارجاع است.'}
           </div>
         ) : loading ? (
           <div className="py-4 flex items-center justify-center gap-2 text-xs text-slate-400">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
-            <span>{isEn ? 'Searching authorized entities...' : 'در حال جستجو در تجهیزات مجاز...'}</span>
+            <span>
+              {isEn
+                ? 'Searching people & authorized entities...'
+                : 'در حال جستجوی افراد و تجهیزات مجاز...'}
+            </span>
           </div>
         ) : searchError ? (
           <div className="px-3 py-3 text-center text-[11px] text-rose-500">{searchError}</div>
         ) : results.length === 0 ? (
           <div className="px-3 py-4 text-center text-[11px] text-slate-400">
             {isEn
-              ? 'No permitted devices, servers, or ports match this query.'
-              : 'تجهیز، سرور یا پورت مجازی با این عبارت یافت نشد.'}
+              ? 'No matching users, devices, servers, or ports found.'
+              : 'کاربر، تجهیز، سرور یا پورتی با این عبارت یافت نشد.'}
           </div>
         ) : (
           results.map((cand, idx) => {
@@ -281,8 +294,11 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
               cand.portId || ''
             ).toLowerCase()}`;
             const alreadyAdded = selectedKeys.has(dedupeKey);
+            const isUser = cand.entityType === 'user';
             const Icon =
-              cand.entityType === 'server'
+              isUser
+                ? User
+                : cand.entityType === 'server'
                 ? Server
                 : cand.entityType === 'port'
                 ? Cable
@@ -303,7 +319,9 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
                 <div className="flex items-center gap-2 min-w-0">
                   <Icon
                     className={`w-3.5 h-3.5 shrink-0 ${
-                      cand.entityType === 'server'
+                      isUser
+                        ? 'text-sky-500'
+                        : cand.entityType === 'server'
                         ? 'text-emerald-500'
                         : cand.entityType === 'port'
                         ? 'text-cyan-500'
@@ -314,7 +332,11 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
                     <div className="flex items-center gap-1.5">
                       <span
                         className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                          cand.isOnline ? 'bg-emerald-400' : 'bg-rose-400'
+                          cand.isOnline
+                            ? 'bg-emerald-400'
+                            : isUser
+                            ? 'bg-slate-400'
+                            : 'bg-rose-400'
                         }`}
                       />
                       <span className="font-semibold truncate">{cand.name}</span>
@@ -330,7 +352,11 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
                 </div>
                 <span
                   className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold uppercase shrink-0 ${
-                    isLightMode
+                    isUser
+                      ? isLightMode
+                        ? 'bg-sky-50 text-sky-700'
+                        : 'bg-sky-500/15 text-sky-300'
+                      : isLightMode
                       ? 'bg-slate-100 text-slate-600'
                       : 'bg-white/10 text-slate-300'
                   }`}
@@ -339,6 +365,14 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
                     ? isEn
                       ? 'Added'
                       : 'افزوده شد'
+                    : isUser
+                    ? cand.isChannelMember
+                      ? isEn
+                        ? 'Member'
+                        : 'عضو کانال'
+                      : isEn
+                      ? 'User'
+                      : 'کاربر'
                     : cand.entityType === 'server'
                     ? isEn
                       ? 'Server'

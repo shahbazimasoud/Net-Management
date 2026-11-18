@@ -118,6 +118,15 @@ export function broadcastCommsEventToUser(
   broadcastCommsEventToRecipients([user], undefined, event);
 }
 
+export function isCommsUserOnline(user: { userId?: string; username?: string }): boolean {
+  const ids = normalizeIdentifiers(user);
+  for (const idKey of ids) {
+    const set = socketsByIdentifier.get(idKey);
+    if (set && set.size > 0) return true;
+  }
+  return false;
+}
+
 export function setupCommsWebSocket(server: http.Server): void {
   const wss = new WebSocketServer({ noServer: true });
 

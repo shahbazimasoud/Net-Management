@@ -99,6 +99,7 @@ interface FloatingChatBoxProps {
   onOpenInCenter: (channelId: string) => void;
   onChannelRead: (channelId: string) => void;
   onChannelUpdated: () => void;
+  onOpenDirectUser?: (username: string) => void;
 }
 
 const MAX_EXPANDED_WINDOWS_WIDE = 2;
@@ -128,6 +129,7 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
   onOpenInCenter,
   onChannelRead,
   onChannelUpdated,
+  onOpenDirectUser,
 }) => {
   const [messages, setMessages] = useState<CommsMessage[]>(() => {
     const cached80 = appDataCache.getOptimistic<any>(`comms:channel:${channel.id}:80:0`);
@@ -332,8 +334,13 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
       return;
     }
 
-    const textToSend = rawText || '📌 ارجاع به تجهیز / سرور / پورت شبکه';
-    const textToSendEn = rawText || '📌 Referenced Network Entity';
+    const hasOnlyUsers =
+      refsSnapshot.length > 0 && refsSnapshot.every((item) => item.ref.entityType === 'user');
+    const textToSend =
+      rawText || (hasOnlyUsers ? '📌 ارجاع / منشن کاربر' : '📌 ارجاع به کاربر / تجهیز / سرور شبکه');
+    const textToSendEn =
+      rawText ||
+      (hasOnlyUsers ? '📌 Mentioned Team Member' : '📌 Referenced Network Entity / Team Member');
     const entityRefsToSend = refsSnapshot.map((item) => item.ref);
     const nowIso = new Date().toISOString();
     const tempId = `__opt__${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -1231,6 +1238,7 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
                     isLightMode={isLightMode}
                     isSelf={self}
                     compact
+                    onOpenDirectUser={onOpenDirectUser}
                   />
 
                   <SlashCommandCard
@@ -1292,6 +1300,7 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
             isEn={isEn}
             isLightMode={isLightMode}
             compact
+            channelId={channel.id}
             draftBody={draftBody}
             onDraftBodyChange={(next) => {
               setDraftBody(next);
@@ -1932,6 +1941,7 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                     loadChannels(true);
                     onUnreadChanged?.();
                   }}
+                  onOpenDirectUser={canSend ? handleStartDirectChat : undefined}
                 />
               );
             })}
