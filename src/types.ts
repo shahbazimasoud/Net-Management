@@ -1152,6 +1152,8 @@ export interface CommsCountsByFolder {
   archived: number;
 }
 
+export type CommsUserPresenceStatus = 'online' | 'idle' | 'offline';
+
 export interface CommsRecipientOption {
   type: 'user' | 'group' | 'all';
   id: string;
@@ -1160,6 +1162,8 @@ export interface CommsRecipientOption {
   labelEn?: string;
   roleOrType?: string;
   source?: 'local' | 'ad' | 'group' | 'broadcast';
+  presenceStatus?: CommsUserPresenceStatus;
+  isOnline?: boolean;
 }
 
 export interface CommsDispatchPayload {
@@ -1189,6 +1193,8 @@ export interface CommsChannelMember {
   isMuted: boolean;
   lastReadMessageId?: string | null;
   joinedAt: string;
+  presenceStatus?: CommsUserPresenceStatus;
+  isOnline?: boolean;
 }
 
 export interface CommsChannel {
@@ -1230,6 +1236,7 @@ export interface CommsMentionCandidate {
   platform?: string;
   osType?: string;
   isOnline?: boolean;
+  presenceStatus?: CommsUserPresenceStatus;
   portStatus?: string;
   portVlan?: number | string;
   portDescription?: string;
@@ -1270,6 +1277,7 @@ export interface CommsProjectedEntityCard {
   role?: string;
   isChannelMember?: boolean;
   canOpenDirectChat?: boolean;
+  presenceStatus?: CommsUserPresenceStatus;
 }
 
 export type CommsSlashCommandName = 'ping' | 'mac' | 'port' | 'status' | 'dns';
@@ -1507,6 +1515,7 @@ export interface CommsHandoverSummaryResponse {
     fullName?: string;
     role?: string | null;
     messageCount: number;
+    presenceStatus?: CommsUserPresenceStatus;
   }>;
   mentionedEntities: Array<{
     entityType: 'device' | 'server' | 'port' | 'user';
@@ -1514,6 +1523,7 @@ export interface CommsHandoverSummaryResponse {
     entityIp?: string;
     portId?: string | null;
     isOnline?: boolean | null;
+    presenceStatus?: CommsUserPresenceStatus | null;
   }>;
   diagnostics: Array<{
     command: string;

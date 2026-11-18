@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.445.0';
+export const APP_VERSION = '1.446.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.446.0',
+    releaseDate: '2026-11-17',
+    type: 'minor',
+    title: 'افزودن سیستم نمایش وضعیت زنده سه‌حالته کاربران (آنلاین، بدون فعالیت/Idle و آفلاین) بر بستر وب‌سوکت و ردیابی تعامل در پنل',
+    title_en: 'Add real-time 3-state user presence (Online, Idle, Offline) via WebSocket and live panel activity tracking',
+    changes: [
+      'ارتقای سرور وب‌سوکت ارتباطات (`server/commsWs.ts`) و اتصال نشست خروج (`POST /api/auth/logout` در `server/routes.ts`) برای ردیابی بلادرنگ سه‌وضعیتی کاربران: کاربر لاگین‌شده و فعال (`online`)، کاربر لاگین‌شده بدون تعامل یا تب در پس‌زمینه (`idle` پس از توقف فعالیت کلاینت یا تایم‌اوت عدم فعالیت سرور بدون ریفرش مصنوعی توسط ping/pong)، و کاربر خارج‌شده (`offline` بلافاصله با بسته‌شدن سوکت یا خروج از حساب)، همراه با ارسال رویدادهای لحظه‌ای `presence:snapshot` و `presence:updated` و اندپوینت `GET /api/comms/presence`.',
+      'همگام‌سازی `presenceStatus` (`online` | `idle` | `offline`) در سرویس `server/commsService.ts` برای لیست دریافت‌کنندگان، اعضای کانال‌ها، جستجوی منشن `@User` با مرتب‌سازی اولویت وضعیت، کارت‌های ارجاع `@` و گزارش‌های تحویل شیفت.',
+      'ایجاد استور واکنش‌گرا `src/services/commsPresence.ts` با `useSyncExternalStore` و تجهیز `connectCommsWebSocket` در `src/services/commsApi.ts` به شنونده‌های سبک تعامل کاربر، به‌همراه نمایش نشانگرهای رنگی و برچسب دوزبانه (سبز=آنلاین، کهربایی=بدون فعالیت، خاکستری=آفلاین) در `EntityMentionPicker`، `EntityMentionCardList`، `CommunicationsCenterView`، `FooterTeamChatDock` و `TeamChannelsPane`.'
+    ],
+    changes_en: [
+      'Upgraded `server/commsWs.ts` and `POST /api/auth/logout` in `server/routes.ts` to compute real-time 3-state presence across active connections: active logged-in session (`online`), logged-in with no active interaction or background timeout (`idle`, isolated from automated ping/pong keepalive), and logged-out/disconnected (`offline`), broadcasting `presence:snapshot` and `presence:updated` frames plus `GET /api/comms/presence`.',
+      'Synchronized `presenceStatus` (`online` | `idle` | `offline`) across `server/commsService.ts` endpoints including recipients, channel member lists, status-sorted `@User` mention search, projected `@` user cards, and shift handover summaries.',
+      'Added reactive `src/services/commsPresence.ts` (`useSyncExternalStore`) and DOM/visibility activity telemetry in `src/services/commsApi.ts`, rendering color-coded 3-state indicators (emerald=Online, amber=Idle, slate=Offline) across `EntityMentionPicker`, `EntityMentionCardList`, `CommunicationsCenterView`, `FooterTeamChatDock`, and `TeamChannelsPane` in both Light and Dark themes.'
+    ]
+  },
   {
     version: '1.445.0',
     releaseDate: '2026-11-17',

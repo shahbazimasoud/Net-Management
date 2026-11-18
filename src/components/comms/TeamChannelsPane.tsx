@@ -62,6 +62,12 @@ import { SnippetDiffCard } from './SnippetDiffCard';
 import { ApprovalChatCard } from './ApprovalChatCard';
 import { dispatchOpenChannelHandover } from './ChannelHandoverModal';
 import { ComposerActionsMenu } from './ComposerActionsMenu';
+import {
+  getCommsUserPresenceMeta,
+  presenceSortRank,
+  resolvePresenceFromState,
+  useCommsPresenceMap,
+} from '../../services/commsPresence';
 
 interface TeamChannelsPaneProps {
   isLightMode: boolean;
@@ -110,6 +116,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
   const { isEn, isRtl } = useLanguage();
   const { user } = useAuth();
   const { dockModal, undockModal } = useModalDock();
+  const presenceState = useCommsPresenceMap();
 
   const optimisticChannels = appDataCache.getOptimistic<CommsChannel[]>('comms:channels');
   const [channels, setChannels] = useState<CommsChannel[]>(optimisticChannels || []);
@@ -411,15 +418,22 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
     [filteredChannels]
   );
 
-  const userOptions = useMemo(
-    () =>
-      directoryOptions.filter(
-        (o) =>
-          o.type === 'user' &&
-          (o.username || '').toLowerCase() !== (user?.username || '').toLowerCase()
-      ),
-    [directoryOptions, user?.username]
-  );
+  const userOptions = useMemo(() => {
+    const filtered = directoryOptions.filter(
+      (o) =>
+        o.type === 'user' &&
+        (o.username || '').toLowerCase() !== (user?.username || '').toLowerCase()
+    );
+    return [...filtered].sort((a, b) => {
+      const pa = resolvePresenceFromState(presenceState, [a.username, a.id], a.presenceStatus, a.isOnline);
+      const pb = resolvePresenceFromState(presenceState, [b.username, b.id], b.presenceStatus, b.isOnline);
+      const diff = presenceSortRank(pa) - presenceSortRank(pb);
+      if (diff !== 0) return diff;
+      return (a.labelEn || a.label || a.username || '').localeCompare(
+        b.labelEn || b.label || b.username || ''
+      );
+    });
+  }, [directoryOptions, user?.username, presenceState]);
 
   const dirGroupOptions = useMemo(
     () => directoryOptions.filter((o) => o.type === 'group'),
@@ -1222,6 +1236,24 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                       const active = ch.id === selectedChannelId;
                       const menuKey = `row:${ch.id}`;
                       const menuOpen = openMenuKey === menuKey;
+                      const meLower = (user?.username || '').trim().toLowerCase();
+                      const peerMember =
+                        (ch.members || []).find(
+                          (m) => (m.username || '').trim().toLowerCase() !== meLower
+                        ) ||
+                        ch.members?.[0] ||
+                        null;
+                      const peerPresence = peerMember
+                        ? resolvePresenceFromState(
+                            presenceState,
+                            [peerMember.username, peerMember.userId],
+                            peerMember.presenceStatus,
+                            peerMember.isOnline
+                          )
+                        : 'offline';
+                      const peerPresenceMeta = getCommsUserPresenceMeta(peerPresence, isEn, {
+                        isLightMode,
+                      });
                       return (
                         <div
                           key={ch.id}
@@ -1245,13 +1277,21 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                           }`}
                         >
                           <div
-                            className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 border ${
+                            className={`relative w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 border ${
                               isLightMode
                                 ? 'bg-white border-slate-200 text-sky-600'
                                 : 'bg-white/5 border-white/10 text-sky-300'
                             }`}
                           >
                             <User className="w-3.5 h-3.5" />
+                            {peerMember && (
+                              <span
+                                className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ${
+                                  isLightMode ? 'ring-white' : 'ring-slate-950'
+                                } ${peerPresenceMeta.dotClass}`}
+                                title={peerPresenceMeta.label}
+                              />
+                            )}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-1.5">
@@ -1422,59 +1462,101 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                   isLightMode ? 'border-slate-200 bg-slate-50/40' : 'border-white/10 bg-white/[0.02]'
                 }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <div
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center border shrink-0 ${
-                      isLightMode
-                        ? 'bg-white border-slate-200 text-indigo-600'
-                        : 'bg-white/5 border-white/10 text-indigo-300'
-                    }`}
-                  >
-                    {activeChannel.channelType === 'direct' ? (
-                      <User className="w-4 h-4" />
-                    ) : (
-                      <Hash className="w-4 h-4" />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <h3
-                      className={`text-sm font-bold truncate ${
-                        isLightMode ? 'text-slate-900' : 'text-white'
-                      }`}
-                    >
-                      {dedupeParenthesizedTitle(
-                        isEn ? activeChannel.nameEn || activeChannel.name : activeChannel.name
-                      )}
-                    </h3>
-                    <div
-                      className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] ${
-                        isLightMode ? 'text-slate-500' : 'text-slate-400'
-                      }`}
-                    >
-                      <span>
-                        {activeChannel.channelType === 'direct'
-                          ? isEn
-                            ? 'Direct 1:1 Thread'
-                            : 'گفتگوی مستقیم دوطرفه'
-                          : isEn
-                          ? 'Team Group Channel'
-                          : 'کانال گروهی تیم'}
-                      </span>
-                      <span aria-hidden="true">·</span>
-                      <span className="tabular-nums">
-                        {isEn
-                          ? `${activeChannel.memberCount} members`
-                          : `${activeChannel.memberCount} عضو`}
-                      </span>
-                      {activeChannel.description && (
-                        <>
+                {(() => {
+                  const meLower = (user?.username || '').trim().toLowerCase();
+                  const directPeer =
+                    activeChannel.channelType === 'direct'
+                      ? (activeChannel.members || []).find(
+                          (m) => (m.username || '').trim().toLowerCase() !== meLower
+                        ) ||
+                        activeChannel.members?.[0] ||
+                        null
+                      : null;
+                  const directPresence = directPeer
+                    ? resolvePresenceFromState(
+                        presenceState,
+                        [directPeer.username, directPeer.userId],
+                        directPeer.presenceStatus,
+                        directPeer.isOnline
+                      )
+                    : 'offline';
+                  const directPresenceMeta = getCommsUserPresenceMeta(directPresence, isEn, {
+                    isLightMode,
+                  });
+
+                  return (
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div
+                        className={`relative w-8 h-8 rounded-lg flex items-center justify-center border shrink-0 ${
+                          isLightMode
+                            ? 'bg-white border-slate-200 text-indigo-600'
+                            : 'bg-white/5 border-white/10 text-indigo-300'
+                        }`}
+                      >
+                        {activeChannel.channelType === 'direct' ? (
+                          <User className="w-4 h-4" />
+                        ) : (
+                          <Hash className="w-4 h-4" />
+                        )}
+                        {activeChannel.channelType === 'direct' && directPeer && (
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ${
+                              isLightMode ? 'ring-white' : 'ring-slate-900'
+                            } ${directPresenceMeta.dotClass}`}
+                            title={directPresenceMeta.label}
+                          />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <h3
+                          className={`text-sm font-bold truncate ${
+                            isLightMode ? 'text-slate-900' : 'text-white'
+                          }`}
+                        >
+                          {dedupeParenthesizedTitle(
+                            isEn ? activeChannel.nameEn || activeChannel.name : activeChannel.name
+                          )}
+                        </h3>
+                        <div
+                          className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] ${
+                            isLightMode ? 'text-slate-500' : 'text-slate-400'
+                          }`}
+                        >
+                          <span>
+                            {activeChannel.channelType === 'direct'
+                              ? isEn
+                                ? 'Direct 1:1 Thread'
+                                : 'گفتگوی مستقیم دوطرفه'
+                              : isEn
+                              ? 'Team Group Channel'
+                              : 'کانال گروهی تیم'}
+                          </span>
                           <span aria-hidden="true">·</span>
-                          <span className="truncate max-w-xs">{activeChannel.description}</span>
-                        </>
-                      )}
+                          {activeChannel.channelType === 'direct' && directPeer ? (
+                            <span
+                              className={`inline-flex items-center gap-1 font-semibold ${directPresenceMeta.textClass}`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${directPresenceMeta.dotClass}`} />
+                              <span>{directPresenceMeta.label}</span>
+                            </span>
+                          ) : (
+                            <span className="tabular-nums">
+                              {isEn
+                                ? `${activeChannel.memberCount} members`
+                                : `${activeChannel.memberCount} عضو`}
+                            </span>
+                          )}
+                          {activeChannel.description && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span className="truncate max-w-xs">{activeChannel.description}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 <div className="flex items-center flex-wrap gap-1.5">
                   <button
@@ -1721,19 +1803,33 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                   <span className="font-semibold">
                     {isEn ? 'Channel Participants:' : 'اعضای کانال:'}
                   </span>
-                  {(activeChannel.members || []).map((m, idx) => (
-                    <span key={m.userId || m.username} className="inline-flex items-center gap-1">
-                      {idx > 0 && <span aria-hidden="true">·</span>}
-                      <span>{m.fullName || m.username}</span>
-                      {m.role === 'owner' && (
-                        <span
-                          className={isLightMode ? 'text-indigo-700 font-semibold' : 'text-indigo-300 font-semibold'}
-                        >
-                          ({isEn ? 'Owner' : 'مدیر'})
-                        </span>
-                      )}
-                    </span>
-                  ))}
+                  {(activeChannel.members || []).map((m, idx) => {
+                    const pStatus = resolvePresenceFromState(
+                      presenceState,
+                      [m.username, m.userId],
+                      m.presenceStatus,
+                      m.isOnline
+                    );
+                    const pMeta = getCommsUserPresenceMeta(pStatus, isEn, { isLightMode });
+                    return (
+                      <span
+                        key={m.userId || m.username}
+                        className="inline-flex items-center gap-1"
+                        title={pMeta.label}
+                      >
+                        {idx > 0 && <span aria-hidden="true">·</span>}
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${pMeta.dotClass}`} />
+                        <span>{m.fullName || m.username}</span>
+                        {m.role === 'owner' && (
+                          <span
+                            className={isLightMode ? 'text-indigo-700 font-semibold' : 'text-indigo-300 font-semibold'}
+                          >
+                            ({isEn ? 'Owner' : 'مدیر'})
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
 
@@ -2176,12 +2272,22 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                       .map((u) => {
                         const val = u.username || u.id;
                         const active = selectedDirectUser === val;
+                        const pStatus = resolvePresenceFromState(
+                          presenceState,
+                          [u.username, u.id],
+                          u.presenceStatus,
+                          u.isOnline
+                        );
+                        const pMeta = getCommsUserPresenceMeta(pStatus, isEn, {
+                          isLightMode,
+                          selfDark: active,
+                        });
                         return (
                           <button
                             key={u.id}
                             type="button"
                             onClick={() => setSelectedDirectUser(val)}
-                            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs text-start cursor-pointer transition ${
+                            className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-xs text-start cursor-pointer transition ${
                               active
                                 ? 'bg-indigo-600 border-indigo-600 text-white font-semibold'
                                 : isLightMode
@@ -2189,8 +2295,19 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                                 : 'bg-white/5 border-transparent text-slate-200 hover:bg-white/10'
                             }`}
                           >
-                            <span>{isEn ? u.labelEn || u.label : u.label}</span>
-                            <span className="text-[11px] opacity-80">{u.roleOrType}</span>
+                            <span className="flex items-center gap-2 min-w-0">
+                              <span
+                                className={`w-2 h-2 rounded-full shrink-0 ${pMeta.dotClass}`}
+                                title={pMeta.label}
+                              />
+                              <span className="truncate">{isEn ? u.labelEn || u.label : u.label}</span>
+                            </span>
+                            <span className="flex items-center gap-2 text-[11px] shrink-0">
+                              <span className={active ? 'text-indigo-100' : pMeta.textClass}>
+                                {pMeta.label}
+                              </span>
+                              <span className="opacity-80">{u.roleOrType}</span>
+                            </span>
                           </button>
                         );
                       })
@@ -2399,6 +2516,13 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                     {userOptions.map((u) => {
                       const val = u.username || u.id;
                       const checked = groupMemberIds.includes(val);
+                      const pStatus = resolvePresenceFromState(
+                        presenceState,
+                        [u.username, u.id],
+                        u.presenceStatus,
+                        u.isOnline
+                      );
+                      const pMeta = getCommsUserPresenceMeta(pStatus, isEn, { isLightMode });
                       return (
                         <label
                           key={u.id}
@@ -2420,9 +2544,16 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                                 e.target.checked ? [...prev, val] : prev.filter((x) => x !== val)
                               )
                             }
-                            className="rounded accent-indigo-600"
+                            className="rounded accent-indigo-600 shrink-0"
                           />
-                          <span className="truncate">{isEn ? u.labelEn || u.label : u.label}</span>
+                          <span
+                            className={`w-2 h-2 rounded-full shrink-0 ${pMeta.dotClass}`}
+                            title={pMeta.label}
+                          />
+                          <span className="truncate flex-1">{isEn ? u.labelEn || u.label : u.label}</span>
+                          <span className={`text-[10px] shrink-0 ${pMeta.textClass}`}>
+                            {pMeta.label}
+                          </span>
                         </label>
                       );
                     })}
@@ -2553,6 +2684,13 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                     .map((u) => {
                       const val = u.username || u.id;
                       const checked = extraMemberIds.includes(val);
+                      const pStatus = resolvePresenceFromState(
+                        presenceState,
+                        [u.username, u.id],
+                        u.presenceStatus,
+                        u.isOnline
+                      );
+                      const pMeta = getCommsUserPresenceMeta(pStatus, isEn, { isLightMode });
                       return (
                         <label
                           key={u.id}
@@ -2574,9 +2712,16 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                                 e.target.checked ? [...prev, val] : prev.filter((x) => x !== val)
                               )
                             }
-                            className="rounded accent-indigo-600"
+                            className="rounded accent-indigo-600 shrink-0"
                           />
-                          <span className="truncate">{isEn ? u.labelEn || u.label : u.label}</span>
+                          <span
+                            className={`w-2 h-2 rounded-full shrink-0 ${pMeta.dotClass}`}
+                            title={pMeta.label}
+                          />
+                          <span className="truncate flex-1">{isEn ? u.labelEn || u.label : u.label}</span>
+                          <span className={`text-[10px] shrink-0 ${pMeta.textClass}`}>
+                            {pMeta.label}
+                          </span>
                         </label>
                       );
                     })}

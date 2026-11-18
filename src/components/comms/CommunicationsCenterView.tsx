@@ -64,6 +64,11 @@ import {
   replyToInboxNotificationApi,
 } from '../../services/commsApi';
 import {
+  getCommsUserPresenceMeta,
+  resolvePresenceFromState,
+  useCommsPresenceMap,
+} from '../../services/commsPresence';
+import {
   decideApprovalRequestApi,
   executeApprovalPayloadApi,
   fetchApprovalById,
@@ -197,6 +202,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   const [composeMaximized, setComposeMaximized] = useState(false);
   const [recipients, setRecipients] = useState<CommsRecipientOption[]>([]);
   const [recipientsLoading, setRecipientsLoading] = useState(false);
+  const presenceState = useCommsPresenceMap();
   const [composeCategory, setComposeCategory] = useState<'direct_message' | 'announcement'>(
     'direct_message'
   );
@@ -2841,6 +2847,18 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                           filteredSelectableOptions.map((opt) => {
                             const targetVal = opt.username || opt.id;
                             const checked = composeTargetIds.includes(targetVal);
+                            const userPresence =
+                              opt.type === 'user'
+                                ? resolvePresenceFromState(
+                                    presenceState,
+                                    [opt.id, opt.username],
+                                    opt.presenceStatus,
+                                    opt.isOnline
+                                  )
+                                : null;
+                            const presenceMeta = userPresence
+                              ? getCommsUserPresenceMeta(userPresence, isEn, { isLightMode })
+                              : null;
                             return (
                               <label
                                 key={`${opt.type}:${opt.id}`}
@@ -2866,17 +2884,30 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                                   }}
                                   className="rounded accent-indigo-600 shrink-0"
                                 />
+                                {presenceMeta && (
+                                  <span
+                                    className={`w-2 h-2 rounded-full shrink-0 ${presenceMeta.dotClass}`}
+                                    title={presenceMeta.label}
+                                  />
+                                )}
                                 <div className="min-w-0 flex-1">
                                   <div className="truncate font-medium">
                                     {isEn ? opt.labelEn || opt.label : opt.label}
                                   </div>
-                                  {(opt.roleOrType || opt.username) && (
+                                  {(opt.roleOrType || opt.username || presenceMeta) && (
                                     <div
-                                      className={`truncate text-[10px] ${
+                                      className={`truncate text-[10px] flex items-center gap-1 ${
                                         isLightMode ? 'text-slate-500' : 'text-slate-400'
                                       }`}
                                     >
-                                      {[opt.roleOrType, opt.username].filter(Boolean).join(' · ')}
+                                      <span className="truncate">
+                                        {[opt.roleOrType, opt.username].filter(Boolean).join(' · ')}
+                                      </span>
+                                      {presenceMeta && (
+                                        <span className={`font-semibold shrink-0 ${presenceMeta.textClass}`}>
+                                          · {presenceMeta.label}
+                                        </span>
+                                      )}
                                     </div>
                                   )}
                                 </div>

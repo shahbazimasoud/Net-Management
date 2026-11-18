@@ -32,6 +32,11 @@ import {
 import { ModalHeaderControls } from '../common/ModalHeaderControls';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { UserPickerModal } from './UserPickerModal';
+import {
+  getCommsUserPresenceMeta,
+  resolvePresenceFromState,
+  useCommsPresenceMap,
+} from '../../services/commsPresence';
 
 interface LocalUsersTabProps {
   users: LocalUser[];
@@ -65,6 +70,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
         (document.documentElement.classList.contains('light') ||
           document.querySelector('.theme-light') !== null))
   );
+  const presenceState = useCommsPresenceMap();
 
   const [activeSection, setActiveSection] = useState<'users' | 'groups'>('users');
   const [searchQuery, setSearchQuery] = useState('');
@@ -905,6 +911,15 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
             filteredUsers.map((user) => {
               const userGroupsList = groups.filter((g) => user.groupIds?.includes(g.id));
               const isActive = user.status === 'active';
+              const userPresence = resolvePresenceFromState(
+                presenceState,
+                [user.username, user.id],
+                undefined,
+                false
+              );
+              const presenceMeta = getCommsUserPresenceMeta(userPresence, isEn, {
+                isLightMode: resolvedLightMode,
+              });
 
               return (
                 <div
@@ -924,24 +939,40 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="flex items-center gap-3">
                         <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm border ${
+                          className={`relative w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm border ${
                             isActive
                               ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
                               : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                           }`}
                         >
                           {user.fullName.charAt(0).toUpperCase()}
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-2 ${
+                              resolvedLightMode ? 'ring-slate-50' : 'ring-slate-900'
+                            } ${presenceMeta.dotClass}`}
+                            title={presenceMeta.label}
+                          />
                         </div>
                         <div>
                           <div className="flex items-center gap-1.5">
-                            <h3 className="font-bold text-sm text-white">{user.fullName}</h3>
+                            <h3 className={`font-bold text-sm ${resolvedLightMode ? 'text-slate-900' : 'text-white'}`}>
+                              {user.fullName}
+                            </h3>
                             {user.isBuiltin && (
                               <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold">
                                 {isEn ? 'Builtin' : 'سیستمی'}
                               </span>
                             )}
                           </div>
-                          <p className="text-[11px] text-cyan-400/80 font-mono">@{user.username}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <p className="text-[11px] text-cyan-400/80 font-mono">@{user.username}</p>
+                            <span
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${presenceMeta.badgeClass}`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${presenceMeta.dotClass}`} />
+                              <span>{presenceMeta.label}</span>
+                            </span>
+                          </div>
                         </div>
                       </div>
 

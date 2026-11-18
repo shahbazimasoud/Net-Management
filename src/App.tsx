@@ -72,6 +72,11 @@ import {
 import { appDataCache } from './services/dataCache';
 import { connectCommsWebSocket, fetchUnreadCommsCounts } from './services/commsApi';
 import {
+  applyCommsPresenceSnapshot,
+  applyCommsPresenceUpdate,
+  resetCommsPresenceStore,
+} from './services/commsPresence';
+import {
   logDeviceAddition,
   logDeviceDeletion,
   logDeviceUpdate,
@@ -171,6 +176,7 @@ export default function App() {
   useEffect(() => {
     if (!isAuthenticated) {
       setUnreadCommsCount(0);
+      resetCommsPresenceStore();
       return;
     }
 
@@ -186,6 +192,15 @@ export default function App() {
     const conn = connectCommsWebSocket((evt) => {
       if (cancelled) return;
       if (evt.type === 'ping' || evt.type === 'pong') return;
+      if (evt.type === 'presence:snapshot') {
+        applyCommsPresenceSnapshot(evt.statuses);
+        return;
+      }
+      if (evt.type === 'presence:updated') {
+        applyCommsPresenceUpdate(evt);
+        window.dispatchEvent(new CustomEvent('nettop-comms-ws-event', { detail: evt }));
+        return;
+      }
       window.dispatchEvent(new CustomEvent('nettop-comms-ws-event', { detail: evt }));
 
       const nextUnread = 'unreadCount' in evt && typeof evt.unreadCount === 'number' ? evt.unreadCount : undefined;
@@ -243,6 +258,7 @@ export default function App() {
     return () => {
       cancelled = true;
       conn.close();
+      resetCommsPresenceStore();
     };
   }, [isAuthenticated]);
 

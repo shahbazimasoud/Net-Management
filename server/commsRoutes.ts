@@ -30,6 +30,7 @@ import {
   shareChannelSnippet,
   toggleChannelMute,
 } from './commsService';
+import { getCommsPresenceSnapshot } from './commsWs';
 import {
   CommsApprovalSharePayload,
   CommsDispatchPayload,
@@ -247,6 +248,24 @@ commsRouter.get('/comms/recipients', async (req: Request, res: Response) => {
     return res.json({ success: true, options });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch recipients' });
+  }
+});
+
+// GET /api/comms/presence
+commsRouter.get('/comms/presence', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+
+  try {
+    return res.json({
+      success: true,
+      statuses: getCommsPresenceSnapshot(),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to read presence' });
   }
 });
 

@@ -13,6 +13,11 @@ import {
   MapPin,
 } from 'lucide-react';
 import { CommsProjectedEntityCard } from '../../types';
+import {
+  getCommsUserPresenceMeta,
+  resolvePresenceFromState,
+  useCommsPresenceMap,
+} from '../../services/commsPresence';
 
 export type CommsEntityCardAction = 'ports' | 'terminal' | 'view';
 
@@ -51,6 +56,7 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
   compact = false,
   onOpenDirectUser,
 }) => {
+  const presenceState = useCommsPresenceMap();
   if (!Array.isArray(cards) || cards.length === 0) return null;
   const selfDark = isSelf && !isLightMode;
 
@@ -152,6 +158,16 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
 
         if (isUser) {
           const uname = card.username || card.entityId;
+          const userPresence = resolvePresenceFromState(
+            presenceState,
+            [card.username, card.entityId],
+            card.presenceStatus,
+            card.isOnline
+          );
+          const presenceMeta = getCommsUserPresenceMeta(userPresence, isEn, {
+            isLightMode,
+            selfDark,
+          });
           return (
             <div key={key} className={`comms-chat-card rounded-xl border px-2.5 py-2 transition ${cardContainerCls}`}>
               <div className="flex items-center justify-between gap-2">
@@ -170,18 +186,8 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span
-                        className={`w-2 h-2 rounded-full shrink-0 ${
-                          card.isOnline ? 'bg-emerald-400' : 'bg-slate-400'
-                        }`}
-                        title={
-                          card.isOnline
-                            ? isEn
-                              ? 'Online'
-                              : 'آنلاین'
-                            : isEn
-                            ? 'Offline'
-                            : 'آفلاین'
-                        }
+                        className={`w-2 h-2 rounded-full shrink-0 ${presenceMeta.dotClass}`}
+                        title={presenceMeta.label}
                       />
                       <span className="font-bold text-xs truncate">{card.name || uname}</span>
                       {card.isChannelMember && (
@@ -206,6 +212,10 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
                           <span>{card.role}</span>
                         </>
                       )}
+                      <span aria-hidden="true">·</span>
+                      <span className={`font-semibold ${presenceMeta.textClass}`}>
+                        {presenceMeta.label}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -222,21 +232,9 @@ export const EntityMentionCardList: React.FC<EntityMentionCardListProps> = ({
                   </button>
                 ) : (
                   <span
-                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold shrink-0 ${
-                      card.isOnline
-                        ? selfDark
-                          ? 'bg-emerald-400/25 text-emerald-100'
-                          : isLightMode
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-emerald-500/20 text-emerald-300'
-                        : selfDark
-                        ? 'bg-white/15 text-white'
-                        : isLightMode
-                        ? 'bg-slate-100 text-slate-600'
-                        : 'bg-white/10 text-slate-300'
-                    }`}
+                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold shrink-0 ${presenceMeta.badgeClass}`}
                   >
-                    {card.isOnline ? (isEn ? 'Online' : 'آنلاین') : isEn ? 'Offline' : 'آفلاین'}
+                    {presenceMeta.label}
                   </span>
                 )}
               </div>

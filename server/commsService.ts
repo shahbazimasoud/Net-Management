@@ -56,7 +56,7 @@ import type { RawApprovalCommsSnapshot } from './approvalService';
 import {
   broadcastCommsEventToRecipients,
   broadcastCommsEventToUser,
-  isCommsUserOnline,
+  getCommsUserPresence,
   registerCommsSyncProvider,
 } from './commsWs';
 import { evaluateNotificationDeliveryForUser } from './profileService';
@@ -821,6 +821,7 @@ export async function getCommsRecipients(): Promise<CommsRecipientOption[]> {
   const localUsers = (localUsersRaw || []).filter((u) => u && u.status !== 'disabled');
   for (const u of localUsers) {
     const formatted = formatUserDisplay(u.fullName, u.username);
+    const presenceStatus = getCommsUserPresence({ userId: u.id, username: u.username });
     options.push({
       type: 'user',
       id: u.id,
@@ -829,6 +830,8 @@ export async function getCommsRecipients(): Promise<CommsRecipientOption[]> {
       labelEn: formatted,
       roleOrType: u.role || 'Local User',
       source: 'local',
+      presenceStatus,
+      isOnline: presenceStatus === 'online',
     });
   }
 
@@ -840,14 +843,18 @@ export async function getCommsRecipients(): Promise<CommsRecipientOption[]> {
       if (!uname || seenUsernames.has(uname)) continue;
       seenUsernames.add(uname);
       const formattedAd = formatUserDisplay(adUser.displayName, adUser.name || adUser.id);
+      const adUid = adUser.rawId || adUser.id;
+      const adPresence = getCommsUserPresence({ userId: adUid, username: adUser.name || uname });
       options.push({
         type: 'user',
-        id: adUser.rawId || adUser.id,
+        id: adUid,
         username: adUser.name,
         label: formattedAd,
         labelEn: formattedAd,
         roleOrType: adUser.role || 'AD User',
         source: 'ad',
+        presenceStatus: adPresence,
+        isOnline: adPresence === 'online',
       });
     }
   }
@@ -1674,6 +1681,7 @@ function mapChannelMemberRow(
   const username = row.username ?? '';
   const dirInfo =
     dirMap?.get(username.toLowerCase()) || dirMap?.get(userId.toLowerCase()) || undefined;
+  const presenceStatus = getCommsUserPresence({ userId: dirInfo?.userId || userId, username });
   return {
     channelId: row.channel_id ?? row.channelId ?? '',
     userId,
@@ -1688,6 +1696,8 @@ function mapChannelMemberRow(
     joinedAt: row.joined_at
       ? new Date(row.joined_at).toISOString()
       : row.joinedAt || new Date().toISOString(),
+    presenceStatus,
+    isOnline: presenceStatus === 'online',
   };
 }
 
@@ -2889,13 +2899,15 @@ function buildProjectedCardsForViewer(
       const lookupKey = ref.entityId.trim().toLowerCase();
       const dirEntry = directoryMap?.get(lookupKey);
       if (!dirEntry) {
+        const fallbackPresence = getCommsUserPresence({ username: ref.entityId });
         cards.push({
           entityType: 'user',
           entityId: ref.entityId,
           accessRestricted: false,
           name: ref.entityId,
           username: ref.entityId,
-          isOnline: false,
+          presenceStatus: fallbackPresence,
+          isOnline: fallbackPresence === 'online',
           canOpenDirectChat: false,
           canOpenDeviceView: false,
         });
@@ -2913,6 +2925,10 @@ function buildProjectedCardsForViewer(
       const isMember = channelMemberIdSet
         ? userIds.some((id) => channelMemberIdSet.has(id))
         : undefined;
+      const presenceStatus = getCommsUserPresence({
+        userId: dirEntry.userId,
+        username: dirEntry.username,
+      });
 
       cards.push({
         entityType: 'user',
@@ -2921,10 +2937,8 @@ function buildProjectedCardsForViewer(
         name: cleanName,
         username: dirEntry.username,
         role: dirEntry.role,
-        isOnline: isCommsUserOnline({
-          userId: dirEntry.userId,
-          username: dirEntry.username,
-        }),
+        presenceStatus,
+        isOnline: presenceStatus === 'online',
         isChannelMember: isMember,
         canOpenDirectChat: !isSelfViewer,
         canOpenDeviceView: false,
@@ -2992,7 +3006,7 @@ export async function searchScopedEntityMentions(
     const isSelf = entryIds.some((id) => actorIds.has(id));
     const isChannelMember =
       channelMemberIds.size > 0 ? entryIds.some((id) => channelMemberIds.has(id)) : false;
-    const isOnline = isCommsUserOnline({ userId: entry.userId, username: uname });
+    const presenceStatus = getCommsUserPresence({ userId: entry.userId, username: uname });
 
     matchedUsers.push({
       isSelf,
@@ -3004,10 +3018,14 @@ export async function searchScopedEntityMentions(
         isChannelMember,
         name: display && display.toLowerCase() !== uname.toLowerCase() ? display : uname,
         subtitle: `@${uname} · ${role}`,
-        isOnline,
+        presenceStatus,
+        isOnline: presenceStatus === 'online',
       },
     });
   }
+
+  const presenceRank = (status?: string) =>
+    status === 'online' ? 0 : status === 'idle' ? 1 : 2;
 
   matchedUsers.sort((a, b) => {
     if (a.cand.isChannelMember !== b.cand.isChannelMember) {
@@ -3016,9 +3034,8 @@ export async function searchScopedEntityMentions(
     if (a.isSelf !== b.isSelf) {
       return a.isSelf ? 1 : -1;
     }
-    if (Boolean(a.cand.isOnline) !== Boolean(b.cand.isOnline)) {
-      return a.cand.isOnline ? -1 : 1;
-    }
+    const rankDiff = presenceRank(a.cand.presenceStatus) - presenceRank(b.cand.presenceStatus);
+    if (rankDiff !== 0) return rankDiff;
     return a.cand.name.localeCompare(b.cand.name);
   });
 
@@ -6882,7 +6899,7 @@ export async function exportChannelHandoverSummary(
 
   const participantMap = new Map<
     string,
-    { username: string; fullName?: string; role?: string | null; messageCount: number }
+    CommsHandoverSummaryResponse['participants'][number]
   >();
   const mentionedEntityMap = new Map<
     string,
@@ -6905,6 +6922,10 @@ export async function exportChannelHandoverSummary(
         fullName: m.senderFullName || undefined,
         role: m.senderRole || null,
         messageCount: 1,
+        presenceStatus: getCommsUserPresence({
+          userId: m.senderUserId,
+          username: m.senderUsername,
+        }),
       });
     }
 
@@ -6923,6 +6944,7 @@ export async function exportChannelHandoverSummary(
             entityIp: card.ip,
             portId: card.portId || null,
             isOnline: card.isOnline ?? null,
+            presenceStatus: card.entityType === 'user' ? card.presenceStatus ?? null : null,
           });
         }
       }
@@ -7030,7 +7052,7 @@ export async function exportChannelHandoverSummary(
     ...(mentionedEntities.length > 0
       ? mentionedEntities.map(
           (e) =>
-            `- **[${e.entityType.toUpperCase()}]** ${e.entityName}${e.portId ? ` · Port ${e.portId}` : ''}${e.entityIp ? ` (\`${e.entityIp}\`)` : ''}${e.isOnline === true ? ' — Online' : e.isOnline === false ? ' — Offline' : ''}`
+            `- **[${e.entityType.toUpperCase()}]** ${e.entityName}${e.portId ? ` · Port ${e.portId}` : ''}${e.entityIp ? ` (\`${e.entityIp}\`)` : ''}${e.presenceStatus === 'idle' ? ' — Idle' : e.isOnline === true || e.presenceStatus === 'online' ? ' — Online' : e.isOnline === false || e.presenceStatus === 'offline' ? ' — Offline' : ''}`
         )
       : ['- _No permitted infrastructure mentions in window._']),
     '',
@@ -7084,7 +7106,7 @@ export async function exportChannelHandoverSummary(
     ...(mentionedEntities.length > 0
       ? mentionedEntities.map(
           (e) =>
-            `- **[${e.entityType.toUpperCase()}]** ${e.entityName}${e.portId ? ` · پورت ${e.portId}` : ''}${e.entityIp ? ` (\`${e.entityIp}\`)` : ''}${e.isOnline === true ? ' — آنلاین' : e.isOnline === false ? ' — آفلاین' : ''}`
+            `- **[${e.entityType.toUpperCase()}]** ${e.entityName}${e.portId ? ` · پورت ${e.portId}` : ''}${e.entityIp ? ` (\`${e.entityIp}\`)` : ''}${e.presenceStatus === 'idle' ? ' — بدون فعالیت' : e.isOnline === true || e.presenceStatus === 'online' ? ' — آنلاین' : e.isOnline === false || e.presenceStatus === 'offline' ? ' — آفلاین' : ''}`
         )
       : ['- _تجهیز یا سرور مجازی در این بازه ذکر نشده است._']),
     '',

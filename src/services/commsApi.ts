@@ -14,6 +14,7 @@ import {
   CommsRecipientOption,
   CommsSeverity,
   CommsSnippetSharePayload,
+  CommsUserPresenceStatus,
 } from '../types';
 import { appDataCache } from './dataCache';
 
@@ -702,7 +703,25 @@ export type CommsWsEvent =
       targetEntityId?: string;
       actionKey?: string;
     }
+  | {
+      type: 'presence:snapshot';
+      statuses: Record<string, CommsUserPresenceStatus>;
+      timestamp?: string;
+    }
+  | {
+      type: 'presence:updated';
+      userId?: string;
+      username?: string;
+      identifiers?: string[];
+      status: CommsUserPresenceStatus;
+      timestamp?: string;
+    }
   | { type: 'ping' | 'pong'; timestamp?: number };
+
+const USER_IDLE_TIMEOUT_MS = 120_000; // 2m of no interaction in panel -> Idle
+const HIDDEN_IDLE_TIMEOUT_MS = 60_000; // 1m while tab hidden -> Idle
+const ACTIVE_KEEPALIVE_MS = 45_000; // Keep server lastActivityAt fresh while working
+const IDLE_CHECK_INTERVAL_MS = 10_000;
 
 export function connectCommsWebSocket(
   onEvent: (event: CommsWsEvent) => void
@@ -712,6 +731,98 @@ export function connectCommsWebSocket(
   let retryDelay = 1500;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
+  let idleCheckTimer: ReturnType<typeof setInterval> | null = null;
+
+  let localActivityState: 'active' | 'idle' = 'active';
+  let lastInteractionAt = Date.now();
+  let lastActiveSentAt = 0;
+
+  const sendPresenceActivity = (nextState: 'active' | 'idle') => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      ws.send(JSON.stringify({ type: 'presence:activity', state: nextState }));
+      if (nextState === 'active') {
+        lastActiveSentAt = Date.now();
+      }
+    } catch {}
+  };
+
+  const handleUserInteraction = () => {
+    if (stopped) return;
+    const now = Date.now();
+    lastInteractionAt = now;
+    if (localActivityState !== 'active') {
+      localActivityState = 'active';
+      sendPresenceActivity('active');
+    } else if (now - lastActiveSentAt >= ACTIVE_KEEPALIVE_MS) {
+      sendPresenceActivity('active');
+    }
+  };
+
+  const evaluateIdleState = () => {
+    if (stopped) return;
+    const now = Date.now();
+    const isHidden =
+      typeof document !== 'undefined' && document.visibilityState === 'hidden';
+    const threshold = isHidden ? HIDDEN_IDLE_TIMEOUT_MS : USER_IDLE_TIMEOUT_MS;
+    if (localActivityState === 'active' && now - lastInteractionAt >= threshold) {
+      localActivityState = 'idle';
+      sendPresenceActivity('idle');
+    }
+  };
+
+  const handleVisibilityChange = () => {
+    if (typeof document === 'undefined') return;
+    if (document.visibilityState === 'visible') {
+      handleUserInteraction();
+    } else {
+      evaluateIdleState();
+    }
+  };
+
+  const attachActivityListeners = () => {
+    if (typeof window === 'undefined') return;
+    const events: Array<keyof WindowEventMap> = [
+      'mousemove',
+      'mousedown',
+      'keydown',
+      'touchstart',
+      'wheel',
+      'focus',
+    ];
+    for (const ev of events) {
+      window.addEventListener(ev, handleUserInteraction, { passive: true });
+    }
+    window.addEventListener('scroll', handleUserInteraction, { passive: true, capture: true });
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+    if (idleCheckTimer) clearInterval(idleCheckTimer);
+    idleCheckTimer = setInterval(evaluateIdleState, IDLE_CHECK_INTERVAL_MS);
+  };
+
+  const detachActivityListeners = () => {
+    if (typeof window === 'undefined') return;
+    const events: Array<keyof WindowEventMap> = [
+      'mousemove',
+      'mousedown',
+      'keydown',
+      'touchstart',
+      'wheel',
+      'focus',
+    ];
+    for (const ev of events) {
+      window.removeEventListener(ev, handleUserInteraction);
+    }
+    window.removeEventListener('scroll', handleUserInteraction, { capture: true });
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }
+    if (idleCheckTimer) {
+      clearInterval(idleCheckTimer);
+      idleCheckTimer = null;
+    }
+  };
 
   const connect = () => {
     if (stopped || typeof window === 'undefined') return;
@@ -730,6 +841,13 @@ export function connectCommsWebSocket(
 
     ws.onopen = () => {
       retryDelay = 1500;
+      lastInteractionAt = Date.now();
+      localActivityState =
+        typeof document !== 'undefined' && document.visibilityState === 'hidden'
+          ? 'idle'
+          : 'active';
+      sendPresenceActivity(localActivityState);
+
       if (pingTimer) clearInterval(pingTimer);
       pingTimer = setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -775,11 +893,13 @@ export function connectCommsWebSocket(
     }, retryDelay);
   };
 
+  attachActivityListeners();
   connect();
 
   return {
     close: () => {
       stopped = true;
+      detachActivityListeners();
       if (retryTimer) clearTimeout(retryTimer);
       if (pingTimer) clearInterval(pingTimer);
       try {

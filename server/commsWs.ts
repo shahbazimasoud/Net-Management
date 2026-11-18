@@ -2,16 +2,34 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { verifyToken, UserSessionPayload } from './auth';
 import { findUserById, findUserByUsername } from './db';
+import { CommsUserPresenceStatus } from '../src/types';
 
 interface RegisteredCommsSocket {
   ws: WebSocket;
   userId: string;
   username: string;
   identifiers: string[];
+  canonicalKey: string;
+  activityState: 'active' | 'idle';
+  lastActivityAt: number;
+  sessionToken: string;
 }
+
+const SERVER_IDLE_FALLBACK_MS = 150_000; // 2.5m safety timeout if client background timer is throttled
+const PRESENCE_SWEEP_INTERVAL_MS = 20_000;
 
 // Track active WebSocket connections keyed by normalized identifier (userId, username, samAccount)
 const socketsByIdentifier = new Map<string, Set<RegisteredCommsSocket>>();
+const allActiveSockets = new Set<RegisteredCommsSocket>();
+const lastBroadcastPresenceByUser = new Map<
+  string,
+  {
+    status: CommsUserPresenceStatus;
+    userId: string;
+    username: string;
+    identifiers: string[];
+  }
+>();
 
 type SyncProviderFn = (user: {
   userId: string;
@@ -21,6 +39,7 @@ type SyncProviderFn = (user: {
 }) => Promise<{ unreadCount: number; countsByFolder: any }>;
 
 let syncProvider: SyncProviderFn | null = null;
+let sweeperStarted = false;
 
 export function registerCommsSyncProvider(provider: SyncProviderFn): void {
   syncProvider = provider;
@@ -46,7 +65,169 @@ function normalizeIdentifiers(user: { userId?: string; username?: string }): str
   return Array.from(set);
 }
 
+function isSocketActiveNow(entry: RegisteredCommsSocket, nowMs: number): boolean {
+  if (entry.ws.readyState !== WebSocket.OPEN) return false;
+  if (entry.activityState !== 'active') return false;
+  return nowMs - entry.lastActivityAt < SERVER_IDLE_FALLBACK_MS;
+}
+
+export function getCommsUserPresence(
+  user: { userId?: string; username?: string },
+  nowMs: number = Date.now()
+): CommsUserPresenceStatus {
+  const ids = normalizeIdentifiers(user);
+  let hasOpenSocket = false;
+  for (const idKey of ids) {
+    const set = socketsByIdentifier.get(idKey);
+    if (!set || set.size === 0) continue;
+    for (const entry of set) {
+      if (entry.ws.readyState !== WebSocket.OPEN) continue;
+      hasOpenSocket = true;
+      if (isSocketActiveNow(entry, nowMs)) {
+        return 'online';
+      }
+    }
+  }
+  return hasOpenSocket ? 'idle' : 'offline';
+}
+
+export function isCommsUserOnline(user: { userId?: string; username?: string }): boolean {
+  return getCommsUserPresence(user) === 'online';
+}
+
+export function disconnectCommsSocketsForToken(token: string): void {
+  const clean = (token || '').trim();
+  if (!clean) return;
+  for (const entry of Array.from(allActiveSockets)) {
+    if (entry.sessionToken === clean) {
+      unregisterSocket(entry);
+      try {
+        entry.ws.close(1000, 'Logged out');
+      } catch {}
+      syncAndBroadcastUserPresence(entry);
+    }
+  }
+}
+
+export function getCommsPresenceSnapshot(
+  nowMs: number = Date.now()
+): Record<string, CommsUserPresenceStatus> {
+  const snapshot: Record<string, CommsUserPresenceStatus> = {};
+  const computedByCanonical = new Map<string, CommsUserPresenceStatus>();
+
+  for (const entry of allActiveSockets) {
+    if (entry.ws.readyState !== WebSocket.OPEN) continue;
+    const prev = computedByCanonical.get(entry.canonicalKey);
+    const entryActive = isSocketActiveNow(entry, nowMs);
+    if (entryActive) {
+      computedByCanonical.set(entry.canonicalKey, 'online');
+    } else if (!prev) {
+      computedByCanonical.set(entry.canonicalKey, 'idle');
+    }
+  }
+
+  for (const entry of allActiveSockets) {
+    if (entry.ws.readyState !== WebSocket.OPEN) continue;
+    const status = computedByCanonical.get(entry.canonicalKey) || 'idle';
+    for (const idKey of entry.identifiers) {
+      const existing = snapshot[idKey];
+      if (!existing || status === 'online') {
+        snapshot[idKey] = status;
+      }
+    }
+  }
+
+  return snapshot;
+}
+
+function broadcastPresenceToAllConnected(event: any): void {
+  if (allActiveSockets.size === 0) return;
+  const payloadStr = JSON.stringify(event);
+  for (const entry of allActiveSockets) {
+    if (entry.ws.readyState === WebSocket.OPEN) {
+      try {
+        entry.ws.send(payloadStr);
+      } catch {}
+    }
+  }
+}
+
+function syncAndBroadcastUserPresence(
+  user: {
+    canonicalKey: string;
+    userId: string;
+    username: string;
+    identifiers: string[];
+  },
+  nowMs: number = Date.now()
+): void {
+  const nextStatus = getCommsUserPresence(
+    { userId: user.userId, username: user.username },
+    nowMs
+  );
+  const prevRecord = lastBroadcastPresenceByUser.get(user.canonicalKey);
+  const prevStatus: CommsUserPresenceStatus = prevRecord?.status || 'offline';
+
+  if (nextStatus === prevStatus) return;
+
+  if (nextStatus === 'offline') {
+    lastBroadcastPresenceByUser.delete(user.canonicalKey);
+  } else {
+    lastBroadcastPresenceByUser.set(user.canonicalKey, {
+      status: nextStatus,
+      userId: user.userId,
+      username: user.username,
+      identifiers: user.identifiers,
+    });
+  }
+
+  broadcastPresenceToAllConnected({
+    type: 'presence:updated',
+    userId: user.userId,
+    username: user.username,
+    identifiers: user.identifiers,
+    status: nextStatus,
+    timestamp: new Date(nowMs).toISOString(),
+  });
+}
+
+function ensurePresenceSweeper(): void {
+  if (sweeperStarted) return;
+  sweeperStarted = true;
+  const timer = setInterval(() => {
+    const nowMs = Date.now();
+    const candidatesToSync = new Map<
+      string,
+      { canonicalKey: string; userId: string; username: string; identifiers: string[] }
+    >();
+
+    for (const entry of allActiveSockets) {
+      if (entry.ws.readyState !== WebSocket.OPEN) continue;
+      if (entry.activityState === 'active' && nowMs - entry.lastActivityAt >= SERVER_IDLE_FALLBACK_MS) {
+        entry.activityState = 'idle';
+        if (!candidatesToSync.has(entry.canonicalKey)) {
+          candidatesToSync.set(entry.canonicalKey, {
+            canonicalKey: entry.canonicalKey,
+            userId: entry.userId,
+            username: entry.username,
+            identifiers: entry.identifiers,
+          });
+        }
+      }
+    }
+
+    for (const userInfo of candidatesToSync.values()) {
+      syncAndBroadcastUserPresence(userInfo, nowMs);
+    }
+  }, PRESENCE_SWEEP_INTERVAL_MS);
+
+  if (typeof timer.unref === 'function') {
+    timer.unref();
+  }
+}
+
 function registerSocket(entry: RegisteredCommsSocket): void {
+  allActiveSockets.add(entry);
   for (const idKey of entry.identifiers) {
     let set = socketsByIdentifier.get(idKey);
     if (!set) {
@@ -58,6 +239,7 @@ function registerSocket(entry: RegisteredCommsSocket): void {
 }
 
 function unregisterSocket(entry: RegisteredCommsSocket): void {
+  allActiveSockets.delete(entry);
   for (const idKey of entry.identifiers) {
     const set = socketsByIdentifier.get(idKey);
     if (set) {
@@ -118,17 +300,9 @@ export function broadcastCommsEventToUser(
   broadcastCommsEventToRecipients([user], undefined, event);
 }
 
-export function isCommsUserOnline(user: { userId?: string; username?: string }): boolean {
-  const ids = normalizeIdentifiers(user);
-  for (const idKey of ids) {
-    const set = socketsByIdentifier.get(idKey);
-    if (set && set.size > 0) return true;
-  }
-  return false;
-}
-
 export function setupCommsWebSocket(server: http.Server): void {
   const wss = new WebSocketServer({ noServer: true });
+  ensurePresenceSweeper();
 
   server.on('upgrade', (req, socket, head) => {
     const url = req.url || '';
@@ -176,11 +350,16 @@ export function setupCommsWebSocket(server: http.Server): void {
       userType: dbUser?.userType || payload.userType,
     };
 
+    const canonicalKey = (effectiveUser.username || effectiveUser.userId || '').trim().toLowerCase();
     const entry: RegisteredCommsSocket = {
       ws: clientWs,
       userId: effectiveUser.userId,
       username: effectiveUser.username,
       identifiers: normalizeIdentifiers(effectiveUser),
+      canonicalKey,
+      activityState: 'active',
+      lastActivityAt: Date.now(),
+      sessionToken: token,
     };
 
     registerSocket(entry);
@@ -192,6 +371,14 @@ export function setupCommsWebSocket(server: http.Server): void {
         } catch {}
       }
     };
+
+    // Broadcast presence transition (e.g., offline/idle -> online) to peers and push full live snapshot to caller
+    syncAndBroadcastUserPresence(entry);
+    sendSafe({
+      type: 'presence:snapshot',
+      statuses: getCommsPresenceSnapshot(),
+      timestamp: new Date().toISOString(),
+    });
 
     // Emit initial live unread counters on connect
     if (syncProvider) {
@@ -219,6 +406,13 @@ export function setupCommsWebSocket(server: http.Server): void {
         const parsed = JSON.parse(raw.toString());
         if (parsed.type === 'ping') {
           sendSafe({ type: 'pong', timestamp: Date.now() });
+        } else if (parsed.type === 'presence:activity') {
+          const nextState = parsed.state === 'idle' ? 'idle' : 'active';
+          entry.activityState = nextState;
+          if (nextState === 'active') {
+            entry.lastActivityAt = Date.now();
+          }
+          syncAndBroadcastUserPresence(entry);
         } else if (parsed.type === 'sync' && syncProvider) {
           const counts = await syncProvider(effectiveUser);
           sendSafe({
@@ -231,9 +425,13 @@ export function setupCommsWebSocket(server: http.Server): void {
       } catch {}
     });
 
+    let cleanedUp = false;
     const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
       clearInterval(heartbeat);
       unregisterSocket(entry);
+      syncAndBroadcastUserPresence(entry);
     };
 
     clientWs.on('close', cleanup);

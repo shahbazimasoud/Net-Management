@@ -11,6 +11,11 @@ import {
 } from 'lucide-react';
 import { CommsEntityMentionRef, CommsMentionCandidate } from '../../types';
 import { searchCommsMentionEntities } from '../../services/commsApi';
+import {
+  getCommsUserPresenceMeta,
+  resolvePresenceFromState,
+  useCommsPresenceMap,
+} from '../../services/commsPresence';
 
 export interface SelectedEntityMentionItem {
   ref: CommsEntityMentionRef;
@@ -123,6 +128,7 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<CommsMentionCandidate[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const presenceState = useCommsPresenceMap();
 
   const atTrigger = useMemo(() => extractTrailingAtQuery(draftBody), [draftBody]);
   const isOpen = !disabled && (manualOpen || atTrigger.active);
@@ -295,6 +301,17 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
             ).toLowerCase()}`;
             const alreadyAdded = selectedKeys.has(dedupeKey);
             const isUser = cand.entityType === 'user';
+            const userPresence = isUser
+              ? resolvePresenceFromState(
+                  presenceState,
+                  [cand.username, cand.entityId],
+                  cand.presenceStatus,
+                  cand.isOnline
+                )
+              : null;
+            const userPresenceMeta = userPresence
+              ? getCommsUserPresenceMeta(userPresence, isEn, { isLightMode })
+              : null;
             const Icon =
               isUser
                 ? User
@@ -332,14 +349,20 @@ export const EntityMentionPickerPopover: React.FC<EntityMentionPickerProps> = ({
                     <div className="flex items-center gap-1.5">
                       <span
                         className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                          cand.isOnline
+                          isUser && userPresenceMeta
+                            ? userPresenceMeta.dotClass
+                            : cand.isOnline
                             ? 'bg-emerald-400'
-                            : isUser
-                            ? 'bg-slate-400'
                             : 'bg-rose-400'
                         }`}
+                        title={userPresenceMeta ? userPresenceMeta.label : undefined}
                       />
                       <span className="font-semibold truncate">{cand.name}</span>
+                      {userPresenceMeta && (
+                        <span className={`text-[10px] font-medium shrink-0 ${userPresenceMeta.textClass}`}>
+                          · {userPresenceMeta.label}
+                        </span>
+                      )}
                     </div>
                     <p
                       className={`text-[10.5px] truncate font-mono ${

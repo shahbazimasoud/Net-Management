@@ -1882,6 +1882,12 @@ apiRouter.post('/auth/logout', async (req: Request, res: Response) => {
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
   const payload = verifyToken(token);
 
+  if (token) {
+    import('./commsWs')
+      .then((mod) => mod.disconnectCommsSocketsForToken(token))
+      .catch(() => {});
+  }
+
   if (payload) {
     await addAuditLog({
       userName: payload.username,

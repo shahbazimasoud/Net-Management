@@ -65,6 +65,12 @@ import { SnippetDiffCard } from './SnippetDiffCard';
 import { ApprovalChatCard } from './ApprovalChatCard';
 import { dispatchOpenChannelHandover } from './ChannelHandoverModal';
 import { ComposerActionsMenu } from './ComposerActionsMenu';
+import {
+  getCommsUserPresenceMeta,
+  presenceSortRank,
+  resolvePresenceFromState,
+  useCommsPresenceMap,
+} from '../../services/commsPresence';
 
 export interface FooterTeamChatDockProps {
   isEn: boolean;
@@ -164,9 +170,33 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
   unreadCountRef.current = channel.unreadCount || 0;
   onChannelReadRef.current = onChannelRead;
 
+  const presenceState = useCommsPresenceMap();
+
   const channelTitle = dedupeParenthesizedTitle(
     isEn ? channel.nameEn || channel.name : channel.name
   );
+
+  const directPeerMember = useMemo(() => {
+    if (channel.channelType !== 'direct') return null;
+    const me = currentUsername.trim().toLowerCase();
+    return (
+      (channel.members || []).find((m) => (m.username || '').trim().toLowerCase() !== me) ||
+      channel.members?.[0] ||
+      null
+    );
+  }, [channel.channelType, channel.members, currentUsername]);
+
+  const directPeerPresence = directPeerMember
+    ? resolvePresenceFromState(
+        presenceState,
+        [directPeerMember.username, directPeerMember.userId],
+        directPeerMember.presenceStatus,
+        directPeerMember.isOnline
+      )
+    : 'offline';
+  const directPeerPresenceMeta = getCommsUserPresenceMeta(directPeerPresence, isEn, {
+    isLightMode,
+  });
 
   const loadMessages = useCallback(
     async (forceRefresh = false) => {
@@ -469,7 +499,7 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
 
   const availableAddUsers = useMemo(() => {
     const q = addMemberSearch.trim().toLowerCase();
-    return memberOptions.filter((r) => {
+    const list = memberOptions.filter((r) => {
       if (r.type !== 'user') return false;
       const uname = (r.username || '').toLowerCase();
       if (!uname || existingUsernames.has(uname)) return false;
@@ -480,7 +510,16 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
         uname.includes(q)
       );
     });
-  }, [addMemberSearch, existingUsernames, memberOptions]);
+    return [...list].sort((a, b) => {
+      const pa = resolvePresenceFromState(presenceState, [a.username, a.id], a.presenceStatus, a.isOnline);
+      const pb = resolvePresenceFromState(presenceState, [b.username, b.id], b.presenceStatus, b.isOnline);
+      const diff = presenceSortRank(pa) - presenceSortRank(pb);
+      if (diff !== 0) return diff;
+      return (a.labelEn || a.label || a.username || '').localeCompare(
+        b.labelEn || b.label || b.username || ''
+      );
+    });
+  }, [addMemberSearch, existingUsernames, memberOptions, presenceState]);
 
   const handleAddSingleMember = async (usernameToAdd: string) => {
     if (!usernameToAdd || addingUsername) return;
@@ -567,7 +606,7 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <div
-            className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
+            className={`relative w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
               channel.channelType === 'direct'
                 ? isLightMode
                   ? 'bg-sky-50 text-sky-600'
@@ -581,6 +620,14 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
               <User className="w-3 h-3" />
             ) : (
               <Hash className="w-3 h-3" />
+            )}
+            {channel.channelType === 'direct' && directPeerMember && (
+              <span
+                className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1 ${
+                  isLightMode ? 'ring-white' : 'ring-slate-900'
+                } ${directPeerPresenceMeta.dotClass}`}
+                title={directPeerPresenceMeta.label}
+              />
             )}
           </div>
           <span className="text-xs font-semibold truncate">{channelTitle}</span>
@@ -656,7 +703,7 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <div
-            className={`w-7 h-7 rounded-lg flex items-center justify-center border shrink-0 ${
+            className={`relative w-7 h-7 rounded-lg flex items-center justify-center border shrink-0 ${
               channel.channelType === 'direct'
                 ? isLightMode
                   ? 'bg-sky-50 border-sky-200 text-sky-600'
@@ -670,6 +717,14 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
               <User className="w-3.5 h-3.5" />
             ) : (
               <Hash className="w-3.5 h-3.5" />
+            )}
+            {channel.channelType === 'direct' && directPeerMember && (
+              <span
+                className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ${
+                  isLightMode ? 'ring-slate-50' : 'ring-slate-950'
+                } ${directPeerPresenceMeta.dotClass}`}
+                title={directPeerPresenceMeta.label}
+              />
             )}
           </div>
           <div className="min-w-0 flex-1">
@@ -689,9 +744,16 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
                   : 'کانال گروهی'}
               </span>
               <span aria-hidden="true">·</span>
-              <span className="tabular-nums">
-                {isEn ? `${channel.memberCount} members` : `${channel.memberCount} عضو`}
-              </span>
+              {channel.channelType === 'direct' && directPeerMember ? (
+                <span className={`inline-flex items-center gap-1 font-medium ${directPeerPresenceMeta.textClass}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${directPeerPresenceMeta.dotClass}`} />
+                  <span>{directPeerPresenceMeta.label}</span>
+                </span>
+              ) : (
+                <span className="tabular-nums">
+                  {isEn ? `${channel.memberCount} members` : `${channel.memberCount} عضو`}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -1037,12 +1099,26 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
           }`}
         >
           <span className="font-semibold">{isEn ? 'Members:' : 'اعضا:'}</span>
-          {(channel.members || []).map((m, idx) => (
-            <span key={m.userId || m.username} className="inline-flex items-center gap-1">
-              {idx > 0 && <span aria-hidden="true">·</span>}
-              <span>{m.fullName || m.username}</span>
-            </span>
-          ))}
+          {(channel.members || []).map((m, idx) => {
+            const pStatus = resolvePresenceFromState(
+              presenceState,
+              [m.username, m.userId],
+              m.presenceStatus,
+              m.isOnline
+            );
+            const pMeta = getCommsUserPresenceMeta(pStatus, isEn, { isLightMode });
+            return (
+              <span
+                key={m.userId || m.username}
+                className="inline-flex items-center gap-1"
+                title={pMeta.label}
+              >
+                {idx > 0 && <span aria-hidden="true">·</span>}
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${pMeta.dotClass}`} />
+                <span>{m.fullName || m.username}</span>
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -1093,6 +1169,13 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
               availableAddUsers.slice(0, 12).map((u) => {
                 const targetUname = u.username || u.id;
                 const display = dedupeParenthesizedTitle(isEn ? u.labelEn || u.label : u.label);
+                const pStatus = resolvePresenceFromState(
+                  presenceState,
+                  [u.username, u.id],
+                  u.presenceStatus,
+                  u.isOnline
+                );
+                const pMeta = getCommsUserPresenceMeta(pStatus, isEn, { isLightMode });
                 return (
                   <div
                     key={u.id}
@@ -1100,7 +1183,16 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
                       isLightMode ? 'bg-white/90' : 'bg-white/5'
                     }`}
                   >
-                    <span className="truncate">{display}</span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${pMeta.dotClass}`}
+                        title={pMeta.label}
+                      />
+                      <span className="truncate">{display}</span>
+                      <span className={`text-[10px] shrink-0 ${pMeta.textClass}`}>
+                        {pMeta.label}
+                      </span>
+                    </div>
                     <button
                       type="button"
                       disabled={addingUsername === targetUname}
@@ -1464,6 +1556,7 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
   onUnreadChanged,
 }) => {
   const { user, effectivePolicy } = useAuth();
+  const presenceState = useCommsPresenceMap();
   const isSuperAdmin = isUserSuperAdmin(user, effectivePolicy);
   const canSend =
     isSuperAdmin ||
@@ -1740,7 +1833,7 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
   const userRecipients = useMemo(() => {
     const me = (user?.username || '').toLowerCase();
     const q = recipientSearch.trim().toLowerCase();
-    return recipients.filter((r) => {
+    const filtered = recipients.filter((r) => {
       if (r.type !== 'user') return false;
       if ((r.username || '').toLowerCase() === me) return false;
       if (!q) return true;
@@ -1750,7 +1843,16 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
         (r.username || '').toLowerCase().includes(q)
       );
     });
-  }, [recipients, recipientSearch, user?.username]);
+    return [...filtered].sort((a, b) => {
+      const pa = resolvePresenceFromState(presenceState, [a.username, a.id], a.presenceStatus, a.isOnline);
+      const pb = resolvePresenceFromState(presenceState, [b.username, b.id], b.presenceStatus, b.isOnline);
+      const diff = presenceSortRank(pa) - presenceSortRank(pb);
+      if (diff !== 0) return diff;
+      return (a.labelEn || a.label || a.username || '').localeCompare(
+        b.labelEn || b.label || b.username || ''
+      );
+    });
+  }, [recipients, recipientSearch, user?.username, presenceState]);
 
   const handleStartDirectChat = async (targetUserId: string) => {
     setStartingChatUserId(targetUserId);
@@ -2141,6 +2243,13 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                           const displayLabel = dedupeParenthesizedTitle(
                             isEn ? u.labelEn || u.label : u.label
                           );
+                          const pStatus = resolvePresenceFromState(
+                            presenceState,
+                            [u.username, u.id],
+                            u.presenceStatus,
+                            u.isOnline
+                          );
+                          const pMeta = getCommsUserPresenceMeta(pStatus, isEn, { isLightMode });
                           const sub = [u.roleOrType, u.username].filter(Boolean).join(' · ');
                           return (
                             <button
@@ -2155,16 +2264,30 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                               }`}
                             >
                               <div
-                                className={`w-7 h-7 rounded-lg flex items-center justify-center border shrink-0 ${
+                                className={`relative w-7 h-7 rounded-lg flex items-center justify-center border shrink-0 ${
                                   isLightMode
                                     ? 'bg-sky-50 border-sky-200 text-sky-600'
                                     : 'bg-sky-500/15 border-sky-500/30 text-sky-300'
                                 }`}
                               >
                                 <User className="w-3.5 h-3.5" />
+                                <span
+                                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ${
+                                    isLightMode ? 'ring-white' : 'ring-slate-950'
+                                  } ${pMeta.dotClass}`}
+                                  title={pMeta.label}
+                                />
                               </div>
                               <div className="min-w-0 flex-1">
-                                <div className="text-xs font-semibold truncate">{displayLabel}</div>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-semibold truncate">{displayLabel}</span>
+                                  <span
+                                    className={`inline-flex items-center gap-1 text-[10px] font-medium shrink-0 ${pMeta.textClass}`}
+                                  >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${pMeta.dotClass}`} />
+                                    <span>{pMeta.label}</span>
+                                  </span>
+                                </div>
                                 {sub && (
                                   <div
                                     className={`text-[10.5px] truncate ${
@@ -2312,6 +2435,27 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                               ? rowConfirmAction.kind
                               : null;
 
+                          const meLower = (user?.username || '').trim().toLowerCase();
+                          const peerMember =
+                            ch.channelType === 'direct'
+                              ? (ch.members || []).find(
+                                  (m) => (m.username || '').trim().toLowerCase() !== meLower
+                                ) ||
+                                ch.members?.[0] ||
+                                null
+                              : null;
+                          const peerPresence = peerMember
+                            ? resolvePresenceFromState(
+                                presenceState,
+                                [peerMember.username, peerMember.userId],
+                                peerMember.presenceStatus,
+                                peerMember.isOnline
+                              )
+                            : 'offline';
+                          const peerPresenceMeta = getCommsUserPresenceMeta(peerPresence, isEn, {
+                            isLightMode,
+                          });
+
                           return (
                             <div
                               key={ch.id}
@@ -2335,7 +2479,7 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                               }`}
                             >
                               <div
-                                className={`w-8 h-8 rounded-lg flex items-center justify-center border shrink-0 mt-0.5 ${
+                                className={`relative w-8 h-8 rounded-lg flex items-center justify-center border shrink-0 mt-0.5 ${
                                   ch.channelType === 'direct'
                                     ? isLightMode
                                       ? 'bg-sky-50 border-sky-200 text-sky-600'
@@ -2349,6 +2493,14 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                                   <User className="w-4 h-4" />
                                 ) : (
                                   <Hash className="w-4 h-4" />
+                                )}
+                                {ch.channelType === 'direct' && peerMember && (
+                                  <span
+                                    className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ${
+                                      isLightMode ? 'ring-white' : 'ring-slate-950'
+                                    } ${peerPresenceMeta.dotClass}`}
+                                    title={peerPresenceMeta.label}
+                                  />
                                 )}
                               </div>
 
