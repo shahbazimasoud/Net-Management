@@ -29,8 +29,6 @@ import {
   LogOut,
   Trash2,
   UserPlus,
-  AtSign,
-  Terminal as TerminalIcon,
   FileText,
 } from 'lucide-react';
 import {
@@ -66,6 +64,7 @@ import { SlashCommandPickerPopover } from './SlashCommandPicker';
 import { SnippetDiffCard } from './SnippetDiffCard';
 import { ApprovalChatCard } from './ApprovalChatCard';
 import { dispatchOpenChannelHandover } from './ChannelHandoverModal';
+import { ComposerActionsMenu } from './ComposerActionsMenu';
 
 export interface FooterTeamChatDockProps {
   isEn: boolean;
@@ -633,8 +632,8 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
     <div
       className={`pointer-events-auto flex flex-col rounded-t-2xl border border-b-0 shadow-2xl overflow-hidden backdrop-blur-2xl transition-all duration-150 ${
         isExpandedSize
-          ? 'w-[360px] sm:w-[410px] h-[480px] max-h-[calc(100dvh-64px)]'
-          : 'w-80 sm:w-[336px] h-[400px] max-h-[calc(100dvh-64px)]'
+          ? 'w-[368px] sm:w-[420px] h-[480px] max-h-[calc(100dvh-64px)]'
+          : 'w-[332px] sm:w-[356px] h-[412px] max-h-[calc(100dvh-64px)]'
       } ${
         isLightMode
           ? 'bg-white/95 border-slate-300 text-slate-900 shadow-slate-400/50'
@@ -1361,7 +1360,7 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
             <select
               value={draftPriority}
               onChange={(e) => setDraftPriority(e.target.value as CommsSeverity)}
-              className={`h-8 px-1.5 rounded-lg border text-[11px] outline-none cursor-pointer shrink-0 ${
+              className={`h-8 px-1 rounded-lg border text-[10.5px] outline-none cursor-pointer shrink-0 ${
                 isLightMode
                   ? 'bg-white border-slate-300 text-slate-700'
                   : 'bg-slate-900 border-white/15 text-slate-200'
@@ -1373,48 +1372,26 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
               <option value="critical">{isEn ? 'Crit' : 'بحرانی'}</option>
             </select>
 
-            <button
-              type="button"
-              onClick={() => {
+            <ComposerActionsMenu
+              isEn={isEn}
+              isLightMode={isLightMode}
+              isRtl={isRtl}
+              compact
+              mentionActive={mentionPickerOpen}
+              slashActive={slashMenuOpen}
+              disabled={sending}
+              onOpenMention={() => {
                 setSlashMenuOpen(false);
                 setMentionPickerOpen((v) => !v);
               }}
-              className={`h-8 px-2 rounded-lg border flex items-center justify-center cursor-pointer transition shrink-0 ${
-                mentionPickerOpen
-                  ? 'bg-indigo-600 border-indigo-500 text-white'
-                  : isLightMode
-                  ? 'bg-white border-slate-300 text-slate-600 hover:border-indigo-400 hover:text-indigo-700'
-                  : 'bg-slate-900 border-white/15 text-slate-300 hover:border-indigo-400/50 hover:text-indigo-300'
-              }`}
-              title={isEn ? 'Mention device / port / server (@)' : 'ارجاع به تجهیز / پورت / سرور (@)'}
-            >
-              <AtSign className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
+              onOpenSlash={() => {
                 setMentionPickerOpen(false);
                 setSlashMenuOpen((v) => !v);
               }}
-              className={`h-8 px-2 rounded-lg border flex items-center justify-center cursor-pointer transition shrink-0 ${
-                slashMenuOpen
-                  ? 'bg-cyan-600 border-cyan-500 text-white'
-                  : isLightMode
-                  ? 'bg-white border-slate-300 text-slate-600 hover:border-cyan-500 hover:text-cyan-700'
-                  : 'bg-slate-900 border-white/15 text-slate-300 hover:border-cyan-400/50 hover:text-cyan-300'
-              }`}
-              title={
-                isEn
-                  ? 'ChatOps commands (/ping, /mac, /port, /status, /dns)'
-                  : 'دستورات زنده شبکه (/ping, /mac, /port, /status, /dns)'
-              }
-            >
-              <TerminalIcon className="w-3.5 h-3.5" />
-            </button>
+            />
 
             <textarea
-              rows={1}
+              rows={2}
               value={draftBody}
               onChange={(e) => {
                 const v = e.target.value;
@@ -1431,10 +1408,10 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
               }}
               placeholder={
                 isEn
-                  ? 'Message, @mention, or /cmd...'
-                  : 'پیام، @ارجاع یا /دستور...'
+                  ? 'Write a message, @mention, or /cmd...'
+                  : 'پیام بنویسید، @ارجاع یا /دستور...'
               }
-              className={`flex-1 min-w-0 py-1.5 px-2.5 rounded-lg border text-xs outline-none resize-none max-h-20 ${
+              className={`flex-1 min-w-0 min-h-[42px] py-1.5 px-2.5 rounded-lg border text-xs leading-snug outline-none resize-none max-h-24 ${
                 isLightMode
                   ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500'
                   : 'bg-slate-900 border-white/15 text-slate-100 placeholder:text-slate-500 focus:border-indigo-400'

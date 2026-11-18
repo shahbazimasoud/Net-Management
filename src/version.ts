@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.444.1';
+export const APP_VERSION = '1.444.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.444.2',
+    releaseDate: '2026-11-17',
+    type: 'patch',
+    title: 'یکپارچه‌سازی دکمه‌های منشن (@) و دستورات ChatOps (/) در یک منوی فشرده برای افزایش عرض و خوانایی کادر نوشتن پیام',
+    title_en: 'Consolidate Mention (@) & ChatOps (/) buttons into one unified Composer Actions menu for wider message input visibility',
+    changes: [
+      'ایجاد کامپوننت مشترک `ComposerActionsMenu.tsx` شامل منوی واحد ابزارهای سریع گفتگو (`@` ارجاع و منشن + `/` دستورات شبکه ChatOps) با بستن خودکار با کلیک بیرون و کلید Escape، جهت‌گیری دقیق RTL/LTR و پشتیبانی کامل از تم روشن و تیره.',
+      'ادغام دکمه‌های مجزای `@` و `/` در کامپوزر داک فوتر (`FooterTeamChatDock.tsx`) و مرکز چت کامل (`TeamChannelsPane.tsx`) همراه با افزایش ارتفاع پیش‌فرض کادر متن به دو سطر (`rows={2}`) و بهبود عرض مفید داک برای رویت واضح متن هنگام تایپ.'
+    ],
+    changes_en: [
+      'Created the shared `ComposerActionsMenu.tsx` component combining `@` Entity Mention and `/` ChatOps slash commands into a single compact menu trigger with outside-click/Escape dismissal, RTL/LTR-aware anchoring, and Light/Dark theme support.',
+      'Replaced separate `@` and `/` composer buttons with `ComposerActionsMenu` in both `FooterTeamChatDock.tsx` and `TeamChannelsPane.tsx`, freeing horizontal space and expanding the dock textarea to `rows={2}` so typed text stays clearly visible.'
+    ]
+  },
   {
     version: '1.444.1',
     releaseDate: '2026-11-17',

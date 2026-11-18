@@ -22,8 +22,6 @@ import {
   Eraser,
   LogOut,
   Trash2,
-  AtSign,
-  Terminal as TerminalIcon,
   FileText,
 } from 'lucide-react';
 import {
@@ -63,6 +61,7 @@ import { SlashCommandPickerPopover } from './SlashCommandPicker';
 import { SnippetDiffCard } from './SnippetDiffCard';
 import { ApprovalChatCard } from './ApprovalChatCard';
 import { dispatchOpenChannelHandover } from './ChannelHandoverModal';
+import { ComposerActionsMenu } from './ComposerActionsMenu';
 
 interface TeamChannelsPaneProps {
   isLightMode: boolean;
@@ -1959,7 +1958,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                     <select
                       value={draftPriority}
                       onChange={(e) => setDraftPriority(e.target.value as CommsSeverity)}
-                      className={`px-2.5 py-2 rounded-lg border text-xs outline-none shrink-0 ${
+                      className={`px-2 py-2 rounded-lg border text-xs outline-none shrink-0 ${
                         isLightMode
                           ? 'bg-white border-slate-300 text-slate-900'
                           : 'bg-slate-950 border-white/15 text-slate-100'
@@ -1971,49 +1970,22 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                       <option value="critical">{isEn ? 'Critical' : 'بحرانی'}</option>
                     </select>
 
-                    <button
-                      type="button"
-                      onClick={() => {
+                    <ComposerActionsMenu
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                      isRtl={isRtl}
+                      mentionActive={mentionPickerOpen}
+                      slashActive={slashMenuOpen}
+                      disabled={sending}
+                      onOpenMention={() => {
                         setSlashMenuOpen(false);
                         setMentionPickerOpen((v) => !v);
                       }}
-                      className={`px-2.5 py-2 rounded-lg border text-xs flex items-center gap-1 shrink-0 cursor-pointer transition ${
-                        mentionPickerOpen
-                          ? 'bg-indigo-600 border-indigo-500 text-white'
-                          : isLightMode
-                          ? 'bg-white border-slate-300 text-slate-700 hover:border-indigo-400 hover:text-indigo-700'
-                          : 'bg-slate-950 border-white/15 text-slate-300 hover:border-indigo-400/50 hover:text-indigo-300'
-                      }`}
-                      title={
-                        isEn
-                          ? 'Mention a permitted device, port, or server (@)'
-                          : 'ارجاع به تجهیز، پورت یا سرور مجاز (@)'
-                      }
-                    >
-                      <AtSign className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
+                      onOpenSlash={() => {
                         setMentionPickerOpen(false);
                         setSlashMenuOpen((v) => !v);
                       }}
-                      className={`px-2.5 py-2 rounded-lg border text-xs flex items-center gap-1 shrink-0 cursor-pointer transition ${
-                        slashMenuOpen
-                          ? 'bg-cyan-600 border-cyan-500 text-white'
-                          : isLightMode
-                          ? 'bg-white border-slate-300 text-slate-700 hover:border-cyan-500 hover:text-cyan-700'
-                          : 'bg-slate-950 border-white/15 text-slate-300 hover:border-cyan-400/50 hover:text-cyan-300'
-                      }`}
-                      title={
-                        isEn
-                          ? 'ChatOps slash commands (/ping, /mac, /port, /status, /dns)'
-                          : 'دستورات زنده شبکه (/ping, /mac, /port, /status, /dns)'
-                      }
-                    >
-                      <TerminalIcon className="w-3.5 h-3.5" />
-                    </button>
+                    />
 
                     <textarea
                       rows={2}
@@ -2036,7 +2008,7 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                           ? 'Message, @mention, or /ping /mac /port /status /dns (Enter to send)...'
                           : 'پیام، @ارجاع یا دستور /ping /mac /port /status /dns (Enter برای ارسال)...'
                       }
-                      className={`flex-1 px-3 py-2 rounded-xl border text-xs outline-none resize-none ${
+                      className={`flex-1 min-w-0 px-3 py-2 rounded-xl border text-xs leading-relaxed outline-none resize-none ${
                         isLightMode
                           ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500'
                           : 'bg-slate-950 border-white/15 text-slate-100 focus:border-indigo-500'
