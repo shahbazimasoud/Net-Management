@@ -109,6 +109,24 @@ export function disconnectCommsSocketsForToken(token: string): void {
   }
 }
 
+export function disconnectCommsSocketsForUser(username: string, reason: string = 'Blocked by administrator'): number {
+  const ids = normalizeIdentifiers({ username });
+  if (ids.length === 0) return 0;
+  let closed = 0;
+  for (const entry of Array.from(allActiveSockets)) {
+    const matches = entry.identifiers.some((idKey) => ids.includes(idKey));
+    if (matches) {
+      unregisterSocket(entry);
+      try {
+        entry.ws.close(4003, reason);
+      } catch {}
+      syncAndBroadcastUserPresence(entry);
+      closed += 1;
+    }
+  }
+  return closed;
+}
+
 export function getCommsPresenceSnapshot(
   nowMs: number = Date.now()
 ): Record<string, CommsUserPresenceStatus> {

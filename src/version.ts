@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.447.0';
+export const APP_VERSION = '1.448.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.448.0',
+    releaseDate: '2026-11-18',
+    type: 'minor',
+    title: 'افزودن سیستم جامع مسدودسازی IP و نام کاربری و صفحه اختصاصی مدیریت و رفع مسدودیت (Blocklist & Unblock Portal)',
+    title_en: 'Add IP & Username Login Blocklist enforcement and dedicated Blocked Access Management & Unblock page',
+    changes: [
+      'افزودن جدول PostgreSQL و موتور اجرای مسدودیت دسترسی (`auth_blocklist` در `backend/schema.sql` و `server/db.ts`) با پشتیبانی از مسدودیت دائمی یا مدت‌دار (۱ ساعته، ۲۴ ساعته، ۷ روزه، ۳۰ روزه)، نرمال‌سازی IP (v4/v6)، تطبیق کامل نام کاربری محلی/دامنه (UPN و NetBIOS)، ثبت شمارنده دفعات تلاش مسدودشده (`hitCount`) و نگهداری تاریخچه کامل رفع مسدودیت.',
+      'اعمال سخت‌گیرانه حاکمیت بلاک سمت سرور در `POST /api/auth/login`، `POST /api/auth/verify-2fa`، `GET /api/auth/me` و `GET /api/auth/effective-policy` به همراه قطع فوری نشست‌های وب‌سوکت فعال کاربر مسدودشده (`disconnectCommsSocketsForUser` در `server/commsWs.ts`)، جلوگیری از قفل شدن تصادفی حساب/IP فعلی مدیر (Self-Lockout Guard) و ثبت کامل رخدادهای ممیزی در `audit_logs` و `portal_audit_logs`.',
+      'افزودن اندپوینت‌های RBAC‌شده (`GET /api/security/blocklist`، `POST /api/security/blocklist` و `POST /api/security/blocklist/:id/unblock` در `server/routes.ts`) و طراحی رابط کاربری مهندسی شامل مودال مسدودسازی (`BlockAuthTargetModal`) منطبق با استاندارد Rule 7، دکمه‌های مسدودسازی سریع IP/کاربر در `UserLoginReportsSection` و صفحه اختصاصی «کاربران و IPهای مسدودشده» (`BlockedAccessManagementSection` در `AuditLogsView`) با امکان مشاهده، جستجو، فیلتر، خروجی CSV، مسدودسازی دستی و رفع مسدودیت فوری.'
+    ],
+    changes_en: [
+      'Added PostgreSQL `auth_blocklist` schema and enforcement engine (`backend/schema.sql` and `server/db.ts`) supporting permanent or timed blocks (`1h`, `24h`, `7d`, `30d`), normalized IPv4/IPv6 matching, base/UPN/NetBIOS username matching, automatic expiry, prevented login hit counters (`hitCount`), and full unblock/expiry history.',
+      'Enforced server-side blocking across `POST /api/auth/login`, `POST /api/auth/verify-2fa`, `GET /api/auth/me`, and `GET /api/auth/effective-policy`, immediately disconnecting active WebSocket connections for newly blocked users (`disconnectCommsSocketsForUser` in `server/commsWs.ts`), enforcing admin self-lockout protection, and recording `audit_logs` plus `portal_audit_logs` telemetry.',
+      'Exposed RBAC-protected blocklist APIs (`GET /api/security/blocklist`, `POST /api/security/blocklist`, `POST /api/security/blocklist/:id/unblock` in `server/routes.ts`) and built Rule 7 compliant UI components: quick Block IP/User controls inside `UserLoginReportsSection`, `BlockAuthTargetModal`, and the dedicated `BlockedAccessManagementSection` management tab inside `AuditLogsView` with search, filters, CSV export, manual blocking, and one-click unblock with audit confirmation.'
+    ]
+  },
   {
     version: '1.447.0',
     releaseDate: '2026-11-18',

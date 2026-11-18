@@ -12,6 +12,7 @@ import {
   AuditLogSeverity,
   UserLoginAuditEvent,
   UserLoginReportsResponse,
+  AuthBlocklistEntry,
 } from '../types';
 import {
   fetchDeviceCommandLogsApi,
@@ -901,6 +902,48 @@ export function exportLoginReportsAsCsv(events: UserLoginAuditEvent[]): void {
   downloadBlob(
     csvContent,
     `nettopology_user_login_reports_${formatDateForFile(new Date())}.csv`,
+    'text/csv;charset=utf-8;'
+  );
+}
+
+export function exportAuthBlocklistAsCsv(entries: AuthBlocklistEntry[]): void {
+  const headers = [
+    'ID',
+    'Target Type',
+    'Target Value',
+    'Status',
+    'Reason',
+    'Blocked By',
+    'Blocked By Role',
+    'Blocked At',
+    'Expires At',
+    'Blocked Attempts (Hits)',
+    'Last Attempt At',
+    'Unblocked By',
+    'Unblocked At',
+    'Unblock Reason',
+  ];
+  const rows = (entries || []).map((item) => [
+    item.id,
+    item.targetType,
+    `"${(item.displayValue || item.targetValue || '').replace(/"/g, '""')}"`,
+    item.status,
+    `"${(item.reason || '').replace(/"/g, '""')}"`,
+    `"${(item.blockedBy || '').replace(/"/g, '""')}"`,
+    `"${(item.blockedByRole || '').replace(/"/g, '""')}"`,
+    item.blockedAt || '',
+    item.expiresAt || 'Permanent',
+    item.hitCount || 0,
+    item.lastHitAt || '',
+    `"${(item.unblockedBy || '').replace(/"/g, '""')}"`,
+    item.unblockedAt || '',
+    `"${(item.unblockReason || '').replace(/"/g, '""')}"`,
+  ]);
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+  downloadBlob(
+    csvContent,
+    `nettopology_blocked_users_ips_${formatDateForFile(new Date())}.csv`,
     'text/csv;charset=utf-8;'
   );
 }

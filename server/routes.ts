@@ -109,6 +109,13 @@ import {
   getAuditLogs,
   addAuditLog,
   getUserLoginReports,
+  normalizeAuditIpAddress,
+  extractBaseUsernameForBlockMatch,
+  normalizeAndValidateBlockTarget,
+  listAuthBlocklist,
+  checkAuthBlocklist,
+  createAuthBlocklistEntry,
+  unblockAuthBlocklistEntry,
   getDeviceCommandLogs,
   addDeviceCommandLog,
   getPortalAuditLogs,
@@ -892,6 +899,41 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         success: false,
         error: 'Username and password are required',
         message: 'نام کاربری و کلمه عبور الزامی است.',
+      });
+    }
+
+    // Check PostgreSQL-authoritative IP & User blocklist before any credential/AD/2FA checks
+    const blockStatus = await checkAuthBlocklist(ip, username, true);
+    if (blockStatus.blocked && blockStatus.entry) {
+      const blk = blockStatus.entry;
+      const isIpBlock = blk.targetType === 'ip';
+      await addAuditLog({
+        userName: username,
+        action: isIpBlock ? 'Login Blocked (IP Blacklist)' : 'Login Blocked (User Blacklist)',
+        category: 'security',
+        target: 'Auth Gateway',
+        status: 'warning',
+        details: `Login attempt rejected by security blocklist (Rule ${blk.id}, type=${blk.targetType}, target=${blk.displayValue}, blockedBy=${blk.blockedBy}${blk.reason ? `, reason="${blk.reason}"` : ''}${blk.expiresAt ? `, expiresAt=${blk.expiresAt}` : ', permanent'}).`,
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      const reasonEn = blk.reason ? ` Reason: ${blk.reason}` : '';
+      const reasonFa = blk.reason ? ` دلیل: ${blk.reason}` : '';
+
+      return res.status(403).json({
+        success: false,
+        blocked: true,
+        blockType: blk.targetType,
+        blockedTarget: blk.displayValue,
+        reason: blk.reason || '',
+        expiresAt: blk.expiresAt,
+        error: isIpBlock
+          ? `Your source IP (${blk.displayValue}) has been blocked by an administrator.${reasonEn}`
+          : `User account "${blk.displayValue}" has been blocked from signing in by an administrator.${reasonEn}`,
+        message: isIpBlock
+          ? `آدرس IP شما (${blk.displayValue}) توسط مدیر سیستم مسدود شده و امکان ورود ندارید.${reasonFa}`
+          : `حساب کاربری «${blk.displayValue}» توسط مدیر سیستم مسدود شده و امکان ورود به پنل را ندارد.${reasonFa}`,
       });
     }
 
@@ -1713,6 +1755,37 @@ apiRouter.post('/auth/verify-2fa', async (req: Request, res: Response) => {
     const effectivePolicy = verification.effectivePolicy;
     const rememberMe = verification.rememberMe;
 
+    // Enforce IP/User blocklist even if block was added while 2FA challenge was pending
+    const blockStatus2fa = await checkAuthBlocklist(ip, user?.username || '', true);
+    if (blockStatus2fa.blocked && blockStatus2fa.entry) {
+      const blk = blockStatus2fa.entry;
+      const isIpBlock = blk.targetType === 'ip';
+      await addAuditLog({
+        userName: user?.username || 'Unknown',
+        action: isIpBlock ? 'Login Blocked (IP Blacklist)' : 'Login Blocked (User Blacklist)',
+        category: 'security',
+        target: 'Auth Gateway',
+        status: 'warning',
+        details: `2FA completion rejected by security blocklist (Rule ${blk.id}, target=${blk.displayValue}).`,
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'] as string,
+      });
+      return res.status(403).json({
+        success: false,
+        blocked: true,
+        blockType: blk.targetType,
+        blockedTarget: blk.displayValue,
+        reason: blk.reason || '',
+        expiresAt: blk.expiresAt,
+        error: isIpBlock
+          ? `Your source IP (${blk.displayValue}) has been blocked by an administrator.`
+          : `User account "${blk.displayValue}" has been blocked from signing in by an administrator.`,
+        message: isIpBlock
+          ? `آدرس IP شما (${blk.displayValue}) توسط مدیر سیستم مسدود شده است.`
+          : `حساب کاربری «${blk.displayValue}» توسط مدیر سیستم مسدود شده است.`,
+      });
+    }
+
     const token = generateToken(
       {
         userId: user.id,
@@ -1845,6 +1918,19 @@ apiRouter.get('/auth/me', async (req: Request, res: Response) => {
       return res.status(403).json({ authenticated: false, error: 'Account disabled in database' });
     }
 
+    const reqIp = getClientIp(req);
+    const activeBlock = await checkAuthBlocklist(reqIp, userRecord?.username || payload.username, false);
+    if (activeBlock.blocked && activeBlock.entry) {
+      return res.status(403).json({
+        authenticated: false,
+        blocked: true,
+        blockType: activeBlock.entry.targetType,
+        reason: activeBlock.entry.reason || '',
+        error: 'Session terminated: User or IP has been blocked by administrator.',
+        message: 'نشست شما به دلیل مسدود شدن کاربر یا آدرس IP توسط مدیر سیستم لغو شد.',
+      });
+    }
+
     const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
 
     res.json({
@@ -1887,6 +1973,18 @@ apiRouter.get('/auth/effective-policy', async (req: Request, res: Response) => {
     const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
     if (userRecord && userRecord.status === 'disabled') {
       return res.status(403).json({ success: false, error: 'Account disabled in database' });
+    }
+
+    const reqIp = getClientIp(req);
+    const activeBlock = await checkAuthBlocklist(reqIp, userRecord?.username || payload.username, false);
+    if (activeBlock.blocked && activeBlock.entry) {
+      return res.status(403).json({
+        success: false,
+        blocked: true,
+        blockType: activeBlock.entry.targetType,
+        reason: activeBlock.entry.reason || '',
+        error: 'Session terminated: User or IP has been blocked by administrator.',
+      });
     }
 
     const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
@@ -2987,6 +3085,347 @@ apiRouter.get('/audit-logs/logins', async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// Security Blocklist Management (Block / Unblock Users & Source IPs)
+// -------------------------------------------------------------
+
+async function authorizeBlocklistActor(req: Request, requireWrite: boolean) {
+  const authHeader = (req.headers.authorization as string) || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token) {
+    return {
+      ok: false as const,
+      status: 401,
+      error: 'Authentication required to access security blocklist.',
+      message: 'احراز هویت برای مدیریت لیست مسدودسازی الزامی است.',
+    };
+  }
+
+  const payload = verifyToken(token);
+  if (!payload) {
+    return {
+      ok: false as const,
+      status: 401,
+      error: 'Invalid or expired authentication session.',
+      message: 'نشست کاربری نامعتبر یا منقضی شده است.',
+    };
+  }
+
+  const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
+  if (userRecord && userRecord.status === 'disabled') {
+    return {
+      ok: false as const,
+      status: 403,
+      error: 'Account has been disabled.',
+      message: 'حساب کاربری غیرفعال شده است.',
+    };
+  }
+
+  const clientIp = getClientIp(req);
+  const selfBlockCheck = await checkAuthBlocklist(clientIp, userRecord?.username || payload.username, false);
+  if (selfBlockCheck.blocked) {
+    return {
+      ok: false as const,
+      status: 403,
+      error: 'Session rejected: Your user or IP is currently blocked.',
+      message: 'نشست شما به دلیل مسدودیت فعال لغو شده است.',
+    };
+  }
+
+  const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
+  const roleStr = String(userRecord?.role || payload.role || '').toLowerCase();
+  const isSuperAdmin =
+    roleStr.includes('super admin') ||
+    roleStr === 'administrator' ||
+    String(userRecord?.username || payload.username || '').toLowerCase() === 'admin' ||
+    effectivePolicy?.id === 'policy-super-admin';
+
+  if (requireWrite) {
+    const canManageBlocks =
+      isSuperAdmin ||
+      effectivePolicy?.canViewSettings === true ||
+      effectivePolicy?.canManageNavigationGovernance === true;
+    if (!canManageBlocks) {
+      return {
+        ok: false as const,
+        status: 403,
+        error: 'Access denied: Insufficient RBAC privileges to block or unblock IPs and users.',
+        message: 'دسترسی مسدود شد: پالیسی RBAC شما مجوز مسدودسازی یا رفع مسدودی کاربران و IPها را ندارد.',
+      };
+    }
+  } else {
+    const canReadBlocks =
+      isSuperAdmin ||
+      effectivePolicy?.canViewLogs !== false ||
+      effectivePolicy?.canViewSettings === true;
+    if (!canReadBlocks) {
+      return {
+        ok: false as const,
+        status: 403,
+        error: 'Access denied: Active RBAC policy does not permit viewing the security blocklist.',
+        message: 'دسترسی مسدود شد: پالیسی RBAC شما مجوز مشاهده لیست مسدودسازی امنیتی را ندارد.',
+      };
+    }
+  }
+
+  return {
+    ok: true as const,
+    actorUsername: userRecord?.username || payload.username,
+    actorRole: userRecord?.role || payload.role || 'Administrator',
+    clientIp,
+    isSuperAdmin,
+  };
+}
+
+// GET /api/security/blocklist - List active & historical blocked IPs and Users
+apiRouter.get('/security/blocklist', async (req: Request, res: Response) => {
+  try {
+    const auth = await authorizeBlocklistActor(req, false);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ success: false, error: auth.error, message: auth.message });
+    }
+
+    const statusParam = String(req.query.status || 'all');
+    const status = (['active', 'history', 'all'].includes(statusParam) ? statusParam : 'all') as
+      | 'active'
+      | 'history'
+      | 'all';
+    const typeParam = String(req.query.targetType || 'all');
+    const targetType = (['ip', 'user', 'all'].includes(typeParam) ? typeParam : 'all') as 'ip' | 'user' | 'all';
+    const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+
+    const result = await listAuthBlocklist({ status, targetType, search });
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (err: any) {
+    console.error('[API GET /security/blocklist error]', err);
+    res.status(500).json({ success: false, error: err?.message || 'Failed to load security blocklist' });
+  }
+});
+
+// POST /api/security/blocklist - Block an IP address or User account
+apiRouter.post('/security/blocklist', async (req: Request, res: Response) => {
+  try {
+    const auth = await authorizeBlocklistActor(req, true);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ success: false, error: auth.error, message: auth.message });
+    }
+
+    const rawType = String(req.body?.targetType || '').toLowerCase();
+    if (rawType !== 'ip' && rawType !== 'user') {
+      return res.status(400).json({
+        success: false,
+        error: 'targetType must be "ip" or "user".',
+        message: 'نوع هدف مسدودسازی باید "ip" یا "user" باشد.',
+      });
+    }
+    const targetType = rawType as 'ip' | 'user';
+    const rawTargetValue = String(req.body?.targetValue || '');
+    const validation = normalizeAndValidateBlockTarget(targetType, rawTargetValue);
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: validation.error,
+        message: validation.errorFa || validation.error,
+      });
+    }
+
+    // Self-lockout protection
+    if (targetType === 'user') {
+      const actorBase = extractBaseUsernameForBlockMatch(auth.actorUsername);
+      const targetBase = extractBaseUsernameForBlockMatch(validation.targetValue);
+      if (
+        validation.targetValue === auth.actorUsername.toLowerCase() ||
+        (actorBase && targetBase && actorBase === targetBase)
+      ) {
+        return res.status(400).json({
+          success: false,
+          selfLockout: true,
+          error: 'You cannot block your own currently signed-in administrator account.',
+          message: 'امکان مسدود کردن حساب کاربری فعلی خودتان وجود ندارد.',
+        });
+      }
+    } else if (targetType === 'ip') {
+      const currentAdminIp = normalizeAuditIpAddress(auth.clientIp).toLowerCase();
+      if (currentAdminIp && currentAdminIp !== 'unknown' && validation.targetValue === currentAdminIp) {
+        return res.status(400).json({
+          success: false,
+          selfLockout: true,
+          error: `Cannot block your own active source IP (${validation.displayValue}) to prevent immediate self-lockout.`,
+          message: `امکان مسدود کردن آدرس IP فعلی خودتان (${validation.displayValue}) برای جلوگیری از قطع فوری دسترسی وجود ندارد.`,
+        });
+      }
+    }
+
+    let expiresAt: string | null = null;
+    if (req.body?.expiresAt) {
+      const parsed = new Date(req.body.expiresAt);
+      if (isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+        return res.status(400).json({
+          success: false,
+          error: 'Expiration timestamp must be a valid future date.',
+          message: 'زمان انقضای مسدودیت باید در آینده باشد.',
+        });
+      }
+      expiresAt = parsed.toISOString();
+    } else if (req.body?.durationMinutes && Number(req.body.durationMinutes) > 0) {
+      const mins = Math.min(Number(req.body.durationMinutes), 60 * 24 * 365);
+      expiresAt = new Date(Date.now() + mins * 60 * 1000).toISOString();
+    }
+
+    const reason = String(req.body?.reason || '').trim();
+
+    const { entry, alreadyBlocked } = await createAuthBlocklistEntry({
+      targetType,
+      targetValue: validation.displayValue,
+      reason,
+      expiresAt,
+      blockedBy: auth.actorUsername,
+      blockedByRole: auth.actorRole,
+    });
+
+    // Immediately terminate active WebSocket presence sockets if a user was blocked
+    let disconnectedSockets = 0;
+    if (targetType === 'user') {
+      try {
+        const wsMod = await import('./commsWs');
+        disconnectedSockets = wsMod.disconnectCommsSocketsForUser(
+          entry.displayValue,
+          'Blocked by administrator'
+        );
+      } catch {}
+    }
+
+    await addAuditLog({
+      userName: auth.actorUsername,
+      action: targetType === 'ip' ? 'Security Blocklist Added (IP)' : 'Security Blocklist Added (User)',
+      category: 'security',
+      target: 'Auth Blocklist',
+      status: 'warning',
+      details: `Operator "${auth.actorUsername}" blocked ${targetType.toUpperCase()} "${entry.displayValue}" (rule=${entry.id}${reason ? `, reason="${reason}"` : ''}${expiresAt ? `, expiresAt=${expiresAt}` : ', permanent'}).`,
+      ipAddress: auth.clientIp,
+      userAgent: req.headers['user-agent'] as string,
+    });
+
+    await addPortalAuditLog({
+      category: 'security',
+      action: targetType === 'ip' ? 'security_block_ip' : 'security_block_user',
+      title:
+        targetType === 'ip'
+          ? `مسدودسازی آدرس IP: ${entry.displayValue}`
+          : `مسدودسازی حساب کاربری: ${entry.displayValue}`,
+      title_en:
+        targetType === 'ip'
+          ? `Blocked Source IP: ${entry.displayValue}`
+          : `Blocked User Account: ${entry.displayValue}`,
+      userName: auth.actorUsername,
+      userRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetType: 'auth_blocklist',
+      targetId: entry.id,
+      targetName: entry.displayValue,
+      severity: 'warning',
+      status: 'success',
+      details: `هدف ${entry.displayValue} (${targetType === 'ip' ? 'آدرس IP' : 'کاربر'}) توسط ${auth.actorUsername} مسدود شد.${reason ? ` دلیل: ${reason}` : ''}`,
+      details_en: `Target ${entry.displayValue} (${targetType.toUpperCase()}) blocked by ${auth.actorUsername}.${reason ? ` Reason: ${reason}` : ''}`,
+    });
+
+    res.status(alreadyBlocked ? 200 : 201).json({
+      success: true,
+      entry,
+      alreadyBlocked,
+      disconnectedSockets,
+    });
+  } catch (err: any) {
+    console.error('[API POST /security/blocklist error]', err);
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to block target',
+      message: 'خطا در ثبت مسدودسازی در پایگاه داده.',
+    });
+  }
+});
+
+// POST /api/security/blocklist/:id/unblock - Unblock an IP or User so they can sign in again
+apiRouter.post('/security/blocklist/:id/unblock', async (req: Request, res: Response) => {
+  try {
+    const auth = await authorizeBlocklistActor(req, true);
+    if (!auth.ok) {
+      return res.status(auth.status).json({ success: false, error: auth.error, message: auth.message });
+    }
+
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Block rule ID is required.' });
+    }
+
+    const unblockReason = String(req.body?.unblockReason || req.body?.reason || '').trim();
+    const updated = await unblockAuthBlocklistEntry(id, {
+      unblockedBy: auth.actorUsername,
+      unblockReason,
+    });
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        error: `Block rule "${id}" was not found.`,
+        message: `رکورد مسدودسازی با شناسه «${id}» یافت نشد.`,
+      });
+    }
+
+    await addAuditLog({
+      userName: auth.actorUsername,
+      action:
+        updated.targetType === 'ip'
+          ? 'Security Blocklist Removed (IP)'
+          : 'Security Blocklist Removed (User)',
+      category: 'security',
+      target: 'Auth Blocklist',
+      status: 'success',
+      details: `Operator "${auth.actorUsername}" unblocked ${updated.targetType.toUpperCase()} "${updated.displayValue}" (rule=${updated.id}${unblockReason ? `, note="${unblockReason}"` : ''}).`,
+      ipAddress: auth.clientIp,
+      userAgent: req.headers['user-agent'] as string,
+    });
+
+    await addPortalAuditLog({
+      category: 'security',
+      action: updated.targetType === 'ip' ? 'security_unblock_ip' : 'security_unblock_user',
+      title:
+        updated.targetType === 'ip'
+          ? `رفع مسدودیت آدرس IP: ${updated.displayValue}`
+          : `رفع مسدودیت کاربر: ${updated.displayValue}`,
+      title_en:
+        updated.targetType === 'ip'
+          ? `Unblocked Source IP: ${updated.displayValue}`
+          : `Unblocked User Account: ${updated.displayValue}`,
+      userName: auth.actorUsername,
+      userRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetType: 'auth_blocklist',
+      targetId: updated.id,
+      targetName: updated.displayValue,
+      severity: 'notice',
+      status: 'success',
+      details: `مسدودیت ${updated.displayValue} توسط ${auth.actorUsername} برداشته شد و امکان ورود مجدد فعال گردید.${unblockReason ? ` یادداشت: ${unblockReason}` : ''}`,
+      details_en: `Block on ${updated.displayValue} (${updated.targetType.toUpperCase()}) removed by ${auth.actorUsername}; login access restored.${unblockReason ? ` Note: ${unblockReason}` : ''}`,
+    });
+
+    res.json({
+      success: true,
+      entry: updated,
+    });
+  } catch (err: any) {
+    console.error('[API POST /security/blocklist/:id/unblock error]', err);
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to unblock target',
+      message: 'خطا در رفع مسدودی.',
+    });
   }
 });
 

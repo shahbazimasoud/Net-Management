@@ -49,15 +49,21 @@ import {
   ToggleRight,
   Play,
   LogIn,
+  Ban,
 } from 'lucide-react';
 import { AuditEmailReportModal } from './AuditEmailReportModal';
 import { ServerCommandLogsSection } from './ServerCommandLogsSection';
 import { UserLoginReportsSection } from './UserLoginReportsSection';
+import { BlockedAccessManagementSection } from './BlockedAccessManagementSection';
+import { BlockAuthTargetModal } from './BlockAuthTargetModal';
 import {
   PortalAuditLogEntry,
   DeviceCommandLogEntry,
   ServerCommandAuditLogEntry,
   UserLoginReportsResponse,
+  AuthBlockTargetType,
+  AuthBlocklistEntry,
+  AuthBlocklistSummary,
   AuditLogCategory,
   AuditLogSeverity,
   CommandRiskLevel,
@@ -76,6 +82,7 @@ import {
   exportCommandLogsAsCsv,
   exportServerCommandLogsAsCsv,
   exportLoginReportsAsCsv,
+  exportAuthBlocklistAsCsv,
   exportAllLogsAsJson,
   clearPortalLogs,
   clearCommandLogs,
@@ -88,10 +95,11 @@ import {
   toggleAuditEmailReportApi,
   sendAuditEmailReportByIdNowApi,
   fetchAuditStorageStatsApi,
+  fetchAuthBlocklistApi,
 } from '../../services/api';
 import { useLanguage } from '../../i18n/LanguageContext';
 
-type ActiveLogSection = 'commands' | 'server_commands' | 'portal' | 'logins' | 'reports';
+type ActiveLogSection = 'commands' | 'server_commands' | 'portal' | 'logins' | 'blocked' | 'reports';
 type CommandGroupMode = 'device' | 'user' | 'timeline';
 
 interface WatchLogSession {
@@ -128,6 +136,25 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
   const [loginReports, setLoginReports] = useState<UserLoginReportsResponse | null>(null);
   const [isLoginReportsLoading, setIsLoginReportsLoading] = useState(false);
   const [loginReportsError, setLoginReportsError] = useState<string | null>(null);
+  const [blocklistEntries, setBlocklistEntries] = useState<AuthBlocklistEntry[]>([]);
+  const [blocklistSummary, setBlocklistSummary] = useState<AuthBlocklistSummary | null>(null);
+  const [isBlocklistLoading, setIsBlocklistLoading] = useState(false);
+  const [blocklistError, setBlocklistError] = useState<string | null>(null);
+  const [blockModalState, setBlockModalState] = useState<{
+    isOpen: boolean;
+    targetType: AuthBlockTargetType;
+    targetValue: string;
+    lockTarget: boolean;
+  }>({
+    isOpen: false,
+    targetType: 'ip',
+    targetValue: '',
+    lockTarget: false,
+  });
+  const [lastBlockBanner, setLastBlockBanner] = useState<{
+    targetType: AuthBlockTargetType;
+    displayValue: string;
+  } | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Automated Email Report Modal state
@@ -313,13 +340,35 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
     }
   };
 
+  const loadBlocklist = async () => {
+    setIsBlocklistLoading(true);
+    setBlocklistError(null);
+    try {
+      const data = await fetchAuthBlocklistApi({ status: 'all' });
+      if (data?.success) {
+        setBlocklistEntries(Array.isArray(data.entries) ? data.entries : []);
+        setBlocklistSummary(data.summary || null);
+      } else {
+        setBlocklistError(
+          data?.error || (isEn ? 'Failed to fetch security blocklist.' : 'خطا در دریافت لیست مسدودی‌ها.')
+        );
+      }
+    } catch (err: any) {
+      setBlocklistError(
+        err?.message || (isEn ? 'Failed to fetch security blocklist.' : 'خطا در دریافت لیست مسدودی‌ها.')
+      );
+    } finally {
+      setIsBlocklistLoading(false);
+    }
+  };
+
   // Authoritative live refresh directly from PostgreSQL backend with optimistic cache fallback
   const refreshData = async () => {
     if (isRefreshingRef.current) return;
     isRefreshingRef.current = true;
     setIsRefreshing(true);
     try {
-      const [pLogs, cLogs, sLogs, statsData, lReports] = await Promise.all([
+      const [pLogs, cLogs, sLogs, statsData, lReports, bList] = await Promise.all([
         fetchPortalAuditLogs(),
         fetchDeviceCommandLogs(),
         loadServerCommandLogs(),
@@ -327,6 +376,12 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
         fetchUserLoginReports({ limit: 5000 }).catch((err: any) => {
           setLoginReportsError(
             err?.message || (isEn ? 'Failed to fetch login audit reports.' : 'خطا در دریافت گزارشات ورود کاربران.')
+          );
+          return null;
+        }),
+        fetchAuthBlocklistApi({ status: 'all' }).catch((err: any) => {
+          setBlocklistError(
+            err?.message || (isEn ? 'Failed to fetch security blocklist.' : 'خطا در دریافت لیست مسدودی‌ها.')
           );
           return null;
         }),
@@ -338,6 +393,11 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
       if (lReports?.success) {
         setLoginReports(lReports);
         setLoginReportsError(null);
+      }
+      if (bList?.success) {
+        setBlocklistEntries(Array.isArray(bList.entries) ? bList.entries : []);
+        setBlocklistSummary(bList.summary || null);
+        setBlocklistError(null);
       }
     } catch (err) {
       console.warn('[AuditLogsView] Failed to live-refresh audit logs from PostgreSQL:', err);
@@ -1092,6 +1152,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
               if (activeSection === 'portal') exportPortalLogsAsCsv();
               else if (activeSection === 'server_commands') exportServerCommandLogsAsCsv();
               else if (activeSection === 'logins') exportLoginReportsAsCsv(loginReports?.events || []);
+              else if (activeSection === 'blocked') exportAuthBlocklistAsCsv(blocklistEntries);
               else exportCommandLogsAsCsv();
             }}
             className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 text-white border border-white/10 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
@@ -1110,7 +1171,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
             <span>{isEn ? 'SIEM JSON' : 'خروجی JSON'}</span>
           </button>
 
-          {activeSection !== 'logins' && activeSection !== 'reports' && (
+          {activeSection !== 'logins' && activeSection !== 'blocked' && activeSection !== 'reports' && (
             <button
               onClick={() => setIsConfirmPurgeOpen(true)}
               className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 text-rose-400 border border-rose-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
@@ -1269,6 +1330,32 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
             <span>{isEn ? 'User Login Reports' : 'گزارش‌های ورود کاربران'}</span>
             <span className="px-2 py-0.5 rounded-full text-[11px] font-mono bg-black/20 text-white border border-white/10">
               {loginReports?.summary?.successfulLogins ?? 0}
+            </span>
+          </button>
+
+          {/* Section 6: Blocked Users & IPs Management */}
+          <button
+            onClick={() => {
+              setActiveSection('blocked');
+              setSelectedCategory('all');
+              loadBlocklist();
+            }}
+            className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs md:text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeSection === 'blocked'
+                ? 'bg-rose-600 text-white shadow-lg shadow-rose-500/25 border border-rose-400/40'
+                : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <Ban className={`w-4 h-4 ${activeSection === 'blocked' ? 'text-white' : 'text-rose-400'}`} />
+            <span>{isEn ? 'Blocked Users & IPs' : 'کاربران و IPهای مسدودشده'}</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-[11px] font-mono border ${
+                (blocklistSummary?.activeTotal ?? 0) > 0
+                  ? 'bg-rose-500/30 text-white border-rose-300/40'
+                  : 'bg-black/20 text-white border-white/10'
+              }`}
+            >
+              {blocklistSummary?.activeTotal ?? blocklistEntries.filter((e) => e.isActive).length}
             </span>
           </button>
 
@@ -2208,6 +2295,53 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
           formatDateOnly={formatDateOnly}
           onRefresh={loadLoginReports}
           onExportCsv={(eventsToExport) => exportLoginReportsAsCsv(eventsToExport)}
+          activeBlocklist={blocklistEntries}
+          onOpenBlockModal={(targetType, targetValue) => {
+            setBlockModalState({
+              isOpen: true,
+              targetType,
+              targetValue,
+              lockTarget: Boolean(targetValue),
+            });
+          }}
+          onNavigateToBlockedPage={() => {
+            setActiveSection('blocked');
+            setLastBlockBanner(null);
+            loadBlocklist();
+          }}
+          lastBlockBanner={lastBlockBanner}
+          onDismissBlockBanner={() => setLastBlockBanner(null)}
+        />
+      )}
+
+      {/* SECTION 6: BLOCKED USERS & IPs MANAGEMENT */}
+      {activeSection === 'blocked' && (
+        <BlockedAccessManagementSection
+          isLightMode={isLightMode}
+          isEn={isEn}
+          isRtl={isRtl}
+          entries={blocklistEntries}
+          summary={blocklistSummary}
+          isLoading={isBlocklistLoading}
+          loadError={blocklistError}
+          formatDateTime={formatDateTime}
+          onRefresh={loadBlocklist}
+          onOpenAddBlockModal={(targetType = 'ip', targetValue = '') => {
+            setBlockModalState({
+              isOpen: true,
+              targetType,
+              targetValue,
+              lockTarget: false,
+            });
+          }}
+          onUnblocked={async () => {
+            await Promise.all([loadBlocklist(), loadLoginReports()]);
+          }}
+          onExportCsv={(entriesToExport) => exportAuthBlocklistAsCsv(entriesToExport)}
+          onNavigateBackToLogins={() => {
+            setActiveSection('logins');
+            loadLoginReports();
+          }}
         />
       )}
 
@@ -3206,6 +3340,25 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
         initialSmtpStatus={smtpStatus}
         onReportSaved={(_saved) => {
           loadReportsList();
+        }}
+      />
+
+      {/* Block User / IP Modal (Rule 7 Compliant) */}
+      <BlockAuthTargetModal
+        isOpen={blockModalState.isOpen}
+        onClose={() => setBlockModalState((prev) => ({ ...prev, isOpen: false }))}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        isRtl={isRtl}
+        initialTargetType={blockModalState.targetType}
+        initialTargetValue={blockModalState.targetValue}
+        lockTarget={blockModalState.lockTarget}
+        onBlocked={async (entry) => {
+          setLastBlockBanner({
+            targetType: entry.targetType,
+            displayValue: entry.displayValue,
+          });
+          await Promise.all([loadBlocklist(), loadLoginReports()]);
         }}
       />
     </div>

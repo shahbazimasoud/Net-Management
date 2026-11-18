@@ -716,3 +716,29 @@ BEGIN
     -- canAddLicenses (boolean), canEditLicenses (boolean), canDeleteLicenses (boolean), canDeleteLicenseAttachments (boolean)
     NULL;
 END $$;
+
+-- 26. Authentication IP & User Blocklist (PostgreSQL-Authoritative Access Blacklist)
+CREATE TABLE IF NOT EXISTS auth_blocklist (
+    id VARCHAR(64) PRIMARY KEY,
+    target_type VARCHAR(16) NOT NULL, -- 'ip' | 'user'
+    target_value VARCHAR(255) NOT NULL,
+    display_value VARCHAR(255) NOT NULL,
+    reason TEXT DEFAULT '',
+    blocked_by VARCHAR(128) NOT NULL,
+    blocked_by_role VARCHAR(128) DEFAULT 'Administrator',
+    blocked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    hit_count INT NOT NULL DEFAULT 0,
+    last_hit_at TIMESTAMP WITH TIME ZONE,
+    unblocked_by VARCHAR(128),
+    unblocked_at TIMESTAMP WITH TIME ZONE,
+    unblock_reason TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_blocklist_active ON auth_blocklist(is_active, target_type, target_value);
+CREATE INDEX IF NOT EXISTS idx_auth_blocklist_expires ON auth_blocklist(expires_at);
+CREATE INDEX IF NOT EXISTS idx_auth_blocklist_blocked_at ON auth_blocklist(blocked_at DESC);
+

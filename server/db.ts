@@ -2,6 +2,7 @@ import { Pool, PoolConfig, PoolClient } from 'pg';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import net from 'net';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { hashPassword } from './auth';
@@ -304,6 +305,7 @@ export interface FallbackStore {
   user_security_profiles?: any[];
   action_approval_requests?: any[];
   action_approval_grants?: any[];
+  auth_blocklist?: any[];
 }
 
 export interface SystemSecurityKeysRecord {
@@ -1410,6 +1412,9 @@ export function loadFallbackStore(): FallbackStore {
   }
   if (!Array.isArray(store.action_approval_grants)) {
     store.action_approval_grants = [];
+  }
+  if (!Array.isArray(store.auth_blocklist)) {
+    store.auth_blocklist = [];
   }
 
   if (readSucceeded && currentStat) {
@@ -2826,6 +2831,32 @@ export async function initDatabase(): Promise<void> {
       `);
       await client.query("CREATE INDEX IF NOT EXISTS idx_approval_grants_active ON action_approval_grants(status, requester_username, expires_at)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_approval_grants_approval_id ON action_approval_grants(approval_id)");
+
+      // 31. Authentication IP & User Blocklist
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS auth_blocklist (
+          id VARCHAR(64) PRIMARY KEY,
+          target_type VARCHAR(16) NOT NULL,
+          target_value VARCHAR(255) NOT NULL,
+          display_value VARCHAR(255) NOT NULL,
+          reason TEXT DEFAULT '',
+          blocked_by VARCHAR(128) NOT NULL,
+          blocked_by_role VARCHAR(128) DEFAULT 'Administrator',
+          blocked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          expires_at TIMESTAMP WITH TIME ZONE,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          hit_count INT NOT NULL DEFAULT 0,
+          last_hit_at TIMESTAMP WITH TIME ZONE,
+          unblocked_by VARCHAR(128),
+          unblocked_at TIMESTAMP WITH TIME ZONE,
+          unblock_reason TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_auth_blocklist_active ON auth_blocklist(is_active, target_type, target_value)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_auth_blocklist_expires ON auth_blocklist(expires_at)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_auth_blocklist_blocked_at ON auth_blocklist(blocked_at DESC)");
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -8669,6 +8700,537 @@ export async function getUserLoginReports(options: {
     users,
     events: filteredEvents.map(({ accountStatus: _acc, ...rest }) => rest),
   };
+}
+
+// -------------------------------------------------------------
+// 11.A2. Authentication IP & User Blocklist (Authoritative PG + Fallback)
+// -------------------------------------------------------------
+
+export type AuthBlockTargetType = 'ip' | 'user';
+
+export interface AuthBlocklistEntry {
+  id: string;
+  targetType: AuthBlockTargetType;
+  targetValue: string;
+  displayValue: string;
+  reason: string;
+  blockedBy: string;
+  blockedByRole: string;
+  blockedAt: string;
+  expiresAt: string | null;
+  isActive: boolean;
+  status: 'active' | 'unblocked' | 'expired';
+  hitCount: number;
+  lastHitAt: string | null;
+  unblockedBy: string | null;
+  unblockedAt: string | null;
+  unblockReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function extractBaseUsernameForBlockMatch(raw: string): string {
+  const clean = (raw || '').trim().toLowerCase();
+  if (!clean) return '';
+  if (clean.includes('\\')) {
+    const parts = clean.split('\\');
+    return (parts[parts.length - 1] || '').trim();
+  }
+  if (clean.includes('@')) {
+    return (clean.split('@')[0] || '').trim();
+  }
+  return clean;
+}
+
+export function normalizeAndValidateBlockTarget(
+  targetType: AuthBlockTargetType,
+  rawValue: string
+): { valid: boolean; targetValue: string; displayValue: string; error?: string; errorFa?: string } {
+  const trimmed = (rawValue || '').trim();
+  if (!trimmed) {
+    return {
+      valid: false,
+      targetValue: '',
+      displayValue: '',
+      error: targetType === 'ip' ? 'IP address is required.' : 'Username is required.',
+      errorFa: targetType === 'ip' ? 'وارد کردن آدرس IP الزامی است.' : 'وارد کردن نام کاربری الزامی است.',
+    };
+  }
+
+  if (targetType === 'ip') {
+    const normalized = normalizeAuditIpAddress(trimmed);
+    if (!normalized || normalized === 'Unknown' || net.isIP(normalized) === 0) {
+      return {
+        valid: false,
+        targetValue: normalized,
+        displayValue: trimmed,
+        error: `Invalid IP address format: "${trimmed}". Provide a valid IPv4 or IPv6 address.`,
+        errorFa: `فرمت آدرس IP نامعتبر است: «${trimmed}». لطفاً یک آدرس IPv4 یا IPv6 معتبر وارد کنید.`,
+      };
+    }
+    return {
+      valid: true,
+      targetValue: normalized.toLowerCase(),
+      displayValue: normalized,
+    };
+  }
+
+  // 'user'
+  if (trimmed.toLowerCase() === 'unknown' || trimmed.length > 200) {
+    return {
+      valid: false,
+      targetValue: '',
+      displayValue: trimmed,
+      error: `Invalid username target: "${trimmed}".`,
+      errorFa: `شناسه کاربری نامعتبر است: «${trimmed}».`,
+    };
+  }
+
+  return {
+    valid: true,
+    targetValue: trimmed.toLowerCase(),
+    displayValue: trimmed,
+  };
+}
+
+function mapBlocklistRowToEntry(row: any, nowMs: number = Date.now()): AuthBlocklistEntry {
+  const rawActive = row.is_active !== undefined ? Boolean(row.is_active) : Boolean(row.isActive);
+  const expiresAtIso = row.expires_at
+    ? new Date(row.expires_at).toISOString()
+    : row.expiresAt
+    ? new Date(row.expiresAt).toISOString()
+    : null;
+  const isExpired = Boolean(expiresAtIso && new Date(expiresAtIso).getTime() <= nowMs);
+  const isActive = rawActive && !isExpired;
+  const status: 'active' | 'unblocked' | 'expired' = isActive
+    ? 'active'
+    : isExpired && rawActive
+    ? 'expired'
+    : 'unblocked';
+
+  return {
+    id: String(row.id),
+    targetType: (row.target_type || row.targetType) === 'ip' ? 'ip' : 'user',
+    targetValue: String(row.target_value || row.targetValue || '').toLowerCase(),
+    displayValue: String(row.display_value || row.displayValue || row.target_value || row.targetValue || ''),
+    reason: String(row.reason || ''),
+    blockedBy: String(row.blocked_by || row.blockedBy || 'Administrator'),
+    blockedByRole: String(row.blocked_by_role || row.blockedByRole || 'Administrator'),
+    blockedAt: row.blocked_at
+      ? new Date(row.blocked_at).toISOString()
+      : row.blockedAt
+      ? new Date(row.blockedAt).toISOString()
+      : new Date().toISOString(),
+    expiresAt: expiresAtIso,
+    isActive,
+    status,
+    hitCount: Number(row.hit_count ?? row.hitCount ?? 0) || 0,
+    lastHitAt: row.last_hit_at
+      ? new Date(row.last_hit_at).toISOString()
+      : row.lastHitAt
+      ? new Date(row.lastHitAt).toISOString()
+      : null,
+    unblockedBy: row.unblocked_by ?? row.unblockedBy ?? (status === 'expired' ? 'System (Auto-Expired)' : null),
+    unblockedAt: row.unblocked_at
+      ? new Date(row.unblocked_at).toISOString()
+      : row.unblockedAt
+      ? new Date(row.unblockedAt).toISOString()
+      : status === 'expired'
+      ? expiresAtIso
+      : null,
+    unblockReason:
+      row.unblock_reason ??
+      row.unblockReason ??
+      (status === 'expired' ? 'Temporary block duration expired' : null),
+    createdAt: row.created_at
+      ? new Date(row.created_at).toISOString()
+      : row.createdAt
+      ? new Date(row.createdAt).toISOString()
+      : new Date().toISOString(),
+    updatedAt: row.updated_at
+      ? new Date(row.updated_at).toISOString()
+      : row.updatedAt
+      ? new Date(row.updatedAt).toISOString()
+      : new Date().toISOString(),
+  };
+}
+
+function doesBlockEntryMatchUser(blockedTargetLower: string, candidateUsername: string): boolean {
+  const cleanCandidate = (candidateUsername || '').trim().toLowerCase();
+  if (!cleanCandidate || !blockedTargetLower) return false;
+  if (blockedTargetLower === cleanCandidate) return true;
+
+  const blockedHasDomain = blockedTargetLower.includes('@') || blockedTargetLower.includes('\\');
+  const candidateHasDomain = cleanCandidate.includes('@') || cleanCandidate.includes('\\');
+  const blockedBase = extractBaseUsernameForBlockMatch(blockedTargetLower);
+  const candidateBase = extractBaseUsernameForBlockMatch(cleanCandidate);
+
+  if (!blockedBase || !candidateBase) return false;
+  // Match if base matches and at least one side has no domain qualifier (e.g. admin block `j.doe` blocks `j.doe@corp` or `CORP\j.doe`)
+  if ((!blockedHasDomain || !candidateHasDomain) && blockedBase === candidateBase) {
+    return true;
+  }
+  return false;
+}
+
+async function expireOutdatedAuthBlocksInternal(): Promise<void> {
+  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `UPDATE auth_blocklist
+         SET is_active = FALSE,
+             unblocked_by = COALESCE(unblocked_by, 'System (Auto-Expired)'),
+             unblocked_at = COALESCE(unblocked_at, expires_at),
+             unblock_reason = COALESCE(unblock_reason, 'Temporary block duration expired'),
+             updated_at = $1
+         WHERE is_active = TRUE AND expires_at IS NOT NULL AND expires_at <= $1`,
+        [nowIso]
+      );
+    } catch {}
+  }
+
+  try {
+    const store = loadFallbackStore();
+    if (Array.isArray(store.auth_blocklist)) {
+      let dirty = false;
+      for (const item of store.auth_blocklist) {
+        if (!item) continue;
+        const active = item.is_active !== undefined ? Boolean(item.is_active) : Boolean(item.isActive);
+        const exp = item.expires_at || item.expiresAt;
+        if (active && exp && new Date(exp).getTime() <= nowMs) {
+          item.is_active = false;
+          item.unblocked_by = item.unblocked_by || 'System (Auto-Expired)';
+          item.unblocked_at = item.unblocked_at || exp;
+          item.unblock_reason = item.unblock_reason || 'Temporary block duration expired';
+          item.updated_at = nowIso;
+          dirty = true;
+        }
+      }
+      if (dirty) saveFallbackStore(store);
+    }
+  } catch {}
+}
+
+export async function listAuthBlocklist(options: {
+  status?: 'active' | 'history' | 'all';
+  targetType?: 'ip' | 'user' | 'all';
+  search?: string;
+} = {}): Promise<{
+  entries: AuthBlocklistEntry[];
+  summary: {
+    activeTotal: number;
+    activeUsers: number;
+    activeIps: number;
+    historyTotal: number;
+    totalHitsPrevented: number;
+  };
+}> {
+  await ensurePostgresConnection();
+  await expireOutdatedAuthBlocksInternal();
+
+  let rawRows: any[] = [];
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query('SELECT * FROM auth_blocklist ORDER BY blocked_at DESC LIMIT 2000');
+      rawRows = res.rows || [];
+    } catch (err: any) {
+      console.error('[DB listAuthBlocklist PG error]', err?.message);
+    }
+  }
+
+  if (rawRows.length === 0) {
+    const store = loadFallbackStore();
+    rawRows = Array.isArray(store.auth_blocklist) ? [...store.auth_blocklist] : [];
+  }
+
+  const nowMs = Date.now();
+  const allEntries = rawRows
+    .filter(Boolean)
+    .map((r) => mapBlocklistRowToEntry(r, nowMs))
+    .sort((a, b) => new Date(b.blockedAt).getTime() - new Date(a.blockedAt).getTime());
+
+  const activeEntries = allEntries.filter((e) => e.isActive);
+  const historyEntries = allEntries.filter((e) => !e.isActive);
+  const totalHitsPrevented = allEntries.reduce((sum, e) => sum + (e.hitCount || 0), 0);
+
+  let filtered = allEntries;
+  const st = options.status || 'all';
+  if (st === 'active') filtered = filtered.filter((e) => e.isActive);
+  else if (st === 'history') filtered = filtered.filter((e) => !e.isActive);
+
+  const tt = options.targetType || 'all';
+  if (tt === 'ip' || tt === 'user') {
+    filtered = filtered.filter((e) => e.targetType === tt);
+  }
+
+  if (options.search && options.search.trim()) {
+    const q = options.search.trim().toLowerCase();
+    filtered = filtered.filter((e) =>
+      [e.targetValue, e.displayValue, e.reason, e.blockedBy, e.unblockedBy || '', e.unblockReason || '']
+        .join(' ')
+        .toLowerCase()
+        .includes(q)
+    );
+  }
+
+  return {
+    entries: filtered,
+    summary: {
+      activeTotal: activeEntries.length,
+      activeUsers: activeEntries.filter((e) => e.targetType === 'user').length,
+      activeIps: activeEntries.filter((e) => e.targetType === 'ip').length,
+      historyTotal: historyEntries.length,
+      totalHitsPrevented,
+    },
+  };
+}
+
+export async function checkAuthBlocklist(
+  rawIp: string,
+  rawUsername: string = '',
+  incrementHit: boolean = false
+): Promise<{ blocked: boolean; entry?: AuthBlocklistEntry }> {
+  await ensurePostgresConnection();
+  await expireOutdatedAuthBlocksInternal();
+
+  const normalizedIp = normalizeAuditIpAddress(rawIp).toLowerCase();
+  const cleanUser = (rawUsername || '').trim().toLowerCase();
+
+  const { entries } = await listAuthBlocklist({ status: 'active' });
+
+  // Priority: check user block first or IP block
+  let matched: AuthBlocklistEntry | undefined;
+  if (cleanUser) {
+    matched = entries.find(
+      (e) => e.isActive && e.targetType === 'user' && doesBlockEntryMatchUser(e.targetValue, cleanUser)
+    );
+  }
+  if (!matched && normalizedIp && normalizedIp !== 'unknown') {
+    matched = entries.find(
+      (e) => e.isActive && e.targetType === 'ip' && e.targetValue === normalizedIp
+    );
+  }
+
+  if (!matched) {
+    return { blocked: false };
+  }
+
+  if (incrementHit) {
+    const nowIso = new Date().toISOString();
+    matched.hitCount += 1;
+    matched.lastHitAt = nowIso;
+    matched.updatedAt = nowIso;
+
+    if (isPostgresReady && pool) {
+      try {
+        await pool.query(
+          'UPDATE auth_blocklist SET hit_count = hit_count + 1, last_hit_at = $1, updated_at = $1 WHERE id = $2',
+          [nowIso, matched.id]
+        );
+      } catch {}
+    }
+
+    try {
+      const store = loadFallbackStore();
+      if (Array.isArray(store.auth_blocklist)) {
+        const idx = store.auth_blocklist.findIndex((r: any) => r && r.id === matched!.id);
+        if (idx !== -1) {
+          store.auth_blocklist[idx].hit_count = Number(store.auth_blocklist[idx].hit_count || 0) + 1;
+          store.auth_blocklist[idx].last_hit_at = nowIso;
+          store.auth_blocklist[idx].updated_at = nowIso;
+          saveFallbackStore(store);
+        }
+      }
+    } catch {}
+  }
+
+  return { blocked: true, entry: matched };
+}
+
+export async function createAuthBlocklistEntry(input: {
+  targetType: AuthBlockTargetType;
+  targetValue: string;
+  reason?: string;
+  expiresAt?: string | null;
+  blockedBy: string;
+  blockedByRole?: string;
+}): Promise<{ entry: AuthBlocklistEntry; alreadyBlocked: boolean }> {
+  await ensurePostgresConnection();
+  await expireOutdatedAuthBlocksInternal();
+
+  const validated = normalizeAndValidateBlockTarget(input.targetType, input.targetValue);
+  if (!validated.valid) {
+    throw new Error(validated.error || 'Invalid block target');
+  }
+
+  const nowIso = new Date().toISOString();
+  const expiresAtIso = input.expiresAt ? new Date(input.expiresAt).toISOString() : null;
+  const reasonClean = (input.reason || '').trim();
+
+  // Check if an active block already exists for the exact same (targetType, targetValue)
+  const { entries: activeEntries } = await listAuthBlocklist({ status: 'active', targetType: input.targetType });
+  const existingActive = activeEntries.find((e) => e.targetValue === validated.targetValue);
+
+  if (existingActive) {
+    const updatedRow = {
+      id: existingActive.id,
+      target_type: existingActive.targetType,
+      target_value: existingActive.targetValue,
+      display_value: validated.displayValue,
+      reason: reasonClean || existingActive.reason,
+      blocked_by: input.blockedBy,
+      blocked_by_role: input.blockedByRole || 'Administrator',
+      blocked_at: existingActive.blockedAt,
+      expires_at: expiresAtIso !== undefined ? expiresAtIso : existingActive.expiresAt,
+      is_active: true,
+      hit_count: existingActive.hitCount,
+      last_hit_at: existingActive.lastHitAt,
+      unblocked_by: null,
+      unblocked_at: null,
+      unblock_reason: null,
+      created_at: existingActive.createdAt,
+      updated_at: nowIso,
+    };
+
+    if (isPostgresReady && pool) {
+      try {
+        await pool.query(
+          `UPDATE auth_blocklist
+           SET reason = $1, blocked_by = $2, blocked_by_role = $3, expires_at = $4, updated_at = $5
+           WHERE id = $6`,
+          [updatedRow.reason, updatedRow.blocked_by, updatedRow.blocked_by_role, updatedRow.expires_at, nowIso, updatedRow.id]
+        );
+      } catch (err: any) {
+        console.error('[DB update existing auth_blocklist error]', err?.message);
+      }
+    }
+
+    const store = loadFallbackStore();
+    if (!Array.isArray(store.auth_blocklist)) store.auth_blocklist = [];
+    const idx = store.auth_blocklist.findIndex((r: any) => r && r.id === updatedRow.id);
+    if (idx !== -1) store.auth_blocklist[idx] = updatedRow;
+    else store.auth_blocklist.unshift(updatedRow);
+    saveFallbackStore(store);
+
+    return { entry: mapBlocklistRowToEntry(updatedRow), alreadyBlocked: true };
+  }
+
+  const newRow = {
+    id: `blk-${input.targetType}-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`,
+    target_type: input.targetType,
+    target_value: validated.targetValue,
+    display_value: validated.displayValue,
+    reason: reasonClean,
+    blocked_by: input.blockedBy,
+    blocked_by_role: input.blockedByRole || 'Administrator',
+    blocked_at: nowIso,
+    expires_at: expiresAtIso,
+    is_active: true,
+    hit_count: 0,
+    last_hit_at: null,
+    unblocked_by: null,
+    unblocked_at: null,
+    unblock_reason: null,
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO auth_blocklist (
+          id, target_type, target_value, display_value, reason,
+          blocked_by, blocked_by_role, blocked_at, expires_at, is_active,
+          hit_count, last_hit_at, unblocked_by, unblocked_at, unblock_reason,
+          created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+        [
+          newRow.id,
+          newRow.target_type,
+          newRow.target_value,
+          newRow.display_value,
+          newRow.reason,
+          newRow.blocked_by,
+          newRow.blocked_by_role,
+          newRow.blocked_at,
+          newRow.expires_at,
+          newRow.is_active,
+          newRow.hit_count,
+          newRow.last_hit_at,
+          newRow.unblocked_by,
+          newRow.unblocked_at,
+          newRow.unblock_reason,
+          newRow.created_at,
+          newRow.updated_at,
+        ]
+      );
+    } catch (err: any) {
+      console.error('[DB createAuthBlocklistEntry PG error]', err?.message);
+    }
+  }
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.auth_blocklist)) store.auth_blocklist = [];
+  store.auth_blocklist.unshift(newRow);
+  saveFallbackStore(store);
+
+  return { entry: mapBlocklistRowToEntry(newRow), alreadyBlocked: false };
+}
+
+export async function unblockAuthBlocklistEntry(
+  id: string,
+  input: { unblockedBy: string; unblockReason?: string }
+): Promise<AuthBlocklistEntry | null> {
+  await ensurePostgresConnection();
+  const nowIso = new Date().toISOString();
+  const reasonClean = (input.unblockReason || '').trim() || 'Unblocked by administrator';
+
+  let updatedRow: any = null;
+
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query(
+        `UPDATE auth_blocklist
+         SET is_active = FALSE,
+             unblocked_by = $1,
+             unblocked_at = $2,
+             unblock_reason = $3,
+             updated_at = $2
+         WHERE id = $4
+         RETURNING *`,
+        [input.unblockedBy, nowIso, reasonClean, id]
+      );
+      if (res.rows.length > 0) {
+        updatedRow = res.rows[0];
+      }
+    } catch (err: any) {
+      console.error('[DB unblockAuthBlocklistEntry PG error]', err?.message);
+    }
+  }
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.auth_blocklist)) store.auth_blocklist = [];
+  const idx = store.auth_blocklist.findIndex((r: any) => r && r.id === id);
+  if (idx !== -1) {
+    store.auth_blocklist[idx] = {
+      ...store.auth_blocklist[idx],
+      is_active: false,
+      unblocked_by: input.unblockedBy,
+      unblocked_at: nowIso,
+      unblock_reason: reasonClean,
+      updated_at: nowIso,
+    };
+    if (!updatedRow) updatedRow = store.auth_blocklist[idx];
+    saveFallbackStore(store);
+  } else if (updatedRow) {
+    store.auth_blocklist.unshift(updatedRow);
+    saveFallbackStore(store);
+  }
+
+  return updatedRow ? mapBlocklistRowToEntry(updatedRow) : null;
 }
 
 // -------------------------------------------------------------

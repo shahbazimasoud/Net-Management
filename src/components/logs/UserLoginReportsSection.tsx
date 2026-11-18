@@ -4,6 +4,8 @@ import {
   Activity,
   AlertCircle,
   AlertTriangle,
+  ArrowRight,
+  Ban,
   Check,
   CheckCircle2,
   Clock,
@@ -30,11 +32,14 @@ import {
   User,
   UserCheck,
   Users,
+  UserX,
   X,
   XCircle,
   Calendar,
 } from 'lucide-react';
 import {
+  AuthBlockTargetType,
+  AuthBlocklistEntry,
   LoginAuditAuthMethod,
   LoginAuditOutcome,
   UserLoginAuditEvent,
@@ -62,6 +67,11 @@ export interface UserLoginReportsSectionProps {
   formatDateOnly: (iso: string) => string;
   onRefresh: () => void;
   onExportCsv: (events: UserLoginAuditEvent[]) => void;
+  activeBlocklist?: AuthBlocklistEntry[];
+  onOpenBlockModal?: (targetType: AuthBlockTargetType, targetValue: string) => void;
+  onNavigateToBlockedPage?: () => void;
+  lastBlockBanner?: { targetType: AuthBlockTargetType; displayValue: string } | null;
+  onDismissBlockBanner?: () => void;
 }
 
 type LoginViewMode = 'user_summary' | 'timeline';
@@ -79,6 +89,11 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
   formatDateOnly,
   onRefresh,
   onExportCsv,
+  activeBlocklist = [],
+  onOpenBlockModal,
+  onNavigateToBlockedPage,
+  lastBlockBanner = null,
+  onDismissBlockBanner,
 }) => {
   const presenceState = useCommsPresenceMap();
 
@@ -104,6 +119,44 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  // Live sets of actively blocked Users and IPs
+  const blockedSets = useMemo(() => {
+    const ips = new Set<string>();
+    const users = new Set<string>();
+    for (const item of activeBlocklist || []) {
+      if (!item?.isActive) continue;
+      if (item.targetType === 'ip') {
+        ips.add(item.targetValue.toLowerCase());
+      } else {
+        users.add(item.targetValue.toLowerCase());
+      }
+    }
+    return { ips, users };
+  }, [activeBlocklist]);
+
+  const isIpBlocked = (ip?: string | null): boolean => {
+    const clean = (ip || '').trim().toLowerCase();
+    if (!clean || clean === 'unknown') return false;
+    return blockedSets.ips.has(clean);
+  };
+
+  const isUserBlocked = (username?: string | null): boolean => {
+    const clean = (username || '').trim().toLowerCase();
+    if (!clean || clean === 'unknown') return false;
+    if (blockedSets.users.has(clean)) return true;
+    const base = clean.includes('\\')
+      ? clean.split('\\').pop()?.trim() || ''
+      : clean.includes('@')
+      ? clean.split('@')[0]?.trim() || ''
+      : clean;
+    return Boolean(base && blockedSets.users.has(base));
+  };
+
+  const activeBlockedCount = useMemo(
+    () => (activeBlocklist || []).filter((e) => e.isActive).length,
+    [activeBlocklist]
+  );
 
   const rawEvents = useMemo(() => loginReports?.events || [], [loginReports]);
 
@@ -832,6 +885,29 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
             </button>
           )}
 
+          {onNavigateToBlockedPage && (
+            <button
+              type="button"
+              onClick={onNavigateToBlockedPage}
+              className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                isLightMode
+                  ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
+                  : 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-500/30 text-rose-300'
+              }`}
+              title={
+                isEn
+                  ? 'Open Blocked Users & IPs Management Page'
+                  : 'باز کردن صفحه مدیریت و رفع مسدودی کاربران و IPهای مسدودشده'
+              }
+            >
+              <Ban className="w-3.5 h-3.5 text-rose-500" />
+              <span>{isEn ? 'Blocked Users & IPs' : 'کاربران و IPهای مسدودشده'}</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-rose-600 text-white">
+                {activeBlockedCount}
+              </span>
+            </button>
+          )}
+
           {isModalMinimized && inspectedEvent && (
             <button
               type="button"
@@ -848,6 +924,47 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
           )}
         </div>
       </div>
+
+      {/* Block Action Confirmation Banner */}
+      {lastBlockBanner && (
+        <div
+          className={`p-3.5 rounded-2xl border flex flex-wrap items-center justify-between gap-3 text-xs ${
+            isLightMode
+              ? 'bg-amber-50 border-amber-200 text-amber-900'
+              : 'bg-amber-500/15 border-amber-500/30 text-amber-200'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <Ban className="w-4 h-4 text-rose-500 shrink-0" />
+            <span className="font-semibold">
+              {isEn
+                ? `${lastBlockBanner.targetType === 'ip' ? 'IP address' : 'User'} "${lastBlockBanner.displayValue}" is now blocked from logging in.`
+                : `${lastBlockBanner.targetType === 'ip' ? 'آدرس IP' : 'کاربر'} «${lastBlockBanner.displayValue}» مسدود شد و دیگر امکان ورود ندارد.`}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {onNavigateToBlockedPage && (
+              <button
+                type="button"
+                onClick={onNavigateToBlockedPage}
+                className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold inline-flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+              >
+                <span>{isEn ? 'Manage / Unblock in Blocked Page' : 'مشاهده و رفع مسدودی در صفحه مسدودشده‌ها'}</span>
+                <ArrowRight className={`w-3.5 h-3.5 ${isRtl ? 'rotate-180' : ''}`} />
+              </button>
+            )}
+            {onDismissBlockBanner && (
+              <button
+                type="button"
+                onClick={onDismissBlockBanner}
+                className="p-1.5 rounded-lg hover:bg-black/10 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Authentic Error or Loading Banners */}
       {loadError && (
@@ -932,6 +1049,18 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
                                 {u.username}
                               </span>
                               {renderPresenceIndicator(u.username)}
+                              {isUserBlocked(u.username) && (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                                    isLightMode
+                                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                      : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                                  }`}
+                                >
+                                  <Ban className="w-2.5 h-2.5" />
+                                  <span>{isEn ? 'Blocked' : 'مسدود'}</span>
+                                </span>
+                              )}
                             </div>
                             <span className={`text-[11px] block truncate mt-0.5 ${isLightMode ? 'text-slate-600' : 'text-slate-300'}`}>
                               {u.fullName !== u.username ? `${u.fullName} • ` : ''}
@@ -1020,24 +1149,53 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-4 text-xs">
-                    <div>
-                      <span className={`text-[10px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                        {isEn ? 'First Login' : 'نخستین ورود'}
-                      </span>
-                      <span className={`font-mono font-semibold ${isLightMode ? 'text-slate-800' : 'text-slate-200'}`}>
-                        {formatExactDateAndTime(activeUserSummary.firstLoginAt)}
-                      </span>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-4 text-xs">
+                      <div>
+                        <span className={`text-[10px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'First Login' : 'نخستین ورود'}
+                        </span>
+                        <span className={`font-mono font-semibold ${isLightMode ? 'text-slate-800' : 'text-slate-200'}`}>
+                          {formatExactDateAndTime(activeUserSummary.firstLoginAt)}
+                        </span>
+                      </div>
+                      <div className={`h-7 w-px ${isLightMode ? 'bg-slate-200' : 'bg-white/10'}`} />
+                      <div>
+                        <span className={`text-[10px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn ? 'Latest Login' : 'آخرین ورود'}
+                        </span>
+                        <span className={`font-mono font-semibold ${isLightMode ? 'text-emerald-700' : 'text-emerald-400'}`}>
+                          {formatExactDateAndTime(activeUserSummary.lastLoginAt)}
+                        </span>
+                      </div>
                     </div>
-                    <div className={`h-7 w-px ${isLightMode ? 'bg-slate-200' : 'bg-white/10'}`} />
-                    <div>
-                      <span className={`text-[10px] block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                        {isEn ? 'Latest Login' : 'آخرین ورود'}
-                      </span>
-                      <span className={`font-mono font-semibold ${isLightMode ? 'text-emerald-700' : 'text-emerald-400'}`}>
-                        {formatExactDateAndTime(activeUserSummary.lastLoginAt)}
-                      </span>
-                    </div>
+
+                    {onOpenBlockModal && activeUserSummary.username && activeUserSummary.username !== 'Unknown' && (
+                      isUserBlocked(activeUserSummary.username) ? (
+                        <button
+                          type="button"
+                          onClick={onNavigateToBlockedPage}
+                          className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer ${
+                            isLightMode
+                              ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
+                              : 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-500/30 text-rose-300'
+                          }`}
+                        >
+                          <Ban className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'User Blocked — Manage' : 'کاربر مسدود است — رفع مسدودی'}</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onOpenBlockModal('user', activeUserSummary.username)}
+                          className="px-3 py-1.5 rounded-xl bg-rose-600/90 hover:bg-rose-500 text-white text-[11px] font-bold shadow-sm inline-flex items-center gap-1.5 transition cursor-pointer"
+                          title={isEn ? 'Block this user from signing in' : 'مسدود کردن ورود این کاربر'}
+                        >
+                          <UserX className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Block User' : 'مسدود کردن کاربر'}</span>
+                        </button>
+                      )
+                    )}
                   </div>
                 </div>
 
@@ -1091,41 +1249,76 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
                       </span>
                     </div>
                     <div className="space-y-1.5 max-h-44 overflow-y-auto custom-scrollbar">
-                      {activeUserSummary.ips.map((ipItem) => (
-                        <div
-                          key={ipItem.ip}
-                          className={`px-2.5 py-2 rounded-lg border flex items-center justify-between gap-2 text-xs ${
-                            isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/5'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className={`font-mono font-bold truncate ${isLightMode ? 'text-slate-900' : 'text-cyan-300'}`}>
-                              {ipItem.ip}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(ipItem.ip, `ip-${ipItem.ip}`)}
-                              className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-400 cursor-pointer"
-                              title={isEn ? 'Copy IP' : 'کپی IP'}
-                            >
-                              {copiedId === `ip-${ipItem.ip}` ? (
-                                <Check className="w-3 h-3 text-emerald-400" />
-                              ) : (
-                                <Copy className="w-3 h-3" />
+                      {activeUserSummary.ips.map((ipItem) => {
+                        const ipIsBlocked = isIpBlocked(ipItem.ip);
+                        const ipValidForBlock = Boolean(ipItem.ip && ipItem.ip !== 'Unknown');
+                        return (
+                          <div
+                            key={ipItem.ip}
+                            className={`px-2.5 py-2 rounded-lg border flex items-center justify-between gap-2 text-xs ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-white/[0.03] border-white/5'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className={`font-mono font-bold truncate ${isLightMode ? 'text-slate-900' : 'text-cyan-300'}`}>
+                                {ipItem.ip}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(ipItem.ip, `ip-${ipItem.ip}`)}
+                                className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-400 cursor-pointer shrink-0"
+                                title={isEn ? 'Copy IP' : 'کپی IP'}
+                              >
+                                {copiedId === `ip-${ipItem.ip}` ? (
+                                  <Check className="w-3 h-3 text-emerald-400" />
+                                ) : (
+                                  <Copy className="w-3 h-3" />
+                                )}
+                              </button>
+                              {ipValidForBlock && onOpenBlockModal && (
+                                ipIsBlocked ? (
+                                  <button
+                                    type="button"
+                                    onClick={onNavigateToBlockedPage}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold border inline-flex items-center gap-1 cursor-pointer shrink-0 ${
+                                      isLightMode
+                                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                        : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                                    }`}
+                                    title={isEn ? 'Blocked — click to manage/unblock' : 'مسدود است — کلیک برای مدیریت'}
+                                  >
+                                    <Ban className="w-2.5 h-2.5" />
+                                    <span>{isEn ? 'Blocked' : 'مسدود'}</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenBlockModal('ip', ipItem.ip)}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border inline-flex items-center gap-1 transition cursor-pointer shrink-0 ${
+                                      isLightMode
+                                        ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                                        : 'bg-rose-500/10 hover:bg-rose-500/25 text-rose-300 border-rose-500/25'
+                                    }`}
+                                    title={isEn ? `Block IP ${ipItem.ip}` : `مسدود کردن IP ${ipItem.ip}`}
+                                  >
+                                    <Ban className="w-2.5 h-2.5" />
+                                    <span>{isEn ? 'Block IP' : 'مسدود'}</span>
+                                  </button>
+                                )
                               )}
-                            </button>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className={`font-mono text-[11px] font-bold block tabular-nums ${isLightMode ? 'text-slate-800' : 'text-white'}`}>
+                                {ipItem.successCount} {isEn ? 'ok' : 'موفق'}
+                                {ipItem.failedCount > 0 ? ` / ${ipItem.failedCount} ${isEn ? 'fail' : 'خطا'}` : ''}
+                              </span>
+                              <span className={`text-[10px] font-mono block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                                {formatDateTime(ipItem.lastSeenAt)}
+                              </span>
+                            </div>
                           </div>
-                          <div className="text-right shrink-0">
-                            <span className={`font-mono text-[11px] font-bold block tabular-nums ${isLightMode ? 'text-slate-800' : 'text-white'}`}>
-                              {ipItem.successCount} {isEn ? 'ok' : 'موفق'}
-                              {ipItem.failedCount > 0 ? ` / ${ipItem.failedCount} ${isEn ? 'fail' : 'خطا'}` : ''}
-                            </span>
-                            <span className={`text-[10px] font-mono block ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                              {formatDateTime(ipItem.lastSeenAt)}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -1387,21 +1580,67 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
                         </div>
                       </td>
                       <td className="py-3 px-3.5 text-center whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setInspectedEvent(ev);
-                            setIsModalMinimized(false);
-                          }}
-                          className={`p-1.5 rounded-lg transition cursor-pointer ${
-                            isLightMode
-                              ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                              : 'bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white'
-                          }`}
-                          title={isEn ? 'Inspect full login record' : 'مشاهده جزئیات کامل'}
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
+                        <div className="inline-flex items-center gap-1">
+                          {onOpenBlockModal && ev.ipAddress && ev.ipAddress !== 'Unknown' && (
+                            isIpBlocked(ev.ipAddress) ? (
+                              <button
+                                type="button"
+                                onClick={onNavigateToBlockedPage}
+                                className={`px-2 py-1 rounded-lg border text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer ${
+                                  isLightMode
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                    : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                                }`}
+                                title={isEn ? 'IP is blocked — manage in Blocked list' : 'این IP مسدود است — مشاهده لیست'}
+                              >
+                                <Ban className="w-3 h-3" />
+                                <span>{isEn ? 'Blocked' : 'مسدود'}</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onOpenBlockModal('ip', ev.ipAddress)}
+                                className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                                  isLightMode
+                                    ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
+                                    : 'bg-rose-500/10 hover:bg-rose-500/25 border-rose-500/25 text-rose-300'
+                                }`}
+                                title={isEn ? `Block IP ${ev.ipAddress}` : `مسدود کردن IP ${ev.ipAddress}`}
+                              >
+                                <Globe className="w-3.5 h-3.5" />
+                              </button>
+                            )
+                          )}
+                          {onOpenBlockModal && ev.username && ev.username !== 'Unknown' && !isUserBlocked(ev.username) && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenBlockModal('user', ev.username)}
+                              className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                                isLightMode
+                                  ? 'bg-amber-50 hover:bg-rose-100 border-amber-200 text-rose-700'
+                                  : 'bg-amber-500/10 hover:bg-rose-500/25 border-amber-500/25 text-rose-300'
+                              }`}
+                              title={isEn ? `Block User ${ev.username}` : `مسدود کردن کاربر ${ev.username}`}
+                            >
+                              <UserX className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInspectedEvent(ev);
+                              setIsModalMinimized(false);
+                            }}
+                            className={`p-1.5 rounded-lg transition cursor-pointer ${
+                              isLightMode
+                                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                : 'bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white'
+                            }`}
+                            title={isEn ? 'Inspect full login record' : 'مشاهده جزئیات کامل'}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -1758,10 +1997,47 @@ export const UserLoginReportsSection: React.FC<UserLoginReportsSectionProps> = (
 
               {/* Modal Footer */}
               <div
-                className={`px-5 py-3.5 border-t flex items-center justify-end gap-2 shrink-0 ${
+                className={`px-5 py-3.5 border-t flex items-center justify-between gap-2 flex-wrap shrink-0 ${
                   isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900 border-slate-800'
                 }`}
               >
+                <div className="flex items-center gap-2 flex-wrap">
+                  {onOpenBlockModal && inspectedEvent.ipAddress && inspectedEvent.ipAddress !== 'Unknown' && (
+                    isIpBlocked(inspectedEvent.ipAddress) ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInspectedEvent(null);
+                          if (onNavigateToBlockedPage) onNavigateToBlockedPage();
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-rose-500/15 text-rose-400 border border-rose-500/30 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Ban className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'IP Blocked (Manage)' : 'IP مسدود است (مدیریت)'}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onOpenBlockModal('ip', inspectedEvent.ipAddress)}
+                        className="px-3 py-1.5 rounded-xl bg-rose-600/90 hover:bg-rose-500 text-white text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>{isEn ? `Block IP (${inspectedEvent.ipAddress})` : `مسدود کردن IP (${inspectedEvent.ipAddress})`}</span>
+                      </button>
+                    )
+                  )}
+                  {onOpenBlockModal && inspectedEvent.username && inspectedEvent.username !== 'Unknown' && !isUserBlocked(inspectedEvent.username) && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenBlockModal('user', inspectedEvent.username)}
+                      className="px-3 py-1.5 rounded-xl bg-amber-600/90 hover:bg-amber-500 text-white text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <UserX className="w-3.5 h-3.5" />
+                      <span>{isEn ? `Block User (${inspectedEvent.username})` : `مسدود کردن کاربر (${inspectedEvent.username})`}</span>
+                    </button>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   onClick={() => {

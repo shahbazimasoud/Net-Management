@@ -123,6 +123,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setEffectivePolicy(data.effectivePolicy);
           return data.effectivePolicy;
         }
+      } else if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem(TOKEN_STORAGE_KEY);
+        sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+        localStorage.removeItem('nettopology_active_user_v1');
+        sessionStorage.removeItem('nettopology_active_user_v1');
+        setUser(null);
+        setEffectivePolicy(null);
+        setToken(null);
       }
     } catch (err) {
       console.error('[Auth] Failed to refresh effective policy from database', err);

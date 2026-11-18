@@ -8312,6 +8312,60 @@ export async function fetchUserLoginReportsApi(options: {
   return data;
 }
 
+export async function fetchAuthBlocklistApi(options: {
+  status?: 'active' | 'history' | 'all';
+  targetType?: 'ip' | 'user' | 'all';
+  search?: string;
+} = {}): Promise<any> {
+  const params = new URLSearchParams();
+  if (options.status) params.append('status', options.status);
+  if (options.targetType && options.targetType !== 'all') params.append('targetType', options.targetType);
+  if (options.search) params.append('search', options.search);
+
+  const qs = params.toString();
+  const res = await fetchWithRetry(`${API_BASE}/security/blocklist${qs ? `?${qs}` : ''}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.message || data?.error || `HTTP error ${res.status}`);
+  }
+  return data;
+}
+
+export async function blockAuthTargetApi(payload: {
+  targetType: 'ip' | 'user';
+  targetValue: string;
+  reason?: string;
+  durationMinutes?: number | null;
+  expiresAt?: string | null;
+}): Promise<any> {
+  const res = await fetchWithRetry(`${API_BASE}/security/blocklist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.message || data?.error || `HTTP error ${res.status}`);
+  }
+  return data;
+}
+
+export async function unblockAuthTargetApi(
+  id: string,
+  unblockReason?: string
+): Promise<any> {
+  const res = await fetchWithRetry(`${API_BASE}/security/blocklist/${encodeURIComponent(id)}/unblock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ unblockReason: unblockReason || '' }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.message || data?.error || `HTTP error ${res.status}`);
+  }
+  return data;
+}
+
 export async function fetchLogRetentionConfigApi(): Promise<{ success: boolean; config: any; stats?: any }> {
   const res = await fetchWithRetry(`${API_BASE}/settings/log-retention`);
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);

@@ -2279,6 +2279,45 @@ export interface UserLoginReportsResponse {
   error?: string;
 }
 
+export type AuthBlockTargetType = 'ip' | 'user';
+
+export interface AuthBlocklistEntry {
+  id: string;
+  targetType: AuthBlockTargetType;
+  targetValue: string;
+  displayValue: string;
+  reason: string;
+  blockedBy: string;
+  blockedByRole: string;
+  blockedAt: string;
+  expiresAt: string | null;
+  isActive: boolean;
+  status: 'active' | 'unblocked' | 'expired';
+  hitCount: number;
+  lastHitAt: string | null;
+  unblockedBy: string | null;
+  unblockedAt: string | null;
+  unblockReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuthBlocklistSummary {
+  activeTotal: number;
+  activeUsers: number;
+  activeIps: number;
+  historyTotal: number;
+  totalHitsPrevented: number;
+}
+
+export interface AuthBlocklistResponse {
+  success: boolean;
+  entries: AuthBlocklistEntry[];
+  summary: AuthBlocklistSummary;
+  error?: string;
+  message?: string;
+}
+
 // -------------------------------------------------------------
 // Automated Audit & Command Logs Scheduled Reporting
 // -------------------------------------------------------------
