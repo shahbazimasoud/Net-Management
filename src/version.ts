@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.451.1';
+export const APP_VERSION = '1.451.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.451.2',
+    releaseDate: '2026-11-19',
+    type: 'patch',
+    title: 'رفع کامل مشکل سیاه بودن تصویر در ضبط و بازپخش جلسات ریموت دسکتاپ (RDP / VNC)',
+    title_en: 'Fix Black Screen in Remote Desktop (RDP / VNC) Session Recording Capture, Transcoding & Playback',
+    changes: [
+      'افزودن بافر همزمان و غیرمسدودکننده (تا ۱۲ مگابایت در حافظه) بلافاصله پس از وضعیت `READY` در `server/remoteDesktopGateway.ts` تا دستور ابعاد لایه اصلی (`size,0,W,H`) و کلیدفریم کامل ابتدای دسکتاپ حین راه‌اندازی ناهمگام ضبط در دیتابیس از دست نروند.',
+      'رفع مشکل بریدگی و سیاه‌شدن بوم نمایش `Guacamole.Display` در حالت زبان فارسی (RTL) در مودال بازپخش (`SessionRecordingPlayerModal.tsx`) با اجبار جهت `dir="ltr"` و مقیاس‌دهی دقیق مطابق استاندارد ریموت زنده، بارگذاری احرازهویت‌شده `.guac` به صورت Blob، ترمیم خودکار فایل‌های فاقد هدر `size`/`sync` و رندر فوری فریم اول (`seek(0)`) پس از بارگذاری.',
+      'مجهز کردن موتور تبدیل پس‌زمینه (`guacenc` + `ffmpeg`) به درج خودکار هدر ابعاد لایه صفر و تبدیل خودکار تصاویر `image/webp` به `image/png` هنگام نبود پشتیبانی `libwebp` در باینری `guacenc` سرور میزبان، همراه با بازگشت امن به پخش بومی `.guac` در صورت خطا.'
+    ],
+    changes_en: [
+      'Added a synchronous non-blocking in-memory pre-init capture buffer (up to 12 MB) immediately on `handshakeState = READY` in `server/remoteDesktopGateway.ts` so the initial layer-0 `size` instruction and full desktop keyframe are never dropped while PostgreSQL recording initialization completes asynchronously.',
+      'Fixed black canvas clipping in Persian (RTL) mode inside `SessionRecordingPlayerModal.tsx` by enforcing `dir="ltr"` and explicit top-left `Guacamole.Display` scaling with `ResizeObserver`, switching `.guac` loading to authenticated `Blob` fetch with auto-repair for missing `size`/`sync` instructions, and rendering Frame 0 immediately via `seek(0)` on load.',
+      'Hardened the background `guacenc`/`ffmpeg` transcoder with automatic layer-0 `size` preamble injection and automatic `image/webp` to `image/png` stream rewriting when the host `guacenc` binary lacks `libwebp`, plus safe fallback to native `.guac` playback.'
+    ]
+  },
   {
     version: '1.451.1',
     releaseDate: '2026-11-19',

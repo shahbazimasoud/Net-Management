@@ -1746,7 +1746,16 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
               clientWs.send(instructionStr + ';');
             }
             handshakeState = 'READY';
-            // Zero-disruption passive session recording: starts asynchronously strictly AFTER handshake is READY
+            // Zero-disruption passive session recording:
+            // Synchronously buffer incoming post-READY instructions in memory (microseconds, zero blocking)
+            // so layer-0 "size" and the initial full-screen desktop keyframe are NEVER lost while
+            // createGuacSessionRecorder resolves PostgreSQL settings & opens the write stream asynchronously.
+            const pendingRecInstructions: string[] = [];
+            const MAX_PENDING_REC_BYTES = 12 * 1024 * 1024;
+            (activeSession as any)._pendingRecInstructions = pendingRecInstructions;
+            (activeSession as any)._pendingRecBytes = 0;
+            (activeSession as any)._pendingRecInitActive = true;
+
             Promise.resolve()
               .then(async () => {
                 const targetSrv = await resolveTargetServerRecord(config.serverId, projectRoot).catch(() => null);
@@ -1767,13 +1776,50 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
                   initialHeight: config.height,
                   projectRoot,
                 });
-                if (rec && !guacdSocket.destroyed && clientWs.readyState === WebSocket.OPEN) {
+
+                (activeSession as any)._pendingRecInitActive = false;
+
+                if (!rec) {
+                  pendingRecInstructions.length = 0;
+                  (activeSession as any)._pendingRecInstructions = null;
+                  (activeSession as any)._pendingRecBytes = 0;
+                  return;
+                }
+
+                // Ensure layer 0 has an explicit initial size preamble if not already present at stream start
+                const hasInitialLayer0Size = pendingRecInstructions.some((inst) =>
+                  inst.startsWith('4.size,1.0,')
+                );
+                if (!hasInitialLayer0Size) {
+                  const initW = Math.max(320, Math.min(3840, Number(config.width) || 1280));
+                  const initH = Math.max(240, Math.min(2160, Number(config.height) || 720));
+                  try {
+                    rec.writeInstruction(encodeGuacInstruction('size', '0', String(initW), String(initH)));
+                  } catch {}
+                }
+
+                // Flush all buffered initial instructions (size, offscreen buffers, desktop keyframe) in exact order
+                for (let i = 0; i < pendingRecInstructions.length; i++) {
+                  try {
+                    rec.writeInstruction(pendingRecInstructions[i]);
+                  } catch {}
+                }
+                pendingRecInstructions.length = 0;
+                (activeSession as any)._pendingRecInstructions = null;
+                (activeSession as any)._pendingRecBytes = 0;
+
+                if (!guacdSocket.destroyed && clientWs.readyState === WebSocket.OPEN) {
                   (activeSession as any)._sessionRecorder = rec;
-                } else if (rec) {
+                } else {
                   rec.finalize('closed_during_init').catch(() => {});
                 }
               })
-              .catch(() => {});
+              .catch(() => {
+                (activeSession as any)._pendingRecInitActive = false;
+                pendingRecInstructions.length = 0;
+                (activeSession as any)._pendingRecInstructions = null;
+                (activeSession as any)._pendingRecBytes = 0;
+              });
           }
         } else {
           // handshakeState === 'READY'
@@ -1787,6 +1833,16 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             try {
               rec.writeInstruction(instructionStr + ';');
             } catch {}
+          } else if ((activeSession as any)._pendingRecInitActive) {
+            const buf: string[] | null | undefined = (activeSession as any)._pendingRecInstructions;
+            if (buf) {
+              const rawInst = instructionStr + ';';
+              const curBytes = Number((activeSession as any)._pendingRecBytes || 0);
+              if (curBytes + rawInst.length <= 12 * 1024 * 1024) {
+                buf.push(rawInst);
+                (activeSession as any)._pendingRecBytes = curBytes + rawInst.length;
+              }
+            }
           }
         }
       }

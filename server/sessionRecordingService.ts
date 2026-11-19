@@ -838,6 +838,7 @@ export async function createGuacSessionRecorder(params: {
     let finalized = false;
     let droppedFrames = 0;
     let instructionCount = 0;
+    let syncCount = 0;
     let detectedResolution =
       params.initialWidth && params.initialHeight ? `${params.initialWidth}x${params.initialHeight}` : '';
 
@@ -928,6 +929,9 @@ export async function createGuacSessionRecorder(params: {
           const res = parseGuacSizeInstruction(instructionWithSemicolon);
           if (res) detectedResolution = res;
         }
+        if (opcode === 'sync') {
+          syncCount += 1;
+        }
 
         writeStream.write(instructionWithSemicolon);
         instructionCount += 1;
@@ -938,6 +942,15 @@ export async function createGuacSessionRecorder(params: {
       if (finalized) return;
       finalized = true;
       try {
+        // Ensure at least one sync frame exists if instructions were captured so players/guacenc render Frame 0
+        if (!streamBroken && !writeStream.writableEnded && instructionCount > 0 && syncCount === 0) {
+          const ts = String(Date.now());
+          try {
+            writeStream.write(`4.sync,${ts.length}.${ts};`);
+            syncCount += 1;
+          } catch {}
+        }
+
         await new Promise<void>((resolve) => {
           if (streamBroken || writeStream.writableEnded) {
             resolve();
@@ -1079,6 +1092,138 @@ function runLowPriorityProcess(
   });
 }
 
+function encodeGuacToken(val: string): string {
+  return `${val.length}.${val}`;
+}
+
+function parseGuacInstructionsFromText(text: string): Array<{ raw: string; parts: string[] }> {
+  const results: Array<{ raw: string; parts: string[] }> = [];
+  let idx = 0;
+  const n = text.length;
+  while (idx < n) {
+    const start = idx;
+    const parts: string[] = [];
+    let valid = true;
+    while (idx < n) {
+      const dot = text.indexOf('.', idx);
+      if (dot <= idx) {
+        valid = false;
+        break;
+      }
+      const len = parseInt(text.slice(idx, dot), 10);
+      if (!Number.isFinite(len) || len < 0 || dot + 1 + len >= n) {
+        valid = false;
+        break;
+      }
+      const val = text.slice(dot + 1, dot + 1 + len);
+      parts.push(val);
+      const termIdx = dot + 1 + len;
+      const term = text[termIdx];
+      idx = termIdx + 1;
+      if (term === ';') {
+        break;
+      } else if (term !== ',') {
+        valid = false;
+        break;
+      }
+    }
+    if (!valid || parts.length === 0) break;
+    results.push({ raw: text.slice(start, idx), parts });
+  }
+  return results;
+}
+
+function convertSingleWebpBufferToPng(webpBuf: Buffer): Promise<Buffer | null> {
+  return new Promise((resolve) => {
+    try {
+      const proc = spawn(
+        'ffmpeg',
+        ['-hide_banner', '-loglevel', 'error', '-f', 'webp_pipe', '-i', 'pipe:0', '-f', 'image2pipe', '-vcodec', 'png', 'pipe:1'],
+        { stdio: ['pipe', 'pipe', 'ignore'] }
+      );
+      const chunks: Buffer[] = [];
+      proc.stdout?.on('data', (c: Buffer) => chunks.push(c));
+      const timer = setTimeout(() => {
+        try {
+          proc.kill('SIGKILL');
+        } catch {}
+        resolve(null);
+      }, 6000);
+      proc.on('error', () => {
+        clearTimeout(timer);
+        resolve(null);
+      });
+      proc.on('close', (code) => {
+        clearTimeout(timer);
+        if (code === 0 && chunks.length > 0) {
+          resolve(Buffer.concat(chunks));
+        } else {
+          resolve(null);
+        }
+      });
+      proc.stdin?.end(webpBuf);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * Rewrites `image/webp` img/blob/end sequences in a Guacamole recording into `image/png`
+ * so older Linux builds of `guacenc` compiled without libwebp can still render every frame cleanly.
+ */
+export async function convertWebpStreamsToPngInGuac(guacText: string): Promise<{ text: string; convertedCount: number }> {
+  if (!guacText.includes('10.image/webp')) {
+    return { text: guacText, convertedCount: 0 };
+  }
+  const instructions = parseGuacInstructionsFromText(guacText);
+  const webpStreams = new Map<string, { headerParts: string[]; b64Chunks: string[] }>();
+  const outParts: string[] = [];
+  let convertedCount = 0;
+
+  for (const inst of instructions) {
+    const op = inst.parts[0];
+    // Guacamole img instruction format: img,stream,mask,layer,mimetype,x,y
+    if (op === 'img' && inst.parts.length >= 7 && inst.parts[4] === 'image/webp') {
+      const streamId = inst.parts[1];
+      webpStreams.set(streamId, { headerParts: inst.parts, b64Chunks: [] });
+      continue;
+    }
+    if (op === 'blob' && inst.parts.length >= 3 && webpStreams.has(inst.parts[1])) {
+      webpStreams.get(inst.parts[1])!.b64Chunks.push(inst.parts[2]);
+      continue;
+    }
+    if (op === 'end' && inst.parts.length >= 2 && webpStreams.has(inst.parts[1])) {
+      const streamId = inst.parts[1];
+      const entry = webpStreams.get(streamId)!;
+      webpStreams.delete(streamId);
+      const rawWebp = Buffer.from(entry.b64Chunks.join(''), 'base64');
+      const pngBuf = rawWebp.length > 0 ? await convertSingleWebpBufferToPng(rawWebp) : null;
+      if (pngBuf && pngBuf.length > 0) {
+        const pngHeader = [...entry.headerParts];
+        pngHeader[4] = 'image/png';
+        outParts.push(pngHeader.map(encodeGuacToken).join(',') + ';');
+        const pngB64 = pngBuf.toString('base64');
+        for (let off = 0; off < pngB64.length; off += 6144) {
+          const chunk = pngB64.slice(off, off + 6144);
+          outParts.push(`${encodeGuacToken('blob')},${encodeGuacToken(streamId)},${encodeGuacToken(chunk)};`);
+        }
+        outParts.push(`${encodeGuacToken('end')},${encodeGuacToken(streamId)};`);
+        convertedCount += 1;
+      } else {
+        outParts.push(entry.headerParts.map(encodeGuacToken).join(',') + ';');
+        for (const ch of entry.b64Chunks) {
+          outParts.push(`${encodeGuacToken('blob')},${encodeGuacToken(streamId)},${encodeGuacToken(ch)};`);
+        }
+        outParts.push(inst.raw);
+      }
+      continue;
+    }
+    outParts.push(inst.raw);
+  }
+  return { text: outParts.join(''), convertedCount };
+}
+
 async function runSingleRecordingTranscode(
   recordingId: string,
   settings: SessionRecordingSettings
@@ -1114,15 +1259,6 @@ async function runSingleRecordingTranscode(
     },
   });
 
-  let workingRawPath = rec.rawFilePath;
-  let tempDecryptedPath: string | null = null;
-  if (isFileEncryptedAtRest(rec.rawFilePath)) {
-    const decrypted = await readDecryptedRecordingBuffer(rec.rawFilePath);
-    tempDecryptedPath = `${rec.rawFilePath}.work.guac`;
-    await fs.promises.writeFile(tempDecryptedPath, decrypted);
-    workingRawPath = tempDecryptedPath;
-  }
-
   const preset =
     settings.qualityPreset === 'custom'
       ? {
@@ -1134,22 +1270,67 @@ async function runSingleRecordingTranscode(
       : QUALITY_PRESET_PARAMS[settings.qualityPreset] || QUALITY_PRESET_PARAMS.balanced;
 
   const targetRes = `${preset.maxWidth}x${preset.maxHeight}`;
-  const m4vPath = `${workingRawPath}.m4v`;
+  const rawPlainBuf = isFileEncryptedAtRest(rec.rawFilePath)
+    ? await readDecryptedRecordingBuffer(rec.rawFilePath)
+    : await fs.promises.readFile(rec.rawFilePath);
+  let guacText = rawPlainBuf.toString('utf8');
+
+  // Ensure layer 0 has an explicit size preamble so guacenc never paints onto a 0x0 black canvas
+  const resMatch = /^(\d+)x(\d+)$/.exec(String(rec.metadata?.resolution || ''));
+  const fallbackW = resMatch ? Math.max(320, Math.min(3840, Number(resMatch[1]))) : preset.maxWidth;
+  const fallbackH = resMatch ? Math.max(240, Math.min(2160, Number(resMatch[2]))) : preset.maxHeight;
+  if (!guacText.includes('4.size,1.0,')) {
+    const sizePreamble = `${encodeGuacToken('size')},${encodeGuacToken('0')},${encodeGuacToken(String(fallbackW))},${encodeGuacToken(String(fallbackH))};`;
+    guacText = sizePreamble + guacText;
+  }
+
+  const tempWorkPath = `${rec.rawFilePath}.work.guac`;
+  const tempNoWebpPath = `${rec.rawFilePath}.nowebp.guac`;
+  let activeGuacInputPath = tempWorkPath;
+  await fs.promises.writeFile(tempWorkPath, guacText, 'utf8');
+
+  let m4vPath = `${activeGuacInputPath}.m4v`;
   const targetFormat: 'mp4' | 'webm' = settings.videoFormat === 'webm' ? 'webm' : 'mp4';
   const baseOut = rec.rawFilePath.replace(/\.guac$/i, '');
   const finalVideoPath = `${baseOut}.${targetFormat}`;
 
   try {
-    const guacRes = await runLowPriorityProcess('guacenc', [
+    let guacRes = await runLowPriorityProcess('guacenc', [
       '-s',
       targetRes,
       '-r',
       String(preset.bitrateKbps * 1000),
       '-f',
-      workingRawPath,
+      activeGuacInputPath,
     ]);
 
-    if (guacRes.code !== 0 || !fs.existsSync(m4vPath)) {
+    // If host guacenc lacks libwebp (common on Ubuntu/Debian), it warns and outputs black frames.
+    // Detect this and transparently convert image/webp blobs to image/png in a temp copy, then re-run guacenc.
+    const webpWarningDetected =
+      guacText.includes('10.image/webp') &&
+      /webp|unsupported|ignoring/i.test(guacRes.stderr || '');
+
+    if (webpWarningDetected) {
+      try {
+        if (fs.existsSync(m4vPath)) fs.unlinkSync(m4vPath);
+      } catch {}
+      const converted = await convertWebpStreamsToPngInGuac(guacText);
+      if (converted.convertedCount > 0) {
+        await fs.promises.writeFile(tempNoWebpPath, converted.text, 'utf8');
+        activeGuacInputPath = tempNoWebpPath;
+        m4vPath = `${activeGuacInputPath}.m4v`;
+        guacRes = await runLowPriorityProcess('guacenc', [
+          '-s',
+          targetRes,
+          '-r',
+          String(preset.bitrateKbps * 1000),
+          '-f',
+          activeGuacInputPath,
+        ]);
+      }
+    }
+
+    if (guacRes.code !== 0 || !fs.existsSync(m4vPath) || fs.statSync(m4vPath).size < 256) {
       throw new Error(`guacenc failed (exit ${guacRes.code}): ${guacRes.stderr.slice(0, 300)}`);
     }
 
@@ -1261,12 +1442,11 @@ async function runSingleRecordingTranscode(
       },
     });
   } finally {
-    try {
-      if (fs.existsSync(m4vPath)) fs.unlinkSync(m4vPath);
-    } catch {}
-    try {
-      if (tempDecryptedPath && fs.existsSync(tempDecryptedPath)) fs.unlinkSync(tempDecryptedPath);
-    } catch {}
+    for (const tmp of [m4vPath, `${tempWorkPath}.m4v`, `${tempNoWebpPath}.m4v`, tempWorkPath, tempNoWebpPath]) {
+      try {
+        if (tmp && fs.existsSync(tmp)) fs.unlinkSync(tmp);
+      } catch {}
+    }
   }
 }
 

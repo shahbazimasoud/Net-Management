@@ -122,8 +122,11 @@ export const SessionRecordingPlayerModal: React.FC<SessionRecordingPlayerModalPr
         setRecording(detail.recording);
         setMarkers(detail.markers || []);
 
-        const detailHasVideo = Boolean(detail.recording.metadata?.playableVideo);
-        const detailHasGuac = Boolean(detail.recording.metadata?.playableNativeGuac);
+        const detailHasVideo = Boolean(detail.recording.metadata?.playableVideo || detail.recording.videoFilePath);
+        const detailHasGuac = Boolean(
+          detail.recording.metadata?.playableNativeGuac ||
+            (detail.recording.protocol !== 'ssh' && detail.recording.rawFilePath?.endsWith('.guac'))
+        );
         if (detail.recording.protocol !== 'ssh') {
           setRdpMode(detailHasVideo ? 'video' : detailHasGuac ? 'guac' : 'video');
         }
@@ -354,58 +357,179 @@ export const SessionRecordingPlayerModal: React.FC<SessionRecordingPlayerModalPr
     setGuacPositionMs(0);
     setGuacDurationMs(0);
 
-    try {
-      const streamUrl = buildRecordingStreamUrl(recording.id, 'raw');
-      const tunnel = new (Guacamole as any).StaticHTTPTunnel(streamUrl);
-      const player = new (Guacamole as any).SessionRecording(tunnel);
-      guacPlayerRef.current = player;
+    let cancelled = false;
+    let activePlayer: any = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let onWindowResize: (() => void) | null = null;
 
-      const display = player.getDisplay();
-      const el = display.getElement();
-      el.style.margin = '0 auto';
-      container.appendChild(el);
+    const initGuacPlayer = async () => {
+      try {
+        const streamUrl = buildRecordingStreamUrl(recording.id, 'raw');
+        const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || '';
+        const resp = await fetch(streamUrl, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+        if (!resp.ok) {
+          const errBody = await resp.json().catch(() => ({}));
+          throw new Error(errBody?.error || `HTTP ${resp.status} loading recording stream`);
+        }
 
-      const scaleDisplay = () => {
-        try {
-          const w = display.getWidth();
-          const h = display.getHeight();
-          if (w > 0 && h > 0 && container.clientWidth > 0 && container.clientHeight > 0) {
-            const scale = Math.min(container.clientWidth / w, container.clientHeight / h, 1);
-            display.scale(scale);
-          }
-        } catch {}
-      };
+        let guacText = await resp.text();
+        if (cancelled) return;
 
-      display.onresize = scaleDisplay;
-      player.onprogress = (duration: number) => {
-        setGuacDurationMs(duration);
-        scaleDisplay();
-      };
-      player.onload = () => {
-        setGuacLoaded(true);
-        setGuacDurationMs(player.getDuration());
-        scaleDisplay();
-      };
-      player.onplay = () => setGuacPlaying(true);
-      player.onpause = () => setGuacPlaying(false);
-      player.onseek = (millis: number) => setGuacPositionMs(millis);
+        if (!guacText || !guacText.trim()) {
+          throw new Error(
+            isEn
+              ? 'This remote desktop recording contains no captured visual frames.'
+              : 'این فایل ضبط ریموت دسکتاپ فاقد فریم تصویری است.'
+          );
+        }
 
-      player.connect();
-      window.addEventListener('resize', scaleDisplay);
+        // Backward-compatibility auto-repair for recordings missing an initial layer-0 size instruction
+        if (!guacText.includes('4.size,1.0,')) {
+          const resStr = String(recording.metadata?.resolution || '');
+          const match = /^(\d+)x(\d+)$/.exec(resStr);
+          const w = match ? Math.max(320, Math.min(3840, Number(match[1]))) : 1280;
+          const h = match ? Math.max(240, Math.min(2160, Number(match[2]))) : 720;
+          const wStr = String(w);
+          const hStr = String(h);
+          guacText = `4.size,1.0,${wStr.length}.${wStr},${hStr.length}.${hStr};` + guacText;
+        }
 
-      return () => {
-        window.removeEventListener('resize', scaleDisplay);
-        try {
-          player.pause();
-          player.disconnect();
-        } catch {}
-        guacPlayerRef.current = null;
+        // Guarantee at least one sync instruction so Guacamole.SessionRecording builds Frame 0
+        if (!guacText.includes('4.sync,')) {
+          const ts = String(Date.now());
+          guacText += `4.sync,${ts.length}.${ts};`;
+        }
+
+        const blob = new Blob([guacText], { type: 'application/octet-stream' });
+        const player = new (Guacamole as any).SessionRecording(blob);
+        activePlayer = player;
+        guacPlayerRef.current = player;
+
+        const display = player.getDisplay();
+        const displayElem = display.getElement() as HTMLElement;
+        displayElem.dir = 'ltr';
+        displayElem.style.direction = 'ltr';
+        displayElem.style.position = 'relative';
+        displayElem.style.margin = '0 auto';
+        displayElem.style.padding = '0';
+        displayElem.style.overflow = 'hidden';
         container.innerHTML = '';
-      };
-    } catch (err: any) {
-      setLoadError(err?.message || 'Failed to initialize native Guacamole playback');
-    }
-  }, [recording.id, recording.protocol, rdpMode, loading, loadError]);
+        container.appendChild(displayElem);
+
+        const scaleDisplay = () => {
+          try {
+            const innerDisplay = displayElem.firstElementChild as HTMLElement | null;
+            displayElem.dir = 'ltr';
+            displayElem.style.direction = 'ltr';
+            displayElem.style.position = 'relative';
+            displayElem.style.overflow = 'hidden';
+            if (innerDisplay) {
+              innerDisplay.dir = 'ltr';
+              innerDisplay.style.direction = 'ltr';
+              innerDisplay.style.left = '0px';
+              innerDisplay.style.top = '0px';
+              innerDisplay.style.margin = '0';
+              innerDisplay.style.transformOrigin = '0 0';
+              (innerDisplay.style as any).webkitTransformOrigin = '0 0';
+            }
+
+            const w = display.getWidth();
+            const h = display.getHeight();
+            const availW = Math.max(64, container.clientWidth - 16);
+            const availH = Math.max(64, container.clientHeight - 16);
+            if (w > 0 && h > 0 && availW > 0 && availH > 0) {
+              const scale = Math.max(0.1, Math.min(availW / w, availH / h));
+              display.scale(scale);
+              if (innerDisplay) {
+                innerDisplay.style.transform = `scale(${scale}, ${scale})`;
+                (innerDisplay.style as any).webkitTransform = `scale(${scale}, ${scale})`;
+              }
+              displayElem.style.width = `${Math.round(w * scale)}px`;
+              displayElem.style.height = `${Math.round(h * scale)}px`;
+            }
+          } catch {}
+        };
+
+        display.onresize = () => {
+          scaleDisplay();
+        };
+        player.onprogress = (duration: number) => {
+          if (cancelled) return;
+          setGuacDurationMs(duration);
+          scaleDisplay();
+        };
+        player.onload = () => {
+          if (cancelled) return;
+          setGuacLoaded(true);
+          const totalMs = player.getDuration();
+          setGuacDurationMs(totalMs);
+          // Render Frame 0 immediately so the viewport displays the recorded desktop instead of staying black
+          try {
+            player.seek(0, () => {
+              if (!cancelled) {
+                scaleDisplay();
+                requestAnimationFrame(scaleDisplay);
+              }
+            });
+          } catch {
+            scaleDisplay();
+          }
+        };
+        player.onerror = (msg: string) => {
+          if (!cancelled) {
+            setLoadError(msg || (isEn ? 'Failed to decode .guac stream' : 'خطا در رمزگشایی جریان ضبط .guac'));
+          }
+        };
+        player.onplay = () => {
+          if (!cancelled) {
+            setGuacPlaying(true);
+            scaleDisplay();
+          }
+        };
+        player.onpause = () => {
+          if (!cancelled) setGuacPlaying(false);
+        };
+        player.onseek = (millis: number) => {
+          if (!cancelled) {
+            setGuacPositionMs(millis);
+            scaleDisplay();
+          }
+        };
+
+        onWindowResize = scaleDisplay;
+        window.addEventListener('resize', scaleDisplay);
+        if (typeof ResizeObserver !== 'undefined') {
+          resizeObserver = new ResizeObserver(() => scaleDisplay());
+          resizeObserver.observe(container);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setLoadError(
+            err?.message ||
+              (isEn ? 'Failed to initialize native Guacamole playback' : 'خطا در راه‌اندازی پخش بومی ریموت دسکتاپ')
+          );
+        }
+      }
+    };
+
+    initGuacPlayer();
+
+    return () => {
+      cancelled = true;
+      if (onWindowResize) window.removeEventListener('resize', onWindowResize);
+      if (resizeObserver) resizeObserver.disconnect();
+      if (activePlayer) {
+        try {
+          activePlayer.pause();
+          activePlayer.disconnect();
+        } catch {}
+      }
+      guacPlayerRef.current = null;
+      container.innerHTML = '';
+    };
+  }, [recording.id, recording.protocol, recording.metadata?.resolution, rdpMode, loading, loadError, isEn]);
 
   const handleOutputSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -927,13 +1051,25 @@ export const SessionRecordingPlayerModal: React.FC<SessionRecordingPlayerModalPr
             </>
           ) : rdpMode === 'video' && hasPlayableVideo ? (
             /* RDP / VNC HTML5 MP4/WebM Range Video Player */
-            <div className="flex-1 flex flex-col bg-black min-h-0">
+            <div className="flex-1 flex flex-col bg-black min-h-0" dir="ltr">
               <div className="flex-1 min-h-0 flex items-center justify-center p-2">
                 <video
                   ref={videoRef}
                   src={buildRecordingStreamUrl(recording.id, 'video')}
                   controls
                   playsInline
+                  preload="metadata"
+                  onError={() => {
+                    if (hasPlayableGuac) {
+                      setRdpMode('guac');
+                    } else {
+                      setLoadError(
+                        isEn
+                          ? 'Failed to decode MP4/WebM video stream in this browser.'
+                          : 'خطا در پخش فایل ویدیوی MP4/WebM در مرورگر.'
+                      );
+                    }
+                  }}
                   className="max-w-full max-h-full rounded"
                 />
               </div>
@@ -967,6 +1103,7 @@ export const SessionRecordingPlayerModal: React.FC<SessionRecordingPlayerModalPr
             <div className="flex-1 flex flex-col bg-[#070b14] min-h-0">
               <div
                 ref={guacContainerRef}
+                dir="ltr"
                 className="flex-1 min-h-0 flex items-center justify-center overflow-hidden p-2"
               />
               <div className={`px-4 py-2.5 border-t flex flex-wrap items-center gap-3 shrink-0 ${headerBar}`} dir="ltr">
@@ -974,13 +1111,34 @@ export const SessionRecordingPlayerModal: React.FC<SessionRecordingPlayerModalPr
                   onClick={() => {
                     const p = guacPlayerRef.current;
                     if (!p) return;
-                    if (guacPlaying) p.pause();
-                    else p.play();
+                    if (guacPlaying) {
+                      p.pause();
+                    } else if (guacDurationMs > 0 && guacPositionMs >= guacDurationMs - 150) {
+                      p.seek(0, () => p.play());
+                    } else {
+                      p.play();
+                    }
                   }}
-                  disabled={!guacLoaded && guacDurationMs === 0}
+                  disabled={!guacLoaded}
                   className="w-8 h-8 rounded-md bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white flex items-center justify-center shrink-0"
+                  title={guacPlaying ? (isEn ? 'Pause' : 'توقف') : isEn ? 'Play' : 'پخش'}
                 >
                   {guacPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                </button>
+                <button
+                  onClick={() => {
+                    const p = guacPlayerRef.current;
+                    if (!p) return;
+                    p.pause();
+                    p.seek(0);
+                  }}
+                  disabled={!guacLoaded}
+                  className={`p-1.5 rounded border transition-colors disabled:opacity-40 ${
+                    isLightMode ? 'border-slate-300 hover:bg-slate-200' : 'border-slate-700 hover:bg-slate-800'
+                  }`}
+                  title={isEn ? 'Restart' : 'شروع مجدد'}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
                 </button>
                 <div className="flex-1 min-w-[160px] flex items-center gap-2.5">
                   <span className="text-[11px] font-mono tabular-nums w-12 text-right">
