@@ -9,6 +9,7 @@ import { Express, Request, Response } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { verifyToken } from './auth';
 import { addAuditLog, addServerCommandLog, getRemoteServerById } from './db';
+import { createGuacSessionRecorder, GuacRecorderHandle } from './sessionRecordingService';
 
 export type RdpSecurityType = 'any' | 'nla' | 'tls' | 'rdp';
 
@@ -1699,12 +1700,47 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
               clientWs.send(instructionStr + ';');
             }
             handshakeState = 'READY';
+            // Zero-disruption passive session recording: starts asynchronously strictly AFTER handshake is READY
+            Promise.resolve()
+              .then(async () => {
+                const targetSrv = await resolveTargetServerRecord(config.serverId, projectRoot).catch(() => null);
+                const rec = await createGuacSessionRecorder({
+                  sessionId: config.id,
+                  protocol: config.protocol === 'vnc' ? 'vnc' : 'rdp',
+                  server: targetSrv || {
+                    id: config.serverId,
+                    name: config.serverName,
+                    ip: config.serverIp,
+                    server_type: config.protocol === 'rdp' ? 'windows' : 'linux',
+                  },
+                  operatorUsername: config.userName,
+                  operatorRole: config.userRole || 'Operator',
+                  operatorIp: clientIp,
+                  targetUsername: config.username,
+                  initialWidth: config.width,
+                  initialHeight: config.height,
+                  projectRoot,
+                });
+                if (rec && !guacdSocket.destroyed && clientWs.readyState === WebSocket.OPEN) {
+                  (activeSession as any)._sessionRecorder = rec;
+                } else if (rec) {
+                  rec.finalize('closed_during_init').catch(() => {});
+                }
+              })
+              .catch(() => {});
           }
         } else {
           // handshakeState === 'READY'
           // Forward all Guacamole instructions directly to client WebSocket
           if (clientWs.readyState === WebSocket.OPEN) {
             clientWs.send(instructionStr + ';');
+          }
+          // Passive non-blocking wire-tap (never throws or delays live stream)
+          const rec: GuacRecorderHandle | undefined = (activeSession as any)._sessionRecorder;
+          if (rec) {
+            try {
+              rec.writeInstruction(instructionStr + ';');
+            } catch {}
           }
         }
       }
@@ -1800,6 +1836,11 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
         } catch {}
         activeSession.unregisterJitSession = undefined;
       }
+      const recOnServerClose: GuacRecorderHandle | undefined = (activeSession as any)._sessionRecorder;
+      if (recOnServerClose) {
+        (activeSession as any)._sessionRecorder = undefined;
+        recOnServerClose.finalize('SERVER_CLOSED').catch(() => {});
+      }
       activeSessions.delete(config.id);
     });
 
@@ -1821,6 +1862,11 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
         }
       } catch {}
       logSessionClosed('USER_DISCONNECTED', 'Client browser disconnected or closed modal');
+      const recOnClientClose: GuacRecorderHandle | undefined = (activeSession as any)._sessionRecorder;
+      if (recOnClientClose) {
+        (activeSession as any)._sessionRecorder = undefined;
+        recOnClientClose.finalize('USER_DISCONNECTED').catch(() => {});
+      }
       activeSessions.delete(config.id);
     });
   });

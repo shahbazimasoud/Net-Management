@@ -1056,6 +1056,14 @@ export interface AccessPolicy {
   canSendAnnouncements?: boolean;
   canApproveActions?: boolean;
 
+  // 10. Remote Session Recording & Playback Governance (RBAC)
+  canViewSessionRecordings?: boolean;
+  canPlaybackSessionRecordings?: boolean;
+  canDownloadSessionRecordings?: boolean;
+  canDeleteSessionRecordings?: boolean;
+  canManageSessionRecordingLegalHold?: boolean;
+  canManageSessionRecordingSettings?: boolean;
+
   permissions?: any;
 }
 
@@ -3085,6 +3093,7 @@ export interface RemoteServer {
   vnc_username?: string;
   vnc_password?: string;
   prompt_password_on_connect?: boolean;
+  recording_policy?: 'inherit' | 'always' | 'disabled';
   cpu_cores?: number;
   ram_gb?: number;
   disk_gb?: number;
@@ -8797,5 +8806,152 @@ export interface ContractItem {
   renewalChainId?: string;
   renewalCycle?: number;
 }
+
+// ============================================================
+// Remote Session Recording & Playback Types (SSH / RDP / VNC)
+// ============================================================
+export type SessionRecordingProtocol = 'ssh' | 'rdp' | 'vnc';
+export type SessionRecordingVideoFormat = 'mp4' | 'webm' | 'guac_only' | 'both';
+export type SessionRecordingQualityPreset = 'low' | 'balanced' | 'high' | 'custom';
+export type SessionRecordingStatus =
+  | 'recording'
+  | 'queued_transcode'
+  | 'transcoding'
+  | 'ready'
+  | 'partial'
+  | 'failed';
+
+export interface SessionRecordingSettings {
+  enabled: boolean;
+  recordSsh: boolean;
+  recordRdp: boolean;
+  recordVnc: boolean;
+  storagePath: string;
+  videoFormat: SessionRecordingVideoFormat;
+  qualityPreset: SessionRecordingQualityPreset;
+  customFps: number;
+  customBitrateKbps: number;
+  customMaxWidth: number;
+  customMaxHeight: number;
+  sshRetentionDays: number;
+  rdpRetentionDays: number;
+  maxStorageGb: number;
+  minFreeDiskPercent: number;
+  autoCleanupEnabled: boolean;
+  deleteRawAfterTranscode: boolean;
+  encryptAtRest: boolean;
+  maskSensitiveInput: boolean;
+  maxConcurrentTranscodes: number;
+  lastCleanupAt?: string | null;
+  lastCleanupSummary?: {
+    deletedByAge: number;
+    deletedByQuota: number;
+    freedBytes: number;
+    skippedLegalHold: number;
+    ranAt: string;
+  } | null;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface SessionRecordingHostDiagnostics {
+  storagePath: string;
+  pathExists: boolean;
+  pathWritable: boolean;
+  diskTotalBytes: number;
+  diskFreeBytes: number;
+  diskFreePercent: number;
+  recordingsUsedBytes: number;
+  recordingsCount: number;
+  legalHoldCount: number;
+  ffmpegAvailable: boolean;
+  ffmpegVersion: string | null;
+  guacencAvailable: boolean;
+  guacencVersion: string | null;
+  activeTranscodes: number;
+  queuedTranscodes: number;
+  error?: string | null;
+}
+
+export interface SessionRecordingMarker {
+  id: string;
+  recordingId: string;
+  offsetMs: number;
+  markerType: 'command' | 'resize' | 'session_start' | 'session_end' | 'note';
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  label: string;
+  commandText?: string;
+  createdAt?: string;
+}
+
+export interface SessionRecordingRecord {
+  id: string;
+  sessionId: string;
+  serverId: string;
+  serverName: string;
+  serverIp: string;
+  osType: string;
+  serverEnvironment: string;
+  protocol: SessionRecordingProtocol;
+  userId?: string | null;
+  username: string;
+  userRole: string;
+  clientIp?: string | null;
+  startedAt: string;
+  endedAt?: string | null;
+  durationSeconds: number;
+  status: SessionRecordingStatus;
+  rawFilePath?: string | null;
+  videoFilePath?: string | null;
+  hasRawFile?: boolean;
+  hasVideoFile?: boolean;
+  videoFormat: string;
+  qualityPreset: string;
+  fileSizeBytes: number;
+  rawSizeBytes: number;
+  videoSizeBytes: number;
+  commandCount: number;
+  maxRiskLevel: 'low' | 'medium' | 'high' | 'critical';
+  sha256Hash?: string | null;
+  encrypted: boolean;
+  legalHold: boolean;
+  legalHoldReason?: string | null;
+  legalHoldBy?: string | null;
+  legalHoldAt?: string | null;
+  expiresAt?: string | null;
+  errorMessage?: string | null;
+  metadata?: Record<string, any>;
+  createdAt?: string;
+  markers?: SessionRecordingMarker[];
+}
+
+export interface SessionRecordingSummaryStats {
+  totalCount: number;
+  sshCount: number;
+  rdpCount: number;
+  vncCount: number;
+  totalBytes: number;
+  legalHoldCount: number;
+  highRiskCount: number;
+  transcodingCount: number;
+}
+
+export interface SessionRecordingListResponse {
+  success: boolean;
+  items: SessionRecordingRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: SessionRecordingSummaryStats;
+  permissions?: {
+    canView: boolean;
+    canPlayback: boolean;
+    canDownload: boolean;
+    canDelete: boolean;
+    canLegalHold: boolean;
+    canManageSettings: boolean;
+  };
+}
+
 
 

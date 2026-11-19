@@ -30,6 +30,7 @@ import {
   Check,
   Database,
   RefreshCw,
+  Video,
 } from 'lucide-react';
 import { RemoteServer, ServerCategory } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
@@ -131,6 +132,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   // Password & Security storage policy
   const { token } = useAuth();
   const [promptPasswordOnConnect, setPromptPasswordOnConnect] = useState(false);
+  const [recordingPolicy, setRecordingPolicy] = useState<'inherit' | 'always' | 'disabled'>('inherit');
   const [showSshPassword, setShowSshPassword] = useState(false);
   const [showWinPassword, setShowWinPassword] = useState(false);
   const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
@@ -235,6 +237,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setDescription(serverToEdit.description || '');
         setTags(Array.isArray(serverToEdit.tags) ? [...serverToEdit.tags] : []);
         setPromptPasswordOnConnect(Boolean(serverToEdit.prompt_password_on_connect));
+        setRecordingPolicy(serverToEdit.recording_policy || 'inherit');
         setSshPort(serverToEdit.ssh_port || 22);
         setSshUsername(serverToEdit.ssh_username || (serverToEdit as any).ssh_user || 'root');
         setSshPassword('');
@@ -313,6 +316,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setEnvironment('Production');
         setDescription('');
         setPromptPasswordOnConnect(false);
+        setRecordingPolicy('inherit');
         setSshPort(22);
         setSshUsername('root');
         setSshPassword('');
@@ -602,6 +606,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         notes: description.trim() || undefined,
         tags,
         prompt_password_on_connect: promptPasswordOnConnect,
+        recording_policy: recordingPolicy,
         installed_web_servers: osType === 'linux' ? installedWebServers : [],
         installed_databases: osType === 'linux' ? installedDatabases : [],
         has_apache: osType === 'linux' ? hasApache : false,
@@ -1994,6 +1999,46 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                 }`}
               />
             </button>
+          </div>
+
+          {/* Per-Server Session Recording Policy (SSH / RDP / VNC) */}
+          <div
+            className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+              isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+            }`}
+          >
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5 text-xs font-semibold">
+                <Video className="w-3.5 h-3.5 text-cyan-500" />
+                <span>{isEn ? 'Session Recording Policy (SSH / RDP / VNC)' : 'سیاست ضبط جلسات این سرور (SSH / RDP / VNC)'}</span>
+                <FieldInfoTooltip
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                  infoWhatEn="Controls whether interactive SSH, RDP, and VNC sessions to this server are passively recorded."
+                  infoWhatFa="تعیین می‌کند آیا جلسات SSH، RDP و VNC به این سرور به صورت خودکار ضبط شوند یا خیر."
+                  infoWhyEn="Allows disabling recording on non-critical lab servers or enforcing Always Record on sensitive production hosts."
+                  infoWhyFa="امکان غیرفعال کردن ضبط برای سرورهای تست یا اجباری کردن ضبط برای سرورهای حساس عملیاتی را می‌دهد."
+                  infoExampleEn="Inherit Global (default) · Always Record · Disabled"
+                  infoExampleFa="تبعیت از تنظیمات سراسری (پیش‌فرض) · ضبط همیشگی · غیرفعال"
+                />
+              </div>
+              <p className={`text-[11px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                {isEn
+                  ? 'Zero-impact passive capture — never delays or interrupts live connections.'
+                  : 'ضبط غیرمخرب پس‌زمینه — هیچ اختلال یا تاخیری در اتصال زنده ایجاد نمی‌کند.'}
+              </p>
+            </div>
+            <select
+              value={recordingPolicy}
+              onChange={(e) => setRecordingPolicy(e.target.value as 'inherit' | 'always' | 'disabled')}
+              className={`px-2.5 py-1.5 rounded-lg border text-xs outline-none shrink-0 ${
+                isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-700 text-slate-100'
+              }`}
+            >
+              <option value="inherit">{isEn ? 'Inherit Global Policy' : 'تبعیت از تنظیمات سراسری'}</option>
+              <option value="always">{isEn ? 'Always Record' : 'ضبط همیشگی (اجباری)'}</option>
+              <option value="disabled">{isEn ? 'Disabled for This Server' : 'غیرفعال برای این سرور'}</option>
+            </select>
           </div>
 
           {/* OS-Specific Connection & Shell Credentials */}

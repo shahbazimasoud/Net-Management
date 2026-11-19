@@ -163,7 +163,7 @@ echo -e "${CYAN}${BOLD}"
 echo "╔══════════════════════════════════════════════════════════════════╗"
 echo "║                                                                  ║"
 echo "║     🌐  NetTopology - Enterprise Network Management Panel        ║"
-echo "║     🚀  Version: 1.450.0 (Production Stable)                     ║"
+echo "║     🚀  Version: 1.451.0 (Production Stable)                     ║"
 echo "║     🛡️  Cisco Port Security & CDP/LLDP Topology Visualizer       ║"
 echo "║     🎨  Spatial Cyber Neon & Multi-Theme Network Studio          ║"
 echo "║                                                                  ║"
@@ -200,7 +200,7 @@ verify_install_key() {
     return 0
   fi
   local code
-  code=$(printf 'silent\nlocation\nconnect-timeout = 10\nmax-time = 20\nheader = "User-Agent: NetTopology-Installer/1.450.0"\nheader = "Accept: application/json"\nheader = "Authorization: Bearer %s"\n' "$k" \
+  code=$(printf 'silent\nlocation\nconnect-timeout = 10\nmax-time = 20\nheader = "User-Agent: NetTopology-Installer/1.451.0"\nheader = "Accept: application/json"\nheader = "Authorization: Bearer %s"\n' "$k" \
     | curl -K - -o /dev/null -w '%{http_code}' "https://${_RC_API}/repos/${_RC_SLUG}/commits/master" 2>/dev/null || echo "000")
   [ "$code" = "200" ]
 }

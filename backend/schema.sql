@@ -749,3 +749,71 @@ CREATE TABLE IF NOT EXISTS update_channel_config (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_by VARCHAR(128)
 );
+
+-- 28. Remote Session Recording Settings (SSH / RDP / VNC)
+CREATE TABLE IF NOT EXISTS session_recording_settings (
+    id VARCHAR(64) PRIMARY KEY,
+    config_data JSONB NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_by VARCHAR(128)
+);
+
+-- 29. Remote Session Recordings Archive (SSH Asciicast v2 & RDP/VNC Video/Stream)
+CREATE TABLE IF NOT EXISTS remote_session_recordings (
+    id VARCHAR(128) PRIMARY KEY,
+    session_id VARCHAR(128) NOT NULL,
+    server_id VARCHAR(128) NOT NULL,
+    server_name VARCHAR(255) NOT NULL,
+    server_ip VARCHAR(128) NOT NULL,
+    os_type VARCHAR(64) DEFAULT 'linux',
+    server_environment VARCHAR(128) DEFAULT 'Production',
+    protocol VARCHAR(16) NOT NULL,
+    user_id VARCHAR(128),
+    username VARCHAR(128) NOT NULL,
+    user_role VARCHAR(128) DEFAULT 'Operator',
+    client_ip VARCHAR(128),
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    ended_at TIMESTAMP WITH TIME ZONE,
+    duration_seconds INT NOT NULL DEFAULT 0,
+    status VARCHAR(32) NOT NULL DEFAULT 'recording',
+    raw_file_path TEXT,
+    video_file_path TEXT,
+    video_format VARCHAR(32) DEFAULT 'mp4',
+    quality_preset VARCHAR(32) DEFAULT 'balanced',
+    file_size_bytes BIGINT NOT NULL DEFAULT 0,
+    raw_size_bytes BIGINT NOT NULL DEFAULT 0,
+    video_size_bytes BIGINT NOT NULL DEFAULT 0,
+    command_count INT NOT NULL DEFAULT 0,
+    max_risk_level VARCHAR(16) DEFAULT 'low',
+    sha256_hash VARCHAR(128),
+    encrypted BOOLEAN NOT NULL DEFAULT FALSE,
+    legal_hold BOOLEAN NOT NULL DEFAULT FALSE,
+    legal_hold_reason TEXT,
+    legal_hold_by VARCHAR(128),
+    legal_hold_at TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    error_message TEXT,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_rec_started ON remote_session_recordings(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_rec_server ON remote_session_recordings(server_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_rec_user ON remote_session_recordings(username, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_rec_protocol ON remote_session_recordings(protocol, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_rec_expires ON remote_session_recordings(expires_at) WHERE legal_hold = FALSE;
+
+-- 30. Remote Session Recording Timeline Markers (SSH Commands & Risk Milestones)
+CREATE TABLE IF NOT EXISTS session_recording_markers (
+    id VARCHAR(128) PRIMARY KEY,
+    recording_id VARCHAR(128) NOT NULL REFERENCES remote_session_recordings(id) ON DELETE CASCADE,
+    offset_ms INT NOT NULL DEFAULT 0,
+    marker_type VARCHAR(32) NOT NULL DEFAULT 'command',
+    risk_level VARCHAR(16) DEFAULT 'low',
+    label TEXT,
+    command_text TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_rec_markers_rec ON session_recording_markers(recording_id, offset_ms ASC);
+

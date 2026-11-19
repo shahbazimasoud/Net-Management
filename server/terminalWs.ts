@@ -6,6 +6,7 @@ import { StringDecoder } from 'string_decoder';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Client, ConnectConfig } from 'ssh2';
 import { resolveSshBackend } from './sshBackendResolver';
+import { createSshSessionRecorder, SshRecorderHandle } from './sessionRecordingService';
 
 /**
  * Safely decrypts Fernet-encrypted tokens ('enc:fernet:...') using Node.js crypto
@@ -807,6 +808,11 @@ export function setupTerminalWebSocket(
         const sanitized = sanitizeCommandForAudit(cleanCmd);
         const { riskLevel, summary, summaryEn } = classifySshCommandRisk(sanitized);
         const cmdFirstToken = sanitized.split(/\s+/)[0] || 'cmd';
+        if (sshRecorder) {
+          try {
+            sshRecorder.recordCommandMarker(sanitized, riskLevel, false);
+          } catch {}
+        }
 
         try {
           const { addServerCommandLog } = await import('./db');
@@ -888,9 +894,16 @@ export function setupTerminalWebSocket(
         }
       };
 
+      let sshRecorder: SshRecorderHandle | null = null;
+
       const cleanup = () => {
         if (!isCleanedUp) {
           isCleanedUp = true;
+          if (sshRecorder) {
+            const recToClose = sshRecorder;
+            sshRecorder = null;
+            recToClose.finalize('closed').catch(() => {});
+          }
           if (unregisterJitSession) {
             try {
               unregisterJitSession();
@@ -1020,6 +1033,29 @@ export function setupTerminalWebSocket(
             activeStream = stream;
             logSessionOpened().catch(() => {});
 
+            // Zero-disruption passive Asciicast v2 recording for Remote Servers & Automation Fleet
+            if (srv) {
+              createSshSessionRecorder({
+                sessionId,
+                server: srv,
+                operatorUsername: operatorUserName,
+                operatorRole: operatorUserRole,
+                operatorIp: clientIp,
+                targetUsername: username,
+                cols: currentCols,
+                rows: currentRows,
+                projectRoot,
+              })
+                .then((rec) => {
+                  if (rec && !isCleanedUp) {
+                    sshRecorder = rec;
+                  } else if (rec) {
+                    rec.finalize('closed_during_init').catch(() => {});
+                  }
+                })
+                .catch(() => {});
+            }
+
             sendClient({
               type: 'status',
               status: 'connected',
@@ -1044,6 +1080,11 @@ export function setupTerminalWebSocket(
                   type: 'data',
                   data: text,
                 });
+                if (sshRecorder) {
+                  try {
+                    sshRecorder.writeOutput(text);
+                  } catch {}
+                }
                 recentOutputTail = (recentOutputTail + text).slice(-300);
                 if (/(?:password|passphrase|رمز عبور|passwd|\[sudo\] password for [^:]+):\s*$/i.test(recentOutputTail.trim())) {
                   isExpectingPassword = true;
@@ -1059,6 +1100,11 @@ export function setupTerminalWebSocket(
                     type: 'data',
                     data: text,
                   });
+                  if (sshRecorder) {
+                    try {
+                      sshRecorder.writeOutput(text);
+                    } catch {}
+                  }
                   recentOutputTail = (recentOutputTail + text).slice(-300);
                   if (/(?:password|passphrase|رمز عبور|passwd|\[sudo\] password for [^:]+):\s*$/i.test(recentOutputTail.trim())) {
                     isExpectingPassword = true;
@@ -1148,6 +1194,11 @@ export function setupTerminalWebSocket(
                     } catch (resizeErr: any) {
                       console.warn('[TerminalWs] setWindow resize error:', resizeErr?.message);
                     }
+                  }
+                  if (sshRecorder) {
+                    try {
+                      sshRecorder.writeResize(cols, rows);
+                    } catch {}
                   }
                   return;
                 } else if (parsed.type === 'close') {

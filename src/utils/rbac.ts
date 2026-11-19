@@ -1942,3 +1942,65 @@ export function isLicenseAttachmentDeletePermitted(
   return Boolean(policy.canDeleteLicenseAttachments ?? policy.canDeleteLicenses ?? policy.canEditLicenses ?? true);
 }
 
+// ============================================================
+// Remote Session Recording & Playback RBAC Helpers
+// ============================================================
+
+export function canUserViewSessionRecordings(
+  user?: { username?: string; role?: string } | null,
+  policy?: AccessPolicy | any | null
+): boolean {
+  if (isUserSuperAdmin(user, policy)) return true;
+  if (!policy) return false;
+  if (policy.canViewSessionRecordings === false) return false;
+  if (policy.canViewSessionRecordings === true) return true;
+  return policy.canViewLogs !== false;
+}
+
+export function canUserPlaybackSessionRecordings(
+  user?: { username?: string; role?: string } | null,
+  policy?: AccessPolicy | any | null
+): boolean {
+  if (isUserSuperAdmin(user, policy)) return true;
+  if (!canUserViewSessionRecordings(user, policy)) return false;
+  if (policy?.canPlaybackSessionRecordings === false) return false;
+  return Boolean(policy?.canPlaybackSessionRecordings ?? true);
+}
+
+export function canUserDownloadSessionRecordings(
+  user?: { username?: string; role?: string } | null,
+  policy?: AccessPolicy | any | null
+): boolean {
+  if (isUserSuperAdmin(user, policy)) return true;
+  if (!canUserViewSessionRecordings(user, policy)) return false;
+  if (policy?.canDownloadSessionRecordings === false) return false;
+  return Boolean(policy?.canDownloadSessionRecordings ?? false);
+}
+
+export function canUserDeleteSessionRecordings(
+  user?: { username?: string; role?: string } | null,
+  policy?: AccessPolicy | any | null
+): boolean {
+  if (isUserSuperAdmin(user, policy)) return true;
+  if (!canUserViewSessionRecordings(user, policy)) return false;
+  return policy?.canDeleteSessionRecordings === true;
+}
+
+export function canUserManageSessionRecordingLegalHold(
+  user?: { username?: string; role?: string } | null,
+  policy?: AccessPolicy | any | null
+): boolean {
+  if (isUserSuperAdmin(user, policy)) return true;
+  if (!canUserViewSessionRecordings(user, policy)) return false;
+  return policy?.canManageSessionRecordingLegalHold === true;
+}
+
+export function canUserManageSessionRecordingSettings(
+  user?: { username?: string; role?: string } | null,
+  policy?: AccessPolicy | any | null
+): boolean {
+  if (isUserSuperAdmin(user, policy)) return true;
+  return policy?.canManageSessionRecordingSettings === true;
+}
+
+

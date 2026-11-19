@@ -28,6 +28,7 @@ import { PanelUpdateSettingsView } from './components/settings/PanelUpdateSettin
 import { EmailSettingsView } from './components/settings/EmailSettingsView';
 import { TelegramAlertsSettingsView } from './components/settings/TelegramAlertsSettingsView';
 import { LogRetentionSettingsView } from './components/settings/LogRetentionSettingsView';
+import { SessionRecordingSettingsView } from './components/settings/SessionRecordingSettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
 import { CommunicationsCenterView } from './components/comms/CommunicationsCenterView';
 import { UserProfileSecurityView, ProfileSubTab } from './components/profile/UserProfileSecurityView';
@@ -138,6 +139,13 @@ export default function App() {
   const [focusedApprovalId, setFocusedApprovalId] = useState<string | null>(null);
   const [focusedCommsChannelId, setFocusedCommsChannelId] = useState<string | null>(null);
   const [focusedProfileSubTab, setFocusedProfileSubTab] = useState<ProfileSubTab | null>(null);
+  const [focusedAuditSection, setFocusedAuditSection] = useState<'recordings' | null>(null);
+  const [focusedAuditServerId, setFocusedAuditServerId] = useState<string>('');
+  const openServerRecordings = useCallback((serverId?: string) => {
+    setFocusedAuditSection('recordings');
+    setFocusedAuditServerId(serverId || '');
+    setActiveTab('logs');
+  }, []);
   const openNotificationSettings = useCallback(() => {
     setFocusedProfileSubTab('notifications');
     setActiveTab('profile-security');
@@ -1857,6 +1865,13 @@ export default function App() {
             <AuditLogsView
               isLightMode={isLightMode}
               onNavigateToRetentionSettings={() => setActiveTab('settings-log-retention')}
+              onNavigateToRecordingSettings={() => setActiveTab('settings-session-recording')}
+              initialSection={focusedAuditSection}
+              initialServerFilter={focusedAuditServerId}
+              onConsumeInitialFilter={() => {
+                setFocusedAuditSection(null);
+                setFocusedAuditServerId('');
+              }}
             />
           )}
 
@@ -1906,6 +1921,7 @@ export default function App() {
               isLightMode={isLightMode}
               isEn={isEn}
               effectivePolicy={effectivePolicy}
+              onOpenServerRecordings={openServerRecordings}
             />
           )}
 
@@ -1987,6 +2003,13 @@ export default function App() {
             <LogRetentionSettingsView
               isLightMode={isLightMode}
               onNavigateToLogs={() => setActiveTab('logs')}
+            />
+          )}
+
+          {activeTab === 'settings-session-recording' && isSuperAdmin && (
+            <SessionRecordingSettingsView
+              isLightMode={isLightMode}
+              onOpenRecordingsArchive={() => openServerRecordings('')}
             />
           )}
 

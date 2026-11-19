@@ -235,6 +235,7 @@ export interface RemoteServer {
   vnc_username?: string;
   vnc_password?: string;
   prompt_password_on_connect?: boolean;
+  recording_policy?: 'inherit' | 'always' | 'disabled';
   server_type?: 'linux' | 'windows' | 'nginx' | 'apache' | 'postgresql' | 'mysql';
   installed_web_servers?: ('apache' | 'nginx' | string)[];
   installed_databases?: ('postgresql' | 'mysql' | string)[];
@@ -307,6 +308,9 @@ export interface FallbackStore {
   action_approval_requests?: any[];
   action_approval_grants?: any[];
   auth_blocklist?: any[];
+  session_recording_settings?: any;
+  remote_session_recordings?: any[];
+  session_recording_markers?: any[];
 }
 
 export interface SystemSecurityKeysRecord {
@@ -2372,6 +2376,7 @@ export async function initDatabase(): Promise<void> {
 
     try {
       await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS prompt_password_on_connect BOOLEAN DEFAULT FALSE');
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS recording_policy VARCHAR(16) DEFAULT 'inherit'");
       await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS win_password TEXT DEFAULT ''");
       await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS rdp_security VARCHAR(16) DEFAULT 'any'");
       await client.query("ALTER TABLE remote_servers ALTER COLUMN win_domain SET DEFAULT ''");
@@ -2534,6 +2539,72 @@ export async function initDatabase(): Promise<void> {
           updated_by VARCHAR(128)
         )
       `);
+
+      // 17.6 Remote Session Recording Settings, Archive & Timeline Markers
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS session_recording_settings (
+          id VARCHAR(64) PRIMARY KEY,
+          config_data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_by VARCHAR(128)
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS remote_session_recordings (
+          id VARCHAR(128) PRIMARY KEY,
+          session_id VARCHAR(128) NOT NULL,
+          server_id VARCHAR(128) NOT NULL,
+          server_name VARCHAR(255) NOT NULL,
+          server_ip VARCHAR(128) NOT NULL,
+          os_type VARCHAR(64) DEFAULT 'linux',
+          server_environment VARCHAR(128) DEFAULT 'Production',
+          protocol VARCHAR(16) NOT NULL,
+          user_id VARCHAR(128),
+          username VARCHAR(128) NOT NULL,
+          user_role VARCHAR(128) DEFAULT 'Operator',
+          client_ip VARCHAR(128),
+          started_at TIMESTAMP WITH TIME ZONE NOT NULL,
+          ended_at TIMESTAMP WITH TIME ZONE,
+          duration_seconds INT NOT NULL DEFAULT 0,
+          status VARCHAR(32) NOT NULL DEFAULT 'recording',
+          raw_file_path TEXT,
+          video_file_path TEXT,
+          video_format VARCHAR(32) DEFAULT 'mp4',
+          quality_preset VARCHAR(32) DEFAULT 'balanced',
+          file_size_bytes BIGINT NOT NULL DEFAULT 0,
+          raw_size_bytes BIGINT NOT NULL DEFAULT 0,
+          video_size_bytes BIGINT NOT NULL DEFAULT 0,
+          command_count INT NOT NULL DEFAULT 0,
+          max_risk_level VARCHAR(16) DEFAULT 'low',
+          sha256_hash VARCHAR(128),
+          encrypted BOOLEAN NOT NULL DEFAULT FALSE,
+          legal_hold BOOLEAN NOT NULL DEFAULT FALSE,
+          legal_hold_reason TEXT,
+          legal_hold_by VARCHAR(128),
+          legal_hold_at TIMESTAMP WITH TIME ZONE,
+          expires_at TIMESTAMP WITH TIME ZONE,
+          error_message TEXT,
+          metadata JSONB DEFAULT '{}'::jsonb,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query('CREATE INDEX IF NOT EXISTS idx_session_rec_started ON remote_session_recordings(started_at DESC)');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_session_rec_server ON remote_session_recordings(server_id, started_at DESC)');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_session_rec_user ON remote_session_recordings(username, started_at DESC)');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_session_rec_protocol ON remote_session_recordings(protocol, started_at DESC)');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS session_recording_markers (
+          id VARCHAR(128) PRIMARY KEY,
+          recording_id VARCHAR(128) NOT NULL REFERENCES remote_session_recordings(id) ON DELETE CASCADE,
+          offset_ms INT NOT NULL DEFAULT 0,
+          marker_type VARCHAR(32) NOT NULL DEFAULT 'command',
+          risk_level VARCHAR(16) DEFAULT 'low',
+          label TEXT,
+          command_text TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query('CREATE INDEX IF NOT EXISTS idx_session_rec_markers_rec ON session_recording_markers(recording_id, offset_ms ASC)');
 
       // 18. Two-Factor Authentication Challenges
       await client.query(`
@@ -10831,6 +10902,9 @@ function rowToRemoteServer(r: any): RemoteServer {
       ? String(r.rdp_security).toLowerCase()
       : 'any') as 'any' | 'nla' | 'tls' | 'rdp',
     prompt_password_on_connect: Boolean(r.prompt_password_on_connect),
+    recording_policy: (['inherit', 'always', 'disabled'].includes(String(r.recording_policy || '').toLowerCase())
+      ? String(r.recording_policy).toLowerCase()
+      : 'inherit') as 'inherit' | 'always' | 'disabled',
     installed_web_servers: Array.isArray(r.installed_web_servers)
       ? r.installed_web_servers
       : (typeof r.installed_web_servers === 'string' ? JSON.parse(r.installed_web_servers || '[]') : []),
@@ -11034,6 +11108,9 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
     vnc_username: data.vnc_username?.trim() || '',
     vnc_password: data.prompt_password_on_connect ? '' : (data.vnc_password || ''),
     prompt_password_on_connect: Boolean(data.prompt_password_on_connect),
+    recording_policy: (['inherit', 'always', 'disabled'].includes(String((data as any).recording_policy || '').toLowerCase())
+      ? String((data as any).recording_policy).toLowerCase()
+      : 'inherit') as 'inherit' | 'always' | 'disabled',
     installed_web_servers: Array.isArray(data.installed_web_servers) ? data.installed_web_servers : (
       [
         ...(data.has_apache ? ['apache'] : []),
@@ -11207,6 +11284,7 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           newServer.updated_at,
         ]
       );
+      await updateServerRecordingPolicyColumn(newServer.id, newServer.recording_policy || 'inherit');
     } catch (e) {
       console.error('[DB Error createRemoteServer in PostgreSQL]', e);
     }
@@ -11304,6 +11382,11 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
     prompt_password_on_connect: updates.prompt_password_on_connect !== undefined
       ? Boolean(updates.prompt_password_on_connect)
       : (current.prompt_password_on_connect ?? false),
+    recording_policy: (updates as any).recording_policy !== undefined
+      ? (['inherit', 'always', 'disabled'].includes(String((updates as any).recording_policy).toLowerCase())
+          ? String((updates as any).recording_policy).toLowerCase()
+          : 'inherit') as 'inherit' | 'always' | 'disabled'
+      : ((current as any).recording_policy || 'inherit'),
     installed_web_servers: updates.installed_web_servers !== undefined
       ? updates.installed_web_servers
       : (updates.has_apache !== undefined || updates.has_nginx !== undefined
@@ -11506,6 +11589,7 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           updated.updated_at,
         ]
       );
+      await updateServerRecordingPolicyColumn(updated.id, updated.recording_policy || 'inherit');
     } catch (e) {
       console.error('[DB Error updateRemoteServer in PostgreSQL]', e);
     }
@@ -13880,3 +13964,581 @@ export async function deleteUpdateChannelConfigRecord(): Promise<boolean> {
   }
   return true;
 }
+
+// ============================================================
+// Remote Session Recording & Playback Persistence (PostgreSQL + Fallback)
+// ============================================================
+
+export interface StoredSessionRecording {
+  id: string;
+  sessionId: string;
+  serverId: string;
+  serverName: string;
+  serverIp: string;
+  osType: string;
+  serverEnvironment: string;
+  protocol: 'ssh' | 'rdp' | 'vnc';
+  userId?: string | null;
+  username: string;
+  userRole: string;
+  clientIp?: string | null;
+  startedAt: string;
+  endedAt?: string | null;
+  durationSeconds: number;
+  status: 'recording' | 'queued_transcode' | 'transcoding' | 'ready' | 'partial' | 'failed';
+  rawFilePath?: string | null;
+  videoFilePath?: string | null;
+  videoFormat: string;
+  qualityPreset: string;
+  fileSizeBytes: number;
+  rawSizeBytes: number;
+  videoSizeBytes: number;
+  commandCount: number;
+  maxRiskLevel: 'low' | 'medium' | 'high' | 'critical';
+  sha256Hash?: string | null;
+  encrypted: boolean;
+  legalHold: boolean;
+  legalHoldReason?: string | null;
+  legalHoldBy?: string | null;
+  legalHoldAt?: string | null;
+  expiresAt?: string | null;
+  errorMessage?: string | null;
+  metadata?: Record<string, any>;
+  createdAt?: string;
+}
+
+export interface StoredSessionRecordingMarker {
+  id: string;
+  recordingId: string;
+  offsetMs: number;
+  markerType: 'command' | 'resize' | 'session_start' | 'session_end' | 'note';
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  label: string;
+  commandText?: string;
+  createdAt?: string;
+}
+
+let sessionRecTablesEnsured = false;
+async function ensureSessionRecordingTables(): Promise<void> {
+  if (sessionRecTablesEnsured || !isPostgresReady || !pool) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS session_recording_settings (
+        id VARCHAR(64) PRIMARY KEY,
+        config_data JSONB NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_by VARCHAR(128)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS remote_session_recordings (
+        id VARCHAR(128) PRIMARY KEY,
+        session_id VARCHAR(128) NOT NULL,
+        server_id VARCHAR(128) NOT NULL,
+        server_name VARCHAR(255) NOT NULL,
+        server_ip VARCHAR(128) NOT NULL,
+        os_type VARCHAR(64) DEFAULT 'linux',
+        server_environment VARCHAR(128) DEFAULT 'Production',
+        protocol VARCHAR(16) NOT NULL,
+        user_id VARCHAR(128),
+        username VARCHAR(128) NOT NULL,
+        user_role VARCHAR(128) DEFAULT 'Operator',
+        client_ip VARCHAR(128),
+        started_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        ended_at TIMESTAMP WITH TIME ZONE,
+        duration_seconds INT NOT NULL DEFAULT 0,
+        status VARCHAR(32) NOT NULL DEFAULT 'recording',
+        raw_file_path TEXT,
+        video_file_path TEXT,
+        video_format VARCHAR(32) DEFAULT 'mp4',
+        quality_preset VARCHAR(32) DEFAULT 'balanced',
+        file_size_bytes BIGINT NOT NULL DEFAULT 0,
+        raw_size_bytes BIGINT NOT NULL DEFAULT 0,
+        video_size_bytes BIGINT NOT NULL DEFAULT 0,
+        command_count INT NOT NULL DEFAULT 0,
+        max_risk_level VARCHAR(16) DEFAULT 'low',
+        sha256_hash VARCHAR(128),
+        encrypted BOOLEAN NOT NULL DEFAULT FALSE,
+        legal_hold BOOLEAN NOT NULL DEFAULT FALSE,
+        legal_hold_reason TEXT,
+        legal_hold_by VARCHAR(128),
+        legal_hold_at TIMESTAMP WITH TIME ZONE,
+        expires_at TIMESTAMP WITH TIME ZONE,
+        error_message TEXT,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS session_recording_markers (
+        id VARCHAR(128) PRIMARY KEY,
+        recording_id VARCHAR(128) NOT NULL REFERENCES remote_session_recordings(id) ON DELETE CASCADE,
+        offset_ms INT NOT NULL DEFAULT 0,
+        marker_type VARCHAR(32) NOT NULL DEFAULT 'command',
+        risk_level VARCHAR(16) DEFAULT 'low',
+        label TEXT,
+        command_text TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    sessionRecTablesEnsured = true;
+  } catch (err: any) {
+    console.warn('[DB] ensureSessionRecordingTables warning:', err?.message || err);
+  }
+}
+
+export async function updateServerRecordingPolicyColumn(serverId: string, policy: 'inherit' | 'always' | 'disabled'): Promise<void> {
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(`ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS recording_policy VARCHAR(16) DEFAULT 'inherit'`);
+      await pool.query(`UPDATE remote_servers SET recording_policy = $1 WHERE id = $2`, [policy, serverId]);
+    } catch (e: any) {
+      console.warn('[DB] updateServerRecordingPolicyColumn warning:', e?.message || e);
+    }
+  }
+}
+
+function mapRecordingRow(r: any): StoredSessionRecording {
+  return {
+    id: r.id,
+    sessionId: r.session_id || r.sessionId || '',
+    serverId: r.server_id || r.serverId || '',
+    serverName: r.server_name || r.serverName || '',
+    serverIp: r.server_ip || r.serverIp || '',
+    osType: r.os_type || r.osType || 'linux',
+    serverEnvironment: r.server_environment || r.serverEnvironment || 'Production',
+    protocol: (r.protocol || 'ssh') as 'ssh' | 'rdp' | 'vnc',
+    userId: r.user_id ?? r.userId ?? null,
+    username: r.username || 'unknown',
+    userRole: r.user_role || r.userRole || 'Operator',
+    clientIp: r.client_ip ?? r.clientIp ?? null,
+    startedAt: r.started_at instanceof Date ? r.started_at.toISOString() : (r.started_at || r.startedAt || new Date().toISOString()),
+    endedAt: r.ended_at instanceof Date ? r.ended_at.toISOString() : (r.ended_at ?? r.endedAt ?? null),
+    durationSeconds: Number(r.duration_seconds ?? r.durationSeconds ?? 0),
+    status: (r.status || 'ready') as StoredSessionRecording['status'],
+    rawFilePath: r.raw_file_path ?? r.rawFilePath ?? null,
+    videoFilePath: r.video_file_path ?? r.videoFilePath ?? null,
+    videoFormat: r.video_format || r.videoFormat || 'mp4',
+    qualityPreset: r.quality_preset || r.qualityPreset || 'balanced',
+    fileSizeBytes: Number(r.file_size_bytes ?? r.fileSizeBytes ?? 0),
+    rawSizeBytes: Number(r.raw_size_bytes ?? r.rawSizeBytes ?? 0),
+    videoSizeBytes: Number(r.video_size_bytes ?? r.videoSizeBytes ?? 0),
+    commandCount: Number(r.command_count ?? r.commandCount ?? 0),
+    maxRiskLevel: (r.max_risk_level || r.maxRiskLevel || 'low') as StoredSessionRecording['maxRiskLevel'],
+    sha256Hash: r.sha256_hash ?? r.sha256Hash ?? null,
+    encrypted: Boolean(r.encrypted),
+    legalHold: Boolean(r.legal_hold ?? r.legalHold),
+    legalHoldReason: r.legal_hold_reason ?? r.legalHoldReason ?? null,
+    legalHoldBy: r.legal_hold_by ?? r.legalHoldBy ?? null,
+    legalHoldAt: r.legal_hold_at instanceof Date ? r.legal_hold_at.toISOString() : (r.legal_hold_at ?? r.legalHoldAt ?? null),
+    expiresAt: r.expires_at instanceof Date ? r.expires_at.toISOString() : (r.expires_at ?? r.expiresAt ?? null),
+    errorMessage: r.error_message ?? r.errorMessage ?? null,
+    metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata || '{}') : (r.metadata || {}),
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : (r.created_at || r.createdAt || undefined),
+  };
+}
+
+export async function getSessionRecordingSettingsRecord(): Promise<any | null> {
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSessionRecordingTables();
+      const res = await pool.query(`SELECT config_data FROM session_recording_settings WHERE id = 'primary'`);
+      if (res.rows.length > 0 && res.rows[0].config_data) {
+        return res.rows[0].config_data;
+      }
+    } catch (e: any) {
+      console.warn('[DB] getSessionRecordingSettingsRecord fallback:', e?.message || e);
+    }
+  }
+  const store = loadFallbackStore();
+  return store.session_recording_settings || null;
+}
+
+export async function saveSessionRecordingSettingsRecord(config: any, updatedBy: string = 'admin'): Promise<any> {
+  const store = loadFallbackStore();
+  store.session_recording_settings = config;
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSessionRecordingTables();
+      await pool.query(
+        `INSERT INTO session_recording_settings (id, config_data, updated_at, updated_by)
+         VALUES ('primary', $1, CURRENT_TIMESTAMP, $2)
+         ON CONFLICT (id) DO UPDATE SET
+           config_data = $1,
+           updated_at = CURRENT_TIMESTAMP,
+           updated_by = $2`,
+        [JSON.stringify(config), updatedBy]
+      );
+    } catch (e: any) {
+      console.error('[DB] saveSessionRecordingSettingsRecord error:', e?.message || e);
+    }
+  }
+  return config;
+}
+
+export async function createSessionRecordingRecord(rec: StoredSessionRecording): Promise<StoredSessionRecording> {
+  const store = loadFallbackStore();
+  const list = Array.isArray(store.remote_session_recordings) ? store.remote_session_recordings : [];
+  store.remote_session_recordings = [rec, ...list.filter((r: any) => r.id !== rec.id)].slice(0, 5000);
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSessionRecordingTables();
+      await pool.query(
+        `INSERT INTO remote_session_recordings (
+          id, session_id, server_id, server_name, server_ip, os_type, server_environment,
+          protocol, user_id, username, user_role, client_ip, started_at, ended_at,
+          duration_seconds, status, raw_file_path, video_file_path, video_format, quality_preset,
+          file_size_bytes, raw_size_bytes, video_size_bytes, command_count, max_risk_level,
+          sha256_hash, encrypted, legal_hold, legal_hold_reason, legal_hold_by, legal_hold_at,
+          expires_at, error_message, metadata
+        ) VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+          $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34
+        )
+        ON CONFLICT (id) DO NOTHING`,
+        [
+          rec.id, rec.sessionId, rec.serverId, rec.serverName, rec.serverIp, rec.osType, rec.serverEnvironment,
+          rec.protocol, rec.userId || null, rec.username, rec.userRole, rec.clientIp || null,
+          rec.startedAt, rec.endedAt || null, rec.durationSeconds || 0, rec.status,
+          rec.rawFilePath || null, rec.videoFilePath || null, rec.videoFormat, rec.qualityPreset,
+          rec.fileSizeBytes || 0, rec.rawSizeBytes || 0, rec.videoSizeBytes || 0,
+          rec.commandCount || 0, rec.maxRiskLevel || 'low', rec.sha256Hash || null,
+          Boolean(rec.encrypted), Boolean(rec.legalHold), rec.legalHoldReason || null,
+          rec.legalHoldBy || null, rec.legalHoldAt || null, rec.expiresAt || null,
+          rec.errorMessage || null, JSON.stringify(rec.metadata || {}),
+        ]
+      );
+    } catch (e: any) {
+      console.error('[DB] createSessionRecordingRecord error:', e?.message || e);
+    }
+  }
+  return rec;
+}
+
+export async function updateSessionRecordingRecord(
+  id: string,
+  patch: Partial<StoredSessionRecording>
+): Promise<StoredSessionRecording | null> {
+  const store = loadFallbackStore();
+  const list = Array.isArray(store.remote_session_recordings) ? store.remote_session_recordings : [];
+  let updatedFallback: StoredSessionRecording | null = null;
+  store.remote_session_recordings = list.map((item: any) => {
+    if (item.id === id) {
+      updatedFallback = { ...item, ...patch, metadata: patch.metadata !== undefined ? { ...(item.metadata || {}), ...patch.metadata } : item.metadata };
+      return updatedFallback;
+    }
+    return item;
+  });
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSessionRecordingTables();
+      const colMap: Record<string, string> = {
+        endedAt: 'ended_at',
+        durationSeconds: 'duration_seconds',
+        status: 'status',
+        rawFilePath: 'raw_file_path',
+        videoFilePath: 'video_file_path',
+        videoFormat: 'video_format',
+        qualityPreset: 'quality_preset',
+        fileSizeBytes: 'file_size_bytes',
+        rawSizeBytes: 'raw_size_bytes',
+        videoSizeBytes: 'video_size_bytes',
+        commandCount: 'command_count',
+        maxRiskLevel: 'max_risk_level',
+        sha256Hash: 'sha256_hash',
+        encrypted: 'encrypted',
+        legalHold: 'legal_hold',
+        legalHoldReason: 'legal_hold_reason',
+        legalHoldBy: 'legal_hold_by',
+        legalHoldAt: 'legal_hold_at',
+        expiresAt: 'expires_at',
+        errorMessage: 'error_message',
+        metadata: 'metadata',
+      };
+      const sets: string[] = [];
+      const vals: any[] = [];
+      let idx = 1;
+      for (const [key, col] of Object.entries(colMap)) {
+        if (Object.prototype.hasOwnProperty.call(patch, key)) {
+          const val = (patch as any)[key];
+          if (key === 'metadata') {
+            sets.push(`${col} = COALESCE(${col}, '{}'::jsonb) || $${idx}::jsonb`);
+            vals.push(JSON.stringify(val || {}));
+          } else {
+            sets.push(`${col} = $${idx}`);
+            vals.push(val === undefined ? null : val);
+          }
+          idx++;
+        }
+      }
+      if (sets.length > 0) {
+        vals.push(id);
+        const res = await pool.query(
+          `UPDATE remote_session_recordings SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+          vals
+        );
+        if (res.rows.length > 0) {
+          return mapRecordingRow(res.rows[0]);
+        }
+      }
+    } catch (e: any) {
+      console.error('[DB] updateSessionRecordingRecord error:', e?.message || e);
+    }
+  }
+  return updatedFallback;
+}
+
+export async function getSessionRecordingById(id: string): Promise<StoredSessionRecording | null> {
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSessionRecordingTables();
+      const res = await pool.query(`SELECT * FROM remote_session_recordings WHERE id = $1`, [id]);
+      if (res.rows.length > 0) return mapRecordingRow(res.rows[0]);
+    } catch (e: any) {
+      console.warn('[DB] getSessionRecordingById fallback:', e?.message || e);
+    }
+  }
+  const store = loadFallbackStore();
+  const found = (store.remote_session_recordings || []).find((r: any) => r.id === id);
+  return found ? mapRecordingRow(found) : null;
+}
+
+export async function addSessionRecordingMarker(marker: StoredSessionRecordingMarker): Promise<void> {
+  const store = loadFallbackStore();
+  const list = Array.isArray(store.session_recording_markers) ? store.session_recording_markers : [];
+  store.session_recording_markers = [...list, marker].slice(-30000);
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSessionRecordingTables();
+      await pool.query(
+        `INSERT INTO session_recording_markers (id, recording_id, offset_ms, marker_type, risk_level, label, command_text)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          marker.id,
+          marker.recordingId,
+          marker.offsetMs || 0,
+          marker.markerType || 'command',
+          marker.riskLevel || 'low',
+          marker.label || '',
+          marker.commandText || '',
+        ]
+      );
+    } catch (e: any) {
+      console.warn('[DB] addSessionRecordingMarker warning:', e?.message || e);
+    }
+  }
+}
+
+export async function getSessionRecordingMarkers(recordingId: string): Promise<StoredSessionRecordingMarker[]> {
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSessionRecordingTables();
+      const res = await pool.query(
+        `SELECT * FROM session_recording_markers WHERE recording_id = $1 ORDER BY offset_ms ASC`,
+        [recordingId]
+      );
+      return res.rows.map((r: any) => ({
+        id: r.id,
+        recordingId: r.recording_id,
+        offsetMs: Number(r.offset_ms || 0),
+        markerType: r.marker_type || 'command',
+        riskLevel: r.risk_level || 'low',
+        label: r.label || '',
+        commandText: r.command_text || '',
+        createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+      }));
+    } catch (e: any) {
+      console.warn('[DB] getSessionRecordingMarkers fallback:', e?.message || e);
+    }
+  }
+  const store = loadFallbackStore();
+  return (store.session_recording_markers || [])
+    .filter((m: any) => m.recordingId === recordingId)
+    .sort((a: any, b: any) => (a.offsetMs || 0) - (b.offsetMs || 0));
+}
+
+export interface ListSessionRecordingsQuery {
+  search?: string;
+  protocol?: string;
+  serverId?: string;
+  username?: string;
+  riskLevel?: string;
+  status?: string;
+  legalHold?: 'all' | 'true' | 'false';
+  dateFrom?: string;
+  dateTo?: string;
+  allowedServerIds?: string[] | null;
+  page?: number;
+  pageSize?: number;
+}
+
+export async function listSessionRecordings(query: ListSessionRecordingsQuery = {}): Promise<{
+  items: StoredSessionRecording[];
+  total: number;
+  summary: {
+    totalCount: number;
+    sshCount: number;
+    rdpCount: number;
+    vncCount: number;
+    totalBytes: number;
+    legalHoldCount: number;
+    highRiskCount: number;
+    transcodingCount: number;
+  };
+}> {
+  const page = Math.max(1, Number(query.page) || 1);
+  const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 25));
+
+  let allRows: StoredSessionRecording[] = [];
+  let markerMatchesByRecId: Set<string> | null = null;
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSessionRecordingTables();
+      const res = await pool.query(`SELECT * FROM remote_session_recordings ORDER BY started_at DESC LIMIT 5000`);
+      allRows = res.rows.map(mapRecordingRow);
+
+      if (query.search && query.search.trim()) {
+        const qLike = `%${query.search.trim().toLowerCase()}%`;
+        const mRes = await pool.query(
+          `SELECT DISTINCT recording_id FROM session_recording_markers WHERE LOWER(COALESCE(command_text, '')) LIKE $1 OR LOWER(COALESCE(label, '')) LIKE $1`,
+          [qLike]
+        );
+        markerMatchesByRecId = new Set(mRes.rows.map((r: any) => String(r.recording_id)));
+      }
+    } catch (e: any) {
+      console.warn('[DB] listSessionRecordings fallback:', e?.message || e);
+      const store = loadFallbackStore();
+      allRows = (store.remote_session_recordings || []).map(mapRecordingRow);
+    }
+  } else {
+    const store = loadFallbackStore();
+    allRows = (store.remote_session_recordings || []).map(mapRecordingRow);
+    if (query.search && query.search.trim()) {
+      const qLower = query.search.trim().toLowerCase();
+      markerMatchesByRecId = new Set(
+        (store.session_recording_markers || [])
+          .filter(
+            (m: any) =>
+              String(m.commandText || '').toLowerCase().includes(qLower) ||
+              String(m.label || '').toLowerCase().includes(qLower)
+          )
+          .map((m: any) => String(m.recordingId))
+      );
+    }
+  }
+
+  // Enforce server target scope RBAC first
+  const scopedRows =
+    Array.isArray(query.allowedServerIds)
+      ? allRows.filter((r) => query.allowedServerIds!.includes(r.serverId))
+      : allRows;
+
+  // Compute summary stats over scoped rows
+  const summary = {
+    totalCount: scopedRows.length,
+    sshCount: scopedRows.filter((r) => r.protocol === 'ssh').length,
+    rdpCount: scopedRows.filter((r) => r.protocol === 'rdp').length,
+    vncCount: scopedRows.filter((r) => r.protocol === 'vnc').length,
+    totalBytes: scopedRows.reduce((acc, r) => acc + (Number(r.fileSizeBytes) || 0), 0),
+    legalHoldCount: scopedRows.filter((r) => r.legalHold).length,
+    highRiskCount: scopedRows.filter((r) => r.maxRiskLevel === 'high' || r.maxRiskLevel === 'critical').length,
+    transcodingCount: scopedRows.filter((r) => r.status === 'queued_transcode' || r.status === 'transcoding').length,
+  };
+
+  // Apply interactive filters
+  const qSearch = (query.search || '').trim().toLowerCase();
+  const filtered = scopedRows.filter((r) => {
+    if (query.protocol && query.protocol !== 'all' && r.protocol !== query.protocol) return false;
+    if (query.serverId && query.serverId !== 'all' && r.serverId !== query.serverId) return false;
+    if (query.username && query.username !== 'all' && r.username.toLowerCase() !== query.username.toLowerCase()) return false;
+    if (query.riskLevel && query.riskLevel !== 'all') {
+      if (query.riskLevel === 'high_or_critical') {
+        if (r.maxRiskLevel !== 'high' && r.maxRiskLevel !== 'critical') return false;
+      } else if (r.maxRiskLevel !== query.riskLevel) {
+        return false;
+      }
+    }
+    if (query.status && query.status !== 'all' && r.status !== query.status) return false;
+    if (query.legalHold === 'true' && !r.legalHold) return false;
+    if (query.legalHold === 'false' && r.legalHold) return false;
+    if (query.dateFrom) {
+      const fromTs = new Date(query.dateFrom).getTime();
+      if (!isNaN(fromTs) && new Date(r.startedAt).getTime() < fromTs) return false;
+    }
+    if (query.dateTo) {
+      const toTs = new Date(query.dateTo).getTime();
+      if (!isNaN(toTs) && new Date(r.startedAt).getTime() > toTs + 86399999) return false;
+    }
+    if (qSearch) {
+      const hay = `${r.serverName} ${r.serverIp} ${r.username} ${r.clientIp || ''} ${r.protocol} ${r.sessionId} ${r.legalHoldReason || ''} ${r.sha256Hash || ''}`.toLowerCase();
+      const matchedMarker = markerMatchesByRecId ? markerMatchesByRecId.has(r.id) : false;
+      if (!hay.includes(qSearch) && !matchedMarker) return false;
+    }
+    return true;
+  });
+
+  filtered.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+  const total = filtered.length;
+  const offset = (page - 1) * pageSize;
+  return {
+    items: filtered.slice(offset, offset + pageSize),
+    total,
+    summary,
+  };
+}
+
+export async function deleteSessionRecordingRecord(id: string): Promise<boolean> {
+  const store = loadFallbackStore();
+  store.remote_session_recordings = (store.remote_session_recordings || []).filter((r: any) => r.id !== id);
+  store.session_recording_markers = (store.session_recording_markers || []).filter((m: any) => m.recordingId !== id);
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSessionRecordingTables();
+      await pool.query(`DELETE FROM session_recording_markers WHERE recording_id = $1`, [id]);
+      await pool.query(`DELETE FROM remote_session_recordings WHERE id = $1`, [id]);
+    } catch (e: any) {
+      console.error('[DB] deleteSessionRecordingRecord error:', e?.message || e);
+    }
+  }
+  return true;
+}
+
+export async function getAllSessionRecordingsForCleanup(): Promise<StoredSessionRecording[]> {
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSessionRecordingTables();
+      const res = await pool.query(`SELECT * FROM remote_session_recordings ORDER BY started_at ASC`);
+      return res.rows.map(mapRecordingRow);
+    } catch (e: any) {
+      console.warn('[DB] getAllSessionRecordingsForCleanup fallback:', e?.message || e);
+    }
+  }
+  const store = loadFallbackStore();
+  return (store.remote_session_recordings || [])
+    .map(mapRecordingRow)
+    .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
+}
+

@@ -53,6 +53,8 @@ import { checkSshBackendsOnStartup } from './server/sshBackendResolver';
 import { startBackupSchedulerDaemon } from './server/backupScheduler';
 import { startAuditReportSchedulerDaemon } from './server/auditReportScheduler';
 import { startLogRetentionDaemon } from './server/logRetentionDaemon';
+import { sessionRecordingRouter } from './server/sessionRecordingRoutes';
+import { setSessionRecordingProjectRoot, startSessionRecordingRetentionDaemon } from './server/sessionRecordingService';
 import { initServerTime } from './server/serverTimeManager';
 import {
   searchMacOrIp,
@@ -852,7 +854,7 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
         );
         await executeShell('git reset --hard FETCH_HEAD', projectRoot, 10000);
         await executeShell(
-          'git clean -fd -e .env -e backend/database_store.json -e backend/network_data.json -e backend/backups -e backend/uploads -e backend/security',
+          'git clean -fd -e .env -e backend/database_store.json -e backend/network_data.json -e backend/backups -e backend/uploads -e backend/security -e backend/recordings',
           projectRoot,
           10000
         );
@@ -1427,6 +1429,9 @@ app.use('/api', profileRouter);
 // Mount Phase 4 Two-Step / Four-Eyes Approval Queue routes
 app.use('/api', approvalRouter);
 
+// Mount Remote Session Recording & Playback routes
+app.use('/api', sessionRecordingRouter);
+
 // Mount PostgreSQL & Authentication API router
 app.use('/api', apiRouter);
 
@@ -1692,6 +1697,9 @@ async function startServer() {
     startLicenseContractCronDaemon();
     // Start Phase 4 Hybrid JIT & Approval expiry daemon
     startApprovalJitExpiryDaemon();
+    // Start Remote Session Recording retention & quota cleanup daemon
+    setSessionRecordingProjectRoot(projectRoot);
+    startSessionRecordingRetentionDaemon(projectRoot);
   });
 }
 

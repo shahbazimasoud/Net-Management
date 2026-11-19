@@ -31,6 +31,7 @@ import {
   Database,
   FileCheck,
   UserCog,
+  Video,
   X
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
@@ -82,6 +83,7 @@ export type ActiveTab =
   | 'settings-rbac'
   | 'settings-backup'
   | 'settings-log-retention'
+  | 'settings-session-recording'
   | 'general-settings'
   | 'settings-services'
   | 'settings-ldap'
@@ -346,6 +348,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_settings_log_retention',
           icon: Database,
           badge: 'DB',
+        },
+        {
+          id: 'settings-session-recording',
+          labelKey: 'tab_settings_session_recording',
+          icon: Video,
+          badge: 'REC',
         },
         {
           id: 'settings-services',

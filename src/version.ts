@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.450.0';
+export const APP_VERSION = '1.451.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.451.0',
+    releaseDate: '2026-11-19',
+    type: 'minor',
+    title: 'افزودن سیستم ضبط و بازپخش بدون اختلال جلسات ریموت (SSH / RDP / VNC) همراه با آرشیو، تنظیمات کیفیت و قفل ضدحذف',
+    title_en: 'Add Zero-Impact Remote Session Recording & Playback (SSH / RDP / VNC), Storage Settings, Retention & Legal Hold',
+    changes: [
+      'پیاده‌سازی موتور ضبط غیرمخرب و ناهمگام برای بخش Remote Servers & Automation Fleet بدون هیچ‌گونه تغییر یا مداخله در هندشیک زنده RDP/VNC (`guacd`) و اتصال SSH؛ شامل ضبط تایم‌لاینی SSH با استاندارد Asciicast v2 (`.cast`) و نشانگرهای دستورات پرخطر (با سانسور خودکار رمزهای عبور) و ضبط سبک جریان RDP/VNC (`.guac`) با صف تبدیل پس‌زمینه اولویت‌پایین (`nice -n 15`) به MP4 (H.264) یا WebM (VP9).',
+      'افزودن تب اختصاصی «ضبط جلسات ریموت» (`Session Recordings`) در بخش Audit Logs با فیلتر پیشرفته (تاریخ، سرور، کاربر، پروتکل، دستورات پرخطر و قفل ضدحذف)، پخش‌کننده ۵-قانونه داخل مرورگر (ترمینال تایم‌لاینی XTerm با پرش روی دستورات، جستجوی متنی، سرعت 0.5x–8x و حذف مکث + پخش‌کننده ویدیو HTML5 با HTTP Range و پخش بومی `.guac`)، دانلود فایل (`.cast`/`.txt`/`.mp4`/`.webm`/`.guac`)، امضای یکپارچگی SHA-256 و قفل ضدحذف (Legal Hold).',
+      'افزودن صفحه اختصاصی «تنظیمات ضبط جلسات و ذخیره‌سازی» زیر بخش Settings جهت تعیین مسیر ذخیره روی سرور (با تست زنده نوشتن، فضای واقعی دیسک و بررسی نصب `ffmpeg`/`guacenc`)، تنظیم فرمت و کیفیت ویدیو، مدت نگهداری مجزا برای SSH و RDP/VNC، سقف حجم آرشیو و سرویس پاکسازی خودکار ساعتی، رمزنگاری اختیاری AES-256-GCM روی دیسک، سیاست ضبط اختصاصی هر سرور در پنجره ویرایش سرور، لینک سریع آرشیو در Remote Servers و ۶ مجوز گرانولار RBAC در پایگاه داده PostgreSQL.'
+    ],
+    changes_en: [
+      'Implemented a zero-disruption, passive, non-blocking session recording engine for Remote Servers & Automation Fleet without altering live RDP/VNC handshakes (`guacd`) or SSH streams: Asciicast v2 (`.cast`) recording with synchronized command/risk markers and password masking for SSH, plus lightweight `.guac` stream capture with low-priority (`nice -n 15`) background transcoding to MP4 (H.264) or WebM (VP9) for RDP/VNC.',
+      'Added a dedicated Session Recordings archive tab in Audit Logs featuring multi-criteria filtering (date, server, operator, protocol, risk, legal hold, command search), a 5-Rule in-browser playback modal (XTerm timeline scrubber with 0.5x–8x speed, idle skip, output search, and clickable command jump list for SSH; HTTP 206 Range HTML5 video player and native `.guac` canvas player for RDP/VNC), multi-format downloads (`.cast`, `.txt`, `.mp4`, `.webm`, `.guac`), SHA-256 integrity verification, and Legal Hold anti-delete locks.',
+      'Added a dedicated Session Recording & Storage Settings page under Settings with server storage path validation, live disk & `ffmpeg`/`guacenc` diagnostics, video format & quality presets, separate SSH and RDP/VNC retention policies, storage quota & hourly auto-cleanup daemon (strictly respecting Legal Hold), optional AES-256-GCM encryption at rest, per-server recording policy overrides (`inherit`/`always`/`disabled`), quick-links in Remote Servers, and 6 granular PostgreSQL-authoritative RBAC permissions.'
+    ]
+  },
   {
     version: '1.450.0',
     releaseDate: '2026-11-19',

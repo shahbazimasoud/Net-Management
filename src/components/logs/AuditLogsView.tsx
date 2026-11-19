@@ -50,9 +50,11 @@ import {
   Play,
   LogIn,
   Ban,
+  Video,
 } from 'lucide-react';
 import { AuditEmailReportModal } from './AuditEmailReportModal';
 import { ServerCommandLogsSection } from './ServerCommandLogsSection';
+import { SessionRecordingsSection } from './SessionRecordingsSection';
 import { UserLoginReportsSection } from './UserLoginReportsSection';
 import { BlockedAccessManagementSection } from './BlockedAccessManagementSection';
 import { BlockAuthTargetModal } from './BlockAuthTargetModal';
@@ -99,7 +101,7 @@ import {
 } from '../../services/api';
 import { useLanguage } from '../../i18n/LanguageContext';
 
-type ActiveLogSection = 'commands' | 'server_commands' | 'portal' | 'logins' | 'blocked' | 'reports';
+type ActiveLogSection = 'commands' | 'server_commands' | 'recordings' | 'portal' | 'logins' | 'blocked' | 'reports';
 type CommandGroupMode = 'device' | 'user' | 'timeline';
 
 interface WatchLogSession {
@@ -119,14 +121,28 @@ interface WatchLogSession {
 export interface AuditLogsViewProps {
   isLightMode?: boolean;
   onNavigateToRetentionSettings?: () => void;
+  onNavigateToRecordingSettings?: () => void;
+  initialSection?: ActiveLogSection | null;
+  initialServerFilter?: string;
+  onConsumeInitialFilter?: () => void;
 }
 
 export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
   isLightMode = false,
   onNavigateToRetentionSettings,
+  onNavigateToRecordingSettings,
+  initialSection = null,
+  initialServerFilter = '',
+  onConsumeInitialFilter,
 }) => {
   const { t, isEn, isRtl } = useLanguage();
-  const [activeSection, setActiveSection] = useState<ActiveLogSection>('commands');
+  const [activeSection, setActiveSection] = useState<ActiveLogSection>(initialSection || 'commands');
+
+  useEffect(() => {
+    if (initialSection) {
+      setActiveSection(initialSection);
+    }
+  }, [initialSection]);
   const [commandGroupMode, setCommandGroupMode] = useState<CommandGroupMode>('device');
 
   // Logs state
@@ -1377,6 +1393,19 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
               {reportsList.length}
             </span>
           </button>
+
+          {/* Session Recordings Archive (SSH / RDP / VNC) */}
+          <button
+            onClick={() => setActiveSection('recordings')}
+            className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs md:text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeSection === 'recordings'
+                ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/25 border border-cyan-400/40'
+                : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <Video className={`w-4 h-4 ${activeSection === 'recordings' ? 'text-white' : 'text-cyan-400'}`} />
+            <span>{isEn ? 'Session Recordings' : 'ضبط جلسات ریموت'}</span>
+          </button>
         </div>
 
         {/* Timeframe Presets */}
@@ -2346,6 +2375,15 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
       )}
 
       {/* SECTION 3: EMAIL REPORTS & MULTI-SCHEDULE MANAGEMENT */}
+      {activeSection === 'recordings' && (
+        <SessionRecordingsSection
+          isLightMode={isLightMode}
+          initialServerFilter={initialServerFilter}
+          onConsumeInitialFilter={onConsumeInitialFilter}
+          onNavigateToSettings={onNavigateToRecordingSettings}
+        />
+      )}
+
       {activeSection === 'reports' && (
         <div className="space-y-5 animate-in fade-in duration-200">
           {/* Section Header Banner */}

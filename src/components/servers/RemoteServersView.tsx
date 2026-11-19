@@ -39,6 +39,7 @@ import {
   Radar,
   Download,
   Upload,
+  Video,
 } from 'lucide-react';
 import {
   ApprovalExecutionGrant,
@@ -90,6 +91,7 @@ export interface RemoteServersViewProps {
   isLightMode?: boolean;
   isEn?: boolean;
   effectivePolicy?: any;
+  onOpenServerRecordings?: (serverId?: string) => void;
 }
 
 export const formatServerHardwareSpecs = (server: RemoteServer, isEn: boolean = true) => {
@@ -142,6 +144,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   isLightMode = false,
   isEn = true,
   effectivePolicy,
+  onOpenServerRecordings,
 }) => {
   const { dockModal, undockModal } = useModalDock();
 
@@ -1902,6 +1905,23 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
               <RefreshCw className={`w-3.5 h-3.5 ${isPingingAll || loading ? 'animate-spin text-cyan-400' : ''}`} />
               <span>{isEn ? 'Ping All Fleet' : 'تست پینگ همه'}</span>
             </button>
+
+            {/* Quick Link to Session Recordings Archive */}
+            {onOpenServerRecordings && (
+              <button
+                type="button"
+                onClick={() => onOpenServerRecordings('')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 cursor-pointer ${
+                  isLightMode
+                    ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                    : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/30 shadow-xs'
+                }`}
+                title={isEn ? 'Open recorded SSH / RDP / VNC sessions archive' : 'مشاهده آرشیو جلسات ضبط‌شده SSH و RDP/VNC'}
+              >
+                <Video className="w-3.5 h-3.5 text-cyan-400" />
+                <span>{isEn ? 'Session Recordings' : 'ضبط جلسات'}</span>
+              </button>
+            )}
 
             {/* Bulk Server Config Button */}
             {canBulkConfigureServers && (
@@ -4353,6 +4373,28 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                             </>
                           )}
                         </>
+                      )}
+
+                      {/* Quick Link: View Session Recordings for this server */}
+                      {onOpenServerRecordings && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuAnchor(null);
+                            onOpenServerRecordings(s.id);
+                          }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-cyan-400 hover:text-cyan-300 transition cursor-pointer ${
+                            isEn ? 'text-left' : 'text-right'
+                          } ${isLightMode ? 'hover:bg-cyan-50 text-cyan-700' : 'hover:bg-cyan-500/15'}`}
+                        >
+                          <Video className="w-4 h-4 text-cyan-400 shrink-0" />
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className="truncate">{isEn ? 'Session Recordings' : 'ضبط جلسات این سرور'}</span>
+                            <span className="text-[10px] text-cyan-400/80 font-mono">
+                              {isEn ? 'SSH / RDP / VNC Archive' : 'پخش و دانلود آرشیو ضبط'}
+                            </span>
+                          </div>
+                        </button>
                       )}
 
                       {/* Power Control & Config Divider */}
