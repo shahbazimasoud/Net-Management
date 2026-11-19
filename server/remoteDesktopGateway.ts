@@ -711,19 +711,60 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     });
   });
 
+  const isSuperAdminIdentity = (userObj: any, effPolicy?: any): boolean => {
+    if (!userObj) return false;
+    const cleanU = String(userObj.username || '').trim().toLowerCase();
+    const cleanR = String(userObj.role || '').trim().toLowerCase();
+    if (
+      cleanU === 'admin' ||
+      cleanR.includes('super admin') ||
+      cleanR.includes('superadmin') ||
+      cleanR.includes('super_admin') ||
+      cleanR.includes('administrator')
+    ) {
+      return true;
+    }
+    if (
+      effPolicy &&
+      (effPolicy.id === 'policy-super-admin' ||
+        (effPolicy.targetScope === 'all' && Number(effPolicy.priority || 0) >= 100))
+    ) {
+      return true;
+    }
+    return false;
+  };
+
   // REST API: 1-Click Install & Start Guacamole Daemon on Server
   app.post('/api/remote-desktop/install-daemon', async (req: Request, res: Response) => {
     const authHeader = req.headers.authorization || '';
-    const tokenStr = authHeader.replace(/^Bearer\s+/i, '');
-    const user = verifyToken(tokenStr);
+    const tokenStr = authHeader.replace(/^Bearer\s+/i, '').trim();
+    const user = tokenStr ? verifyToken(tokenStr) : null;
 
-    const allowedRoles = ['Super Admin', 'Admin', 'Network Admin', 'superadmin', 'admin'];
-    const isAuthorized = user ? allowedRoles.some((r) => r.toLowerCase() === (user.role || '').toLowerCase()) : true;
-
-    if (!isAuthorized) {
-      return res.status(403).json({
-        error: 'Forbidden: Admin privilege required to install system packages.',
+    if (tokenStr && !user) {
+      return res.status(401).json({
+        error: 'Unauthorized: Session token is invalid or expired. Please sign in again.',
       });
+    }
+
+    if (user) {
+      let eff: any = null;
+      try {
+        const { getEffectivePolicyForUser } = await import('./db');
+        eff = await getEffectivePolicyForUser(user);
+      } catch (err: any) {
+        console.warn('[RemoteDesktop] install-daemon RBAC lookup notice:', err?.message);
+      }
+      const cleanR = String(user.role || '').trim().toLowerCase();
+      const isAuthorized =
+        isSuperAdminIdentity(user, eff) ||
+        Boolean(eff?.canManageSettings || eff?.canManageUsers || eff?.canManageDevices) ||
+        (!eff && ['admin', 'network admin'].includes(cleanR));
+
+      if (!isAuthorized) {
+        return res.status(403).json({
+          error: 'Forbidden: Admin privilege required to install system packages.',
+        });
+      }
     }
 
     try {
@@ -788,23 +829,19 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
   });
 
   // REST API: Request Token for Remote Desktop Session
-  // Requires RBAC authentication and keeps credentials 100% on the server
+  // Requires PostgreSQL-authoritative RBAC authorization and keeps credentials 100% on the server
   app.post('/api/remote-desktop/token', async (req: Request, res: Response) => {
     const authHeader = req.headers.authorization || '';
-    const tokenStr = authHeader.replace(/^Bearer\s+/i, '');
-    const user = verifyToken(tokenStr);
+    const tokenStr = authHeader.replace(/^Bearer\s+/i, '').trim();
+    const user = tokenStr ? verifyToken(tokenStr) : null;
 
-    // RBAC Check: Super Admin, Admin, Network Admin, or Operator allowed
-    const allowedRoles = ['Super Admin', 'Admin', 'Network Admin', 'Operator', 'superadmin', 'admin'];
-    const userRole = user ? user.role : 'Operator'; // Allow operator default in single-tenant/demo environments
-    const isAuthorized = user ? allowedRoles.some((r) => r.toLowerCase() === (user.role || '').toLowerCase()) : true;
-
-    if (!isAuthorized) {
-      return res.status(403).json({
-        error: 'Forbidden: Insufficient privileges to launch Remote Desktop session.',
-        requiredRoles: allowedRoles,
+    if (tokenStr && !user) {
+      return res.status(401).json({
+        error: 'Unauthorized: Session token is invalid or expired. Please sign in again.',
       });
     }
+
+    const userRole = user ? user.role : 'Operator';
 
     const { serverId, protocol = 'rdp', width = 1920, height = 1080, dpi = 96, sessionPassword, rdp_security, security } = req.body;
 
@@ -831,28 +868,36 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       try {
         const { getEffectivePolicyForUser, evaluateServerActionDecision } = await import('./db');
         const eff = await getEffectivePolicyForUser(user);
-        const cleanU = (user.username || '').toLowerCase();
-        const cleanR = (user.role || '').toLowerCase();
-        const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
-        if (!isSuper && eff) {
-          if (Array.isArray(eff.allowedServerIds)) {
-            const allowedSet = new Set(eff.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
-            const sid = (serverRecord.id || '').trim().toLowerCase();
-            const sname = (serverRecord.name || '').trim().toLowerCase();
-            if (!allowedSet.has(sid) && !allowedSet.has(sname)) {
+        const isSuper = isSuperAdminIdentity(user, eff);
+        if (!isSuper) {
+          if (!eff) {
+            const cleanR = String(user.role || '').trim().toLowerCase();
+            const legacyAllowed = ['admin', 'network admin', 'operator'].includes(cleanR);
+            if (!legacyAllowed) {
               return res.status(403).json({
                 code: 'RBAC_DENIED',
-                error: 'Access denied: You do not have permission to launch remote desktop on this server based on your assigned Device Groups in PostgreSQL.',
+                error: 'Forbidden: Insufficient privileges to launch Remote Desktop session.',
               });
             }
-          }
-          const rdpDecision = evaluateServerActionDecision(eff, serverRecord.id, 'terminal');
-          if (rdpDecision === 'deny') {
-            return res.status(403).json({
-              code: 'RBAC_DENIED',
-              error: 'Access denied: Remote desktop and terminal access to this server is prohibited by your RBAC access policy.',
-            });
-          }
+          } else {
+            if (Array.isArray(eff.allowedServerIds)) {
+              const allowedSet = new Set(eff.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
+              const sid = (serverRecord.id || '').trim().toLowerCase();
+              const sname = (serverRecord.name || '').trim().toLowerCase();
+              if (!allowedSet.has(sid) && !allowedSet.has(sname)) {
+                return res.status(403).json({
+                  code: 'RBAC_DENIED',
+                  error: 'Access denied: You do not have permission to launch remote desktop on this server based on your assigned Device Groups in PostgreSQL.',
+                });
+              }
+            }
+            const rdpDecision = evaluateServerActionDecision(eff, serverRecord.id, 'terminal');
+            if (rdpDecision === 'deny') {
+              return res.status(403).json({
+                code: 'RBAC_DENIED',
+                error: 'Access denied: Remote desktop and terminal access to this server is prohibited by your RBAC access policy.',
+              });
+            }
           if (rdpDecision === 'require_approval') {
             const { evaluateApprovalGateForRequest } = await import('./approvalService');
             const rawHeaderId = req.headers['x-approval-request-id'];
@@ -907,6 +952,7 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
               grantId: gateRes.activeGrant?.id || null,
               expiresAtMs: Number.isFinite(expMs) && expMs > 0 ? expMs : undefined,
             };
+            }
           }
         }
       } catch (err: any) {

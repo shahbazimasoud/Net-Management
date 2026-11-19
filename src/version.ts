@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.451.0';
+export const APP_VERSION = '1.451.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.451.1',
+    releaseDate: '2026-11-19',
+    type: 'patch',
+    title: 'رفع خطای عدم دسترسی (403 Forbidden) سوپرادمین و نقش‌های RBAC در اتصال ریموت دسکتاپ سرورها',
+    title_en: 'Fix 403 Forbidden Error for Super Administrator & Custom RBAC Policies When Launching Remote Desktop',
+    changes: [
+      'حذف بررسی قدیمی و هاردکدشده لیست ثابت نقش‌ها (`allowedRoles`) در اندپوینت‌های `POST /api/remote-desktop/token` و `POST /api/remote-desktop/install-daemon` که باعث رد شدن نادرست نقش‌های `Super Administrator` و پالیسی‌های سفارشی/Active Directory می‌شد.',
+      'اتصال کامل اعتبارسنجی اتصال ریموت دسکتاپ به ارزیابی معتبر RBAC پایگاه داده PostgreSQL (`getEffectivePolicyForUser` و `evaluateServerActionDecision`) همراه با شناسایی دقیق سوپرادمین‌ها، پالیسی‌های مجاز و بازگرداندن پاسخ `401` برای توکن‌های منقضی.'
+    ],
+    changes_en: [
+      'Removed legacy hardcoded exact-match role list (`allowedRoles`) checks in `POST /api/remote-desktop/token` and `POST /api/remote-desktop/install-daemon` that falsely rejected `Super Administrator` and custom/Active Directory RBAC policy roles with HTTP 403.',
+      'Delegated Remote Desktop launch and daemon installation authorization exclusively to PostgreSQL-authoritative RBAC evaluation (`getEffectivePolicyForUser` and `evaluateServerActionDecision`) with accurate Super Admin detection and HTTP 401 responses for expired tokens.'
+    ]
+  },
   {
     version: '1.451.0',
     releaseDate: '2026-11-19',

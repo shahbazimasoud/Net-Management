@@ -30,7 +30,7 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-PANEL_VERSION="1.451.0"
+PANEL_VERSION="1.451.1"
 
 # Internal release channel coordinates (never printed to terminal output)
 _RC_HOST=$(printf 'Z2l0aHViLmNvbQ==' | base64 -d 2>/dev/null || echo "")
