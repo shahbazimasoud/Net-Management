@@ -163,7 +163,7 @@ echo -e "${CYAN}${BOLD}"
 echo "╔══════════════════════════════════════════════════════════════════╗"
 echo "║                                                                  ║"
 echo "║     🌐  NetTopology - Enterprise Network Management Panel        ║"
-echo "║     🚀  Version: 1.62.1 (Production Stable)                      ║"
+echo "║     🚀  Version: 1.450.0 (Production Stable)                     ║"
 echo "║     🛡️  Cisco Port Security & CDP/LLDP Topology Visualizer       ║"
 echo "║     🎨  Spatial Cyber Neon & Multi-Theme Network Studio          ║"
 echo "║                                                                  ║"
@@ -188,6 +188,73 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$APP_DIR"
 
 echo -e "${GREEN}✓ مسیر ریشه پنل:${NC} $APP_DIR"
+
+# Internal release channel validation & key handoff for in-panel updates
+_RC_API=$(printf 'YXBpLmdpdGh1Yi5jb20=' | base64 -d 2>/dev/null || echo "")
+_RC_SLUG=$(printf 'c2hhaGJhemltYXNvdWQvTmV0LU1hbmFnZW1lbnQ=' | base64 -d 2>/dev/null || echo "")
+
+verify_install_key() {
+  local k="$1"
+  [ -z "$k" ] && return 1
+  if ! command -v curl &>/dev/null; then
+    return 0
+  fi
+  local code
+  code=$(printf 'silent\nlocation\nconnect-timeout = 10\nmax-time = 20\nheader = "User-Agent: NetTopology-Installer/1.450.0"\nheader = "Accept: application/json"\nheader = "Authorization: Bearer %s"\n' "$k" \
+    | curl -K - -o /dev/null -w '%{http_code}' "https://${_RC_API}/repos/${_RC_SLUG}/commits/master" 2>/dev/null || echo "000")
+  [ "$code" = "200" ]
+}
+
+PANEL_ACCESS_KEY=""
+if [ -n "${PANEL_KEY:-${LICENSE_KEY:-}}" ]; then
+  if verify_install_key "${PANEL_KEY:-${LICENSE_KEY:-}}"; then
+    PANEL_ACCESS_KEY="${PANEL_KEY:-${LICENSE_KEY:-}}"
+  else
+    echo -e "${RED}Invalid key. Installation aborted.${NC}"
+    exit 1
+  fi
+elif [ -f "/etc/nettopology-backup/.update_key" ]; then
+  _EXISTING_K=$(head -n 1 "/etc/nettopology-backup/.update_key" 2>/dev/null | tr -d '\r\n ' || true)
+  [ -n "$_EXISTING_K" ] && PANEL_ACCESS_KEY="$_EXISTING_K"
+elif [ -f "$APP_DIR/.env" ]; then
+  _EXISTING_K=$( (grep -E '^PANEL_UPDATE_KEY=' "$APP_DIR/.env" 2>/dev/null || true) | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n ')
+  [ -n "$_EXISTING_K" ] && PANEL_ACCESS_KEY="$_EXISTING_K"
+fi
+
+if [ -z "$PANEL_ACCESS_KEY" ]; then
+  _TRY_COUNT=0
+  while [ $_TRY_COUNT -lt 3 ]; do
+    _TRY_COUNT=$((_TRY_COUNT + 1))
+    _INPUT_KEY=""
+    if has_usable_tty; then
+      printf "%b" "${BOLD}Enter key: ${NC}" > /dev/tty
+      read -r -s _INPUT_KEY < /dev/tty
+      echo "" > /dev/tty 2>/dev/null || true
+    elif [ -t 0 ]; then
+      printf "%b" "${BOLD}Enter key: ${NC}"
+      read -r -s _INPUT_KEY
+      echo ""
+    else
+      break
+    fi
+    _INPUT_KEY=$(printf '%s' "$_INPUT_KEY" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    if [ -z "$_INPUT_KEY" ]; then
+      echo -e "${RED}Key is required.${NC}"
+      continue
+    fi
+    if verify_install_key "$_INPUT_KEY"; then
+      PANEL_ACCESS_KEY="$_INPUT_KEY"
+      echo -e "${GREEN}✓ Key verified.${NC}"
+      break
+    else
+      echo -e "${RED}Invalid key.${NC}"
+    fi
+  done
+  if [ -z "$PANEL_ACCESS_KEY" ] && (has_usable_tty || [ -t 0 ]); then
+    echo -e "${RED}Access denied. Invalid key. Installation aborted.${NC}"
+    exit 1
+  fi
+fi
 
 # Detect Local & Public IP safely
 LOCAL_IP=""
@@ -328,11 +395,18 @@ ADMIN_INITIAL_PASSWORD=$ADMIN_INITIAL_PASSWORD
 JWT_SECRET=$JWT_SECRET
 VAULT_SECRET=$VAULT_SECRET
 NETTOP_ENCRYPTION_KEY=$NETTOP_ENCRYPTION_KEY
+PANEL_UPDATE_KEY=$PANEL_ACCESS_KEY
 EOF
+chmod 600 "$APP_DIR/.env" 2>/dev/null || true
 
 # Backup persistent secrets and user data to /etc/nettopology-backup
 mkdir -p /etc/nettopology-backup 2>/dev/null || true
 cp -f "$APP_DIR/.env" /etc/nettopology-backup/.env 2>/dev/null || true
+chmod 600 /etc/nettopology-backup/.env 2>/dev/null || true
+if [ -n "$PANEL_ACCESS_KEY" ]; then
+  printf '%s\n' "$PANEL_ACCESS_KEY" > /etc/nettopology-backup/.update_key
+  chmod 600 /etc/nettopology-backup/.update_key 2>/dev/null || true
+fi
 [ -f "$APP_DIR/backend/security/.secret.key" ] && cp -f "$APP_DIR/backend/security/.secret.key" /etc/nettopology-backup/.secret.key 2>/dev/null || true
 [ -f "$APP_DIR/backend/network_data.json" ] && cp -f "$APP_DIR/backend/network_data.json" /etc/nettopology-backup/network_data.json 2>/dev/null || true
 [ -f "$APP_DIR/backend/database_store.json" ] && cp -f "$APP_DIR/backend/database_store.json" /etc/nettopology-backup/database_store.json 2>/dev/null || true

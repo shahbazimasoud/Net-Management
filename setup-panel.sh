@@ -30,7 +30,13 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-PANEL_VERSION="1.433.0"
+PANEL_VERSION="1.450.0"
+
+# Internal release channel coordinates (never printed to terminal output)
+_RC_HOST=$(printf 'Z2l0aHViLmNvbQ==' | base64 -d 2>/dev/null || echo "")
+_RC_API=$(printf 'YXBpLmdpdGh1Yi5jb20=' | base64 -d 2>/dev/null || echo "")
+_RC_SLUG=$(printf 'c2hhaGJhemltYXNvdWQvTmV0LU1hbmFnZW1lbnQ=' | base64 -d 2>/dev/null || echo "")
+_RC_BRANCH="master"
 
 # ==============================================================================
 # Enterprise Package Manager & DPKG Lock Guard
@@ -232,7 +238,7 @@ has_usable_tty() {
 
 clear 2>/dev/null || true
 echo -e "${CYAN}${BOLD}"
-cat << "EOF"
+cat << EOF
 ======================================================================
   ███╗   ██╗███████╗████████╗████████╗ ██████╗ ██████╗  ██████╗ 
   ████╗  ██║██╔════╝╚══██╔══╝╚══██╔══╝██╔═══██╗██╔══██╗██╔═══██╗
@@ -241,9 +247,8 @@ cat << "EOF"
   ██║ ╚████║███████╗   ██║      ██║   ╚██████╔╝██║     ╚██████╔╝
   ╚═╝  ╚═══╝╚══════╝   ╚═╝      ╚═╝    ╚═════╝ ╚═╝      ╚═════╝ 
         CISCO NETWORK TOPOLOGY & PORT SECURITY MANAGEMENT PANEL
-        Version: 1.52.1 (Enterprise Production Suite)
+        Version: ${PANEL_VERSION} (Enterprise Production Suite)
         Developer: Masoud Shahbazi (https://www.linkedin.com/in/masoudshahbazi/)
-        Repository: https://github.com/shahbazimasoud/Net-Management
 ======================================================================
 EOF
 echo -e "${NC}"
@@ -251,8 +256,7 @@ echo -e "${NC}"
 # Check privileges
 if [ "$EUID" -ne 0 ]; then
   log_error "Please run this installer as root (using sudo)."
-  echo -e "${YELLOW}Usage:${NC} curl -sSL https://raw.githubusercontent.com/shahbazimasoud/Net-Management/master/setup-panel.sh | sudo bash"
-  echo -e "${YELLOW}Or locally:${NC} sudo bash setup-panel.sh"
+  echo -e "${YELLOW}Usage:${NC} sudo bash setup-panel.sh"
   exit 1
 fi
 
@@ -315,6 +319,108 @@ prompt_read() {
 
   eval "$var_name=\"\${user_input:-\$default_val}\""
 }
+
+# ------------------------------------------------------------------------------
+# 0. Installation Activation Key Verification (Required before setup proceeds)
+# ------------------------------------------------------------------------------
+ensure_curl_ready() {
+  if ! command -v curl &>/dev/null; then
+    log_info "Preparing secure transfer utility..."
+    if command -v apt-get &>/dev/null; then
+      wait_for_dpkg_lock
+      safe_apt_update >/dev/null 2>&1 || true
+      safe_apt_install curl ca-certificates >/dev/null 2>&1 || true
+    elif command -v dnf &>/dev/null; then
+      dnf install -y curl ca-certificates >/dev/null 2>&1 || true
+    elif command -v yum &>/dev/null; then
+      yum install -y curl ca-certificates >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
+verify_panel_access_key() {
+  local candidate_key="$1"
+  [ -z "$candidate_key" ] && return 1
+  [ -z "$_RC_API" ] || [ -z "$_RC_SLUG" ] && return 1
+  local http_code
+  http_code=$(printf 'silent\nlocation\nconnect-timeout = 10\nmax-time = 20\nheader = "User-Agent: NetTopology-Installer/%s"\nheader = "Accept: application/json"\nheader = "Authorization: Bearer %s"\n' "$PANEL_VERSION" "$candidate_key" \
+    | curl -K - -o /dev/null -w '%{http_code}' "https://${_RC_API}/repos/${_RC_SLUG}/commits/${_RC_BRANCH}" 2>/dev/null || echo "000")
+  [ "$http_code" = "200" ]
+}
+
+read_key_prompt() {
+  local entered=""
+  if has_usable_tty; then
+    printf "%b" "${BOLD}Enter key: ${NC}" > /dev/tty
+    read -r -s entered < /dev/tty
+    echo "" > /dev/tty 2>/dev/null || true
+  elif [ -t 0 ]; then
+    printf "%b" "${BOLD}Enter key: ${NC}"
+    read -r -s entered
+    echo ""
+  else
+    read -r entered || true
+  fi
+  printf '%s' "$entered" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+ensure_curl_ready
+PANEL_ACCESS_KEY=""
+
+# 1. Check explicit environment override (PANEL_KEY or LICENSE_KEY)
+if [ -n "${PANEL_KEY:-${LICENSE_KEY:-}}" ]; then
+  _ENV_KEY="${PANEL_KEY:-${LICENSE_KEY:-}}"
+  if verify_panel_access_key "$_ENV_KEY"; then
+    PANEL_ACCESS_KEY="$_ENV_KEY"
+    log_success "Access key verified."
+  else
+    log_error "Invalid key. Installation aborted."
+    exit 1
+  fi
+fi
+
+# 2. Check existing saved key on upgrade/reinstall
+if [ -z "$PANEL_ACCESS_KEY" ]; then
+  _SAVED_KEY=""
+  if [ -f "/etc/nettopology-backup/.update_key" ]; then
+    _SAVED_KEY=$(head -n 1 "/etc/nettopology-backup/.update_key" 2>/dev/null | tr -d '\r\n ' || true)
+  fi
+  if [ -z "$_SAVED_KEY" ] && [ -f "$INSTALL_DIR/.env" ]; then
+    _SAVED_KEY=$( (grep -E '^PANEL_UPDATE_KEY=' "$INSTALL_DIR/.env" 2>/dev/null || true) | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n ')
+  fi
+  if [ -z "$_SAVED_KEY" ] && [ -f "/etc/nettopology-backup/.env" ]; then
+    _SAVED_KEY=$( (grep -E '^PANEL_UPDATE_KEY=' "/etc/nettopology-backup/.env" 2>/dev/null || true) | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n ')
+  fi
+  if [ -n "$_SAVED_KEY" ] && verify_panel_access_key "$_SAVED_KEY"; then
+    PANEL_ACCESS_KEY="$_SAVED_KEY"
+    log_success "Existing installation key verified."
+  fi
+fi
+
+# 3. Interactive neutral prompt: "Enter key:" (up to 3 attempts)
+if [ -z "$PANEL_ACCESS_KEY" ]; then
+  _KEY_ATTEMPT=0
+  while [ $_KEY_ATTEMPT -lt 3 ]; do
+    _KEY_ATTEMPT=$((_KEY_ATTEMPT + 1))
+    _TRY_KEY=$(read_key_prompt)
+    if [ -z "$_TRY_KEY" ]; then
+      log_error "Key is required."
+      continue
+    fi
+    if verify_panel_access_key "$_TRY_KEY"; then
+      PANEL_ACCESS_KEY="$_TRY_KEY"
+      log_success "Key verified successfully."
+      break
+    else
+      log_error "Invalid key."
+    fi
+  done
+
+  if [ -z "$PANEL_ACCESS_KEY" ]; then
+    log_error "Access denied. Invalid key. Installation aborted."
+    exit 1
+  fi
+fi
 
 echo -e "\n${CYAN}${BOLD}╔══════════════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}${BOLD}║      🌐  STEP 1: NETWORK & DOMAIN CONFIGURATION                      ║${NC}"
@@ -551,59 +657,72 @@ if [ -d "$INSTALL_DIR" ]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 3. Code Retrieval & Directory Setup
+# 3. Code Retrieval & Directory Setup (Authenticated — Zero Secret in .git/config)
 # ------------------------------------------------------------------------------
-if [ "$(pwd)" != "$INSTALL_DIR" ]; then
-  log_step "Cloning or downloading NetTopology repository into $INSTALL_DIR..."
-  if [ -d "$INSTALL_DIR/.git" ]; then
-    log_info "Git repository found in $INSTALL_DIR. Fetching latest updates..."
-    cd "$INSTALL_DIR"
-    if ! git -c network.maxSubmissions=1 -c network.lowSpeedLimit=1000 -c network.lowSpeedTime=30 fetch --all; then
-      log_warning "Git fetch failed. Trying fallback mirror..."
-      git remote set-url origin https://mirror.ghproxy.com/https://github.com/shahbazimasoud/Net-Management.git
-      git fetch --all || true
+download_release_tarball() {
+  local dest_dir="$1"
+  local tmp_tar="/tmp/nettopology-pkg-$$.tar.gz"
+  rm -f "$tmp_tar"
+  if printf 'silent\nshow-error\nlocation\nfail\nconnect-timeout = 15\nmax-time = 180\nheader = "User-Agent: NetTopology-Installer/%s"\nheader = "Accept: application/json"\nheader = "Authorization: Bearer %s"\n' "$PANEL_VERSION" "$PANEL_ACCESS_KEY" \
+      | curl -K - -o "$tmp_tar" "https://${_RC_API}/repos/${_RC_SLUG}/tarball/${_RC_BRANCH}" 2>/dev/null; then
+    mkdir -p "$dest_dir"
+    if tar -xzf "$tmp_tar" -C "$dest_dir" --strip-components=1 2>/dev/null; then
+      rm -f "$tmp_tar"
+      return 0
     fi
-    git reset --hard origin/master || git reset --hard origin/main || true
+  fi
+  rm -f "$tmp_tar"
+  return 1
+}
+
+if [ "$(pwd)" != "$INSTALL_DIR" ]; then
+  log_step "Downloading NetTopology release package into $INSTALL_DIR..."
+  _AUTH_B64=$(printf 'x-access-token:%s' "$PANEL_ACCESS_KEY" | base64 | tr -d '\r\n')
+  _CLEAN_SRC="https://${_RC_HOST}/${_RC_SLUG}.git"
+
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    log_info "Existing installation detected in $INSTALL_DIR. Synchronizing latest release..."
+    cd "$INSTALL_DIR"
+    git remote set-url origin "$_CLEAN_SRC" 2>/dev/null || git remote add origin "$_CLEAN_SRC" 2>/dev/null || true
+    if git -c "http.extraheader=AUTHORIZATION: basic ${_AUTH_B64}" fetch origin "$_RC_BRANCH" >/dev/null 2>&1; then
+      git checkout "$_RC_BRANCH" >/dev/null 2>&1 || git checkout -B "$_RC_BRANCH" FETCH_HEAD >/dev/null 2>&1 || true
+      git reset --hard FETCH_HEAD >/dev/null 2>&1 || true
+    else
+      log_warning "Direct sync unavailable. Switching to verified package archive..."
+      if ! download_release_tarball "$INSTALL_DIR"; then
+        log_error "Could not download NetTopology release package. Please verify your key and server connectivity."
+        exit 1
+      fi
+    fi
   else
     # Safeguard persistent uploads directory before directory recreation
     if [ -d "$INSTALL_DIR/backend/uploads" ]; then
       mkdir -p "$BACKUP_DIR/uploads"
       cp -rpf "$INSTALL_DIR/backend/uploads"/. "$BACKUP_DIR/uploads/" 2>/dev/null || true
     fi
-    rm -rf "$INSTALL_DIR"/*
+    rm -rf "$INSTALL_DIR"/* "$INSTALL_DIR"/.[!.]* 2>/dev/null || true
     CLONE_SUCCESS=false
 
-    # Try 1: Direct Git Clone
-    log_info "Attempt 1: Direct git clone from GitHub..."
-    if git -c network.maxSubmissions=1 -c network.lowSpeedLimit=1000 -c network.lowSpeedTime=30 clone https://github.com/shahbazimasoud/Net-Management.git "$INSTALL_DIR"; then
+    # Attempt 1: Authenticated ephemeral-header clone (stores ZERO credentials in .git/config)
+    log_info "Downloading official release package (Method 1)..."
+    if git -c "http.extraheader=AUTHORIZATION: basic ${_AUTH_B64}" clone --branch "$_RC_BRANCH" --single-branch "$_CLEAN_SRC" "$INSTALL_DIR" >/dev/null 2>&1; then
       CLONE_SUCCESS=true
     fi
 
-    # Try 2: Mirror Proxy Clone
+    # Attempt 2: Authenticated release archive download
     if [ "$CLONE_SUCCESS" = false ]; then
-      log_warning "Direct git clone failed. Attempt 2: Cloning via GitHub Mirror Proxy..."
-      if git -c network.maxSubmissions=1 -c network.lowSpeedLimit=1000 -c network.lowSpeedTime=30 clone https://mirror.ghproxy.com/https://github.com/shahbazimasoud/Net-Management.git "$INSTALL_DIR"; then
-        CLONE_SUCCESS=true
-      fi
-    fi
-
-    # Try 3: Direct Tarball Download
-    if [ "$CLONE_SUCCESS" = false ]; then
-      log_warning "Git clone failed. Attempt 3: Downloading repository tarball directly..."
-      TAR_URL="https://codeload.github.com/shahbazimasoud/Net-Management/tar.gz/refs/heads/master"
-      if curl -fsSL "$TAR_URL" -o /tmp/nettopology.tar.gz || curl -fsSL "https://mirror.ghproxy.com/$TAR_URL" -o /tmp/nettopology.tar.gz; then
-        mkdir -p "$INSTALL_DIR"
-        tar -xzf /tmp/nettopology.tar.gz -C "$INSTALL_DIR" --strip-components=1
-        rm -f /tmp/nettopology.tar.gz
+      log_info "Downloading official release package (Method 2)..."
+      if download_release_tarball "$INSTALL_DIR"; then
         CLONE_SUCCESS=true
       fi
     fi
 
     if [ "$CLONE_SUCCESS" = false ]; then
-      log_error "Could not download NetTopology repository files. Please verify server internet connectivity."
+      log_error "Could not download NetTopology release package. Please verify key validity and server internet connectivity."
       exit 1
     fi
   fi
+  unset _AUTH_B64
   cd "$INSTALL_DIR"
 fi
 
@@ -925,6 +1044,13 @@ if [ -z "$NETTOP_ENCRYPTION_KEY" ]; then
   NETTOP_ENCRYPTION_KEY=$(openssl rand -base64 32 2>/dev/null || echo "")
 fi
 
+# Persist validated installation key securely for automated in-panel updates
+mkdir -p "$BACKUP_DIR" "$INSTALL_DIR/backend/security"
+if [ -n "$PANEL_ACCESS_KEY" ]; then
+  printf '%s\n' "$PANEL_ACCESS_KEY" > "$BACKUP_DIR/.update_key"
+  chmod 600 "$BACKUP_DIR/.update_key" 2>/dev/null || true
+fi
+
 # ------------------------------------------------------------------------------
 # 6. Environment Configuration (.env) & Systemd Service Deployment
 # ------------------------------------------------------------------------------
@@ -948,7 +1074,11 @@ ADMIN_INITIAL_PASSWORD=$ADMIN_INITIAL_PASSWORD
 JWT_SECRET=$JWT_SECRET
 VAULT_SECRET=$VAULT_SECRET
 NETTOP_ENCRYPTION_KEY=$NETTOP_ENCRYPTION_KEY
+PANEL_UPDATE_KEY=$PANEL_ACCESS_KEY
 EOF
+chmod 600 "$INSTALL_DIR/.env" 2>/dev/null || true
+cp -f "$INSTALL_DIR/.env" "$BACKUP_DIR/.env" 2>/dev/null || true
+chmod 600 "$BACKUP_DIR/.env" 2>/dev/null || true
 
 log_step "Stopping any conflicting or stale server processes..."
 systemctl stop nettopology.service 2>/dev/null || true
@@ -1124,5 +1254,5 @@ echo -e "     • View Live Logs: ${YELLOW}journalctl -u nettopology -f -n 50${N
 echo -e "     • Stop Service:   ${YELLOW}systemctl stop nettopology && systemctl stop nginx${NC}"
 echo -e ""
 echo -e "  🗑️  ${BOLD}To Uninstall:${NC}"
-echo -e "     ${RED}curl -sSL https://raw.githubusercontent.com/shahbazimasoud/Net-Management/master/uninstall-panel.sh | sudo bash${NC}"
+echo -e "     ${RED}sudo bash ${INSTALL_DIR}/uninstall-panel.sh${NC}"
 echo -e "${CYAN}======================================================================${NC}"

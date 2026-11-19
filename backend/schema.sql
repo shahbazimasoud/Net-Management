@@ -742,3 +742,10 @@ CREATE INDEX IF NOT EXISTS idx_auth_blocklist_active ON auth_blocklist(is_active
 CREATE INDEX IF NOT EXISTS idx_auth_blocklist_expires ON auth_blocklist(expires_at);
 CREATE INDEX IF NOT EXISTS idx_auth_blocklist_blocked_at ON auth_blocklist(blocked_at DESC);
 
+-- 27. Encrypted System Update Channel Configuration (AES-256-GCM Protected Credentials)
+CREATE TABLE IF NOT EXISTS update_channel_config (
+    id VARCHAR(64) PRIMARY KEY,
+    config_data JSONB NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_by VARCHAR(128)
+);

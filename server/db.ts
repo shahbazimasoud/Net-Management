@@ -298,6 +298,7 @@ export interface FallbackStore {
   device_command_audit_logs?: any[];
   portal_audit_logs?: any[];
   log_retention_config?: any;
+  update_channel_config?: StoredUpdateChannelRecord;
   comms_channels?: any[];
   comms_channel_members?: any[];
   comms_messages?: any[];
@@ -2517,6 +2518,16 @@ export async function initDatabase(): Promise<void> {
       // 17. Automated Audit & Command Logs Scheduled Reporting Config
       await client.query(`
         CREATE TABLE IF NOT EXISTS audit_report_schedule (
+          id VARCHAR(64) PRIMARY KEY,
+          config_data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_by VARCHAR(128)
+        )
+      `);
+
+      // 17.5 Encrypted System Update Channel Configuration
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS update_channel_config (
           id VARCHAR(64) PRIMARY KEY,
           config_data JSONB NOT NULL,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -13777,5 +13788,95 @@ export async function saveConfigTemplatesBulk(templates: ConfigTemplateRecord[])
   return count;
 }
 
+export interface StoredUpdateChannelRecord {
+  encryptedRepoUrl: string;
+  encryptedToken: string;
+  branch: string;
+  source: 'key_file' | 'installer' | 'env';
+  filename?: string;
+  keyFingerprint: string;
+  verified: boolean;
+  configuredAt: string;
+  configuredBy: string;
+  verifiedAt?: string | null;
+}
 
+export async function getUpdateChannelConfigRecord(): Promise<StoredUpdateChannelRecord | null> {
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS update_channel_config (
+          id VARCHAR(64) PRIMARY KEY,
+          config_data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_by VARCHAR(128)
+        )
+      `);
+      const res = await pool.query(`SELECT config_data FROM update_channel_config WHERE id = 'primary'`);
+      if (res.rows.length > 0 && res.rows[0].config_data) {
+        return res.rows[0].config_data as StoredUpdateChannelRecord;
+      }
+    } catch (e: any) {
+      console.warn('[DB] Fallback to file store for update_channel_config:', e?.message || e);
+    }
+  }
+  const store = loadFallbackStore();
+  if (store.update_channel_config && typeof store.update_channel_config === 'object') {
+    return store.update_channel_config as StoredUpdateChannelRecord;
+  }
+  return null;
+}
 
+export async function saveUpdateChannelConfigRecord(
+  record: StoredUpdateChannelRecord,
+  updatedBy: string = 'admin'
+): Promise<StoredUpdateChannelRecord> {
+  const store = loadFallbackStore();
+  store.update_channel_config = record;
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS update_channel_config (
+          id VARCHAR(64) PRIMARY KEY,
+          config_data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_by VARCHAR(128)
+        )
+      `);
+      await pool.query(
+        `INSERT INTO update_channel_config (id, config_data, updated_at, updated_by)
+         VALUES ('primary', $1, CURRENT_TIMESTAMP, $2)
+         ON CONFLICT (id) DO UPDATE SET
+           config_data = $1,
+           updated_at = CURRENT_TIMESTAMP,
+           updated_by = $2`,
+        [JSON.stringify(record), updatedBy]
+      );
+    } catch (e: any) {
+      console.error('[DB Save Error in saveUpdateChannelConfigRecord]', e?.message || e);
+    }
+  }
+  return record;
+}
+
+export async function deleteUpdateChannelConfigRecord(): Promise<boolean> {
+  const store = loadFallbackStore();
+  if ('update_channel_config' in store) {
+    delete store.update_channel_config;
+    saveFallbackStore(store);
+  }
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(`DELETE FROM update_channel_config WHERE id = 'primary'`);
+    } catch (e: any) {
+      console.error('[DB Delete Error in deleteUpdateChannelConfigRecord]', e?.message || e);
+    }
+  }
+  return true;
+}

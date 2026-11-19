@@ -10,7 +10,6 @@ import {
   ArrowUpCircle,
   RefreshCw,
   AlertTriangle,
-  ExternalLink,
   Terminal,
   Loader2,
   ShieldCheck,
@@ -433,20 +432,6 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
                             {isEn ? 'Clean Reinstall & Update' : 'نصب تمیز و پاکسازی عمیق پکیج‌ها'}
                           </span>
                         </button>
-
-                        <a
-                          href={updateInfo?.repoUrl || 'https://github.com/shahbazimasoud/Net-Management'}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={`flex items-center justify-center gap-1.5 py-2.5 px-3.5 rounded-xl text-xs font-medium transition cursor-pointer border ${
-                            isLight
-                              ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-800'
-                              : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-300 hover:text-white'
-                          }`}
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                          <span>GitHub</span>
-                        </a>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-200 text-xs">

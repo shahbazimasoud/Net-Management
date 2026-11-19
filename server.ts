@@ -61,6 +61,16 @@ import {
   normalizeMac,
   lookupOuiVendor,
 } from './server/macIpTrackerService';
+import {
+  resolveActiveUpdateChannel,
+  getUpdateChannelStatusDto,
+  importUpdateKeyFile,
+  reverifyActiveUpdateChannel,
+  clearUpdateChannelConfig,
+  fetchRemoteReleaseMetadata,
+  buildGitAuthExtraHeader,
+  sanitizeUpdateText,
+} from './server/updateChannelConfig';
 
 const app = express();
 
@@ -305,9 +315,6 @@ function executeShell(command: string, cwd: string, timeoutMs: number = 60000): 
   });
 }
 
-// GitHub access token for rate-limit bypass and authenticated git operations (from environment)
-const GITHUB_AUTH_TOKEN = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || '';
-
 // Bridge status endpoint to verify frontend-backend intercommunication
 app.get('/api/status/bridge', (req: Request, res: Response) => {
   res.json({
@@ -405,7 +412,149 @@ async function assertUpdateAccess(
   return { allowed: true, user: user || payload };
 }
 
-// Check repository for newer releases (Net-Management GitHub)
+// -------------------------------------------------------------
+// Encrypted Update Channel Key File Management (Super Admin Only)
+// Never exposes source URL or raw access key back to the browser.
+// -------------------------------------------------------------
+app.get('/api/system/update-channel/status', async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  const authCheck = await assertUpdateAccess(req, 'check');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status || 403).json({
+      success: false,
+      error: authCheck.error,
+    });
+  }
+  try {
+    const status = await getUpdateChannelStatusDto(projectRoot);
+    return res.json({ success: true, ...status });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to read update authorization status',
+    });
+  }
+});
+
+app.post('/api/system/update-channel/upload', async (req: Request, res: Response) => {
+  const authCheck = await assertUpdateAccess(req, 'perform');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status || 403).json({
+      success: false,
+      error: authCheck.error,
+    });
+  }
+  try {
+    const content = typeof req.body?.content === 'string' ? req.body.content : '';
+    const filename = typeof req.body?.filename === 'string' ? req.body.filename : 'update-key.txt';
+    if (!content.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Uploaded key file is empty.',
+        errorFa: 'فایل کلید بارگذاری‌شده خالی است.',
+      });
+    }
+    if (content.length > 65536) {
+      return res.status(400).json({
+        success: false,
+        error: 'Key file size exceeds the allowed limit (64 KB).',
+        errorFa: 'حجم فایل کلید از حد مجاز (۶۴ کیلوبایت) بیشتر است.',
+      });
+    }
+
+    const actor = authCheck.user?.username || 'admin';
+    const result = await importUpdateKeyFile({
+      content,
+      filename,
+      updatedBy: actor,
+      projectRoot,
+    });
+
+    if (!result.ok) {
+      return res.status(result.statusCode || 400).json({
+        success: false,
+        error: result.errorEn || 'Failed to validate update authorization key.',
+        errorFa: result.errorFa || 'اعتبارسنجی کلید مجوز به‌روزرسانی ناموفق بود.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      status: result.status,
+      latestVersion: result.latestVersion || null,
+      message: 'Update authorization key verified and encrypted securely.',
+      messageFa: 'کلید مجوز به‌روزرسانی با موفقیت اعتبارسنجی و به صورت رمزنگاری‌شده ذخیره شد.',
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to process update authorization key file.',
+      errorFa: 'خطا در پردازش فایل کلید مجوز به‌روزرسانی.',
+    });
+  }
+});
+
+app.post('/api/system/update-channel/verify', async (req: Request, res: Response) => {
+  const authCheck = await assertUpdateAccess(req, 'perform');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status || 403).json({
+      success: false,
+      error: authCheck.error,
+    });
+  }
+  try {
+    const actor = authCheck.user?.username || 'admin';
+    const result = await reverifyActiveUpdateChannel(projectRoot, actor);
+    if (!result.ok) {
+      return res.status(401).json({
+        success: false,
+        status: result.status,
+        error: result.errorEn || 'Update authorization verification failed.',
+        errorFa: result.errorFa || 'اعتبارسنجی کلید مجوز به‌روزرسانی ناموفق بود.',
+      });
+    }
+    return res.json({
+      success: true,
+      status: result.status,
+      latestVersion: result.latestVersion || null,
+      message: 'Release server authorization verified successfully.',
+      messageFa: 'اتصال و مجوز دسترسی به سرور به‌روزرسانی با موفقیت تایید شد.',
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to verify update authorization key.',
+      errorFa: 'خطا در بررسی اعتبار کلید به‌روزرسانی.',
+    });
+  }
+});
+
+app.delete('/api/system/update-channel', async (req: Request, res: Response) => {
+  const authCheck = await assertUpdateAccess(req, 'perform');
+  if (!authCheck.allowed) {
+    return res.status(authCheck.status || 403).json({
+      success: false,
+      error: authCheck.error,
+    });
+  }
+  try {
+    const status = await clearUpdateChannelConfig(projectRoot);
+    return res.json({
+      success: true,
+      status,
+      message: 'Stored update authorization key has been removed.',
+      messageFa: 'کلید مجوز به‌روزرسانی ذخیره‌شده با موفقیت حذف شد.',
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to remove stored update key.',
+      errorFa: 'خطا در حذف کلید به‌روزرسانی.',
+    });
+  }
+});
+
+// Check release server for newer panel releases (supports encrypted private update channel)
 app.get('/api/system/check-update', async (req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
   res.setHeader('Pragma', 'no-cache');
@@ -432,142 +581,73 @@ app.get('/api/system/check-update', async (req: Request, res: Response) => {
       }
     }
 
-    const timestamp = Date.now();
+    const channel = await resolveActiveUpdateChannel(projectRoot);
     let latestVersion = currentVersion;
     let remoteReleaseNote: any = null;
     let remoteCommitSha: string | null = null;
     let localCommitSha: string | null = null;
     let commitMessage: string | null = null;
 
-    // 1. Fast local git checks with tight timeout
+    // 1. Fast local commit hash check (ephemeral header auth if key is configured — never writes token to .git/config)
     const gitDir = path.join(projectRoot, '.git');
     if (fs.existsSync(gitDir)) {
       try {
         localCommitSha = (await executeShell('git rev-parse HEAD', projectRoot, 3000)).trim();
-      } catch (e: any) {
+      } catch {
         // ignore
       }
 
       try {
-        // Ensure remote origin is configured or query canonical repository URL
-        let remoteTarget = 'origin';
-        try {
-          const remotes = await executeShell('git remote', projectRoot, 2000);
-          if (!remotes.split('\n').map(r => r.trim()).includes('origin')) {
-            await executeShell('git remote add origin https://github.com/shahbazimasoud/Net-Management.git', projectRoot, 2000).catch(() => {});
-          }
-        } catch {
-          remoteTarget = 'https://github.com/shahbazimasoud/Net-Management.git';
-        }
-
-        const lsRemoteOut = await executeShell(`git ls-remote ${remoteTarget} refs/heads/master`, projectRoot, 5000);
+        const extraHeaderArg = channel.token
+          ? `-c "http.extraheader=${buildGitAuthExtraHeader(channel.token)}"`
+          : '';
+        const lsRemoteOut = await executeShell(
+          `git ${extraHeaderArg} ls-remote "${channel.cleanHttpsUrl}" "refs/heads/${channel.branch}"`,
+          projectRoot,
+          5000
+        );
         const match = lsRemoteOut.match(/^([0-9a-f]{40})/i);
         if (match) {
           remoteCommitSha = match[1];
         }
-      } catch (gitCheckErr: any) {
-        console.log('[Check Update] Local git ls-remote fallback notice:', gitCheckErr?.message || gitCheckErr);
+      } catch {
+        // authenticated API check below handles release metadata & auth feedback
       }
     }
 
-    // 2. High-speed multi-source fetch: GitHub API + jsDelivr CDN + raw.githubusercontent
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-    const headersWithAuth: Record<string, string> = {
-      'User-Agent': 'Net-Management-Panel',
-      'Accept': 'application/vnd.github.v3+json',
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache'
-    };
-    if (GITHUB_AUTH_TOKEN) {
-      headersWithAuth['Authorization'] = `token ${GITHUB_AUTH_TOKEN}`;
+    // 2. Authenticated Release Metadata Query (works seamlessly on private and public release channels)
+    const remoteMeta = await fetchRemoteReleaseMetadata(channel, 9000);
+    if (remoteMeta.latestVersion) {
+      latestVersion = remoteMeta.latestVersion;
+    }
+    if (remoteMeta.remoteCommitSha) {
+      remoteCommitSha = remoteMeta.remoteCommitSha;
+    }
+    if (remoteMeta.commitMessage) {
+      commitMessage = remoteMeta.commitMessage;
+    }
+    if (remoteMeta.releaseNote) {
+      remoteReleaseNote = remoteMeta.releaseNote;
     }
 
-    try {
-      // Query GitHub API directly for master commit info
-      const commitApiPromise = fetch('https://api.github.com/repos/shahbazimasoud/Net-Management/commits/master', {
-        signal: controller.signal,
-        headers: headersWithAuth
-      }).then(async (res) => {
-        if (res.ok) {
-          const json = await res.json() as any;
-          if (json && json.sha) {
-            remoteCommitSha = json.sha;
-            commitMessage = json.commit?.message?.split('\n')[0] || null;
-          }
-        }
-      }).catch(() => {});
-
-      // Query raw package.json and version.ts with fallback CDN
-      const packageSources = [
-        `https://raw.githubusercontent.com/shahbazimasoud/Net-Management/master/package.json?_t=${timestamp}`,
-        `https://cdn.jsdelivr.net/gh/shahbazimasoud/Net-Management@master/package.json?_t=${timestamp}`
-      ];
-      const versionSources = [
-        `https://raw.githubusercontent.com/shahbazimasoud/Net-Management/master/src/version.ts?_t=${timestamp}`,
-        `https://cdn.jsdelivr.net/gh/shahbazimasoud/Net-Management@master/src/version.ts?_t=${timestamp}`
-      ];
-
-      const fetchPackage = async () => {
-        for (const src of packageSources) {
-          try {
-            const r = await fetch(src, { signal: controller.signal, headers: { 'Cache-Control': 'no-cache' } });
-            if (r.ok) {
-              const data = await r.json() as any;
-              if (data && data.version) {
-                latestVersion = data.version;
-                break;
-              }
-            }
-          } catch {
-            // try next
-          }
-        }
-      };
-
-      const fetchVersionTs = async () => {
-        for (const src of versionSources) {
-          try {
-            const r = await fetch(src, { signal: controller.signal, headers: { 'Cache-Control': 'no-cache' } });
-            if (r.ok) {
-              const tsText = await r.text();
-              const vMatch = tsText.match(/version:\s*['"]([^'"]+)['"]/);
-              const dMatch = tsText.match(/releaseDate:\s*['"]([^'"]+)['"]/);
-              const tMatch = tsText.match(/type:\s*['"]([^'"]+)['"]/);
-              const titleMatch = tsText.match(/title:\s*['"]([^'"]+)['"]/);
-              const titleEnMatch = tsText.match(/title_en:\s*['"]([^'"]+)['"]/);
-              const changesBlock = tsText.match(/changes:\s*\[([\s\S]*?)\]/);
-              const changesEnBlock = tsText.match(/changes_en:\s*\[([\s\S]*?)\]/);
-
-              const changes = changesBlock ? [...changesBlock[1].matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]) : [];
-              const changes_en = changesEnBlock ? [...changesEnBlock[1].matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]) : [];
-
-              remoteReleaseNote = {
-                version: vMatch?.[1] || latestVersion,
-                releaseDate: dMatch?.[1] || new Date().toISOString().split('T')[0],
-                type: tMatch?.[1] || 'patch',
-                title: titleMatch?.[1] || `نگارش ${latestVersion}`,
-                title_en: titleEnMatch?.[1] || `Release v${latestVersion}`,
-                changes: changes.length > 0 ? changes : ['به‌روزرسانی و ارتقای کلی عملکرد سامانه'],
-                changes_en: changes_en.length > 0 ? changes_en : ['System optimizations and feature enhancements']
-              };
-              break;
-            }
-          } catch {
-            // try next
-          }
-        }
-      };
-
-      await Promise.allSettled([commitApiPromise, fetchPackage(), fetchVersionTs()]);
-      clearTimeout(timeoutId);
-    } catch (fetchErr: any) {
-      console.warn('[Check Update] Warning fetching remote updates:', fetchErr.message);
-    }
-
-    // Check if simulation was requested in query string
     const simulateParam = req.query.simulate === 'true';
+
+    // If upstream requires authorization and we aren't simulating, inform UI neutrally
+    if (remoteMeta.authRequired && !remoteCommitSha && !simulateParam) {
+      return res.json({
+        currentVersion,
+        latestVersion: currentVersion,
+        hasUpdate: false,
+        requiresKey: true,
+        keyConfigured: channel.configured,
+        keyFingerprint: channel.keyFingerprint,
+        error: remoteMeta.errorEn,
+        errorFa: remoteMeta.errorFa,
+        releaseNote: null,
+        checkedAt: new Date().toISOString()
+      });
+    }
+
     if (simulateParam) {
       const parts = currentVersion.split('.').map(Number);
       const simVersion = `${parts[0]}.${(parts[1] || 0) + 1}.0`;
@@ -585,7 +665,7 @@ app.get('/api/system/check-update', async (req: Request, res: Response) => {
             'بهینه‌سازی کارایی هسته پایتون و مانیتورینگ لحظه‌ای تجهیزات'
           ],
           changes_en: [
-            'Automated repository release checker and one-click in-panel updater',
+            'Automated release checker and one-click in-panel updater',
             'Pulsating red notification indicator on profile avatar upon new release',
             'Performance optimizations for Python backend and live equipment telemetry'
           ]
@@ -601,23 +681,26 @@ app.get('/api/system/check-update', async (req: Request, res: Response) => {
       currentVersion,
       latestVersion,
       hasUpdate,
+      requiresKey: false,
+      keyConfigured: channel.configured,
+      keyFingerprint: channel.keyFingerprint,
       remoteCommitSha,
       localCommitSha,
       commitMessage,
       releaseNote: remoteReleaseNote,
-      repoUrl: 'https://github.com/shahbazimasoud/Net-Management',
       checkedAt: new Date().toISOString()
     });
   } catch (err: any) {
-    console.error('[Check Update Error]', err);
+    console.error('[Check Update Error]', sanitizeUpdateText(err?.message || String(err)));
     res.status(500).json({
-      error: 'Failed to check repository updates',
-      details: err.message
+      error: 'Failed to check release server for updates',
+      errorFa: 'خطا در استعلام نسخه جدید از سرور به‌روزرسانی',
+      details: sanitizeUpdateText(err?.message || '')
     });
   }
 });
 
-// Perform in-place software update to latest repository version
+// Perform in-place software update to latest release version
 app.post('/api/system/perform-update', async (req: Request, res: Response) => {
   const authCheck = await assertUpdateAccess(req, 'perform');
   if (!authCheck.allowed) {
@@ -630,10 +713,13 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
 
   try {
     const isCleanMode = req.body?.clean === true;
+    const channel = await resolveActiveUpdateChannel(projectRoot);
+    const secretList = [channel.token, channel.cleanHttpsUrl];
     const logs: string[] = [];
     const log = (msg: string) => {
-      console.log(`[Update Engine] ${msg}`);
-      logs.push(msg);
+      const safe = sanitizeUpdateText(msg, secretList);
+      console.log(`[Update Engine] ${safe}`);
+      logs.push(safe);
     };
 
     log('--- [Phase 1/6] Initiating Full Software Upgrade Pipeline ---');
@@ -738,38 +824,90 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
       log(`State backup notice: ${bErr.message}`);
     }
 
-    // Step 2: Codebase Synchronization
-    log('--- [Phase 2/6] Synchronizing Codebase with GitHub Repository ---');
+    // Step 2: Codebase Synchronization (Authenticated Ephemeral Header — Zero Credential Persistence in .git/config)
+    log('--- [Phase 2/6] Synchronizing System Packages with Official Release Server ---');
+    let syncSucceeded = false;
+
     if (fs.existsSync(gitDir)) {
-      log('Local Git repository detected. Setting origin and pulling latest master branch...');
+      log('Local managed installation detected. Pulling latest verified release...');
       try {
-        const authedRemote = `https://shahbazimasoud:${GITHUB_AUTH_TOKEN}@github.com/shahbazimasoud/Net-Management.git`;
+        const extraHeaderArg = channel.token
+          ? `-c "http.extraheader=${buildGitAuthExtraHeader(channel.token)}"`
+          : '';
+        // Ensure clean non-secret origin URL (never write tokens into .git/config)
         try {
-          await executeShell(`git remote set-url origin "${authedRemote}"`, projectRoot, 5000);
+          await executeShell(`git remote set-url origin "${channel.cleanHttpsUrl}"`, projectRoot, 5000);
         } catch {
-          await executeShell(`git remote add origin "${authedRemote}"`, projectRoot, 5000).catch(() => {});
+          await executeShell(`git remote add origin "${channel.cleanHttpsUrl}"`, projectRoot, 5000).catch(() => {});
         }
-        await executeShell('git fetch origin master', projectRoot, 30000);
-        await executeShell('git checkout master 2>/dev/null || git checkout -B master origin/master', projectRoot, 10000);
-        await executeShell('git reset --hard origin/master', projectRoot, 10000);
-        await executeShell('git clean -fd -e .env -e backend/database_store.json -e backend/network_data.json -e backend/backups -e backend/uploads', projectRoot, 10000);
-        log('Repository codebase successfully aligned with origin/master.');
+        await executeShell(
+          `git ${extraHeaderArg} fetch "${channel.cleanHttpsUrl}" "${channel.branch}"`,
+          projectRoot,
+          45000
+        );
+        await executeShell(
+          `git checkout "${channel.branch}" 2>/dev/null || git checkout -B "${channel.branch}" FETCH_HEAD`,
+          projectRoot,
+          10000
+        );
+        await executeShell('git reset --hard FETCH_HEAD', projectRoot, 10000);
+        await executeShell(
+          'git clean -fd -e .env -e backend/database_store.json -e backend/network_data.json -e backend/backups -e backend/uploads -e backend/security',
+          projectRoot,
+          10000
+        );
+        syncSucceeded = true;
+        log('System codebase successfully synchronized with the release server.');
       } catch (gitErr: any) {
-        log(`Git fetch warning: ${gitErr.message}. Falling back to pull...`);
-        try {
-          await executeShell('git pull origin master || true', projectRoot, 20000);
-        } catch {
-          // continue
-        }
+        const cleanErr = sanitizeUpdateText(gitErr?.message || String(gitErr), secretList);
+        log(`Direct sync notice: ${cleanErr}. Attempting archive fallback...`);
       }
-    } else {
-      log('Standalone archive mode: Downloading complete repository tarball...');
-      const downloadScript = `curl -sSL -H "Authorization: token ${GITHUB_AUTH_TOKEN}" -f -o /tmp/netman-update.tar.gz https://api.github.com/repos/shahbazimasoud/Net-Management/tarball/master 2>/dev/null || curl -sSL -f -o /tmp/netman-update.tar.gz https://codeload.github.com/shahbazimasoud/Net-Management/tar.gz/refs/heads/master && tar -xzf /tmp/netman-update.tar.gz -C /tmp && cp -a /tmp/*Net-Management*/. . && rm -rf /tmp/netman-update.tar.gz /tmp/*Net-Management*`;
+    }
+
+    if (!syncSucceeded) {
+      log('Downloading verified release archive from release server...');
+      const tarPath = `/tmp/netman-update-${timestamp}.tar.gz`;
+      const extractDir = `/tmp/netman-extract-${timestamp}`;
+      const curlCfgPath = `/tmp/netman-curl-${timestamp}.cfg`;
       try {
-        await executeShell(downloadScript, projectRoot, 45000);
-        log('Repository archive extracted and merged successfully.');
+        const tarballUrl = `https://api.github.com/repos/${encodeURIComponent(channel.owner)}/${encodeURIComponent(channel.repo)}/tarball/${encodeURIComponent(channel.branch)}`;
+        const cfgLines = [
+          'silent',
+          'show-error',
+          'location',
+          'fail',
+          'header = "User-Agent: NetTopology-UpdateEngine/2.0"',
+          'header = "Accept: application/vnd.github.v3+json"',
+        ];
+        if (channel.token) {
+          cfgLines.push(`header = "Authorization: Bearer ${channel.token}"`);
+        }
+        fs.writeFileSync(curlCfgPath, cfgLines.join('\n') + '\n', { mode: 0o600 });
+
+        await executeShell(`curl -K "${curlCfgPath}" -o "${tarPath}" "${tarballUrl}"`, projectRoot, 60000);
+        fs.mkdirSync(extractDir, { recursive: true });
+        await executeShell(`tar -xzf "${tarPath}" -C "${extractDir}" --strip-components=1`, projectRoot, 30000);
+        await executeShell(`cp -a "${extractDir}/." "${projectRoot}/"`, projectRoot, 30000);
+        syncSucceeded = true;
+        log('Release archive verified, extracted, and applied successfully.');
       } catch (dlErr: any) {
-        log(`Archive extraction warning: ${dlErr.message}`);
+        const cleanDlErr = sanitizeUpdateText(dlErr?.message || String(dlErr), secretList);
+        log(`Release server download failed: ${cleanDlErr}`);
+        return res.status(channel.configured ? 502 : 401).json({
+          success: false,
+          requiresKey: !channel.configured,
+          error: channel.configured
+            ? 'Failed to download release package. Please verify your update authorization key or server network connectivity.'
+            : 'An update authorization key file (.txt) is required before downloading updates.',
+          errorFa: channel.configured
+            ? 'دریافت بسته به‌روزرسانی ناموفق بود. لطفاً اعتبار کلید مجوز به‌روزرسانی یا اتصال اینترنت سرور را بررسی کنید.'
+            : 'برای دریافت به‌روزرسانی، ابتدا فایل کلید مجوز (.txt) را در صفحه به‌روزرسانی بارگذاری کنید.',
+          logs,
+        });
+      } finally {
+        try { if (fs.existsSync(curlCfgPath)) fs.unlinkSync(curlCfgPath); } catch {}
+        try { if (fs.existsSync(tarPath)) fs.unlinkSync(tarPath); } catch {}
+        try { if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true }); } catch {}
       }
     }
 
@@ -874,6 +1012,7 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
           licenses: preDatabaseStore.licenses || repoDbStore.licenses || [],
           contracts: preDatabaseStore.contracts || repoDbStore.contracts || [],
           license_contracts_logs: preDatabaseStore.license_contracts_logs || repoDbStore.license_contracts_logs || [],
+          update_channel_config: preDatabaseStore.update_channel_config || repoDbStore.update_channel_config || undefined,
           attachment_blobs: {
             ...(repoDbStore.attachment_blobs || {}),
             ...(preDatabaseStore.attachment_blobs || {})
@@ -1087,11 +1226,11 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
     }, 1500);
 
   } catch (err: any) {
-    console.error('[Update Engine Failed]', err);
+    const safeMsg = sanitizeUpdateText(err?.message || 'Update failed');
+    console.error('[Update Engine Failed]', safeMsg);
     res.status(500).json({
       success: false,
-      error: err.message || 'Update failed',
-      details: err.stack
+      error: safeMsg
     });
   }
 });

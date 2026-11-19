@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ArrowUpCircle,
   RefreshCw,
@@ -14,7 +14,11 @@ import {
   Filter,
   Check,
   Lock,
-  ExternalLink,
+  KeyRound,
+  Upload,
+  FileText,
+  Trash2,
+  ShieldAlert,
   Layers,
   ArrowRight,
   ArrowLeft,
@@ -28,6 +32,18 @@ import { useLanguage } from '../../i18n';
 import { useUpdate } from '../../context/UpdateContext';
 import { useAuth } from '../../context/AuthContext';
 import { canUserCheckUpdate, canUserPerformUpdate } from '../../utils/rbac';
+import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+
+interface UpdateChannelStatus {
+  configured: boolean;
+  verified: boolean;
+  source: 'key_file' | 'installer' | 'env' | 'none';
+  filename: string | null;
+  keyFingerprint: string | null;
+  configuredAt: string | null;
+  configuredBy: string | null;
+  verifiedAt: string | null;
+}
 
 interface PanelUpdateSettingsViewProps {
   isLightMode?: boolean;
@@ -52,7 +68,7 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
     checkUpdate,
     performUpdate,
   } = useUpdate();
-  const { user, effectivePolicy } = useAuth();
+  const { user, token, effectivePolicy } = useAuth();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'major' | 'minor' | 'patch'>('all');
@@ -60,10 +76,234 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
 
+  // Encrypted Update Authorization Key File State (Super Admin Only)
+  const [channelStatus, setChannelStatus] = useState<UpdateChannelStatus | null>(null);
+  const [loadingChannel, setLoadingChannel] = useState<boolean>(false);
+  const [uploadingKey, setUploadingKey] = useState<boolean>(false);
+  const [verifyingKey, setVerifyingKey] = useState<boolean>(false);
+  const [removingKey, setRemovingKey] = useState<boolean>(false);
+  const [confirmRemove, setConfirmRemove] = useState<boolean>(false);
+  const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
+  const [keyNotice, setKeyNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const canCheck = canUserCheckUpdate(user, effectivePolicy);
   const canPerform = canUserPerformUpdate(user, effectivePolicy);
   const hasUpdate = Boolean(updateInfo?.hasUpdate);
   const remoteNote = updateInfo?.releaseNote;
+
+  const getAuthHeaders = useCallback((): Record<string, string> => {
+    const storedToken =
+      token ||
+      (typeof window !== 'undefined'
+        ? localStorage.getItem('nettopology_auth_token_v1') ||
+          sessionStorage.getItem('nettopology_auth_token_v1')
+        : null);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache',
+    };
+    if (storedToken) {
+      headers['Authorization'] = `Bearer ${storedToken}`;
+    }
+    return headers;
+  }, [token]);
+
+  const fetchChannelStatus = useCallback(async () => {
+    if (!canCheck) return;
+    setLoadingChannel(true);
+    try {
+      const res = await fetch(`/api/system/update-channel/status?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setChannelStatus({
+          configured: Boolean(data.configured),
+          verified: Boolean(data.verified),
+          source: data.source || 'none',
+          filename: data.filename || null,
+          keyFingerprint: data.keyFingerprint || null,
+          configuredAt: data.configuredAt || null,
+          configuredBy: data.configuredBy || null,
+          verifiedAt: data.verifiedAt || null,
+        });
+      }
+    } catch {
+      // silent fallback
+    } finally {
+      setLoadingChannel(false);
+    }
+  }, [canCheck, getAuthHeaders]);
+
+  useEffect(() => {
+    fetchChannelStatus();
+  }, [fetchChannelStatus]);
+
+  const processKeyFile = async (file: File) => {
+    if (!canPerform || uploadingKey) return;
+    setKeyNotice(null);
+    setConfirmRemove(false);
+
+    if (file.size > 65536) {
+      setKeyNotice({
+        type: 'error',
+        text: isEn
+          ? 'File is too large. Please select a valid .txt update key file (max 64 KB).'
+          : 'حجم فایل بیش از حد مجاز است. لطفاً یک فایل متنی (.txt) معتبر انتخاب کنید (حداکثر ۶۴ کیلوبایت).',
+      });
+      return;
+    }
+
+    setUploadingKey(true);
+    try {
+      const textContent = await file.text();
+      const res = await fetch('/api/system/update-channel/upload', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          content: textContent,
+          filename: file.name,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setKeyNotice({
+          type: 'error',
+          text: isEn
+            ? (data.error || 'Failed to validate the update authorization key file.')
+            : (data.errorFa || data.error || 'اعتبارسنجی فایل کلید مجوز به‌روزرسانی ناموفق بود.'),
+        });
+        return;
+      }
+
+      if (data.status) {
+        setChannelStatus(data.status);
+      } else {
+        await fetchChannelStatus();
+      }
+      setKeyNotice({
+        type: 'success',
+        text: isEn
+          ? (data.message || 'Update authorization key verified and stored encrypted.')
+          : (data.messageFa || 'کلید مجوز به‌روزرسانی با موفقیت تایید و به صورت رمزنگاری‌شده ذخیره شد.'),
+      });
+      // Immediately check for available releases using the newly activated key
+      await checkUpdate(false, true);
+    } catch {
+      setKeyNotice({
+        type: 'error',
+        text: isEn
+          ? 'Network error while uploading the update key file.'
+          : 'خطای ارتباطی هنگام ارسال فایل کلید به‌روزرسانی.',
+      });
+    } finally {
+      setUploadingKey(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processKeyFile(file);
+    }
+  };
+
+  const handleDropKeyFile = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFile(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processKeyFile(file);
+    }
+  };
+
+  const handleVerifyKey = async () => {
+    if (!canPerform || verifyingKey) return;
+    setVerifyingKey(true);
+    setKeyNotice(null);
+    setConfirmRemove(false);
+    try {
+      const res = await fetch('/api/system/update-channel/verify', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.status) {
+        setChannelStatus(data.status);
+      }
+      if (!res.ok || !data.success) {
+        setKeyNotice({
+          type: 'error',
+          text: isEn
+            ? (data.error || 'Verification failed. Please upload a valid .txt update key file.')
+            : (data.errorFa || data.error || 'تایید دسترسی ناموفق بود. لطفاً فایل کلید معتبر را مجدداً بارگذاری کنید.'),
+        });
+        return;
+      }
+      setKeyNotice({
+        type: 'success',
+        text: isEn
+          ? (data.message || 'Release server access verified successfully.')
+          : (data.messageFa || 'اتصال و مجوز دسترسی به سرور به‌روزرسانی با موفقیت تایید شد.'),
+      });
+    } catch {
+      setKeyNotice({
+        type: 'error',
+        text: isEn ? 'Failed to contact server for verification.' : 'خطا در برقراری ارتباط برای تایید کلید.',
+      });
+    } finally {
+      setVerifyingKey(false);
+    }
+  };
+
+  const handleRemoveKey = async () => {
+    if (!canPerform || removingKey) return;
+    if (!confirmRemove) {
+      setConfirmRemove(true);
+      return;
+    }
+    setRemovingKey(true);
+    setKeyNotice(null);
+    try {
+      const res = await fetch('/api/system/update-channel', {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setChannelStatus(data.status || {
+          configured: false,
+          verified: false,
+          source: 'none',
+          filename: null,
+          keyFingerprint: null,
+          configuredAt: null,
+          configuredBy: null,
+          verifiedAt: null,
+        });
+        setConfirmRemove(false);
+        setKeyNotice({
+          type: 'success',
+          text: isEn
+            ? (data.message || 'Stored update authorization key removed.')
+            : (data.messageFa || 'کلید مجوز به‌روزرسانی ذخیره‌شده حذف شد.'),
+        });
+      }
+    } catch {
+      setKeyNotice({
+        type: 'error',
+        text: isEn ? 'Failed to remove stored key.' : 'خطا در حذف کلید ذخیره‌شده.',
+      });
+    } finally {
+      setRemovingKey(false);
+    }
+  };
 
   const handleManualCheck = async () => {
     if (!canCheck || checking || updating) return;
@@ -162,8 +402,8 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
                 }`}
               >
                 {isEn
-                  ? 'Verify remote GitHub releases, review comprehensive changelogs, and upgrade your system with single-click automation.'
-                  : 'بررسی نسخه‌های منتشرشده در مخزن رسمی گیت‌هاب، مشاهده جزئیات تغییرات و ارتقای خودکار سیستم با یک کلیک.'}
+                  ? 'Verify official software releases, review comprehensive changelogs, and upgrade your system with single-click automation.'
+                  : 'بررسی نسخه‌های رسمی منتشرشده در سرور به‌روزرسانی، مشاهده جزئیات تغییرات و ارتقای خودکار سیستم با یک کلیک.'}
               </p>
             </div>
           </div>
@@ -179,8 +419,8 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
                 <RefreshCw className={`w-3.5 h-3.5 ${checking ? 'animate-spin' : ''}`} />
                 <span>
                   {checking
-                    ? (isEn ? 'Connecting to GitHub...' : 'در حال استعلام از گیت‌هاب...')
-                    : (isEn ? 'Check for Updates' : 'بررسی نسخه جدید (GitHub)')}
+                    ? (isEn ? 'Checking Release Server...' : 'در حال استعلام از سرور به‌روزرسانی...')
+                    : (isEn ? 'Check for Updates' : 'بررسی نسخه جدید')}
                 </span>
               </button>
             ) : (
@@ -421,7 +661,7 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 pt-1">
               {[
                 { step: 1, label_en: '1. Init', label_fa: '۱. آغاز' },
-                { step: 2, label_en: '2. Sync', label_fa: '۲. گیت' },
+                { step: 2, label_en: '2. Sync', label_fa: '۲. دریافت' },
                 { step: 3, label_en: '3. Deps', label_fa: '۳. پکیج‌ها' },
                 { step: 4, label_en: '4. Backend', label_fa: '۴. بک‌اند' },
                 { step: 5, label_en: '5. Build', label_fa: '۵. بیلد' },
@@ -502,7 +742,7 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-base font-bold text-white">
-                    {isEn ? `New Version v${updateInfo?.latestVersion} Published on GitHub` : `نسخه جدید v${updateInfo?.latestVersion} در گیت‌هاب منتشر شد`}
+                    {isEn ? `New Version v${updateInfo?.latestVersion} Ready for Installation` : `نسخه جدید v${updateInfo?.latestVersion} آماده نصب است`}
                   </h3>
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/30 text-rose-200 border border-rose-500/40 font-bold">
                     {isEn ? 'UPDATE READY' : 'آماده نصب'}
@@ -561,6 +801,31 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
             </div>
           )}
         </div>
+      ) : updateInfo?.requiresKey ? (
+        /* Key Authorization Required Notice */
+        <div
+          className={`p-5 rounded-2xl border backdrop-blur-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+            isLightMode
+              ? 'bg-amber-50/90 border-amber-300 text-amber-950'
+              : 'bg-amber-950/25 border-amber-500/40 text-amber-200'
+          }`}
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 shrink-0">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-sm sm:text-base font-bold">
+                {isEn ? 'Update Authorization Key Required' : 'ثبت فایل کلید مجوز به‌روزرسانی الزامی است'}
+              </h3>
+              <p className={`text-xs mt-0.5 ${isLightMode ? 'text-amber-800' : 'text-amber-200/80'}`}>
+                {isEn
+                  ? (updateInfo.error || 'Upload your authorized .txt update key file below once to activate automated system updates.')
+                  : (updateInfo.errorFa || 'برای فعال‌سازی دریافت خودکار به‌روزرسانی‌ها، فایل متنی کلید مجوز (.txt) را یک‌بار در بخش زیر بارگذاری کنید.')}
+              </p>
+            </div>
+          </div>
+        </div>
       ) : (
         /* Up-To-Date Nominal Card */
         <div
@@ -580,8 +845,8 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
               </h3>
               <p className={`text-xs mt-0.5 ${isLightMode ? 'text-emerald-800' : 'text-emerald-300/80'}`}>
                 {isEn
-                  ? `Installed Version v${APP_VERSION} matches the latest stable release published on GitHub.`
-                  : `نسخه نصب‌شده v${APP_VERSION} دقیقاً مطابق با آخرین ریلیز پایدار در مخزن گیت‌هاب می‌باشد.`}
+                  ? `Installed Version v${APP_VERSION} matches the latest stable release on the official update server.`
+                  : `نسخه نصب‌شده v${APP_VERSION} دقیقاً مطابق با آخرین ریلیز پایدار در سرور رسمی به‌روزرسانی می‌باشد.`}
               </p>
             </div>
           </div>
@@ -594,6 +859,270 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
             }`}>
               {isEn ? `Checked: ${new Date(lastCheckedAt).toLocaleTimeString()}` : `آخرین بررسی: ${new Date(lastCheckedAt).toLocaleTimeString('fa-IR')}`}
             </span>
+          )}
+        </div>
+      )}
+
+      {/* Stealth Update Authorization Key File Management Card (Super Admin Only) */}
+      {canPerform && (
+        <div
+          className={`p-5 sm:p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-4 transition-colors ${
+            updateInfo?.requiresKey
+              ? isLightMode
+                ? 'bg-amber-50/50 border-amber-300'
+                : 'bg-amber-950/15 border-amber-500/40'
+              : isLightMode
+              ? 'bg-white/90 border-slate-200'
+              : 'bg-slate-950/60 border-white/10'
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-3">
+              <div
+                className={`p-2.5 rounded-xl border shrink-0 ${
+                  channelStatus?.configured && channelStatus?.verified
+                    ? isLightMode
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                      : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                    : isLightMode
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-600'
+                    : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
+                }`}
+              >
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className={`text-sm sm:text-base font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                    {isEn ? 'Update Authorization Key' : 'کلید مجوز به‌روزرسانی سامانه'}
+                  </h3>
+                  <FieldInfoTooltip
+                    title={isEn ? 'Update Authorization Key (.txt)' : 'فایل کلید مجوز به‌روزرسانی (.txt)'}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    whatIsIt={
+                      isEn
+                        ? 'A plain-text (.txt) authorization file containing the release source address and access key required to authenticate with the private software update server.'
+                        : 'یک فایل متنی (.txt) حاوی آدرس منبع به‌روزرسانی و کلید دسترسی اختصاصی که مجوز اتصال ایمن پنل به سرور به‌روزرسانی را فراهم می‌کند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Restricts update package downloads to authorized deployments only. Once uploaded, the file contents are encrypted immediately on the server with AES-256-GCM and are never sent back to the browser.'
+                        : 'برای حفاظت از بسته‌های نرم‌افزاری و جلوگیری از دسترسی غیرمجاز به نسخه‌های جدید کاربرد دارد. پس از یک‌بار بارگذاری، اطلاعات روی سرور با رمزنگاری AES-256-GCM ذخیره شده و هرگز به مرورگر برگردانده نمی‌شود.'
+                    }
+                    practicalExample={
+                      isEn
+                        ? 'Upload your provided key.txt file once (e.g. line 1: release source address, line 2: access key — or KEY=VALUE format). All future checks and updates work automatically.'
+                        : 'فایل key.txt ارائه‌شده را یک‌بار بارگذاری کنید (مثلاً خط اول آدرس منبع و خط دوم کلید دسترسی، یا قالب KEY=VALUE). پس از تایید، تمامی بررسی‌ها و ارتقاهای بعدی به صورت خودکار انجام می‌شوند.'
+                    }
+                  />
+                  {loadingChannel ? (
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono border ${isLightMode ? 'bg-slate-100 border-slate-300 text-slate-600' : 'bg-slate-900 border-white/10 text-slate-400'}`}>
+                      {isEn ? 'Checking...' : 'در حال بررسی...'}
+                    </span>
+                  ) : channelStatus?.configured && channelStatus?.verified ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/20 text-emerald-500 dark:text-emerald-300 border border-emerald-500/35 flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Active & Encrypted' : 'فعال و رمزنگاری‌شده'}</span>
+                    </span>
+                  ) : channelStatus?.configured ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/35">
+                      {isEn ? 'Needs Verification' : 'نیازمند بررسی اعتبار'}
+                    </span>
+                  ) : (
+                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold border ${isLightMode ? 'bg-slate-100 border-slate-300 text-slate-600' : 'bg-slate-900 border-white/10 text-slate-400'}`}>
+                      {isEn ? 'Not Configured' : 'ثبت نشده'}
+                    </span>
+                  )}
+                </div>
+                <p className={`text-xs mt-0.5 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                  {isEn
+                    ? 'Upload your .txt authorization key file once. Credentials are stored encrypted server-side (AES-256-GCM) and used automatically for all updates.'
+                    : 'فایل متنی کلید مجوز (.txt) را یک‌بار بارگذاری کنید تا به صورت رمزنگاری‌شده (AES-256-GCM) در سرور ذخیره و برای تمامی به‌روزرسانی‌ها استفاده شود.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Action Buttons when configured */}
+            {channelStatus?.configured && (
+              <div className="flex items-center gap-2 flex-wrap shrink-0">
+                <button
+                  type="button"
+                  onClick={handleVerifyKey}
+                  disabled={verifyingKey || uploadingKey}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer disabled:opacity-50 ${
+                    isLightMode
+                      ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-800'
+                      : 'bg-slate-900 hover:bg-slate-800 border-white/15 text-slate-200'
+                  }`}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${verifyingKey ? 'animate-spin' : ''}`} />
+                  <span>{isEn ? 'Verify Key' : 'تست اعتبار'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingKey}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs transition cursor-pointer disabled:opacity-50"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{isEn ? 'Replace (.txt)' : 'جایگزینی فایل (.txt)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRemoveKey}
+                  disabled={removingKey}
+                  onMouseLeave={() => setConfirmRemove(false)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer disabled:opacity-50 ${
+                    confirmRemove
+                      ? 'bg-rose-600 hover:bg-rose-500 border-rose-500 text-white'
+                      : isLightMode
+                      ? 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
+                      : 'bg-rose-500/10 hover:bg-rose-500/20 border-rose-500/30 text-rose-300'
+                  }`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>
+                    {confirmRemove
+                      ? (isEn ? 'Click to Confirm' : 'تایید حذف')
+                      : (isEn ? 'Remove' : 'حذف')}
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Hidden File Input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,.key,.conf,.cfg,text/plain"
+            onChange={handleFileInputChange}
+            className="hidden"
+          />
+
+          {/* Active Key Metadata Summary OR Upload Dropzone */}
+          {channelStatus?.configured ? (
+            <div
+              className={`grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-xl border text-xs ${
+                isLightMode
+                  ? 'bg-slate-50 border-slate-200 text-slate-700'
+                  : 'bg-slate-900/70 border-white/10 text-slate-300'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Lock className="w-4 h-4 text-emerald-500 shrink-0" />
+                <div className="min-w-0">
+                  <div className={`text-[10px] uppercase tracking-wider font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {isEn ? 'Key Fingerprint' : 'شناسه کلید'}
+                  </div>
+                  <div className="font-mono font-bold truncate">
+                    {channelStatus.keyFingerprint || 'KEY-ACTIVE'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <FileText className="w-4 h-4 text-indigo-400 shrink-0" />
+                <div className="min-w-0">
+                  <div className={`text-[10px] uppercase tracking-wider font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {isEn ? 'Activation Source' : 'منبع فعال‌سازی'}
+                  </div>
+                  <div className="font-semibold truncate">
+                    {channelStatus.source === 'installer'
+                      ? (isEn ? 'Installer Provisioned' : 'تنظیم‌شده هنگام نصب پنل')
+                      : channelStatus.source === 'key_file'
+                      ? (isEn
+                          ? `Key File (${channelStatus.filename || 'key.txt'})`
+                          : `فایل کلید (${channelStatus.filename || 'key.txt'})`)
+                      : (isEn ? 'Server Environment' : 'متغیر محیطی سرور')}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <Calendar className="w-4 h-4 text-cyan-400 shrink-0" />
+                <div className="min-w-0">
+                  <div className={`text-[10px] uppercase tracking-wider font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {isEn ? 'Last Verified' : 'آخرین تایید اعتبار'}
+                  </div>
+                  <div className="font-mono truncate">
+                    {channelStatus.verifiedAt
+                      ? new Date(channelStatus.verifiedAt).toLocaleString(isEn ? 'en-US' : 'fa-IR')
+                      : channelStatus.configuredAt
+                      ? new Date(channelStatus.configuredAt).toLocaleString(isEn ? 'en-US' : 'fa-IR')
+                      : (isEn ? 'Active' : 'فعال')}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDraggingFile(true);
+              }}
+              onDragLeave={() => setIsDraggingFile(false)}
+              onDrop={handleDropKeyFile}
+              onClick={() => !uploadingKey && fileInputRef.current?.click()}
+              className={`p-5 rounded-xl border-2 border-dashed transition cursor-pointer flex flex-col sm:flex-row items-center justify-between gap-4 ${
+                isDraggingFile
+                  ? 'border-indigo-500 bg-indigo-500/10'
+                  : isLightMode
+                  ? 'border-slate-300 bg-slate-50 hover:border-indigo-400 hover:bg-indigo-50/40'
+                  : 'border-white/15 bg-slate-900/50 hover:border-indigo-500/50 hover:bg-indigo-950/20'
+              }`}
+            >
+              <div className="flex items-center gap-3.5 text-center sm:text-start">
+                <div className={`p-3 rounded-xl border shrink-0 ${isLightMode ? 'bg-white border-slate-200 text-indigo-600' : 'bg-slate-950 border-white/10 text-indigo-400'}`}>
+                  {uploadingKey ? (
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Upload className="w-5 h-5" />
+                  )}
+                </div>
+                <div>
+                  <div className={`text-xs sm:text-sm font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                    {uploadingKey
+                      ? (isEn ? 'Verifying & Encrypting Update Key...' : 'در حال اعتبارسنجی و رمزنگاری فایل کلید...')
+                      : (isEn ? 'Drop your update key file (.txt) here or click to browse' : 'فایل کلید به‌روزرسانی (.txt) را اینجا رها کنید یا کلیک کنید')}
+                  </div>
+                  <div className={`text-[11px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {isEn
+                      ? 'Supports plain .txt authorization files (encrypted immediately with AES-256-GCM on upload).'
+                      : 'پشتیبانی از فایل‌های متنی (.txt)؛ پس از بارگذاری بلافاصله با AES-256-GCM رمزنگاری و ذخیره می‌شود.'}
+                  </div>
+                </div>
+              </div>
+
+              <span className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 text-white font-bold text-xs shadow-sm shrink-0">
+                {isEn ? 'Select .txt File' : 'انتخاب فایل .txt'}
+              </span>
+            </div>
+          )}
+
+          {/* Inline Notice Banner */}
+          {keyNotice && (
+            <div
+              className={`p-3 rounded-xl border text-xs flex items-center gap-2.5 ${
+                keyNotice.type === 'success'
+                  ? isLightMode
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                    : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                  : isLightMode
+                  ? 'bg-rose-50 border-rose-300 text-rose-900'
+                  : 'bg-rose-950/40 border-rose-500/40 text-rose-200'
+              }`}
+            >
+              {keyNotice.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+              )}
+              <span className="flex-1">{keyNotice.text}</span>
+            </div>
           )}
         </div>
       )}

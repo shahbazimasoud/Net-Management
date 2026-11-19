@@ -8,7 +8,11 @@ export interface UpdateInfo {
   latestVersion: string;
   hasUpdate: boolean;
   releaseNote: ReleaseNote | null;
-  repoUrl: string;
+  requiresKey?: boolean;
+  keyConfigured?: boolean;
+  keyFingerprint?: string | null;
+  error?: string;
+  errorFa?: string;
   checkedAt?: string;
 }
 
@@ -97,8 +101,8 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setError(null);
     setCheckFeedback({
       type: 'checking',
-      message: 'در حال استعلام بی‌درنگ از مخزن گیت‌هاب...',
-      message_en: 'Checking GitHub repository in real-time...',
+      message: 'در حال استعلام بی‌درنگ از سرور به‌روزرسانی...',
+      message_en: 'Checking official release server in real-time...',
       timestamp: Date.now()
     });
 
@@ -138,7 +142,14 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setIsSimulated(false);
       }
 
-      if (data.hasUpdate) {
+      if (data.requiresKey) {
+        setCheckFeedback({
+          type: 'error',
+          message: data.errorFa || 'برای دریافت به‌روزرسانی، لطفاً فایل کلید مجوز (.txt) را در صفحه به‌روزرسانی بارگذاری کنید.',
+          message_en: data.error || 'Please upload your .txt update authorization key file to check for updates.',
+          timestamp: Date.now()
+        });
+      } else if (data.hasUpdate) {
         setCheckFeedback(null);
       } else {
         setCheckFeedback({
@@ -261,7 +272,10 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.error || (isPersian ? 'عملیات در سرور با خطا مواجه شد' : 'Operation failed on server'));
+        const localizedErr = isPersian
+          ? (data.errorFa || data.error || 'عملیات در سرور با خطا مواجه شد')
+          : (data.error || 'Operation failed on server');
+        throw new Error(localizedErr);
       }
 
       setUpdateLogs(data.logs || ['Update completed successfully.']);

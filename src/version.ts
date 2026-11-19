@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.449.0';
+export const APP_VERSION = '1.450.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.450.0',
+    releaseDate: '2026-11-19',
+    type: 'minor',
+    title: 'افزودن سیستم احراز هویت رمزنگاری‌شده کلید به‌روزرسانی (.txt) و اعتبارسنجی کلید نصب سامانه',
+    title_en: 'Add Encrypted Update Authorization Key (.txt) Channel & Authenticated Installer Key Verification',
+    changes: [
+      'افزودن بخش مدیریت «کلید مجوز به‌روزرسانی سامانه» در صفحه به‌روزرسانی پنل (مخصوص سوپرادمین) با قابلیت بارگذاری یک‌باره فایل متنی (.txt)، اعتبارسنجی زنده با سرور رسمی انتشار، تست اعتبار مجدد، جایگزینی و حذف امن، به همراه راهنمای سه‌بخشی `FieldInfoTooltip` و انطباق کامل با تم روشن/تیره و دو زبان فارسی و انگلیسی.',
+      'ذخیره‌سازی رمزنگاری‌شده (AES-256-GCM) آدرس منبع و کلید دسترسی در جدول `update_channel_config` پایگاه داده PostgreSQL (با همگام‌سازی خودکار کلید واردشده در اسکریپت نصب)، بدون ارسال مجدد کلید یا آدرس منبع به مرورگر و با پاکسازی کامل لاگ‌ها و خطاهای موتور به‌روزرسانی.',
+      'ارتقای اسکریپت‌های نصب (`setup-panel.sh` و `install.sh`) برای دریافت خنثی و امن کلید فعال‌سازی (`Enter key:`)، اعتبارسنجی آنلاین پیش از شروع نصب، دریافت احرازهویت‌شده بسته‌ها بدون ذخیره اطلاعات محرمانه در فایل‌های پیکربندی محلی و انتقال خودکار کلید تاییدشده به موتور به‌روزرسانی داخلی پنل.'
+    ],
+    changes_en: [
+      'Added a Super-Admin Update Authorization Key (.txt) management panel inside Panel Updates with one-time drag-and-drop/browse key file upload, live release-server validation, re-verification, replacement, two-step removal, 3-part FieldInfoTooltip guidance, and full Light/Dark & FA/EN support.',
+      'Implemented AES-256-GCM server-side encryption for update channel credentials stored in the PostgreSQL `update_channel_config` table (with automatic ingestion of installer-provisioned keys), zero credential exposure to browser clients, and sanitized release-server update logs.',
+      'Upgraded panel installers (`setup-panel.sh` and `install.sh`) with a neutral `Enter key:` activation prompt, live pre-install key verification, authenticated package retrieval without persisting secrets in local repository config, and automatic encrypted handoff to the in-panel updater.'
+    ]
+  },
   {
     version: '1.449.0',
     releaseDate: '2026-11-19',
