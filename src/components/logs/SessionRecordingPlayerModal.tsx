@@ -402,8 +402,57 @@ export const SessionRecordingPlayerModal: React.FC<SessionRecordingPlayerModalPr
           guacText += `4.sync,${ts.length}.${ts};`;
         }
 
-        const blob = new Blob([guacText], { type: 'application/octet-stream' });
-        const player = new (Guacamole as any).SessionRecording(blob);
+        // Workaround for upstream guacamole-common-js@1.5.0 bug (GUACAMOLE-1774) where passing a Blob
+        // leaves internal `recordingBlob` undefined and throws `Cannot read properties of undefined (reading 'size')`.
+        // Feeding the fetched & repaired text through a lightweight Guacamole.Tunnel initializes `recordingBlob` properly.
+        const memTunnel = new (Guacamole as any).Tunnel();
+        let tunnelAborted = false;
+        let pumpTimer: ReturnType<typeof setTimeout> | null = null;
+        memTunnel.sendMessage = () => {};
+        memTunnel.disconnect = () => {
+          tunnelAborted = true;
+          if (pumpTimer) {
+            clearTimeout(pumpTimer);
+            pumpTimer = null;
+          }
+          memTunnel.setState((Guacamole as any).Tunnel.State.CLOSED);
+        };
+        memTunnel.connect = () => {
+          tunnelAborted = false;
+          memTunnel.setState((Guacamole as any).Tunnel.State.OPEN);
+          const parser = new (Guacamole as any).Parser();
+          parser.oninstruction = (opcode: string, args: string[]) => {
+            if (!tunnelAborted && memTunnel.oninstruction) {
+              memTunnel.oninstruction(opcode, args);
+            }
+          };
+          const CHUNK_SIZE = 262144;
+          let offset = 0;
+          const pump = () => {
+            pumpTimer = null;
+            if (tunnelAborted || cancelled) return;
+            try {
+              const end = Math.min(guacText.length, offset + CHUNK_SIZE);
+              parser.receive(guacText.slice(offset, end));
+              offset = end;
+              if (offset < guacText.length) {
+                pumpTimer = setTimeout(pump, 0);
+              } else {
+                memTunnel.setState((Guacamole as any).Tunnel.State.CLOSED);
+              }
+            } catch (parseErr: any) {
+              if (memTunnel.onerror) {
+                memTunnel.onerror(
+                  new (Guacamole as any).Status(512, parseErr?.message || 'Failed to parse Guacamole recording')
+                );
+              }
+              memTunnel.setState((Guacamole as any).Tunnel.State.CLOSED);
+            }
+          };
+          pumpTimer = setTimeout(pump, 0);
+        };
+
+        const player = new (Guacamole as any).SessionRecording(memTunnel);
         activePlayer = player;
         guacPlayerRef.current = player;
 
@@ -497,6 +546,9 @@ export const SessionRecordingPlayerModal: React.FC<SessionRecordingPlayerModalPr
             scaleDisplay();
           }
         };
+
+        // Start feeding instructions into SessionRecording AFTER all listeners are attached
+        player.connect();
 
         onWindowResize = scaleDisplay;
         window.addEventListener('resize', scaleDisplay);

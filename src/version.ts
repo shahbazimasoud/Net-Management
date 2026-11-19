@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.451.2';
+export const APP_VERSION = '1.451.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.451.3',
+    releaseDate: '2026-11-19',
+    type: 'patch',
+    title: 'رفع خطای Cannot read properties of undefined (reading size) هنگام پخش ویدیوی ریموت دسکتاپ',
+    title_en: 'Fix Cannot read properties of undefined (reading size) Error During Remote Desktop Recording Playback',
+    changes: [
+      'رفع باگ کتابخانه `guacamole-common-js@1.5.0` (GUACAMOLE-1774) در مودال بازپخش ریموت (`SessionRecordingPlayerModal.tsx`) که هنگام ارسال مستقیم `Blob` به `Guacamole.SessionRecording` باعث خطای `Cannot read properties of undefined (reading \'size\')` می‌شد.',
+      'جایگزینی ورودی پخش‌کننده با یک `Guacamole.Tunnel` درون‌حافظه‌ای سبک و قطعه‌بندی‌شده (۲۵۶ کیلوبایتی) جهت تغذیه امن جریان `.guac` ترمیم‌شده بدون مسدود کردن مرورگر و اجرای فوری `seek(0)` پس از بارگذاری.'
+    ],
+    changes_en: [
+      'Worked around the upstream `guacamole-common-js@1.5.0` bug (GUACAMOLE-1774) in `SessionRecordingPlayerModal.tsx` where passing a `Blob` directly to `Guacamole.SessionRecording` leaves `recordingBlob` undefined and throws `Cannot read properties of undefined (reading \'size\')`.',
+      'Replaced the Blob constructor input with a lightweight chunked in-memory `Guacamole.Tunnel` feeding the authenticated and auto-repaired `.guac` stream cleanly without freezing the UI, followed by immediate Frame 0 rendering on load.'
+    ]
+  },
   {
     version: '1.451.2',
     releaseDate: '2026-11-19',
