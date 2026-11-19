@@ -119,6 +119,7 @@ import {
 import { FooterTeamChatDock } from './components/comms/FooterTeamChatDock';
 import { ShareToChatModal } from './components/comms/ShareToChatModal';
 import { ChannelHandoverModal } from './components/comms/ChannelHandoverModal';
+import { ManageChannelMembersModal } from './components/comms/ManageChannelMembersModal';
 
 export default function App() {
   const { t, isRtl, isEn, language, setLanguage } = useLanguage();
@@ -2465,6 +2466,11 @@ export default function App() {
             }
           />
           <ChannelHandoverModal
+            isEn={isEn}
+            isLightMode={isLightMode}
+            isRtl={isRtl}
+          />
+          <ManageChannelMembersModal
             isEn={isEn}
             isLightMode={isLightMode}
             isRtl={isRtl}

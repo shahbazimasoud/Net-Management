@@ -340,6 +340,49 @@ export async function addCommsChannelMembers(
     throw new Error(json?.error || `HTTP ${res.status}`);
   }
   appDataCache.invalidate('comms:channels');
+  appDataCache.invalidate(`comms:channel:${channelId}`);
+  return json;
+}
+
+export async function removeCommsChannelMember(
+  channelId: string,
+  memberId: string
+): Promise<{ success: boolean; channel: CommsChannel }> {
+  const res = await fetch(
+    `/api/comms/channels/${encodeURIComponent(channelId)}/members/${encodeURIComponent(memberId)}`,
+    {
+      method: 'DELETE',
+      headers: buildAuthHeaders(),
+    }
+  );
+  const json = await safeParseJsonResponse<any>(res);
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate('comms:channels');
+  appDataCache.invalidate(`comms:channel:${channelId}`);
+  return json;
+}
+
+export async function updateCommsChannelMemberRole(
+  channelId: string,
+  memberId: string,
+  role: 'owner' | 'admin' | 'member'
+): Promise<{ success: boolean; channel: CommsChannel }> {
+  const res = await fetch(
+    `/api/comms/channels/${encodeURIComponent(channelId)}/members/${encodeURIComponent(memberId)}/role`,
+    {
+      method: 'PATCH',
+      headers: buildAuthHeaders(),
+      body: JSON.stringify({ role }),
+    }
+  );
+  const json = await safeParseJsonResponse<any>(res);
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error || `HTTP ${res.status}`);
+  }
+  appDataCache.invalidate('comms:channels');
+  appDataCache.invalidate(`comms:channel:${channelId}`);
   return json;
 }
 

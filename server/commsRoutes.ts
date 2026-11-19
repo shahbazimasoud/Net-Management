@@ -24,11 +24,13 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   postChannelMessage,
+  removeChannelMember,
   replyToInboxNotification,
   searchScopedEntityMentions,
   shareChannelApproval,
   shareChannelSnippet,
   toggleChannelMute,
+  updateChannelMemberRole,
 } from './commsService';
 import { getCommsPresenceSnapshot } from './commsWs';
 import {
@@ -404,12 +406,66 @@ commsRouter.post('/comms/channels/:id/members', async (req: Request, res: Respon
       Boolean(auth.isSuperAdmin),
       req.params.id,
       memberIds,
-      canAddPolicy
+      canAddPolicy,
+      auth.clientIp
     );
     return res.json({ success: true, channel });
   } catch (err: any) {
-    const status = String(err?.message || '').startsWith('ACCESS_DENIED') ? 403 : 400;
-    return res.status(status).json({ success: false, error: err?.message || 'Failed to add members' });
+    const msg = String(err?.message || '');
+    const status = msg.startsWith('ACCESS_DENIED') ? 403 : msg.includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, error: msg || 'Failed to add members' });
+  }
+});
+
+// DELETE /api/comms/channels/:id/members/:memberId
+commsRouter.delete('/comms/channels/:id/members/:memberId', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const channel = await removeChannelMember(
+      auth.actor,
+      Boolean(auth.isSuperAdmin),
+      req.params.id,
+      decodeURIComponent(req.params.memberId || ''),
+      auth.clientIp
+    );
+    return res.json({ success: true, channel });
+  } catch (err: any) {
+    const msg = String(err?.message || '');
+    const status = msg.startsWith('ACCESS_DENIED') ? 403 : msg.includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, error: msg || 'Failed to remove member' });
+  }
+});
+
+// PATCH /api/comms/channels/:id/members/:memberId/role
+commsRouter.patch('/comms/channels/:id/members/:memberId/role', async (req: Request, res: Response) => {
+  const auth = await authenticateCommsRequest(req);
+  if (!auth.authenticated || !auth.actor) {
+    return res.status(auth.statusCode || 401).json({ success: false, error: auth.error });
+  }
+  try {
+    const role = String(req.body?.role || '').trim().toLowerCase();
+    if (!['owner', 'admin', 'member'].includes(role)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid role. Allowed values: owner, admin, member.',
+      });
+    }
+    const channel = await updateChannelMemberRole(
+      auth.actor,
+      Boolean(auth.isSuperAdmin),
+      req.params.id,
+      decodeURIComponent(req.params.memberId || ''),
+      role as 'owner' | 'admin' | 'member',
+      auth.clientIp
+    );
+    return res.json({ success: true, channel });
+  } catch (err: any) {
+    const msg = String(err?.message || '');
+    const status = msg.startsWith('ACCESS_DENIED') ? 403 : msg.includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, error: msg || 'Failed to update member role' });
   }
 });
 

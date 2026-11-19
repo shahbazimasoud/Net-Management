@@ -23,6 +23,7 @@ import {
   LogOut,
   Trash2,
   FileText,
+  UserCog,
 } from 'lucide-react';
 import {
   CommsChannel,
@@ -61,6 +62,11 @@ import { SlashCommandPickerPopover } from './SlashCommandPicker';
 import { SnippetDiffCard } from './SnippetDiffCard';
 import { ApprovalChatCard } from './ApprovalChatCard';
 import { dispatchOpenChannelHandover } from './ChannelHandoverModal';
+import {
+  dispatchOpenManageChannelMembers,
+  isUserChannelModerator,
+  isUserChannelOwner,
+} from './ManageChannelMembersModal';
 import { ComposerActionsMenu } from './ComposerActionsMenu';
 import {
   getCommsUserPresenceMeta,
@@ -345,7 +351,9 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
         });
       } else if (evt.type === 'channel:updated' && evt.channel) {
         setChannels((prev) =>
-          prev.map((c) => (c.id === evt.channel.id ? evt.channel : c))
+          prev.some((c) => c.id === evt.channel.id)
+            ? prev.map((c) => (c.id === evt.channel.id ? evt.channel : c))
+            : [evt.channel, ...prev]
         );
         if (
           evt.channel.id === selectedChannelIdRef.current &&
@@ -766,24 +774,22 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
   };
 
   const canManageChannelByRule = useCallback(
-    (ch: CommsChannel | null | undefined) => {
-      if (!ch || ch.channelType !== 'group') return false;
-      if (isSuperAdmin) return true;
-      const uname = (user?.username || '').toLowerCase();
-      return Boolean(
-        ch.members?.some((m) => m.username.toLowerCase() === uname && m.role === 'owner')
-      );
-    },
-    [isSuperAdmin, user?.username]
+    (ch: CommsChannel | null | undefined) => isUserChannelOwner(ch, user, isSuperAdmin),
+    [isSuperAdmin, user]
+  );
+
+  const canModerateChannelMembers = useCallback(
+    (ch: CommsChannel | null | undefined) => isUserChannelModerator(ch, user, isSuperAdmin),
+    [isSuperAdmin, user]
   );
 
   const canAddMembersToChannel = useCallback(
     (ch: CommsChannel | null | undefined) => {
       if (!ch) return false;
       if (ch.channelType === 'direct') return canSend;
-      return canManageChannelByRule(ch) || canSend;
+      return canModerateChannelMembers(ch) || canSend;
     },
-    [canManageChannelByRule, canSend]
+    [canModerateChannelMembers, canSend]
   );
 
   const canManageChannelMembers = useMemo(
@@ -1138,6 +1144,23 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                                   : 'bg-slate-900 border-slate-700 text-slate-100'
                               }`}
                             >
+                              {canModerateChannelMembers(ch) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setOpenMenuKey(null);
+                                    dispatchOpenManageChannelMembers({ channel: ch });
+                                  }}
+                                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition font-semibold ${
+                                    isLightMode
+                                      ? 'text-indigo-700 hover:bg-indigo-50'
+                                      : 'text-indigo-300 hover:bg-indigo-500/15'
+                                  }`}
+                                >
+                                  <UserCog className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                  <span>{isEn ? 'Manage Users' : 'مدیریت کاربران و اعضا'}</span>
+                                </button>
+                              )}
                               {canAddMembersToChannel(ch) && (
                                 <button
                                   type="button"
@@ -1669,6 +1692,25 @@ export const TeamChannelsPane: React.FC<TeamChannelsPaneProps> = ({
                             : 'bg-slate-900 border-slate-700 text-slate-100'
                         }`}
                       >
+                        {canModerateChannelMembers(activeChannel) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenMenuKey(null);
+                              dispatchOpenManageChannelMembers({ channel: activeChannel });
+                            }}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-start cursor-pointer transition font-semibold ${
+                              isLightMode
+                                ? 'text-indigo-700 hover:bg-indigo-50'
+                                : 'text-indigo-300 hover:bg-indigo-500/15'
+                            }`}
+                          >
+                            <UserCog className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                            <span>
+                              {isEn ? 'Manage Users & Roles' : 'مدیریت کاربران و اعضا'}
+                            </span>
+                          </button>
+                        )}
                         {canAddMembersToChannel(activeChannel) && (
                           <button
                             type="button"

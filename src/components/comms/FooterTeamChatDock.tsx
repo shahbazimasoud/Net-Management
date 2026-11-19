@@ -29,6 +29,7 @@ import {
   LogOut,
   Trash2,
   UserPlus,
+  UserCog,
   FileText,
 } from 'lucide-react';
 import {
@@ -64,6 +65,11 @@ import { SlashCommandPickerPopover } from './SlashCommandPicker';
 import { SnippetDiffCard } from './SnippetDiffCard';
 import { ApprovalChatCard } from './ApprovalChatCard';
 import { dispatchOpenChannelHandover } from './ChannelHandoverModal';
+import {
+  dispatchOpenManageChannelMembers,
+  isUserChannelModerator,
+  isUserChannelOwner,
+} from './ManageChannelMembersModal';
 import { ComposerActionsMenu } from './ComposerActionsMenu';
 import {
   getCommsUserPresenceMeta,
@@ -98,6 +104,7 @@ interface FloatingChatBoxProps {
   canSend: boolean;
   isSuperAdmin: boolean;
   liveRevision: number;
+  currentUserId?: string;
   currentUsername: string;
   onToggleCollapse: () => void;
   onToggleSize: () => void;
@@ -128,6 +135,7 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
   canSend,
   isSuperAdmin,
   liveRevision,
+  currentUserId,
   currentUsername,
   onToggleCollapse,
   onToggleSize,
@@ -461,16 +469,10 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
     } catch {}
   };
 
-  const meLower = currentUsername.trim().toLowerCase();
-  const isOwnerOrAdmin =
-    channel.channelType === 'group' &&
-    (isSuperAdmin ||
-      Boolean(
-        channel.members?.some(
-          (m) => (m.username || '').toLowerCase() === meLower && m.role === 'owner'
-        )
-      ));
-  const canAddGroupMember = channel.channelType === 'group' && (isOwnerOrAdmin || canSend);
+  const actorRef = { id: currentUserId, username: currentUsername };
+  const isOwnerOrAdmin = isUserChannelOwner(channel, actorRef, isSuperAdmin);
+  const isModerator = isUserChannelModerator(channel, actorRef, isSuperAdmin);
+  const canAddGroupMember = channel.channelType === 'group' && (isModerator || canSend);
 
   const handleOpenInlineAddMember = async () => {
     setMenuOpen(false);
@@ -959,6 +961,24 @@ const FloatingChatBox: React.FC<FloatingChatBoxProps> = ({
                   </div>
                 ) : (
                   <>
+                    {isModerator && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          setConfirmKind(null);
+                          dispatchOpenManageChannelMembers({ channel });
+                        }}
+                        className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition font-semibold ${
+                          isLightMode
+                            ? 'text-indigo-700 hover:bg-indigo-50'
+                            : 'text-indigo-300 hover:bg-indigo-500/15'
+                        }`}
+                      >
+                        <UserCog className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        <span>{isEn ? 'Manage Users & Roles' : 'مدیریت کاربران و اعضا'}</span>
+                      </button>
+                    )}
                     {(canAddGroupMember || (channel.channelType === 'direct' && canSend)) && (
                       <button
                         type="button"
@@ -1562,6 +1582,17 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
     isSuperAdmin ||
     Boolean(effectivePolicy?.canSendCommunications) ||
     Boolean(effectivePolicy?.canSendAnnouncements);
+  const [hasCommsOverlayOpen, setHasCommsOverlayOpen] = useState(false);
+
+  useEffect(() => {
+    const onOverlayState = (e: Event) => {
+      const open = Boolean((e as CustomEvent<any>)?.detail?.open);
+      setHasCommsOverlayOpen(open);
+    };
+    window.addEventListener('nettop-comms-overlay-state', onOverlayState as EventListener);
+    return () =>
+      window.removeEventListener('nettop-comms-overlay-state', onOverlayState as EventListener);
+  }, []);
 
   const optimisticChannels = appDataCache.getOptimistic<CommsChannel[]>('comms:channels');
   const [channels, setChannels] = useState<CommsChannel[]>(optimisticChannels || []);
@@ -1662,7 +1693,9 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
         );
       } else if (evt.type === 'channel:updated' && evt.channel) {
         setChannels((prev) =>
-          prev.map((c) => (c.id === evt.channel.id ? evt.channel : c))
+          prev.some((c) => c.id === evt.channel.id)
+            ? prev.map((c) => (c.id === evt.channel.id ? evt.channel : c))
+            : [evt.channel, ...prev]
         );
       } else if (evt.type === 'channel:removed' && evt.channelId) {
         setChannels((prev) => prev.filter((c) => c.id !== evt.channelId));
@@ -1872,15 +1905,13 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
   };
 
   const isChannelOwnerOrAdmin = useCallback(
-    (ch: CommsChannel) => {
-      if (ch.channelType !== 'group') return false;
-      if (isSuperAdmin) return true;
-      const uname = (user?.username || '').trim().toLowerCase();
-      return Boolean(
-        ch.members?.some((m) => (m.username || '').toLowerCase() === uname && m.role === 'owner')
-      );
-    },
-    [isSuperAdmin, user?.username]
+    (ch: CommsChannel) => isUserChannelOwner(ch, user, isSuperAdmin),
+    [isSuperAdmin, user]
+  );
+
+  const isChannelModerator = useCallback(
+    (ch: CommsChannel) => isUserChannelModerator(ch, user, isSuperAdmin),
+    [isSuperAdmin, user]
   );
 
   const handleToggleRowMute = async (ch: CommsChannel) => {
@@ -2013,7 +2044,9 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
             dir={isRtl ? 'rtl' : 'ltr'}
             className={`fixed bottom-8 ${
               isRtl ? 'left-3 sm:left-4' : 'right-3 sm:right-4'
-            } flex-row z-[999992] flex items-end gap-2.5 max-w-[calc(100vw-24px)] pointer-events-none select-none`}
+            } flex-row ${
+              hasCommsOverlayOpen ? 'z-[999985]' : 'z-[999992]'
+            } flex items-end gap-2.5 max-w-[calc(100vw-24px)] pointer-events-none select-none`}
           >
             {/* Open Conversation Tabs & Popover Windows (ordered inward from the drawer) */}
             {openTabs.map((tab) => {
@@ -2031,6 +2064,7 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                   canSend={canSend}
                   isSuperAdmin={isSuperAdmin}
                   liveRevision={liveRevision}
+                  currentUserId={user?.id}
                   currentUsername={user?.username || ''}
                   onToggleCollapse={() => toggleTabCollapse(tab.channelId)}
                   onToggleSize={() => toggleTabSize(tab.channelId)}
@@ -2650,6 +2684,27 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                                     </div>
                                   ) : (
                                     <>
+                                      {isChannelModerator(ch) && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setRowMenuChannelId(null);
+                                            setRowConfirmAction(null);
+                                            setIsListOpen(false);
+                                            dispatchOpenManageChannelMembers({ channel: ch });
+                                          }}
+                                          className={`w-full flex items-center gap-2 px-3 py-1.5 text-start cursor-pointer transition font-semibold ${
+                                            isLightMode
+                                              ? 'text-indigo-700 hover:bg-indigo-50'
+                                              : 'text-indigo-300 hover:bg-indigo-500/15'
+                                          }`}
+                                        >
+                                          <UserCog className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                          <span>
+                                            {isEn ? 'Manage Users & Roles' : 'مدیریت کاربران و اعضا'}
+                                          </span>
+                                        </button>
+                                      )}
                                       <button
                                         type="button"
                                         onClick={() => {
@@ -2661,17 +2716,13 @@ export const FooterTeamChatDock: React.FC<FooterTeamChatDockProps> = ({
                                           isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/10'
                                         }`}
                                       >
-                                        {canSend || isOwnerOrAdmin ? (
+                                        {ch.channelType === 'direct' && canSend ? (
                                           <>
                                             <UserPlus className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                                             <span>
-                                              {ch.channelType === 'direct'
-                                                ? isEn
-                                                  ? 'Add Member / Full View'
-                                                  : 'افزودن عضو / نمای کامل'
-                                                : isEn
-                                                ? 'Manage Members / Full View'
-                                                : 'مدیریت اعضا / نمای کامل'}
+                                              {isEn
+                                                ? 'Add Member / Full View'
+                                                : 'افزودن عضو / نمای کامل'}
                                             </span>
                                           </>
                                         ) : (

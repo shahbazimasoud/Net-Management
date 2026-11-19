@@ -2434,12 +2434,44 @@ export async function createGroupChannel(
   return channel;
 }
 
+function isChannelCreator(
+  channel: Pick<CommsChannel, 'createdByUserId'>,
+  identifiers: Set<string>
+): boolean {
+  const creatorId = String(channel.createdByUserId || '').trim().toLowerCase();
+  return Boolean(creatorId && identifiers.has(creatorId));
+}
+
+function isChannelOwnerActor(
+  channel: Pick<CommsChannel, 'createdByUserId' | 'members'>,
+  actor: Partial<CommsActor>,
+  isSuperAdmin: boolean
+): boolean {
+  if (isSuperAdmin) return true;
+  const actorIds = new Set(resolveUserIdentifiers(actor));
+  if (isChannelCreator(channel, actorIds)) return true;
+  const actorMember = (channel.members || []).find((m) => memberMatchesIdentifiers(m, actorIds));
+  return actorMember?.role === 'owner';
+}
+
+function isChannelModeratorActor(
+  channel: Pick<CommsChannel, 'createdByUserId' | 'members'>,
+  actor: Partial<CommsActor>,
+  isSuperAdmin: boolean
+): boolean {
+  if (isChannelOwnerActor(channel, actor, isSuperAdmin)) return true;
+  const actorIds = new Set(resolveUserIdentifiers(actor));
+  const actorMember = (channel.members || []).find((m) => memberMatchesIdentifiers(m, actorIds));
+  return actorMember?.role === 'admin';
+}
+
 export async function addChannelMembers(
   actor: CommsActor,
   isSuperAdmin: boolean,
   channelId: string,
   memberIds: string[],
-  canAddMembersPolicy = false
+  canAddMembersPolicy = false,
+  senderIp = '127.0.0.1'
 ): Promise<CommsChannel> {
   const existing = await loadHydratedChannelForUser(channelId, actor);
   if (!existing) {
@@ -2451,9 +2483,9 @@ export async function addChannelMembers(
 
   const actorIds = new Set(resolveUserIdentifiers(actor));
   const actorMember = (existing.members || []).find((m) => memberMatchesIdentifiers(m, actorIds));
-  const isOwner = actorMember?.role === 'owner' || existing.createdByUserId === actor.userId;
-  if (!isSuperAdmin && !isOwner && !(actorMember && canAddMembersPolicy)) {
-    throw new Error('ACCESS_DENIED: Only channel owner, authorized members, or Super Admin can add members.');
+  const isModerator = isChannelModeratorActor(existing, actor, isSuperAdmin);
+  if (!isModerator && !(actorMember && canAddMembersPolicy)) {
+    throw new Error('ACCESS_DENIED: Only channel owner, channel admin, authorized members, or Super Admin can add members.');
   }
 
   const resolved = await resolveTargetRecipients('users', memberIds);
@@ -2462,8 +2494,17 @@ export async function addChannelMembers(
   }
 
   const nowIso = new Date().toISOString();
-  const existingSet = new Set((existing.members || []).map((m) => m.username.toLowerCase()));
-  const toInsert = resolved.filter((r) => !existingSet.has(r.username.toLowerCase()));
+  const existingSet = new Set(
+    (existing.members || []).flatMap((m) => [
+      (m.username || '').toLowerCase(),
+      (m.userId || '').toLowerCase(),
+    ])
+  );
+  const toInsert = resolved.filter(
+    (r) =>
+      !existingSet.has((r.username || '').toLowerCase()) &&
+      !existingSet.has((r.userId || '').toLowerCase())
+  );
 
   if (toInsert.length > 0) {
     const store = loadFallbackStore();
@@ -2502,11 +2543,354 @@ export async function addChannelMembers(
   }
 
   const updated = (await loadHydratedChannelForUser(channelId, actor))!;
-  broadcastCommsEventToRecipients(
-    (updated.members || []).map((m) => ({ userId: m.userId, username: m.username })),
-    undefined,
-    { type: 'channel:updated', channel: updated }
+  const addedUsernamesLower = new Set(toInsert.map((r) => r.username.toLowerCase()));
+  const existingRecipients = (updated.members || [])
+    .filter((m) => !addedUsernamesLower.has((m.username || '').toLowerCase()))
+    .map((m) => ({ userId: m.userId, username: m.username }));
+  const newlyAddedRecipients = toInsert.map((r) => ({ userId: r.userId, username: r.username }));
+
+  if (existingRecipients.length > 0) {
+    broadcastCommsEventToRecipients(existingRecipients, undefined, {
+      type: 'channel:updated',
+      channel: updated,
+    });
+  }
+  if (newlyAddedRecipients.length > 0) {
+    broadcastCommsEventToRecipients(newlyAddedRecipients, undefined, {
+      type: 'channel:created',
+      channel: updated,
+    });
+
+    const addedNames = toInsert.map((r) => r.username).join(', ');
+    void addPortalAuditLog({
+      category: 'communications',
+      action: 'CHANNEL_MEMBER_ADDED',
+      title: `افزودن عضو به کانال: ${existing.name}`,
+      title_en: `Channel Members Added: ${existing.nameEn || existing.name}`,
+      actor: {
+        username: actor.username,
+        role: actor.role || 'Operator',
+        ipAddress: senderIp || '127.0.0.1',
+      },
+      target: {
+        type: 'comms_channel',
+        id: channelId,
+        name: existing.nameEn || existing.name,
+      },
+      severity: 'info',
+      status: 'success',
+      details: `کاربر ${actor.username} اعضای جدید (${addedNames}) را به کانال «${existing.name}» اضافه کرد.`,
+      details_en: `User ${actor.username} added member(s) (${addedNames}) to channel "${existing.nameEn || existing.name}".`,
+    }).catch(() => {});
+  }
+  return updated;
+}
+
+export async function removeChannelMember(
+  actor: CommsActor,
+  isSuperAdmin: boolean,
+  channelId: string,
+  targetMemberIdentifier: string,
+  senderIp = '127.0.0.1'
+): Promise<CommsChannel> {
+  const existing = await loadHydratedChannelForUser(channelId, actor);
+  if (!existing) {
+    throw new Error('Channel not found.');
+  }
+  if (existing.channelType !== 'group') {
+    throw new Error('Members can only be removed from team group channels.');
+  }
+
+  const targetKey = String(targetMemberIdentifier || '').trim().toLowerCase();
+  if (!targetKey) {
+    throw new Error('Target member identifier is required.');
+  }
+
+  const actorIds = new Set(resolveUserIdentifiers(actor));
+  const actorMember = (existing.members || []).find((m) => memberMatchesIdentifiers(m, actorIds));
+  const actorIsOwner = isChannelOwnerActor(existing, actor, isSuperAdmin);
+  const actorIsAdmin = actorMember?.role === 'admin';
+
+  if (!actorIsOwner && !actorIsAdmin) {
+    throw new Error(
+      'ACCESS_DENIED: Only the channel owner, channel admin, or Super Admin can remove members.'
+    );
+  }
+
+  const targetMember = (existing.members || []).find(
+    (m) =>
+      (m.userId || '').trim().toLowerCase() === targetKey ||
+      (m.username || '').trim().toLowerCase() === targetKey
   );
+  if (!targetMember) {
+    throw new Error('Member not found in this channel.');
+  }
+
+  const targetIds = new Set(
+    [targetMember.userId, targetMember.username]
+      .filter(Boolean)
+      .map((s) => String(s).trim().toLowerCase())
+  );
+  if (memberMatchesIdentifiers(targetMember, actorIds)) {
+    throw new Error('Cannot remove yourself here. Use Leave Channel instead.');
+  }
+
+  const targetIsCreator = isChannelCreator(existing, targetIds);
+  if (targetIsCreator && !isSuperAdmin) {
+    throw new Error('ACCESS_DENIED: Only Super Admin can remove the original channel creator.');
+  }
+
+  if (!actorIsOwner) {
+    // Channel admin (moderator) can only remove regular 'member' users
+    if (targetMember.role === 'owner' || targetMember.role === 'admin') {
+      throw new Error(
+        'ACCESS_DENIED: Channel admins can only remove regular members, not owners or other admins.'
+      );
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const targetIdList = Array.from(targetIds);
+
+  const store = loadFallbackStore();
+  store.comms_channel_members = (store.comms_channel_members || []).filter(
+    (m: any) =>
+      !(
+        (m.channel_id ?? m.channelId) === channelId &&
+        memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, targetIds)
+      )
+  );
+  for (const n of store.comms_notifications || []) {
+    if (
+      (n.channel_id ?? n.channelId) === channelId &&
+      (targetIds.has((n.recipient_user_id || n.recipientUserId || '').toLowerCase()) ||
+        targetIds.has((n.recipient_username || n.recipientUsername || '').toLowerCase()))
+    ) {
+      n.is_read = true;
+      n.is_archived = true;
+      n.read_at = n.read_at || nowIso;
+    }
+  }
+  const fbRemaining = (store.comms_channel_members || []).filter(
+    (m: any) => (m.channel_id ?? m.channelId) === channelId
+  );
+  if (fbRemaining.length > 0 && !fbRemaining.some((m: any) => m.role === 'owner')) {
+    fbRemaining[0].role = 'owner';
+  }
+  const chIdx = (store.comms_channels || []).findIndex((c: any) => c.id === channelId);
+  if (chIdx !== -1) store.comms_channels[chIdx].updated_at = nowIso;
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool && targetIdList.length > 0) {
+    try {
+      await Promise.all([
+        pool.query(
+          `DELETE FROM comms_channel_members
+           WHERE channel_id = $1
+             AND (LOWER(user_id) = ANY($2::text[]) OR LOWER(username) = ANY($2::text[]))`,
+          [channelId, targetIdList]
+        ),
+        pool.query(
+          `UPDATE comms_notifications
+           SET is_read = TRUE, is_archived = TRUE, read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+           WHERE channel_id = $1
+             AND (LOWER(recipient_user_id) = ANY($2::text[]) OR LOWER(recipient_username) = ANY($2::text[]))`,
+          [channelId, targetIdList]
+        ),
+        pool.query(`UPDATE comms_channels SET updated_at = $1 WHERE id = $2`, [nowIso, channelId]),
+      ]);
+
+      const remRes = await pool.query(
+        `SELECT user_id, role FROM comms_channel_members WHERE channel_id = $1 ORDER BY joined_at ASC`,
+        [channelId]
+      );
+      if (remRes.rows.length > 0 && !remRes.rows.some((r: any) => r.role === 'owner')) {
+        await pool.query(
+          `UPDATE comms_channel_members SET role = 'owner' WHERE channel_id = $1 AND user_id = $2`,
+          [channelId, remRes.rows[0].user_id]
+        );
+      }
+    } catch (err: any) {
+      console.error('[CommsService] removeChannelMember PG error:', err?.message || err);
+    }
+  }
+
+  const targetActorRef: Partial<CommsActor> = {
+    userId: targetMember.userId,
+    username: targetMember.username,
+  };
+  broadcastCommsEventToUser(targetActorRef, { type: 'channel:removed', channelId } as any);
+  const targetCounts = await getUnreadNotificationCounts(targetActorRef).catch(() => null);
+  if (targetCounts) {
+    broadcastCommsEventToUser(targetActorRef, {
+      type: 'comms:sync',
+      unreadCount: targetCounts.unreadCount,
+      countsByFolder: targetCounts.countsByFolder,
+    });
+  }
+
+  const updated = (await loadHydratedChannelForUser(channelId, actor))!;
+  if (updated) {
+    broadcastCommsEventToRecipients(
+      (updated.members || []).map((m) => ({ userId: m.userId, username: m.username })),
+      undefined,
+      { type: 'channel:updated', channel: updated }
+    );
+  }
+
+  void addPortalAuditLog({
+    category: 'communications',
+    action: 'CHANNEL_MEMBER_REMOVED',
+    title: `حذف عضو از کانال: ${existing.name}`,
+    title_en: `Channel Member Removed: ${existing.nameEn || existing.name}`,
+    actor: {
+      username: actor.username,
+      role: actor.role || 'Operator',
+      ipAddress: senderIp || '127.0.0.1',
+    },
+    target: {
+      type: 'comms_channel',
+      id: channelId,
+      name: existing.nameEn || existing.name,
+    },
+    severity: 'warning',
+    status: 'success',
+    details: `کاربر ${actor.username} عضو «${targetMember.username}» را از کانال «${existing.name}» حذف کرد.`,
+    details_en: `User ${actor.username} removed member "${targetMember.username}" from channel "${existing.nameEn || existing.name}".`,
+  }).catch(() => {});
+
+  return updated;
+}
+
+export async function updateChannelMemberRole(
+  actor: CommsActor,
+  isSuperAdmin: boolean,
+  channelId: string,
+  targetMemberIdentifier: string,
+  nextRole: 'owner' | 'admin' | 'member',
+  senderIp = '127.0.0.1'
+): Promise<CommsChannel> {
+  if (!['owner', 'admin', 'member'].includes(nextRole)) {
+    throw new Error('Invalid channel member role. Must be owner, admin, or member.');
+  }
+
+  const existing = await loadHydratedChannelForUser(channelId, actor);
+  if (!existing) {
+    throw new Error('Channel not found.');
+  }
+  if (existing.channelType !== 'group') {
+    throw new Error('Member roles can only be updated in team group channels.');
+  }
+
+  if (!isChannelOwnerActor(existing, actor, isSuperAdmin)) {
+    throw new Error('ACCESS_DENIED: Only the channel owner or Super Admin can change member roles.');
+  }
+
+  const targetKey = String(targetMemberIdentifier || '').trim().toLowerCase();
+  if (!targetKey) {
+    throw new Error('Target member identifier is required.');
+  }
+
+  const targetMember = (existing.members || []).find(
+    (m) =>
+      (m.userId || '').trim().toLowerCase() === targetKey ||
+      (m.username || '').trim().toLowerCase() === targetKey
+  );
+  if (!targetMember) {
+    throw new Error('Member not found in this channel.');
+  }
+
+  const targetIds = new Set(
+    [targetMember.userId, targetMember.username]
+      .filter(Boolean)
+      .map((s) => String(s).trim().toLowerCase())
+  );
+  const targetIsCreator = isChannelCreator(existing, targetIds);
+  if (targetIsCreator && nextRole !== 'owner' && !isSuperAdmin) {
+    throw new Error('ACCESS_DENIED: Only Super Admin can demote the original channel creator.');
+  }
+
+  if (targetMember.role === 'owner' && nextRole !== 'owner') {
+    const ownerCount = (existing.members || []).filter((m) => m.role === 'owner').length;
+    if (ownerCount <= 1) {
+      throw new Error(
+        'Cannot demote the last channel owner. Promote another member to owner first.'
+      );
+    }
+  }
+
+  if (targetMember.role === nextRole) {
+    return existing;
+  }
+
+  const previousRole = targetMember.role;
+  const nowIso = new Date().toISOString();
+  const targetIdList = Array.from(targetIds);
+
+  const store = loadFallbackStore();
+  for (const m of store.comms_channel_members || []) {
+    if (
+      (m.channel_id ?? m.channelId) === channelId &&
+      memberMatchesIdentifiers({ userId: m.user_id ?? m.userId, username: m.username }, targetIds)
+    ) {
+      m.role = nextRole;
+    }
+  }
+  const chIdx = (store.comms_channels || []).findIndex((c: any) => c.id === channelId);
+  if (chIdx !== -1) store.comms_channels[chIdx].updated_at = nowIso;
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  const pool = getPgPool();
+  if (isPostgresConnected() && pool && targetIdList.length > 0) {
+    try {
+      await Promise.all([
+        pool.query(
+          `UPDATE comms_channel_members
+           SET role = $1
+           WHERE channel_id = $2
+             AND (LOWER(user_id) = ANY($3::text[]) OR LOWER(username) = ANY($3::text[]))`,
+          [nextRole, channelId, targetIdList]
+        ),
+        pool.query(`UPDATE comms_channels SET updated_at = $1 WHERE id = $2`, [nowIso, channelId]),
+      ]);
+    } catch (err: any) {
+      console.error('[CommsService] updateChannelMemberRole PG error:', err?.message || err);
+    }
+  }
+
+  const updated = (await loadHydratedChannelForUser(channelId, actor))!;
+  if (updated) {
+    broadcastCommsEventToRecipients(
+      (updated.members || []).map((m) => ({ userId: m.userId, username: m.username })),
+      undefined,
+      { type: 'channel:updated', channel: updated }
+    );
+  }
+
+  void addPortalAuditLog({
+    category: 'communications',
+    action: 'CHANNEL_MEMBER_ROLE_UPDATED',
+    title: `تغییر نقش عضو کانال: ${existing.name}`,
+    title_en: `Channel Member Role Updated: ${existing.nameEn || existing.name}`,
+    actor: {
+      username: actor.username,
+      role: actor.role || 'Operator',
+      ipAddress: senderIp || '127.0.0.1',
+    },
+    target: {
+      type: 'comms_channel',
+      id: channelId,
+      name: existing.nameEn || existing.name,
+    },
+    severity: 'info',
+    status: 'success',
+    details: `کاربر ${actor.username} نقش «${targetMember.username}» را در کانال «${existing.name}» از ${previousRole} به ${nextRole} تغییر داد.`,
+    details_en: `User ${actor.username} changed role of "${targetMember.username}" in channel "${existing.nameEn || existing.name}" from ${previousRole} to ${nextRole}.`,
+  }).catch(() => {});
+
   return updated;
 }
 
@@ -4609,10 +4993,8 @@ export async function deleteGroupChannel(
     return { channelId };
   }
 
-  const actorIds = new Set(resolveUserIdentifiers(actor));
-  const actorMember = (existing.members || []).find((m) => memberMatchesIdentifiers(m, actorIds));
-  const isOwner = actorMember?.role === 'owner' || existing.createdByUserId === actor.userId;
-  if (!isSuperAdmin && !isOwner) {
+  const isOwner = isChannelOwnerActor(existing, actor, isSuperAdmin);
+  if (!isOwner) {
     throw new Error('ACCESS_DENIED: Only channel owner or Super Admin can delete this channel.');
   }
 

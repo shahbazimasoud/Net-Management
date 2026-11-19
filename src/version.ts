@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.448.1';
+export const APP_VERSION = '1.449.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.449.0',
+    releaseDate: '2026-11-19',
+    type: 'minor',
+    title: 'افزودن مدیریت کامل کاربران و نقش‌های گروه/کانال در منوی سه‌نقطه برای مالک و سازنده کانال',
+    title_en: 'Add Group/Channel User & Role Management from the Three-Dot Menu for Channel Owners and Creators',
+    changes: [
+      'افزودن سرویس‌ها و اندپوینت‌های سمت سرور با حاکمیت PostgreSQL-Authoritative در `commsService.ts` و `commsRoutes.ts` شامل `DELETE /api/comms/channels/:id/members/:memberId` برای حذف اعضا و `PATCH /api/comms/channels/:id/members/:memberId/role` برای تغییر نقش اعضا (`owner`، `admin`، `member`) به همراه محافظت از سازنده اصلی، جلوگیری از بی‌مالک ماندن کانال، ثبت لاگ ممیزی (`CHANNEL_MEMBER_ADDED`, `CHANNEL_MEMBER_REMOVED`, `CHANNEL_MEMBER_ROLE_UPDATED`) و همگام‌سازی لحظه‌ای WebSocket.',
+      'ساخت پنجره استاندارد ۵-قانونه `ManageChannelMembersModal.tsx` (پورتال سراسری با حفظ حریم فوتر `bottom-8`، دکمه‌های سه‌گانه بستن/مینیمایز/تمام‌صفحه، راهنمای سه‌بخشی `FieldInfoTooltip`، تم روشن/تیره و دوزبانگی کامل) با تب اعضای فعلی (نمایش وضعیت زنده آنلاین/آیدل/آفلاین، تغییر نقش توسط مالک، حذف با تایید دو‌مرحله‌ای داخلی) و تب افزودن چندکاربره.',
+      'افزودن گزینه «مدیریت کاربران و اعضا» (`Manage Users & Roles`) به تمامی منوهای سه‌نقطه گفتگو در `TeamChannelsPane` (فهرست کانال‌های سایدبار و هدر گفتگو) و `FooterTeamChatDock` (منوی ردیف‌های کشوی گفتگو و هدر پنجره شناور چت)، و یکپارچه‌سازی تشخیص مالک و سازنده (`role === owner` یا `createdByUserId`).'
+    ],
+    changes_en: [
+      'Added PostgreSQL-authoritative backend endpoints and services in `commsService.ts` and `commsRoutes.ts`: `DELETE /api/comms/channels/:id/members/:memberId` to remove members and `PATCH /api/comms/channels/:id/members/:memberId/role` to assign channel roles (`owner`, `admin`, `member`), enforcing creator protection, last-owner retention, portal audit logging (`CHANNEL_MEMBER_ADDED`, `CHANNEL_MEMBER_REMOVED`, `CHANNEL_MEMBER_ROLE_UPDATED`), and real-time WebSocket `channel:created` / `channel:updated` / `channel:removed` broadcasts.',
+      'Created the 5-rule compliant `ManageChannelMembersModal.tsx` (`createPortal`, `bottom-8` footer clearance, Close/Minimize/Fullscreen header controls, 3-part `FieldInfoTooltip`, full Light/Dark contrast, and strict FA/EN i18n) with live member presence indicators, owner role controls, inline two-step member removal confirmation, and multi-select Add Users tab.',
+      'Exposed `Manage Users & Roles` directly in all four group/channel three-dot menus across `TeamChannelsPane` (sidebar channel row menu & active thread header menu) and `FooterTeamChatDock` (drawer list row menu & floating chat box header menu), with unified owner/creator detection (`role === owner` or `createdByUserId`).'
+    ]
+  },
   {
     version: '1.448.1',
     releaseDate: '2026-11-18',
