@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.453.0';
+export const APP_VERSION = '1.453.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.453.1',
+    releaseDate: '2026-11-20',
+    type: 'patch',
+    title: 'رفع ریشه‌ای مشکل دکمه‌های Ping Device Now و Ping All در مدیریت تجهیزات و داشبورد + حذف دکمه Live Ping از هدر',
+    title_en: 'Fix Ping Device Now & Ping All Across Inventory and Dashboard + Remove Header Live Ping Button',
+    changes: [
+      'رفع علت ریشه‌ای شکست پینگ در `executeRealIcmpPing` (`server/routes.ts`): افزودن فلگ `-n` جهت جلوگیری از قفل شدن دستور `ping` روی استعلام معکوس DNS (PTR) در شبکه‌های LAN، پشتیبانی از خروجی تمام نسخه‌های پینگ (`iputils`، `BusyBox`، `macOS` و ویندوز) و افزودن تست واقعی پورت مدیریتی TCP به عنوان پشتیبان خودکار هنگام مسدود بودن ICMP یا نبود مجوز `CAP_NET_RAW`.',
+      'رفع Race Condition و از بین رفتن وضعیت در `/api/ping-all` و `/api/ping/:id` با افزودن توابع سبک و اتمیک `updateDevicePingTelemetry` و `updateDevicesPingTelemetryBatch` در `server/db.ts` (ذخیره دقیق `is_online`، `latency_ms`، `packet_loss` و `last_seen` در PostgreSQL و حذف مقدار جعلی `1.5ms` / `1.2ms`)، همزمانی کنترل‌شده (حداکثر ۱۰ تجهیز همزمان)، افزودن مسیر جایگزین `/api/devices/:id/ping`، احراز هویت اجباری و پاک‌سازی اطلاعات محرمانه در پاسخ.',
+      'تبدیل `pingAllDevices` و `pingDevice` در `src/services/api.ts` به `fetchWithRetry` جهت ارسال قطعی هدر `Authorization: Bearer`، به‌روزرسانی آنی استیت رابط کاربری در `App.tsx` پس از پینگ گروهی و تکی، افزودن دکمه پینگ تکی روی کارت‌های بخش «Real-Time Ping & Equipment Telemetry» در `DashboardView.tsx` و رفع کنترل دسترسی Super Admin در `DeviceListView.tsx`.',
+      'حذف کامل دکمه «Live Ping / پایش لحظه‌ای» از نوار هدر بالای صفحه (`Navbar.tsx`).'
+    ],
+    changes_en: [
+      'Fixed root-cause failures in `executeRealIcmpPing` (`server/routes.ts`): added `-n` numeric flag to eliminate reverse-DNS PTR timeouts on private LAN IPs, added multi-platform ping RTT parsing (`iputils`, `BusyBox`, `macOS`, `Windows`), and added authentic TCP management-port fallback when ICMP is blocked or unprivileged (`CAP_NET_RAW`).',
+      'Fixed concurrent write race conditions and silent PostgreSQL overwrite bugs in `/api/ping-all` and `/api/ping/:id` via atomic `updateDevicePingTelemetry` / `updateDevicesPingTelemetryBatch` helpers in `server/db.ts`, persisting authentic `is_online`, `latency_ms` (removing hardcoded `1.5ms` / `1.2ms` fallbacks), `packet_loss`, and `last_seen` with bounded concurrency (10 workers), mandatory authentication, `/api/devices/:id/ping` alias, and response credential sanitization.',
+      'Switched `pingAllDevices` and `pingDevice` in `src/services/api.ts` to `fetchWithRetry` so Bearer auth tokens are always attached, updated `App.tsx` to immediately merge returned ping telemetry into React state with accurate bilingual status toasts, added per-card "Ping device now" controls in `DashboardView.tsx`, and hardened Super Admin / RBAC checks in `DeviceListView.tsx`.',
+      'Removed the "Live Ping" button and its unused props from the top header bar (`Navbar.tsx`).'
+    ]
+  },
   {
     version: '1.453.0',
     releaseDate: '2026-11-20',

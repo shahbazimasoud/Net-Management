@@ -1554,15 +1554,34 @@ export default function App() {
     }
   };
 
-  // Full manual refresh
+  // Full manual refresh (Ping All network devices)
   const handleRefreshAll = async () => {
     try {
       setIsRefreshing(true);
-      await pingAllDevices();
+      const pingRes = await pingAllDevices();
+      if (pingRes && Array.isArray(pingRes.results) && pingRes.results.length > 0) {
+        const resultMap = new Map(pingRes.results.map((r) => [r.id, r]));
+        setDevices((prev) =>
+          prev.map((d) => {
+            const match = resultMap.get(d.id);
+            if (!match) return d;
+            return {
+              ...d,
+              is_online: Boolean(match.is_online),
+              latency_ms: match.is_online ? match.latency_ms : null,
+              packet_loss: match.packet_loss,
+              last_seen: match.last_seen || d.last_seen,
+            };
+          })
+        );
+      }
       await loadData();
-      showToast(t('toast_refresh_success'));
+      const summaryToast = isEn
+        ? pingRes?.message_en || t('toast_refresh_success')
+        : pingRes?.message || t('toast_refresh_success');
+      showToast(summaryToast);
     } catch (err: any) {
-      showToast(t('toast_refresh_error', { error: err.message }));
+      showToast(t('toast_refresh_error', { error: err?.message || 'Ping failed' }));
     } finally {
       setIsRefreshing(false);
     }
@@ -1572,17 +1591,50 @@ export default function App() {
   const handlePingDevice = async (id: string) => {
     try {
       const res = await pingDevice(id);
-      setDevices((prev) => prev.map((d) => (d.id === id ? res.device : d)));
-      const statusLabel = res.device.is_online ? (isEn ? 'Online' : 'آنلاین') : (isEn ? 'Offline' : 'آفلاین');
-      showToast(
-        t('toast_ping_result', {
-          name: res.device.name,
-          status: statusLabel,
-          latency: res.device.latency_ms ?? 0,
-        })
-      );
+      const patchedDevice = res?.device;
+      const pr = res?.ping_result;
+      if (patchedDevice || pr) {
+        setDevices((prev) =>
+          prev.map((d) =>
+            d.id === id
+              ? {
+                  ...d,
+                  ...(patchedDevice || {}),
+                  is_online: pr ? Boolean(pr.is_online) : Boolean(patchedDevice?.is_online),
+                  latency_ms: pr
+                    ? pr.is_online
+                      ? pr.latency_ms
+                      : null
+                    : patchedDevice?.latency_ms ?? null,
+                  packet_loss: pr ? pr.packet_loss : patchedDevice?.packet_loss ?? d.packet_loss,
+                }
+              : d
+          )
+        );
+      }
+      const isOnline = pr ? Boolean(pr.is_online) : Boolean(patchedDevice?.is_online);
+      const latency = pr ? pr.latency_ms : patchedDevice?.latency_ms;
+      const devName = patchedDevice?.name || devices.find((d) => d.id === id)?.name || id;
+      if (isOnline) {
+        const statusLabel = isEn ? 'Online' : 'آنلاین';
+        showToast(
+          t('toast_ping_result', {
+            name: devName,
+            status: statusLabel,
+            latency: latency !== null && latency !== undefined ? latency : '<1',
+          })
+        );
+      } else {
+        showToast(
+          isEn
+            ? `Device ${devName} pinged: Offline (100% packet loss)`
+            : `تجهیز ${devName} پایش شد: آفلاین (۱۰۰٪ پکت‌لاس)`
+        );
+      }
     } catch (err: any) {
-      showToast(t('toast_ping_error', { error: err.message }));
+      if (!err?.approvalHandled && !err?.cancelled) {
+        showToast(t('toast_ping_error', { error: err?.message || 'Ping failed' }));
+      }
     }
   };
 
@@ -1735,8 +1787,6 @@ export default function App() {
       {/* Navbar Header (Hidden in Full Mode) */}
       {!isTopologyFullscreen && (
         <Navbar
-          onRefreshAll={handleRefreshAll}
-          isRefreshing={isRefreshing}
           onQuickScan={handleRunScan}
           isScanning={isScanning}
           onResetDemo={handleResetDemo}
@@ -1809,6 +1859,7 @@ export default function App() {
               isScanning={isScanning}
               onInspectPorts={handleInspectPorts}
               onRefreshAll={handleRefreshAll}
+              onPingDevice={handlePingDevice}
               isRefreshing={isRefreshing}
             />
           )}

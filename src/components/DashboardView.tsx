@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Server,
   Router as RouterIcon,
@@ -19,6 +19,7 @@ import {
 import { Device, TopologyData } from '../types';
 import { useLanguage } from '../i18n';
 import { useAuth } from '../context/AuthContext';
+import { isDeviceActionPermitted } from '../utils/rbac';
 
 interface DashboardViewProps {
   devices: Device[];
@@ -29,6 +30,7 @@ interface DashboardViewProps {
   isScanning: boolean;
   onInspectPorts: (device: Device) => void;
   onRefreshAll: () => void;
+  onPingDevice?: (id: string) => Promise<void>;
   isRefreshing: boolean;
 }
 
@@ -41,10 +43,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   isScanning,
   onInspectPorts,
   onRefreshAll,
+  onPingDevice,
   isRefreshing,
 }) => {
   const { t, isRtl, isEn } = useLanguage();
   const { user, effectivePolicy } = useAuth();
+  const [pingingId, setPingingId] = useState<string | null>(null);
+
+  const handleCardPing = async (deviceId: string) => {
+    if (!onPingDevice) return;
+    try {
+      setPingingId(deviceId);
+      await onPingDevice(deviceId);
+    } finally {
+      setPingingId(null);
+    }
+  };
   const isSuperAdmin = Boolean(
     user &&
     ((user.username || '').toLowerCase() === 'admin' ||
@@ -203,100 +217,138 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </h3>
             <p className="text-[11px] text-slate-400 mt-1">
               {isEn
-                ? 'Automated monitoring of management interfaces, round-trip latency, and packet loss.'
-                : 'آزمایش وضعیت برخط بودن پورت‌های مدیریتی، زمان پاسخ‌دهی (Latency) و پکت‌لاس با پایتون'}
+                ? 'Live ICMP & management-port reachability monitoring, round-trip latency, and packet loss.'
+                : 'آزمایش زنده وضعیت برخط تجهیزات، زمان پاسخ‌دهی واقعی (Latency) و میزان پکت‌لاس (ICMP / TCP)'}
             </p>
           </div>
 
           <button
+            type="button"
             onClick={onRefreshAll}
-            disabled={isRefreshing}
+            disabled={isRefreshing || devices.length === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs transition disabled:opacity-50 shadow-xs active:scale-95 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
-            <span>{isEn ? 'Ping All' : 'پایش مجدد'}</span>
+            <span>
+              {isRefreshing
+                ? isEn
+                  ? 'Pinging All...'
+                  : 'در حال پینگ همه...'
+                : isEn
+                  ? 'Ping All'
+                  : 'پینگ همه'}
+            </span>
           </button>
         </div>
 
         {/* Device Ping Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {devices.map((dev) => (
-            <div
-              key={dev.id}
-              className={`p-3.5 rounded-xl border transition text-xs spatial-glass spatial-glass-hover ${
-                dev.is_online
-                  ? 'border-white/10 hover:border-indigo-500/40'
-                  : 'border-rose-500/50 bg-rose-950/20'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div
-                    className={`p-1.5 rounded-lg ${
-                      dev.type === 'switch'
-                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                        : dev.type === 'router'
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                        : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                    }`}
-                  >
-                    {dev.type === 'switch' ? (
-                      <Server className="w-3.5 h-3.5" />
-                    ) : dev.type === 'router' ? (
-                      <RouterIcon className="w-3.5 h-3.5" />
-                    ) : (
-                      <Wifi className="w-3.5 h-3.5" />
+          {devices.map((dev) => {
+            const canPingCard =
+              Boolean(onPingDevice) &&
+              (isSuperAdmin || isDeviceActionPermitted(effectivePolicy, dev.id, 'ping_keepalive'));
+            const isCardPinging = pingingId === dev.id;
+            return (
+              <div
+                key={dev.id}
+                className={`p-3.5 rounded-xl border transition text-xs spatial-glass spatial-glass-hover ${
+                  dev.is_online
+                    ? 'border-white/10 hover:border-indigo-500/40'
+                    : 'border-rose-500/50 bg-rose-950/20'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div
+                      className={`p-1.5 rounded-lg ${
+                        dev.type === 'switch'
+                          ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                          : dev.type === 'router'
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                      }`}
+                    >
+                      {dev.type === 'switch' ? (
+                        <Server className="w-3.5 h-3.5" />
+                      ) : dev.type === 'router' ? (
+                        <RouterIcon className="w-3.5 h-3.5" />
+                      ) : (
+                        <Wifi className="w-3.5 h-3.5" />
+                      )}
+                    </div>
+                    <span className="font-bold text-white font-mono text-xs truncate">{dev.name}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold ${
+                        dev.is_online
+                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.15)]'
+                          : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          dev.is_online ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)] animate-pulse' : 'bg-rose-500'
+                        }`}
+                      ></span>
+                      {dev.is_online ? 'ONLINE' : 'OFFLINE'}
+                    </span>
+
+                    {canPingCard && (
+                      <button
+                        type="button"
+                        onClick={() => handleCardPing(dev.id)}
+                        disabled={isCardPinging || isRefreshing}
+                        title={isEn ? 'Ping device now' : 'پینگ لحظه‌ای تجهیز'}
+                        className="p-1 rounded-md bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white border border-white/10 transition disabled:opacity-50 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isCardPinging ? 'animate-spin text-indigo-400' : ''}`} />
+                      </button>
                     )}
                   </div>
-                  <span className="font-bold text-white font-mono text-xs truncate">{dev.name}</span>
                 </div>
 
-                <span
-                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold ${
-                    dev.is_online
-                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.15)]'
-                      : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      dev.is_online ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)] animate-pulse' : 'bg-rose-500'
-                    }`}
-                  ></span>
-                  {dev.is_online ? 'ONLINE' : 'OFFLINE'}
-                </span>
-              </div>
+                {/* IP & Location */}
+                <div className="flex items-center justify-between text-[11px] font-mono text-indigo-300 font-bold mb-1.5">
+                  <span>{dev.ip}</span>
+                  <span className="text-slate-400 text-[10px] font-normal">
+                    {dev.is_online
+                      ? dev.latency_ms !== null && dev.latency_ms !== undefined
+                        ? `${dev.latency_ms} ms`
+                        : isEn
+                          ? 'Reachable'
+                          : 'در دسترس'
+                      : isEn
+                        ? '100% packet loss'
+                        : '۱۰۰٪ پکت‌لاس'}
+                  </span>
+                </div>
 
-              {/* IP & Location */}
-              <div className="flex items-center justify-between text-[11px] font-mono text-indigo-300 font-bold mb-1.5">
-                <span>{dev.ip}</span>
-                <span className="text-slate-400 text-[10px] font-normal">
-                  {dev.is_online ? `${dev.latency_ms || 1.2} ms` : (isEn ? '100% packet loss' : '۱۰۰٪ پکت‌لاس')}
-                </span>
-              </div>
+                <div className="text-[10px] text-slate-400 truncate">
+                  {dev.building ? dev.building.replace('(Central Bldg)', '').replace('(Engineering Bldg)', '').trim() : ''}
+                  {dev.floor ? ` • ${dev.floor}` : ''}
+                  {dev.unit ? ` • ${dev.unit}` : ''}
+                  {!dev.building && !dev.floor && !dev.unit ? (isEn ? 'Unassigned Location' : 'موقعیت نامشخص') : ''}
+                </div>
 
-              <div className="text-[10px] text-slate-400 truncate">
-                {dev.building ? dev.building.replace('(Central Bldg)', '').replace('(Engineering Bldg)', '').trim() : ''}
-                {dev.floor ? ` • ${dev.floor}` : ''}
-                {dev.unit ? ` • ${dev.unit}` : ''}
-                {!dev.building && !dev.floor && !dev.unit ? (isEn ? 'Unassigned Location' : 'موقعیت نامشخص') : ''}
+                {/* Action Buttons */}
+                <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => onInspectPorts(dev)}
+                    className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 text-[11px] transition hover:underline cursor-pointer"
+                  >
+                    <Cable className="w-3.5 h-3.5" />
+                    <span>{isEn ? `Inspect Ports (${dev.total_ports || 24})` : `بررسی پورت‌ها (${dev.total_ports || 24})`}</span>
+                  </button>
+                  <span className="text-[10px] text-slate-400 font-mono px-1.5 py-0.5 rounded bg-white/5 border border-white/10">
+                    {dev.role}
+                  </span>
+                </div>
               </div>
-
-              {/* Action Buttons */}
-              <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between text-[11px]">
-                <button
-                  onClick={() => onInspectPorts(dev)}
-                  className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 text-[11px] transition hover:underline cursor-pointer"
-                >
-                  <Cable className="w-3.5 h-3.5" />
-                  <span>{isEn ? `Inspect Ports (${dev.total_ports || 24})` : `بررسی پورت‌ها (${dev.total_ports || 24})`}</span>
-                </button>
-                <span className="text-[10px] text-slate-400 font-mono px-1.5 py-0.5 rounded bg-white/5 border border-white/10">
-                  {dev.role}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

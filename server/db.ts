@@ -1870,7 +1870,7 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
             d.ssh_port || 22,
             d.ssh_username || 'admin',
             d.is_online !== undefined ? d.is_online : true,
-            d.latency_ms || 1.5,
+            typeof d.latency_ms === 'number' && Number.isFinite(d.latency_ms) ? d.latency_ms : null,
             d.mac || d.mac_address || '',
             d.uptime || '',
             JSON.stringify(d.ports || []),
@@ -2468,6 +2468,8 @@ export async function initDatabase(): Promise<void> {
       await client.query("ALTER TABLE devices ALTER COLUMN enable_password TYPE TEXT");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_vault_item_id VARCHAR(64)");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS enable_vault_item_id VARCHAR(64)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS packet_loss DOUBLE PRECISION DEFAULT 0");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_seen VARCHAR(128)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_devices_ssh_vault ON devices(ssh_vault_item_id)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_devices_enable_vault ON devices(enable_vault_item_id)");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_enabled BOOLEAN DEFAULT FALSE");
@@ -6400,7 +6402,19 @@ export async function getAllDevices(): Promise<any[]> {
             ssh_port: r.ssh_port || 22,
             ssh_username: r.ssh_username || 'admin',
             is_online: r.is_online !== undefined ? Boolean(r.is_online) : true,
-            latency_ms: Number(r.latency_ms) || 1.5,
+            latency_ms:
+              r.is_online === false
+                ? null
+                : r.latency_ms !== null && r.latency_ms !== undefined && Number.isFinite(Number(r.latency_ms))
+                ? Number(r.latency_ms)
+                : null,
+            packet_loss:
+              r.packet_loss !== null && r.packet_loss !== undefined && Number.isFinite(Number(r.packet_loss))
+                ? Number(r.packet_loss)
+                : r.is_online === false
+                ? 100
+                : 0,
+            last_seen: r.last_seen || undefined,
             mac: r.mac_address || '',
             mac_address: r.mac_address || '',
             uptime: r.uptime_str || '',
@@ -6537,7 +6551,7 @@ export async function createDevice(deviceData: any): Promise<any> {
     enable_password: encEnablePassword,
     enable_password_set: Boolean(encEnablePassword || deviceData.enable_vault_item_id),
     is_online: deviceData.is_online !== undefined ? Boolean(deviceData.is_online) : true,
-    latency_ms: Number(deviceData.latency_ms) || 1.5,
+    latency_ms: (deviceData.latency_ms !== null && deviceData.latency_ms !== undefined && Number.isFinite(Number(deviceData.latency_ms))) ? Number(deviceData.latency_ms) : null,
     mac_address: deviceData.mac_address || deviceData.mac || '',
     uptime_str: deviceData.uptime_str || deviceData.uptime || '0 days',
     ssh_version: deviceData.ssh_version || (deviceData.connection && deviceData.connection.ssh_version) || 'legacy',
@@ -6923,7 +6937,9 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
           updated.ssh_port || 22,
           updated.ssh_username || 'admin',
           Boolean(updated.is_online),
-          Number(updated.latency_ms) || 1.5,
+          updated.latency_ms !== null && updated.latency_ms !== undefined && Number.isFinite(Number(updated.latency_ms))
+            ? Number(updated.latency_ms)
+            : null,
           updated.mac_address || updated.mac || '',
           updated.uptime_str || '',
           JSON.stringify(updated.ports || []),
@@ -6988,6 +7004,146 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
   }
 
   return updated;
+}
+
+export interface DevicePingTelemetryUpdate {
+  id: string;
+  is_online: boolean;
+  latency_ms: number | null;
+  packet_loss: number;
+  last_seen: string;
+}
+
+/**
+ * Lightweight atomic ping telemetry batch updater.
+ * Prevents concurrent read-modify-write race conditions on database_store.json & network_data.json
+ * and runs focused PostgreSQL UPDATE statements without touching credentials or placement rows.
+ */
+export async function updateDevicesPingTelemetryBatch(
+  updates: DevicePingTelemetryUpdate[]
+): Promise<Map<string, any>> {
+  const resultMap = new Map<string, any>();
+  if (!Array.isArray(updates) || updates.length === 0) return resultMap;
+
+  const updateMap = new Map<string, DevicePingTelemetryUpdate>();
+  for (const u of updates) {
+    if (u && u.id) {
+      updateMap.set(String(u.id).trim(), u);
+    }
+  }
+
+  // 1. Atomic single-pass update on fallback store (database_store.json)
+  try {
+    const store = loadFallbackStore();
+    if (!Array.isArray(store.devices)) {
+      store.devices = loadInitialDevices();
+    }
+    let storeChanged = false;
+    for (let i = 0; i < store.devices.length; i++) {
+      const dev = store.devices[i];
+      const patch = updateMap.get(String(dev.id));
+      if (patch) {
+        const merged = {
+          ...dev,
+          is_online: Boolean(patch.is_online),
+          latency_ms: patch.is_online ? patch.latency_ms : null,
+          packet_loss: Number.isFinite(Number(patch.packet_loss)) ? Number(patch.packet_loss) : patch.is_online ? 0 : 100,
+          last_seen: patch.last_seen,
+        };
+        store.devices[i] = merged;
+        resultMap.set(dev.id, merged);
+        storeChanged = true;
+      }
+    }
+    if (storeChanged) {
+      saveFallbackStore(store);
+    }
+  } catch (err) {
+    console.warn('[DB updateDevicesPingTelemetryBatch fallback store notice]', err);
+  }
+
+  // 2. Atomic single-pass update on network_data.json
+  try {
+    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+    if (fs.existsSync(netPath)) {
+      const netData = JSON.parse(fs.readFileSync(netPath, 'utf-8'));
+      if (Array.isArray(netData.devices)) {
+        let netChanged = false;
+        for (let i = 0; i < netData.devices.length; i++) {
+          const dev = netData.devices[i];
+          const patch = updateMap.get(String(dev.id));
+          if (patch) {
+            netData.devices[i] = {
+              ...dev,
+              is_online: Boolean(patch.is_online),
+              latency_ms: patch.is_online ? patch.latency_ms : null,
+              packet_loss: Number.isFinite(Number(patch.packet_loss)) ? Number(patch.packet_loss) : patch.is_online ? 0 : 100,
+              last_seen: patch.last_seen,
+            };
+            netChanged = true;
+          }
+        }
+        if (netChanged) {
+          fs.writeFileSync(netPath, JSON.stringify(netData, null, 2), 'utf-8');
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[DB updateDevicesPingTelemetryBatch network_data.json notice]', err);
+  }
+
+  // 3. Authoritative PostgreSQL update
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    for (const patch of updateMap.values()) {
+      const safeLatency = patch.is_online && patch.latency_ms !== null && Number.isFinite(Number(patch.latency_ms))
+        ? Number(patch.latency_ms)
+        : null;
+      const safeLoss = Number.isFinite(Number(patch.packet_loss))
+        ? Number(patch.packet_loss)
+        : patch.is_online
+        ? 0
+        : 100;
+      try {
+        await pool.query(
+          `UPDATE devices
+             SET is_online = $2,
+                 latency_ms = $3,
+                 packet_loss = $4,
+                 last_seen = $5,
+                 updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [patch.id, Boolean(patch.is_online), safeLatency, safeLoss, patch.last_seen || '']
+        );
+      } catch (pgErr: any) {
+        // Graceful fallback if older PG schema hasn't added packet_loss / last_seen yet
+        if (String(pgErr?.message || '').includes('column')) {
+          try {
+            await pool.query(
+              `UPDATE devices SET is_online = $2, latency_ms = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+              [patch.id, Boolean(patch.is_online), safeLatency]
+            );
+          } catch (fallbackErr) {
+            console.error('[DB updateDevicesPingTelemetryBatch PG fallback error]', fallbackErr);
+          }
+        } else {
+          console.error('[DB updateDevicesPingTelemetryBatch PG error]', pgErr);
+        }
+      }
+    }
+  }
+
+  return resultMap;
+}
+
+export async function updateDevicePingTelemetry(
+  id: string,
+  telemetry: Omit<DevicePingTelemetryUpdate, 'id'>
+): Promise<any | null> {
+  const cleanId = String(id || '').trim();
+  if (!cleanId) return null;
+  await updateDevicesPingTelemetryBatch([{ id: cleanId, ...telemetry }]);
+  return getDeviceById(cleanId);
 }
 
 export async function deleteDevice(id: string): Promise<boolean> {

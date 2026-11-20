@@ -909,8 +909,24 @@ export async function runCdpLldpScan(): Promise<{
   return res.json();
 }
 
-export async function pingAllDevices(): Promise<{ message: string; results: any[] }> {
-  const res = await fetch(`${API_BASE}/ping-all`, {
+export async function pingAllDevices(): Promise<{
+  success?: boolean;
+  message: string;
+  message_en?: string;
+  online_count?: number;
+  offline_count?: number;
+  results: Array<{
+    id: string;
+    name: string;
+    ip: string;
+    is_online: boolean;
+    latency_ms: number | null;
+    packet_loss: number;
+    last_seen?: string;
+    probe_method?: 'icmp' | 'tcp';
+  }>;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/ping-all`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
@@ -918,8 +934,18 @@ export async function pingAllDevices(): Promise<{ message: string; results: any[
   return res.json();
 }
 
-export async function pingDevice(id: string): Promise<{ device: Device; ping_result: any }> {
-  const res = await fetch(`${API_BASE}/ping/${id}`, {
+export async function pingDevice(id: string): Promise<{
+  success?: boolean;
+  device: Device;
+  ping_result: {
+    ip: string;
+    is_online: boolean;
+    latency_ms: number | null;
+    packet_loss: number;
+    probe_method?: 'icmp' | 'tcp';
+  };
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/ping/${encodeURIComponent(id)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });

@@ -80,6 +80,8 @@ import {
   getDeviceById,
   createDevice,
   updateDevice,
+  updateDevicePingTelemetry,
+  updateDevicesPingTelemetryBatch,
   deleteDevice,
   isDeviceActionPermitted,
   evaluateDeviceActionDecision,
@@ -7048,67 +7050,257 @@ apiRouter.get([
   }
 });
 
-// Authentic ICMP Ping Engine using native Linux ping command
+// Authentic ICMP Ping Engine using native OS ping with numeric-only (-n) DNS bypass
+// and authentic TCP management-port reachability fallback when ICMP is blocked or unprivileged.
 const execFileAsync = promisify(execFile);
 
-export async function executeRealIcmpPing(ip: string, count: number = 2, timeoutSec: number = 1): Promise<{
+function resolvePingBinary(): string {
+  if (process.platform === 'win32') return 'ping';
+  const candidates = ['/usr/bin/ping', '/bin/ping', '/sbin/ping'];
+  for (const bin of candidates) {
+    try {
+      if (fs.existsSync(bin)) return bin;
+    } catch {}
+  }
+  return 'ping';
+}
+
+function probeTcpReachability(
+  host: string,
+  ports: number[],
+  timeoutMs: number = 1500
+): Promise<{ reachable: boolean; latency_ms: number | null; port?: number }> {
+  const uniquePorts = Array.from(
+    new Set(ports.filter((p) => Number.isInteger(p) && p >= 1 && p <= 65535))
+  );
+  if (!host || uniquePorts.length === 0) {
+    return Promise.resolve({ reachable: false, latency_ms: null });
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let remaining = uniquePorts.length;
+    const sockets: net.Socket[] = [];
+
+    const finish = (result: { reachable: boolean; latency_ms: number | null; port?: number }) => {
+      if (settled) return;
+      settled = true;
+      for (const s of sockets) {
+        try {
+          s.destroy();
+        } catch {}
+      }
+      resolve(result);
+    };
+
+    for (const port of uniquePorts) {
+      const start = Date.now();
+      const socket = new net.Socket();
+      sockets.push(socket);
+      socket.setTimeout(timeoutMs);
+
+      const onFail = () => {
+        try {
+          socket.destroy();
+        } catch {}
+        remaining--;
+        if (remaining <= 0) {
+          finish({ reachable: false, latency_ms: null });
+        }
+      };
+
+      socket.once('connect', () => {
+        const latency = Math.max(0.1, Math.round((Date.now() - start) * 10) / 10);
+        finish({ reachable: true, latency_ms: latency, port });
+      });
+      socket.once('timeout', onFail);
+      socket.once('error', onFail);
+
+      try {
+        socket.connect(port, host);
+      } catch {
+        onFail();
+      }
+    }
+  });
+}
+
+function parsePingOutputMetrics(raw: string): { lossPct: number | null; avgLatency: number | null; receivedCount: number | null } {
+  const lossMatch = raw.match(/([0-9]+(?:\.[0-9]+)?)%\s*(?:packet\s*)?loss/i);
+  const lossPct = lossMatch ? parseFloat(lossMatch[1]) : null;
+
+  const recvMatch = raw.match(/([0-9]+)\s*(?:packets\s*)?received/i) || raw.match(/Received\s*=\s*([0-9]+)/i);
+  const receivedCount = recvMatch ? parseInt(recvMatch[1], 10) : null;
+
+  // GNU iputils: rtt min/avg/max/mdev = 0.159/0.184/0.210/0.025 ms
+  // BusyBox / macOS: round-trip min/avg/max = 0.159/0.184/0.210 ms
+  const rttMatch = raw.match(/(?:rtt|round-trip)\s+min\/avg\/max(?:\/[a-z]+)?\s*=\s*([0-9.]+)\/([0-9.]+)\/([0-9.]+)/i);
+  if (rttMatch) {
+    return { lossPct, avgLatency: parseFloat(rttMatch[2]), receivedCount };
+  }
+
+  // Windows: Average = 12ms
+  const winAvgMatch = raw.match(/Average\s*=\s*([0-9.]+)\s*ms/i);
+  if (winAvgMatch) {
+    return { lossPct, avgLatency: parseFloat(winAvgMatch[1]), receivedCount };
+  }
+
+  // Per-packet replies: time=0.42 ms or time<1ms
+  const replyTimes: number[] = [];
+  const timeRegex = /time[=<]\s*([0-9.]+)\s*ms/gi;
+  let m: RegExpExecArray | null;
+  while ((m = timeRegex.exec(raw)) !== null) {
+    const val = parseFloat(m[1]);
+    if (Number.isFinite(val)) replyTimes.push(val);
+  }
+  if (replyTimes.length > 0) {
+    const avg = replyTimes.reduce((a, b) => a + b, 0) / replyTimes.length;
+    return { lossPct, avgLatency: avg, receivedCount: receivedCount ?? replyTimes.length };
+  }
+
+  return { lossPct, avgLatency: null, receivedCount };
+}
+
+function sanitizeDeviceForClient(dev: any): any {
+  if (!dev) return dev;
+  const d = { ...dev };
+  if (!d.platform) d.platform = 'cisco_ios_xe';
+  if (!d.connection_mode) d.connection_mode = 'simulator';
+  const conn = { ...(d.connection || {}) };
+  delete conn.password;
+  delete conn.private_key;
+  d.connection = conn;
+  d.ssh_password_set = Boolean(
+    dev.ssh_password_set || dev.ssh_vault_item_id || (dev.ssh_password && String(dev.ssh_password).trim().length > 0)
+  );
+  d.enable_password_set = Boolean(
+    dev.enable_password_set || dev.enable_vault_item_id || (dev.enable_password && String(dev.enable_password).trim().length > 0)
+  );
+  delete d.ssh_password;
+  delete d.enable_password;
+  d.snmp_community_set = Boolean(d.snmp_community || d.snmp_community_vault_item_id);
+  d.snmp_v3_auth_password_set = Boolean(d.snmp_v3_auth_password || d.snmp_v3_auth_vault_item_id);
+  d.snmp_v3_priv_password_set = Boolean(d.snmp_v3_priv_password || d.snmp_v3_priv_vault_item_id);
+  delete d.snmp_community;
+  delete d.snmp_v3_auth_password;
+  delete d.snmp_v3_priv_password;
+  return d;
+}
+
+export async function executeRealIcmpPing(
+  ip: string,
+  count: number = 2,
+  timeoutSec: number = 1,
+  fallbackTcpPorts?: number[]
+): Promise<{
   is_online: boolean;
   latency_ms: number | null;
   packet_loss: number;
+  probe_method?: 'icmp' | 'tcp';
   raw_output?: string;
 }> {
   const cleanIp = String(ip || '').trim();
-  if (!cleanIp) {
+  if (!cleanIp || !/^[a-zA-Z0-9.:_-]+$/.test(cleanIp) || cleanIp.startsWith('-')) {
     return { is_online: false, latency_ms: null, packet_loss: 100 };
   }
 
+  const safeCount = Math.max(1, Math.min(5, Math.floor(Number(count) || 2)));
+  const safeTimeout = Math.max(1, Math.min(5, Math.floor(Number(timeoutSec) || 1)));
+  const pingBin = resolvePingBinary();
+  const isWin = process.platform === 'win32';
+  // Use -n (numeric only) on Linux/Unix to avoid blocking reverse-DNS PTR lookups on private LAN IPs!
+  const args = isWin
+    ? ['-n', String(safeCount), '-w', String(safeTimeout * 1000), cleanIp]
+    : ['-n', '-c', String(safeCount), '-W', String(safeTimeout), cleanIp];
+
   const start = Date.now();
+  let raw = '';
   try {
-    const { stdout, stderr } = await execFileAsync(
-      'ping',
-      ['-c', String(count), '-W', String(timeoutSec), cleanIp],
-      { timeout: (count * timeoutSec + 2) * 1000 }
-    );
-    const raw = (stdout || stderr || '').trim();
-    const elapsed = Date.now() - start;
+    const { stdout, stderr } = await execFileAsync(pingBin, args, {
+      timeout: (safeCount * safeTimeout + 4) * 1000,
+    });
+    raw = (stdout || stderr || '').trim();
+    const elapsed = Math.max(0.1, Date.now() - start);
+    const { lossPct, avgLatency, receivedCount } = parsePingOutputMetrics(raw);
 
-    const lossMatch = raw.match(/([0-9]+(?:\.[0-9]+)?)\%\s*packet\s*loss/i);
-    const lossPct = lossMatch ? parseFloat(lossMatch[1]) : 100;
+    const hasReplies =
+      (lossPct !== null && lossPct < 100) ||
+      (receivedCount !== null && receivedCount > 0) ||
+      avgLatency !== null;
 
-    const rttMatch = raw.match(/rtt\s+min\/avg\/max\/mdev\s*=\s*([0-9\.]+)\/([0-9\.]+)\/([0-9\.]+)/i);
-    const avgLatency = rttMatch ? parseFloat(rttMatch[2]) : elapsed;
-
-    if (lossPct < 100) {
+    if (hasReplies) {
+      const effectiveLatency = avgLatency !== null ? avgLatency : elapsed;
       return {
         is_online: true,
-        latency_ms: Math.round(avgLatency * 10) / 10,
-        packet_loss: lossPct,
-        raw_output: raw,
-      };
-    } else {
-      return {
-        is_online: false,
-        latency_ms: null,
-        packet_loss: 100,
+        latency_ms: Math.round(effectiveLatency * 10) / 10,
+        packet_loss: lossPct !== null ? lossPct : 0,
+        probe_method: 'icmp',
         raw_output: raw,
       };
     }
   } catch (err: any) {
-    const raw = (err?.stdout || err?.stderr || err?.message || '').toString();
-    const lossMatch = raw.match(/([0-9]+(?:\.[0-9]+)?)\%\s*packet\s*loss/i);
-    const lossPct = lossMatch ? parseFloat(lossMatch[1]) : 100;
-    return {
-      is_online: false,
-      latency_ms: null,
-      packet_loss: lossPct,
-      raw_output: raw,
-    };
+    raw = `${err?.stdout || ''}\n${err?.stderr || ''}\n${err?.message || ''}`.trim();
+    const { lossPct, avgLatency, receivedCount } = parsePingOutputMetrics(raw);
+
+    // Partial packet delivery (e.g., 1 of 2 received -> 50% loss) can still return exit code 1 on some ping builds
+    if ((receivedCount !== null && receivedCount > 0) || (lossPct !== null && lossPct < 100 && avgLatency !== null)) {
+      return {
+        is_online: true,
+        latency_ms: avgLatency !== null ? Math.round(avgLatency * 10) / 10 : Math.max(0.1, Date.now() - start),
+        packet_loss: lossPct !== null ? lossPct : 50,
+        probe_method: 'icmp',
+        raw_output: raw,
+      };
+    }
   }
+
+  // Authentic TCP reachability fallback when ICMP is blocked by firewall or unprivileged container (EPERM/ENOENT)
+  if (Array.isArray(fallbackTcpPorts) && fallbackTcpPorts.length > 0) {
+    const tcp = await probeTcpReachability(cleanIp, fallbackTcpPorts, 1500);
+    if (tcp.reachable) {
+      return {
+        is_online: true,
+        latency_ms: tcp.latency_ms,
+        packet_loss: 0,
+        probe_method: 'tcp',
+        raw_output: raw || `TCP port ${tcp.port} reachable (${tcp.latency_ms} ms)`,
+      };
+    }
+  }
+
+  return {
+    is_online: false,
+    latency_ms: null,
+    packet_loss: 100,
+    probe_method: 'icmp',
+    raw_output: raw,
+  };
 }
 
-// POST /ping/:id - Authentic ICMP ping probe for a single network device
-apiRouter.post('/ping/:id', async (req: Request, res: Response) => {
+function getDeviceProbePorts(device: any): number[] {
+  const ports: number[] = [];
+  const sshPort = Number(device?.ssh_port || device?.connection?.port);
+  if (Number.isInteger(sshPort) && sshPort >= 1 && sshPort <= 65535) ports.push(sshPort);
+  const winboxPort = Number(device?.winbox_port);
+  if (Number.isInteger(winboxPort) && winboxPort >= 1 && winboxPort <= 65535) ports.push(winboxPort);
+  const platform = String(device?.platform || '').toLowerCase();
+  if (platform.includes('mikrotik')) ports.push(8291, 8728);
+  ports.push(22, 23, 443, 80);
+  return Array.from(new Set(ports));
+}
+
+// POST /ping/:id (and /devices/:id/ping alias for JIT approval executor) - Authentic reachability probe
+apiRouter.post(['/ping/:id', '/devices/:id/ping'], async (req: Request, res: Response) => {
   try {
+    const { user } = await resolveRequestContextPolicy(req);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: Authentication required to ping devices.',
+        errorFa: 'عدم احراز هویت: برای تست پینگ تجهیزات ابتدا وارد حساب کاربری شوید.',
+      });
+    }
+
     const devId = (req.params.id || '').trim();
     const device = await getDeviceById(devId);
     if (!device) {
@@ -7120,19 +7312,22 @@ apiRouter.post('/ping/:id', async (req: Request, res: Response) => {
       return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
     }
 
-    const pingResult = await executeRealIcmpPing(device.ip || device.ssh_host || '');
-    const updatedDevice = await updateDevice(devId, {
+    const targetHost = device.ip || device.ssh_host || '';
+    const pingResult = await executeRealIcmpPing(targetHost, 2, 1, getDeviceProbePorts(device));
+    const lastSeen = pingResult.is_online ? 'Just now' : 'Offline';
+
+    const updatedDevice = await updateDevicePingTelemetry(device.id, {
       is_online: pingResult.is_online,
       latency_ms: pingResult.latency_ms,
       packet_loss: pingResult.packet_loss,
-      last_seen: pingResult.is_online ? 'هم اکنون (Just now)' : 'آفلاین',
+      last_seen: lastSeen,
     });
 
     if (!pingResult.is_online) {
       sendTelegramAlert({
         title: `HOST UNREACHABLE: ${device.name} (${device.ip || 'N/A'})`,
         level: 'critical',
-        message: `Device "${device.name}" failed ICMP keepalive probe (100% packet loss).`,
+        message: `Device "${device.name}" failed ICMP/TCP keepalive probe (100% packet loss).`,
         details: `Device: ${device.name}\nIP: ${device.ip || 'N/A'}\nPlatform: ${device.platform || 'Network Device'}`,
         targetDevice: {
           name: device.name,
@@ -7148,7 +7343,7 @@ apiRouter.post('/ping/:id', async (req: Request, res: Response) => {
       sendTelegramAlert({
         title: `HOST RECOVERED: ${device.name} (${device.ip || 'N/A'})`,
         level: 'resolved',
-        message: `Device "${device.name}" is back online and responding to ICMP ping (${pingResult.latency_ms}ms).`,
+        message: `Device "${device.name}" is back online and responding (${pingResult.latency_ms}ms via ${(pingResult.probe_method || 'icmp').toUpperCase()}).`,
         details: `Device: ${device.name}\nIP: ${device.ip || 'N/A'}\nLatency: ${pingResult.latency_ms}ms\nPacket Loss: ${pingResult.packet_loss}%`,
         targetDevice: {
           name: device.name,
@@ -7162,18 +7357,25 @@ apiRouter.post('/ping/:id', async (req: Request, res: Response) => {
       }).catch(() => {});
     }
 
-    return res.json({
-      device: updatedDevice || {
+    const safeDevice = sanitizeDeviceForClient(
+      updatedDevice || {
         ...device,
         is_online: pingResult.is_online,
         latency_ms: pingResult.latency_ms,
         packet_loss: pingResult.packet_loss,
-      },
+        last_seen: lastSeen,
+      }
+    );
+
+    return res.json({
+      success: true,
+      device: safeDevice,
       ping_result: {
-        ip: device.ip,
+        ip: targetHost,
         is_online: pingResult.is_online,
         latency_ms: pingResult.latency_ms,
         packet_loss: pingResult.packet_loss,
+        probe_method: pingResult.probe_method || 'icmp',
       },
     });
   } catch (err: any) {
@@ -7182,32 +7384,72 @@ apiRouter.post('/ping/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST /ping-all - Concurrent authentic ICMP probe for all network devices
+// POST /ping-all - Bounded concurrent authentic ICMP/TCP probe for all authorized network devices
 apiRouter.post('/ping-all', async (req: Request, res: Response) => {
   try {
-    const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
-    let allDevices = await getAllDevices();
-
-    if (!isSuperAdmin && effectivePolicy && allowedDeviceIds !== null) {
-      const allowedSet = new Set(allowedDeviceIds);
-      allDevices = allDevices.filter((d: any) => allowedSet.has(d.id));
+    const { user, effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: Authentication required to ping devices.',
+        errorFa: 'عدم احراز هویت: برای پایش تجهیزات ابتدا وارد حساب کاربری شوید.',
+      });
     }
 
-    const results = await Promise.all(
-      allDevices.map(async (dev: any) => {
-        const pingRes = await executeRealIcmpPing(dev.ip || dev.ssh_host || '');
-        await updateDevice(dev.id, {
+    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canViewDevices === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Your account policy prohibits access to Network Equipment Inventory.',
+        errorFa: 'عدم دسترسی: حساب شما فاقد مجوز دسترسی به موجودی تجهیزات شبکه است.',
+      });
+    }
+
+    let allDevices = await getAllDevices();
+    if (!isSuperAdmin && effectivePolicy && allowedDeviceIds !== null) {
+      const allowedSet = new Set(allowedDeviceIds.map((id) => String(id).trim().toLowerCase()));
+      allDevices = allDevices.filter((d: any) => allowedSet.has(String(d.id).trim().toLowerCase()));
+    }
+
+    // Filter out devices where ping_keepalive is explicitly denied by RBAC
+    if (!isSuperAdmin && effectivePolicy) {
+      allDevices = allDevices.filter(
+        (d: any) => evaluateDeviceActionDecision(effectivePolicy, d.id, 'ping_keepalive') !== 'deny'
+      );
+    }
+
+    // Bounded concurrency worker pool (max 10 simultaneous pings)
+    const CONCURRENCY = 10;
+    const results: any[] = new Array(allDevices.length);
+    const dbUpdates: Array<{
+      id: string;
+      is_online: boolean;
+      latency_ms: number | null;
+      packet_loss: number;
+      last_seen: string;
+    }> = [];
+
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < allDevices.length) {
+        const idx = cursor++;
+        const dev = allDevices[idx];
+        const targetHost = dev.ip || dev.ssh_host || '';
+        const pingRes = await executeRealIcmpPing(targetHost, 2, 1, getDeviceProbePorts(dev));
+        const lastSeen = pingRes.is_online ? 'Just now' : 'Offline';
+
+        dbUpdates.push({
+          id: dev.id,
           is_online: pingRes.is_online,
           latency_ms: pingRes.latency_ms,
           packet_loss: pingRes.packet_loss,
-          last_seen: pingRes.is_online ? 'هم اکنون (Just now)' : 'آفلاین',
-        }).catch(() => {});
+          last_seen: lastSeen,
+        });
 
         if (!pingRes.is_online && dev.is_online !== false) {
           sendTelegramAlert({
             title: `HOST UNREACHABLE: ${dev.name} (${dev.ip || 'N/A'})`,
             level: 'critical',
-            message: `Network device "${dev.name}" failed concurrent ICMP health check.`,
+            message: `Network device "${dev.name}" failed concurrent ICMP/TCP health check.`,
             details: `Device: ${dev.name}\nIP: ${dev.ip || 'N/A'}\nPacket loss: 100%`,
             targetDevice: {
               name: dev.name,
@@ -7219,20 +7461,54 @@ apiRouter.post('/ping-all', async (req: Request, res: Response) => {
             eventKey: `device:${dev.id}:down`,
             source: 'ping_all',
           }).catch(() => {});
+        } else if (dev.is_online === false && pingRes.is_online) {
+          sendTelegramAlert({
+            title: `HOST RECOVERED: ${dev.name} (${dev.ip || 'N/A'})`,
+            level: 'resolved',
+            message: `Network device "${dev.name}" recovered and is responding (${pingRes.latency_ms}ms).`,
+            details: `Device: ${dev.name}\nIP: ${dev.ip || 'N/A'}\nLatency: ${pingRes.latency_ms}ms`,
+            targetDevice: {
+              name: dev.name,
+              ip: dev.ip,
+              platform: dev.platform,
+              type: dev.type,
+              category: 'switch',
+            },
+            eventKey: `device:${dev.id}:down`,
+            source: 'ping_all',
+          }).catch(() => {});
         }
-        return {
+
+        results[idx] = {
           id: dev.id,
           name: dev.name,
-          ip: dev.ip,
+          ip: targetHost,
           is_online: pingRes.is_online,
           latency_ms: pingRes.latency_ms,
           packet_loss: pingRes.packet_loss,
+          last_seen: lastSeen,
+          probe_method: pingRes.probe_method || 'icmp',
         };
-      })
-    );
+      }
+    };
+
+    const workerCount = Math.min(CONCURRENCY, Math.max(1, allDevices.length));
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+    // Atomic batch persistence (zero JSON write races + clean PG update)
+    if (dbUpdates.length > 0) {
+      await updateDevicesPingTelemetryBatch(dbUpdates);
+    }
+
+    const onlineCount = results.filter((r) => r?.is_online).length;
+    const offlineCount = results.length - onlineCount;
 
     return res.json({
-      message: 'پایش و پینگ وضعیت تجهیزات با پروتکل واقعی ICMP تکمیل شد.',
+      success: true,
+      message: `پایش وضعیت ${results.length} تجهیز تکمیل شد (${onlineCount} آنلاین، ${offlineCount} آفلاین).`,
+      message_en: `Ping sweep completed for ${results.length} devices (${onlineCount} online, ${offlineCount} offline).`,
+      online_count: onlineCount,
+      offline_count: offlineCount,
       results,
     });
   } catch (err: any) {

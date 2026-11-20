@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  RefreshCw,
   Zap,
   Palette,
   ChevronDown,
@@ -39,8 +38,6 @@ import {
 export type ThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light' | 'google-dark';
 
 interface NavbarProps {
-  onRefreshAll: () => void;
-  isRefreshing: boolean;
   onQuickScan: () => void;
   isScanning: boolean;
   onResetDemo?: () => void;
@@ -68,8 +65,6 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
-  onRefreshAll,
-  isRefreshing,
   onQuickScan,
   isScanning,
   panelTheme,
@@ -274,21 +269,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="hidden md:inline">
             {isScanning ? t('action_quick_scan_active') : t('action_quick_scan')}
           </span>
-        </button>
-
-        {/* Refresh / Ping Button */}
-        <button
-          onClick={onRefreshAll}
-          disabled={isRefreshing}
-          className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border text-xs transition disabled:opacity-50 shadow-xs active:scale-95 cursor-pointer ${
-            isLightMode
-              ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
-              : 'bg-white/5 hover:bg-white/10 text-slate-200 border-white/10'
-          }`}
-          title={t('action_live_ping_title')}
-        >
-          <RefreshCw className={`w-3.5 h-3.5 sm:w-3 sm:h-3 ${isRefreshing ? 'animate-spin text-indigo-500' : ''}`} />
-          <span className="hidden lg:inline">{t('action_live_ping')}</span>
         </button>
 
         {/* Personal Password Vault Button */}

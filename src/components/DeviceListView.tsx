@@ -598,7 +598,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
   });
 
   const handlePing = async (id: string) => {
-    if (!isDeviceActionPermitted(effectivePolicy, id, 'ping_keepalive')) return;
+    if (!isSuperAdmin && !isDeviceActionPermitted(effectivePolicy, id, 'ping_keepalive')) return;
     try {
       setPingingId(id);
       await onPingDevice(id);
@@ -687,12 +687,19 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
             )}
 
             <button
+              type="button"
               onClick={onRefreshAll}
-              disabled={isRefreshing}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs font-medium shadow-xs transition active:scale-95 cursor-pointer"
+              disabled={isRefreshing || devices.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs font-medium shadow-xs transition active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
-              <span>{t('devicelist_btn_ping_all')}</span>
+              <span>
+                {isRefreshing
+                  ? isEn
+                    ? 'Pinging All...'
+                    : 'در حال پینگ همه...'
+                  : t('devicelist_btn_ping_all')}
+              </span>
             </button>
 
             {/* Export Devices Button (Single / Batch with RBAC enforcement) */}
@@ -1437,11 +1444,12 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                               <span>{dev.is_online ? (isEn ? 'Online' : 'آنلاین') : (isEn ? 'Offline' : 'آفلاین')}</span>
                             </span>
 
-                            {isDeviceActionPermitted(effectivePolicy, dev.id, 'ping_keepalive') && (
+                            {(isSuperAdmin || isDeviceActionPermitted(effectivePolicy, dev.id, 'ping_keepalive')) && (
                               <button
+                                type="button"
                                 onClick={() => handlePing(dev.id)}
-                                disabled={isPinging}
-                                className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                                disabled={isPinging || isRefreshing}
+                                className={`p-1.5 rounded-lg border transition cursor-pointer disabled:opacity-50 ${
                                   isLightMode
                                     ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-300'
                                     : 'bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border-white/10'
@@ -1452,7 +1460,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                               </button>
                             )}
                           </div>
-                          {dev.is_online && dev.latency_ms !== null && (
+                          {dev.is_online && dev.latency_ms !== null && dev.latency_ms !== undefined && (
                             <div className={`text-[10px] font-mono mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                               {isEn ? 'Latency:' : 'تأخیر:'} {dev.latency_ms} ms
                             </div>
