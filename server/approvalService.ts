@@ -3281,6 +3281,11 @@ const ACTION_METADATA_CATALOG: Record<
     labelFa: 'ورود دسته‌ای سرورها (Import)',
     riskLevel: 'high',
   },
+  session_recordings: {
+    labelEn: 'Inspect Server Session Recordings Archive',
+    labelFa: 'مشاهده آرشیو ضبط جلسات سرور (SSH / RDP / VNC)',
+    riskLevel: 'high',
+  },
   export_devices: {
     labelEn: 'Export Network Devices Package',
     labelFa: 'استخراج اطلاعات تجهیزات شبکه (Export)',

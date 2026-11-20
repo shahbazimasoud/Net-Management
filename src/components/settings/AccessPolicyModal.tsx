@@ -64,6 +64,7 @@ import {
   Bell,
   Megaphone,
   Send,
+  Video,
 } from 'lucide-react';
 import {
   AccessPolicy,
@@ -219,19 +220,49 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canEditLicenses: initialPolicy.canEditLicenses ?? initialPolicy.canManageLicenses ?? true,
       canDeleteLicenses: initialPolicy.canDeleteLicenses ?? true,
       canDeleteLicenseAttachments: initialPolicy.canDeleteLicenseAttachments ?? true,
-      defaultServerPermissions: initialPolicy.defaultServerPermissions || {
-        terminal: false,
-        file_explorer: true,
-        server_management: false,
-        web_management: false,
-        database_management: false,
-        power_control: false,
-        edit_properties: false,
-        delete_server: false,
-        export_servers: false,
-        import_servers: false,
-        add_server: false,
-      },
+      canViewLogs:
+        initialPolicy.canViewLogs ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canViewSessionRecordings:
+        initialPolicy.canViewSessionRecordings ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canPlaybackSessionRecordings:
+        initialPolicy.canPlaybackSessionRecordings ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canDownloadSessionRecordings:
+        initialPolicy.canDownloadSessionRecordings ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canDeleteSessionRecordings:
+        initialPolicy.canDeleteSessionRecordings ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canManageSessionRecordingLegalHold:
+        initialPolicy.canManageSessionRecordingLegalHold ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canManageSessionRecordingSettings:
+        initialPolicy.canManageSessionRecordingSettings ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      defaultServerPermissions: initialPolicy.defaultServerPermissions
+        ? {
+            session_recordings: Boolean(
+              initialPolicy.defaultServerPermissions.session_recordings ??
+                (initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100)
+            ),
+            ...initialPolicy.defaultServerPermissions,
+          }
+        : {
+            terminal: false,
+            file_explorer: true,
+            server_management: false,
+            web_management: false,
+            database_management: false,
+            power_control: false,
+            edit_properties: false,
+            delete_server: false,
+            export_servers: false,
+            import_servers: false,
+            add_server: false,
+            session_recordings: false,
+          },
       perServerPermissions: initialPolicy.perServerPermissions || {},
       defaultDevicePermissions: initialPolicy.defaultDevicePermissions || {
         terminal: false,
@@ -574,19 +605,49 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canEditLicenses: initialPolicy.canEditLicenses ?? initialPolicy.canManageLicenses ?? true,
         canDeleteLicenses: initialPolicy.canDeleteLicenses ?? true,
         canDeleteLicenseAttachments: initialPolicy.canDeleteLicenseAttachments ?? true,
-        defaultServerPermissions: initialPolicy.defaultServerPermissions || {
-          terminal: false,
-          file_explorer: true,
-          server_management: true,
-          web_management: false,
-          database_management: false,
-          power_control: false,
-          edit_properties: false,
-          delete_server: false,
-          export_servers: false,
-          import_servers: false,
-          add_server: false,
-        },
+        canViewLogs:
+          initialPolicy.canViewLogs ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canViewSessionRecordings:
+          initialPolicy.canViewSessionRecordings ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canPlaybackSessionRecordings:
+          initialPolicy.canPlaybackSessionRecordings ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canDownloadSessionRecordings:
+          initialPolicy.canDownloadSessionRecordings ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canDeleteSessionRecordings:
+          initialPolicy.canDeleteSessionRecordings ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canManageSessionRecordingLegalHold:
+          initialPolicy.canManageSessionRecordingLegalHold ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canManageSessionRecordingSettings:
+          initialPolicy.canManageSessionRecordingSettings ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        defaultServerPermissions: initialPolicy.defaultServerPermissions
+          ? {
+              session_recordings: Boolean(
+                initialPolicy.defaultServerPermissions.session_recordings ??
+                  (initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100)
+              ),
+              ...initialPolicy.defaultServerPermissions,
+            }
+          : {
+              terminal: false,
+              file_explorer: true,
+              server_management: true,
+              web_management: false,
+              database_management: false,
+              power_control: false,
+              edit_properties: false,
+              delete_server: false,
+              export_servers: false,
+              import_servers: false,
+              add_server: false,
+              session_recordings: false,
+            },
         perServerPermissions: initialPolicy.perServerPermissions || {},
         defaultDevicePermissions: initialPolicy.defaultDevicePermissions || {
           web_configs: true,
@@ -1474,6 +1535,8 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canViewDiscovery: enabled,
         canViewTemplates: enabled,
         canViewServers: enabled,
+        canViewLogs: enabled,
+        canViewSessionRecordings: enabled,
         canViewNetworkTools: enabled,
         canViewPhysicalPlacement: enabled,
         canViewSettings: enabled,
@@ -3817,6 +3880,36 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         practicalExampleFa: 'منحصراً برای مدیران ارشد IT و سوپرادمین‌ها فعال باشد',
                       },
                       {
+                        key: 'canViewLogs',
+                        optIn: true,
+                        labelEn: 'Audit & Command Logs',
+                        labelFa: 'لاگ‌های ممیزی و دستورات',
+                        descEn: 'Device/server CLI logs, portal events, login reports & blocklist',
+                        descFa: 'لاگ دستورات تجهیزات و سرورها، رویدادهای پورتال، گزارش ورود و لیست مسدودی',
+                        icon: ScrollText,
+                        whatIsItEn: 'Grants access to the Audit & Command Logs page including device commands, server commands, portal events, login reports, blocked IPs, and email reports.',
+                        whatIsItFa: 'مجوز ورود و مشاهده صفحه لاگ‌های ممیزی و دستورات (شامل دستورات تجهیزات، سرورها، رویدادهای پورتال، گزارش ورود و ایمیل).',
+                        whyNeededEn: 'Audit trails expose sensitive operator actions, IP addresses, and security events; access should be restricted to auditors and managers.',
+                        whyNeededFa: 'لاگ‌های ممیزی حاوی تاریخچه عملیات حساس، آدرس IP کاربران و رخدادهای امنیتی است و باید محدود به ممیزان و مدیران مجاز باشد.',
+                        practicalExampleEn: 'Enable for Security Auditors, SOC Analysts, and IT Managers; disable for regular Helpdesk operators.',
+                        practicalExampleFa: 'برای ممیزان امنیت، تحلیلگران SOC و مدیران IT فعال و برای کاربران پشتیبانی عادی غیرفعال شود.',
+                      },
+                      {
+                        key: 'canViewSessionRecordings',
+                        optIn: true,
+                        labelEn: 'Session Recordings (Audit & Command Logs)',
+                        labelFa: 'ضبط جلسات ریموت (بخش Audit & Command Logs)',
+                        descEn: 'Access the Session Recordings tab in Audit & Command Logs (SSH / RDP / VNC)',
+                        descFa: 'دسترسی به تب ضبط جلسات ریموت (SSH / RDP / VNC) در صفحه Audit & Command Logs',
+                        icon: Video,
+                        whatIsItEn: 'Controls visibility and access to the Session Recordings tab inside the Audit & Command Logs page to browse recorded SSH, RDP, and VNC sessions for servers in scope.',
+                        whatIsItFa: 'دسترسی و نمایش تب «ضبط جلسات ریموت» در صفحه Audit & Command Logs برای مشاهده آرشیو جلسات ضبط‌شده SSH، RDP و VNC سرورهای مجاز را کنترل می‌کند.',
+                        whyNeededEn: 'Separates recorded session video/terminal replay governance from general text logs so organizations can strictly control who inspects screen recordings.',
+                        whyNeededFa: 'دسترسی به ویدیوها و بازپخش ترمینال جلسات را از سایر لاگ‌های متنی تفکیک می‌کند تا کنترل دقیقی بر روی مشاهده ضبط‌های حساس اعمال شود.',
+                        practicalExampleEn: 'Enable for Security Officers & Compliance Auditors; combine with Playback / Download / Legal Hold permissions in Global Capabilities.',
+                        practicalExampleFa: 'برای مسئولان امنیت و ممیزان فعال شود و در صورت نیاز همراه با مجوزهای پخش، دانلود و قفل ضدحذف تنظیم گردد.',
+                      },
+                      {
                         key: 'canManageNavigationGovernance',
                         labelEn: 'Navigation & Views Governance',
                         labelFa: 'مدیریت دسترسی به منوها و صفحات',
@@ -3831,7 +3924,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         practicalExampleFa: 'منحصراً برای سوپرادمین و بالاترین رده مدیریتی فعال گردد',
                       },
                     ].map((item) => {
-                      const isChecked = (draftPolicy as any)[item.key] !== false;
+                      const isChecked = (item as any).optIn
+                        ? Boolean((draftPolicy as any)[item.key])
+                        : (draftPolicy as any)[item.key] !== false;
                       const IconComp = item.icon;
                       return (
                         <label
@@ -6017,12 +6112,14 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                       },
                       {
                         key: 'canViewSessionRecordings',
-                        labelEn: 'View Session Recordings Archive',
-                        labelFa: 'مشاهده لیست آرشیو ضبط جلسات ریموت',
+                        labelEn: 'View Session Recordings Archive (Audit Logs)',
+                        labelFa: 'مشاهده لیست آرشیو ضبط جلسات ریموت (Audit Logs)',
                         descEn: 'Browse recorded SSH, RDP, and VNC sessions for allowed servers',
-                        descFa: 'مشاهده فهرست جلسات ضبط‌شده سرورهای مجاز در بخش لاگ‌ها',
-                        what: 'Grants visibility into the Session Recordings tab inside Audit Logs',
+                        descFa: 'مشاهده فهرست جلسات ضبط‌شده سرورهای مجاز در تب Session Recordings بخش لاگ‌ها',
+                        what: 'Grants visibility into the Session Recordings tab inside Audit & Command Logs',
+                        whatFa: 'مجوز مشاهده تب و فهرست آرشیو ضبط جلسات (SSH / RDP / VNC) در صفحه Audit & Command Logs.',
                         why: 'Enables auditors and managers to track who connected to sensitive servers and when',
+                        whyFa: 'امکان ردیابی دقیق اتصال کاربران به سرورهای حساس و بررسی تاریخچه جلسات را برای ممیزان فراهم می‌کند.',
                       },
                       {
                         key: 'canPlaybackSessionRecordings',
@@ -6031,7 +6128,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         descEn: 'Watch SSH terminal timeline replays and RDP/VNC video streams',
                         descFa: 'بازپخش تایم‌لاینی دستورات SSH و ویدیوی جلسات ریموت دسکتاپ',
                         what: 'Authorizes streaming and playing back archived terminal and desktop recordings',
+                        whatFa: 'مجوز استریم و بازپخش آنلاین فایل‌های ضبط‌شده ترمینال SSH و ویدیوی جلسات RDP/VNC.',
                         why: 'Restricts visual review of sensitive screen sessions to authorized investigators',
+                        whyFa: 'مشاهده محتوای تصویری و دستورات اجراشده در جلسات حساس را محدود به بازرسان و مدیران مجاز می‌کند.',
                       },
                       {
                         key: 'canDownloadSessionRecordings',
@@ -6040,7 +6139,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         descEn: 'Export .mp4, .webm, .guac, .cast, and .txt files locally',
                         descFa: 'دریافت خروجی محلی فایل‌های ویدیویی و متن دستورات SSH',
                         what: 'Permits downloading archived session media outside the portal',
+                        whatFa: 'امکان دانلود محلی فایل‌های ویدیویی (.mp4/.webm/.guac) و متن دستورات (.cast/.txt) از سرور.',
                         why: 'Prevents unauthorized exfiltration of recorded administrative screen activity',
+                        whyFa: 'از خروج غیرمجاز فایل‌های ضبط‌شده و افشای فعالیت‌های مدیریتی خارج از پنل جلوگیری می‌کند.',
                       },
                       {
                         key: 'canManageSessionRecordingLegalHold',
@@ -6049,7 +6150,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         descEn: 'Lock or unlock sensitive recordings against manual and auto purge',
                         descFa: 'اعمال یا برداشتن قفل ضدحذف برای محافظت از پرونده‌های حساس',
                         what: 'Protects forensic evidence from automated retention cleanup or deletion',
+                        whatFa: 'امکان قفل‌گذاری یا باز کردن قفل ضدحذف (Legal Hold) روی جلسات حساس جهت جلوگیری از پاک‌سازی خودکار یا دستی.',
                         why: 'Ensures compliance officers can preserve incident recordings indefinitely',
+                        whyFa: 'تضمین می‌کند شواهد حوادث امنیتی تا پایان بررسی‌ها به هیچ عنوان حذف نشوند.',
                       },
                       {
                         key: 'canDeleteSessionRecordings',
@@ -6058,7 +6161,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         descEn: 'Permanently remove unlocked recordings from database and disk',
                         descFa: 'حذف کامل فایل‌های بدون قفل ضدحذف از سرور و پایگاه داده',
                         what: 'Destructive capability to erase archived remote session recordings',
+                        whatFa: 'اختیار حذف دائم و غیرقابل بازگشت فایل‌های ضبط جلسات (بدون قفل Legal Hold) از دیسک و دیتابیس.',
                         why: 'Should be restricted strictly to senior administrators to maintain audit integrity',
+                        whyFa: 'برای حفظ یکپارچگی ممیزی امنیتی باید منحصراً در اختیار مدیران ارشد باشد.',
                       },
                       {
                         key: 'canManageSessionRecordingSettings',
@@ -6067,7 +6172,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         descEn: 'Modify storage directory, video quality, retention days, and encryption',
                         descFa: 'تغییر مسیر ذخیره روی سرور، کیفیت ویدیو، مدت نگهداری و رمزنگاری',
                         what: 'Controls fleet-wide recording capture, transcoding quality, and disk retention',
+                        whatFa: 'اختیار ویرایش تنظیمات سراسری ضبط جلسات، مسیر ذخیره‌سازی، کیفیت کدگذاری ویدیو، رمزنگاری و مدت نگهداری.',
                         why: 'High-privilege setting affecting server storage and compliance posture',
+                        whyFa: 'تنظیماتی با سطح دسترسی بالا که مستقیماً بر فضای دیسک سرور و سیاست‌های انطباق امنیتی اثر می‌گذارد.',
                       },
                     ].map((item) => {
                       const isChecked = Boolean((draftPolicy as any)[item.key]);
@@ -6106,12 +6213,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                               </span>
                               <FieldInfoTooltip
                                 title={isEn ? item.labelEn : item.labelFa}
-                                whatIsIt={item.what}
-                                whyNeeded={item.why}
+                                whatIsIt={isEn ? item.what : ((item as any).whatFa || item.descFa)}
+                                whyNeeded={isEn ? item.why : ((item as any).whyFa || item.descFa)}
                                 practicalExample={
                                   isEn
-                                    ? 'Permitted for Core Admins; disabled for Helpdesk'
-                                    : 'مجاز برای مدیران ارشد؛ غیرمجاز برای پشتیبانی عادی'
+                                    ? 'Permitted for Core Admins & Auditors; disabled for Helpdesk'
+                                    : 'مجاز برای مدیران ارشد و ممیزان؛ غیرمجاز برای پشتیبانی عادی'
                                 }
                                 isEn={isEn}
                                 isLightMode={isLightMode}

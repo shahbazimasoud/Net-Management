@@ -52,6 +52,7 @@ import {
   isServerActionAllowed,
   evaluateServerActionDecision,
   doesServerActionRequireApproval,
+  canUserViewAuditSessionRecordings,
 } from '../../utils/rbac';
 import { preflightActionApproval } from '../../utils/approvalGateBridge';
 import {
@@ -91,7 +92,7 @@ export interface RemoteServersViewProps {
   isLightMode?: boolean;
   isEn?: boolean;
   effectivePolicy?: any;
-  onOpenServerRecordings?: (serverId?: string) => void;
+  onOpenServerRecordings?: (serverId?: string, approvalRequestId?: string) => void;
 }
 
 export const formatServerHardwareSpecs = (server: RemoteServer, isEn: boolean = true) => {
@@ -1052,6 +1053,63 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     undockModal(`linux_term_${server.id}`);
   };
 
+  // Handle Open Fleet-Wide Session Recordings Archive (tri-state RBAC + JIT approval gate)
+  const handleOpenFleetSessionRecordings = async () => {
+    if (!onOpenServerRecordings) return;
+    if (canUserViewAuditSessionRecordings(null, effectivePolicy)) {
+      onOpenServerRecordings('');
+      return;
+    }
+    const fleetDecision = evaluateServerActionDecision(effectivePolicy, '', 'session_recordings');
+    if (fleetDecision === 'require_approval') {
+      const pre = await preflightActionApproval({
+        entityType: 'server',
+        entityId: '__fleet_recordings__',
+        entityName: isEn ? 'Server Fleet Session Recordings' : 'آرشیو ضبط جلسات ناوگان سرورها',
+        actionKey: 'session_recordings',
+        requestedAction: 'Inspect Server Fleet Session Recordings Archive',
+        commandPreview: 'session_recordings:fleet',
+      });
+      if (!pre.proceed) return;
+      onOpenServerRecordings('', pre.approvalRequestId);
+      return;
+    }
+    if (
+      fleetDecision === 'allow' ||
+      servers.some((srv) => isServerActionAllowed(srv, 'session_recordings', effectivePolicy))
+    ) {
+      onOpenServerRecordings('');
+    }
+  };
+
+  // Handle Open Per-Server Session Recordings Archive (tri-state RBAC + JIT approval gate)
+  const handleOpenServerSessionRecordings = async (server: RemoteServer) => {
+    setMenuAnchor(null);
+    if (!onOpenServerRecordings) return;
+    const recDecision = evaluateServerActionDecision(effectivePolicy, server.id, 'session_recordings');
+    if (recDecision === 'deny') {
+      return;
+    }
+    if (recDecision === 'require_approval') {
+      const pre = await preflightActionApproval({
+        entityType: 'server',
+        entityId: server.id,
+        entityName: server.name || server.ip || server.id,
+        actionKey: 'session_recordings',
+        requestedAction: `Inspect Session Recordings (${server.name || server.ip})`,
+        commandPreview: `session_recordings:${server.ip || server.id}`,
+        actionParams: {
+          serverId: server.id,
+          host: server.ip,
+        },
+      });
+      if (!pre.proceed) return;
+      onOpenServerRecordings(server.id, pre.approvalRequestId);
+      return;
+    }
+    onOpenServerRecordings(server.id);
+  };
+
   // Handle Open Linux Live Telemetry & Resource Monitor
   const handleOpenLinuxMonitor = (server: RemoteServer) => {
     setMenuAnchor(null);
@@ -1907,21 +1965,30 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             </button>
 
             {/* Quick Link to Session Recordings Archive */}
-            {onOpenServerRecordings && (
-              <button
-                type="button"
-                onClick={() => onOpenServerRecordings('')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 cursor-pointer ${
-                  isLightMode
-                    ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
-                    : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/30 shadow-xs'
-                }`}
-                title={isEn ? 'Open recorded SSH / RDP / VNC sessions archive' : 'مشاهده آرشیو جلسات ضبط‌شده SSH و RDP/VNC'}
-              >
-                <Video className="w-3.5 h-3.5 text-cyan-400" />
-                <span>{isEn ? 'Session Recordings' : 'ضبط جلسات'}</span>
-              </button>
-            )}
+            {onOpenServerRecordings &&
+              (canUserViewAuditSessionRecordings(null, effectivePolicy) ||
+                evaluateServerActionDecision(effectivePolicy, '', 'session_recordings') !== 'deny' ||
+                servers.some((srv) => isServerActionAllowed(srv, 'session_recordings', effectivePolicy))) && (
+                <button
+                  type="button"
+                  onClick={handleOpenFleetSessionRecordings}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 cursor-pointer ${
+                    isLightMode
+                      ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                      : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/30 shadow-xs'
+                  }`}
+                  title={isEn ? 'Open recorded SSH / RDP / VNC sessions archive' : 'مشاهده آرشیو جلسات ضبط‌شده SSH و RDP/VNC'}
+                >
+                  <Video className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>{isEn ? 'Session Recordings' : 'ضبط جلسات'}</span>
+                  {!canUserViewAuditSessionRecordings(null, effectivePolicy) &&
+                    evaluateServerActionDecision(effectivePolicy, '', 'session_recordings') === 'require_approval' && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[9px] font-bold">
+                        {isEn ? 'Approval' : 'تایید'}
+                      </span>
+                    )}
+                </button>
+              )}
 
             {/* Bulk Server Config Button */}
             {canBulkConfigureServers && (
@@ -4139,6 +4206,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                   const canEditProperties = isServerActionAllowed(s, 'edit_properties', effectivePolicy);
                   const canDeleteServer = isServerActionAllowed(s, 'delete_server', effectivePolicy);
                   const canExportServer = isServerActionAllowed(s, 'export_servers', effectivePolicy);
+                  const canSessionRecordings = isServerActionAllowed(s, 'session_recordings', effectivePolicy);
 
                   const hasAnyPrivilegedAction =
                     canTerminal ||
@@ -4149,7 +4217,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                     canPowerControl ||
                     canEditProperties ||
                     canDeleteServer ||
-                    canExportServer;
+                    canExportServer ||
+                    canSessionRecordings;
 
                   const badgeFor = (actKey: ServerActionKey) =>
                     doesServerActionRequireApproval(effectivePolicy, s.id, actKey) ? (
@@ -4376,20 +4445,20 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       )}
 
                       {/* Quick Link: View Session Recordings for this server */}
-                      {onOpenServerRecordings && (
+                      {onOpenServerRecordings && canSessionRecordings && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setMenuAnchor(null);
-                            onOpenServerRecordings(s.id);
-                          }}
+                          onClick={() => handleOpenServerSessionRecordings(s)}
                           className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-cyan-400 hover:text-cyan-300 transition cursor-pointer ${
                             isEn ? 'text-left' : 'text-right'
                           } ${isLightMode ? 'hover:bg-cyan-50 text-cyan-700' : 'hover:bg-cyan-500/15'}`}
                         >
                           <Video className="w-4 h-4 text-cyan-400 shrink-0" />
                           <div className="flex flex-col flex-1 min-w-0">
-                            <span className="truncate">{isEn ? 'Session Recordings' : 'ضبط جلسات این سرور'}</span>
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="truncate">{isEn ? 'Session Recordings' : 'ضبط جلسات این سرور'}</span>
+                              {badgeFor('session_recordings')}
+                            </div>
                             <span className="text-[10px] text-cyan-400/80 font-mono">
                               {isEn ? 'SSH / RDP / VNC Archive' : 'پخش و دانلود آرشیو ضبط'}
                             </span>

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.451.3';
+export const APP_VERSION = '1.452.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.452.0',
+    releaseDate: '2026-11-20',
+    type: 'minor',
+    title: 'افزودن کنترل دسترسی کامل سه‌حالته و منویی ضبط جلسات (Session Recording) در Access Policy',
+    title_en: 'Add Full-Stack Tri-State & Navigation Access Governance for Session Recordings in Access Policy',
+    changes: [
+      'افزودن اکشن مستقل `session_recordings` به بخش «Default Server Fleet Actions & Tri-State Approval Rules» و «ماتریس استثناهای اختصاصی هر سرور (Per-Server Override Matrix)» در مودال Access Policy با پشتیبانی کامل از سه وضعیت مجاز (Allow)، نیازمند تایید (Require Approval / JIT) و مسدود (Deny) همراه با راهنمای سه‌بخشی دوزبانه.',
+      'افزودن کنترل دسترسی مستقل «Audit & Command Logs» (`canViewLogs`) و «Session Recordings (Audit & Command Logs)» (`canViewSessionRecordings`) در بخش «Navigation Menus & Panel Views Access Governance» مودال Access Policy همراه با همگام‌سازی کامل با مجوزهای جزئی ضبط جلسات در تب Global Capabilities.',
+      'اعمال سخت‌گیرانه و سمت سرور (PostgreSQL-Authoritative) مجوزهای سه‌حالته، استثناهای هر سرور و گیت تایید JIT برای `session_recordings` در تمامی اندپوینت‌های `/api/session-recordings*`، موتور ارزیابی `server/db.ts`، `approvalExecutor.ts` و `approvalService.ts` و رفع باگ قدیمی `canViewAuditLogs -> canViewLogs`.',
+      'اعمال محدودیت‌های دسترسی در رابط کاربری ناوگان سرورها (`RemoteServersView`)، تب‌های صفحه لاگ‌های ممیزی (`AuditLogsView`) و منوی تنظیمات ضبط جلسات (`Sidebar` / `App`) با پشتیبانی از درخواست تایید JIT پیش از مشاهده آرشیو.'
+    ],
+    changes_en: [
+      'Added first-class `session_recordings` action to Default Server Fleet Actions & Tri-State Approval Rules and the Per-Server Override Matrix in Access Policy Modal supporting Allow, Require Approval (JIT), and Deny states with bilingual 3-part tooltips.',
+      'Added dedicated `Audit & Command Logs` (`canViewLogs`) and `Session Recordings (Audit & Command Logs)` (`canViewSessionRecordings`) controls under Navigation Menus & Panel Views Access Governance in Access Policy Modal, synchronized with granular Session Recording capabilities.',
+      'Enforced PostgreSQL-authoritative tri-state server rules, per-server overrides, and JIT approval gate for `session_recordings` across all `/api/session-recordings*` endpoints, `server/db.ts`, `approvalExecutor.ts`, and `approvalService.ts`, and fixed the legacy `canViewAuditLogs -> canViewLogs` mismatch.',
+      'Enforced RBAC visibility and approval preflight across Remote Servers fleet & per-server menus (`RemoteServersView`), Audit & Command Logs tabs (`AuditLogsView`), and delegated Session Recording Settings navigation (`Sidebar` / `App`).'
+    ]
+  },
   {
     version: '1.451.3',
     releaseDate: '2026-11-19',

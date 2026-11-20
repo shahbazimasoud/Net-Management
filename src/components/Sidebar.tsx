@@ -39,7 +39,7 @@ import { AccessPolicy } from '../types';
 import { isTabAllowed } from '../services/settingsStorage';
 import { useUpdate } from '../context/UpdateContext';
 import { useAuth, AuthUser } from '../context/AuthContext';
-import { isUserSuperAdmin } from '../utils/rbac';
+import { isUserSuperAdmin, canUserManageSessionRecordingSettings } from '../utils/rbac';
 
 // Custom person-inside-security-triangle icon for System & Security category
 const SystemSecurityTriangleIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
@@ -393,9 +393,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const visibleNavGroups = useMemo(() => {
     return navGroups
       .filter((group) => {
-        // STRICT RBAC RULE: Settings menu and System administration are exclusively visible to Super Admin!
-        if (group.id === 'settings' || group.id === 'system') {
+        // STRICT RBAC RULE: System administration is exclusively Super Admin; Settings is Super Admin or delegated Session Recording Settings manager (item-level filtered by isTabAllowed)
+        if (group.id === 'system') {
           return isSuper;
+        }
+        if (group.id === 'settings') {
+          return isSuper || canUserManageSessionRecordingSettings(currentUser, effectivePolicy);
         }
         return true;
       })

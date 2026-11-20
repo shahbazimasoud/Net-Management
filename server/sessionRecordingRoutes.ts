@@ -7,6 +7,7 @@ import {
   getEffectivePolicyForUser,
   getAccessPolicies,
   getDeviceGroups,
+  evaluateServerActionDecision,
   getSessionRecordingById,
   getSessionRecordingMarkers,
   listSessionRecordings,
@@ -14,6 +15,7 @@ import {
   deleteSessionRecordingRecord,
   addPortalAuditLog,
 } from './db';
+import { evaluateApprovalGateForRequest } from './approvalService';
 import {
   getEffectiveSessionRecordingSettings,
   saveEffectiveSessionRecordingSettings,
@@ -31,10 +33,15 @@ export const sessionRecordingRouter = express.Router();
 
 interface ResolvedRecordingAuthContext {
   user: any | null;
+  userId: string;
   username: string;
+  fullName: string;
   userRole: string;
   effectivePolicy: any | null;
   isSuperAdmin: boolean;
+  canApproveActions: boolean;
+  canViewAuditRecordings: boolean;
+  hasFleetRecordingAccess: boolean;
   allowedServerIds: string[] | null;
   permissions: {
     canView: boolean;
@@ -128,29 +135,58 @@ async function resolveRecordingAuthContext(
     : null;
 
   const isPolicyFull = isSuperAdmin || effectivePolicy?.id === 'policy-super-admin';
-  const hasAuditFallback = Boolean(effectivePolicy?.canViewAuditLogs);
+  const hasAuditFallback = Boolean(effectivePolicy?.canViewLogs);
   const hasSettingsFallback = Boolean(effectivePolicy?.canManageSystemSettings || effectivePolicy?.canManageUsers);
 
+  const canViewAuditRecordings =
+    isPolicyFull ||
+    (effectivePolicy?.canViewSessionRecordings !== undefined
+      ? Boolean(effectivePolicy.canViewSessionRecordings)
+      : hasAuditFallback);
+
+  let hasFleetRecordingAccess = isPolicyFull;
+  if (!hasFleetRecordingAccess && effectivePolicy && effectivePolicy.canViewServers !== false) {
+    if (evaluateServerActionDecision(effectivePolicy, '', 'session_recordings') !== 'deny') {
+      hasFleetRecordingAccess = true;
+    } else {
+      if (effectivePolicy.perServerApprovalRules && typeof effectivePolicy.perServerApprovalRules === 'object') {
+        for (const rules of Object.values(effectivePolicy.perServerApprovalRules)) {
+          const r = (rules as any)?.session_recordings;
+          if (r === 'allow' || r === 'require_approval') {
+            hasFleetRecordingAccess = true;
+            break;
+          }
+        }
+      }
+      if (!hasFleetRecordingAccess && effectivePolicy.perServerPermissions && typeof effectivePolicy.perServerPermissions === 'object') {
+        for (const perms of Object.values(effectivePolicy.perServerPermissions)) {
+          if ((perms as any)?.session_recordings === true) {
+            hasFleetRecordingAccess = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  const canView = isPolicyFull || canViewAuditRecordings || hasFleetRecordingAccess;
+
   const permissions = {
-    canView:
-      isPolicyFull ||
-      (effectivePolicy?.canViewSessionRecordings !== undefined
-        ? Boolean(effectivePolicy.canViewSessionRecordings)
-        : hasAuditFallback),
+    canView,
     canPlayback:
       isPolicyFull ||
-      (effectivePolicy?.canPlaybackSessionRecordings !== undefined
-        ? Boolean(effectivePolicy.canPlaybackSessionRecordings)
-        : effectivePolicy?.canViewSessionRecordings !== undefined
-        ? Boolean(effectivePolicy.canViewSessionRecordings)
-        : hasAuditFallback),
+      (canView &&
+        (effectivePolicy?.canPlaybackSessionRecordings !== undefined
+          ? Boolean(effectivePolicy.canPlaybackSessionRecordings)
+          : true)),
     canDownload:
       isPolicyFull ||
-      (effectivePolicy?.canDownloadSessionRecordings !== undefined
-        ? Boolean(effectivePolicy.canDownloadSessionRecordings)
-        : Boolean(effectivePolicy?.canExportAuditLogs || hasAuditFallback)),
-    canDelete: isPolicyFull || Boolean(effectivePolicy?.canDeleteSessionRecordings),
-    canLegalHold: isPolicyFull || Boolean(effectivePolicy?.canManageSessionRecordingLegalHold),
+      (canView &&
+        (effectivePolicy?.canDownloadSessionRecordings !== undefined
+          ? Boolean(effectivePolicy.canDownloadSessionRecordings)
+          : Boolean(effectivePolicy?.canExportAuditLogs))),
+    canDelete: isPolicyFull || (canView && Boolean(effectivePolicy?.canDeleteSessionRecordings)),
+    canLegalHold: isPolicyFull || (canView && Boolean(effectivePolicy?.canManageSessionRecordingLegalHold)),
     canManageSettings:
       isPolicyFull ||
       (effectivePolicy?.canManageSessionRecordingSettings !== undefined
@@ -160,10 +196,15 @@ async function resolveRecordingAuthContext(
 
   return {
     user: userRecord || payload,
+    userId: userRecord?.id || payload.userId || '',
     username: userRecord?.username || payload.username || 'unknown',
+    fullName: userRecord?.fullName || payload.fullName || userRecord?.username || payload.username || 'unknown',
     userRole: userRecord?.role || payload.role || 'User',
     effectivePolicy,
     isSuperAdmin,
+    canApproveActions: isSuperAdmin || Boolean(effectivePolicy?.canApproveActions),
+    canViewAuditRecordings,
+    hasFleetRecordingAccess,
     allowedServerIds,
     permissions,
   };
@@ -173,6 +214,101 @@ function isServerAllowedForContext(ctx: ResolvedRecordingAuthContext, serverId?:
   if (ctx.isSuperAdmin || ctx.allowedServerIds === null) return true;
   if (!serverId) return false;
   return ctx.allowedServerIds.includes(serverId);
+}
+
+function isServerRecordingExplicitlyDenied(policy: any, serverId?: string): boolean {
+  if (!policy || !serverId) return false;
+  const perRule = policy.perServerApprovalRules?.[serverId]?.session_recordings;
+  if (perRule === 'deny') return true;
+  if (perRule === 'allow' || perRule === 'require_approval') return false;
+  const perBool = policy.perServerPermissions?.[serverId]?.session_recordings;
+  if (perBool === false) return true;
+  return false;
+}
+
+async function authorizeServerRecordingAccess(
+  ctx: ResolvedRecordingAuthContext,
+  req: Request,
+  serverId?: string,
+  serverName?: string
+): Promise<{ allowed: boolean; statusCode?: number; body?: any }> {
+  if (ctx.isSuperAdmin) return { allowed: true };
+  if (!serverId) {
+    return ctx.canViewAuditRecordings
+      ? { allowed: true }
+      : { allowed: false, statusCode: 403, body: { error: 'Insufficient permissions to view session recordings' } };
+  }
+  if (!isServerAllowedForContext(ctx, serverId)) {
+    return { allowed: false, statusCode: 403, body: { error: 'Access denied for this server target scope' } };
+  }
+
+  if (isServerRecordingExplicitlyDenied(ctx.effectivePolicy, serverId)) {
+    return {
+      allowed: false,
+      statusCode: 403,
+      body: { error: 'Access denied: Session recordings are explicitly denied for this server in your policy.' },
+    };
+  }
+
+  const perRule = ctx.effectivePolicy?.perServerApprovalRules?.[serverId]?.session_recordings;
+  const perBool = ctx.effectivePolicy?.perServerPermissions?.[serverId]?.session_recordings;
+  const decision = evaluateServerActionDecision(ctx.effectivePolicy, serverId, 'session_recordings');
+
+  if (perRule === 'allow' || (perRule === undefined && perBool === true)) {
+    return { allowed: true };
+  }
+
+  const mustEnforceApproval =
+    perRule === 'require_approval' ||
+    (decision === 'require_approval' && !ctx.canViewAuditRecordings);
+
+  if (mustEnforceApproval) {
+    const providedApprovalId =
+      (req.headers['x-approval-request-id'] as string) ||
+      (typeof req.query.approvalRequestId === 'string' ? req.query.approvalRequestId : undefined) ||
+      undefined;
+    const gateRes = await evaluateApprovalGateForRequest({
+      actor: {
+        userId: ctx.userId,
+        username: ctx.username,
+        fullName: ctx.fullName,
+        role: ctx.userRole,
+        isSuperAdmin: ctx.isSuperAdmin,
+        canApproveActions: ctx.canApproveActions,
+        clientIp: getClientIp(req),
+      },
+      effectivePolicy: ctx.effectivePolicy,
+      entityType: 'server',
+      entityId: serverId,
+      entityName: serverName || serverId,
+      actionKey: 'session_recordings',
+      requestedAction: 'Inspect Server Session Recordings Archive',
+      commandPreview: `session_recordings:${serverId}`,
+      providedApprovalId,
+    });
+    if (gateRes.allowed) {
+      return { allowed: true };
+    }
+    return {
+      allowed: false,
+      statusCode: 403,
+      body: gateRes.gatePayload || {
+        code: 'APPROVAL_REQUIRED',
+        approvalRequired: true,
+        error: 'Manager approval is required to access session recordings for this server.',
+      },
+    };
+  }
+
+  if (decision === 'allow' || ctx.canViewAuditRecordings) {
+    return { allowed: true };
+  }
+
+  return {
+    allowed: false,
+    statusCode: 403,
+    body: { error: 'Insufficient permissions to view session recordings for this server' },
+  };
 }
 
 function sanitizeRecordingForClient(rec: SessionRecordingRecord): SessionRecordingRecord {
@@ -303,6 +439,13 @@ sessionRecordingRouter.get('/session-recordings', async (req: Request, res: Resp
     const pageSize = Math.min(200, Math.max(1, parseInt(String(req.query.pageSize || req.query.limit || '25'), 10) || 25));
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
 
+    if (serverId) {
+      const srvAuth = await authorizeServerRecordingAccess(ctx, req, serverId);
+      if (!srvAuth.allowed) {
+        return res.status(srvAuth.statusCode).json(srvAuth.body);
+      }
+    }
+
     const result = await listSessionRecordings({
       protocol,
       serverId,
@@ -318,10 +461,29 @@ sessionRecordingRouter.get('/session-recordings', async (req: Request, res: Resp
       pageSize,
     });
 
+    let visibleItems = result.items;
+    let visibleTotal = result.total;
+    if (!ctx.isSuperAdmin) {
+      const filtered = visibleItems.filter((rec) => {
+        if (isServerRecordingExplicitlyDenied(ctx.effectivePolicy, rec.serverId)) return false;
+        if (serverId && rec.serverId === serverId) return true;
+        if (ctx.canViewAuditRecordings) {
+          const perRule = ctx.effectivePolicy?.perServerApprovalRules?.[rec.serverId]?.session_recordings;
+          return perRule !== 'require_approval';
+        }
+        return evaluateServerActionDecision(ctx.effectivePolicy, rec.serverId, 'session_recordings') === 'allow';
+      });
+      if (filtered.length !== visibleItems.length) {
+        const dropped = visibleItems.length - filtered.length;
+        visibleItems = filtered;
+        visibleTotal = Math.max(0, visibleTotal - dropped);
+      }
+    }
+
     return res.json({
       success: true,
-      items: result.items.map(sanitizeRecordingForClient),
-      total: result.total,
+      items: visibleItems.map(sanitizeRecordingForClient),
+      total: visibleTotal,
       page,
       pageSize,
       summary: result.summary,
@@ -342,8 +504,9 @@ sessionRecordingRouter.get('/session-recordings/:id', async (req: Request, res: 
 
     const rec = await getSessionRecordingById(req.params.id);
     if (!rec) return res.status(404).json({ error: 'Recording not found' });
-    if (!isServerAllowedForContext(ctx, rec.serverId)) {
-      return res.status(403).json({ error: 'Access denied for this server target scope' });
+    const srvAuth = await authorizeServerRecordingAccess(ctx, req, rec.serverId, rec.serverName);
+    if (!srvAuth.allowed) {
+      return res.status(srvAuth.statusCode).json(srvAuth.body);
     }
 
     const markers = await getSessionRecordingMarkers(rec.id);
@@ -409,8 +572,9 @@ sessionRecordingRouter.get('/session-recordings/:id/stream', async (req: Request
 
     const rec = await getSessionRecordingById(req.params.id);
     if (!rec) return res.status(404).json({ error: 'Recording not found' });
-    if (!isServerAllowedForContext(ctx, rec.serverId)) {
-      return res.status(403).json({ error: 'Access denied for this server target scope' });
+    const srvAuth = await authorizeServerRecordingAccess(ctx, req, rec.serverId, rec.serverName);
+    if (!srvAuth.allowed) {
+      return res.status(srvAuth.statusCode).json(srvAuth.body);
     }
 
     const kind = String(req.query.kind || 'auto');
@@ -502,8 +666,9 @@ sessionRecordingRouter.get('/session-recordings/:id/download', async (req: Reque
 
     const rec = await getSessionRecordingById(req.params.id);
     if (!rec) return res.status(404).json({ error: 'Recording not found' });
-    if (!isServerAllowedForContext(ctx, rec.serverId)) {
-      return res.status(403).json({ error: 'Access denied for this server target scope' });
+    const srvAuth = await authorizeServerRecordingAccess(ctx, req, rec.serverId, rec.serverName);
+    if (!srvAuth.allowed) {
+      return res.status(srvAuth.statusCode).json(srvAuth.body);
     }
 
     const requestedFormat = String(req.query.format || 'auto').toLowerCase();
@@ -577,8 +742,9 @@ sessionRecordingRouter.post('/session-recordings/:id/legal-hold', async (req: Re
 
     const rec = await getSessionRecordingById(req.params.id);
     if (!rec) return res.status(404).json({ error: 'Recording not found' });
-    if (!isServerAllowedForContext(ctx, rec.serverId)) {
-      return res.status(403).json({ error: 'Access denied for this server target scope' });
+    const srvAuth = await authorizeServerRecordingAccess(ctx, req, rec.serverId, rec.serverName);
+    if (!srvAuth.allowed) {
+      return res.status(srvAuth.statusCode).json(srvAuth.body);
     }
 
     const enableHold = Boolean(req.body?.legalHold);
@@ -651,8 +817,9 @@ sessionRecordingRouter.delete('/session-recordings/:id', async (req: Request, re
 
     const rec = await getSessionRecordingById(req.params.id);
     if (!rec) return res.status(404).json({ error: 'Recording not found' });
-    if (!isServerAllowedForContext(ctx, rec.serverId)) {
-      return res.status(403).json({ error: 'Access denied for this server target scope' });
+    const srvAuth = await authorizeServerRecordingAccess(ctx, req, rec.serverId, rec.serverName);
+    if (!srvAuth.allowed) {
+      return res.status(srvAuth.statusCode).json(srvAuth.body);
     }
 
     if (rec.legalHold) {

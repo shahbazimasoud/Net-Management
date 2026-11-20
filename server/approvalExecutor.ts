@@ -20,6 +20,7 @@ const INTERACTIVE_JIT_ACTIONS = new Set([
   'file_explorer',
   'web_configs',
   'inspect_ports',
+  'session_recordings',
 ]);
 
 const STRUCTURED_AUTO_ACTIONS = new Set([

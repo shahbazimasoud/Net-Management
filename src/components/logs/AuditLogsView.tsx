@@ -72,7 +72,13 @@ import {
   CommandChannel,
   AuditReportScheduleConfig,
   AuditStorageStats,
+  AccessPolicy,
 } from '../../types';
+import {
+  isUserSuperAdmin,
+  canUserViewAuditSessionRecordings,
+  canUserViewSessionRecordings,
+} from '../../utils/rbac';
 import {
   loadPortalAuditLogs,
   loadDeviceCommandLogs,
@@ -124,7 +130,10 @@ export interface AuditLogsViewProps {
   onNavigateToRecordingSettings?: () => void;
   initialSection?: ActiveLogSection | null;
   initialServerFilter?: string;
+  initialApprovalRequestId?: string;
   onConsumeInitialFilter?: () => void;
+  effectivePolicy?: AccessPolicy | any | null;
+  currentUser?: any | null;
 }
 
 export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
@@ -133,16 +142,45 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
   onNavigateToRecordingSettings,
   initialSection = null,
   initialServerFilter = '',
+  initialApprovalRequestId = '',
   onConsumeInitialFilter,
+  effectivePolicy = null,
+  currentUser = null,
 }) => {
   const { t, isEn, isRtl } = useLanguage();
-  const [activeSection, setActiveSection] = useState<ActiveLogSection>(initialSection || 'commands');
+  const isSuper = isUserSuperAdmin(currentUser, effectivePolicy);
+  const canViewGeneralAuditLogs = !effectivePolicy || isSuper || Boolean(effectivePolicy.canViewLogs);
+  const canViewRecordingsTab =
+    !effectivePolicy ||
+    isSuper ||
+    canUserViewAuditSessionRecordings(currentUser, effectivePolicy) ||
+    canUserViewSessionRecordings(currentUser, effectivePolicy);
+
+  const [activeSection, setActiveSection] = useState<ActiveLogSection>(() => {
+    if (initialSection === 'recordings' && canViewRecordingsTab) return 'recordings';
+    if (initialSection && initialSection !== 'recordings' && canViewGeneralAuditLogs) return initialSection;
+    if (canViewGeneralAuditLogs) return 'commands';
+    if (canViewRecordingsTab) return 'recordings';
+    return 'commands';
+  });
 
   useEffect(() => {
-    if (initialSection) {
-      setActiveSection(initialSection);
+    if (initialSection === 'recordings' && canViewRecordingsTab) {
+      setActiveSection('recordings');
+      return;
     }
-  }, [initialSection]);
+    if (initialSection && initialSection !== 'recordings' && canViewGeneralAuditLogs) {
+      setActiveSection(initialSection);
+      return;
+    }
+    if (!canViewGeneralAuditLogs && canViewRecordingsTab && activeSection !== 'recordings') {
+      setActiveSection('recordings');
+      return;
+    }
+    if (activeSection === 'recordings' && !canViewRecordingsTab && canViewGeneralAuditLogs) {
+      setActiveSection('commands');
+    }
+  }, [initialSection, canViewGeneralAuditLogs, canViewRecordingsTab, activeSection]);
   const [commandGroupMode, setCommandGroupMode] = useState<CommandGroupMode>('device');
 
   // Logs state
@@ -1272,6 +1310,8 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
       {/* Main Section Navigation Switcher (Two Core Streams) */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-1.5 audit-glass-panel rounded-2xl border border-white/10">
         <div className="flex items-center gap-2 flex-wrap flex-1">
+          {canViewGeneralAuditLogs && (
+            <>
           {/* Section 2 (Commands & Device Logs - Priority) */}
           <button
             onClick={() => {
@@ -1393,19 +1433,23 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
               {reportsList.length}
             </span>
           </button>
+            </>
+          )}
 
           {/* Session Recordings Archive (SSH / RDP / VNC) */}
-          <button
-            onClick={() => setActiveSection('recordings')}
-            className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs md:text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              activeSection === 'recordings'
-                ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/25 border border-cyan-400/40'
-                : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
-            }`}
-          >
-            <Video className={`w-4 h-4 ${activeSection === 'recordings' ? 'text-white' : 'text-cyan-400'}`} />
-            <span>{isEn ? 'Session Recordings' : 'ضبط جلسات ریموت'}</span>
-          </button>
+          {canViewRecordingsTab && (
+            <button
+              onClick={() => setActiveSection('recordings')}
+              className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs md:text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                activeSection === 'recordings'
+                  ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/25 border border-cyan-400/40'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
+              }`}
+            >
+              <Video className={`w-4 h-4 ${activeSection === 'recordings' ? 'text-white' : 'text-cyan-400'}`} />
+              <span>{isEn ? 'Session Recordings' : 'ضبط جلسات ریموت'}</span>
+            </button>
+          )}
         </div>
 
         {/* Timeframe Presets */}
@@ -1436,8 +1480,19 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
         </div>
       </div>
 
+      {!canViewGeneralAuditLogs && !canViewRecordingsTab && (
+        <div className="p-8 rounded-2xl audit-glass-panel border border-rose-500/30 text-center space-y-2">
+          <ShieldAlert className="w-8 h-8 text-rose-400 mx-auto" />
+          <p className="text-sm font-bold text-rose-400">
+            {isEn
+              ? 'Access Denied (RBAC): Your Access Policy does not permit viewing Audit Logs or Session Recordings.'
+              : 'عدم دسترسی (RBAC): پالیسی دسترسی شما مجوز مشاهده لاگ‌های ممیزی یا آرشیو ضبط جلسات را ندارد.'}
+          </p>
+        </div>
+      )}
+
       {/* SECTION 2: DEVICE COMMANDS - With Categorization by Device or User */}
-      {activeSection === 'commands' && (
+      {canViewGeneralAuditLogs && activeSection === 'commands' && (
         <div className="space-y-4">
           {/* Sub-toolbar: Grouping Mode Switcher & Filter Toolbar */}
           <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between p-3.5 rounded-2xl audit-glass-panel border border-white/10">
@@ -2115,7 +2170,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
       )}
 
       {/* SECTION 4: SERVER COMMAND & FLEET ACTIVITY LOGS (PHASE 5) */}
-      {activeSection === 'server_commands' && (
+      {canViewGeneralAuditLogs && activeSection === 'server_commands' && (
         <ServerCommandLogsSection
           isLightMode={isLightMode}
           isEn={isEn}
@@ -2138,7 +2193,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
       )}
 
       {/* SECTION 1: PORTAL & SYSTEM AUDIT LOGS TABLE */}
-      {activeSection === 'portal' && (
+      {canViewGeneralAuditLogs && activeSection === 'portal' && (
         <div className="space-y-4">
           {/* Filters Bar for Portal */}
           <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between p-3.5 rounded-2xl audit-glass-panel border border-white/10">
@@ -2310,7 +2365,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
       )}
 
       {/* SECTION 5: USER LOGIN & SESSION AUDIT REPORTS */}
-      {activeSection === 'logins' && (
+      {canViewGeneralAuditLogs && activeSection === 'logins' && (
         <UserLoginReportsSection
           isLightMode={isLightMode}
           isEn={isEn}
@@ -2344,7 +2399,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
       )}
 
       {/* SECTION 6: BLOCKED USERS & IPs MANAGEMENT */}
-      {activeSection === 'blocked' && (
+      {canViewGeneralAuditLogs && activeSection === 'blocked' && (
         <BlockedAccessManagementSection
           isLightMode={isLightMode}
           isEn={isEn}
@@ -2374,17 +2429,19 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
         />
       )}
 
-      {/* SECTION 3: EMAIL REPORTS & MULTI-SCHEDULE MANAGEMENT */}
-      {activeSection === 'recordings' && (
+      {/* SESSION RECORDINGS ARCHIVE */}
+      {canViewRecordingsTab && activeSection === 'recordings' && (
         <SessionRecordingsSection
           isLightMode={isLightMode}
           initialServerFilter={initialServerFilter}
+          approvalRequestId={initialApprovalRequestId}
           onConsumeInitialFilter={onConsumeInitialFilter}
           onNavigateToSettings={onNavigateToRecordingSettings}
         />
       )}
 
-      {activeSection === 'reports' && (
+      {/* SECTION 3: EMAIL REPORTS & MULTI-SCHEDULE MANAGEMENT */}
+      {canViewGeneralAuditLogs && activeSection === 'reports' && (
         <div className="space-y-5 animate-in fade-in duration-200">
           {/* Section Header Banner */}
           <div className="p-5 rounded-2xl audit-glass-panel border border-white/10 shadow-xl relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">

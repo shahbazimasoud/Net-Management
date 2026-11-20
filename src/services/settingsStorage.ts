@@ -10,6 +10,10 @@ import {
   CustomTopologyStickyNote,
   PanelGeneralSettings
 } from '../types';
+import {
+  canUserViewSessionRecordings,
+  canUserManageSessionRecordingSettings,
+} from '../utils/rbac';
 
 export const STORAGE_KEYS = {
   DEVICE_GROUPS: 'nettopology_device_groups_v1',
@@ -209,6 +213,13 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canSendCommunications: true,
     canSendAnnouncements: false,
     canApproveActions: false,
+    // Session Recording RBAC
+    canViewSessionRecordings: false,
+    canPlaybackSessionRecordings: false,
+    canDownloadSessionRecordings: false,
+    canDeleteSessionRecordings: false,
+    canManageSessionRecordingLegalHold: false,
+    canManageSessionRecordingSettings: false,
   },
   {
     id: 'policy-noc-observer',
@@ -273,6 +284,13 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canSendCommunications: false,
     canSendAnnouncements: false,
     canApproveActions: false,
+    // Session Recording RBAC
+    canViewSessionRecordings: false,
+    canPlaybackSessionRecordings: false,
+    canDownloadSessionRecordings: false,
+    canDeleteSessionRecordings: false,
+    canManageSessionRecordingLegalHold: false,
+    canManageSessionRecordingSettings: false,
   },
   {
     id: 'policy-super-admin',
@@ -341,6 +359,13 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canSendCommunications: true,
     canSendAnnouncements: true,
     canApproveActions: true,
+    // Session Recording RBAC
+    canViewSessionRecordings: true,
+    canPlaybackSessionRecordings: true,
+    canDownloadSessionRecordings: true,
+    canDeleteSessionRecordings: true,
+    canManageSessionRecordingLegalHold: true,
+    canManageSessionRecordingSettings: true,
   },
 ];
 
@@ -1380,7 +1405,10 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
     case 'scanner':
       return Boolean(policy?.canViewScanner);
     case 'logs':
-      return policy?.canViewLogs !== undefined ? Boolean(policy?.canViewLogs) : false;
+      return (
+        (policy?.canViewLogs !== undefined ? Boolean(policy?.canViewLogs) : false) ||
+        canUserViewSessionRecordings(user, policy)
+      );
     case 'licenses-contracts':
     case 'licenses':
       return policy?.canViewLicenses !== undefined ? Boolean(policy?.canViewLicenses) : true;
@@ -1390,6 +1418,8 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
       return policy?.canViewCommunications !== undefined ? Boolean(policy?.canViewCommunications) : true;
     case 'profile-security':
       return true;
+    case 'settings-session-recording':
+      return canUserManageSessionRecordingSettings(user, policy);
     case 'settings':
     case 'general-settings':
     case 'settings-services':

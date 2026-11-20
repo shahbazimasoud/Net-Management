@@ -1098,6 +1098,23 @@ export const SERVER_ACTIONS_CATALOG: ServerActionDescriptor[] = [
     tooltipExampleEn: 'Enabled for Infrastructure Administrators and DevOps leads; disabled for read-only NOC operators.',
     tooltipExampleFa: 'فعال برای مدیران زیرساخت و دواپس؛ غیرفعال برای اپراتورهای مانیتورینگ NOC و کلاینت‌ها.',
   },
+  {
+    key: 'session_recordings',
+    labelEn: 'Session Recordings Archive (SSH / RDP / VNC)',
+    labelFa: 'آرشیو ضبط جلسات سرور (SSH / RDP / VNC)',
+    shortLabelEn: 'Session Recordings',
+    shortLabelFa: 'ضبط جلسات',
+    descriptionEn: 'Access recorded SSH terminal replays and RDP/VNC visual desktop session archives for servers in scope.',
+    descriptionFa: 'دسترسی به آرشیو جلسات ضبط‌شده ترمینال SSH و ویدیوی ریموت دسکتاپ RDP/VNC برای سرورهای تحت پوشش.',
+    category: 'management',
+    danger: true,
+    tooltipWhatEn: 'Controls access to the Session Recordings action on remote servers (both fleet toolbar and per-server 3-dots menu) with tri-state Allow / Require Approval / Deny enforcement.',
+    tooltipWhatFa: 'دسترسی به گزینه «ضبط جلسات» روی ناوگان سرورها (نوار ابزار بالا و منوی سه‌نقطه هر سرور) را با وضعیت سه‌حالته مجاز / نیاز به تایید / مسدود کنترل می‌کند.',
+    tooltipWhyEn: 'Recorded SSH and RDP/VNC sessions may contain sensitive administrative screens, logs, and operational procedures; gating them per server or with manager approval prevents unauthorized inspection.',
+    tooltipWhyFa: 'جلسات ضبط‌شده SSH و ریموت دسکتاپ ممکن است حاوی اطلاعات حساس مدیریتی باشند؛ کنترل سه‌حالته یا محدودسازی برای هر سرور از مشاهده غیرمجاز جلوگیری می‌کند.',
+    tooltipExampleEn: 'Set to Allow for Security Auditors, Require Approval for Team Leads on production servers, and Deny for Helpdesk.',
+    tooltipExampleFa: 'برای ممیزان امنیت روی «مجاز»، برای سرپرستان روی سرورهای حساس «نیاز به تایید» و برای پشتیبانی عادی «مسدود» تنظیم شود.',
+  },
 ];
 
 export const FULL_SERVER_PERMISSIONS: ServerActionPermissions = {
@@ -1112,6 +1129,7 @@ export const FULL_SERVER_PERMISSIONS: ServerActionPermissions = {
   export_servers: true,
   import_servers: true,
   add_server: true,
+  session_recordings: true,
 };
 
 export const RESTRICTED_SERVER_PERMISSIONS: ServerActionPermissions = {
@@ -1126,6 +1144,7 @@ export const RESTRICTED_SERVER_PERMISSIONS: ServerActionPermissions = {
   export_servers: false,
   import_servers: false,
   add_server: false,
+  session_recordings: false,
 };
 
 function normalizeActionDecision(val: any): ActionAccessDecision | null {
@@ -1266,6 +1285,11 @@ export function evaluateServerActionDecision(
   if (action === 'import_servers') {
     if (policy.canImportServers === false) return 'deny';
     return Boolean(policy.canImportServers || policy.canManageDevices || isSuperAdmin) ? 'allow' : 'deny';
+  }
+  if (action === 'session_recordings') {
+    if (policy.canViewSessionRecordings === false) return 'deny';
+    if (policy.canViewSessionRecordings === true) return 'allow';
+    return 'deny';
   }
 
   // Safe defaults for non-superadmin policies without explicit grants:
@@ -1946,7 +1970,11 @@ export function isLicenseAttachmentDeletePermitted(
 // Remote Session Recording & Playback RBAC Helpers
 // ============================================================
 
-export function canUserViewSessionRecordings(
+/**
+ * Evaluates whether the user has explicit access to the "Session Recordings"
+ * section inside Audit & Command Logs (Navigation Menus & Panel Views Governance).
+ */
+export function canUserViewAuditSessionRecordings(
   user?: { username?: string; role?: string } | null,
   policy?: AccessPolicy | any | null
 ): boolean {
@@ -1954,7 +1982,48 @@ export function canUserViewSessionRecordings(
   if (!policy) return false;
   if (policy.canViewSessionRecordings === false) return false;
   if (policy.canViewSessionRecordings === true) return true;
-  return policy.canViewLogs !== false;
+  return Boolean(policy.canViewLogs);
+}
+
+/**
+ * Evaluates whether the policy grants server-fleet Session Recordings access
+ * either via default server rules/permissions or any per-server override.
+ */
+export function hasAnyServerSessionRecordingsAccess(
+  user?: { username?: string; role?: string } | null,
+  policy?: AccessPolicy | any | null
+): boolean {
+  if (isUserSuperAdmin(user, policy)) return true;
+  if (!policy) return false;
+  if (policy.canViewServers === false) return false;
+
+  const defaultDecision = evaluateServerActionDecision(policy, '', 'session_recordings');
+  if (defaultDecision !== 'deny') return true;
+
+  if (policy.perServerApprovalRules && typeof policy.perServerApprovalRules === 'object') {
+    for (const rules of Object.values(policy.perServerApprovalRules)) {
+      const r = (rules as any)?.session_recordings;
+      if (r === 'allow' || r === 'require_approval') return true;
+    }
+  }
+  if (policy.perServerPermissions && typeof policy.perServerPermissions === 'object') {
+    for (const perms of Object.values(policy.perServerPermissions)) {
+      if ((perms as any)?.session_recordings === true) return true;
+    }
+  }
+  return false;
+}
+
+export function canUserViewSessionRecordings(
+  user?: { username?: string; role?: string } | null,
+  policy?: AccessPolicy | any | null
+): boolean {
+  if (isUserSuperAdmin(user, policy)) return true;
+  if (!policy) return false;
+  return (
+    canUserViewAuditSessionRecordings(user, policy) ||
+    hasAnyServerSessionRecordingsAccess(user, policy)
+  );
 }
 
 export function canUserPlaybackSessionRecordings(

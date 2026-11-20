@@ -9,6 +9,7 @@ import type {
 function getAuthToken(): string {
   try {
     return (
+      sessionStorage.getItem('nettopology_auth_token_v1') ||
       localStorage.getItem('nettopology_auth_token_v1') ||
       localStorage.getItem('nettopology_auth_token') ||
       localStorage.getItem('token') ||
@@ -119,6 +120,7 @@ export interface SessionRecordingQueryFilters {
   search?: string;
   page?: number;
   pageSize?: number;
+  approvalRequestId?: string;
 }
 
 export async function fetchSessionRecordings(
@@ -136,10 +138,16 @@ export async function fetchSessionRecordings(
   if (filters.search) params.set('search', filters.search);
   if (filters.page) params.set('page', String(filters.page));
   if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
+  if (filters.approvalRequestId) params.set('approvalRequestId', filters.approvalRequestId);
+
+  const extraHeaders: Record<string, string> = {};
+  if (filters.approvalRequestId) {
+    extraHeaders['X-Approval-Request-Id'] = filters.approvalRequestId;
+  }
 
   const qs = params.toString();
   const res = await fetch(`/api/session-recordings${qs ? `?${qs}` : ''}`, {
-    headers: buildAuthHeaders(),
+    headers: buildAuthHeaders(extraHeaders),
   });
   return handleJsonResponse(res);
 }

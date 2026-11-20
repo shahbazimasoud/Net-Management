@@ -109,6 +109,7 @@ import {
   evaluateDeviceActionDecision,
   isUserSuperAdmin,
   isTemplateApplyPermitted,
+  canUserManageSessionRecordingSettings,
 } from './utils/rbac';
 import { ApprovalGateModal } from './components/common/ApprovalGateModal';
 import {
@@ -141,11 +142,18 @@ export default function App() {
   const [focusedProfileSubTab, setFocusedProfileSubTab] = useState<ProfileSubTab | null>(null);
   const [focusedAuditSection, setFocusedAuditSection] = useState<'recordings' | null>(null);
   const [focusedAuditServerId, setFocusedAuditServerId] = useState<string>('');
-  const openServerRecordings = useCallback((serverId?: string) => {
+  const [focusedAuditApprovalId, setFocusedAuditApprovalId] = useState<string>('');
+  const openServerRecordings = useCallback((serverId?: string, approvalRequestId?: string) => {
     setFocusedAuditSection('recordings');
     setFocusedAuditServerId(serverId || '');
+    setFocusedAuditApprovalId(approvalRequestId || '');
     setActiveTab('logs');
   }, []);
+  useEffect(() => {
+    if (activeTab !== 'logs' && focusedAuditApprovalId) {
+      setFocusedAuditApprovalId('');
+    }
+  }, [activeTab, focusedAuditApprovalId]);
   const openNotificationSettings = useCallback(() => {
     setFocusedProfileSubTab('notifications');
     setActiveTab('profile-security');
@@ -1864,10 +1872,13 @@ export default function App() {
           {activeTab === 'logs' && (
             <AuditLogsView
               isLightMode={isLightMode}
+              effectivePolicy={effectivePolicy}
+              currentUser={user}
               onNavigateToRetentionSettings={() => setActiveTab('settings-log-retention')}
               onNavigateToRecordingSettings={() => setActiveTab('settings-session-recording')}
               initialSection={focusedAuditSection}
               initialServerFilter={focusedAuditServerId}
+              initialApprovalRequestId={focusedAuditApprovalId}
               onConsumeInitialFilter={() => {
                 setFocusedAuditSection(null);
                 setFocusedAuditServerId('');
@@ -1945,22 +1956,24 @@ export default function App() {
             />
           )}
 
-          {/* Strict RBAC Guard: Settings menu and all its sub-items are exclusively reserved for Super Admin */}
-          {!isSuperAdmin && (activeTab.startsWith('settings') || activeTab === 'general-settings' || activeTab === 'settings') && (
-            <div className="p-8 text-center text-slate-400">
-              <p className="text-rose-400 font-bold mb-3">
-                {isEn
-                  ? 'Access Denied: Only Super Administrator can access Settings and system configuration.'
-                  : 'عدم دسترسی: منوی تنظیمات و مدیریت سیستم منحصراً برای مدیر ارشد (Super Admin) قابل دسترسی است.'}
-              </p>
-              <button
-                onClick={() => setActiveTab('dashboard')}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs hover:bg-indigo-500 cursor-pointer"
-              >
-                {isEn ? 'Return to Dashboard' : 'بازگشت به داشبورد'}
-              </button>
-            </div>
-          )}
+          {/* Strict RBAC Guard: Settings menu and its sub-items are reserved for Super Admin (except delegated Session Recording Settings) */}
+          {!isSuperAdmin &&
+            !(activeTab === 'settings-session-recording' && canUserManageSessionRecordingSettings(user, effectivePolicy)) &&
+            (activeTab.startsWith('settings') || activeTab === 'general-settings' || activeTab === 'settings') && (
+              <div className="p-8 text-center text-slate-400">
+                <p className="text-rose-400 font-bold mb-3">
+                  {isEn
+                    ? 'Access Denied: Only Super Administrator can access Settings and system configuration.'
+                    : 'عدم دسترسی: منوی تنظیمات و مدیریت سیستم منحصراً برای مدیر ارشد (Super Admin) قابل دسترسی است.'}
+                </p>
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs hover:bg-indigo-500 cursor-pointer"
+                >
+                  {isEn ? 'Return to Dashboard' : 'بازگشت به داشبورد'}
+                </button>
+              </div>
+            )}
 
           {(activeTab === 'general-settings' || activeTab === 'settings') && isSuperAdmin && (
             <GeneralSettingsView
@@ -2006,12 +2019,13 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'settings-session-recording' && isSuperAdmin && (
-            <SessionRecordingSettingsView
-              isLightMode={isLightMode}
-              onOpenRecordingsArchive={() => openServerRecordings('')}
-            />
-          )}
+          {activeTab === 'settings-session-recording' &&
+            (isSuperAdmin || canUserManageSessionRecordingSettings(user, effectivePolicy)) && (
+              <SessionRecordingSettingsView
+                isLightMode={isLightMode}
+                onOpenRecordingsArchive={() => openServerRecordings('')}
+              />
+            )}
 
           {activeTab === 'settings-ad' && isSuperAdmin && (
             <div className="max-w-7xl mx-auto px-2 sm:px-4 py-3">

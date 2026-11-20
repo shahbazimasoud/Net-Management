@@ -43,6 +43,7 @@ import type {
 interface SessionRecordingsSectionProps {
   isLightMode?: boolean;
   initialServerFilter?: string;
+  approvalRequestId?: string;
   onConsumeInitialFilter?: () => void;
   onNavigateToSettings?: () => void;
 }
@@ -50,6 +51,7 @@ interface SessionRecordingsSectionProps {
 export const SessionRecordingsSection: React.FC<SessionRecordingsSectionProps> = ({
   isLightMode = false,
   initialServerFilter = '',
+  approvalRequestId = '',
   onConsumeInitialFilter,
   onNavigateToSettings,
 }) => {
@@ -124,6 +126,7 @@ export const SessionRecordingsSection: React.FC<SessionRecordingsSectionProps> =
         startDate: startDate || undefined,
         endDate: endDate || undefined,
         search: search.trim() || undefined,
+        approvalRequestId: approvalRequestId || undefined,
         page: page + 1,
         pageSize,
       });
@@ -139,7 +142,7 @@ export const SessionRecordingsSection: React.FC<SessionRecordingsSectionProps> =
     } finally {
       setLoading(false);
     }
-  }, [protocolFilter, serverFilter, legalHoldFilter, highRiskOnly, startDate, endDate, search, page, isEn]);
+  }, [protocolFilter, serverFilter, legalHoldFilter, highRiskOnly, startDate, endDate, search, approvalRequestId, page, isEn]);
 
   useEffect(() => {
     loadRecordings();

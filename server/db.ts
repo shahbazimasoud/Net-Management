@@ -570,6 +570,7 @@ export const DEFAULT_ACCESS_POLICIES = [
       power_control: false,
       edit_properties: false,
       delete_server: false,
+      session_recordings: false,
     },
     perServerPermissions: {},
     defaultDevicePermissions: {
@@ -649,6 +650,7 @@ export const DEFAULT_ACCESS_POLICIES = [
       power_control: false,
       edit_properties: false,
       delete_server: false,
+      session_recordings: false,
     },
     perServerPermissions: {},
     defaultDevicePermissions: {
@@ -736,7 +738,15 @@ export const DEFAULT_ACCESS_POLICIES = [
       delete_server: true,
       export_servers: true,
       import_servers: true,
+      add_server: true,
+      session_recordings: true,
     },
+    canViewSessionRecordings: true,
+    canPlaybackSessionRecordings: true,
+    canDownloadSessionRecordings: true,
+    canDeleteSessionRecordings: true,
+    canManageSessionRecordingLegalHold: true,
+    canManageSessionRecordingSettings: true,
     perServerPermissions: {},
     defaultDevicePermissions: {
       web_configs: true,
@@ -4336,10 +4346,10 @@ export async function getAccessPolicies(): Promise<any[]> {
         const pData = safeParseJsonValue<Record<string, any>>(r.policy_data, {});
         const defaultPerms = pData.defaultServerPermissions || (
           r.id === 'policy-super-admin' || (r.priority || 0) >= 100
-            ? { terminal: true, file_explorer: true, server_management: true, web_management: true, database_management: true, power_control: true, edit_properties: true, delete_server: true }
+            ? { terminal: true, file_explorer: true, server_management: true, web_management: true, database_management: true, power_control: true, edit_properties: true, delete_server: true, session_recordings: true }
             : r.id === 'policy-noc-observer'
-            ? { terminal: false, file_explorer: false, server_management: true, web_management: true, database_management: true, power_control: false, edit_properties: false, delete_server: false }
-            : { terminal: false, file_explorer: true, server_management: true, web_management: false, database_management: false, power_control: false, edit_properties: false, delete_server: false }
+            ? { terminal: false, file_explorer: false, server_management: true, web_management: true, database_management: true, power_control: false, edit_properties: false, delete_server: false, session_recordings: false }
+            : { terminal: false, file_explorer: true, server_management: true, web_management: false, database_management: false, power_control: false, edit_properties: false, delete_server: false, session_recordings: false }
         );
         const defaultDevicePerms = pData.defaultDevicePermissions || (
           r.id === 'policy-super-admin' || (r.priority || 0) >= 100
@@ -4386,10 +4396,10 @@ export async function getAccessPolicies(): Promise<any[]> {
     const pData = p.policy_data && typeof p.policy_data === 'object' ? p.policy_data : {};
     const defaultPerms = p.defaultServerPermissions || pData.defaultServerPermissions || (
       p.id === 'policy-super-admin' || (p.priority || 0) >= 100
-        ? { terminal: true, file_explorer: true, server_management: true, web_management: true, database_management: true, power_control: true, edit_properties: true, delete_server: true }
+        ? { terminal: true, file_explorer: true, server_management: true, web_management: true, database_management: true, power_control: true, edit_properties: true, delete_server: true, session_recordings: true }
         : p.id === 'policy-noc-observer'
-        ? { terminal: false, file_explorer: false, server_management: true, web_management: true, database_management: true, power_control: false, edit_properties: false, delete_server: false }
-        : { terminal: false, file_explorer: true, server_management: true, web_management: false, database_management: false, power_control: false, edit_properties: false, delete_server: false }
+        ? { terminal: false, file_explorer: false, server_management: true, web_management: true, database_management: true, power_control: false, edit_properties: false, delete_server: false, session_recordings: false }
+        : { terminal: false, file_explorer: true, server_management: true, web_management: false, database_management: false, power_control: false, edit_properties: false, delete_server: false, session_recordings: false }
     );
     const defaultDevicePerms = p.defaultDevicePermissions || pData.defaultDevicePermissions || (
       p.id === 'policy-super-admin' || (p.priority || 0) >= 100
@@ -4917,6 +4927,12 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canBatchOperate: false,
       canExportBackup: false,
       canImportBackup: false,
+      canViewSessionRecordings: false,
+      canPlaybackSessionRecordings: false,
+      canDownloadSessionRecordings: false,
+      canDeleteSessionRecordings: false,
+      canManageSessionRecordingLegalHold: false,
+      canManageSessionRecordingSettings: false,
       defaultServerApprovalRules: {},
       perServerApprovalRules: {},
       defaultDeviceApprovalRules: {},
@@ -5260,7 +5276,14 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
         export_servers: true,
         import_servers: true,
         add_server: true,
+        session_recordings: true,
       },
+      canViewSessionRecordings: true,
+      canPlaybackSessionRecordings: true,
+      canDownloadSessionRecordings: true,
+      canDeleteSessionRecordings: true,
+      canManageSessionRecordingLegalHold: true,
+      canManageSessionRecordingSettings: true,
       perServerPermissions: {},
       defaultDevicePermissions: {
         web_configs: true,
@@ -5362,7 +5385,14 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       power_control: false,
       edit_properties: false,
       delete_server: false,
+      session_recordings: false,
     },
+    canViewSessionRecordings: false,
+    canPlaybackSessionRecordings: false,
+    canDownloadSessionRecordings: false,
+    canDeleteSessionRecordings: false,
+    canManageSessionRecordingLegalHold: false,
+    canManageSessionRecordingSettings: false,
     perServerPermissions: {},
     defaultDevicePermissions: {
       web_configs: false,
@@ -5506,6 +5536,11 @@ export function evaluateServerActionDecision(
   if (action === 'import_servers') {
     if (policy.canImportServers === false) return 'deny';
     return Boolean(policy.canImportServers || policy.canManageDevices || isSuperAdmin) ? 'allow' : 'deny';
+  }
+  if (action === 'session_recordings') {
+    if (policy.canViewSessionRecordings === false) return 'deny';
+    if (policy.canViewSessionRecordings === true) return 'allow';
+    return 'deny';
   }
 
   if (
