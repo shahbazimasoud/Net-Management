@@ -208,6 +208,14 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewContracts: true,
     canManageContracts: false,
     canDeleteContracts: false,
+    canViewSslCertificates: false,
+    canManageSslCertificates: false,
+    canAddSslCertificates: false,
+    canEditSslCertificates: false,
+    canDeleteSslCertificates: false,
+    canCheckSslCertificates: false,
+    targetSslScope: 'all',
+    targetSslIds: [],
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: true,
@@ -279,6 +287,14 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewContracts: true,
     canManageContracts: false,
     canDeleteContracts: false,
+    canViewSslCertificates: true,
+    canManageSslCertificates: false,
+    canAddSslCertificates: false,
+    canEditSslCertificates: false,
+    canDeleteSslCertificates: false,
+    canCheckSslCertificates: true,
+    targetSslScope: 'all',
+    targetSslIds: [],
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: false,
@@ -354,6 +370,14 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewContracts: true,
     canManageContracts: true,
     canDeleteContracts: true,
+    canViewSslCertificates: true,
+    canManageSslCertificates: true,
+    canAddSslCertificates: true,
+    canEditSslCertificates: true,
+    canDeleteSslCertificates: true,
+    canCheckSslCertificates: true,
+    targetSslScope: 'all',
+    targetSslIds: [],
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: true,
@@ -1414,6 +1438,8 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
       return policy?.canViewLicenses !== undefined ? Boolean(policy?.canViewLicenses) : true;
     case 'contracts':
       return policy?.canViewContracts !== undefined ? Boolean(policy?.canViewContracts) : true;
+    case 'ssl-certificates':
+      return policy?.canViewSslCertificates !== undefined ? Boolean(policy?.canViewSslCertificates) : true;
     case 'communications':
       return policy?.canViewCommunications !== undefined ? Boolean(policy?.canViewCommunications) : true;
     case 'profile-security':

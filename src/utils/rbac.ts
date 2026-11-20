@@ -1967,6 +1967,73 @@ export function isLicenseAttachmentDeletePermitted(
 }
 
 // ============================================================
+// SSL / TLS Certificates Lifecycle RBAC Helpers
+// ============================================================
+
+export function isSslCertificateAccessPermitted(
+  certId: string,
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (policy.canViewSslCertificates === false) return false;
+  if (policy.targetSslScope === 'specific') {
+    const allowed = Array.isArray(policy.targetSslIds) ? policy.targetSslIds : [];
+    return allowed.includes(certId);
+  }
+  return true;
+}
+
+export function isSslCertificateCreatePermitted(
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (policy.canViewSslCertificates === false) return false;
+  if (policy.canAddSslCertificates === false) return false;
+  return Boolean(policy.canAddSslCertificates ?? policy.canManageSslCertificates ?? true);
+}
+
+export function isSslCertificateEditPermitted(
+  certId: string,
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (!isSslCertificateAccessPermitted(certId, policy, isSuperAdmin)) return false;
+  if (policy.canEditSslCertificates === false && policy.canManageSslCertificates === false) return false;
+  return Boolean(policy.canEditSslCertificates ?? policy.canManageSslCertificates ?? true);
+}
+
+export function isSslCertificateDeletePermitted(
+  certId: string,
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (!isSslCertificateAccessPermitted(certId, policy, isSuperAdmin)) return false;
+  if (policy.canDeleteSslCertificates === false) return false;
+  return Boolean(policy.canDeleteSslCertificates ?? true);
+}
+
+export function isSslCertificateCheckPermitted(
+  certId: string | null,
+  policy?: AccessPolicy | any | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (policy.canViewSslCertificates === false) return false;
+  if (certId && !isSslCertificateAccessPermitted(certId, policy, isSuperAdmin)) return false;
+  if (policy.canCheckSslCertificates === false) return false;
+  return Boolean(policy.canCheckSslCertificates ?? policy.canEditSslCertificates ?? policy.canManageSslCertificates ?? true);
+}
+
+// ============================================================
 // Remote Session Recording & Playback RBAC Helpers
 // ============================================================
 

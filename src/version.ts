@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.452.0';
+export const APP_VERSION = '1.453.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.453.0',
+    releaseDate: '2026-11-20',
+    type: 'minor',
+    title: 'افزودن ماژول کامل پایش و مدیریت گواهینامه‌های SSL / TLS، ارتقای منوی چرخه عمر، کنترل دسترسی (RBAC) و لاگ ممیزی',
+    title_en: 'Add Full-Stack SSL / TLS Certificate Expiry Monitor, Renamed Lifecycle Menu, RBAC Governance & Audit Logging',
+    changes: [
+      'تغییر نام منوی والد «Contracts & Licenses» به «قراردادها، لایسنس و SSL (Contracts, Licenses & SSL)» با برچسب `LIFECYCLE` و افزودن زیرمنوی جدید «گواهینامه‌های SSL / TLS».',
+      'پیاده‌سازی سرویس کامل بک‌اند (`server/sslCertificateService.ts`) و جدول PostgreSQL (`ssl_certificates`) با پشتیبانی از اتصال زنده TLS بومی (SNI، پورت دلخواه، استخراج زنجیره گواهینامه، الگوریتم کلید، SANها و وضعیت اعتماد CA) و تحلیل گواهینامه‌های عمومی PEM با مسدودسازی خودکار کلیدهای خصوصی.',
+      'افزودن موتور پایش خودکار روزانه در پس‌زمینه (بازه قابل تنظیم با پیش‌فرض ۲۴ ساعته)، دکمه «بررسی همه گواهینامه‌ها» (Check All Now) به صورت گروهی، بررسی تکی لحظه‌ای، تاریخچه بررسی‌ها، خروجی CSV و ارسال هشدار انقضا از طریق ایمیل SMTP و اعلان پنل.',
+      'افزودن کنترل دسترسی جامع در مودال Access Policy شامل دسترسی مشاهده صفحه در بخش Navigation Governance، محدوده دسترسی آیتم‌به‌آیتم (`All` یا انتخاب گواهینامه‌های مشخص) و ۵ مجوز جزئی مشاهده، افزودن، ویرایش، بررسی زنده و حذف، همراه با ثبت کامل تمامی رخدادها در Audit Logs با دسته‌بندی `ssl_certificates`.'
+    ],
+    changes_en: [
+      'Renamed the parent sidebar menu from "Contracts & Licenses" to "Contracts, Licenses & SSL" (`LIFECYCLE`) and added the new "SSL / TLS Certificates" sub-module.',
+      'Implemented full-stack backend service (`server/sslCertificateService.ts`) and PostgreSQL `ssl_certificates` table supporting native live TLS inspection (custom port, SNI, full certificate chain, SANs, key strength, CA trust) and public X.509 PEM parsing with strict private-key rejection.',
+      'Added automated daily background expiry scheduler (configurable interval, 24h default), bulk "Check All Now" action, single live check, check history timeline, CSV export, and staged SMTP email + in-app expiry alerts.',
+      'Integrated full RBAC governance in Access Policy Modal (navigation visibility toggle, item-level All/Specific certificate scoping, and granular View/Add/Edit/Check/Delete permissions) plus comprehensive Audit Log recording under the `ssl_certificates` category.'
+    ]
+  },
   {
     version: '1.452.0',
     releaseDate: '2026-11-20',

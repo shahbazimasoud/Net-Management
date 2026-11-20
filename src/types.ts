@@ -1052,6 +1052,16 @@ export interface AccessPolicy {
   canEditLicenses?: boolean;
   canDeleteLicenseAttachments?: boolean;
 
+  // Granular SSL / TLS Certificates Access & Scope
+  canViewSslCertificates?: boolean;
+  canManageSslCertificates?: boolean;
+  canAddSslCertificates?: boolean;
+  canEditSslCertificates?: boolean;
+  canDeleteSslCertificates?: boolean;
+  canCheckSslCertificates?: boolean;
+  targetSslScope?: 'all' | 'specific';
+  targetSslIds?: string[];
+
   // 9. Communications, Notifications, Profile Security & Two-Step Approvals (RBAC)
   canViewCommunications?: boolean;
   canSendCommunications?: boolean;
@@ -2054,7 +2064,10 @@ export type AuditLogCategory =
   | 'backup_recovery'
   | 'topology_network'
   | 'port_interface'
-  | 'system_auth';
+  | 'system_auth'
+  | 'licenses'
+  | 'contracts'
+  | 'ssl_certificates';
 
 export type AuditLogSeverity = 'info' | 'notice' | 'warning' | 'critical';
 export type AuditLogStatus = 'success' | 'failed' | 'denied';
@@ -2066,7 +2079,7 @@ export interface AuditActor {
 }
 
 export interface AuditTarget {
-  type: 'user' | 'group' | 'policy' | 'device' | 'backup' | 'map' | 'port' | 'template';
+  type: 'user' | 'group' | 'policy' | 'device' | 'backup' | 'map' | 'port' | 'template' | 'license' | 'contract' | 'ssl_certificate';
   id?: string;
   name: string;
   ip?: string;
@@ -8954,6 +8967,140 @@ export interface SessionRecordingListResponse {
     canManageSettings: boolean;
   };
 }
+
+// =========================================================================
+// SSL / TLS Certificate Lifecycle & Expiration Monitoring
+// =========================================================================
+
+export type SslCertificateSourceType = 'domain' | 'manual_pem';
+
+export type SslCertificateStatus =
+  | 'valid'
+  | 'expiring_soon'
+  | 'critical'
+  | 'expired'
+  | 'check_failed'
+  | 'inactive';
+
+export type SslCertificateEnvironment = 'production' | 'staging' | 'internal' | 'edge' | 'other';
+
+export interface SslCertificateChainEntry {
+  subject: string;
+  issuer: string;
+  validFrom?: string;
+  validTo?: string;
+  fingerprintSha256?: string;
+}
+
+export interface SslCertificateCheckHistoryEntry {
+  checkedAt: string;
+  status: SslCertificateStatus;
+  daysRemaining: number | null;
+  validTo?: string;
+  tlsProtocol?: string;
+  cipherName?: string;
+  authorized?: boolean;
+  durationMs?: number;
+  error?: string;
+  triggeredBy?: string;
+}
+
+export interface SslCertificateItem {
+  id: string;
+  title: string;
+  sourceType: SslCertificateSourceType;
+  domain?: string;
+  port?: number;
+  sniHost?: string;
+  environment?: SslCertificateEnvironment;
+  ownerName?: string;
+  ownerEmail?: string;
+  department?: string;
+  isActive?: boolean;
+  autoCheckEnabled?: boolean;
+  checkIntervalHours?: number;
+  alertDays?: number[];
+  notifyEmails?: string[];
+  notes?: string;
+  pemCertificate?: string;
+
+  // Extracted / Inspected X.509 & TLS Metadata
+  validFrom?: string;
+  validTo?: string;
+  daysRemaining?: number | null;
+  status: SslCertificateStatus;
+  subjectCN?: string;
+  subjectOrg?: string;
+  issuerCN?: string;
+  issuerOrg?: string;
+  serialNumber?: string;
+  fingerprintSha256?: string;
+  sans?: string[];
+  tlsProtocol?: string;
+  cipherName?: string;
+  keyAlgorithm?: string;
+  keySize?: number;
+  authorized?: boolean;
+  authorizationError?: string;
+  selfSigned?: boolean;
+  chainSummary?: SslCertificateChainEntry[];
+
+  // Check & Alert Tracking
+  lastCheckedAt?: string;
+  lastCheckDurationMs?: number;
+  lastCheckError?: string;
+  lastAlertSentDay?: number;
+  lastAlertSentAt?: string;
+  checkHistory?: SslCertificateCheckHistoryEntry[];
+
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+  updatedBy?: string;
+}
+
+export interface SslCertificatesSummary {
+  total: number;
+  valid: number;
+  expiring_soon: number;
+  critical: number;
+  expired: number;
+  check_failed: number;
+  inactive: number;
+  autoCheckEnabled: number;
+  lastGlobalCheckAt?: string | null;
+}
+
+export interface SslCertificateProbeResult {
+  success: boolean;
+  sourceType: SslCertificateSourceType;
+  domain?: string;
+  port?: number;
+  sniHost?: string;
+  validFrom?: string;
+  validTo?: string;
+  daysRemaining: number | null;
+  status: SslCertificateStatus;
+  subjectCN?: string;
+  subjectOrg?: string;
+  issuerCN?: string;
+  issuerOrg?: string;
+  serialNumber?: string;
+  fingerprintSha256?: string;
+  sans?: string[];
+  tlsProtocol?: string;
+  cipherName?: string;
+  keyAlgorithm?: string;
+  keySize?: number;
+  authorized?: boolean;
+  authorizationError?: string;
+  selfSigned?: boolean;
+  chainSummary?: SslCertificateChainEntry[];
+  pemCertificate?: string;
+  durationMs?: number;
+  error?: string;
+}
+
 
 
 

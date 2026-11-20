@@ -311,6 +311,7 @@ export interface FallbackStore {
   session_recording_settings?: any;
   remote_session_recordings?: any[];
   session_recording_markers?: any[];
+  ssl_certificates?: any[];
 }
 
 export interface SystemSecurityKeysRecord {
@@ -549,6 +550,14 @@ export const DEFAULT_ACCESS_POLICIES = [
     canEditLicenses: false,
     canDeleteLicenses: false,
     canDeleteLicenseAttachments: false,
+    canViewSslCertificates: false,
+    canManageSslCertificates: false,
+    targetSslScope: 'all',
+    targetSslIds: [],
+    canAddSslCertificates: false,
+    canEditSslCertificates: false,
+    canDeleteSslCertificates: false,
+    canCheckSslCertificates: false,
     // Device & Port Actions
     terminalAccess: 'none',
     canToggleAdminStatus: false,
@@ -629,6 +638,14 @@ export const DEFAULT_ACCESS_POLICIES = [
     canEditLicenses: false,
     canDeleteLicenses: false,
     canDeleteLicenseAttachments: false,
+    canViewSslCertificates: true,
+    canManageSslCertificates: false,
+    targetSslScope: 'all',
+    targetSslIds: [],
+    canAddSslCertificates: false,
+    canEditSslCertificates: false,
+    canDeleteSslCertificates: false,
+    canCheckSslCertificates: true,
     // Device & Port Actions
     terminalAccess: 'view_only',
     canToggleAdminStatus: false,
@@ -709,6 +726,14 @@ export const DEFAULT_ACCESS_POLICIES = [
     canEditLicenses: true,
     canDeleteLicenses: true,
     canDeleteLicenseAttachments: true,
+    canViewSslCertificates: true,
+    canManageSslCertificates: true,
+    targetSslScope: 'all',
+    targetSslIds: [],
+    canAddSslCertificates: true,
+    canEditSslCertificates: true,
+    canDeleteSslCertificates: true,
+    canCheckSslCertificates: true,
     // Device & Port Actions
     terminalAccess: 'full',
     canToggleAdminStatus: true,
@@ -1779,6 +1804,18 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
         pData.canEditLicenses = isSuper;
         pData.canDeleteLicenses = isSuper;
         pData.canDeleteLicenseAttachments = isSuper;
+        changed = true;
+      }
+      if (pData.canViewSslCertificates === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        pData.canViewSslCertificates = isSuper || r.id === 'policy-noc-observer';
+        pData.canManageSslCertificates = isSuper;
+        pData.targetSslScope = 'all';
+        pData.targetSslIds = [];
+        pData.canAddSslCertificates = isSuper;
+        pData.canEditSslCertificates = isSuper;
+        pData.canDeleteSslCertificates = isSuper;
+        pData.canCheckSslCertificates = isSuper || r.id === 'policy-noc-observer';
         changed = true;
       }
       if (changed) {
@@ -2949,6 +2986,16 @@ export async function initDatabase(): Promise<void> {
       await client.query("CREATE INDEX IF NOT EXISTS idx_auth_blocklist_active ON auth_blocklist(is_active, target_type, target_value)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_auth_blocklist_expires ON auth_blocklist(expires_at)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_auth_blocklist_blocked_at ON auth_blocklist(blocked_at DESC)");
+
+      // 32. SSL / TLS Certificates Lifecycle & Expiration Monitoring
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS ssl_certificates (
+          id VARCHAR(128) PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_ssl_certificates_updated_at ON ssl_certificates(updated_at DESC)");
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -4911,6 +4958,14 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canEditLicenses: false,
       canDeleteLicenses: false,
       canDeleteLicenseAttachments: false,
+      canViewSslCertificates: false,
+      canManageSslCertificates: false,
+      targetSslScope: 'all',
+      targetSslIds: [],
+      canAddSslCertificates: false,
+      canEditSslCertificates: false,
+      canDeleteSslCertificates: false,
+      canCheckSslCertificates: false,
       canCheckUpdate: false,
       canPerformUpdate: false,
       canBulkConfigureDevices: false,
@@ -5253,6 +5308,14 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canEditLicenses: true,
       canDeleteLicenses: true,
       canDeleteLicenseAttachments: true,
+      canViewSslCertificates: true,
+      canManageSslCertificates: true,
+      targetSslScope: 'all',
+      targetSslIds: [],
+      canAddSslCertificates: true,
+      canEditSslCertificates: true,
+      canDeleteSslCertificates: true,
+      canCheckSslCertificates: true,
       terminalAccess: 'full',
       canToggleAdminStatus: true,
       canChangeVlan: true,
@@ -5365,6 +5428,14 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canEditLicenses: false,
     canDeleteLicenses: false,
     canDeleteLicenseAttachments: false,
+    canViewSslCertificates: false,
+    canManageSslCertificates: false,
+    targetSslScope: 'all',
+    targetSslIds: [],
+    canAddSslCertificates: false,
+    canEditSslCertificates: false,
+    canDeleteSslCertificates: false,
+    canCheckSslCertificates: false,
     terminalAccess: 'none',
     canToggleAdminStatus: false,
     canChangeVlan: false,
@@ -14576,4 +14647,120 @@ export async function getAllSessionRecordingsForCleanup(): Promise<StoredSession
     .map(mapRecordingRow)
     .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
 }
+
+// =========================================================================
+// SSL / TLS Certificates PostgreSQL + Fallback Persistence
+// =========================================================================
+
+async function ensureSslCertificatesTable(): Promise<void> {
+  if (!isPostgresReady || !pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ssl_certificates (
+      id VARCHAR(128) PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
+export async function getSslCertificatesFromDb(): Promise<any[]> {
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSslCertificatesTable();
+      const res = await pool.query(`SELECT data FROM ssl_certificates ORDER BY updated_at DESC`);
+      const rows = res.rows.map((r: any) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data));
+      if (rows.length > 0) return rows;
+      // Migrate any existing fallback records into PostgreSQL on first read
+      const fallback = loadFallbackStore();
+      if (Array.isArray(fallback.ssl_certificates) && fallback.ssl_certificates.length > 0) {
+        for (const item of fallback.ssl_certificates) {
+          if (item?.id) {
+            await pool.query(
+              `INSERT INTO ssl_certificates (id, data, updated_at)
+               VALUES ($1, $2::jsonb, CURRENT_TIMESTAMP)
+               ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = CURRENT_TIMESTAMP`,
+              [String(item.id), JSON.stringify(item)]
+            );
+          }
+        }
+        return fallback.ssl_certificates;
+      }
+      return [];
+    } catch (e: any) {
+      console.warn('[DB] getSslCertificatesFromDb fallback:', e?.message || e);
+    }
+  }
+  const store = loadFallbackStore();
+  return Array.isArray(store.ssl_certificates) ? store.ssl_certificates : [];
+}
+
+export async function getSslCertificateByIdFromDb(id: string): Promise<any | null> {
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSslCertificatesTable();
+      const res = await pool.query(`SELECT data FROM ssl_certificates WHERE id = $1 LIMIT 1`, [id]);
+      if (res.rows.length > 0) {
+        const raw = res.rows[0].data;
+        return typeof raw === 'string' ? JSON.parse(raw) : raw;
+      }
+      return null;
+    } catch (e: any) {
+      console.warn('[DB] getSslCertificateByIdFromDb fallback:', e?.message || e);
+    }
+  }
+  const store = loadFallbackStore();
+  const list = Array.isArray(store.ssl_certificates) ? store.ssl_certificates : [];
+  return list.find((c: any) => c.id === id) || null;
+}
+
+export async function upsertSslCertificateInDb(cert: any): Promise<any> {
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.ssl_certificates)) store.ssl_certificates = [];
+  const idx = store.ssl_certificates.findIndex((c: any) => c.id === cert.id);
+  if (idx >= 0) {
+    store.ssl_certificates[idx] = cert;
+  } else {
+    store.ssl_certificates.unshift(cert);
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSslCertificatesTable();
+      await pool.query(
+        `INSERT INTO ssl_certificates (id, data, updated_at)
+         VALUES ($1, $2::jsonb, CURRENT_TIMESTAMP)
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = CURRENT_TIMESTAMP`,
+        [String(cert.id), JSON.stringify(cert)]
+      );
+    } catch (e: any) {
+      console.error('[DB] upsertSslCertificateInDb error:', e?.message || e);
+    }
+  }
+  return cert;
+}
+
+export async function deleteSslCertificateFromDb(id: string): Promise<boolean> {
+  const store = loadFallbackStore();
+  const beforeLen = Array.isArray(store.ssl_certificates) ? store.ssl_certificates.length : 0;
+  store.ssl_certificates = (store.ssl_certificates || []).filter((c: any) => c.id !== id);
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  let deletedInPg = false;
+  if (isPostgresReady && pool) {
+    try {
+      await ensureSslCertificatesTable();
+      const res = await pool.query(`DELETE FROM ssl_certificates WHERE id = $1`, [id]);
+      deletedInPg = (res.rowCount || 0) > 0;
+    } catch (e: any) {
+      console.error('[DB] deleteSslCertificateFromDb error:', e?.message || e);
+    }
+  }
+  return deletedInPg || store.ssl_certificates.length < beforeLen;
+}
+
 

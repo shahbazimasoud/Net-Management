@@ -2237,6 +2237,9 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                 <option value="rbac_policy" className="bg-slate-900 text-white">{isEn ? 'Access Control & Policies' : 'سطوح دسترسی و پالیسی RBAC'}</option>
                 <option value="backup_recovery" className="bg-slate-900 text-white">{isEn ? 'Backup & Disaster Recovery' : 'پشتیبان‌گیری و بازیابی'}</option>
                 <option value="port_interface" className="bg-slate-900 text-white">{isEn ? 'Port & Interface Operations' : 'عملیات پورت و اینترفیس'}</option>
+                <option value="ssl_certificates" className="bg-slate-900 text-white">{isEn ? 'SSL / TLS Certificates' : 'گواهینامه‌های SSL / TLS'}</option>
+                <option value="licenses" className="bg-slate-900 text-white">{isEn ? 'Licenses Management' : 'مدیریت لایسنس‌ها'}</option>
+                <option value="contracts" className="bg-slate-900 text-white">{isEn ? 'Contracts & SLA' : 'مدیریت قراردادها'}</option>
               </select>
 
               <select

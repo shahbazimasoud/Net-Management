@@ -12,6 +12,9 @@ import {
   ActiveDirectoryConfig,
   AccessPolicy,
   RemoteServer,
+  SslCertificateItem,
+  SslCertificatesSummary,
+  SslCertificateProbeResult,
   RemoteServerTagSummary,
   PostgresConnectionTestResult,
   PostgresRemediateConnectionResult,
@@ -8603,5 +8606,134 @@ export async function runLicenseContractCronNowApi(): Promise<{
   }
   return json;
 }
+
+// =========================================================================
+// SSL / TLS Certificate Lifecycle & Expiration Monitoring API
+// =========================================================================
+
+export async function fetchSslCertificatesApi(): Promise<{
+  success: boolean;
+  certificates: SslCertificateItem[];
+  total: number;
+  summary: SslCertificatesSummary;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/ssl-certificates`);
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to load SSL certificates (${res.status})`);
+  }
+  return json;
+}
+
+export async function probeSslCertificateApi(payload: {
+  sourceType: 'domain' | 'manual_pem';
+  domain?: string;
+  port?: number;
+  sniHost?: string;
+  pemCertificate?: string;
+}): Promise<SslCertificateProbeResult> {
+  const res = await fetchWithRetry(`${API_BASE}/ssl-certificates/probe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json().catch(() => ({ success: false, error: `HTTP ${res.status}` }));
+  if (!res.ok && !json.error) {
+    throw new Error(`SSL probe failed (${res.status})`);
+  }
+  return json;
+}
+
+export async function createSslCertificateApi(
+  payload: Partial<SslCertificateItem> & { runInitialCheck?: boolean }
+): Promise<{ success: boolean; certificate: SslCertificateItem }> {
+  const res = await fetchWithRetry(`${API_BASE}/ssl-certificates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to create SSL certificate (${res.status})`);
+  }
+  return json;
+}
+
+export async function updateSslCertificateApi(
+  id: string,
+  payload: Partial<SslCertificateItem> & { recheckAfterSave?: boolean }
+): Promise<{ success: boolean; certificate: SslCertificateItem }> {
+  const res = await fetchWithRetry(`${API_BASE}/ssl-certificates/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to update SSL certificate (${res.status})`);
+  }
+  return json;
+}
+
+export async function deleteSslCertificateApi(id: string): Promise<{ success: boolean; deletedId: string }> {
+  const res = await fetchWithRetry(`${API_BASE}/ssl-certificates/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to delete SSL certificate (${res.status})`);
+  }
+  return json;
+}
+
+export async function checkSslCertificateNowApi(
+  id: string
+): Promise<{ success: boolean; certificate: SslCertificateItem }> {
+  const res = await fetchWithRetry(`${API_BASE}/ssl-certificates/${encodeURIComponent(id)}/check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to check SSL certificate (${res.status})`);
+  }
+  return json;
+}
+
+export async function checkAllSslCertificatesNowApi(): Promise<{
+  success: boolean;
+  checkedCount: number;
+  failedCount: number;
+  expiringOrExpired: number;
+  certificates: SslCertificateItem[];
+  summary: SslCertificatesSummary;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/ssl-certificates/check-all`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to run bulk SSL check (${res.status})`);
+  }
+  return json;
+}
+
+export async function testSslCertificateAlertApi(
+  id: string,
+  targetEmail?: string
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const res = await fetchWithRetry(`${API_BASE}/ssl-certificates/${encodeURIComponent(id)}/test-alert`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetEmail }),
+  });
+  const json = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || `Failed to send SSL test alert (${res.status})`);
+  }
+  return json;
+}
+
 
 

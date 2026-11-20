@@ -79,6 +79,7 @@ import {
   NetworkDeviceActionKey,
   ContractItem,
   LicenseItem,
+  SslCertificateItem,
   ActionAccessDecision,
   ApprovalWorkflowStageConfig,
 } from '../../types';
@@ -97,7 +98,7 @@ import {
   evaluateDeviceActionDecision,
   countPolicyApprovalRules,
 } from '../../utils/rbac';
-import { fetchActiveDirectoryConfig, fetchContractsApi, fetchLicensesApi } from '../../services/api';
+import { fetchActiveDirectoryConfig, fetchContractsApi, fetchLicensesApi, fetchSslCertificatesApi } from '../../services/api';
 
 export type PolicyModalTab =
   | 'identity'
@@ -161,8 +162,10 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
 
   const [contractsList, setContractsList] = useState<ContractItem[]>(liveContracts || []);
   const [licensesList, setLicensesList] = useState<LicenseItem[]>(liveLicenses || []);
+  const [sslCertsList, setSslCertsList] = useState<SslCertificateItem[]>([]);
   const [contractsSearch, setContractsSearch] = useState('');
   const [licensesSearch, setLicensesSearch] = useState('');
+  const [sslCertsSearch, setSslCertsSearch] = useState('');
   const [isLoadingContractsLicenses, setIsLoadingContractsLicenses] = useState(false);
 
   const [draftPolicy, setDraftPolicy] = useState<AccessPolicy | null>(() => {
@@ -200,6 +203,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
       canViewContracts: initialPolicy.canViewContracts ?? true,
       canViewLicenses: initialPolicy.canViewLicenses ?? true,
+      canViewSslCertificates: initialPolicy.canViewSslCertificates ?? true,
       canViewCommunications: initialPolicy.canViewCommunications ?? true,
       canSendCommunications: initialPolicy.canSendCommunications ?? true,
       canSendAnnouncements:
@@ -220,6 +224,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canEditLicenses: initialPolicy.canEditLicenses ?? initialPolicy.canManageLicenses ?? true,
       canDeleteLicenses: initialPolicy.canDeleteLicenses ?? true,
       canDeleteLicenseAttachments: initialPolicy.canDeleteLicenseAttachments ?? true,
+      targetSslScope: initialPolicy.targetSslScope || 'all',
+      targetSslIds: initialPolicy.targetSslIds || [],
+      canManageSslCertificates: initialPolicy.canManageSslCertificates ?? true,
+      canAddSslCertificates: initialPolicy.canAddSslCertificates ?? initialPolicy.canManageSslCertificates ?? true,
+      canEditSslCertificates: initialPolicy.canEditSslCertificates ?? initialPolicy.canManageSslCertificates ?? true,
+      canDeleteSslCertificates: initialPolicy.canDeleteSslCertificates ?? true,
+      canCheckSslCertificates: initialPolicy.canCheckSslCertificates ?? true,
       canViewLogs:
         initialPolicy.canViewLogs ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
@@ -585,6 +596,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
         canViewContracts: initialPolicy.canViewContracts ?? true,
         canViewLicenses: initialPolicy.canViewLicenses ?? true,
+        canViewSslCertificates: initialPolicy.canViewSslCertificates ?? true,
         canViewCommunications: initialPolicy.canViewCommunications ?? true,
         canSendCommunications: initialPolicy.canSendCommunications ?? true,
         canSendAnnouncements:
@@ -605,6 +617,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canEditLicenses: initialPolicy.canEditLicenses ?? initialPolicy.canManageLicenses ?? true,
         canDeleteLicenses: initialPolicy.canDeleteLicenses ?? true,
         canDeleteLicenseAttachments: initialPolicy.canDeleteLicenseAttachments ?? true,
+        targetSslScope: initialPolicy.targetSslScope || 'all',
+        targetSslIds: initialPolicy.targetSslIds || [],
+        canManageSslCertificates: initialPolicy.canManageSslCertificates ?? true,
+        canAddSslCertificates: initialPolicy.canAddSslCertificates ?? initialPolicy.canManageSslCertificates ?? true,
+        canEditSslCertificates: initialPolicy.canEditSslCertificates ?? initialPolicy.canManageSslCertificates ?? true,
+        canDeleteSslCertificates: initialPolicy.canDeleteSslCertificates ?? true,
+        canCheckSslCertificates: initialPolicy.canCheckSslCertificates ?? true,
         canViewLogs:
           initialPolicy.canViewLogs ??
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
@@ -691,19 +710,21 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       setExpandedServerOverrideId(null);
       setContractsSearch('');
       setLicensesSearch('');
+      setSslCertsSearch('');
     }
   }, [isOpen, initialPolicy]);
 
-  // Fetch authentic live Contracts and Licenses from backend on modal open
+  // Fetch authentic live Contracts, Licenses, and SSL Certificates from backend on modal open
   useEffect(() => {
     if (!isOpen) return;
     let isCancelled = false;
     const fetchLiveItems = async () => {
       try {
         setIsLoadingContractsLicenses(true);
-        const [cntRes, licRes] = await Promise.all([
+        const [cntRes, licRes, sslRes] = await Promise.all([
           fetchContractsApi().catch(() => ({ contracts: [] })),
           fetchLicensesApi().catch(() => ({ licenses: [] })),
+          fetchSslCertificatesApi().catch(() => ({ certificates: [] })),
         ]);
         if (!isCancelled) {
           if (Array.isArray(cntRes?.contracts)) {
@@ -711,6 +732,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           }
           if (Array.isArray(licRes?.licenses)) {
             setLicensesList(licRes.licenses);
+          }
+          if (Array.isArray(sslRes?.certificates)) {
+            setSslCertsList(sslRes.certificates);
           }
         }
       } catch (err) {
@@ -1034,6 +1058,29 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     setDraftPolicy((prev) => {
       if (!prev) return prev;
       return { ...prev, targetLicenseIds: [] };
+    });
+  }, []);
+
+  const handleToggleSslCertId = useCallback((id: string) => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      const current = prev.targetSslIds || [];
+      const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+      return { ...prev, targetSslIds: next };
+    });
+  }, []);
+
+  const handleSelectAllSslCerts = useCallback(() => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      return { ...prev, targetSslIds: sslCertsList.map((c) => c.id) };
+    });
+  }, [sslCertsList]);
+
+  const handleDeselectAllSslCerts = useCallback(() => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      return { ...prev, targetSslIds: [] };
     });
   }, []);
 
@@ -1542,6 +1589,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canViewSettings: enabled,
         canViewContracts: enabled,
         canViewLicenses: enabled,
+        canViewSslCertificates: enabled,
         canViewCommunications: enabled,
         canSendCommunications: enabled,
         canSendAnnouncements: enabled,
@@ -1607,8 +1655,8 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     },
     {
       id: 'contracts_licenses',
-      labelEn: 'Contracts & Licenses',
-      labelFa: 'قراردادها و لایسنس‌ها',
+      labelEn: 'Contracts, Licenses & SSL',
+      labelFa: 'قراردادها، لایسنس و SSL',
       icon: FileCheck,
       color: 'text-emerald-400',
     },
@@ -3796,6 +3844,20 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         practicalExampleFa: 'برای مدیران دارایی‌های IT، ادمین‌های سیستم و سوپرادمین‌ها فعال باشد',
                       },
                       {
+                        key: 'canViewSslCertificates',
+                        labelEn: 'SSL / TLS Certificates',
+                        labelFa: 'گواهینامه‌های SSL / TLS',
+                        descEn: 'Access to SSL certificate expiration & domain monitor page',
+                        descFa: 'دسترسی به صفحه پایش انقضا و مدیریت گواهینامه‌های SSL و دامنه‌ها',
+                        icon: Lock,
+                        whatIsItEn: 'Controls access to the SSL / TLS Certificates lifecycle monitoring page and sidebar menu item.',
+                        whatIsItFa: 'مجوز ورود و مشاهده صفحه و منوی گواهینامه‌های SSL / TLS و پایش انقضای دامنه‌ها در پنل.',
+                        whyNeededEn: 'SSL certificates inventory reveals internal/external endpoints, expiry timelines, and certificate authorities; restricting access enforces least-privilege governance.',
+                        whyNeededFa: 'فهرست گواهینامه‌های SSL شامل دامنه‌های داخلی/خارجی و زمان انقضای سرویس‌های حیاتی است و باید منحصراً در اختیار کاربران مجاز باشد.',
+                        practicalExampleEn: 'Enable for Security Engineers, DevOps, NOC Operators, and Administrators',
+                        practicalExampleFa: 'برای مهندسین امنیت، دواپس، اپراتورهای NOC و مدیران زیرساخت فعال شود',
+                      },
+                      {
                         key: 'canBulkConfigureDevices',
                         labelEn: 'Bulk Device Configuration',
                         labelFa: 'پیکربندی گروهی تجهیزات شبکه',
@@ -4018,13 +4080,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                   <div className="text-xs leading-relaxed">
                     <p className="font-semibold mb-0.5">
                       {isEn
-                        ? 'Granular Access Governance for Contracts & Licenses'
-                        : 'مدیریت و کنترل دسترسی جزئی به قراردادها و لایسنس‌ها'}
+                        ? 'Granular Access Governance for Contracts, Licenses & SSL Certificates'
+                        : 'مدیریت و کنترل دسترسی جزئی به قراردادها، لایسنس‌ها و گواهینامه‌های SSL'}
                     </p>
                     <p className={`text-[11px] ${isLightMode ? 'text-emerald-800' : 'text-emerald-300/80'}`}>
                       {isEn
-                        ? 'Access to the Contracts and Licenses pages must first be enabled in the "Navigation & Views" tab. Here you define the exact scope (all vs. specific items) and operational authorities (read-only view, create, edit, delete, or delete internal attachments).'
-                        : 'ورود به صفحات قراردادها و لایسنس‌ها ابتدا در تب «صفحات و ابزارها» تعیین می‌شود. در این بخش مشخص می‌کنید کاربر به کدام قراردادها یا لایسنس‌ها (همه یا فقط موارد خاص) دسترسی داشته باشد و چه عملیاتی شامل مشاهده، افزودن، ویرایش، حذف کامل یا حذف پیوست‌ها مجاز باشد.'}
+                        ? 'Access to Contracts, Licenses, and SSL Certificates pages must first be enabled in the "Navigation & Views" tab. Here you define exact item-level scopes (all vs. specific items) and operational authorities (view, create, edit, live SSL check, delete, or remove attachments).'
+                        : 'ورود به صفحات قراردادها، لایسنس‌ها و گواهینامه‌های SSL ابتدا در تب «صفحات و ابزارها» تعیین می‌شود. در این بخش مشخص می‌کنید کاربر به کدام آیتم‌ها (همه یا فقط موارد خاص) دسترسی داشته باشد و چه عملیاتی شامل مشاهده، افزودن، ویرایش، بررسی زنده SSL یا حذف مجاز باشد.'}
                     </p>
                   </div>
                 </div>
@@ -5194,6 +5256,512 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                           </div>
                           <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                             {isEn ? 'Remove attached key files & proofs' : 'پاک کردن فایل‌های کلید و فاکتورهای داخل لایسنس'}
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ==================== 3. SSL / TLS CERTIFICATES GOVERNANCE ==================== */}
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950/60 border-white/10'
+                  }`}
+                >
+                  {/* Section Header */}
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-4 h-4 text-cyan-500" />
+                      <h4
+                        className={`text-xs font-bold ${
+                          isLightMode ? 'text-slate-900' : 'text-white'
+                        }`}
+                      >
+                        {isEn
+                          ? 'SSL / TLS Certificates Access & Item-Level Scoping'
+                          : 'محدوده و مجوزهای دسترسی به گواهینامه‌های SSL / TLS'}
+                      </h4>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-semibold">
+                      {(draftPolicy?.targetSslScope || 'all') === 'all'
+                        ? (isEn ? 'Scope: All SSL Certificates' : 'دامنه: تمام گواهینامه‌های SSL')
+                        : `${isEn ? 'Selected:' : 'انتخاب‌شده:'} ${(draftPolicy?.targetSslIds || []).length}`}
+                    </span>
+                  </div>
+
+                  <p className={`text-[11px] mb-4 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {isEn
+                      ? 'Control whether the subject can inspect all monitored SSL domains & certificates or only specific designated items, and define exact create/edit/live-check/delete rights.'
+                      : 'تعیین کنید کاربر به کلیه دامنه‌ها و گواهینامه‌های SSL دسترسی داشته باشد یا تنها به آیتم‌های انتخاب‌شده در لیست زیر، و مجوزهای افزودن، ویرایش، بررسی زنده و حذف را مشخص کنید.'}
+                  </p>
+
+                  {/* Scope Selection Radio Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDraftPolicy((prev) => (prev ? { ...prev, targetSslScope: 'all' } : prev))
+                      }
+                      className={`p-3 rounded-xl border text-left rtl:text-right transition cursor-pointer flex items-start gap-2.5 ${
+                        (draftPolicy?.targetSslScope || 'all') === 'all'
+                          ? isLightMode
+                            ? 'bg-cyan-50 border-cyan-400 ring-1 ring-cyan-400/30'
+                            : 'bg-cyan-500/10 border-cyan-500/40 ring-1 ring-cyan-500/20'
+                          : isLightMode
+                          ? 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                          : 'bg-white/5 border-white/10 hover:bg-white/10'
+                      }`}
+                    >
+                      <div
+                        className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                          (draftPolicy?.targetSslScope || 'all') === 'all'
+                            ? 'border-cyan-500 bg-cyan-500/20'
+                            : 'border-slate-500'
+                        }`}
+                      >
+                        {(draftPolicy?.targetSslScope || 'all') === 'all' && (
+                          <div className="w-2 h-2 rounded-full bg-cyan-400" />
+                        )}
+                      </div>
+                      <div>
+                        <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                          {isEn ? 'All SSL / TLS Certificates' : 'دسترسی به تمام گواهینامه‌های SSL'}
+                        </div>
+                        <div className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn
+                            ? 'Covers all current and future monitored domains and uploaded PEM certificates.'
+                            : 'پوشش تمامی دامنه‌های پایش‌شده و گواهینامه‌های PEM فعلی و آینده.'}
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDraftPolicy((prev) => (prev ? { ...prev, targetSslScope: 'specific' } : prev))
+                      }
+                      className={`p-3 rounded-xl border text-left rtl:text-right transition cursor-pointer flex items-start gap-2.5 ${
+                        draftPolicy?.targetSslScope === 'specific'
+                          ? isLightMode
+                            ? 'bg-cyan-50 border-cyan-400 ring-1 ring-cyan-400/30'
+                            : 'bg-cyan-500/10 border-cyan-500/40 ring-1 ring-cyan-500/20'
+                          : isLightMode
+                          ? 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                          : 'bg-white/5 border-white/10 hover:bg-white/10'
+                      }`}
+                    >
+                      <div
+                        className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                          draftPolicy?.targetSslScope === 'specific'
+                            ? 'border-cyan-500 bg-cyan-500/20'
+                            : 'border-slate-500'
+                        }`}
+                      >
+                        {draftPolicy?.targetSslScope === 'specific' && (
+                          <div className="w-2 h-2 rounded-full bg-cyan-400" />
+                        )}
+                      </div>
+                      <div>
+                        <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                          {isEn ? 'Specific SSL Certificates Only' : 'فقط گواهینامه‌ها و دامنه‌های انتخاب‌شده'}
+                        </div>
+                        <div className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn
+                            ? 'Restrict visibility and operations strictly to selected SSL items below.'
+                            : 'محدودسازی نمایش و عملیات منحصراً به موارد انتخاب‌شده در لیست زیر.'}
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Specific SSL Item Picker */}
+                  {draftPolicy?.targetSslScope === 'specific' && (
+                    <div
+                      className={`p-3 rounded-xl border mb-4 ${
+                        isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-black/30 border-white/10'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 mb-2.5">
+                        <div className="relative flex-1">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute top-1/2 -translate-y-1/2 ltr:left-2.5 rtl:right-2.5" />
+                          <input
+                            type="text"
+                            value={sslCertsSearch}
+                            onChange={(e) => setSslCertsSearch(e.target.value)}
+                            placeholder={
+                              isEn
+                                ? 'Search SSL certificates by title, domain, or issuer...'
+                                : 'جستجو بر اساس نام، دامنه یا صادرکننده SSL...'
+                            }
+                            className={`w-full text-xs py-1.5 ltr:pl-8 rtl:pr-8 px-3 rounded-lg border outline-none ${
+                              isLightMode
+                                ? 'bg-white border-slate-300 text-slate-800'
+                                : 'bg-slate-900 border-white/10 text-slate-200'
+                            }`}
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[10px] font-mono text-cyan-400 px-2 py-1 rounded bg-cyan-500/10 border border-cyan-500/20">
+                            {(draftPolicy?.targetSslIds || []).length} / {sslCertsList.length}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleSelectAllSslCerts}
+                            className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-500/30 cursor-pointer"
+                          >
+                            {isEn ? 'Select All' : 'انتخاب همه'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleDeselectAllSslCerts}
+                            className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-slate-500/15 text-slate-400 hover:bg-slate-500/25 border border-slate-500/30 cursor-pointer"
+                          >
+                            {isEn ? 'Clear' : 'پاک کردن'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {isLoadingContractsLicenses ? (
+                        <div className="text-center py-4 text-xs text-slate-400">
+                          {isEn ? 'Loading monitored SSL certificates...' : 'در حال دریافت لیست گواهینامه‌های SSL...'}
+                        </div>
+                      ) : sslCertsList.length === 0 ? (
+                        <div className="text-center py-4 text-xs text-slate-400">
+                          {isEn
+                            ? 'No SSL certificates registered yet. Add domains or certificates in the SSL / TLS Certificates page first.'
+                            : 'هنوز گواهینامه SSL ثبت نشده است. ابتدا دامنه‌ها یا گواهینامه‌ها را در صفحه گواهینامه‌های SSL ثبت کنید.'}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                          {sslCertsList
+                            .filter((c) => {
+                              const q = sslCertsSearch.trim().toLowerCase();
+                              if (!q) return true;
+                              return `${c.title} ${c.domain || ''} ${c.subjectCN || ''} ${c.issuerCN || ''}`
+                                .toLowerCase()
+                                .includes(q);
+                            })
+                            .map((cert) => {
+                              const isSelected = (draftPolicy?.targetSslIds || []).includes(cert.id);
+                              return (
+                                <button
+                                  key={cert.id}
+                                  type="button"
+                                  onClick={() => handleToggleSslCertId(cert.id)}
+                                  className={`flex items-center gap-2 p-2 rounded-lg border text-left rtl:text-right transition cursor-pointer ${
+                                    isSelected
+                                      ? isLightMode
+                                        ? 'bg-cyan-50 border-cyan-400 text-slate-900'
+                                        : 'bg-cyan-500/15 border-cyan-500/40 text-white'
+                                      : isLightMode
+                                      ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                                      : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                                  }`}
+                                >
+                                  {isSelected ? (
+                                    <CheckSquare className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                                  ) : (
+                                    <Square className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-xs font-semibold truncate">{cert.title}</div>
+                                    <div className="text-[10px] font-mono text-slate-400 truncate">
+                                      {cert.domain ? `${cert.domain}:${cert.port || 443}` : cert.subjectCN || 'PEM'}
+                                      {cert.daysRemaining !== null && cert.daysRemaining !== undefined
+                                        ? ` • ${cert.daysRemaining}d`
+                                        : ''}
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Granular Operational Permissions for SSL Certificates */}
+                  <div className="pt-3 border-t border-white/10">
+                    <h5
+                      className={`text-[11px] font-bold uppercase tracking-wider mb-3 ${
+                        isLightMode ? 'text-slate-700' : 'text-slate-300'
+                      }`}
+                    >
+                      {isEn
+                        ? 'Granular Operational Permissions for SSL / TLS Certificates'
+                        : 'اختیارات و مجوزهای عملیاتی روی گواهینامه‌های SSL / TLS'}
+                    </h5>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                      {/* 1. canViewSslCertificates */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canViewSslCertificates !== false
+                            ? isLightMode
+                              ? 'bg-cyan-50/70 border-cyan-300'
+                              : 'bg-cyan-500/10 border-cyan-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canViewSslCertificates !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) =>
+                              prev ? { ...prev, canViewSslCertificates: e.target.checked } : prev
+                            )
+                          }
+                          className="mt-0.5 rounded text-cyan-500 focus:ring-cyan-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-semibold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                              {isEn ? 'View SSL Certificates' : 'مشاهده گواهینامه‌های SSL'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'View SSL Certificates' : 'مجوز مشاهده گواهینامه‌های SSL'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Enables read-only access to inspect monitored domains, remaining validity days, issuers, SANs, and certificate chain details.'
+                                  : 'مجوز خواندن و مشاهده وضعیت اعتبار دامنه‌ها، روزهای باقی‌مانده، صادرکننده، SANها و زنجیره گواهینامه.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Allows operators and auditors to track upcoming SSL expirations without granting modification or deletion powers.'
+                                  : 'امکان رصد نزدیک‌شدن انقضای SSL توسط اپراتورها و ممیزان بدون دادن حق تغییر یا حذف.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Enable for NOC Monitors, Security Analysts, and IT Managers'
+                                  : 'برای اپراتورهای NOC، تحلیلگران امنیت و مدیران IT فعال باشد'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Inspect expiry countdowns & X.509 details' : 'مشاهده شمارش معکوس انقضا و مشخصات X.509'}
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* 2. canAddSslCertificates */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canAddSslCertificates !== false
+                            ? isLightMode
+                              ? 'bg-cyan-50/70 border-cyan-300'
+                              : 'bg-cyan-500/10 border-cyan-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canAddSslCertificates !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) =>
+                              prev ? { ...prev, canAddSslCertificates: e.target.checked } : prev
+                            )
+                          }
+                          className="mt-0.5 rounded text-cyan-500 focus:ring-cyan-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-semibold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                              {isEn ? 'Add Domains & SSL Certs' : 'افزودن دامنه و گواهینامه SSL'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'Add SSL Certificates Permission' : 'مجوز افزودن گواهینامه و دامنه SSL'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Allows registering new live HTTPS/TLS domains or uploading/pasting public X.509 PEM certificates for monitoring.'
+                                  : 'امکان معرفی دامنه‌های جدید (بررسی زنده TLS) یا ثبت/آپلود گواهینامه عمومی PEM جهت پایش انقضا.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Ensures only authorized engineers can add new external or internal monitoring targets to the daily scheduler.'
+                                  : 'تضمین می‌کند تنها مهندسین مجاز بتوانند اهداف جدید به زمان‌بند روزانه پایش SSL اضافه کنند.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Enable for DevOps, Web Admins, and Infrastructure Engineers'
+                                  : 'برای تیم دواپس، ادمین‌های وب و مهندسین زیرساخت فعال شود'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Register new domains or PEM certs' : 'معرفی دامنه‌ها و گواهینامه‌های جدید'}
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* 3. canEditSslCertificates */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canEditSslCertificates !== false
+                            ? isLightMode
+                              ? 'bg-cyan-50/70 border-cyan-300'
+                              : 'bg-cyan-500/10 border-cyan-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canEditSslCertificates !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) =>
+                              prev ? { ...prev, canEditSslCertificates: e.target.checked } : prev
+                            )
+                          }
+                          className="mt-0.5 rounded text-cyan-500 focus:ring-cyan-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-semibold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                              {isEn ? 'Edit SSL Settings & Alerts' : 'ویرایش تنظیمات و هشدار SSL'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'Edit SSL Certificates Permission' : 'مجوز ویرایش گواهینامه‌های SSL'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Allows modifying domain ports, SNI hostnames, PEM updates, daily auto-check interval, alert thresholds, recipients, and active status.'
+                                  : 'امکان ویرایش پورت، SNI، به‌روزرسانی PEM، بازه بررسی روزانه، روزهای هشدار، گیرندگان ایمیل و فعال/غیرفعال‌سازی.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Prevents unauthorized tampering with alert recipients or disabling daily checks on critical production domains.'
+                                  : 'جلوگیری از غیرفعال کردن پایش روزانه یا تغییر آدرس ایمیل هشدار روی دامنه‌های حیاتی پروداکشن.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Enable for Lead Engineers and Security Operations'
+                                  : 'برای مهندسین ارشد و تیم عملیات امنیت فعال شود'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Update schedule, PEM & notification emails' : 'ویرایش زمان‌بندی، PEM و ایمیل‌های هشدار'}
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* 4. canCheckSslCertificates */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canCheckSslCertificates !== false
+                            ? isLightMode
+                              ? 'bg-emerald-50/70 border-emerald-300'
+                              : 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canCheckSslCertificates !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) =>
+                              prev ? { ...prev, canCheckSslCertificates: e.target.checked } : prev
+                            )
+                          }
+                          className="mt-0.5 rounded text-emerald-500 focus:ring-emerald-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-semibold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                              {isEn ? 'Run Live & Bulk SSL Checks' : 'اجرای بررسی زنده و گروهی SSL'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'Run Live SSL Checks Permission' : 'مجوز اجرای بررسی زنده و گروهی SSL'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Permits triggering on-demand live TLS handshakes for individual items, executing "Check All Now", and sending test expiry alerts.'
+                                  : 'اجازه اجرای بررسی لحظه‌ای یک دامنه، کلیک روی دکمه «بررسی همه با هم» و ارسال ایمیل تست هشدار.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Allows operators to immediately verify newly renewed SSL certificates without waiting for the daily automatic schedule.'
+                                  : 'امکان تایید فوری پس از تمدید گواهینامه SSL توسط اپراتور بدون انتظار برای اجرای خودکار روزانه.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Enable for NOC Operators and DevOps Engineers'
+                                  : 'برای اپراتورهای NOC و مهندسین دواپس فعال باشد'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Trigger single/bulk TLS checks & test alerts' : 'بررسی تکی/گروهی TLS و تست ایمیل هشدار'}
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* 5. canDeleteSslCertificates */}
+                      <label
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition select-none ${
+                          draftPolicy?.canDeleteSslCertificates !== false
+                            ? isLightMode
+                              ? 'bg-rose-50/70 border-rose-300'
+                              : 'bg-rose-500/10 border-rose-500/30 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 opacity-60'
+                            : 'bg-white/5 border-white/5 opacity-60 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draftPolicy?.canDeleteSslCertificates !== false}
+                          onChange={(e) =>
+                            setDraftPolicy((prev) =>
+                              prev ? { ...prev, canDeleteSslCertificates: e.target.checked } : prev
+                            )
+                          }
+                          className="mt-0.5 rounded text-rose-500 focus:ring-rose-400"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-semibold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                              {isEn ? 'Delete SSL Certificates' : 'حذف گواهینامه‌های SSL'}
+                            </span>
+                            <FieldInfoTooltip
+                              title={isEn ? 'Delete SSL Certificates Permission' : 'مجوز حذف گواهینامه‌های SSL'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Permanently removes monitored domains or uploaded SSL certificate records and their check history.'
+                                  : 'حذف کامل و دائمی دامنه یا گواهینامه SSL ثبت‌شده به همراه تاریخچه بررسی‌های آن از دیتابیس.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Prevents accidental removal of production SSL expiration watches that could cause unnoticed outages.'
+                                  : 'جلوگیری از حذف تصادفی پایش SSL سرویس‌های حساس که می‌تواند منجر به قطعی ناگهانی شود.'
+                              }
+                              practicalExample={
+                                isEn
+                                  ? 'Restrict strictly to Super Administrators and Senior Security Leads'
+                                  : 'منحصراً برای سوپرادمین‌ها و مدیران ارشد امنیت فعال بماند'
+                              }
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Remove monitored domains & SSL items' : 'پاک کردن دامنه‌ها و آیتم‌های SSL از پایش'}
                           </p>
                         </div>
                       </label>

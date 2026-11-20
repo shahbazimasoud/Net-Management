@@ -35,6 +35,7 @@ import { UserProfileSecurityView, ProfileSubTab } from './components/profile/Use
 import { RemoteServersView } from './components/servers/RemoteServersView';
 import { LicensesView } from './components/licenses/LicensesView';
 import { ContractsView } from './components/licenses/ContractsView';
+import { SslCertificatesView } from './components/licenses/SslCertificatesView';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
 import { ToolsDock, StandardModalId, MinimizedStandardModal } from './components/tools/ToolsDock';
 import { NetworkToolId, ActiveToolState } from './components/tools/types';
@@ -429,6 +430,7 @@ export default function App() {
         'remote-servers',
         'licenses',
         'contracts',
+        'ssl-certificates',
         'ports',
         'scanner',
         'templates',
@@ -1953,6 +1955,15 @@ export default function App() {
               isEn={isEn}
               effectivePolicy={effectivePolicy}
               onNavigateToLicenses={() => setActiveTab('licenses')}
+            />
+          )}
+
+          {activeTab === 'ssl-certificates' && (
+            <SslCertificatesView
+              isLightMode={isLightMode}
+              isEn={isEn}
+              effectivePolicy={effectivePolicy}
+              currentUser={user}
             />
           )}
 

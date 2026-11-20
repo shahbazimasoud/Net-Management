@@ -49,6 +49,7 @@ import { startApprovalJitExpiryDaemon } from './server/approvalService';
 import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdServiceRunning } from './server/remoteDesktopGateway';
 import { registerCertConverterRoutes } from './server/certConverter';
 import { licenseContractRouter, startLicenseContractCronDaemon } from './server/licenseContractService';
+import { sslCertificateRouter, startSslCertificateCronDaemon } from './server/sslCertificateService';
 import { checkSshBackendsOnStartup } from './server/sshBackendResolver';
 import { startBackupSchedulerDaemon } from './server/backupScheduler';
 import { startAuditReportSchedulerDaemon } from './server/auditReportScheduler';
@@ -1420,6 +1421,9 @@ registerCertConverterRoutes(app);
 // Mount Licenses & Contracts Management routes
 app.use('/api', licenseContractRouter);
 
+// Mount SSL / TLS Certificates Monitoring & Expiry routes
+app.use('/api', sslCertificateRouter);
+
 // Mount Communications & Notifications Center routes
 app.use('/api', commsRouter);
 
@@ -1695,6 +1699,8 @@ async function startServer() {
     startLogRetentionDaemon();
     // Start automated licenses and contracts expiry email alerting daemon
     startLicenseContractCronDaemon();
+    // Start automated daily SSL/TLS certificate expiry check & alerting daemon
+    startSslCertificateCronDaemon();
     // Start Phase 4 Hybrid JIT & Approval expiry daemon
     startApprovalJitExpiryDaemon();
     // Start Remote Session Recording retention & quota cleanup daemon

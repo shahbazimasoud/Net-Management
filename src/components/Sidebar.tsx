@@ -32,6 +32,7 @@ import {
   FileCheck,
   UserCog,
   Video,
+  Lock,
   X
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
@@ -76,6 +77,7 @@ export type ActiveTab =
   | 'profile-security'
   | 'licenses'
   | 'contracts'
+  | 'ssl-certificates'
   | 'settings'
   | 'settings-groups'
   | 'settings-users'
@@ -216,6 +218,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_contracts',
           icon: ScrollText,
           badge: 'SLA',
+        },
+        {
+          id: 'ssl-certificates',
+          labelKey: 'tab_ssl_certificates',
+          icon: Lock,
+          badge: 'SSL',
         },
       ],
     },
