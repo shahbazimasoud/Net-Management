@@ -570,6 +570,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canBatchOperate: false,
     canExportBackup: false,
     canImportBackup: false,
+    canExportSchematic: false,
     defaultServerPermissions: {
       terminal: false,
       file_explorer: true,
@@ -658,6 +659,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canBatchOperate: false,
     canExportBackup: false,
     canImportBackup: false,
+    canExportSchematic: false,
     defaultServerPermissions: {
       terminal: false,
       file_explorer: false,
@@ -752,6 +754,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canImportServers: true,
     canExportTemplates: true,
     canImportTemplates: true,
+    canExportSchematic: true,
     defaultServerPermissions: {
       terminal: true,
       file_explorer: true,
@@ -4984,6 +4987,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canBatchOperate: false,
       canExportBackup: false,
       canImportBackup: false,
+      canExportSchematic: false,
       canViewSessionRecordings: false,
       canPlaybackSessionRecordings: false,
       canDownloadSessionRecordings: false,
@@ -5329,6 +5333,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canBatchOperate: true,
       canExportBackup: true,
       canImportBackup: true,
+      canExportSchematic: true,
       defaultServerPermissions: {
         terminal: true,
         file_explorer: true,

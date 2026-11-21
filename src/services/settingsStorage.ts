@@ -201,6 +201,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canBatchOperate: false,             // Cannot execute mass bulk edits
     canExportBackup: false,             // Cannot export backup
     canImportBackup: false,             // Cannot import backup
+    canExportSchematic: false,          // Cannot export visual schematic HTML
     // Licenses & Contracts RBAC
     canViewLicenses: true,
     canManageLicenses: false,
@@ -280,6 +281,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canBatchOperate: false,
     canExportBackup: false,
     canImportBackup: false,
+    canExportSchematic: false,
     // Licenses & Contracts RBAC
     canViewLicenses: true,
     canManageLicenses: false,
@@ -363,6 +365,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canImportDevices: true,
     canExportServers: true,
     canImportServers: true,
+    canExportSchematic: true,
     // Licenses & Contracts RBAC
     canViewLicenses: true,
     canManageLicenses: true,
@@ -1354,6 +1357,7 @@ export function getEffectiveUserPolicy(
         canManageDevices: true,
         canApplyTemplates: true,
         canBatchOperate: true,
+        canExportSchematic: true,
       }
     );
   }
@@ -1390,6 +1394,7 @@ export function getEffectiveUserPolicy(
     canManageDevices: false,
     canApplyTemplates: false,
     canBatchOperate: false,
+    canExportSchematic: false,
   });
 }
 

@@ -956,6 +956,31 @@ export async function pingDevice(id: string): Promise<{
   return res.json();
 }
 
+export async function authorizeSchematicExport(payload: {
+  mapId?: string;
+  mapName: string;
+  exportMode: 'card' | 'physical' | 'both';
+  deviceCount: number;
+  linkCount: number;
+  vlanCount: number;
+  rackCount: number;
+  towerCount: number;
+}): Promise<{
+  success: boolean;
+  authorized: boolean;
+  exportedBy: string;
+  exportedAt: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/schematic/export-authorize`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Not authorized to export schematic topology');
+  return res.json();
+}
+
 export async function pingHost(host: string, count: number = 2, timeout: number = 2): Promise<{ success: boolean; latency_ms?: number; packet_loss?: number; message?: string; output?: string; is_online?: boolean }> {
   const res = await fetch(`${API_BASE}/tools/ping`, {
     method: 'POST',

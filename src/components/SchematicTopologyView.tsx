@@ -52,6 +52,8 @@ import {
   Package,
   PackageOpen,
   Minus,
+  Download,
+  FileCode2,
 } from 'lucide-react';
 import {
   TopologyData,
@@ -107,6 +109,7 @@ import { MountRadioOnTowerModal } from './rack/MountRadioOnTowerModal';
 import { TowerStructureSvg } from './rack/TowerStructureSvg';
 import { NetworkSocketLoader } from './common/NetworkSocketLoader';
 import { TopologyDiscoveryModal } from './TopologyDiscoveryModal';
+import { SchematicExportModal } from './SchematicExportModal';
 
 interface SchematicTopologyViewProps {
   topology: TopologyData | null;
@@ -384,6 +387,25 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     localStorage.getItem('theme_mode') === 'light'
   ));
   const [viewMode, setViewMode] = useState<'schematic' | 'physical'>('schematic');
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
+  // Strict fail-closed RBAC check for Visual Schematic HTML Export (aligned with backend /api/schematic/export-authorize)
+  const canExportSchematic = useMemo(() => {
+    if (effectivePolicy) {
+      if (effectivePolicy.id === 'policy-super-admin') return true;
+      return (
+        effectivePolicy.canExportSchematic === true &&
+        effectivePolicy.canViewTopology !== false
+      );
+    }
+    const cleanUsername = String(currentUser?.username || '').trim().toLowerCase();
+    const cleanRole = String(currentUser?.role || '').trim().toLowerCase();
+    return (
+      cleanUsername === 'admin' ||
+      cleanRole.includes('super admin') ||
+      cleanRole.includes('administrator')
+    );
+  }, [effectivePolicy, currentUser]);
 
   // Viewport zoom and pan with LocalStorage persistence
   const [zoom, setZoom] = useState<number>(() => {
@@ -5215,6 +5237,42 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     return deduplicated;
   }, [allAvailableDevices, activeMapId, currentCustomMap, filterBuilding, searchQuery]);
 
+  const exportCardPositions = useMemo(() => {
+    const pos = new Map<string, { x: number; y: number }>();
+    filteredNodes.forEach((dev, idx) => {
+      const resolved = currentCustomMap
+        ? resolveDevicePosition(dev.id, currentCustomMap, 'card', allAvailableDevices)
+        : undefined;
+      pos.set(
+        dev.id,
+        resolved ||
+          nodePositions.get(dev.id) || {
+            x: 180 + (idx % 4) * 280,
+            y: 180 + Math.floor(idx / 4) * 220,
+          }
+      );
+    });
+    return pos;
+  }, [filteredNodes, currentCustomMap, allAvailableDevices, nodePositions]);
+
+  const exportPhysicalPositions = useMemo(() => {
+    const pos = new Map<string, { x: number; y: number }>();
+    filteredNodes.forEach((dev, idx) => {
+      const resolved = currentCustomMap
+        ? resolveDevicePosition(dev.id, currentCustomMap, 'physical', allAvailableDevices)
+        : undefined;
+      pos.set(
+        dev.id,
+        resolved ||
+          nodePositions.get(dev.id) || {
+            x: 180 + (idx % 4) * 280,
+            y: 180 + Math.floor(idx / 4) * 220,
+          }
+      );
+    });
+    return pos;
+  }, [filteredNodes, currentCustomMap, allAvailableDevices, nodePositions]);
+
   // Grouped hierarchy for Physical View
   const physicalHierarchy = useMemo(() => {
     interface FloorHierarchyData {
@@ -6371,6 +6429,48 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     <span className="font-medium">{isEn ? 'Physical' : 'فیزیکی'}</span>
                   </button>
                 </div>
+
+                {/* RBAC-Governed Visual HTML Export (Cards / Physical + Complete VLAN Connections Matrix) */}
+                {canExportSchematic ? (
+                  <button
+                    type="button"
+                    data-component="schematic-export-html-btn"
+                    onClick={() => setIsExportModalOpen(true)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold shadow-xs transition active:scale-95 text-xs border cursor-pointer ${
+                      isLightMode
+                        ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white border-cyan-500'
+                        : 'bg-gradient-to-r from-cyan-600/90 to-indigo-600/90 hover:from-cyan-500 hover:to-indigo-500 text-white border-cyan-400/40'
+                    }`}
+                    title={
+                      isEn
+                        ? 'Export visual interactive HTML (Cards / Physical) with complete VLAN connections matrix'
+                        : 'خروجی ویژوال HTML (نمای کارت / فیزیکی) همراه با جدول کامل ارتباطات VLAN'
+                    }
+                  >
+                    <FileCode2 className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Export HTML' : 'خروجی HTML'}</span>
+                    <Download className="w-3 h-3 opacity-85" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    data-component="schematic-export-html-btn-locked"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border opacity-60 cursor-not-allowed ${
+                      isLightMode
+                        ? 'bg-slate-100 text-slate-500 border-slate-300'
+                        : 'bg-slate-800/70 text-slate-400 border-white/10'
+                    }`}
+                    title={
+                      isEn
+                        ? 'Export restricted by Access Policy (canExportSchematic permission required)'
+                        : 'دریافت خروجی توسط پالیسی دسترسی محدود شده است (نیازمند مجوز canExportSchematic)'
+                    }
+                  >
+                    <Lock className="w-3.5 h-3.5 text-amber-500" />
+                    <span>{isEn ? 'Export HTML' : 'خروجی HTML'}</span>
+                  </button>
+                )}
 
                 {/* Sticky Notes Toggle & Add Note */}
                 <div
@@ -10943,6 +11043,32 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             await handleMoveDevice(deviceId, building, floor, unit, rack);
           }}
           isLightMode={isLightMode}
+        />
+      )}
+
+      {/* Visual Schematic HTML Export Modal (Cards / Physical + Complete VLAN Connections Matrix) */}
+      {canExportSchematic && (
+        <SchematicExportModal
+          isOpen={isExportModalOpen}
+          onClose={() => setIsExportModalOpen(false)}
+          onRestore={() => setIsExportModalOpen(true)}
+          map={currentCustomMap}
+          mapName={
+            currentCustomMap?.name ||
+            (isEn ? 'Enterprise Network Schematic' : 'نقشه شماتیک شبکه سازمانی')
+          }
+          mapDescription={currentCustomMap?.description}
+          activeViewMode={globalDeviceViewMode}
+          devices={filteredNodes}
+          customLinks={currentCustomMap?.links || []}
+          topologyLinks={topology?.links || []}
+          racks={currentCustomMap?.racks || []}
+          towers={currentCustomMap?.towers || []}
+          stickyNotes={activeStickyNotes}
+          cardPositions={exportCardPositions}
+          physicalPositions={exportPhysicalPositions}
+          isLightMode={isLightMode}
+          isEn={isEn}
         />
       )}
       </div>

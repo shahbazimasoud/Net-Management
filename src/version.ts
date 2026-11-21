@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.453.2';
+export const APP_VERSION = '1.454.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.454.0',
+    releaseDate: '2026-11-21',
+    type: 'minor',
+    title: 'افزودن خروجی ویژوال HTML نقشه شماتیک (نمای کارت و فیزیکی) همراه با جدول کامل ارتباطات VLAN و کنترل دسترسی RBAC',
+    title_en: 'Add RBAC-Governed Visual HTML Schematic Export (Cards / Physical) with Complete VLAN Connections Matrix',
+    changes: [
+      'افزودن موتور خروجی ویژوال تعاملی HTML مستقل و آفلاین (`src/utils/schematicHtmlExport.ts`) و مودال استاندارد (`src/components/SchematicExportModal.tsx`) در صفحه شماتیک شبکه (`SchematicTopologyView.tsx`) با قابلیت انتخاب خروجی «نمای کارت‌ها (Cards View)»، «نمای فیزیکی (Physical View — رک‌ها، دکل‌های مخابراتی و شاسی تجهیزات)» یا «هر دو نما همزمان» با زوم، پن، تغییر تم روشن/تیره و چاپ/PDF.',
+      'تعبیه جدول کامل ارتباطات VLAN داخل فایل HTML خروجی شامل: ۱) جدول خلاصه VLANهای موجود روی نقشه (تعداد لینک‌های Trunk/Access، وضعیت فعال/قطع، تعداد پورت‌ها و تجهیزات مرتبط با قابلیت کلیک جهت هایلایت مستقیم روی نقشه)، ۲) جدول کامل ارتباطات پورت‌به‌پورت و VLANها با جستجو و فیلتر زنده بر اساس VLAN، حالت Trunk/Access و وضعیت لینک، و ۳) جدول تفصیلی تخصیص VLAN روی پورت‌های تجهیزات.',
+      'پیاده‌سازی مجوز اختصاصی کنترل دسترسی `canExportSchematic` (پیش‌فرض مسدود / Fail-Closed) در مدل `AccessPolicy`، مودال تنظیمات دسترسی (`AccessPolicyModal.tsx`)، پیش‌فرض‌های بک‌اند (`server/db.ts`) و مسیر احراز مجوز سمت سرور `POST /api/schematic/export-authorize` در `server/routes.ts` همراه با ثبت خودکار عملیات مجاز (`schematic_export_html`) و تلاش‌های غیرمجاز (`schematic_export_denied`) در لاگ ممیزی PostgreSQL.'
+    ],
+    changes_en: [
+      'Added standalone offline interactive Visual HTML export engine (`src/utils/schematicHtmlExport.ts`) and standards-compliant modal (`src/components/SchematicExportModal.tsx`) in `SchematicTopologyView.tsx`, supporting Cards View, Physical View (server racks, telecom towers, and hardware front-panel chassis), or Both with built-in view switcher, zoom/pan, Light/Dark theme toggle, and Print/PDF layout.',
+      'Embedded complete VLAN Connections documentation directly in the exported HTML: (1) VLAN Summary Matrix with click-to-highlight diagram filtering, (2) Complete Port-to-Port & VLAN Interconnections table with live search, VLAN dropdown, Trunk/Access filter, and Active/Down filter, and (3) Device Switch-Port VLAN Allocation Directory — with strict HTML/SVG escaping and zero credential exposure.',
+      'Added dedicated fail-closed RBAC permission `canExportSchematic` across `AccessPolicy`, `AccessPolicyModal.tsx`, `server/db.ts`, `settingsStorage.ts`, and PostgreSQL-authoritative backend gate `POST /api/schematic/export-authorize` (`server/routes.ts`), logging both authorized exports (`schematic_export_html`) and denied attempts (`schematic_export_denied`) to Portal Audit Logs.'
+    ]
+  },
   {
     version: '1.453.2',
     releaseDate: '2026-11-20',

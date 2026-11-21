@@ -7542,6 +7542,105 @@ apiRouter.post('/ping-all', async (req: Request, res: Response) => {
   }
 });
 
+// POST /schematic/export-authorize - PostgreSQL-authoritative RBAC gate & Audit Log for Visual Schematic HTML Export
+apiRouter.post('/schematic/export-authorize', async (req: Request, res: Response) => {
+  try {
+    const { user, effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: Authentication required to export schematic topology.',
+        errorFa: 'عدم احراز هویت: برای دریافت خروجی نقشه شماتیک ابتدا وارد حساب کاربری شوید.',
+      });
+    }
+
+    const rawMode = String(req.body?.exportMode || 'card').trim().toLowerCase();
+    const exportMode: 'card' | 'physical' | 'both' =
+      rawMode === 'physical' ? 'physical' : rawMode === 'both' ? 'both' : 'card';
+    const mapId = String(req.body?.mapId || '').trim().slice(0, 128);
+    const mapName = String(req.body?.mapName || 'Network Schematic').trim().slice(0, 160);
+    const deviceCount = Math.max(0, Math.min(10000, Math.floor(Number(req.body?.deviceCount) || 0)));
+    const linkCount = Math.max(0, Math.min(50000, Math.floor(Number(req.body?.linkCount) || 0)));
+    const vlanCount = Math.max(0, Math.min(4096, Math.floor(Number(req.body?.vlanCount) || 0)));
+    const rackCount = Math.max(0, Math.min(2000, Math.floor(Number(req.body?.rackCount) || 0)));
+    const towerCount = Math.max(0, Math.min(2000, Math.floor(Number(req.body?.towerCount) || 0)));
+
+    const actorName = user.username || user.fullName || 'unknown';
+    const actorRole = user.role || effectivePolicy?.name || 'User';
+    const clientIp =
+      (Array.isArray(req.headers['x-forwarded-for'])
+        ? req.headers['x-forwarded-for'][0]
+        : String(req.headers['x-forwarded-for'] || '').split(',')[0]
+      ).trim() || req.socket?.remoteAddress || 'unknown';
+
+    // Strict fail-closed RBAC check: ONLY Super Admin or policies explicitly granted canExportSchematic === true
+    const allowed =
+      isSuperAdmin ||
+      (effectivePolicy?.canExportSchematic === true && effectivePolicy?.canViewTopology !== false);
+
+    if (!allowed) {
+      await addPortalAuditLog({
+        category: 'topology',
+        action: 'schematic_export_denied',
+        title: `تلاش غیرمجاز برای خروجی ویژوال شماتیک: ${mapName}`,
+        title_en: `Unauthorized Schematic Visual HTML Export Attempt: ${mapName}`,
+        description: `کاربر ${actorName} بدون مجوز canExportSchematic قصد دریافت خروجی HTML (${exportMode}) از نقشه «${mapName}» را داشت.`,
+        description_en: `User ${actorName} attempted to export schematic map "${mapName}" (${exportMode}) without canExportSchematic permission.`,
+        userName: actorName,
+        userRole: actorRole,
+        status: 'denied',
+        severity: 'warning',
+        targetName: mapName,
+        targetId: mapId || undefined,
+        clientIp,
+        metadata: { mapId, mapName, exportMode, deviceCount, linkCount, vlanCount },
+      }).catch(() => {});
+
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Your account policy does not permit exporting schematic topology maps (canExportSchematic).',
+        errorFa: 'عدم دسترسی: پالیسی دسترسی فعال شما فاقد مجوز خروجی گرفتن از نقشه شماتیک (canExportSchematic) است.',
+      });
+    }
+
+    const modeLabelFa =
+      exportMode === 'both' ? 'کارت + فیزیکی (جامع)' : exportMode === 'physical' ? 'نمای فیزیکی' : 'نمای کارت‌ها';
+    const modeLabelEn =
+      exportMode === 'both' ? 'Card + Physical (Full)' : exportMode === 'physical' ? 'Physical View' : 'Card View';
+
+    await addPortalAuditLog({
+      category: 'topology',
+      action: 'schematic_export_html',
+      title: `خروجی ویژوال HTML نقشه شماتیک: ${mapName} (${modeLabelFa})`,
+      title_en: `Exported Visual HTML Schematic: ${mapName} (${modeLabelEn})`,
+      description: `خروجی HTML شامل ${deviceCount} تجهیز، ${linkCount} لینک، ${vlanCount} VLAN، ${rackCount} رک و ${towerCount} دکل دریافت شد.`,
+      description_en: `Downloaded interactive HTML export containing ${deviceCount} devices, ${linkCount} links, ${vlanCount} VLANs, ${rackCount} racks, and ${towerCount} towers.`,
+      userName: actorName,
+      userRole: actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: mapName,
+      targetId: mapId || undefined,
+      clientIp,
+      metadata: { mapId, mapName, exportMode, deviceCount, linkCount, vlanCount, rackCount, towerCount },
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      authorized: true,
+      exportedBy: actorName,
+      exportedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('[Schematic Export Authorize Error]', err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to authorize schematic export',
+      errorFa: 'خطا در بررسی مجوز خروجی نقشه شماتیک',
+    });
+  }
+});
+
 // Guard for ping & keepalive telemetry
 apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, next: NextFunction) => {
   const op = (req.body?.operation || req.body?.action || '').toLowerCase();

@@ -361,6 +361,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       // Backup & Disaster Recovery
       canExportBackup: false,
       canImportBackup: false,
+      canExportSchematic: false,
       // Server Fleet & 3-Dots Action Permissions
       targetServerScope: 'all',
       targetServerIds: [],
