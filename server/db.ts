@@ -2469,7 +2469,7 @@ export async function initDatabase(): Promise<void> {
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_vault_item_id VARCHAR(64)");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS enable_vault_item_id VARCHAR(64)");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS packet_loss DOUBLE PRECISION DEFAULT 0");
-      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_seen VARCHAR(128)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP WITH TIME ZONE");
       await client.query("CREATE INDEX IF NOT EXISTS idx_devices_ssh_vault ON devices(ssh_vault_item_id)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_devices_enable_vault ON devices(enable_vault_item_id)");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_enabled BOOLEAN DEFAULT FALSE");
@@ -6414,7 +6414,10 @@ export async function getAllDevices(): Promise<any[]> {
                 : r.is_online === false
                 ? 100
                 : 0,
-            last_seen: r.last_seen || undefined,
+            last_seen:
+              r.last_seen instanceof Date
+                ? r.last_seen.toISOString()
+                : r.last_seen || undefined,
             mac: r.mac_address || '',
             mac_address: r.mac_address || '',
             uptime: r.uptime_str || '',
@@ -7043,12 +7046,18 @@ export async function updateDevicesPingTelemetryBatch(
       const dev = store.devices[i];
       const patch = updateMap.get(String(dev.id));
       if (patch) {
+        const isOnline = Boolean(patch.is_online);
+        const safeLastSeen = isOnline
+          ? patch.last_seen && !Number.isNaN(Date.parse(patch.last_seen))
+            ? patch.last_seen
+            : new Date().toISOString()
+          : dev.last_seen || undefined;
         const merged = {
           ...dev,
-          is_online: Boolean(patch.is_online),
-          latency_ms: patch.is_online ? patch.latency_ms : null,
-          packet_loss: Number.isFinite(Number(patch.packet_loss)) ? Number(patch.packet_loss) : patch.is_online ? 0 : 100,
-          last_seen: patch.last_seen,
+          is_online: isOnline,
+          latency_ms: isOnline ? patch.latency_ms : null,
+          packet_loss: Number.isFinite(Number(patch.packet_loss)) ? Number(patch.packet_loss) : isOnline ? 0 : 100,
+          last_seen: safeLastSeen,
         };
         store.devices[i] = merged;
         resultMap.set(dev.id, merged);
@@ -7073,12 +7082,18 @@ export async function updateDevicesPingTelemetryBatch(
           const dev = netData.devices[i];
           const patch = updateMap.get(String(dev.id));
           if (patch) {
+            const isOnline = Boolean(patch.is_online);
+            const safeLastSeen = isOnline
+              ? patch.last_seen && !Number.isNaN(Date.parse(patch.last_seen))
+                ? patch.last_seen
+                : new Date().toISOString()
+              : dev.last_seen || undefined;
             netData.devices[i] = {
               ...dev,
-              is_online: Boolean(patch.is_online),
-              latency_ms: patch.is_online ? patch.latency_ms : null,
-              packet_loss: Number.isFinite(Number(patch.packet_loss)) ? Number(patch.packet_loss) : patch.is_online ? 0 : 100,
-              last_seen: patch.last_seen,
+              is_online: isOnline,
+              latency_ms: isOnline ? patch.latency_ms : null,
+              packet_loss: Number.isFinite(Number(patch.packet_loss)) ? Number(patch.packet_loss) : isOnline ? 0 : 100,
+              last_seen: safeLastSeen,
             };
             netChanged = true;
           }
@@ -7092,42 +7107,65 @@ export async function updateDevicesPingTelemetryBatch(
     console.warn('[DB updateDevicesPingTelemetryBatch network_data.json notice]', err);
   }
 
-  // 3. Authoritative PostgreSQL update
+  // 3. Authoritative PostgreSQL update (compatible with both TIMESTAMPTZ and VARCHAR last_seen schemas)
   await ensurePostgresConnection();
   if (isPostgresReady && pool) {
     for (const patch of updateMap.values()) {
-      const safeLatency = patch.is_online && patch.latency_ms !== null && Number.isFinite(Number(patch.latency_ms))
-        ? Number(patch.latency_ms)
-        : null;
+      const isOnline = Boolean(patch.is_online);
+      const safeLatency =
+        isOnline && patch.latency_ms !== null && Number.isFinite(Number(patch.latency_ms))
+          ? Number(patch.latency_ms)
+          : null;
       const safeLoss = Number.isFinite(Number(patch.packet_loss))
         ? Number(patch.packet_loss)
-        : patch.is_online
+        : isOnline
         ? 0
         : 100;
+      const isoLastSeen =
+        patch.last_seen && !Number.isNaN(Date.parse(patch.last_seen))
+          ? new Date(patch.last_seen).toISOString()
+          : new Date().toISOString();
+
       try {
-        await pool.query(
-          `UPDATE devices
-             SET is_online = $2,
-                 latency_ms = $3,
-                 packet_loss = $4,
-                 last_seen = $5,
-                 updated_at = CURRENT_TIMESTAMP
-           WHERE id = $1`,
-          [patch.id, Boolean(patch.is_online), safeLatency, safeLoss, patch.last_seen || '']
-        );
+        if (isOnline) {
+          await pool.query(
+            `UPDATE devices
+                SET is_online = true,
+                    latency_ms = $2,
+                    packet_loss = $3,
+                    last_seen = $4,
+                    updated_at = CURRENT_TIMESTAMP
+              WHERE id = $1`,
+            [patch.id, safeLatency, safeLoss, isoLastSeen]
+          );
+        } else {
+          // Do not write non-timestamp text into TIMESTAMPTZ last_seen; preserve the last authentic seen time
+          await pool.query(
+            `UPDATE devices
+                SET is_online = false,
+                    latency_ms = NULL,
+                    packet_loss = $2,
+                    updated_at = CURRENT_TIMESTAMP
+              WHERE id = $1`,
+            [patch.id, safeLoss]
+          );
+        }
       } catch (pgErr: any) {
-        // Graceful fallback if older PG schema hasn't added packet_loss / last_seen yet
-        if (String(pgErr?.message || '').includes('column')) {
+        // Guaranteed fallback on ANY schema mismatch so is_online & latency_ms ALWAYS persist in PostgreSQL
+        try {
+          await pool.query(
+            `UPDATE devices SET is_online = $2, latency_ms = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [patch.id, isOnline, safeLatency]
+          );
+        } catch (fallbackErr1) {
           try {
             await pool.query(
-              `UPDATE devices SET is_online = $2, latency_ms = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-              [patch.id, Boolean(patch.is_online), safeLatency]
+              `UPDATE devices SET is_online = $2, latency_ms = $3 WHERE id = $1`,
+              [patch.id, isOnline, safeLatency]
             );
-          } catch (fallbackErr) {
-            console.error('[DB updateDevicesPingTelemetryBatch PG fallback error]', fallbackErr);
+          } catch (fallbackErr2) {
+            console.error('[DB updateDevicesPingTelemetryBatch PG error]', pgErr, fallbackErr1, fallbackErr2);
           }
-        } else {
-          console.error('[DB updateDevicesPingTelemetryBatch PG error]', pgErr);
         }
       }
     }

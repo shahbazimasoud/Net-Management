@@ -1559,23 +1559,73 @@ export default function App() {
     try {
       setIsRefreshing(true);
       const pingRes = await pingAllDevices();
-      if (pingRes && Array.isArray(pingRes.results) && pingRes.results.length > 0) {
-        const resultMap = new Map(pingRes.results.map((r) => [r.id, r]));
-        setDevices((prev) =>
-          prev.map((d) => {
-            const match = resultMap.get(d.id);
-            if (!match) return d;
-            return {
-              ...d,
-              is_online: Boolean(match.is_online),
-              latency_ms: match.is_online ? match.latency_ms : null,
-              packet_loss: match.packet_loss,
-              last_seen: match.last_seen || d.last_seen,
-            };
-          })
+      const resultMap = new Map<string, any>();
+      if (pingRes && Array.isArray(pingRes.results)) {
+        for (const r of pingRes.results) {
+          if (r && r.id) resultMap.set(String(r.id).trim(), r);
+        }
+      }
+
+      const applyPingResults = (list: Device[]) =>
+        list.map((d) => {
+          const match = resultMap.get(String(d.id).trim());
+          if (!match) return d;
+          return {
+            ...d,
+            is_online: Boolean(match.is_online),
+            latency_ms: match.is_online ? match.latency_ms : null,
+            packet_loss: match.packet_loss,
+            last_seen: match.last_seen ?? d.last_seen,
+          };
+        });
+
+      if (resultMap.size > 0) {
+        setDevices((prev) => applyPingResults(prev));
+        setTopology((prev) =>
+          prev
+            ? {
+                ...prev,
+                nodes: (prev.nodes || []).map((n: any) => {
+                  const match = resultMap.get(String(n.id).trim());
+                  if (!match) return n;
+                  return {
+                    ...n,
+                    is_online: Boolean(match.is_online),
+                    latency_ms: match.is_online ? match.latency_ms : null,
+                  };
+                }),
+              }
+            : prev
         );
       }
-      await loadData();
+
+      // Sync latest catalog from backend while preserving fresh ping results as authoritative
+      try {
+        const devRes = await fetchDevices();
+        if (devRes?.devices && Array.isArray(devRes.devices)) {
+          const mergedDevices = resultMap.size > 0 ? applyPingResults(devRes.devices) : devRes.devices;
+          setDevices(mergedDevices);
+          setActivePortDevices((prevList) => {
+            if (!prevList || prevList.length === 0) return prevList;
+            return prevList.map((d) => {
+              if (!d) return null;
+              const fresh = mergedDevices.find((item: Device) => item.id === d.id);
+              return fresh ? { ...d, ...fresh } : d;
+            });
+          });
+          setActiveTerminals((prevList) => {
+            if (!prevList || prevList.length === 0) return prevList;
+            return prevList.map((d) => {
+              if (!d) return null;
+              const fresh = mergedDevices.find((item: Device) => item.id === d.id);
+              return fresh ? { ...d, ...fresh } : d;
+            });
+          });
+        }
+      } catch (syncErr) {
+        console.warn('[handleRefreshAll] Post-ping device catalog sync skipped:', syncErr);
+      }
+
       const summaryToast = isEn
         ? pingRes?.message_en || t('toast_refresh_success')
         : pingRes?.message || t('toast_refresh_success');

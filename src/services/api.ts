@@ -296,7 +296,7 @@ export async function fetchHealth(): Promise<any> {
 }
 
 export async function fetchDevices(): Promise<{ devices: Device[]; total: number; online_count: number; offline_count: number }> {
-  const res = await fetchWithRetry(`${API_BASE}/devices`);
+  const res = await fetchWithRetry(`${API_BASE}/devices`, { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to fetch devices');
   return res.json();
 }
@@ -909,7 +909,7 @@ export async function runCdpLldpScan(): Promise<{
   return res.json();
 }
 
-export async function pingAllDevices(): Promise<{
+export async function pingAllDevices(deviceIds?: string[]): Promise<{
   success?: boolean;
   message: string;
   message_en?: string;
@@ -928,7 +928,9 @@ export async function pingAllDevices(): Promise<{
 }> {
   const res = await fetchWithRetry(`${API_BASE}/ping-all`, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
+    body: Array.isArray(deviceIds) && deviceIds.length > 0 ? JSON.stringify({ deviceIds }) : undefined,
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Failed to ping devices');
   return res.json();
@@ -947,6 +949,7 @@ export async function pingDevice(id: string): Promise<{
 }> {
   const res = await fetchWithRetry(`${API_BASE}/ping/${encodeURIComponent(id)}`, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Failed to ping device');

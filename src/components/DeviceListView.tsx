@@ -1431,17 +1431,35 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                           <div className="flex items-center gap-2">
                             <span
                               className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-                                dev.is_online
+                                isPinging || isRefreshing
+                                  ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30'
+                                  : dev.is_online
                                   ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.15)]'
                                   : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
                               }`}
                             >
                               <span
                                 className={`w-1.5 h-1.5 rounded-full ${
-                                  dev.is_online ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)] animate-pulse' : 'bg-rose-500'
+                                  isPinging || isRefreshing
+                                    ? 'bg-indigo-400 animate-ping'
+                                    : dev.is_online
+                                    ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)] animate-pulse'
+                                    : 'bg-rose-500'
                                 }`}
                               ></span>
-                              <span>{dev.is_online ? (isEn ? 'Online' : 'آنلاین') : (isEn ? 'Offline' : 'آفلاین')}</span>
+                              <span>
+                                {isPinging || isRefreshing
+                                  ? isEn
+                                    ? 'Pinging...'
+                                    : 'در حال پینگ...'
+                                  : dev.is_online
+                                  ? isEn
+                                    ? 'Online'
+                                    : 'آنلاین'
+                                  : isEn
+                                  ? 'Offline'
+                                  : 'آفلاین'}
+                              </span>
                             </span>
 
                             {(isSuperAdmin || isDeviceActionPermitted(effectivePolicy, dev.id, 'ping_keepalive')) && (
@@ -1456,16 +1474,16 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                                 }`}
                                 title={isEn ? 'Ping device now (Real ICMP)' : 'پینگ لحظه‌ای با پروتکل واقعی ICMP'}
                               >
-                                <RefreshCw className={`w-3 h-3 ${isPinging ? 'animate-spin text-indigo-400' : ''}`} />
+                                <RefreshCw className={`w-3 h-3 ${isPinging || isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
                               </button>
                             )}
                           </div>
-                          {dev.is_online && dev.latency_ms !== null && dev.latency_ms !== undefined && (
+                          {!(isPinging || isRefreshing) && dev.is_online && dev.latency_ms !== null && dev.latency_ms !== undefined && (
                             <div className={`text-[10px] font-mono mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                               {isEn ? 'Latency:' : 'تأخیر:'} {dev.latency_ms} ms
                             </div>
                           )}
-                          {!dev.is_online && (
+                          {!(isPinging || isRefreshing) && !dev.is_online && (
                             <div className={`text-[9px] font-mono mt-0.5 ${isLightMode ? 'text-rose-600/80' : 'text-rose-400/80'}`}>
                               {isEn ? 'ICMP Unreachable' : 'عدم پاسخ ICMP'}
                             </div>

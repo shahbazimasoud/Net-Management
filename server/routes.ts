@@ -7215,6 +7215,7 @@ export async function executeRealIcmpPing(
 
   const start = Date.now();
   let raw = '';
+  let icmpUnavailableAtOsLevel = false;
   try {
     const { stdout, stderr } = await execFileAsync(pingBin, args, {
       timeout: (safeCount * safeTimeout + 4) * 1000,
@@ -7240,6 +7241,16 @@ export async function executeRealIcmpPing(
     }
   } catch (err: any) {
     raw = `${err?.stdout || ''}\n${err?.stderr || ''}\n${err?.message || ''}`.trim();
+    const errCode = String(err?.code || '').toUpperCase();
+    if (
+      errCode === 'ENOENT' ||
+      errCode === 'EPERM' ||
+      errCode === 'EACCES' ||
+      /operation not permitted|permission denied|not found|cap_net_raw|socket:/i.test(raw)
+    ) {
+      icmpUnavailableAtOsLevel = true;
+    }
+
     const { lossPct, avgLatency, receivedCount } = parsePingOutputMetrics(raw);
 
     // Partial packet delivery (e.g., 1 of 2 received -> 50% loss) can still return exit code 1 on some ping builds
@@ -7254,9 +7265,10 @@ export async function executeRealIcmpPing(
     }
   }
 
-  // Authentic TCP reachability fallback when ICMP is blocked by firewall or unprivileged container (EPERM/ENOENT)
-  if (Array.isArray(fallbackTcpPorts) && fallbackTcpPorts.length > 0) {
-    const tcp = await probeTcpReachability(cleanIp, fallbackTcpPorts, 1500);
+  // Only fall back to TCP management-port reachability if OS/container cannot send ICMP raw sockets
+  // (Prevents false-positive Online status from proxies/firewalls on ports 80/443 when ICMP genuinely failed)
+  if (icmpUnavailableAtOsLevel && Array.isArray(fallbackTcpPorts) && fallbackTcpPorts.length > 0) {
+    const tcp = await probeTcpReachability(cleanIp, fallbackTcpPorts, 1200);
     if (tcp.reachable) {
       return {
         is_online: true,
@@ -7285,8 +7297,14 @@ function getDeviceProbePorts(device: any): number[] {
   if (Number.isInteger(winboxPort) && winboxPort >= 1 && winboxPort <= 65535) ports.push(winboxPort);
   const platform = String(device?.platform || '').toLowerCase();
   if (platform.includes('mikrotik')) ports.push(8291, 8728);
-  ports.push(22, 23, 443, 80);
+  ports.push(22, 23);
   return Array.from(new Set(ports));
+}
+
+function normalizePingTargetHost(device: any): string {
+  const raw = String(device?.ip || device?.ssh_host || '').trim();
+  if (!raw) return '';
+  return raw.split('/')[0].trim();
 }
 
 // POST /ping/:id (and /devices/:id/ping alias for JIT approval executor) - Authentic reachability probe
@@ -7312,9 +7330,9 @@ apiRouter.post(['/ping/:id', '/devices/:id/ping'], async (req: Request, res: Res
       return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
     }
 
-    const targetHost = device.ip || device.ssh_host || '';
+    const targetHost = normalizePingTargetHost(device);
     const pingResult = await executeRealIcmpPing(targetHost, 2, 1, getDeviceProbePorts(device));
-    const lastSeen = pingResult.is_online ? 'Just now' : 'Offline';
+    const lastSeen = pingResult.is_online ? new Date().toISOString() : (device.last_seen || '');
 
     const updatedDevice = await updateDevicePingTelemetry(device.id, {
       is_online: pingResult.is_online,
@@ -7327,7 +7345,7 @@ apiRouter.post(['/ping/:id', '/devices/:id/ping'], async (req: Request, res: Res
       sendTelegramAlert({
         title: `HOST UNREACHABLE: ${device.name} (${device.ip || 'N/A'})`,
         level: 'critical',
-        message: `Device "${device.name}" failed ICMP/TCP keepalive probe (100% packet loss).`,
+        message: `Device "${device.name}" failed ICMP keepalive probe (100% packet loss).`,
         details: `Device: ${device.name}\nIP: ${device.ip || 'N/A'}\nPlatform: ${device.platform || 'Network Device'}`,
         targetDevice: {
           name: device.name,
@@ -7363,7 +7381,7 @@ apiRouter.post(['/ping/:id', '/devices/:id/ping'], async (req: Request, res: Res
         is_online: pingResult.is_online,
         latency_ms: pingResult.latency_ms,
         packet_loss: pingResult.packet_loss,
-        last_seen: lastSeen,
+        last_seen: lastSeen || device.last_seen,
       }
     );
 
@@ -7384,7 +7402,7 @@ apiRouter.post(['/ping/:id', '/devices/:id/ping'], async (req: Request, res: Res
   }
 });
 
-// POST /ping-all - Bounded concurrent authentic ICMP/TCP probe for all authorized network devices
+// POST /ping-all - Fast bounded concurrent authentic ICMP probe for all authorized network devices
 apiRouter.post('/ping-all', async (req: Request, res: Response) => {
   try {
     const { user, effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
@@ -7410,6 +7428,12 @@ apiRouter.post('/ping-all', async (req: Request, res: Response) => {
       allDevices = allDevices.filter((d: any) => allowedSet.has(String(d.id).trim().toLowerCase()));
     }
 
+    // Optional subset scoping if caller specifies explicit deviceIds (still bounded by RBAC above)
+    if (Array.isArray(req.body?.deviceIds) && req.body.deviceIds.length > 0) {
+      const requestedSet = new Set(req.body.deviceIds.map((id: any) => String(id).trim().toLowerCase()));
+      allDevices = allDevices.filter((d: any) => requestedSet.has(String(d.id).trim().toLowerCase()));
+    }
+
     // Filter out devices where ping_keepalive is explicitly denied by RBAC
     if (!isSuperAdmin && effectivePolicy) {
       allDevices = allDevices.filter(
@@ -7417,8 +7441,8 @@ apiRouter.post('/ping-all', async (req: Request, res: Response) => {
       );
     }
 
-    // Bounded concurrency worker pool (max 10 simultaneous pings)
-    const CONCURRENCY = 10;
+    // Bounded concurrency worker pool (max 20 simultaneous fast ICMP probes)
+    const CONCURRENCY = 20;
     const results: any[] = new Array(allDevices.length);
     const dbUpdates: Array<{
       id: string;
@@ -7433,9 +7457,10 @@ apiRouter.post('/ping-all', async (req: Request, res: Response) => {
       while (cursor < allDevices.length) {
         const idx = cursor++;
         const dev = allDevices[idx];
-        const targetHost = dev.ip || dev.ssh_host || '';
-        const pingRes = await executeRealIcmpPing(targetHost, 2, 1, getDeviceProbePorts(dev));
-        const lastSeen = pingRes.is_online ? 'Just now' : 'Offline';
+        const targetHost = normalizePingTargetHost(dev);
+        // Fast 1-packet ICMP check (1s timeout) keeps large fleets responsive (<5s even with many offline hosts)
+        const pingRes = await executeRealIcmpPing(targetHost, 1, 1, getDeviceProbePorts(dev));
+        const lastSeen = pingRes.is_online ? new Date().toISOString() : (dev.last_seen || '');
 
         dbUpdates.push({
           id: dev.id,
@@ -7449,7 +7474,7 @@ apiRouter.post('/ping-all', async (req: Request, res: Response) => {
           sendTelegramAlert({
             title: `HOST UNREACHABLE: ${dev.name} (${dev.ip || 'N/A'})`,
             level: 'critical',
-            message: `Network device "${dev.name}" failed concurrent ICMP/TCP health check.`,
+            message: `Network device "${dev.name}" failed concurrent ICMP health check.`,
             details: `Device: ${dev.name}\nIP: ${dev.ip || 'N/A'}\nPacket loss: 100%`,
             targetDevice: {
               name: dev.name,
@@ -7486,7 +7511,7 @@ apiRouter.post('/ping-all', async (req: Request, res: Response) => {
           is_online: pingRes.is_online,
           latency_ms: pingRes.latency_ms,
           packet_loss: pingRes.packet_loss,
-          last_seen: lastSeen,
+          last_seen: lastSeen || undefined,
           probe_method: pingRes.probe_method || 'icmp',
         };
       }
@@ -7495,7 +7520,7 @@ apiRouter.post('/ping-all', async (req: Request, res: Response) => {
     const workerCount = Math.min(CONCURRENCY, Math.max(1, allDevices.length));
     await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
-    // Atomic batch persistence (zero JSON write races + clean PG update)
+    // Atomic batch persistence (PostgreSQL TIMESTAMPTZ-safe + JSON fallback)
     if (dbUpdates.length > 0) {
       await updateDevicesPingTelemetryBatch(dbUpdates);
     }

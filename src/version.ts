@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.453.1';
+export const APP_VERSION = '1.453.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.453.2',
+    releaseDate: '2026-11-20',
+    type: 'patch',
+    title: 'رفع ریشه‌ای عدم بروزرسانی Live Status در Global Ping & Telemetry و رفع خطای نوع ستون last_seen در PostgreSQL',
+    title_en: 'Fix Global Ping & Telemetry Live Status Persistence & PostgreSQL TIMESTAMPTZ Mismatch on devices.last_seen',
+    changes: [
+      'رفع علت ریشه‌ای عدم ذخیره و بازگشت وضعیت قدیمی پس از پینگ در PostgreSQL: ستون `devices.last_seen` از نوع `TIMESTAMP WITH TIME ZONE` بود و ارسال متن‌های `"Just now"` و `"Offline"` در `updateDevicesPingTelemetryBatch` باعث خطای PostgreSQL (`invalid input syntax for type timestamp with time zone`) و عدم بروزرسانی `is_online` و `latency_ms` می‌شد. اکنون هنگام آنلاین بودن فقط timestamp معتبر ISO-8601 ثبت می‌شود، هنگام آفلاین بودن آخرین زمان مشاهده حفظ می‌گردد و فالبک تضمینی ذخیره `is_online` و `latency_ms` برای هر نوع اسکیما فعال شد.',
+      'بهینه‌سازی سرعت و دقت `POST /api/ping-all` و `executeRealIcmpPing`: اجرای پینگ سریع همگانی با همزمانی ۲۰ ترد و ۱ پکت با تایم‌اوت ۱ ثانیه (کاهش چشمگیر زمان پایش لیست‌های بزرگ)، حذف پسوند CIDR احتمالی از آدرس IP، و محدود کردن فالبک TCP صرفاً به خطاهای نبود دسترسی خام ICMP در سیستم‌عامل تا هیچ تجهیز بدون پینگی به اشتباه توسط پراکسی/فایروال پورت 80/443 آنلاین نشان داده نشود.',
+      'افزودن `cache: no-store` به درخواست‌های `fetchDevices`، `pingAllDevices` و `pingDevice`، حفظ قطعی نتایج تازه پینگ روی `devices` و `topology` در `App.tsx`، و نمایش وضعیت زنده «در حال پینگ... / Pinging...» روی ستون `Live Status` همه ردیف‌های صفحه Network Equipment Inventory & Management حین اجرای دکمه Global Ping & Telemetry.'
+    ],
+    changes_en: [
+      'Fixed the root cause preventing Live Status updates from persisting in PostgreSQL: `devices.last_seen` is `TIMESTAMP WITH TIME ZONE`, so writing `"Just now"` / `"Offline"` inside `updateDevicesPingTelemetryBatch` failed with a PostgreSQL syntax error and left `is_online`/`latency_ms` stale whenever `GET /api/devices` reloaded. Now valid ISO-8601 timestamps are written on online probes, offline probes preserve the last authentic timestamp, and guaranteed fallback queries ensure `is_online` and `latency_ms` always persist.',
+      'Accelerated and hardened `POST /api/ping-all` and `executeRealIcmpPing`: switched batch sweeps to 20 concurrent fast 1-packet ICMP probes (1s timeout), stripped accidental CIDR suffixes from target IPs, and restricted TCP fallback strictly to OS-level ICMP permission/binary failures (`ENOENT`/`EPERM`/`CAP_NET_RAW`) so unreachable hosts are never falsely marked online by port 80/443 proxies or firewalls.',
+      'Added `cache: no-store` to `fetchDevices`, `pingAllDevices`, and `pingDevice`, hardened `handleRefreshAll` in `App.tsx` to preserve authoritative ping results across `devices` and `topology`, and added live per-row "Pinging..." status feedback in the `Live Status` column of `DeviceListView.tsx` during Global Ping & Telemetry sweeps.'
+    ]
+  },
   {
     version: '1.453.1',
     releaseDate: '2026-11-20',
