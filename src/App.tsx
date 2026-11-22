@@ -36,6 +36,7 @@ import { RemoteServersView } from './components/servers/RemoteServersView';
 import { LicensesView } from './components/licenses/LicensesView';
 import { ContractsView } from './components/licenses/ContractsView';
 import { SslCertificatesView } from './components/licenses/SslCertificatesView';
+import { HelpDeskView } from './components/HelpDeskView';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
 import { ToolsDock, StandardModalId, MinimizedStandardModal } from './components/tools/ToolsDock';
 import { NetworkToolId, ActiveToolState } from './components/tools/types';
@@ -431,6 +432,7 @@ export default function App() {
         'licenses',
         'contracts',
         'ssl-certificates',
+        'helpdesk',
         'ports',
         'scanner',
         'templates',
@@ -2061,6 +2063,15 @@ export default function App() {
 
           {activeTab === 'ssl-certificates' && (
             <SslCertificatesView
+              isLightMode={isLightMode}
+              isEn={isEn}
+              effectivePolicy={effectivePolicy}
+              currentUser={user}
+            />
+          )}
+
+          {activeTab === 'helpdesk' && (
+            <HelpDeskView
               isLightMode={isLightMode}
               isEn={isEn}
               effectivePolicy={effectivePolicy}

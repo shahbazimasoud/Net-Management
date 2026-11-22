@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.454.0';
+export const APP_VERSION = '1.455.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.455.0',
+    releaseDate: '2026-11-22',
+    type: 'minor',
+    title: 'افزودن منو و ماژول کامل HelpDesk بدون‌ایجنت (فاز ۱: سلامت سیستم و پروسس‌ها، عیب‌یابی شبکه، تعمیر پرینتر/Spooler و معماری ضدباج‌افزار)',
+    title_en: 'Add Agentless On-Demand HelpDesk Phase 1 Module (Health & Process Gauges, Endpoint Network Diagnostics, Printer/Spooler Repair & Anti-Ransomware Guards)',
+    changes: [
+      'افزودن منوی مستقل **HelpDesk** در سایدبار (`Sidebar.tsx`) و پیاده‌سازی صفحه مهندسی‌شده **پشتیبانی لحظه‌ای تک‌سیستمی (On-Demand Single-Host)** بدون ذخیره لیست ازپیش‌تعریف‌شده سیستم‌ها (`src/components/HelpDeskView.tsx`)؛ کاربر در لحظه صرفاً آدرس IP/نام سیستم و اطلاعات نشست موقت (RAM-Only) را وارد می‌کند و هیچ رمزی در دیتابیس یا مرورگر ذخیره نمی‌شود.',
+      'پیاده‌سازی موتور ارتباطی بدون‌ایجنت بومی در بک‌اند (`server/helpdeskService.ts`) با پشتیبانی تطبیقی از **WinRM HTTPS (5986) / HTTP (5985)** با احراز هویت NTLMv2 بومی TypeScript، پشتیبانی از **Windows JEA Session Configuration** و فالبک خودکار **OpenSSH (22)** برای کلاینت‌های لینوکس/ویندوز، صرفاً با اسکریپت‌های ثابت مجاز (Zero Arbitrary Command Execution).',
+      'پیاده‌سازی کامل **مورد ۱ (سلامت سیستم و نمایش بصری پروسس‌ها)** با گیج‌های دایره‌ای (Circular SVG Gauges) برای CPU، RAM و فضای دیسک‌ها، نمودار میله‌ای/پراگرس توزیع مصرف حافظه و CPU بین پروسس‌های زنده (با قابلیت مرتب‌سازی و جستجو)، وضعیت Uptime، کاربر لاگین‌شده، Windows Defender و فایروال.',
+      'پیاده‌سازی کامل **مورد ۲ (عیب‌یابی شبکه از داخل سیستم کاربر و ریست امن)** شامل مشاهده کارت‌های شبکه، Gateway، DNS و Proxy، اجرای Ping / تست پورت TCP / Lookup DNS از داخل خود سیستم کاربر، و دکمه‌های ثابت `Flush DNS` و `Renew DHCP IP`.',
+      'پیاده‌سازی کامل **مورد ۳ (پرینترها و تعمیر Print Spooler)** شامل وضعیت سرویس Spooler، لیست پرینترها و صف اسناد گیرکرده، و دکمه‌های محدودشده ری‌استارت سرویس Spooler و پاک‌سازی ایمن صف گیرکرده (محدود صرفاً به مسیر `System32\\spool\\PRINTERS`).',
+      'پیاده‌سازی **بخش جمع‌بندی فاز ۱ و معماری ضدباج‌افزار** شامل نقشه راه ۸گانه، مدارقطع‌کن ضدحمله (حداکثر ۳ سیستم مختلف / ۶ عملیات تغییردهنده در هر ۵ دقیقه با قفل خودکار ۵ دقیقه‌ای)، مودال کپی اسکریپت آماده **Windows JEA & GPO Firewall Lock**، کنترل دسترسی کامل در **Access Policy** (`canViewHelpdesk`، `canRunHelpdeskDiagnostics`، `canExecuteHelpdeskActions`) و ثبت جامع در **Portal Audit Logs**.'
+    ],
+    changes_en: [
+      'Added dedicated **HelpDesk** sidebar menu (`Sidebar.tsx`) and engineered **On-Demand Single-Host Support** workspace (`src/components/HelpDeskView.tsx`) without any pre-registered endpoint inventory; operators enter target workstation IP/hostname and ephemeral RAM-only credentials per session with zero database or browser persistence.',
+      'Built native agentless backend transport engine (`server/helpdeskService.ts`) supporting adaptive **WinRM HTTPS (5986) / HTTP (5985)** with pure TypeScript NTLMv2 authentication, optional **Windows JEA Session Configuration**, and automatic **OpenSSH (22)** fallback for Linux/Windows hosts — strictly confined to hardcoded allowlisted scripts (zero arbitrary command execution).',
+      'Implemented **Module 1 (Read-Only System Health & Visual Process Telemetry)** featuring precision circular SVG gauges for CPU, RAM, and disk volumes, visual progress-bar breakdown of top live processes by RAM/CPU with live search and sort, uptime, active logged-on user, and Windows Defender / Firewall posture.',
+      'Implemented **Module 2 (Endpoint-Side Network Diagnostics & Safe Reset)** including active NICs, gateways, DNS servers, proxy status, real Ping / TCP Port / DNS probes executed directly from the target workstation, and allowlisted `Flush DNS` & `Renew DHCP IP` actions.',
+      'Implemented **Module 3 (Printers & Print Spooler Repair)** showing Spooler/CUPS service health, installed printers, stuck print jobs queue, and strictly scoped `Restart Spooler` & `Clear Stuck Print Queue` remediation confined solely to `System32\\spool\\PRINTERS`.',
+      'Implemented the **Phase 1 Plan & Anti-Ransomware Architecture** tab with the 8-item roadmap, single-host anti-ransomware rate-limit circuit breaker (max 3 distinct hosts / 6 write actions per 5 minutes with automatic 5-minute freeze), copyable **Windows JEA & GPO Firewall Hardening** templates modal, PostgreSQL-authoritative RBAC (`canViewHelpdesk`, `canRunHelpdeskDiagnostics`, `canExecuteHelpdeskActions`), and full **Portal Audit Logging**.'
+    ]
+  },
   {
     version: '1.454.0',
     releaseDate: '2026-11-21',

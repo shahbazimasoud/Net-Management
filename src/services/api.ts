@@ -981,6 +981,150 @@ export async function authorizeSchematicExport(payload: {
   return res.json();
 }
 
+export interface HelpdeskConnectionPayload {
+  targetIp: string;
+  protocol: 'auto' | 'winrm_https' | 'winrm_http' | 'ssh';
+  port?: number;
+  username: string;
+  password: string;
+  jeaConfigName?: string;
+}
+
+export async function fetchHelpdeskStatus(): Promise<{
+  success: boolean;
+  permissions: {
+    canViewHelpdesk: boolean;
+    canRunHelpdeskDiagnostics: boolean;
+    canExecuteHelpdeskActions: boolean;
+  };
+  rateLimit: {
+    windowMinutes: number;
+    maxWriteActions: number;
+    maxDistinctHosts: number;
+    usedWriteActions: number;
+    remainingWriteActions: number;
+    distinctHostsUsed: number;
+    isFrozen: boolean;
+    freezeUntilIso: string | null;
+  };
+  jeaTemplates: {
+    jeaConfigName: string;
+    roleCapabilityScript: string;
+    registerSessionScript: string;
+  };
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/status`, {
+    method: 'GET',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to fetch HelpDesk status');
+  return res.json();
+}
+
+export async function fetchHelpdeskEndpointHealth(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/health`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to collect endpoint health telemetry');
+  return res.json();
+}
+
+export async function fetchHelpdeskNetworkSnapshot(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/network/snapshot`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to inspect endpoint network adapters');
+  return res.json();
+}
+
+export async function runHelpdeskNetworkProbe(
+  payload: HelpdeskConnectionPayload & {
+    probeType: 'ping' | 'port' | 'dns';
+    probeTarget: string;
+    probePort?: number;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/network/probe`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Endpoint diagnostic probe failed');
+  return res.json();
+}
+
+export async function executeHelpdeskNetworkAction(
+  payload: HelpdeskConnectionPayload & {
+    action: 'network_flush_dns' | 'network_renew_ip';
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/network/action`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Safe network reset action failed');
+  return res.json();
+}
+
+export async function fetchHelpdeskPrinterStatus(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/printers/status`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to inspect endpoint printers and spooler');
+  return res.json();
+}
+
+export async function executeHelpdeskPrinterAction(
+  payload: HelpdeskConnectionPayload & {
+    action: 'spooler_restart' | 'spooler_clear_queue';
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/printers/action`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Print Spooler repair action failed');
+  return res.json();
+}
+
 export async function pingHost(host: string, count: number = 2, timeout: number = 2): Promise<{ success: boolean; latency_ms?: number; packet_loss?: number; message?: string; output?: string; is_online?: boolean }> {
   const res = await fetch(`${API_BASE}/tools/ping`, {
     method: 'POST',

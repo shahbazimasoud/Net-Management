@@ -58,6 +58,7 @@ import {
   Copy,
   BookmarkPlus,
   ShieldAlert,
+  Monitor,
   ScrollText,
   FileCheck,
   Paperclip,
@@ -204,6 +205,15 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canViewContracts: initialPolicy.canViewContracts ?? true,
       canViewLicenses: initialPolicy.canViewLicenses ?? true,
       canViewSslCertificates: initialPolicy.canViewSslCertificates ?? true,
+      canViewHelpdesk:
+        initialPolicy.canViewHelpdesk ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canRunHelpdeskDiagnostics:
+        initialPolicy.canRunHelpdeskDiagnostics ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canExecuteHelpdeskActions:
+        initialPolicy.canExecuteHelpdeskActions ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
       canViewCommunications: initialPolicy.canViewCommunications ?? true,
       canSendCommunications: initialPolicy.canSendCommunications ?? true,
       canSendAnnouncements:
@@ -597,6 +607,15 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canViewContracts: initialPolicy.canViewContracts ?? true,
         canViewLicenses: initialPolicy.canViewLicenses ?? true,
         canViewSslCertificates: initialPolicy.canViewSslCertificates ?? true,
+        canViewHelpdesk:
+          initialPolicy.canViewHelpdesk ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canRunHelpdeskDiagnostics:
+          initialPolicy.canRunHelpdeskDiagnostics ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canExecuteHelpdeskActions:
+          initialPolicy.canExecuteHelpdeskActions ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
         canViewCommunications: initialPolicy.canViewCommunications ?? true,
         canSendCommunications: initialPolicy.canSendCommunications ?? true,
         canSendAnnouncements:
@@ -1590,6 +1609,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canViewContracts: enabled,
         canViewLicenses: enabled,
         canViewSslCertificates: enabled,
+        canViewHelpdesk: enabled,
         canViewCommunications: enabled,
         canSendCommunications: enabled,
         canSendAnnouncements: enabled,
@@ -1622,6 +1642,8 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canExportServers: enabled,
         canImportServers: enabled,
         canExportSchematic: enabled,
+        canRunHelpdeskDiagnostics: enabled,
+        canExecuteHelpdeskActions: enabled,
         canBatchOperate: enabled,
         canViewSessionRecordings: enabled,
         canPlaybackSessionRecordings: enabled,
@@ -3857,6 +3879,20 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         whyNeededFa: 'فهرست گواهینامه‌های SSL شامل دامنه‌های داخلی/خارجی و زمان انقضای سرویس‌های حیاتی است و باید منحصراً در اختیار کاربران مجاز باشد.',
                         practicalExampleEn: 'Enable for Security Engineers, DevOps, NOC Operators, and Administrators',
                         practicalExampleFa: 'برای مهندسین امنیت، دواپس، اپراتورهای NOC و مدیران زیرساخت فعال شود',
+                      },
+                      {
+                        key: 'canViewHelpdesk',
+                        labelEn: 'HelpDesk (Endpoint Support)',
+                        labelFa: 'هلپ‌دسک (پشتیبانی سیستم کاربران)',
+                        descEn: 'Access to Agentless On-Demand Endpoint HelpDesk workspace',
+                        descFa: 'دسترسی به صفحه پشتیبانی بدون‌ایجنت و لحظه‌ای سیستم کاربران (HelpDesk)',
+                        icon: Monitor,
+                        whatIsItEn: 'Controls access to the HelpDesk sidebar menu and On-Demand single-host endpoint support page.',
+                        whatIsItFa: 'مجوز مشاهده منوی HelpDesk در سایدبار و ورود به صفحه پشتیبانی لحظه‌ای تک‌سیستمی کاربران.',
+                        whyNeededEn: 'Enforces least-privilege separation so only authorized support engineers can connect to user workstations.',
+                        whyNeededFa: 'جداسازی دسترسی‌ها را تضمین می‌کند تا فقط کارشناسان مجاز پشتیبانی بتوانند به سیستم کاربران متصل شوند.',
+                        practicalExampleEn: 'Enable for HelpDesk Technicians, IT Support Engineers, and Administrators',
+                        practicalExampleFa: 'برای کارشناسان هلپ‌دسک، تیم پشتیبانی IT و مدیران سیستم فعال شود',
                       },
                       {
                         key: 'canBulkConfigureDevices',
@@ -6680,6 +6716,28 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         whatFa: 'مجوز دریافت فایل HTML مستقل و ویژوال از نمای کارت‌ها و نمای فیزیکی (رک‌ها، دکل‌ها و تجهیزات) نقشه شماتیک به همراه جدول کامل ارتباطات VLANها.',
                         why: 'Protects sensitive network architecture diagrams, VLAN segmentation, and physical rack elevations from unauthorized exfiltration',
                         whyFa: 'از خروج غیرمجاز نقشه معماری شبکه، ساختار تفکیک VLANها و چیدمان فیزیکی رک‌ها توسط کاربران فاقد مجوز جلوگیری می‌کند.',
+                      },
+                      {
+                        key: 'canRunHelpdeskDiagnostics',
+                        labelEn: 'HelpDesk: Read-Only Health, Process & Network Diagnostics',
+                        labelFa: 'هلپ‌دسک: مشاهده سلامت سیستم، پروسس‌ها، عیب‌یابی شبکه و صف پرینت (فقط‌خواندنی)',
+                        descEn: 'Run read-only CPU/RAM/Disk/Process telemetry, endpoint Ping/Port/DNS tests, and printer queue inspection',
+                        descFa: 'اجرای پایش فقط‌خواندنی سلامت و پروسس‌ها، تست پینگ/پورت/DNS از داخل سیستم کاربر و مشاهده صف پرینت',
+                        what: 'Permits read-only single-host diagnostics inside the HelpDesk workspace without modifying workstation state',
+                        whatFa: 'مجوز اجرای بررسی‌های فقط‌خواندنی روی یک سیستم مشخص در صفحه HelpDesk بدون ایجاد هیچ تغییری روی سیستم کاربر.',
+                        why: 'Allows Tier-1 support and observers to diagnose performance, network, and printing issues safely with zero mutation risk',
+                        whyFa: 'به کارشناسان سطح ۱ اجازه می‌دهد مشکلات کندی، شبکه و پرینتر را بدون ریسک تغییر در سیستم کاربر عیب‌یابی کنند.',
+                      },
+                      {
+                        key: 'canExecuteHelpdeskActions',
+                        labelEn: 'HelpDesk: Safe Remediation Actions (Flush DNS, Renew IP, Spooler Repair)',
+                        labelFa: 'هلپ‌دسک: اجرای اقدامات تعمیری امن (Flush DNS، Renew IP و تعمیر Print Spooler)',
+                        descEn: 'Execute allowlisted safe resets protected by single-host anti-ransomware rate limits',
+                        descFa: 'اجرای دکمه‌های تعمیری ثابت و مجاز (پاک‌سازی DNS، تمدید IP، ری‌استارت و پاک‌سازی صف Spooler) با مدارقطع‌کن ضدباج‌افزار',
+                        what: 'Authorizes fixed, hardcoded single-host repair actions (Flush DNS, Renew DHCP IP, Restart Print Spooler, Clear Stuck Print Queue)',
+                        whatFa: 'مجوز اجرای عملیات تعمیری ثابت و غیرآزاد روی یک سیستم مشخص شامل Flush DNS، Renew IP، ری‌استارت سرویس Spooler و پاک‌سازی صف گیرکرده پرینت.',
+                        why: 'Separates state-changing remediation from read-only telemetry and enforces anti-ransomware rate-limit caps and audit trails',
+                        whyFa: 'عملیات تغییردهنده را از مشاهده جدا می‌کند و تحت محدودیت نرخ ضدباج‌افزار و لاگ ممیزی قرار می‌دهد.',
                       },
                       {
                         key: 'canBatchOperate',

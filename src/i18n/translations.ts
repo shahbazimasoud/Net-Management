@@ -100,6 +100,8 @@ export const translations = {
     parent_system_tag: 'SECURITY',
     parent_contracts_licenses_title: 'Contracts, Licenses & SSL',
     parent_contracts_licenses_tag: 'LIFECYCLE',
+    parent_helpdesk_title: 'HelpDesk',
+    parent_helpdesk_tag: 'SUPPORT',
     parent_settings_title: 'Settings',
     parent_settings_tag: 'SETTINGS',
 
@@ -132,6 +134,7 @@ export const translations = {
     tab_licenses: 'Licenses Management',
     tab_contracts: 'Contracts & SLA',
     tab_ssl_certificates: 'SSL / TLS Certificates',
+    tab_helpdesk: 'HelpDesk (Endpoint Support)',
     tab_logs: 'Audit & Command Logs',
     tab_communications: 'Inbox & Notifications',
     tab_profile_security: 'Profile & 2FA Security',
@@ -802,6 +805,8 @@ export const translations = {
     parent_system_tag: 'SECURITY',
     parent_contracts_licenses_title: 'قراردادها، لایسنس و SSL',
     parent_contracts_licenses_tag: 'LIFECYCLE',
+    parent_helpdesk_title: 'HelpDesk (هلپ‌دسک)',
+    parent_helpdesk_tag: 'SUPPORT',
     parent_settings_title: 'تنظیمات (Settings)',
     parent_settings_tag: 'SETTINGS',
 
@@ -834,6 +839,7 @@ export const translations = {
     tab_licenses: 'مدیریت لایسنس‌ها',
     tab_contracts: 'مدیریت قراردادها',
     tab_ssl_certificates: 'گواهینامه‌های SSL / TLS',
+    tab_helpdesk: 'پشتیبانی سیستم کاربران (HelpDesk)',
     tab_logs: 'لاگ',
     tab_communications: 'مرکز پیام‌ها و اعلانات',
     tab_profile_security: 'پروفایل و امنیت حساب',

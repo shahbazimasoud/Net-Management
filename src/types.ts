@@ -1063,6 +1063,11 @@ export interface AccessPolicy {
   targetSslScope?: 'all' | 'specific';
   targetSslIds?: string[];
 
+  // 8b. Agentless HelpDesk Phase 1 (Single-Host Safe Diagnostics & Spooler/Network Reset)
+  canViewHelpdesk?: boolean;
+  canRunHelpdeskDiagnostics?: boolean;
+  canExecuteHelpdeskActions?: boolean;
+
   // 9. Communications, Notifications, Profile Security & Two-Step Approvals (RBAC)
   canViewCommunications?: boolean;
   canSendCommunications?: boolean;

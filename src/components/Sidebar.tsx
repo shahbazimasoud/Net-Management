@@ -33,6 +33,7 @@ import {
   UserCog,
   Video,
   Lock,
+  Headphones,
   X
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
@@ -78,6 +79,7 @@ export type ActiveTab =
   | 'licenses'
   | 'contracts'
   | 'ssl-certificates'
+  | 'helpdesk'
   | 'settings'
   | 'settings-groups'
   | 'settings-users'
@@ -117,7 +119,7 @@ interface NavItem {
 }
 
 interface NavParentGroup {
-  id: 'infra' | 'servers' | 'monitor' | 'contracts_licenses' | 'system' | 'settings';
+  id: 'infra' | 'servers' | 'helpdesk' | 'monitor' | 'contracts_licenses' | 'system' | 'settings';
   titleKey: string;
   tagKey: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -257,6 +259,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_remote_tags',
           icon: Tags,
           badge: 'Auto',
+        },
+      ],
+    },
+    {
+      id: 'helpdesk',
+      titleKey: 'parent_helpdesk_title',
+      tagKey: 'parent_helpdesk_tag',
+      icon: Headphones,
+      colorClass: 'text-teal-400 border-teal-500/30 bg-teal-500/10',
+      items: [
+        {
+          id: 'helpdesk',
+          labelKey: 'tab_helpdesk',
+          icon: Headphones,
+          badge: 'Phase 1',
         },
       ],
     },
@@ -417,8 +434,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       .filter((group) => group.items.length > 0);
   }, [navGroups, effectivePolicy, currentUser, isSuper]);
 
-  // Which parent accordions are currently expanded (Default: both 'infra' and 'contracts_licenses' are expanded and immediately visible!)
-  const [expandedGroupIds, setExpandedGroupIds] = useState<string[]>(['infra', 'contracts_licenses']);
+  // Which parent accordions are currently expanded
+  const [expandedGroupIds, setExpandedGroupIds] = useState<string[]>(['infra', 'helpdesk', 'contracts_licenses']);
 
   // Desktop collapsed rail floating flyout state (keeps sidebar collapsed when navigating)
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);

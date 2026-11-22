@@ -217,6 +217,10 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canCheckSslCertificates: false,
     targetSslScope: 'all',
     targetSslIds: [],
+    // HelpDesk Phase 1 RBAC
+    canViewHelpdesk: true,
+    canRunHelpdeskDiagnostics: true,
+    canExecuteHelpdeskActions: true,
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: true,
@@ -297,6 +301,10 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canCheckSslCertificates: true,
     targetSslScope: 'all',
     targetSslIds: [],
+    // HelpDesk Phase 1 RBAC (Read-Only for NOC Observer)
+    canViewHelpdesk: true,
+    canRunHelpdeskDiagnostics: true,
+    canExecuteHelpdeskActions: false,
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: false,
@@ -381,6 +389,10 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canCheckSslCertificates: true,
     targetSslScope: 'all',
     targetSslIds: [],
+    // HelpDesk Phase 1 RBAC
+    canViewHelpdesk: true,
+    canRunHelpdeskDiagnostics: true,
+    canExecuteHelpdeskActions: true,
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: true,
@@ -1358,6 +1370,9 @@ export function getEffectiveUserPolicy(
         canApplyTemplates: true,
         canBatchOperate: true,
         canExportSchematic: true,
+        canViewHelpdesk: true,
+        canRunHelpdeskDiagnostics: true,
+        canExecuteHelpdeskActions: true,
       }
     );
   }
@@ -1395,6 +1410,9 @@ export function getEffectiveUserPolicy(
     canApplyTemplates: false,
     canBatchOperate: false,
     canExportSchematic: false,
+    canViewHelpdesk: false,
+    canRunHelpdeskDiagnostics: false,
+    canExecuteHelpdeskActions: false,
   });
 }
 
@@ -1445,6 +1463,8 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
       return policy?.canViewContracts !== undefined ? Boolean(policy?.canViewContracts) : true;
     case 'ssl-certificates':
       return policy?.canViewSslCertificates !== undefined ? Boolean(policy?.canViewSslCertificates) : true;
+    case 'helpdesk':
+      return policy?.canViewHelpdesk !== undefined ? Boolean(policy?.canViewHelpdesk) : false;
     case 'communications':
       return policy?.canViewCommunications !== undefined ? Boolean(policy?.canViewCommunications) : true;
     case 'profile-security':

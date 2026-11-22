@@ -558,6 +558,9 @@ export const DEFAULT_ACCESS_POLICIES = [
     canEditSslCertificates: false,
     canDeleteSslCertificates: false,
     canCheckSslCertificates: false,
+    canViewHelpdesk: true,
+    canRunHelpdeskDiagnostics: true,
+    canExecuteHelpdeskActions: true,
     // Device & Port Actions
     terminalAccess: 'none',
     canToggleAdminStatus: false,
@@ -647,6 +650,9 @@ export const DEFAULT_ACCESS_POLICIES = [
     canEditSslCertificates: false,
     canDeleteSslCertificates: false,
     canCheckSslCertificates: true,
+    canViewHelpdesk: true,
+    canRunHelpdeskDiagnostics: true,
+    canExecuteHelpdeskActions: false,
     // Device & Port Actions
     terminalAccess: 'view_only',
     canToggleAdminStatus: false,
@@ -736,6 +742,9 @@ export const DEFAULT_ACCESS_POLICIES = [
     canEditSslCertificates: true,
     canDeleteSslCertificates: true,
     canCheckSslCertificates: true,
+    canViewHelpdesk: true,
+    canRunHelpdeskDiagnostics: true,
+    canExecuteHelpdeskActions: true,
     // Device & Port Actions
     terminalAccess: 'full',
     canToggleAdminStatus: true,
@@ -1819,6 +1828,15 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
         pData.canEditSslCertificates = isSuper;
         pData.canDeleteSslCertificates = isSuper;
         pData.canCheckSslCertificates = isSuper || r.id === 'policy-noc-observer';
+        changed = true;
+      }
+      if (pData.canViewHelpdesk === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        const isHelpdesk = r.id === 'policy-helpdesk' || r.id === 'policy-helpdesk-tech';
+        const isNoc = r.id === 'policy-noc-observer';
+        pData.canViewHelpdesk = isSuper || isHelpdesk || isNoc;
+        pData.canRunHelpdeskDiagnostics = isSuper || isHelpdesk || isNoc;
+        pData.canExecuteHelpdeskActions = isSuper || isHelpdesk;
         changed = true;
       }
       if (changed) {
@@ -4971,6 +4989,9 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canEditSslCertificates: false,
       canDeleteSslCertificates: false,
       canCheckSslCertificates: false,
+      canViewHelpdesk: false,
+      canRunHelpdeskDiagnostics: false,
+      canExecuteHelpdeskActions: false,
       canCheckUpdate: false,
       canPerformUpdate: false,
       canBulkConfigureDevices: false,
@@ -5322,6 +5343,9 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canEditSslCertificates: true,
       canDeleteSslCertificates: true,
       canCheckSslCertificates: true,
+      canViewHelpdesk: true,
+      canRunHelpdeskDiagnostics: true,
+      canExecuteHelpdeskActions: true,
       terminalAccess: 'full',
       canToggleAdminStatus: true,
       canChangeVlan: true,
@@ -5443,6 +5467,9 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canEditSslCertificates: false,
     canDeleteSslCertificates: false,
     canCheckSslCertificates: false,
+    canViewHelpdesk: false,
+    canRunHelpdeskDiagnostics: false,
+    canExecuteHelpdeskActions: false,
     terminalAccess: 'none',
     canToggleAdminStatus: false,
     canChangeVlan: false,

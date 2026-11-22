@@ -42,6 +42,20 @@ import {
   filterLogsForReport,
   calculateReportSummary,
 } from './auditReportService';
+import {
+  collectEndpointHealth,
+  collectEndpointNetworkSnapshot,
+  runEndpointDiagnosticProbe,
+  executeSafeNetworkReset,
+  collectEndpointPrinters,
+  executeSafeSpoolerAction,
+  getHelpdeskRateLimitStatus,
+  checkAndRecordHelpdeskWriteRateLimit,
+  getHelpdeskJeaTemplates,
+  HelpdeskProtocol,
+  HelpdeskTargetInput,
+  HelpdeskWriteAction,
+} from './helpdeskService';
 import { ZipArchive } from 'archiver';
 import { runRetentionPurgeJob } from './logRetentionDaemon';
 import {
@@ -7637,6 +7651,427 @@ apiRouter.post('/schematic/export-authorize', async (req: Request, res: Response
       success: false,
       error: err.message || 'Failed to authorize schematic export',
       errorFa: 'خطا در بررسی مجوز خروجی نقشه شماتیک',
+    });
+  }
+});
+
+// ============================================================================
+// AGENTLESS HELPDESK PHASE 1 (Single-Host Only, Allowlisted Safe Actions, RBAC + Anti-Ransomware Guard)
+// ============================================================================
+
+async function resolveHelpdeskAuth(req: Request, requiredPerm: 'view' | 'diagnostics' | 'actions') {
+  const { user, effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
+  if (!user) {
+    return {
+      ok: false as const,
+      status: 401,
+      error: 'Unauthorized: Authentication required for HelpDesk operations.',
+      errorFa: 'عدم احراز هویت: برای استفاده از بخش هلپ‌دسک ابتدا وارد حساب کاربری شوید.',
+    };
+  }
+  const actorName = user.username || user.fullName || 'unknown';
+  const actorRole = user.role || effectivePolicy?.name || 'User';
+  const clientIp =
+    (Array.isArray(req.headers['x-forwarded-for'])
+      ? req.headers['x-forwarded-for'][0]
+      : String(req.headers['x-forwarded-for'] || '').split(',')[0]
+    ).trim() || req.socket?.remoteAddress || 'unknown';
+
+  const canView = isSuperAdmin || effectivePolicy?.canViewHelpdesk === true;
+  const canDiagnostics = isSuperAdmin || (canView && effectivePolicy?.canRunHelpdeskDiagnostics === true);
+  const canActions = isSuperAdmin || (canDiagnostics && effectivePolicy?.canExecuteHelpdeskActions === true);
+
+  const allowed =
+    requiredPerm === 'view' ? canView : requiredPerm === 'diagnostics' ? canDiagnostics : canActions;
+
+  if (!allowed) {
+    await addPortalAuditLog({
+      category: 'system',
+      action: `helpdesk_${requiredPerm}_denied`,
+      title: `تلاش غیرمجاز در بخش HelpDesk (${requiredPerm})`,
+      title_en: `Unauthorized HelpDesk Access Attempt (${requiredPerm})`,
+      description: `کاربر ${actorName} فاقد مجوز لازم برای عملیات ${requiredPerm} در ماژول HelpDesk است.`,
+      description_en: `User ${actorName} lacks required RBAC permission for HelpDesk (${requiredPerm}).`,
+      userName: actorName,
+      userRole: actorRole,
+      status: 'denied',
+      severity: 'warning',
+      targetName: String(req.body?.targetIp || 'HelpDesk').slice(0, 128),
+      clientIp,
+      metadata: { requiredPerm, targetIp: String(req.body?.targetIp || '').slice(0, 128) },
+    }).catch(() => {});
+
+    return {
+      ok: false as const,
+      status: 403,
+      error:
+        requiredPerm === 'actions'
+          ? 'Access denied: Your policy does not permit executing HelpDesk remediation actions (canExecuteHelpdeskActions).'
+          : 'Access denied: Your policy does not permit HelpDesk endpoint diagnostics (canViewHelpdesk / canRunHelpdeskDiagnostics).',
+      errorFa:
+        requiredPerm === 'actions'
+          ? 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز اجرای اقدامات تعمیری هلپ‌دسک (canExecuteHelpdeskActions) است.'
+          : 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز مشاهده یا عیب‌یابی در بخش هلپ‌دسک است.',
+    };
+  }
+
+  return {
+    ok: true as const,
+    user,
+    actorName,
+    actorRole,
+    clientIp,
+    permissions: {
+      canViewHelpdesk: canView,
+      canRunHelpdeskDiagnostics: canDiagnostics,
+      canExecuteHelpdeskActions: canActions,
+    },
+  };
+}
+
+function extractHelpdeskTargetFromBody(body: any): HelpdeskTargetInput {
+  const rawProto = String(body?.protocol || 'auto').trim().toLowerCase();
+  const protocol: HelpdeskProtocol =
+    rawProto === 'winrm_https' || rawProto === 'winrm_http' || rawProto === 'ssh' ? rawProto : 'auto';
+  const port = body?.port !== undefined && body?.port !== '' ? Number(body.port) : undefined;
+  return {
+    targetIp: String(body?.targetIp || '').trim(),
+    protocol,
+    port: port && Number.isInteger(port) && port >= 1 && port <= 65535 ? port : undefined,
+    username: String(body?.username || '').trim(),
+    password: String(body?.password || ''),
+    jeaConfigName: body?.jeaConfigName ? String(body.jeaConfigName).trim() : undefined,
+    timeoutMs: 18000,
+  };
+}
+
+// GET /helpdesk/status - RBAC permissions, anti-ransomware rate limit meter & JEA/GPO templates
+apiRouter.get('/helpdesk/status', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'view');
+    if (!auth.ok) {
+      return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    }
+    const rateLimit = getHelpdeskRateLimitStatus(auth.actorName);
+    const jeaTemplates = getHelpdeskJeaTemplates();
+    return res.json({
+      success: true,
+      permissions: auth.permissions,
+      rateLimit,
+      jeaTemplates,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to load HelpDesk status',
+      errorFa: 'خطا در دریافت وضعیت ماژول هلپ‌دسک',
+    });
+  }
+});
+
+// POST /helpdesk/health - Module 1: Read-Only Endpoint System Health & Live Processes
+apiRouter.post('/helpdesk/health', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointHealth(target);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_health_inspect',
+      title: `پایش سلامت و پروسس‌های سیستم کاربر: ${data.targetIp}`,
+      title_en: `HelpDesk Read-Only Health & Process Inspection: ${data.targetIp}`,
+      description: `اتصال (${data.protocolUsed}) به ${data.hostname} (${data.targetIp}) — CPU: ${data.cpu.usagePercent}%، RAM: ${data.memory.usedPercent}%، پروسس‌ها: ${data.totalProcessCount}`,
+      description_en: `Connected via ${data.protocolUsed} to ${data.hostname} (${data.targetIp}) — CPU: ${data.cpu.usagePercent}%, RAM: ${data.memory.usedPercent}%, Processes: ${data.totalProcessCount}`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.hostname || data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, protocol: data.protocolUsed, osFamily: data.osFamily },
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      data,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Endpoint health inspection failed');
+    const isInputErr = /invalid|blocked|required/i.test(msg);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_health_failed',
+      title: `خطا در اتصال هلپ‌دسک به ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Health Connection Failed: ${target.targetIp || 'Unknown'}`,
+      description: msg.slice(0, 300),
+      description_en: msg.slice(0, 300),
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'failed',
+      severity: 'warning',
+      targetName: target.targetIp || 'unknown',
+      clientIp: auth.clientIp,
+      metadata: { targetIp: target.targetIp, protocol: target.protocol },
+    }).catch(() => {});
+    return res.status(isInputErr ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/network/snapshot - Module 2: Read-Only Endpoint Network Adapters & Proxy Snapshot
+apiRouter.post('/helpdesk/network/snapshot', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointNetworkSnapshot(target);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_network_snapshot',
+      title: `بررسی شبکه و پروکسی سیستم کاربر: ${data.targetIp}`,
+      title_en: `HelpDesk Endpoint Network & Proxy Snapshot: ${data.targetIp}`,
+      description: `خواندن وضعیت ${data.adapters.length} کارت شبکه و تنظیمات Proxy روی ${data.hostname} (${data.targetIp}).`,
+      description_en: `Collected ${data.adapters.length} adapter(s) and Proxy state from ${data.hostname} (${data.targetIp}).`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.hostname || data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, protocol: data.protocolUsed, adapters: data.adapters.length },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to read endpoint network configuration');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/network/probe - Module 2: Endpoint-Side Ping / TCP Port / DNS Probe
+apiRouter.post('/helpdesk/network/probe', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rawType = String(req.body?.probeType || 'ping').trim().toLowerCase();
+  const probeType: 'ping' | 'port' | 'dns' =
+    rawType === 'port' ? 'port' : rawType === 'dns' ? 'dns' : 'ping';
+  const probeTarget = String(req.body?.probeTarget || '').trim();
+  const probePort = req.body?.probePort !== undefined ? Number(req.body.probePort) : undefined;
+
+  try {
+    const data = await runEndpointDiagnosticProbe(target, probeType, probeTarget, probePort);
+    await addPortalAuditLog({
+      category: 'system',
+      action: `helpdesk_network_probe_${probeType}`,
+      title: `تست ${probeType.toUpperCase()} از داخل سیستم ${data.targetIp} به ${data.probeTarget}`,
+      title_en: `HelpDesk Endpoint-Side ${probeType.toUpperCase()} Probe from ${data.targetIp} -> ${data.probeTarget}`,
+      description: data.summaryFa,
+      description_en: data.summary,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'warning',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, probeType, probeTarget: data.probeTarget, probePort: data.probePort },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Endpoint diagnostic probe failed');
+    return res.status(/invalid|blocked|required|integer/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/network/action - Module 2: Safe Allowlisted Network Reset (Flush DNS / Renew IP)
+apiRouter.post('/helpdesk/network/action', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rawAction = String(req.body?.action || '').trim();
+  if (rawAction !== 'network_flush_dns' && rawAction !== 'network_renew_ip') {
+    return res.status(400).json({
+      success: false,
+      error: 'Unsupported network action. Only allowlisted actions (network_flush_dns, network_renew_ip) are permitted.',
+      errorFa: 'عملیات شبکه نامعتبر است. فقط عملیات مجاز و ثابت (Flush DNS و Renew IP) پشتیبانی می‌شوند.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rawAction as HelpdeskWriteAction);
+  if (!rl.allowed) {
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_rate_limit_tripped',
+      title: `فعال‌شدن مدارقطع‌کن امنیتی ضدباج‌افزار برای ${auth.actorName}`,
+      title_en: `Anti-Ransomware HelpDesk Circuit Breaker Tripped for ${auth.actorName}`,
+      description: rl.reasonFa || rl.reason || 'Rate limit exceeded',
+      description_en: rl.reason || 'Rate limit exceeded',
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'denied',
+      severity: 'warning',
+      targetName: target.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { action: rawAction, targetIp: target.targetIp, rateLimit: rl.status },
+    }).catch(() => {});
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await executeSafeNetworkReset(target, rawAction);
+    await addPortalAuditLog({
+      category: 'system',
+      action: `helpdesk_${rawAction}`,
+      title: rawAction === 'network_flush_dns' ? `پاک‌سازی کش DNS روی ${data.targetIp}` : `تمدید DHCP IP روی ${data.targetIp}`,
+      title_en: rawAction === 'network_flush_dns' ? `HelpDesk Flush DNS on ${data.targetIp}` : `HelpDesk Renew DHCP IP on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, action: rawAction, protocol: data.protocolUsed },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Safe network reset action failed');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/printers/status - Module 3: Read-Only Print Spooler, Printers & Queue Inspection
+apiRouter.post('/helpdesk/printers/status', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointPrinters(target);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_printers_inspect',
+      title: `بررسی پرینترها و صف پرینت روی ${data.targetIp}`,
+      title_en: `HelpDesk Printer & Spooler Inspection on ${data.targetIp}`,
+      description: `سرویس ${data.spooler.serviceName}: ${data.spooler.status} — ${data.printers.length} پرینتر، ${data.jobs.length} کار در صف.`,
+      description_en: `Service ${data.spooler.serviceName}: ${data.spooler.status} — ${data.printers.length} printer(s), ${data.jobs.length} queued job(s).`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, spoolerStatus: data.spooler.status, jobCount: data.jobs.length },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to inspect printers and print spooler');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/printers/action - Module 3: Strictly Scoped Print Spooler Repair (Restart / Clear Stuck Queue)
+apiRouter.post('/helpdesk/printers/action', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rawAction = String(req.body?.action || '').trim();
+  if (rawAction !== 'spooler_restart' && rawAction !== 'spooler_clear_queue') {
+    return res.status(400).json({
+      success: false,
+      error: 'Unsupported printer action. Only spooler_restart and spooler_clear_queue are allowed.',
+      errorFa: 'عملیات پرینتر نامعتبر است. فقط ری‌استارت Spooler و پاک‌سازی صف پرینت مجاز است.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rawAction as HelpdeskWriteAction);
+  if (!rl.allowed) {
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_rate_limit_tripped',
+      title: `فعال‌شدن مدارقطع‌کن امنیتی ضدباج‌افزار برای ${auth.actorName}`,
+      title_en: `Anti-Ransomware HelpDesk Circuit Breaker Tripped for ${auth.actorName}`,
+      description: rl.reasonFa || rl.reason || 'Rate limit exceeded',
+      description_en: rl.reason || 'Rate limit exceeded',
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'denied',
+      severity: 'warning',
+      targetName: target.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { action: rawAction, targetIp: target.targetIp, rateLimit: rl.status },
+    }).catch(() => {});
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await executeSafeSpoolerAction(target, rawAction);
+    await addPortalAuditLog({
+      category: 'system',
+      action: `helpdesk_${rawAction}`,
+      title: rawAction === 'spooler_clear_queue' ? `پاک‌سازی صف پرینت و ری‌استارت Spooler روی ${data.targetIp}` : `ری‌استارت سرویس Print Spooler روی ${data.targetIp}`,
+      title_en: rawAction === 'spooler_clear_queue' ? `HelpDesk Clear Print Queue & Restart Spooler on ${data.targetIp}` : `HelpDesk Restart Print Spooler on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, action: rawAction, protocol: data.protocolUsed, ...data.details },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Print Spooler repair action failed');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
     });
   }
 });
