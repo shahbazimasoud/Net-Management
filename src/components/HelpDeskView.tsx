@@ -31,6 +31,14 @@ import {
   Layers,
   Eraser,
   Server,
+  FileWarning,
+  ChevronDown,
+  ChevronUp,
+  FolderOpen,
+  Wrench,
+  PowerOff,
+  Lightbulb,
+  ShieldAlert,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -43,6 +51,12 @@ import {
   executeHelpdeskNetworkAction,
   fetchHelpdeskPrinterStatus,
   executeHelpdeskPrinterAction,
+  fetchHelpdeskEventLogs,
+  terminateHelpdeskProcess,
+  scanHelpdeskTemp,
+  cleanHelpdeskTemp,
+  fetchHelpdeskGpoStatus,
+  runHelpdeskGpupdate,
   HelpdeskConnectionPayload,
 } from '../services/api';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
@@ -55,7 +69,7 @@ interface HelpDeskViewProps {
   currentUser?: AuthUser | null;
 }
 
-type HelpdeskSubTab = 'health' | 'network' | 'printers' | 'architecture';
+type HelpdeskSubTab = 'health' | 'network' | 'printers' | 'events' | 'maintenance' | 'architecture';
 
 interface CircularGaugeProps {
   value: number;
@@ -165,6 +179,18 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const canExecuteActions = Boolean(
     isSuper || (canRunDiagnostics && effectivePolicy?.canExecuteHelpdeskActions === true)
   );
+  const canViewEventViewer = Boolean(
+    isSuper || (canRunDiagnostics && effectivePolicy?.canViewHelpdeskEventViewer === true)
+  );
+  const canTerminateProcesses = Boolean(
+    isSuper || (canExecuteActions && effectivePolicy?.canTerminateHelpdeskProcesses === true)
+  );
+  const canCleanTemp = Boolean(
+    isSuper || (canExecuteActions && effectivePolicy?.canCleanHelpdeskTemp === true)
+  );
+  const canRunGpupdate = Boolean(
+    isSuper || (canExecuteActions && effectivePolicy?.canRunHelpdeskGpupdate === true)
+  );
 
   // Ephemeral On-Demand Session State (NEVER stored in localStorage or DB!)
   const [targetIp, setTargetIp] = useState('');
@@ -230,6 +256,42 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [runningSpoolerAction, setRunningSpoolerAction] = useState<string | null>(null);
   const [spoolerActionResult, setSpoolerActionResult] = useState<any | null>(null);
 
+  // Module 4: Event Viewer (Human-Readable Diagnostics) state
+  const [eventChannel, setEventChannel] = useState<'All' | 'System' | 'Application'>('All');
+  const [eventHoursBack, setEventHoursBack] = useState<number>(48);
+  const [eventSeverityMode, setEventSeverityMode] = useState<'all' | 'critical_error'>('all');
+  const [eventSearch, setEventSearch] = useState('');
+  const [eventLevelFilter, setEventLevelFilter] = useState<'all' | 'critical' | 'error' | 'warning'>('all');
+  const [eventData, setEventData] = useState<any | null>(null);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [eventError, setEventError] = useState<string | null>(null);
+  const [expandedEventIds, setExpandedEventIds] = useState<Record<string, boolean>>({});
+
+  // Module 5: Safe User-App Process Termination inline confirm state
+  const [confirmKillPid, setConfirmKillPid] = useState<number | null>(null);
+  const [terminatingPid, setTerminatingPid] = useState<number | null>(null);
+  const [processActionNotice, setProcessActionNotice] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
+
+  // Module 6: Confined Temp Cleanup state
+  const [tempScanData, setTempScanData] = useState<any | null>(null);
+  const [loadingTempScan, setLoadingTempScan] = useState(false);
+  const [tempError, setTempError] = useState<string | null>(null);
+  const [tempScope, setTempScope] = useState<'both' | 'user_temp' | 'windows_temp'>('both');
+  const [confirmTempClean, setConfirmTempClean] = useState(false);
+  const [cleaningTemp, setCleaningTemp] = useState(false);
+  const [tempCleanResult, setTempCleanResult] = useState<any | null>(null);
+
+  // Module 7: Group Policy Inspection & GPUpdate state
+  const [gpoData, setGpoData] = useState<any | null>(null);
+  const [loadingGpo, setLoadingGpo] = useState(false);
+  const [gpoError, setGpoError] = useState<string | null>(null);
+  const [runningGpupdate, setRunningGpupdate] = useState(false);
+  const [gpupdateResult, setGpupdateResult] = useState<any | null>(null);
+  const [showRawGpo, setShowRawGpo] = useState(false);
+
   useEffect(() => {
     let mounted = true;
     fetchHelpdeskStatus()
@@ -289,6 +351,18 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setPrinterError(null);
     setSpoolerActionResult(null);
     setSelectedProcessPid(null);
+    setConfirmKillPid(null);
+    setProcessActionNotice(null);
+    setEventData(null);
+    setEventError(null);
+    setExpandedEventIds({});
+    setTempScanData(null);
+    setTempError(null);
+    setTempCleanResult(null);
+    setConfirmTempClean(false);
+    setGpoData(null);
+    setGpoError(null);
+    setGpupdateResult(null);
   };
 
   const handleInspectHealth = async (e?: React.FormEvent) => {
@@ -405,17 +479,184 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
+  const handleInspectEvents = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingEvents(true);
+    setEventError(null);
+    try {
+      const res = await fetchHelpdeskEventLogs({
+        ...payload,
+        channel: eventChannel,
+        hoursBack: eventHoursBack,
+        maxEvents: 50,
+        severity: eventSeverityMode,
+      });
+      setEventData(res.data);
+      setExpandedEventIds({});
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setEventData(null);
+      setEventError(
+        err?.message || (isEn ? 'Failed to read endpoint Event Viewer logs.' : 'خطا در خواندن لاگ‌های Event Viewer سیستم کاربر.')
+      );
+    } finally {
+      setLoadingEvents(false);
+    }
+  };
+
+  const handleTerminateProcess = async (pid: number, processName: string) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setTerminatingPid(pid);
+    setProcessActionNotice(null);
+    setHealthError(null);
+    try {
+      const res = await terminateHelpdeskProcess({ ...payload, pid, processName });
+      setConfirmKillPid(null);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      setProcessActionNotice({
+        ok: Boolean(res.data?.success),
+        text: isEn ? res.data?.message : res.data?.messageFa,
+      });
+      // Refresh real process table from endpoint after termination
+      try {
+        const refreshed = await fetchHelpdeskEndpointHealth(payload);
+        setHealthData(refreshed.data);
+      } catch {}
+    } catch (err: any) {
+      setConfirmKillPid(null);
+      setProcessActionNotice({
+        ok: false,
+        text: err?.message || (isEn ? 'Failed to terminate user process.' : 'توقف پروسس کاربری ناموفق بود.'),
+      });
+    } finally {
+      setTerminatingPid(null);
+    }
+  };
+
+  const handleScanTemp = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingTempScan(true);
+    setTempError(null);
+    try {
+      const res = await scanHelpdeskTemp(payload);
+      setTempScanData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setTempScanData(null);
+      setTempError(
+        err?.message || (isEn ? 'Failed to scan endpoint Temp folders.' : 'خطا در اسکن پوشه‌های Temp سیستم کاربر.')
+      );
+    } finally {
+      setLoadingTempScan(false);
+    }
+  };
+
+  const handleCleanTemp = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setCleaningTemp(true);
+    setTempError(null);
+    setTempCleanResult(null);
+    setConfirmTempClean(false);
+    try {
+      const res = await cleanHelpdeskTemp({ ...payload, scope: tempScope });
+      setTempCleanResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const rescanned = await scanHelpdeskTemp(payload);
+        setTempScanData(rescanned.data);
+      } catch {}
+    } catch (err: any) {
+      setTempError(
+        err?.message || (isEn ? 'Safe Temp cleanup failed.' : 'پاک‌سازی ایمن پوشه Temp ناموفق بود.')
+      );
+    } finally {
+      setCleaningTemp(false);
+    }
+  };
+
+  const handleInspectGpo = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingGpo(true);
+    setGpoError(null);
+    try {
+      const res = await fetchHelpdeskGpoStatus(payload);
+      setGpoData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setGpoData(null);
+      setGpoError(
+        err?.message || (isEn ? 'Failed to inspect Group Policy status.' : 'خطا در دریافت وضعیت Group Policy سیستم کاربر.')
+      );
+    } finally {
+      setLoadingGpo(false);
+    }
+  };
+
+  const handleRunGpupdate = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setRunningGpupdate(true);
+    setGpoError(null);
+    setGpupdateResult(null);
+    try {
+      const res = await runHelpdeskGpupdate(payload);
+      setGpupdateResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskGpoStatus(payload);
+        setGpoData(refreshed.data);
+      } catch {}
+    } catch (err: any) {
+      setGpoError(
+        err?.message || (isEn ? 'gpupdate /force failed.' : 'اجرای gpupdate /force با خطا مواجه شد.')
+      );
+    } finally {
+      setRunningGpupdate(false);
+    }
+  };
+
   const handleConnectCurrentTab = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (activeSubTab === 'network') {
       await handleInspectNetwork();
     } else if (activeSubTab === 'printers') {
       await handleInspectPrinters();
+    } else if (activeSubTab === 'events') {
+      await handleInspectEvents();
+    } else if (activeSubTab === 'maintenance') {
+      await Promise.all([handleScanTemp(), handleInspectGpo()]);
     } else {
       setActiveSubTab('health');
       await handleInspectHealth();
     }
   };
+
+  // Filtered Event Viewer items for Tab 4
+  const filteredEvents = useMemo(() => {
+    const list: any[] = Array.isArray(eventData?.events) ? eventData.events : [];
+    const q = eventSearch.trim().toLowerCase();
+    return list.filter((ev) => {
+      if (eventLevelFilter !== 'all' && ev.level !== eventLevelFilter) return false;
+      if (!q) return true;
+      const exp = ev.explanation || {};
+      return (
+        String(ev.eventId || '').includes(q) ||
+        String(ev.source || '').toLowerCase().includes(q) ||
+        String(ev.rawMessage || '').toLowerCase().includes(q) ||
+        String(exp.humanTitleEn || '').toLowerCase().includes(q) ||
+        String(exp.humanTitleFa || '').toLowerCase().includes(q) ||
+        String(exp.humanReasonEn || '').toLowerCase().includes(q) ||
+        String(exp.humanReasonFa || '').toLowerCase().includes(q) ||
+        String(exp.likelyCauseEn || '').toLowerCase().includes(q) ||
+        String(exp.likelyCauseFa || '').toLowerCase().includes(q)
+      );
+    });
+  }, [eventData, eventSearch, eventLevelFilter]);
 
   // Filtered & sorted process list for Module 1
   const filteredProcesses = useMemo(() => {
@@ -525,14 +766,15 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     ? 'bg-white border-slate-300 text-slate-900 placeholder-slate-400 focus:border-sky-500'
     : 'bg-slate-950 border-slate-700 text-slate-100 placeholder-slate-500 focus:border-sky-400';
 
-  const isAnyLoading = loadingHealth || loadingNetwork || loadingPrinters;
+  const isAnyLoading =
+    loadingHealth || loadingNetwork || loadingPrinters || loadingEvents || loadingTempScan || loadingGpo;
 
   const phase1Roadmap = [
     {
       num: '01',
       status: 'live' as const,
       titleEn: 'Read-Only Endpoint Health & Visual Process Telemetry',
-      titleFa: 'مشاهده سلامت سیستم و وضعیت گرافیکی پروسس‌ها (فقط‌خواندنی)',
+      titleFa: 'مشاهده سلامت سیستم و وضعیت گرافیکی پروسس‌ها',
       descEn: 'Live CPU/RAM/Disk radial gauges, interactive process resource donut + progress bars, uptime, active user, Defender & Firewall status.',
       descFa: 'نمایش دایره‌ای و پراگرسی CPU، RAM، دیسک و پروسس‌های پرمصرف، Uptime، کاربر فعال و وضعیت آنتی‌ویروس و فایروال.',
     },
@@ -554,35 +796,35 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     },
     {
       num: '04',
-      status: 'planned' as const,
-      titleEn: 'Recent Event Viewer Critical & Error Collector',
-      titleFa: 'مشاهده خطاهای اخیر Event Viewer (فقط‌خواندنی)',
-      descEn: 'Read recent System/Application critical crashes and BSOD indicators without interactive remote desktop login.',
-      descFa: 'خواندن آخرین خطاهای Critical/Error ویندوز بدون نیاز به لاگین روی سیستم کاربر.',
+      status: 'live' as const,
+      titleEn: 'Event Viewer with Plain-Language Human Diagnostics',
+      titleFa: 'مشاهده خطاهای Event Viewer با توضیح شفاف و انسانی علت خطا',
+      descEn: 'Reads recent System/Application Critical, Error & Warning logs and translates every Event ID into clear human reason, likely root cause, and action.',
+      descFa: 'خواندن خطاهای اخیر System و Application به همراه ترجمه انسانی دقیق کنار هر کد خطا (چه اتفاقی افتاده، علت احتمالی و اقدام پیشنهادی).',
     },
     {
       num: '05',
-      status: 'planned' as const,
+      status: 'live' as const,
       titleEn: 'Controlled User-Space Process Termination',
-      titleFa: 'بستن کنترل‌شده برنامه‌های کاربری هنگ‌کرده',
-      descEn: 'Terminate strictly non-system hung user apps (Chrome, Excel, Outlook) with step-up audit trail.',
-      descFa: 'بستن صرفاً برنامه‌های کاربری غیرسیستمی (مثل کروم/اکسل) با ثبت کامل در لاگ ممیزی.',
+      titleFa: 'بستن کنترل‌شده برنامه‌های کاربری هنگ‌کرده (با قفل OS/AV)',
+      descEn: 'Safely ends frozen user apps (Chrome, Excel, Outlook) with exact PID+Name verification while strictly blocking OS core & Antivirus/EDR processes.',
+      descFa: 'بستن صرفاً برنامه‌های کاربری هنگ‌کرده با تطبیق دقیق PID و نام پروسس، در حالی که هسته سیستم‌عامل و آنتی‌ویروس کاملاً قفل هستند.',
     },
     {
       num: '06',
-      status: 'planned' as const,
-      titleEn: 'Confined User Temp Folder Cleanup',
-      titleFa: 'پاک‌سازی ایمن پوشه Temp کاربر',
-      descEn: 'Hard-confined cleanup limited strictly to temporary cache paths when Drive C runs low.',
-      descFa: 'پاک‌سازی محدود و ایمن پوشه فایل‌های موقت بدون دسترسی حذف به سایر مسیرها.',
+      status: 'live' as const,
+      titleEn: 'Confined Temp Folder Scan & Cleanup',
+      titleFa: 'اسکن و پاک‌سازی ایمن پوشه Temp کاربر و ویندوز',
+      descEn: 'Hard-confined cleanup limited strictly to Windows\\Temp and active user AppData\\Local\\Temp with zero custom path input; safely skips in-use files.',
+      descFa: 'اسکن حجم قابل آزادسازی و پاک‌سازی محدود فقط در پوشه‌های Temp ویندوز و کاربر (بدون امکان ارسال مسیر دلخواه) با رد کردن ایمن فایل‌های در حال اجرا.',
     },
     {
       num: '07',
-      status: 'planned' as const,
-      titleEn: 'One-Click Group Policy Refresh (gpupdate /force)',
-      titleFa: 'اعمال فوری Group Policy با دکمه ثابت',
-      descEn: 'Trigger parameterless policy refresh on domain-joined workstations.',
-      descFa: 'اجرای بدون پارامتر gpupdate /force جهت اعمال سریع پالیسی‌های دامین.',
+      status: 'live' as const,
+      titleEn: 'Group Policy Inspection & Non-Disruptive gpupdate /force',
+      titleFa: 'بررسی Group Policy و اجرای فوری gpupdate /force بدون ری‌استارت اجباری',
+      descEn: 'Inspects applied domain GPOs and pending reboot state, plus one-click parameterless gpupdate /force /wait:0 that declines forced user logoff.',
+      descFa: 'مشاهده پالیسی‌های اعمال‌شده دامین و وضعیت Pending Reboot به همراه دکمه ثابت gpupdate /force بدون خارج کردن ناگهانی کاربر.',
     },
     {
       num: '08',
@@ -607,8 +849,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           </div>
           <p className={`mt-1 text-xs ${textMuted}`}>
             {isEn
-              ? 'On-Demand Single-Host Support · Phase 1 (Modules 1–3 Active) · Zero Stored Endpoint Credentials · Anti-Ransomware Allowlisted Execution'
-              : 'پشتیبانی لحظه‌ای تک‌سیستمی بدون لیست ثابت · فاز ۱ (موارد ۱ تا ۳ فعال) · بدون ذخیره رمز روی سرور · اجرای صرفاً دستورات ثابت ضدباج‌افزار'}
+              ? 'On-Demand Single-Host Support · Phase 1 (Modules 1–7 Active) · Zero Stored Credentials · Granular RBAC & Full Audit Trail'
+              : 'پشتیبانی لحظه‌ای تک‌سیستمی بدون لیست ثابت · فاز ۱ (موارد ۱ تا ۷ فعال) · بدون ذخیره رمز · کنترل دسترسی دقیق RBAC و ثبت کامل لاگ'}
           </p>
         </div>
 
@@ -844,26 +1086,38 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           {
             id: 'health' as HelpdeskSubTab,
             icon: Cpu,
-            labelEn: '01. System Health & Processes',
-            labelFa: '۱. سلامت سیستم و پروسس‌ها',
+            labelEn: '01. Health & Safe Process Control',
+            labelFa: '۱. سلامت و کنترل پروسس‌ها',
           },
           {
             id: 'network' as HelpdeskSubTab,
             icon: Network,
-            labelEn: '02. Endpoint Network & Safe Reset',
+            labelEn: '02. Network & Safe Reset',
             labelFa: '۲. عیب‌یابی شبکه و ریست امن',
           },
           {
             id: 'printers' as HelpdeskSubTab,
             icon: Printer,
-            labelEn: '03. Printers & Spooler Repair',
-            labelFa: '۳. پرینترها و تعمیر Spooler',
+            labelEn: '03. Printers & Spooler',
+            labelFa: '۳. پرینترها و Spooler',
+          },
+          {
+            id: 'events' as HelpdeskSubTab,
+            icon: FileWarning,
+            labelEn: '04. Event Viewer (Human Guide)',
+            labelFa: '۴. Event Viewer (تحلیل انسانی)',
+          },
+          {
+            id: 'maintenance' as HelpdeskSubTab,
+            icon: Wrench,
+            labelEn: '05. Temp Cleanup & GPUpdate',
+            labelFa: '۵. پاک‌سازی Temp و GPUpdate',
           },
           {
             id: 'architecture' as HelpdeskSubTab,
             icon: Layers,
-            labelEn: 'Phase 1 Plan & Anti-Ransomware Guards',
-            labelFa: 'جمع‌بندی فاز ۱ و معماری ضدباج‌افزار',
+            labelEn: 'Phase 1 & Security Guards',
+            labelFa: 'جمع‌بندی و معماری امنیتی',
           },
         ].map((tab) => {
           const Icon = tab.icon;
@@ -1109,13 +1363,13 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   <div>
                     <h3 className={`text-sm font-bold ${textPrimary}`}>
                       {isEn
-                        ? `Live Process Monitor (${healthData.totalProcessCount} active processes)`
-                        : `مانیتورینگ گرافیکی پروسس‌های سیستم (${healthData.totalProcessCount} پروسس فعال)`}
+                        ? `Live Process Monitor & Safe User-App Control (${healthData.totalProcessCount} active processes)`
+                        : `مانیتورینگ گرافیکی و کنترل ایمن پروسس‌ها (${healthData.totalProcessCount} پروسس فعال)`}
                     </h3>
                     <p className={`text-xs ${textMuted}`}>
                       {isEn
-                        ? 'Visual circular resource distribution paired with per-process CPU & RAM progress meters (Read-Only).'
-                        : 'نمایش دایره‌ای سهم مصرف منابع همراه با نوار پراگرس CPU و RAM برای هر پروسس (فقط‌خواندنی).'}
+                        ? 'Visual circular resource distribution + safe End Task strictly for user apps (OS core & Antivirus/EDR are permanently locked).'
+                        : 'نمایش دایره‌ای و پراگرسی مصرف منابع + امکان بستن صرفاً برنامه‌های کاربری هنگ‌کرده (هسته سیستم‌عامل و آنتی‌ویروس کاملاً قفل هستند).'}
                     </p>
                   </div>
 
@@ -1298,17 +1552,43 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Right/End: High-Density Process Progress Bars Table */}
-                  <div className="xl:col-span-8 overflow-x-auto">
+                  {/* Right/End: High-Density Process Progress Bars Table + Module 5 Safe End Task */}
+                  <div className="xl:col-span-8 space-y-3 overflow-x-auto">
+                    {processActionNotice && (
+                      <div
+                        className={`p-3 rounded-lg border text-xs flex items-center justify-between gap-2 ${
+                          processActionNotice.ok
+                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+                            : 'border-rose-500/40 bg-rose-500/10 text-rose-500'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 font-semibold">
+                          {processActionNotice.ok ? (
+                            <CheckCircle2 className="w-4 h-4 shrink-0" />
+                          ) : (
+                            <AlertCircle className="w-4 h-4 shrink-0" />
+                          )}
+                          <span>{processActionNotice.text}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setProcessActionNotice(null)}
+                          className="opacity-70 hover:opacity-100 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+
                     <table className="w-full text-xs border-collapse">
                       <thead>
                         <tr className={`border-b text-start ${isLightMode ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>
                           <th className="py-2 px-2.5 font-semibold text-start">PID</th>
                           <th className="py-2 px-2.5 font-semibold text-start">{isEn ? 'Process' : 'نام پروسس'}</th>
-                          <th className="py-2 px-2.5 font-semibold text-start w-44">{isEn ? 'CPU Load' : 'مصرف CPU'}</th>
-                          <th className="py-2 px-2.5 font-semibold text-start w-44">{isEn ? 'Memory (RAM)' : 'مصرف RAM'}</th>
-                          <th className="py-2 px-2.5 font-semibold text-end">{isEn ? 'Threads' : 'تردها'}</th>
+                          <th className="py-2 px-2.5 font-semibold text-start w-40">{isEn ? 'CPU Load' : 'مصرف CPU'}</th>
+                          <th className="py-2 px-2.5 font-semibold text-start w-40">{isEn ? 'Memory (RAM)' : 'مصرف RAM'}</th>
                           <th className="py-2 px-2.5 font-semibold text-end">{isEn ? 'State' : 'وضعیت'}</th>
+                          <th className="py-2 px-2.5 font-semibold text-end">{isEn ? 'Safe Control' : 'کنترل ایمن'}</th>
                         </tr>
                       </thead>
                       <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
@@ -1320,6 +1600,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                             cpuVal >= 50 ? 'bg-rose-500' : cpuVal >= 20 ? 'bg-amber-500' : 'bg-sky-500';
                           const memBarClr =
                             memVal >= 35 ? 'bg-rose-500' : memVal >= 15 ? 'bg-amber-500' : 'bg-indigo-500';
+                          const isTerminable = proc.terminable === true;
+                          const isConfirming = confirmKillPid === proc.pid;
+                          const isKillingThis = terminatingPid === proc.pid;
 
                           return (
                             <tr
@@ -1340,8 +1623,20 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                               <td className={`py-2.5 px-2.5 font-mono tabular-nums ${textMuted}`}>
                                 {proc.pid}
                               </td>
-                              <td className={`py-2.5 px-2.5 font-mono font-semibold ${textPrimary}`}>
-                                {proc.name}
+                              <td className="py-2.5 px-2.5">
+                                <div className={`font-mono font-semibold ${textPrimary}`}>{proc.name}</div>
+                                <div className={`text-[10px] ${textMuted}`}>
+                                  {proc.threads} {isEn ? 'threads' : 'ترد'}
+                                  {proc.processCategory === 'browser'
+                                    ? ` · ${isEn ? 'Browser' : 'مرورگر'}`
+                                    : proc.processCategory === 'office'
+                                    ? ` · ${isEn ? 'Office App' : 'برنامه آفیس'}`
+                                    : proc.processCategory === 'security_protected'
+                                    ? ` · ${isEn ? 'Antivirus / EDR' : 'آنتی‌ویروس / EDR'}`
+                                    : proc.processCategory === 'system_protected'
+                                    ? ` · ${isEn ? 'Core OS' : 'هسته سیستم'}`
+                                    : ''}
+                                </div>
                               </td>
                               <td className="py-2.5 px-2.5">
                                 <div className="flex items-center gap-2">
@@ -1364,13 +1659,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                                       style={{ width: `${Math.max(memVal > 0 ? 3 : 0, memVal)}%` }}
                                     />
                                   </div>
-                                  <span className={`w-16 text-end font-mono tabular-nums ${textPrimary}`}>
+                                  <span className={`w-14 text-end font-mono tabular-nums ${textPrimary}`}>
                                     {Number(proc.memoryMb || 0).toFixed(0)} MB
                                   </span>
                                 </div>
-                              </td>
-                              <td className={`py-2.5 px-2.5 text-end font-mono tabular-nums ${textMuted}`}>
-                                {proc.threads}
                               </td>
                               <td
                                 className={`py-2.5 px-2.5 text-end font-medium ${
@@ -1380,6 +1672,83 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                                 }`}
                               >
                                 {proc.status}
+                              </td>
+                              <td
+                                className="py-2.5 px-2.5 text-end whitespace-nowrap"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {!isTerminable ? (
+                                  <span
+                                    title={isEn ? proc.protectionReason : proc.protectionReasonFa}
+                                    className={`inline-flex items-center gap-1 text-[11px] font-medium ${
+                                      proc.processCategory === 'security_protected'
+                                        ? 'text-emerald-500'
+                                        : textMuted
+                                    }`}
+                                  >
+                                    <Lock className="w-3 h-3" />
+                                    <span>
+                                      {proc.processCategory === 'security_protected'
+                                        ? isEn
+                                          ? 'AV Locked'
+                                          : 'قفل آنتی‌ویروس'
+                                        : isEn
+                                        ? 'OS Protected'
+                                        : 'قفل سیستمی'}
+                                    </span>
+                                  </span>
+                                ) : !canTerminateProcesses ? (
+                                  <span
+                                    title={
+                                      isEn
+                                        ? 'Requires canTerminateHelpdeskProcesses permission'
+                                        : 'نیازمند مجوز canTerminateHelpdeskProcesses در Access Policy'
+                                    }
+                                    className={`inline-flex items-center gap-1 text-[11px] ${textMuted}`}
+                                  >
+                                    <Lock className="w-3 h-3 text-amber-500" />
+                                    <span>{isEn ? 'No RBAC' : 'بدون مجوز'}</span>
+                                  </span>
+                                ) : isConfirming ? (
+                                  <div className="inline-flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      disabled={isKillingThis}
+                                      onClick={() => handleTerminateProcess(proc.pid, proc.name)}
+                                      className="px-2 py-1 rounded-md bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-semibold transition cursor-pointer disabled:opacity-50"
+                                    >
+                                      {isKillingThis ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : isEn ? (
+                                        'Confirm Stop'
+                                      ) : (
+                                        'تأیید بستن'
+                                      )}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={isKillingThis}
+                                      onClick={() => setConfirmKillPid(null)}
+                                      className={`px-2 py-1 rounded-md border text-[11px] font-medium cursor-pointer ${
+                                        isLightMode
+                                          ? 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                                          : 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                                      }`}
+                                    >
+                                      {isEn ? 'Cancel' : 'انصراف'}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={terminatingPid !== null}
+                                    onClick={() => setConfirmKillPid(proc.pid)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-rose-500/40 text-rose-500 hover:bg-rose-500/10 text-[11px] font-semibold transition cursor-pointer disabled:opacity-50"
+                                  >
+                                    <PowerOff className="w-3 h-3" />
+                                    <span>{isEn ? 'End Task' : 'بستن برنامه'}</span>
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           );
@@ -1937,7 +2306,808 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       )}
 
       {/* =================================================================== */}
-      {/* TAB 4: PHASE 1 SUMMARY & ANTI-RANSOMWARE SECURITY ARCHITECTURE      */}
+      {/* TAB 4: HUMAN-READABLE EVENT VIEWER (MODULE 4 — READ-ONLY)           */}
+      {/* =================================================================== */}
+      {activeSubTab === 'events' && (
+        <div className="space-y-6">
+          {eventError && (
+            <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 flex items-start gap-3 text-xs text-rose-500">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{eventError}</span>
+            </div>
+          )}
+
+          {/* Event Viewer Filter & Control Bar */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'Event Viewer with Plain-Language Human Diagnostics'
+                      : 'بررسی خطاهای Event Viewer با توضیح انسانی و دقیق علت خطا'}
+                  </h2>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Human-Readable Event Viewer' : 'Event Viewer با تحلیل انسانی'}
+                    whatIsIt={
+                      isEn
+                        ? 'Collects recent Windows System/Application (or Linux journald) Critical, Error, and Warning events and displays a plain-language reason and recommended fix right beside every Event ID.'
+                        : 'آخرین خطاها و هشدارهای بحرانی ویندوز (System/Application) یا لینوکس را خوانده و دقیقاً کنار هر کد خطا به زبان ساده و انسانی توضیح می‌دهد چه اتفاقی افتاده و راهکار چیست.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Eliminates guesswork and slow Event ID lookups during live support calls without needing to take over the user’s desktop.'
+                        : 'بدون نیاز به گرفتن صفحه کاربر یا جستجوی دستی کد خطاهای مبهم ویندوز، علت اصلی کرش، BSOD، قطعی شبکه یا خطای دیسک را در چند ثانیه مشخص می‌کند.'
+                    }
+                    example={
+                      isEn
+                        ? 'Event ID 41 → Unexpected Power Loss / BSOD · Event ID 1014 → DNS Timeout · Event ID 7 → Disk Bad Sector'
+                        : 'مثال: کد 41 ← خاموشی ناگهانی/BSOD · کد 1014 ← پاسخ ندادن DNS · کد 7 ← بدسکتور هارد دیسک'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Read-only live Event ID decoder — every error code is paired with what happened, likely cause, and next step.'
+                    : 'فقط‌خواندنی و زنده — کنار هر کد خطا دقیقاً مشخص می‌شود دلیل خطا چیست، علت احتمالی کدام است و کارشناس چه اقدامی انجام دهد.'}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleInspectEvents}
+                disabled={!canViewEventViewer || loadingEvents}
+                title={
+                  !canViewEventViewer
+                    ? isEn
+                      ? 'Requires canViewHelpdeskEventViewer permission'
+                      : 'نیازمند مجوز canViewHelpdeskEventViewer در Access Policy'
+                    : undefined
+                }
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+              >
+                {loadingEvents ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : !canViewEventViewer ? (
+                  <Lock className="w-3.5 h-3.5" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
+                <span>{isEn ? 'Collect & Decode Events' : 'دریافت و تحلیل خطاها'}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+              <div className="lg:col-span-3">
+                <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                  {isEn ? 'Event Channel' : 'کانال لاگ'}
+                </label>
+                <select
+                  value={eventChannel}
+                  onChange={(e) => setEventChannel(e.target.value as any)}
+                  className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                >
+                  <option value="All">{isEn ? 'System + Application' : 'هر دو (System + Application)'}</option>
+                  <option value="System">{isEn ? 'System Only' : 'فقط System'}</option>
+                  <option value="Application">{isEn ? 'Application Only' : 'فقط Application'}</option>
+                </select>
+              </div>
+
+              <div className="lg:col-span-2">
+                <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                  {isEn ? 'Time Window' : 'بازه زمانی'}
+                </label>
+                <select
+                  value={eventHoursBack}
+                  onChange={(e) => setEventHoursBack(Number(e.target.value))}
+                  className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                >
+                  <option value={24}>{isEn ? 'Last 24 Hours' : '۲۴ ساعت اخیر'}</option>
+                  <option value={48}>{isEn ? 'Last 48 Hours' : '۴۸ ساعت اخیر'}</option>
+                  <option value={72}>{isEn ? 'Last 3 Days' : '۳ روز اخیر'}</option>
+                  <option value={168}>{isEn ? 'Last 7 Days' : '۷ روز اخیر'}</option>
+                </select>
+              </div>
+
+              <div className="lg:col-span-3">
+                <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                  {isEn ? 'Collection Scope' : 'سطح دریافت'}
+                </label>
+                <select
+                  value={eventSeverityMode}
+                  onChange={(e) => setEventSeverityMode(e.target.value as any)}
+                  className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                >
+                  <option value="all">{isEn ? 'Critical + Error + Warning' : 'بحرانی + خطا + هشدار'}</option>
+                  <option value="critical_error">{isEn ? 'Critical & Error Only' : 'فقط بحرانی و خطا'}</option>
+                </select>
+              </div>
+
+              <div className="lg:col-span-4">
+                <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                  {isEn ? 'Quick Search (Code / Cause / Source)' : 'جستجو (کد خطا / دلیل / منبع)'}
+                </label>
+                <div className="relative">
+                  <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 start-2.5 ${textMuted}`} />
+                  <input
+                    type="text"
+                    value={eventSearch}
+                    onChange={(e) => setEventSearch(e.target.value)}
+                    placeholder={isEn ? 'e.g. 41, DNS, Disk, BSOD...' : 'مثلاً 41، دیسک، DNS، پرینتر...'}
+                    className={`w-full ps-8 pe-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {!eventData && !loadingEvents && (
+            <div className={`rounded-xl border p-10 text-center space-y-3 ${surfaceBg}`}>
+              <FileWarning className="w-10 h-10 mx-auto text-amber-500 opacity-85" />
+              <div className={`text-sm font-bold ${textPrimary}`}>
+                {isEn ? 'Ready to Decode Workstation Event Logs' : 'آماده خواندن و ترجمه انسانی خطاهای سیستم کاربر'}
+              </div>
+              <p className={`text-xs max-w-xl mx-auto ${textMuted}`}>
+                {isEn
+                  ? 'Enter the target workstation IP & credentials above and click "Collect & Decode Events". Every Windows Event ID will be shown right beside its human-language explanation, root cause, and recommended HelpDesk fix.'
+                  : 'IP و مشخصات ورود موقت را در بالا وارد کرده و روی «دریافت و تحلیل خطاها» کلیک کنید. کنار هر کد خطای ویندوز، توضیح شفاف و فارسی علت خطا و اقدام پیشنهادی نمایش داده می‌شود.'}
+              </p>
+            </div>
+          )}
+
+          {loadingEvents && (
+            <div className={`rounded-xl border p-10 text-center space-y-3 ${surfaceBg}`}>
+              <Loader2 className="w-8 h-8 mx-auto text-sky-500 animate-spin" />
+              <div className={`text-sm font-semibold ${textPrimary}`}>
+                {isEn
+                  ? `Reading Event Viewer logs from ${targetIp} and decoding Event IDs...`
+                  : `در حال خواندن لاگ‌های Event Viewer از ${targetIp} و تحلیل انسانی کدهای خطا...`}
+              </div>
+            </div>
+          )}
+
+          {eventData && !loadingEvents && (
+            <div className="space-y-5">
+              {/* Event Summary KPI Strip + Interactive Severity Filter */}
+              <div className={`rounded-xl border p-4 grid grid-cols-2 lg:grid-cols-5 gap-4 text-xs ${surfaceBg}`}>
+                <button
+                  type="button"
+                  onClick={() => setEventLevelFilter('all')}
+                  className={`text-start p-2.5 rounded-lg border transition cursor-pointer ${
+                    eventLevelFilter === 'all'
+                      ? 'border-sky-500 bg-sky-500/10'
+                      : subSurfaceBg
+                  }`}
+                >
+                  <div className={textMuted}>{isEn ? 'Total Events' : 'کل رویدادها'}</div>
+                  <div className={`mt-1 text-lg font-bold font-mono tabular-nums ${textPrimary}`}>
+                    {eventData.summary?.total ?? 0}
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEventLevelFilter((v) => (v === 'critical' ? 'all' : 'critical'))}
+                  className={`text-start p-2.5 rounded-lg border transition cursor-pointer ${
+                    eventLevelFilter === 'critical'
+                      ? 'border-rose-500 bg-rose-500/10'
+                      : subSurfaceBg
+                  }`}
+                >
+                  <div className={textMuted}>{isEn ? 'Critical' : 'بحرانی (Critical)'}</div>
+                  <div className="mt-1 text-lg font-bold font-mono tabular-nums text-rose-500">
+                    {eventData.summary?.critical ?? 0}
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEventLevelFilter((v) => (v === 'error' ? 'all' : 'error'))}
+                  className={`text-start p-2.5 rounded-lg border transition cursor-pointer ${
+                    eventLevelFilter === 'error'
+                      ? 'border-orange-500 bg-orange-500/10'
+                      : subSurfaceBg
+                  }`}
+                >
+                  <div className={textMuted}>{isEn ? 'Errors' : 'خطا (Error)'}</div>
+                  <div className="mt-1 text-lg font-bold font-mono tabular-nums text-orange-500">
+                    {eventData.summary?.error ?? 0}
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEventLevelFilter((v) => (v === 'warning' ? 'all' : 'warning'))}
+                  className={`text-start p-2.5 rounded-lg border transition cursor-pointer ${
+                    eventLevelFilter === 'warning'
+                      ? 'border-amber-500 bg-amber-500/10'
+                      : subSurfaceBg
+                  }`}
+                >
+                  <div className={textMuted}>{isEn ? 'Warnings' : 'هشدار (Warning)'}</div>
+                  <div className="mt-1 text-lg font-bold font-mono tabular-nums text-amber-500">
+                    {eventData.summary?.warning ?? 0}
+                  </div>
+                </button>
+
+                <div className={`col-span-2 lg:col-span-1 p-2.5 rounded-lg border ${subSurfaceBg}`}>
+                  <div className={textMuted}>{isEn ? 'Most Frequent Issue' : 'پرتکرارترین خطا'}</div>
+                  {eventData.summary?.topIssue ? (
+                    <div className="mt-1 space-y-0.5">
+                      <div className={`font-bold truncate ${textPrimary}`} title={isEn ? eventData.summary.topIssue.humanTitleEn : eventData.summary.topIssue.humanTitleFa}>
+                        {isEn ? eventData.summary.topIssue.humanTitleEn : eventData.summary.topIssue.humanTitleFa}
+                      </div>
+                      <div className={`text-[11px] font-mono tabular-nums ${textMuted}`}>
+                        ID {eventData.summary.topIssue.eventId} · {eventData.summary.topIssue.count}×
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-1 font-semibold text-emerald-500">
+                      {isEn ? 'Clean (0 issues)' : 'سالم (بدون خطا)'}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Human-Decoded Event Incident Cards */}
+              {filteredEvents.length === 0 ? (
+                <div className={`rounded-xl border p-8 text-center text-xs ${surfaceBg} ${textMuted}`}>
+                  <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500 mb-2" />
+                  <div className={`font-bold text-sm ${textPrimary}`}>
+                    {isEn ? 'No matching errors or warnings found' : 'هیچ خطا یا هشداری با این فیلتر ثبت نشده است'}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredEvents.map((ev: any, idx: number) => {
+                    const rowKey = `${ev.recordId}-${ev.eventId}-${idx}`;
+                    const exp = ev.explanation || {};
+                    const isExpanded = Boolean(expandedEventIds[rowKey]);
+                    const levelColor =
+                      ev.level === 'critical'
+                        ? 'text-rose-500'
+                        : ev.level === 'error'
+                        ? 'text-orange-500'
+                        : 'text-amber-500';
+                    const formattedTime = ev.timeCreated
+                      ? new Date(ev.timeCreated).toLocaleString(isEn ? 'en-US' : 'fa-IR')
+                      : '-';
+
+                    return (
+                      <div key={rowKey} className={`rounded-xl border p-4 sm:p-5 space-y-3.5 ${surfaceBg}`}>
+                        {/* Top Header: Event Code & Source paired directly beside Human Title */}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                          {/* Left/Start Identity Column: Error Code + Severity + Source + Time */}
+                          <div className={`lg:col-span-4 p-3 rounded-lg border space-y-1.5 ${subSurfaceBg}`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className={`flex items-center gap-1.5 text-xs font-bold ${levelColor}`}>
+                                {ev.level === 'critical' ? (
+                                  <ShieldAlert className="w-4 h-4 shrink-0" />
+                                ) : ev.level === 'error' ? (
+                                  <AlertCircle className="w-4 h-4 shrink-0" />
+                                ) : (
+                                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                                )}
+                                <span>{isEn ? ev.levelLabelEn : ev.levelLabelFa}</span>
+                              </div>
+                              <span className={`font-mono text-sm font-bold tabular-nums ${textPrimary}`}>
+                                {isEn ? `Event ID ${ev.eventId}` : `کد خطا ${ev.eventId}`}
+                              </span>
+                            </div>
+
+                            <div className={`text-xs font-mono truncate ${textPrimary}`} title={ev.source}>
+                              {ev.source}
+                            </div>
+
+                            <div className={`text-[11px] flex flex-wrap items-center gap-1.5 ${textMuted}`}>
+                              <span>{ev.channel}</span>
+                              <span aria-hidden="true">·</span>
+                              <span>{isEn ? exp.categoryLabelEn : exp.categoryLabelFa}</span>
+                            </div>
+
+                            <div className={`text-[11px] font-mono tabular-nums pt-1 border-t ${isLightMode ? 'border-slate-200' : 'border-slate-800'} ${textMuted}`}>
+                              {formattedTime}
+                            </div>
+                          </div>
+
+                          {/* Right/End Human-Readable Plain-Language Diagnosis */}
+                          <div className="lg:col-span-8 space-y-2.5 text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <h3 className={`text-sm font-bold ${textPrimary}`}>
+                                {isEn ? exp.humanTitleEn : exp.humanTitleFa}
+                              </h3>
+                              <span className={`text-[11px] font-medium ${exp.isKnownCode ? 'text-teal-500' : textMuted}`}>
+                                {exp.isKnownCode
+                                  ? isEn
+                                    ? 'Exact Code Match'
+                                    : 'شناسایی دقیق کد خطا'
+                                  : isEn
+                                  ? 'Smart Analysis'
+                                  : 'تحلیل هوشمند متن خطا'}
+                              </span>
+                            </div>
+
+                            <p className={`leading-relaxed ${textPrimary}`}>
+                              <span className={`font-semibold ${textMuted}`}>
+                                {isEn ? 'What happened: ' : 'دلیل خطا: '}
+                              </span>
+                              {isEn ? exp.humanReasonEn : exp.humanReasonFa}
+                            </p>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+                              <div className={`p-2.5 rounded-lg border ${subSurfaceBg}`}>
+                                <div className={`text-[11px] font-semibold mb-0.5 ${textMuted}`}>
+                                  {isEn ? 'Likely Root Cause' : 'علت احتمالی'}
+                                </div>
+                                <div className={`leading-relaxed ${textPrimary}`}>
+                                  {isEn ? exp.likelyCauseEn : exp.likelyCauseFa}
+                                </div>
+                              </div>
+
+                              <div
+                                className={`p-2.5 rounded-lg border ${
+                                  isLightMode
+                                    ? 'bg-teal-50/70 border-teal-200 text-slate-900'
+                                    : 'bg-teal-500/10 border-teal-500/25 text-slate-100'
+                                }`}
+                              >
+                                <div className="text-[11px] font-semibold text-teal-600 dark:text-teal-400 flex items-center gap-1 mb-0.5">
+                                  <Lightbulb className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Recommended HelpDesk Action' : 'اقدام پیشنهادی کارشناس'}</span>
+                                </div>
+                                <div className="leading-relaxed">
+                                  {isEn ? exp.recommendedActionEn : exp.recommendedActionFa}
+                                </div>
+                              </div>
+                            </div>
+
+                            {ev.rawMessage && (
+                              <div className="pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedEventIds((prev) => ({ ...prev, [rowKey]: !prev[rowKey] }))
+                                  }
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-500 hover:underline cursor-pointer"
+                                >
+                                  {isExpanded ? (
+                                    <>
+                                      <ChevronUp className="w-3.5 h-3.5" />
+                                      <span>{isEn ? 'Hide Raw Event Log' : 'بستن متن خام لاگ'}</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <ChevronDown className="w-3.5 h-3.5" />
+                                      <span>{isEn ? 'Show Raw Event Log' : 'مشاهده متن خام لاگ ویندوز'}</span>
+                                    </>
+                                  )}
+                                </button>
+                                {isExpanded && (
+                                  <pre
+                                    dir="ltr"
+                                    className={`mt-2 p-3 rounded-lg border font-mono text-[11px] whitespace-pre-wrap break-words max-h-56 overflow-y-auto ${subSurfaceBg} ${textMuted}`}
+                                  >
+                                    {ev.rawMessage}
+                                  </pre>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 5: CONFINED TEMP CLEANUP (ITEM 6) & GPUPDATE /FORCE (ITEM 7)    */}
+      {/* =================================================================== */}
+      {activeSubTab === 'maintenance' && (
+        <div className="space-y-6">
+          {/* MODULE 6: SAFE CONFINED TEMP FOLDER CLEANUP */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-5 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-sky-500" />
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn ? '06. Safe Confined Temp Folder Cleanup' : '۶. اسکن و پاک‌سازی ایمن پوشه‌های Temp سیستم کاربر'}
+                  </h2>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Confined Temp Folder Cleanup' : 'پاک‌سازی محدود پوشه Temp'}
+                    whatIsIt={
+                      isEn
+                        ? 'Scans and removes temporary junk files strictly inside hardcoded Windows\\Temp and active user AppData\\Local\\Temp directories.'
+                        : 'فایل‌های موقت انباشته‌شده را صرفاً داخل دو مسیر ثابت Windows\\Temp و AppData\\Local\\Temp کاربر فعال اسکن و پاک‌سازی می‌کند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Reclaims Drive C space and resolves frozen app cache issues without exposing arbitrary file-deletion risk.'
+                        : 'فضای درایو C را آزاد کرده و مشکلات کش برنامه‌ها را حل می‌کند بدون اینکه امکان حذف مسیر دلخواه یا فایل‌های کاربر وجود داشته باشد.'
+                    }
+                    example={
+                      isEn
+                        ? 'Hardcoded paths only · In-use locked files are safely skipped · Zero custom path input'
+                        : 'مسیرها کاملاً ثابت در سرور هستند · فایل‌های در حال استفاده ایمن رد می‌شوند · بدون ورودی مسیر دلخواه'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Hard-confined strictly to Windows\\Temp and active user AppData\\Local\\Temp. In-use files are automatically skipped.'
+                    : 'دسترسی حذف کاملاً قفل‌شده فقط روی پوشه‌های Temp ویندوز و کاربر فعال (هیچ مسیر دیگری قابل حذف نیست و فایل‌های باز رد می‌شوند).'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleScanTemp}
+                  disabled={!canRunDiagnostics || loadingTempScan}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                >
+                  {loadingTempScan ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                  <span>{isEn ? 'Scan Temp Folders' : 'اسکن پوشه‌های Temp'}</span>
+                </button>
+
+                <select
+                  value={tempScope}
+                  onChange={(e) => setTempScope(e.target.value as any)}
+                  className={`px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+                >
+                  <option value="both">{isEn ? 'Both Temp Folders' : 'هر دو پوشه Temp'}</option>
+                  <option value="user_temp">{isEn ? 'User Temp Only' : 'فقط Temp کاربر فعال'}</option>
+                  <option value="windows_temp">{isEn ? 'Windows Temp Only' : 'فقط Windows\\Temp'}</option>
+                </select>
+
+                {!confirmTempClean ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmTempClean(true)}
+                    disabled={!canCleanTemp || cleaningTemp}
+                    title={
+                      !canCleanTemp
+                        ? isEn
+                          ? 'Requires canCleanHelpdeskTemp permission'
+                          : 'نیازمند مجوز canCleanHelpdeskTemp در Access Policy'
+                        : undefined
+                    }
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {cleaningTemp ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : !canCleanTemp ? (
+                      <Lock className="w-3.5 h-3.5" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isEn ? 'Clean Temp Safely' : 'پاک‌سازی ایمن Temp'}</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleCleanTemp}
+                      disabled={cleaningTemp}
+                      className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition cursor-pointer"
+                    >
+                      {isEn ? 'Confirm Clean' : 'تأیید پاک‌سازی'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmTempClean(false)}
+                      className={`px-2.5 py-2 rounded-lg border text-xs font-medium cursor-pointer ${
+                        isLightMode ? 'border-slate-300 text-slate-700' : 'border-slate-700 text-slate-300'
+                      }`}
+                    >
+                      {isEn ? 'Cancel' : 'انصراف'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {tempError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{tempError}</span>
+              </div>
+            )}
+
+            {tempCleanResult && (
+              <div className="p-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-xs space-y-1">
+                <div className="font-bold text-emerald-500 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isEn ? tempCleanResult.message : tempCleanResult.messageFa}</span>
+                </div>
+                <div className={`font-mono tabular-nums ${textMuted}`}>
+                  {isEn
+                    ? `Deleted: ${tempCleanResult.deletedFiles} files · Freed: ${tempCleanResult.freedMb} MB · Locked & Skipped: ${tempCleanResult.skippedLockedFiles} files`
+                    : `حذف‌شده: ${tempCleanResult.deletedFiles} فایل · آزادسازی: ${tempCleanResult.freedMb} MB · فایل‌های باز ردشده: ${tempCleanResult.skippedLockedFiles}`}
+                </div>
+              </div>
+            )}
+
+            {tempScanData && (
+              <div className="space-y-4">
+                {/* Temp Folders Breakdown */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                  <div className={`p-4 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Total Reclaimable Temp' : 'حجم کل قابل آزادسازی'}</div>
+                    <div className={`mt-1 text-2xl font-bold font-mono tabular-nums ${textPrimary}`}>
+                      {tempScanData.totalReclaimableMb} MB
+                    </div>
+                    <div className={`mt-1 font-mono tabular-nums ${textMuted}`}>
+                      {tempScanData.totalFileCount} {isEn ? 'temp files' : 'فایل موقت'} · {tempScanData.hostname}
+                    </div>
+                  </div>
+
+                  {(tempScanData.folders || []).map((f: any) => {
+                    const share =
+                      tempScanData.totalReclaimableMb > 0
+                        ? Math.min(100, (f.sizeMb / tempScanData.totalReclaimableMb) * 100)
+                        : 0;
+                    return (
+                      <div key={f.key} className={`p-4 rounded-xl border space-y-2 ${subSurfaceBg}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`font-bold ${textPrimary}`}>{isEn ? f.labelEn : f.labelFa}</span>
+                          <span className="font-mono font-bold tabular-nums text-sky-500">{f.sizeMb} MB</span>
+                        </div>
+                        <div className={`h-1.5 rounded-full overflow-hidden ${isLightMode ? 'bg-slate-200' : 'bg-slate-800'}`}>
+                          <div className="h-full rounded-full bg-sky-500" style={{ width: `${Math.max(f.sizeMb > 0 ? 4 : 0, share)}%` }} />
+                        </div>
+                        <div className={`text-[11px] font-mono truncate ${textMuted}`} dir="ltr" title={f.path}>
+                          {f.path || '-'}
+                        </div>
+                        <div className={`text-[11px] font-mono tabular-nums ${textMuted}`}>
+                          {f.fileCount} {isEn ? 'files' : 'فایل'} · {f.folderCount} {isEn ? 'folders' : 'پوشه'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Largest Temp Files Preview */}
+                {Array.isArray(tempScanData.largestFiles) && tempScanData.largestFiles.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className={`border-b text-start ${isLightMode ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>
+                          <th className="py-2 px-2.5 text-start">{isEn ? 'Largest Temp File' : 'حجیم‌ترین فایل‌های Temp'}</th>
+                          <th className="py-2 px-2.5 text-start">{isEn ? 'Location' : 'مسیر'}</th>
+                          <th className="py-2 px-2.5 text-end">{isEn ? 'Size' : 'حجم'}</th>
+                          <th className="py-2 px-2.5 text-end">{isEn ? 'Modified' : 'آخرین تغییر'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
+                        {tempScanData.largestFiles.map((lf: any, idx: number) => (
+                          <tr key={`${lf.name}-${idx}`}>
+                            <td className={`py-2 px-2.5 font-mono ${textPrimary}`}>{lf.name}</td>
+                            <td className={`py-2 px-2.5 ${textMuted}`}>
+                              {lf.folderKey === 'windows_temp'
+                                ? isEn
+                                  ? 'Windows Temp'
+                                  : 'Temp ویندوز'
+                                : isEn
+                                ? 'User Temp'
+                                : 'Temp کاربر'}
+                            </td>
+                            <td className={`py-2 px-2.5 text-end font-mono tabular-nums font-semibold ${textPrimary}`}>
+                              {lf.sizeMb} MB
+                            </td>
+                            <td className={`py-2 px-2.5 text-end font-mono tabular-nums ${textMuted}`}>
+                              {lf.lastModified || '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* MODULE 7: GROUP POLICY INSPECTION & SAFE GPUPDATE /FORCE */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-5 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-teal-500" />
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn ? '07. Group Policy Inspection & Non-Disruptive gpupdate /force' : '۷. بررسی وضعیت Group Policy و اجرای فوری gpupdate /force'}
+                  </h2>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Safe Group Policy Refresh' : 'اعمال ایمن Group Policy'}
+                    whatIsIt={
+                      isEn
+                        ? 'Reads currently applied domain GPOs via gpresult /r and runs a fixed, parameterless gpupdate /force /wait:0.'
+                        : 'لیست پالیسی‌های اعمال‌شده دامین را از طریق gpresult خوانده و با یک دکمه ثابت دستور gpupdate /force را اجرا می‌کند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Immediately applies new security, printer, or drive-mapping policies without logging off or rebooting the active user.'
+                        : 'پالیسی‌های جدید دامین، پرینتر یا تنظیمات امنیتی را بلافاصله اعمال می‌کند و جلوی Logoff یا Reboot اجباری کاربر را می‌گیرد.'
+                    }
+                    example={
+                      isEn
+                        ? 'Executes: echo N | gpupdate.exe /force /wait:0 (never forces unexpected logoff)'
+                        : 'دستور ثابت: echo N | gpupdate.exe /force /wait:0 (بدون قطع کردن کار کاربر)'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Fixed parameterless gpupdate /force /wait:0 — automatically declines any forced user logoff or restart prompt.'
+                    : 'اجرای ثابت و بدون پارامتر gpupdate /force /wait:0 — هرگونه درخواست Logoff یا Restart اجباری کاربر به‌طور خودکار رد می‌شود.'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleInspectGpo}
+                  disabled={!canRunDiagnostics || loadingGpo}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                >
+                  {loadingGpo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  <span>{isEn ? 'Inspect GPO Status' : 'بررسی وضعیت GPO'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRunGpupdate}
+                  disabled={!canRunGpupdate || runningGpupdate}
+                  title={
+                    !canRunGpupdate
+                      ? isEn
+                        ? 'Requires canRunHelpdeskGpupdate permission'
+                        : 'نیازمند مجوز canRunHelpdeskGpupdate در Access Policy'
+                      : undefined
+                  }
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                >
+                  {runningGpupdate ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : !canRunGpupdate ? (
+                    <Lock className="w-3.5 h-3.5" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isEn ? 'Run gpupdate /force' : 'اجرای gpupdate /force'}</span>
+                </button>
+              </div>
+            </div>
+
+            {gpoError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{gpoError}</span>
+              </div>
+            )}
+
+            {gpupdateResult && (
+              <div
+                className={`p-4 rounded-xl border space-y-2 text-xs ${
+                  gpupdateResult.success
+                    ? 'border-emerald-500/40 bg-emerald-500/10'
+                    : 'border-amber-500/40 bg-amber-500/10'
+                }`}
+              >
+                <div
+                  className={`font-bold flex items-center gap-2 ${
+                    gpupdateResult.success ? 'text-emerald-500' : 'text-amber-500'
+                  }`}
+                >
+                  {gpupdateResult.success ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+                  <span>{isEn ? gpupdateResult.message : gpupdateResult.messageFa}</span>
+                </div>
+                {gpupdateResult.rawOutput && (
+                  <pre
+                    dir="ltr"
+                    className={`p-3 rounded-lg border font-mono text-[11px] overflow-x-auto max-h-48 ${subSurfaceBg} ${textPrimary}`}
+                  >
+                    {gpupdateResult.rawOutput}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            {gpoData && (
+              <div className="space-y-4">
+                <div className={`p-4 rounded-xl border grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs ${subSurfaceBg}`}>
+                  <div>
+                    <div className={textMuted}>{isEn ? 'Domain / Workgroup' : 'دامین / Workgroup'}</div>
+                    <div className={`mt-1 font-bold font-mono ${textPrimary}`}>{gpoData.domain || '-'}</div>
+                  </div>
+                  <div>
+                    <div className={textMuted}>{isEn ? 'AD Domain Joined' : 'عضویت در دامین'}</div>
+                    <div className={`mt-1 font-bold ${gpoData.domainJoined ? 'text-emerald-500' : 'text-amber-500'}`}>
+                      {gpoData.domainJoined
+                        ? isEn
+                          ? 'Joined'
+                          : 'عضو دامین'
+                        : isEn
+                        ? 'Workgroup / Standalone'
+                        : 'خارج از دامین'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className={textMuted}>{isEn ? 'Last GPO Applied' : 'آخرین اعمال GPO'}</div>
+                    <div className={`mt-1 font-mono text-[11px] ${textPrimary}`}>
+                      {gpoData.lastGpoRefresh || '-'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className={textMuted}>{isEn ? 'Pending Reboot' : 'نیاز به ری‌استارت'}</div>
+                    <div className={`mt-1 font-bold ${gpoData.pendingReboot ? 'text-amber-500' : 'text-emerald-500'}`}>
+                      {gpoData.pendingReboot
+                        ? isEn
+                          ? 'Reboot Pending'
+                          : 'در انتظار ری‌استارت'
+                        : isEn
+                        ? 'Not Required'
+                        : 'نیاز ندارد'}
+                    </div>
+                  </div>
+                </div>
+
+                {Array.isArray(gpoData.computerGpos) && gpoData.computerGpos.length > 0 && (
+                  <div className="space-y-2">
+                    <div className={`text-xs font-bold ${textPrimary}`}>
+                      {isEn
+                        ? `Applied Computer Group Policies (${gpoData.computerGpos.length})`
+                        : `گروپ پالیسی‌های اعمال‌شده روی سیستم (${gpoData.computerGpos.length})`}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {gpoData.computerGpos.map((gpo: string, idx: number) => (
+                        <div key={`${gpo}-${idx}`} className={`px-3 py-2 rounded-lg border font-mono ${subSurfaceBg} ${textPrimary}`}>
+                          {gpo}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {gpoData.rawSummary && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowRawGpo((v) => !v)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-sky-500 hover:underline cursor-pointer"
+                    >
+                      {showRawGpo ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      <span>{showRawGpo ? (isEn ? 'Hide gpresult /r Output' : 'بستن خروجی gpresult') : isEn ? 'Show Full gpresult /r Output' : 'مشاهده خروجی کامل gpresult /r'}</span>
+                    </button>
+                    {showRawGpo && (
+                      <pre
+                        dir="ltr"
+                        className={`mt-2 p-3.5 rounded-xl border font-mono text-[11px] overflow-x-auto max-h-64 ${subSurfaceBg} ${textMuted}`}
+                      >
+                        {gpoData.rawSummary}
+                      </pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 6: PHASE 1 SUMMARY & ANTI-RANSOMWARE SECURITY ARCHITECTURE      */}
       {/* =================================================================== */}
       {activeSubTab === 'architecture' && (
         <div className="space-y-6">
@@ -1975,10 +3145,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   descFa: 'هر درخواست فقط یک IP اعتبارسنجی‌شده می‌پذیرد و هیچ امکان اجرای گروهی روی کلاینت‌ها وجود ندارد.',
                 },
                 {
-                  titleEn: 'Hardcoded Allowlist (No Free Shell)',
-                  titleFa: 'لیست سفید ثابت (بدون ترمینال آزاد)',
-                  descEn: 'Zero arbitrary command or script input; only fixed read-only collectors and safe FlushDNS/Renew/Spooler actions.',
-                  descFa: 'ورودی دستور یا اسکریپت آزاد کاملاً مسدود است؛ فقط دستورات ثابت پایش و ریست امن DNS/Spooler اجرا می‌شوند.',
+                  titleEn: 'Hardcoded Allowlist + OS/AV Lock',
+                  titleFa: 'لیست سفید ثابت + قفل هسته و آنتی‌ویروس',
+                  descEn: 'Zero free shell; process termination permanently locks OS core & AV/EDR, and Temp cleanup accepts zero custom paths.',
+                  descFa: 'بدون ترمینال آزاد؛ بستن پروسس روی هسته سیستم و آنتی‌ویروس قفل است و پاک‌سازی Temp هیچ مسیر دلخواهی نمی‌پذیرد.',
                 },
                 {
                   titleEn: 'Ephemeral Zero-Storage Credentials',
@@ -1987,10 +3157,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   descFa: 'هیچ رمز عبوری در دیتابیس، لوکال‌استوریج یا لاگ ذخیره نمی‌شود و با دکمه پاک‌سازی فوراً از RAM حذف می‌گردد.',
                 },
                 {
-                  titleEn: 'Rate-Limit Circuit Breaker + Audit',
-                  titleFa: 'مدارقطع‌کن نرخ عملیات + لاگ ممیزی',
-                  descEn: 'Caps write actions to 6 ops across max 3 distinct endpoints per 5 minutes and logs every call to PostgreSQL.',
-                  descFa: 'حداکثر ۶ عملیات تغییردهنده روی حداکثر ۳ سیستم در هر ۵ دقیقه، همراه با ثبت کامل در Audit Logs.',
+                  titleEn: 'Granular RBAC + Circuit Breaker + Audit',
+                  titleFa: 'دسترسی دقیق RBAC + مدارقطع‌کن + لاگ ممیزی',
+                  descEn: '7 separate HelpDesk RBAC permissions, 6 ops / 3 hosts per 5-minute circuit breaker, and complete PostgreSQL audit trail.',
+                  descFa: '۷ مجوز مستقل در Access Policy، مدارقطع‌کن ۶ عملیات روی حداکثر ۳ سیستم در ۵ دقیقه و ثبت کامل در Audit Logs.',
                 },
               ].map((card) => (
                 <div key={card.titleEn} className={`p-4 rounded-xl border space-y-1.5 ${subSurfaceBg}`}>
@@ -2006,8 +3176,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             <div>
               <h3 className={`text-sm font-bold ${textPrimary}`}>
                 {isEn
-                  ? 'Phase 1 Low-Risk Agentless Roadmap (Items 1–3 Implemented · Items 4–8 Queued)'
-                  : 'نقشه راه مهندسی‌شده فاز ۱ بدون ایجنت (موارد ۱ تا ۳ پیاده‌سازی‌شده · موارد ۴ تا ۸ در صف توسعه)'}
+                  ? 'Phase 1 Low-Risk Agentless Roadmap (Items 1–7 Active · Item 8 Next)'
+                  : 'نقشه راه مهندسی‌شده فاز ۱ بدون ایجنت (موارد ۱ تا ۷ فعال · مورد ۸ در صف توسعه)'}
               </h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -214,6 +214,18 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canExecuteHelpdeskActions:
         initialPolicy.canExecuteHelpdeskActions ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canViewHelpdeskEventViewer:
+        initialPolicy.canViewHelpdeskEventViewer ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canTerminateHelpdeskProcesses:
+        initialPolicy.canTerminateHelpdeskProcesses ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canCleanHelpdeskTemp:
+        initialPolicy.canCleanHelpdeskTemp ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canRunHelpdeskGpupdate:
+        initialPolicy.canRunHelpdeskGpupdate ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
       canViewCommunications: initialPolicy.canViewCommunications ?? true,
       canSendCommunications: initialPolicy.canSendCommunications ?? true,
       canSendAnnouncements:
@@ -615,6 +627,18 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
         canExecuteHelpdeskActions:
           initialPolicy.canExecuteHelpdeskActions ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canViewHelpdeskEventViewer:
+          initialPolicy.canViewHelpdeskEventViewer ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canTerminateHelpdeskProcesses:
+          initialPolicy.canTerminateHelpdeskProcesses ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canCleanHelpdeskTemp:
+          initialPolicy.canCleanHelpdeskTemp ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canRunHelpdeskGpupdate:
+          initialPolicy.canRunHelpdeskGpupdate ??
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
         canViewCommunications: initialPolicy.canViewCommunications ?? true,
         canSendCommunications: initialPolicy.canSendCommunications ?? true,
@@ -1644,6 +1668,10 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canExportSchematic: enabled,
         canRunHelpdeskDiagnostics: enabled,
         canExecuteHelpdeskActions: enabled,
+        canViewHelpdeskEventViewer: enabled,
+        canTerminateHelpdeskProcesses: enabled,
+        canCleanHelpdeskTemp: enabled,
+        canRunHelpdeskGpupdate: enabled,
         canBatchOperate: enabled,
         canViewSessionRecordings: enabled,
         canPlaybackSessionRecordings: enabled,
@@ -6738,6 +6766,50 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         whatFa: 'مجوز اجرای عملیات تعمیری ثابت و غیرآزاد روی یک سیستم مشخص شامل Flush DNS، Renew IP، ری‌استارت سرویس Spooler و پاک‌سازی صف گیرکرده پرینت.',
                         why: 'Separates state-changing remediation from read-only telemetry and enforces anti-ransomware rate-limit caps and audit trails',
                         whyFa: 'عملیات تغییردهنده را از مشاهده جدا می‌کند و تحت محدودیت نرخ ضدباج‌افزار و لاگ ممیزی قرار می‌دهد.',
+                      },
+                      {
+                        key: 'canViewHelpdeskEventViewer',
+                        labelEn: 'HelpDesk: Event Viewer & Human Error Diagnostics (Read-Only)',
+                        labelFa: 'هلپ‌دسک: مشاهده Event Viewer و تحلیل انسانی کد خطاها (فقط‌خواندنی)',
+                        descEn: 'Inspect recent System/Application Critical, Error, and Warning events with plain-language root-cause analysis',
+                        descFa: 'خواندن خطاهای اخیر System/Application سیستم کاربر همراه با توضیح دقیق و انسانی علت هر کد خطا',
+                        what: 'Permits read-only retrieval of Windows Event Viewer / Linux journalctl logs paired with human-readable cause & remediation guidance',
+                        whatFa: 'مجوز خواندن فقط‌خواندنی لاگ‌های Event Viewer ویندوز (یا journalctl لینوکس) همراه با ترجمه انسانی کد خطاها و راهکار پیشنهادی.',
+                        why: 'Enables fast troubleshooting of crashes, disk errors, GPO failures, and DNS outages without logging into the user desktop',
+                        whyFa: 'امکان تشخیص سریع علت کرش برنامه‌ها، خطای هارد، قطعی DNS و خطاهای GPO را بدون مزاحمت برای کاربر فراهم می‌کند.',
+                      },
+                      {
+                        key: 'canTerminateHelpdeskProcesses',
+                        labelEn: 'HelpDesk: Terminate Allowed User Applications (Protected OS/AV Locked)',
+                        labelFa: 'هلپ‌دسک: بستن برنامه‌های کاربری هنگ‌کرده (پروسس‌های سیستمی و آنتی‌ویروس قفل)',
+                        descEn: 'Safely end frozen user apps (Chrome, Excel, Outlook, etc.) while hard-blocking OS & Antivirus/EDR processes',
+                        descFa: 'بستن ایمن برنامه‌های کاربری هنگ‌کرده (کروم، اکسل، اوت‌لوک و...) با محافظت سخت‌گیرانه از پروسس‌های سیستم‌عامل و آنتی‌ویروس',
+                        what: 'Allows ending non-protected user-session processes verified by both PID and exact Process Name under anti-ransomware rate limits',
+                        whatFa: 'مجوز پایان دادن به پروسس‌های کاربری غیرحساس با تطبیق همزمان PID و نام پروسس؛ پروسس‌های هسته ویندوز و آنتی‌ویروس‌ها به صورت سخت مسدود هستند.',
+                        why: 'Resolves frozen user apps quickly while preventing accidental system crashes or ransomware-style antivirus tampering',
+                        whyFa: 'مشکل هنگ کردن نرم‌افزارهای کاربر را سریع حل می‌کند بدون آنکه امکان توقف سرویس‌های امنیتی یا سیستم‌عامل وجود داشته باشد.',
+                      },
+                      {
+                        key: 'canCleanHelpdeskTemp',
+                        labelEn: 'HelpDesk: Safe Confined Temp Folder Cleanup',
+                        labelFa: 'هلپ‌دسک: پاک‌سازی امن پوشه‌های Temp (محدود به مسیرهای مجاز)',
+                        descEn: 'Scan and remove unlocked temporary files strictly inside Windows\\Temp and active user AppData\\Local\\Temp',
+                        descFa: 'اسکن و پاک‌سازی فایل‌های موقت قفل‌نشده منحصراً درون Windows\\Temp و AppData\\Local\\Temp کاربر بدون امکان دسترسی به سایر مسیرها',
+                        what: 'Authorizes scanning and cleaning strictly hardcoded temporary directories to reclaim disk space safely',
+                        whatFa: 'مجوز اسکن و پاک‌سازی مسیرهای ثابت و محدودشده پوشه Temp جهت آزادسازی فضای دیسک C سیستم کاربر.',
+                        why: 'Prevents arbitrary file deletion by confining cleanup strictly to OS-standard Temp folders with full audit logging',
+                        whyFa: 'با محدود کردن پاک‌سازی به مسیرهای استاندارد Temp و ثبت در Audit Log، جلوی هرگونه حذف غیرمجاز فایل‌های کاربر را می‌گیرد.',
+                      },
+                      {
+                        key: 'canRunHelpdeskGpupdate',
+                        labelEn: 'HelpDesk: Group Policy Inspection & GPUpdate /Force',
+                        labelFa: 'هلپ‌دسک: مشاهده وضعیت Group Policy و اجرای gpupdate /force',
+                        descEn: 'View applied Domain GPOs and trigger non-disruptive Group Policy refresh on the workstation',
+                        descFa: 'مشاهده پالیسی‌های اعمال‌شده دامین (GPO) و اجرای فوری و بدون ری‌استارت دستور gpupdate /force روی سیستم کاربر',
+                        what: 'Permits reading applied GPO metadata and executing a fixed non-interactive gpupdate /force refresh',
+                        whatFa: 'مجوز بررسی وضعیت اعمال Group Policy و اجرای دکمه ثابت gpupdate /force بدون ری‌استارت ناخواسته سیستم کاربر.',
+                        why: 'Applies new AD permissions, mapped drives, and security policies immediately during a support call',
+                        whyFa: 'باعث اعمال فوری تغییرات Active Directory، دسترسی‌ها و پالیسی‌های جدید در همان لحظه تماس پشتیبانی می‌شود.',
                       },
                       {
                         key: 'canBatchOperate',

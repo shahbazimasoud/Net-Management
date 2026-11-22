@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.455.0';
+export const APP_VERSION = '1.456.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.456.0',
+    releaseDate: '2026-11-22',
+    type: 'minor',
+    title: 'تکمیل موارد ۴ تا ۷ هلپ‌دسک بدون‌ایجنت (Event Viewer با تحلیل انسانی، بستن ایمن پروسس‌های کاربری، پاک‌سازی محدود Temp و GPUpdate) + کنترل دسترسی دقیق RBAC و Audit Log',
+    title_en: 'Add HelpDesk Phase 1 Modules 4–7 (Human-Readable Event Viewer, Safe User-App Process Termination, Confined Temp Cleanup & GPUpdate) with Granular RBAC & Audit Logging',
+    changes: [
+      'پیاده‌سازی **مورد ۴ (Event Viewer با تحلیل انسانی و واضح خطاها)** در سرور (`server/helpdeskEventCatalog.ts` و `server/helpdeskService.ts`) و تب جدید در `HelpDeskView.tsx`: خواندن خطاهای اخیر `System` و `Application` (و `journalctl` لینوکس) و نمایش دقیق **توضیح ساده و انسانی علت خطا، علت احتمالی و اقدام پیشنهادی کارشناس** مستقیماً کنار هر Event ID (شامل بیش از ۴۵ کد رایج ویندوز از جمله Kernel-Power 41، BSOD 1001، Disk 7/11/51/153، DNS 1014، GPO 1058، App Crash 1000/1002، Service 7000/7031 و تحلیل هوشمند خطاهای سایر سرویس‌ها) همراه با متن خام بازشونده.',
+      'پیاده‌سازی **مورد ۵ (بستن کنترل‌شده برنامه‌های کاربری هنگ‌کرده)** مستقیماً در جدول پروسس‌های تب ۱ با تأیید دو مرحله‌ای درون‌خطی (بدون نیاز به پاپ‌آپ) و تطبیق همزمان PID و نام دقیق پروسس روی سیستم مقصد، در حالی که تمامی پروسس‌های هسته سیستم‌عامل (`PID < 100`، `lsass`، `csrss`، `svchost`، `winlogon`، `explorer` و...) و سرویس‌های آنتی‌ویروس/EDR (`MsMpEng`، `CSFalcon`، `ekrn`، `avp`، `SentinelAgent` و...) به‌صورت دائمی در بک‌اند قفل و مسدود هستند.',
+      'پیاده‌سازی **مورد ۶ (اسکن و پاک‌سازی ایمن پوشه‌های Temp)** در تب ۵ با نمایش حجم قابل آزادسازی، تعداد فایل‌ها و حجیم‌ترین فایل‌های موقت صرفاً در دو مسیر ثابت `Windows\\Temp` و `AppData\\Local\\Temp` کاربر فعال (بدون پذیرش هیچ مسیر دلخواه از کلاینت) و رد کردن ایمن فایل‌های در حال استفاده.',
+      'پیاده‌سازی **مورد ۷ (بررسی وضعیت Group Policy و اجرای غیرمخرب `gpupdate /force`)** شامل مشاهده عضویت دامین، لیست GPOهای اعمال‌شده و وضعیت `Pending Reboot` به همراه دکمه ثابت `echo N | gpupdate.exe /force /wait:0` که هرگز باعث Logoff یا Restart ناگهانی کاربر نمی‌شود.',
+      'افزودن ۴ مجوز مستقل و دقیق در **Access Policy (RBAC)** (`canViewHelpdeskEventViewer`، `canTerminateHelpdeskProcesses`، `canCleanHelpdeskTemp`، `canRunHelpdeskGpupdate`) در دیتابیس PostgreSQL و مودال تنظیمات دسترسی، همراه با اعمال مدارقطع‌کن امنیتی ضدباج‌افزار و ثبت کامل تمامی عملیات و تلاش‌های مسدودشده در **Portal Audit Logs**.'
+    ],
+    changes_en: [
+      'Implemented **Module 4 (Human-Readable Event Viewer Diagnostics)** in `server/helpdeskEventCatalog.ts`, `server/helpdeskService.ts`, and `HelpDeskView.tsx`: collects recent Windows `System`/`Application` (or Linux `journald`) Critical, Error, and Warning events and displays a **plain-language human explanation, likely root cause, and recommended HelpDesk action** right beside every Event ID (covering 45+ common Windows codes including Kernel-Power 41, BSOD 1001, Disk 7/11/51/153, DNS 1014, GPO 1058, App Crash 1000/1002, Services 7000/7031, plus smart contextual analysis) with an expandable raw log drawer.',
+      'Implemented **Module 5 (Safe User-App Process Termination)** directly inside Module 1’s process table with inline two-step confirmation and exact PID + ProcessName verification on the target host, while permanently locking core OS services (`PID < 100`, `lsass`, `csrss`, `svchost`, `winlogon`, `explorer`, etc.) and Antivirus/EDR agents (`MsMpEng`, `CSFalcon`, `ekrn`, `avp`, `SentinelAgent`, etc.) server-side.',
+      'Implemented **Module 6 (Safe Confined Temp Cleanup)** in Tab 5 with read-only scan of reclaimable space, file counts, and largest temp files strictly confined to hardcoded `Windows\\Temp` and active user `AppData\\Local\\Temp` paths (zero client-supplied paths) while safely skipping in-use locked files.',
+      'Implemented **Module 7 (Group Policy Inspection & Non-Disruptive `gpupdate /force`)** showing domain join state, applied Computer GPOs, and pending reboot status, paired with a fixed `echo N | gpupdate.exe /force /wait:0` trigger that never forces an unexpected user logoff or restart.',
+      'Added 4 granular PostgreSQL-authoritative **Access Policy (RBAC)** permissions (`canViewHelpdeskEventViewer`, `canTerminateHelpdeskProcesses`, `canCleanHelpdeskTemp`, `canRunHelpdeskGpupdate`) across presets, startup migrations, and `AccessPolicyModal.tsx`, enforced alongside the anti-ransomware circuit breaker and complete **Portal Audit Logging**.'
+    ]
+  },
   {
     version: '1.455.0',
     releaseDate: '2026-11-22',

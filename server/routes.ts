@@ -49,6 +49,12 @@ import {
   executeSafeNetworkReset,
   collectEndpointPrinters,
   executeSafeSpoolerAction,
+  collectEndpointEventLogs,
+  terminateEndpointUserProcess,
+  scanEndpointTempFolders,
+  cleanEndpointTempFolders,
+  collectEndpointGpoStatus,
+  executeEndpointGpupdate,
   getHelpdeskRateLimitStatus,
   checkAndRecordHelpdeskWriteRateLimit,
   getHelpdeskJeaTemplates,
@@ -7659,7 +7665,17 @@ apiRouter.post('/schematic/export-authorize', async (req: Request, res: Response
 // AGENTLESS HELPDESK PHASE 1 (Single-Host Only, Allowlisted Safe Actions, RBAC + Anti-Ransomware Guard)
 // ============================================================================
 
-async function resolveHelpdeskAuth(req: Request, requiredPerm: 'view' | 'diagnostics' | 'actions') {
+async function resolveHelpdeskAuth(
+  req: Request,
+  requiredPerm:
+    | 'view'
+    | 'diagnostics'
+    | 'actions'
+    | 'event_viewer'
+    | 'terminate_process'
+    | 'clean_temp'
+    | 'gpupdate'
+) {
   const { user, effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
   if (!user) {
     return {
@@ -7680,9 +7696,25 @@ async function resolveHelpdeskAuth(req: Request, requiredPerm: 'view' | 'diagnos
   const canView = isSuperAdmin || effectivePolicy?.canViewHelpdesk === true;
   const canDiagnostics = isSuperAdmin || (canView && effectivePolicy?.canRunHelpdeskDiagnostics === true);
   const canActions = isSuperAdmin || (canDiagnostics && effectivePolicy?.canExecuteHelpdeskActions === true);
+  const canEventViewer = isSuperAdmin || (canDiagnostics && effectivePolicy?.canViewHelpdeskEventViewer === true);
+  const canTerminateProc = isSuperAdmin || (canActions && effectivePolicy?.canTerminateHelpdeskProcesses === true);
+  const canCleanTemp = isSuperAdmin || (canActions && effectivePolicy?.canCleanHelpdeskTemp === true);
+  const canGpupdate = isSuperAdmin || (canActions && effectivePolicy?.canRunHelpdeskGpupdate === true);
 
   const allowed =
-    requiredPerm === 'view' ? canView : requiredPerm === 'diagnostics' ? canDiagnostics : canActions;
+    requiredPerm === 'view'
+      ? canView
+      : requiredPerm === 'diagnostics'
+      ? canDiagnostics
+      : requiredPerm === 'actions'
+      ? canActions
+      : requiredPerm === 'event_viewer'
+      ? canEventViewer
+      : requiredPerm === 'terminate_process'
+      ? canTerminateProc
+      : requiredPerm === 'clean_temp'
+      ? canCleanTemp
+      : canGpupdate;
 
   if (!allowed) {
     await addPortalAuditLog({
@@ -7701,17 +7733,42 @@ async function resolveHelpdeskAuth(req: Request, requiredPerm: 'view' | 'diagnos
       metadata: { requiredPerm, targetIp: String(req.body?.targetIp || '').slice(0, 128) },
     }).catch(() => {});
 
+    const denialMap: Record<typeof requiredPerm, { en: string; fa: string }> = {
+      view: {
+        en: 'Access denied: Your policy does not permit accessing the HelpDesk workspace (canViewHelpdesk).',
+        fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز ورود به بخش هلپ‌دسک (canViewHelpdesk) است.',
+      },
+      diagnostics: {
+        en: 'Access denied: Your policy does not permit HelpDesk endpoint diagnostics (canRunHelpdeskDiagnostics).',
+        fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز پایش و عیب‌یابی سیستم کاربران (canRunHelpdeskDiagnostics) است.',
+      },
+      actions: {
+        en: 'Access denied: Your policy does not permit executing HelpDesk remediation actions (canExecuteHelpdeskActions).',
+        fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز اجرای اقدامات تعمیری هلپ‌دسک (canExecuteHelpdeskActions) است.',
+      },
+      event_viewer: {
+        en: 'Access denied: Your policy does not permit viewing endpoint Event Viewer logs (canViewHelpdeskEventViewer).',
+        fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز مشاهده خطاهای Event Viewer سیستم کاربران (canViewHelpdeskEventViewer) است.',
+      },
+      terminate_process: {
+        en: 'Access denied: Your policy does not permit terminating user applications (canTerminateHelpdeskProcesses).',
+        fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز بستن برنامه‌های هنگ‌کرده کاربر (canTerminateHelpdeskProcesses) است.',
+      },
+      clean_temp: {
+        en: 'Access denied: Your policy does not permit cleaning endpoint Temp folders (canCleanHelpdeskTemp).',
+        fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز پاک‌سازی پوشه‌های Temp سیستم کاربر (canCleanHelpdeskTemp) است.',
+      },
+      gpupdate: {
+        en: 'Access denied: Your policy does not permit running gpupdate /force (canRunHelpdeskGpupdate).',
+        fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز اجرای gpupdate /force (canRunHelpdeskGpupdate) است.',
+      },
+    };
+
     return {
       ok: false as const,
       status: 403,
-      error:
-        requiredPerm === 'actions'
-          ? 'Access denied: Your policy does not permit executing HelpDesk remediation actions (canExecuteHelpdeskActions).'
-          : 'Access denied: Your policy does not permit HelpDesk endpoint diagnostics (canViewHelpdesk / canRunHelpdeskDiagnostics).',
-      errorFa:
-        requiredPerm === 'actions'
-          ? 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز اجرای اقدامات تعمیری هلپ‌دسک (canExecuteHelpdeskActions) است.'
-          : 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز مشاهده یا عیب‌یابی در بخش هلپ‌دسک است.',
+      error: denialMap[requiredPerm].en,
+      errorFa: denialMap[requiredPerm].fa,
     };
   }
 
@@ -7725,6 +7782,10 @@ async function resolveHelpdeskAuth(req: Request, requiredPerm: 'view' | 'diagnos
       canViewHelpdesk: canView,
       canRunHelpdeskDiagnostics: canDiagnostics,
       canExecuteHelpdeskActions: canActions,
+      canViewHelpdeskEventViewer: canEventViewer,
+      canTerminateHelpdeskProcesses: canTerminateProc,
+      canCleanHelpdeskTemp: canCleanTemp,
+      canRunHelpdeskGpupdate: canGpupdate,
     },
   };
 }
@@ -8067,6 +8128,363 @@ apiRouter.post('/helpdesk/printers/action', async (req: Request, res: Response) 
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Print Spooler repair action failed');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/events - Module 4: Read-Only Event Viewer Collector with Human-Readable Diagnostics
+apiRouter.post('/helpdesk/events', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'event_viewer');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rawChannel = String(req.body?.channel || 'All').trim();
+  const channel: 'All' | 'System' | 'Application' =
+    rawChannel === 'System' || rawChannel === 'Application' ? rawChannel : 'All';
+  const hoursBack = Number(req.body?.hoursBack) || 48;
+  const maxEvents = Number(req.body?.maxEvents) || 45;
+  const severity: 'all' | 'critical_error' =
+    String(req.body?.severity || 'all') === 'critical_error' ? 'critical_error' : 'all';
+
+  try {
+    const data = await collectEndpointEventLogs(target, { channel, hoursBack, maxEvents, severity });
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_events_inspect',
+      title: `بررسی لاگ Event Viewer سیستم کاربر: ${data.targetIp}`,
+      title_en: `HelpDesk Event Viewer Inspection: ${data.targetIp}`,
+      description: `دریافت ${data.summary.total} رویداد (${data.summary.critical} بحرانی، ${data.summary.error} خطا، ${data.summary.warning} هشدار) از کانال ${channel} روی ${data.hostname} (${data.targetIp}).`,
+      description_en: `Collected ${data.summary.total} events (${data.summary.critical} critical, ${data.summary.error} error, ${data.summary.warning} warning) from ${channel} on ${data.hostname} (${data.targetIp}).`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.hostname || data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        channel,
+        hoursBack,
+        total: data.summary.total,
+        critical: data.summary.critical,
+        error: data.summary.error,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to read endpoint Event Viewer logs');
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_events_failed',
+      title: `خطا در خواندن Event Viewer از ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Event Viewer Read Failed: ${target.targetIp || 'Unknown'}`,
+      description: msg.slice(0, 300),
+      description_en: msg.slice(0, 300),
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'failed',
+      severity: 'warning',
+      targetName: target.targetIp || 'unknown',
+      clientIp: auth.clientIp,
+      metadata: { targetIp: target.targetIp, channel },
+    }).catch(() => {});
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/process/terminate - Module 5: Safe User-App Process Termination (OS & AV/EDR Protected)
+apiRouter.post('/helpdesk/process/terminate', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'terminate_process');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const pid = Number(req.body?.pid);
+  const processName = String(req.body?.processName || '').trim();
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'process_terminate');
+  if (!rl.allowed) {
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_rate_limit_tripped',
+      title: `فعال‌شدن مدارقطع‌کن امنیتی ضدباج‌افزار برای ${auth.actorName}`,
+      title_en: `Anti-Ransomware HelpDesk Circuit Breaker Tripped for ${auth.actorName}`,
+      description: rl.reasonFa || rl.reason || 'Rate limit exceeded',
+      description_en: rl.reason || 'Rate limit exceeded',
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'denied',
+      severity: 'warning',
+      targetName: target.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { action: 'process_terminate', targetIp: target.targetIp, pid, processName, rateLimit: rl.status },
+    }).catch(() => {});
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await terminateEndpointUserProcess(target, { pid, processName });
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_process_terminate',
+      title: `بستن کنترل‌شده پروسس کاربری ${processName} (PID ${pid}) روی ${data.targetIp}`,
+      title_en: `HelpDesk Safe User-App Terminate: ${processName} (PID ${pid}) on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, pid, processName, ...data.details },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Safe process termination failed');
+    const isBlocked = /blocked|protected|invalid/i.test(msg);
+    await addPortalAuditLog({
+      category: 'system',
+      action: isBlocked ? 'helpdesk_process_terminate_blocked' : 'helpdesk_process_terminate_failed',
+      title: isBlocked
+        ? `مسدودسازی تلاش بستن پروسس محافظت‌شده ${processName} (PID ${pid})`
+        : `خطا در بستن پروسس ${processName} روی ${target.targetIp}`,
+      title_en: isBlocked
+        ? `Blocked Protected Process Termination: ${processName} (PID ${pid})`
+        : `HelpDesk Process Termination Failed: ${processName} on ${target.targetIp}`,
+      description: msg.slice(0, 300),
+      description_en: msg.slice(0, 300),
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: isBlocked ? 'denied' : 'failed',
+      severity: 'warning',
+      targetName: target.targetIp || 'unknown',
+      clientIp: auth.clientIp,
+      metadata: { targetIp: target.targetIp, pid, processName },
+    }).catch(() => {});
+    return res.status(isBlocked ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/temp/scan - Module 6: Read-Only Confined Temp Folder Scan
+apiRouter.post('/helpdesk/temp/scan', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await scanEndpointTempFolders(target);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_temp_scan',
+      title: `اسکن پوشه‌های Temp سیستم کاربر: ${data.targetIp}`,
+      title_en: `HelpDesk Temp Folder Scan: ${data.targetIp}`,
+      description: `شناسایی ${data.totalFileCount} فایل موقت با حجم قابل آزادسازی ${data.totalReclaimableMb} MB روی ${data.hostname} (${data.targetIp}).`,
+      description_en: `Found ${data.totalFileCount} temp file(s) (${data.totalReclaimableMb} MB reclaimable) on ${data.hostname} (${data.targetIp}).`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.hostname || data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, totalFileCount: data.totalFileCount, totalReclaimableMb: data.totalReclaimableMb },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to scan endpoint Temp folders');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/temp/clean - Module 6: Strictly Confined Temp Folder Cleanup (Zero Custom Paths)
+apiRouter.post('/helpdesk/temp/clean', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'clean_temp');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rawScope = String(req.body?.scope || 'both').trim();
+  const scope: 'user_temp' | 'windows_temp' | 'both' =
+    rawScope === 'user_temp' || rawScope === 'windows_temp' ? rawScope : 'both';
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'temp_clean');
+  if (!rl.allowed) {
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_rate_limit_tripped',
+      title: `فعال‌شدن مدارقطع‌کن امنیتی ضدباج‌افزار برای ${auth.actorName}`,
+      title_en: `Anti-Ransomware HelpDesk Circuit Breaker Tripped for ${auth.actorName}`,
+      description: rl.reasonFa || rl.reason || 'Rate limit exceeded',
+      description_en: rl.reason || 'Rate limit exceeded',
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'denied',
+      severity: 'warning',
+      targetName: target.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { action: 'temp_clean', targetIp: target.targetIp, scope, rateLimit: rl.status },
+    }).catch(() => {});
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await cleanEndpointTempFolders(target, scope);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_temp_clean',
+      title: `پاک‌سازی ایمن Temp روی ${data.targetIp} (${data.freedMb} MB آزاد شد)`,
+      title_en: `HelpDesk Confined Temp Cleanup on ${data.targetIp} (${data.freedMb} MB freed)`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      targetName: data.hostname || data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        scope,
+        deletedFiles: data.deletedFiles,
+        skippedLockedFiles: data.skippedLockedFiles,
+        freedMb: data.freedMb,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Temp folder cleanup failed');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/gpo/status - Module 7: Read-Only Group Policy & Domain Inspection
+apiRouter.post('/helpdesk/gpo/status', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointGpoStatus(target);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_gpo_status',
+      title: `بررسی وضعیت Group Policy سیستم کاربر: ${data.targetIp}`,
+      title_en: `HelpDesk Group Policy Status Inspection: ${data.targetIp}`,
+      description: `دامین: ${data.domain || '-'} — ${data.computerGpos.length} پالیسی اعمال‌شده روی ${data.hostname} (${data.targetIp}).`,
+      description_en: `Domain: ${data.domain || '-'} — ${data.computerGpos.length} applied Computer GPO(s) on ${data.hostname} (${data.targetIp}).`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.hostname || data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        domainJoined: data.domainJoined,
+        pendingReboot: data.pendingReboot,
+        gpoCount: data.computerGpos.length,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to inspect Group Policy status');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/gpo/refresh - Module 7: Safe Non-Disruptive gpupdate /force
+apiRouter.post('/helpdesk/gpo/refresh', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'gpupdate');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'gpupdate_force');
+  if (!rl.allowed) {
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_rate_limit_tripped',
+      title: `فعال‌شدن مدارقطع‌کن امنیتی ضدباج‌افزار برای ${auth.actorName}`,
+      title_en: `Anti-Ransomware HelpDesk Circuit Breaker Tripped for ${auth.actorName}`,
+      description: rl.reasonFa || rl.reason || 'Rate limit exceeded',
+      description_en: rl.reason || 'Rate limit exceeded',
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'denied',
+      severity: 'warning',
+      targetName: target.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { action: 'gpupdate_force', targetIp: target.targetIp, rateLimit: rl.status },
+    }).catch(() => {});
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await executeEndpointGpupdate(target);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_gpupdate_force',
+      title: `اجرای gpupdate /force روی ${data.targetIp}`,
+      title_en: `HelpDesk Group Policy Refresh (gpupdate /force) on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, protocol: data.protocolUsed, ...data.details },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Group Policy refresh (gpupdate /force) failed');
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,

@@ -221,6 +221,10 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewHelpdesk: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: true,
+    canViewHelpdeskEventViewer: true,
+    canTerminateHelpdeskProcesses: true,
+    canCleanHelpdeskTemp: true,
+    canRunHelpdeskGpupdate: true,
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: true,
@@ -305,6 +309,10 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewHelpdesk: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: false,
+    canViewHelpdeskEventViewer: true,
+    canTerminateHelpdeskProcesses: false,
+    canCleanHelpdeskTemp: false,
+    canRunHelpdeskGpupdate: false,
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: false,
@@ -393,6 +401,10 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewHelpdesk: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: true,
+    canViewHelpdeskEventViewer: true,
+    canTerminateHelpdeskProcesses: true,
+    canCleanHelpdeskTemp: true,
+    canRunHelpdeskGpupdate: true,
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: true,
@@ -1373,6 +1385,10 @@ export function getEffectiveUserPolicy(
         canViewHelpdesk: true,
         canRunHelpdeskDiagnostics: true,
         canExecuteHelpdeskActions: true,
+        canViewHelpdeskEventViewer: true,
+        canTerminateHelpdeskProcesses: true,
+        canCleanHelpdeskTemp: true,
+        canRunHelpdeskGpupdate: true,
       }
     );
   }
@@ -1413,6 +1429,10 @@ export function getEffectiveUserPolicy(
     canViewHelpdesk: false,
     canRunHelpdeskDiagnostics: false,
     canExecuteHelpdeskActions: false,
+    canViewHelpdeskEventViewer: false,
+    canTerminateHelpdeskProcesses: false,
+    canCleanHelpdeskTemp: false,
+    canRunHelpdeskGpupdate: false,
   });
 }
 

@@ -3,13 +3,24 @@ import http from 'http';
 import https from 'https';
 import net from 'net';
 import { Client, ConnectConfig } from 'ssh2';
+import { explainEventCodeHuman, HumanEventExplanation } from './helpdeskEventCatalog';
 
 export type HelpdeskProtocol = 'auto' | 'winrm_https' | 'winrm_http' | 'ssh';
 export type HelpdeskWriteAction =
   | 'network_flush_dns'
   | 'network_renew_ip'
   | 'spooler_restart'
-  | 'spooler_clear_queue';
+  | 'spooler_clear_queue'
+  | 'process_terminate'
+  | 'temp_clean'
+  | 'gpupdate_force';
+
+export type HelpdeskProcessCategory =
+  | 'user_app'
+  | 'browser'
+  | 'office'
+  | 'system_protected'
+  | 'security_protected';
 
 export interface HelpdeskTargetInput {
   targetIp: string;
@@ -31,6 +42,10 @@ export interface HelpdeskProcessItem {
   handles: number;
   status: string;
   user: string;
+  terminable: boolean;
+  processCategory: HelpdeskProcessCategory;
+  protectionReason?: string;
+  protectionReasonFa?: string;
 }
 
 export interface HelpdeskDiskItem {
@@ -189,6 +204,109 @@ export interface HelpdeskRateLimitStatus {
   distinctHostsUsed: number;
   isFrozen: boolean;
   freezeUntilIso: string | null;
+}
+
+export interface HelpdeskEventLogItem {
+  recordId: number;
+  eventId: number;
+  channel: string;
+  level: 'critical' | 'error' | 'warning' | 'info';
+  levelLabelEn: string;
+  levelLabelFa: string;
+  source: string;
+  timeCreated: string;
+  rawMessage: string;
+  explanation: HumanEventExplanation;
+}
+
+export interface HelpdeskEventViewerResult {
+  targetIp: string;
+  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  collectedAt: string;
+  channelRequested: 'All' | 'System' | 'Application';
+  hoursBack: number;
+  summary: {
+    total: number;
+    critical: number;
+    error: number;
+    warning: number;
+    knownDecodedCount: number;
+    topIssue: {
+      eventId: number;
+      source: string;
+      count: number;
+      humanTitleEn: string;
+      humanTitleFa: string;
+    } | null;
+  };
+  events: HelpdeskEventLogItem[];
+}
+
+export interface HelpdeskTempFolderSummary {
+  key: 'windows_temp' | 'user_temp';
+  labelEn: string;
+  labelFa: string;
+  path: string;
+  exists: boolean;
+  fileCount: number;
+  folderCount: number;
+  sizeMb: number;
+}
+
+export interface HelpdeskTempLargeFile {
+  name: string;
+  folderKey: 'windows_temp' | 'user_temp';
+  sizeMb: number;
+  lastModified: string;
+}
+
+export interface HelpdeskTempScanResult {
+  targetIp: string;
+  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  collectedAt: string;
+  totalReclaimableMb: number;
+  totalFileCount: number;
+  folders: HelpdeskTempFolderSummary[];
+  largestFiles: HelpdeskTempLargeFile[];
+}
+
+export interface HelpdeskTempCleanResult {
+  targetIp: string;
+  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  scope: 'user_temp' | 'windows_temp' | 'both';
+  success: boolean;
+  deletedFiles: number;
+  skippedLockedFiles: number;
+  freedMb: number;
+  remainingMb: number;
+  message: string;
+  messageFa: string;
+  executedAt: string;
+}
+
+export interface HelpdeskGpoStatusResult {
+  targetIp: string;
+  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  domain: string;
+  loggedInUser: string;
+  collectedAt: string;
+  domainJoined: boolean;
+  pendingReboot: boolean;
+  lastGpoRefresh: string;
+  computerGpos: string[];
+  userGpos: string[];
+  rawSummary: string;
 }
 
 // ============================================================================
@@ -1491,17 +1609,26 @@ export async function collectEndpointHealth(input: HelpdeskTargetInput): Promise
         typeof parsed.security?.firewallPublic === 'boolean' ? parsed.security.firewallPublic : null,
     },
     totalProcessCount: Number(parsed.totalProcessCount) || rawProcs.length,
-    processes: rawProcs.map((p: any) => ({
-      pid: Number(p.pid) || 0,
-      name: String(p.name || 'unknown'),
-      cpuPercent: Math.max(0, Math.min(100, Number(p.cpuPercent) || 0)),
-      memoryMb: Math.max(0, Number(p.memoryMb) || 0),
-      memoryPercent: Math.max(0, Math.min(100, Number(p.memoryPercent) || 0)),
-      threads: Number(p.threads) || 0,
-      handles: Number(p.handles) || 0,
-      status: String(p.status || 'Running'),
-      user: String(p.user || ''),
-    })),
+    processes: rawProcs.map((p: any) => {
+      const pid = Number(p.pid) || 0;
+      const name = String(p.name || 'unknown');
+      const cls = classifyHelpdeskProcess(pid, name);
+      return {
+        pid,
+        name,
+        cpuPercent: Math.max(0, Math.min(100, Number(p.cpuPercent) || 0)),
+        memoryMb: Math.max(0, Number(p.memoryMb) || 0),
+        memoryPercent: Math.max(0, Math.min(100, Number(p.memoryPercent) || 0)),
+        threads: Number(p.threads) || 0,
+        handles: Number(p.handles) || 0,
+        status: String(p.status || 'Running'),
+        user: String(p.user || ''),
+        terminable: cls.terminable,
+        processCategory: cls.processCategory,
+        protectionReason: cls.protectionReason,
+        protectionReasonFa: cls.protectionReasonFa,
+      };
+    }),
   };
 }
 
@@ -2166,7 +2293,960 @@ PY
 }
 
 // ============================================================================
-// 10. WINDOWS JEA & GPO HARDENING TEMPLATES (Zero-Ransomware Endpoint Lock)
+// 10. MODULE 5 HELPER: IMMUTABLE PROCESS PROTECTION GUARD (OS & AV/EDR DENYLIST)
+// ============================================================================
+
+const PROTECTED_SYSTEM_PROCESSES = new Set([
+  'system',
+  'idle',
+  'system idle process',
+  'registry',
+  'memory compression',
+  'secure system',
+  'smss',
+  'csrss',
+  'wininit',
+  'winlogon',
+  'services',
+  'lsass',
+  'lsaiso',
+  'lsm',
+  'svchost',
+  'fontdrvhost',
+  'dwm',
+  'sihost',
+  'explorer',
+  'spoolsv',
+  'taskhostw',
+  'taskhost',
+  'ctfmon',
+  'conhost',
+  'runtimebroker',
+  'searchindexer',
+  'shellexperiencehost',
+  'startmenuexperiencehost',
+  'dllhost',
+  'wmiprvse',
+  'wsmprovhost',
+  'winrshost',
+  'powershell',
+  'pwsh',
+  'sshd',
+  'ntoskrnl',
+  'vmmem',
+  'trustedinstaller',
+  'tiworker',
+  'wuauclt',
+  'usocoreworker',
+  'audiodg',
+  'dashost',
+  'logonui',
+  // Linux core
+  'systemd',
+  'init',
+  'kthreadd',
+  'systemd-journald',
+  'systemd-udevd',
+  'systemd-logind',
+  'systemd-networkd',
+  'systemd-resolved',
+  'dbus-daemon',
+  'networkmanager',
+  'cron',
+  'crond',
+  'rsyslogd',
+  'polkitd',
+  'containerd',
+  'dockerd',
+]);
+
+const PROTECTED_SECURITY_PROCESSES = new Set([
+  // Microsoft Defender
+  'msmpeng',
+  'mpcmdrun',
+  'nissrv',
+  'mpdefendercoreservice',
+  'securityhealthservice',
+  'securityhealthsystray',
+  'mssense',
+  'senseir',
+  'sensecncproxy',
+  'sensecm',
+  'smartscreen',
+  // CrowdStrike / SentinelOne / CarbonBlack / Cylance
+  'csfalconservice',
+  'csfalconcontainer',
+  'sentinelagent',
+  'sentinelctl',
+  'sentinelservicehost',
+  'sentinelstaticengine',
+  'cb',
+  'repmgr',
+  'cylancesvc',
+  'cylanceui',
+  // ESET / Kaspersky / Bitdefender / Sophos / McAfee / Symantec / TrendMicro / ClamAV / Wazuh
+  'ekrn',
+  'egui',
+  'eguiproxy',
+  'avp',
+  'avpui',
+  'kavfs',
+  'klnagent',
+  'bdagent',
+  'vsserv',
+  'epsecurityservice',
+  'savservice',
+  'sophoshealth',
+  'sophosfs',
+  'sophosui',
+  'sedservice',
+  'mcshield',
+  'mfefire',
+  'mfemms',
+  'masvc',
+  'ccsvchst',
+  'sepwscsvc',
+  'ntrtscan',
+  'tmlisten',
+  'pccntmon',
+  'clamd',
+  'freshclam',
+  'wazuh-agent',
+  'ossec-agent',
+  'falcon-sensor',
+]);
+
+const KNOWN_BROWSER_PROCESSES = new Set([
+  'chrome',
+  'msedge',
+  'firefox',
+  'brave',
+  'opera',
+  'vivaldi',
+  'iexplore',
+  'chromium',
+]);
+
+const KNOWN_OFFICE_PROCESSES = new Set([
+  'winword',
+  'excel',
+  'powerpnt',
+  'outlook',
+  'olk',
+  'onenote',
+  'msaccess',
+  'mspub',
+  'visio',
+  'teams',
+  'ms-teams',
+  'acrobat',
+  'acrord32',
+  'foxitpdfreader',
+  'soffice',
+  'soffice.bin',
+]);
+
+const SAFE_PROCESS_NAME_REGEX = /^[a-zA-Z0-9._ -]{1,80}$/;
+
+function normalizeProcKey(rawName: string): string {
+  return String(rawName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.exe$/i, '');
+}
+
+export function classifyHelpdeskProcess(
+  pid: number,
+  rawName: string
+): {
+  terminable: boolean;
+  processCategory: HelpdeskProcessCategory;
+  protectionReason?: string;
+  protectionReasonFa?: string;
+} {
+  const norm = normalizeProcKey(rawName);
+  const pidNum = Number(pid);
+
+  if (!Number.isInteger(pidNum) || pidNum < 100) {
+    return {
+      terminable: false,
+      processCategory: 'system_protected',
+      protectionReason: 'Protected kernel/system PID (< 100)',
+      protectionReasonFa: 'محافظت‌شده: پروسس هسته سیستم‌عامل (PID زیر ۱۰۰)',
+    };
+  }
+
+  if (
+    PROTECTED_SECURITY_PROCESSES.has(norm) ||
+    /^(sophos|sentinel|csfalcon|mcafee|mfefire|defender|kaspersky|bitdefender|eset|wazuh|crowdstrike)/i.test(norm)
+  ) {
+    return {
+      terminable: false,
+      processCategory: 'security_protected',
+      protectionReason: 'Protected Antivirus / EDR security service (anti-tamper guard)',
+      protectionReasonFa: 'محافظت‌شده: سرویس آنتی‌ویروس / EDR (قفل ضددستکاری)',
+    };
+  }
+
+  if (PROTECTED_SYSTEM_PROCESSES.has(norm) || /^systemd-/.test(norm) || /^kworker/.test(norm)) {
+    return {
+      terminable: false,
+      processCategory: 'system_protected',
+      protectionReason: 'Protected core operating system service',
+      protectionReasonFa: 'محافظت‌شده: سرویس حیاتی سیستم‌عامل',
+    };
+  }
+
+  if (KNOWN_BROWSER_PROCESSES.has(norm)) {
+    return { terminable: true, processCategory: 'browser' };
+  }
+  if (KNOWN_OFFICE_PROCESSES.has(norm)) {
+    return { terminable: true, processCategory: 'office' };
+  }
+  return { terminable: true, processCategory: 'user_app' };
+}
+
+// ============================================================================
+// 11. MODULE 4: EVENT VIEWER COLLECTOR WITH HUMAN-READABLE DIAGNOSTICS
+// ============================================================================
+
+export async function collectEndpointEventLogs(
+  input: HelpdeskTargetInput,
+  options?: {
+    channel?: 'All' | 'System' | 'Application';
+    hoursBack?: number;
+    maxEvents?: number;
+    severity?: 'all' | 'critical_error';
+  }
+): Promise<HelpdeskEventViewerResult> {
+  const channel: 'All' | 'System' | 'Application' =
+    options?.channel === 'System' || options?.channel === 'Application' ? options.channel : 'All';
+  const hoursBack = Math.max(1, Math.min(168, Math.floor(Number(options?.hoursBack) || 48)));
+  const maxEvents = Math.max(10, Math.min(100, Math.floor(Number(options?.maxEvents) || 45)));
+  const severity: 'all' | 'critical_error' =
+    options?.severity === 'critical_error' ? 'critical_error' : 'all';
+
+  const logNamesPs =
+    channel === 'System'
+      ? "@('System')"
+      : channel === 'Application'
+      ? "@('Application')"
+      : "@('System','Application')";
+  const levelsPs = severity === 'critical_error' ? '@(1,2)' : '@(1,2,3)';
+
+  const psEventScript = `
+$ErrorActionPreference = 'SilentlyContinue'
+$startTime = (Get-Date).AddHours(-${hoursBack})
+$filter = @{
+  LogName = ${logNamesPs}
+  Level = ${levelsPs}
+  StartTime = $startTime
+}
+$rawEvents = @(Get-WinEvent -FilterHashtable $filter -MaxEvents ${maxEvents} -ErrorAction SilentlyContinue)
+$items = @()
+foreach ($ev in $rawEvents) {
+  $lvl = switch ([int]$ev.Level) {
+    1 { 'critical' }
+    2 { 'error' }
+    3 { 'warning' }
+    default { 'info' }
+  }
+  $msg = if ($ev.Message) { [string]$ev.Message } else { '' }
+  if ($msg.Length -gt 750) { $msg = $msg.Substring(0, 750) + '...' }
+  $items += [PSCustomObject]@{
+    recordId = [long]$ev.RecordId
+    eventId = [int]$ev.Id
+    channel = [string]$ev.LogName
+    level = $lvl
+    source = [string]$ev.ProviderName
+    timeCreated = if ($ev.TimeCreated) { $ev.TimeCreated.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { '' }
+    rawMessage = $msg
+  }
+}
+[PSCustomObject]@{
+  hostname = [string]$env:COMPUTERNAME
+  events = $items
+} | ConvertTo-Json -Depth 6 -Compress
+`;
+
+  const journalPriority = severity === 'critical_error' ? '3' : '4';
+  const linuxEventScript = `
+python3 - <<'PY'
+import json, socket, subprocess
+from datetime import datetime, timezone
+
+items = []
+try:
+    cmd = ["journalctl", "--since", "${hoursBack} hours ago", "-p", "0..${journalPriority}", "-n", "${maxEvents}", "--no-pager", "-o", "json"]
+    out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+    for idx, line in enumerate(out.splitlines(), 1):
+        line = line.strip()
+        if not line: continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        prio = int(obj.get("PRIORITY", 4))
+        lvl = "critical" if prio <= 2 else ("error" if prio == 3 else "warning")
+        ts_us = int(obj.get("__REALTIME_TIMESTAMP", 0) or 0)
+        ts_iso = datetime.fromtimestamp(ts_us / 1e6, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if ts_us else ""
+        src = str(obj.get("SYSLOG_IDENTIFIER") or obj.get("_SYSTEMD_UNIT") or "kernel")
+        msg = str(obj.get("MESSAGE") or "")[:750]
+        items.append({
+            "recordId": idx,
+            "eventId": prio,
+            "channel": "journald",
+            "level": lvl,
+            "source": src,
+            "timeCreated": ts_iso,
+            "rawMessage": msg
+        })
+except Exception:
+    pass
+
+items.reverse()
+print(json.dumps({"hostname": socket.gethostname(), "events": items}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts(input, psEventScript, linuxEventScript);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint event viewer');
+  const rawList: any[] = Array.isArray(parsed.events) ? parsed.events : parsed.events ? [parsed.events] : [];
+
+  let critical = 0;
+  let error = 0;
+  let warning = 0;
+  let knownDecodedCount = 0;
+
+  const issueCounter = new Map<
+    string,
+    { eventId: number; source: string; count: number; humanTitleEn: string; humanTitleFa: string }
+  >();
+
+  const events: HelpdeskEventLogItem[] = rawList.map((ev: any, idx: number) => {
+    const rawLevel = String(ev.level || 'warning').toLowerCase();
+    const level: 'critical' | 'error' | 'warning' | 'info' =
+      rawLevel === 'critical'
+        ? 'critical'
+        : rawLevel === 'error'
+        ? 'error'
+        : rawLevel === 'warning'
+        ? 'warning'
+        : 'info';
+
+    if (level === 'critical') critical++;
+    else if (level === 'error') error++;
+    else if (level === 'warning') warning++;
+
+    const eventId = Number(ev.eventId) || 0;
+    const source = String(ev.source || 'System');
+    const evChannel = String(ev.channel || (execRes.osFamily === 'linux' ? 'journald' : 'System'));
+    const rawMessage = String(ev.rawMessage || '').trim();
+
+    const explanation = explainEventCodeHuman({
+      eventId,
+      source,
+      channel: evChannel,
+      level,
+      message: rawMessage,
+      osFamily: execRes.osFamily,
+    });
+    if (explanation.isKnownCode) knownDecodedCount++;
+
+    const key = `${eventId}|${source.toLowerCase()}`;
+    const existing = issueCounter.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      issueCounter.set(key, {
+        eventId,
+        source,
+        count: 1,
+        humanTitleEn: explanation.humanTitleEn,
+        humanTitleFa: explanation.humanTitleFa,
+      });
+    }
+
+    return {
+      recordId: Number(ev.recordId) || idx + 1,
+      eventId,
+      channel: evChannel,
+      level,
+      levelLabelEn:
+        level === 'critical' ? 'Critical' : level === 'error' ? 'Error' : level === 'warning' ? 'Warning' : 'Info',
+      levelLabelFa:
+        level === 'critical' ? 'بحرانی' : level === 'error' ? 'خطا' : level === 'warning' ? 'هشدار' : 'اطلاعات',
+      source,
+      timeCreated: String(ev.timeCreated || ''),
+      rawMessage,
+      explanation,
+    };
+  });
+
+  let topIssue: HelpdeskEventViewerResult['summary']['topIssue'] = null;
+  for (const cand of issueCounter.values()) {
+    if (!topIssue || cand.count > topIssue.count) {
+      topIssue = cand;
+    }
+  }
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    collectedAt: new Date().toISOString(),
+    channelRequested: channel,
+    hoursBack,
+    summary: {
+      total: events.length,
+      critical,
+      error,
+      warning,
+      knownDecodedCount,
+      topIssue,
+    },
+    events,
+  };
+}
+
+// ============================================================================
+// 12. MODULE 5: SAFE USER-APP PROCESS TERMINATION (OS & AV/EDR LOCKED)
+// ============================================================================
+
+export async function terminateEndpointUserProcess(
+  input: HelpdeskTargetInput,
+  params: { pid: number; processName: string }
+): Promise<HelpdeskActionResult> {
+  const pid = Math.floor(Number(params.pid));
+  const processName = String(params.processName || '').trim();
+
+  if (!Number.isInteger(pid) || pid < 100 || pid > 4194304) {
+    throw new Error('Blocked process termination: PID must be an integer >= 100 (kernel/system PIDs are protected).');
+  }
+  if (!processName || !SAFE_PROCESS_NAME_REGEX.test(processName)) {
+    throw new Error('Invalid process name format.');
+  }
+
+  // Server-side immutable denylist enforcement BEFORE touching the target endpoint
+  const classification = classifyHelpdeskProcess(pid, processName);
+  if (!classification.terminable) {
+    throw new Error(
+      `Blocked: "${processName}" (PID ${pid}) cannot be terminated — ${classification.protectionReason || 'Protected process'}.`
+    );
+  }
+
+  const expectedNorm = normalizeProcKey(processName).replace(/'/g, '');
+
+  // Hardcoded script double-checks that PID still belongs to the EXACT same non-protected process name before stopping
+  const psTerminate = `
+$ErrorActionPreference = 'Stop'
+$targetPid = ${pid}
+$expectedName = '${expectedNorm}'
+$p = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+if (-not $p) {
+  [PSCustomObject]@{ ok = $false; status = 'not_found'; actualName = ''; output = "Process PID $targetPid is no longer running." } | ConvertTo-Json -Compress
+  exit 0
+}
+$actualNorm = ([string]$p.ProcessName).ToLower().Trim()
+if ($actualNorm -ne $expectedName) {
+  [PSCustomObject]@{ ok = $false; status = 'mismatch'; actualName = [string]$p.ProcessName; output = "Safety abort: PID $targetPid now belongs to '$($p.ProcessName)' instead of '$expectedName'." } | ConvertTo-Json -Compress
+  exit 0
+}
+Stop-Process -Id $targetPid -Force -ErrorAction Stop
+Start-Sleep -Milliseconds 300
+$stillAlive = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+[PSCustomObject]@{
+  ok = ($null -eq $stillAlive)
+  status = if ($null -eq $stillAlive) { 'terminated' } else { 'still_running' }
+  actualName = [string]$p.ProcessName
+  output = if ($null -eq $stillAlive) { "User application '$($p.ProcessName)' (PID $targetPid) terminated safely." } else { "Stop signal sent, but PID $targetPid is still exiting." }
+} | ConvertTo-Json -Compress
+`;
+
+  const lxTerminate = `
+python3 - <<'PY'
+import json, os, signal, subprocess, time
+target_pid = ${pid}
+expected = "${expectedNorm}"
+try:
+    actual = subprocess.check_output(["ps", "-p", str(target_pid), "-o", "comm="], text=True).strip()
+except Exception:
+    print(json.dumps({"ok": False, "status": "not_found", "actualName": "", "output": f"Process PID {target_pid} is no longer running."}))
+    raise SystemExit(0)
+if actual.lower() != expected:
+    print(json.dumps({"ok": False, "status": "mismatch", "actualName": actual, "output": f"Safety abort: PID {target_pid} belongs to '{actual}' instead of '{expected}'."}))
+    raise SystemExit(0)
+try:
+    os.kill(target_pid, signal.SIGTERM)
+    time.sleep(0.4)
+    try:
+        os.kill(target_pid, 0)
+        os.kill(target_pid, signal.SIGKILL)
+        time.sleep(0.2)
+    except ProcessLookupError:
+        pass
+    print(json.dumps({"ok": True, "status": "terminated", "actualName": actual, "output": f"User process '{actual}' (PID {target_pid}) terminated safely."}))
+except Exception as e:
+    print(json.dumps({"ok": False, "status": "error", "actualName": actual, "output": str(e)}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts(input, psTerminate, lxTerminate);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'safe process terminate');
+  const ok = Boolean(parsed.ok);
+  const actualName = String(parsed.actualName || processName);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'process_terminate',
+    success: ok,
+    message: ok
+      ? `User application "${actualName}" (PID ${pid}) was safely terminated on ${execRes.host}.`
+      : String(parsed.output || `Could not terminate process ${processName} (PID ${pid}).`),
+    messageFa: ok
+      ? `برنامه کاربری «${actualName}» (PID ${pid}) روی سیستم ${execRes.host} با موفقیت بسته شد.`
+      : `توقف پروسس «${processName}» (PID ${pid}) انجام نشد: ${String(parsed.output || 'ناموفق')}`,
+    details: {
+      pid,
+      processName: actualName,
+      status: String(parsed.status || 'unknown'),
+      category: classification.processCategory,
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// 13. MODULE 6: SAFE CONFINED TEMP FOLDER SCAN & CLEANUP (ZERO CUSTOM PATHS)
+// ============================================================================
+
+const PS_TEMP_SCAN = `
+$ErrorActionPreference = 'SilentlyContinue'
+$winTemp = Join-Path $env:SystemRoot 'Temp'
+$userTemp = $env:TEMP
+try {
+  $cs = Get-CimInstance Win32_ComputerSystem
+  if ($cs -and $cs.UserName) {
+    $uShort = ($cs.UserName -split '\\\\')[-1]
+    $candidate = Join-Path "C:\\Users\\$uShort" 'AppData\\Local\\Temp'
+    if (Test-Path $candidate) { $userTemp = $candidate }
+  }
+} catch {}
+
+function Inspect-TempDir($key, $path) {
+  if (-not $path -or -not (Test-Path $path)) {
+    return @{
+      summary = [PSCustomObject]@{ key = $key; path = [string]$path; exists = $false; fileCount = 0; folderCount = 0; sizeMb = 0.0 }
+      files = @()
+    }
+  }
+  $allFiles = @(Get-ChildItem -Path $path -Recurse -File -Force -ErrorAction SilentlyContinue)
+  $allDirs = @(Get-ChildItem -Path $path -Recurse -Directory -Force -ErrorAction SilentlyContinue)
+  $bytes = ($allFiles | Measure-Object -Property Length -Sum).Sum
+  if ($null -eq $bytes) { $bytes = 0 }
+  $top = @($allFiles | Sort-Object Length -Descending | Select-Object -First 8 | ForEach-Object {
+    [PSCustomObject]@{
+      name = [string]$_.Name
+      folderKey = $key
+      sizeMb = [math]::Round(($_.Length / 1MB), 2)
+      lastModified = if ($_.LastWriteTime) { $_.LastWriteTime.ToString('yyyy-MM-dd HH:mm') } else { '' }
+    }
+  })
+  return @{
+    summary = [PSCustomObject]@{
+      key = $key
+      path = [string]$path
+      exists = $true
+      fileCount = [int]$allFiles.Count
+      folderCount = [int]$allDirs.Count
+      sizeMb = [math]::Round(($bytes / 1MB), 2)
+    }
+    files = $top
+  }
+}
+
+$w = Inspect-TempDir 'windows_temp' $winTemp
+$u = Inspect-TempDir 'user_temp' $userTemp
+$largest = @($w.files + $u.files | Sort-Object sizeMb -Descending | Select-Object -First 12)
+
+[PSCustomObject]@{
+  hostname = [string]$env:COMPUTERNAME
+  folders = @($u.summary, $w.summary)
+  largestFiles = $largest
+} | ConvertTo-Json -Depth 6 -Compress
+`;
+
+const LINUX_TEMP_SCAN = `
+python3 - <<'PY'
+import json, os, socket
+from datetime import datetime
+
+def inspect(key, path):
+    if not path or not os.path.isdir(path):
+        return {"key": key, "path": path, "exists": False, "fileCount": 0, "folderCount": 0, "sizeMb": 0.0}, []
+    fc, dc, total = 0, 0, 0
+    files = []
+    for root, dirs, fnames in os.walk(path, followlinks=False):
+        dc += len(dirs)
+        for fn in fnames:
+            fp = os.path.join(root, fn)
+            try:
+                if os.path.islink(fp): continue
+                st = os.stat(fp)
+                fc += 1
+                total += st.st_size
+                files.append((st.st_size, fn, st.st_mtime))
+            except Exception:
+                continue
+    files.sort(key=lambda x: x[0], reverse=True)
+    top = [{
+        "name": fn,
+        "folderKey": key,
+        "sizeMb": round(sz / 1048576.0, 2),
+        "lastModified": datetime.fromtimestamp(mt).strftime("%Y-%m-%d %H:%M")
+    } for sz, fn, mt in files[:8]]
+    return {"key": key, "path": path, "exists": True, "fileCount": fc, "folderCount": dc, "sizeMb": round(total / 1048576.0, 2)}, top
+
+u_sum, u_top = inspect("user_temp", os.path.expanduser("~/.cache"))
+w_sum, w_top = inspect("windows_temp", "/tmp")
+largest = sorted(u_top + w_top, key=lambda x: x["sizeMb"], reverse=True)[:12]
+print(json.dumps({"hostname": socket.gethostname(), "folders": [u_sum, w_sum], "largestFiles": largest}))
+PY
+`;
+
+export async function scanEndpointTempFolders(input: HelpdeskTargetInput): Promise<HelpdeskTempScanResult> {
+  const execRes = await executeHardcodedScripts(input, PS_TEMP_SCAN, LINUX_TEMP_SCAN);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'temp folder scan');
+  const rawFolders: any[] = Array.isArray(parsed.folders) ? parsed.folders : [];
+  const rawFiles: any[] = Array.isArray(parsed.largestFiles) ? parsed.largestFiles : [];
+
+  const folders: HelpdeskTempFolderSummary[] = rawFolders.map((f: any) => {
+    const key: 'windows_temp' | 'user_temp' = f.key === 'windows_temp' ? 'windows_temp' : 'user_temp';
+    return {
+      key,
+      labelEn:
+        key === 'user_temp'
+          ? execRes.osFamily === 'linux'
+            ? 'User Cache (~/.cache)'
+            : 'Active User Temp (AppData\\Local\\Temp)'
+          : execRes.osFamily === 'linux'
+          ? 'System Temp (/tmp)'
+          : 'Windows Temp (Windows\\Temp)',
+      labelFa:
+        key === 'user_temp'
+          ? execRes.osFamily === 'linux'
+            ? 'کش موقت کاربر (~/.cache)'
+            : 'پوشه Temp کاربر فعال (AppData\\Local\\Temp)'
+          : execRes.osFamily === 'linux'
+          ? 'پوشه موقت سیستم (/tmp)'
+          : 'پوشه Temp ویندوز (Windows\\Temp)',
+      path: String(f.path || ''),
+      exists: Boolean(f.exists),
+      fileCount: Number(f.fileCount) || 0,
+      folderCount: Number(f.folderCount) || 0,
+      sizeMb: Number(f.sizeMb) || 0,
+    };
+  });
+
+  const totalReclaimableMb = Number(folders.reduce((s, f) => s + f.sizeMb, 0).toFixed(2));
+  const totalFileCount = folders.reduce((s, f) => s + f.fileCount, 0);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    collectedAt: new Date().toISOString(),
+    totalReclaimableMb,
+    totalFileCount,
+    folders,
+    largestFiles: rawFiles.map((lf: any) => ({
+      name: String(lf.name || '-'),
+      folderKey: lf.folderKey === 'windows_temp' ? 'windows_temp' : 'user_temp',
+      sizeMb: Number(lf.sizeMb) || 0,
+      lastModified: String(lf.lastModified || ''),
+    })),
+  };
+}
+
+export async function cleanEndpointTempFolders(
+  input: HelpdeskTargetInput,
+  scope: 'user_temp' | 'windows_temp' | 'both'
+): Promise<HelpdeskTempCleanResult> {
+  const safeScope: 'user_temp' | 'windows_temp' | 'both' =
+    scope === 'user_temp' || scope === 'windows_temp' ? scope : 'both';
+
+  // Hardcoded paths ONLY — client can NEVER specify arbitrary paths!
+  const psClean = `
+$ErrorActionPreference = 'SilentlyContinue'
+$scope = '${safeScope}'
+$targets = @()
+$winTemp = Join-Path $env:SystemRoot 'Temp'
+$userTemp = $env:TEMP
+try {
+  $cs = Get-CimInstance Win32_ComputerSystem
+  if ($cs -and $cs.UserName) {
+    $uShort = ($cs.UserName -split '\\\\')[-1]
+    $candidate = Join-Path "C:\\Users\\$uShort" 'AppData\\Local\\Temp'
+    if (Test-Path $candidate) { $userTemp = $candidate }
+  }
+} catch {}
+
+if (($scope -eq 'user_temp' -or $scope -eq 'both') -and $userTemp -and (Test-Path $userTemp)) { $targets += $userTemp }
+if (($scope -eq 'windows_temp' -or $scope -eq 'both') -and $winTemp -and (Test-Path $winTemp)) { $targets += $winTemp }
+
+$deleted = 0; $skipped = 0; $freedBytes = 0; $remBytes = 0
+foreach ($dir in ($targets | Select-Object -Unique)) {
+  $items = @(Get-ChildItem -Path $dir -Recurse -File -Force -ErrorAction SilentlyContinue)
+  foreach ($f in $items) {
+    $sz = $f.Length
+    try {
+      Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop
+      $deleted++
+      $freedBytes += $sz
+    } catch {
+      $skipped++
+      $remBytes += $sz
+    }
+  }
+  # Clean empty subdirectories inside Temp only
+  Get-ChildItem -Path $dir -Recurse -Directory -Force -ErrorAction SilentlyContinue |
+    Sort-Object { $_.FullName.Length } -Descending |
+    ForEach-Object {
+      try {
+        if ((Get-ChildItem -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+          Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop
+        }
+      } catch {}
+    }
+}
+
+[PSCustomObject]@{
+  ok = $true
+  hostname = [string]$env:COMPUTERNAME
+  deletedFiles = [int]$deleted
+  skippedLockedFiles = [int]$skipped
+  freedMb = [math]::Round(($freedBytes / 1MB), 2)
+  remainingMb = [math]::Round(($remBytes / 1MB), 2)
+} | ConvertTo-Json -Compress
+`;
+
+  const lxClean = `
+python3 - <<'PY'
+import json, os, socket
+scope = "${safeScope}"
+dirs = []
+if scope in ("user_temp", "both"): dirs.append(os.path.expanduser("~/.cache"))
+if scope in ("windows_temp", "both"): dirs.append("/tmp")
+deleted, skipped, freed, rem = 0, 0, 0, 0
+for d in dirs:
+    if not os.path.isdir(d): continue
+    for root, _, fnames in os.walk(d, followlinks=False):
+        for fn in fnames:
+            fp = os.path.join(root, fn)
+            try:
+                if os.path.islink(fp): continue
+                sz = os.path.getsize(fp)
+                os.remove(fp)
+                deleted += 1
+                freed += sz
+            except Exception:
+                skipped += 1
+                try: rem += os.path.getsize(fp)
+                except Exception: pass
+print(json.dumps({
+    "ok": True,
+    "hostname": socket.gethostname(),
+    "deletedFiles": deleted,
+    "skippedLockedFiles": skipped,
+    "freedMb": round(freed / 1048576.0, 2),
+    "remainingMb": round(rem / 1048576.0, 2)
+}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts(input, psClean, lxClean);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'temp folder cleanup');
+  const deletedFiles = Number(parsed.deletedFiles) || 0;
+  const skippedLockedFiles = Number(parsed.skippedLockedFiles) || 0;
+  const freedMb = Number(parsed.freedMb) || 0;
+  const remainingMb = Number(parsed.remainingMb) || 0;
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    scope: safeScope,
+    success: Boolean(parsed.ok),
+    deletedFiles,
+    skippedLockedFiles,
+    freedMb,
+    remainingMb,
+    message: `Safely cleaned ${deletedFiles} temp file(s) and freed ${freedMb} MB on ${execRes.host} (${skippedLockedFiles} in-use locked file(s) safely skipped).`,
+    messageFa: `${deletedFiles} فایل موقت با موفقیت پاک و ${freedMb} مگابایت فضا روی سیستم ${execRes.host} آزاد شد (${skippedLockedFiles} فایل در حال استفاده به‌صورت ایمن رد شد).`,
+    executedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// 14. MODULE 7: GROUP POLICY INSPECTION & SAFE NON-DISRUPTIVE GPUPDATE /FORCE
+// ============================================================================
+
+const PS_GPO_STATUS = `
+$ErrorActionPreference = 'SilentlyContinue'
+$cs = Get-CimInstance Win32_ComputerSystem
+$domainJoined = [bool]$cs.PartOfDomain
+$raw = (gpresult.exe /r /scope computer 2>&1 | Out-String).Trim()
+$compGpos = @()
+$userGpos = @()
+$inCompApplied = $false
+$lastRefresh = ''
+foreach ($line in ($raw -split "\`r?\`n")) {
+  $t = $line.Trim()
+  if ($t -match '^Last time Group Policy was applied:\\s*(.+)$') { $lastRefresh = $Matches[1].Trim() }
+  if ($t -match '^Applied Group Policy Objects$') { $inCompApplied = $true; continue }
+  if ($inCompApplied) {
+    if ($t -match '^-+$') { continue }
+    if (-not $t -or $t -match '^(The following GPOs|The computer is a part of|USER SETTINGS)') { $inCompApplied = $false; continue }
+    $compGpos += $t
+  }
+}
+
+$pendingReboot = $false
+if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired') { $pendingReboot = $true }
+if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending') { $pendingReboot = $true }
+
+[PSCustomObject]@{
+  hostname = [string]$env:COMPUTERNAME
+  domain = [string]$cs.Domain
+  loggedInUser = [string]$cs.UserName
+  domainJoined = $domainJoined
+  pendingReboot = $pendingReboot
+  lastGpoRefresh = $lastRefresh
+  computerGpos = $compGpos
+  userGpos = $userGpos
+  rawSummary = if ($raw.Length -gt 3500) { $raw.Substring(0, 3500) + '...' } else { $raw }
+} | ConvertTo-Json -Depth 5 -Compress
+`;
+
+const LINUX_GPO_STATUS = `
+python3 - <<'PY'
+import json, os, socket, subprocess
+def run(cmd):
+    try: return subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL).strip()
+    except Exception: return ""
+realm = run("realm list 2>/dev/null")
+pending = os.path.exists("/var/run/reboot-required")
+print(json.dumps({
+    "hostname": socket.gethostname(),
+    "domain": run("dnsdomainname 2>/dev/null") or "",
+    "loggedInUser": os.environ.get("USER", ""),
+    "domainJoined": bool(realm),
+    "pendingReboot": pending,
+    "lastGpoRefresh": "",
+    "computerGpos": [],
+    "userGpos": [],
+    "rawSummary": realm or "Linux endpoint detected (Windows Group Policy applies only to AD-joined Windows workstations)."
+}))
+PY
+`;
+
+export async function collectEndpointGpoStatus(input: HelpdeskTargetInput): Promise<HelpdeskGpoStatusResult> {
+  const execRes = await executeHardcodedScripts(input, PS_GPO_STATUS, LINUX_GPO_STATUS);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'GPO status');
+  const compGpos = Array.isArray(parsed.computerGpos)
+    ? parsed.computerGpos.map(String).filter(Boolean)
+    : parsed.computerGpos
+    ? [String(parsed.computerGpos)]
+    : [];
+  const userGpos = Array.isArray(parsed.userGpos)
+    ? parsed.userGpos.map(String).filter(Boolean)
+    : parsed.userGpos
+    ? [String(parsed.userGpos)]
+    : [];
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    domain: String(parsed.domain || ''),
+    loggedInUser: String(parsed.loggedInUser || ''),
+    collectedAt: new Date().toISOString(),
+    domainJoined: Boolean(parsed.domainJoined),
+    pendingReboot: Boolean(parsed.pendingReboot),
+    lastGpoRefresh: String(parsed.lastGpoRefresh || ''),
+    computerGpos: compGpos,
+    userGpos,
+    rawSummary: String(parsed.rawSummary || ''),
+  };
+}
+
+export async function executeEndpointGpupdate(input: HelpdeskTargetInput): Promise<HelpdeskActionResult> {
+  // Always pipes 'N' and /wait:0 so gpupdate NEVER forces an unexpected logoff or reboot on the user's workstation!
+  const psGpupdate = `
+$ErrorActionPreference = 'Continue'
+$out = (cmd.exe /c "echo N | gpupdate.exe /force /wait:0" 2>&1 | Out-String).Trim()
+$ok = ($out -match 'completed successfully') -or ($LASTEXITCODE -eq 0)
+$needsRebootOrLogoff = ($out -match 'OK to log off|OK to restart')
+[PSCustomObject]@{
+  ok = $ok
+  needsRebootOrLogoff = $needsRebootOrLogoff
+  output = $out
+} | ConvertTo-Json -Compress
+`;
+
+  const lxGpupdate = `
+python3 - <<'PY'
+import json
+print(json.dumps({
+    "ok": False,
+    "needsRebootOrLogoff": False,
+    "output": "gpupdate /force is a Windows Active Directory command and is not applicable to Linux hosts."
+}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts(input, psGpupdate, lxGpupdate);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'gpupdate /force');
+  const ok = Boolean(parsed.ok);
+  const needsRestart = Boolean(parsed.needsRebootOrLogoff);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'gpupdate_force',
+    success: ok,
+    message: ok
+      ? needsRestart
+        ? `Group Policy refreshed (gpupdate /force) on ${execRes.host}. Some policies will apply at the user's next sign-in/restart (forced logoff was safely declined).`
+        : `Group Policy (gpupdate /force) completed successfully on ${execRes.host}.`
+      : String(parsed.output || `gpupdate /force did not complete on ${execRes.host}.`),
+    messageFa: ok
+      ? needsRestart
+        ? `بروزرسانی Group Policy (gpupdate /force) روی سیستم ${execRes.host} انجام شد. برخی پالیسی‌ها در لاگین یا ری‌استارت بعدی اعمال می‌شوند (ری‌استارت اجباری کاربر مسدود شد).`
+        : `بروزرسانی Group Policy (gpupdate /force) روی سیستم ${execRes.host} با موفقیت کامل شد.`
+      : `اجرای gpupdate /force روی ${execRes.host} ناموفق بود: ${String(parsed.output || '')}`,
+    details: {
+      needsRebootOrLogoff: needsRestart,
+      operation: 'gpupdate /force /wait:0',
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// 15. WINDOWS JEA & GPO HARDENING TEMPLATES (Zero-Ransomware Endpoint Lock)
 // ============================================================================
 
 export function getHelpdeskJeaTemplates() {
@@ -2176,15 +3256,21 @@ export function getHelpdeskJeaTemplates() {
 @{
     GUID = '9b7c4d21-6e18-4b4e-8f42-3a8a5e0d1c01'
     Author = 'Enterprise IT Security'
-    Description = 'Phase 1 Anti-Ransomware Least-Privilege JEA Role (Read-Only Health + Safe Network/Spooler Only)'
+    Description = 'Phase 1 Anti-Ransomware Least-Privilege JEA Role (Items 1-7: Health, Network, Spooler, Event Viewer, Safe User-App Stop, Temp Cleanup, GPUpdate)'
     VisibleCmdlets = @(
         'Get-CimInstance',
         'Get-Process',
+        'Stop-Process',
+        'Get-WinEvent',
         'Get-Counter',
         'Get-MpComputerStatus',
         'Get-NetFirewallProfile',
         'Get-NetNeighbor',
         'Get-ItemProperty',
+        'Get-ChildItem',
+        'Remove-Item',
+        'Measure-Object',
+        'Test-Path',
         'Resolve-DnsName',
         'Clear-DnsClientCache',
         'Get-Service',
@@ -2196,7 +3282,9 @@ export function getHelpdeskJeaTemplates() {
     VisibleExternalCommands = @(
         'C:\\Windows\\System32\\ping.exe',
         'C:\\Windows\\System32\\ipconfig.exe',
-        'C:\\Windows\\System32\\nslookup.exe'
+        'C:\\Windows\\System32\\nslookup.exe',
+        'C:\\Windows\\System32\\gpresult.exe',
+        'C:\\Windows\\System32\\gpupdate.exe'
     )
 }`,
     registerSessionScript: `# 2. Register Restricted JEA Endpoint & Lock WinRM HTTPS (Port 5986) via GPO

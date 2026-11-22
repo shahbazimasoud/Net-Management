@@ -996,6 +996,10 @@ export async function fetchHelpdeskStatus(): Promise<{
     canViewHelpdesk: boolean;
     canRunHelpdeskDiagnostics: boolean;
     canExecuteHelpdeskActions: boolean;
+    canViewHelpdeskEventViewer: boolean;
+    canTerminateHelpdeskProcesses: boolean;
+    canCleanHelpdeskTemp: boolean;
+    canRunHelpdeskGpupdate: boolean;
   };
   rateLimit: {
     windowMinutes: number;
@@ -1122,6 +1126,112 @@ export async function executeHelpdeskPrinterAction(
     body: JSON.stringify(payload),
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Print Spooler repair action failed');
+  return res.json();
+}
+
+export async function fetchHelpdeskEventLogs(
+  payload: HelpdeskConnectionPayload & {
+    channel?: 'All' | 'System' | 'Application';
+    hoursBack?: number;
+    maxEvents?: number;
+    severity?: 'all' | 'critical_error';
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/events`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to read endpoint Event Viewer logs');
+  return res.json();
+}
+
+export async function terminateHelpdeskProcess(
+  payload: HelpdeskConnectionPayload & {
+    pid: number;
+    processName: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/process/terminate`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Safe user process termination failed');
+  return res.json();
+}
+
+export async function scanHelpdeskTemp(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/temp/scan`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to scan endpoint Temp folders');
+  return res.json();
+}
+
+export async function cleanHelpdeskTemp(
+  payload: HelpdeskConnectionPayload & {
+    scope: 'user_temp' | 'windows_temp' | 'both';
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/temp/clean`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Safe Temp cleanup failed');
+  return res.json();
+}
+
+export async function fetchHelpdeskGpoStatus(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/gpo/status`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to inspect Group Policy status');
+  return res.json();
+}
+
+export async function runHelpdeskGpupdate(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/gpo/refresh`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Group Policy refresh (gpupdate /force) failed');
   return res.json();
 }
 
