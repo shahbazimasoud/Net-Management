@@ -3252,11 +3252,11 @@ PY
 export function getHelpdeskJeaTemplates() {
   return {
     jeaConfigName: 'HelpDeskSafeJEA',
-    roleCapabilityScript: `# 1. Save as C:\\Program Files\\WindowsPowerShell\\Modules\\HelpDeskSafe\\RoleCapabilities\\HelpDeskPhase1.psrc
+    roleCapabilityScript: `# 1. Save as C:\\Program Files\\WindowsPowerShell\\Modules\\HelpDeskSafe\\RoleCapabilities\\HelpDeskSafeRole.psrc
 @{
     GUID = '9b7c4d21-6e18-4b4e-8f42-3a8a5e0d1c01'
     Author = 'Enterprise IT Security'
-    Description = 'Phase 1 Anti-Ransomware Least-Privilege JEA Role (Items 1-7: Health, Network, Spooler, Event Viewer, Safe User-App Stop, Temp Cleanup, GPUpdate)'
+    Description = 'Anti-Ransomware Least-Privilege HelpDesk JEA Role (Health, Network, Spooler, Event Viewer, Safe User-App Stop, Temp Cleanup, GPUpdate)'
     VisibleCmdlets = @(
         'Get-CimInstance',
         'Get-Process',
@@ -3294,7 +3294,7 @@ $PanelServerIP = '<ENTER_YOUR_PANEL_SERVER_IP>'
 New-PSSessionConfigurationFile -Path 'C:\\ProgramData\\HelpDeskSafeJEA.pssc' \`
     -SessionType RestrictedRemoteServer \`
     -RunAsVirtualAccount \`
-    -RoleDefinitions @{ 'YOURDOMAIN\\GG_HelpDesk_Workstations' = @{ RoleCapabilities = 'HelpDeskPhase1' } }
+    -RoleDefinitions @{ 'YOURDOMAIN\\GG_HelpDesk_Workstations' = @{ RoleCapabilities = 'HelpDeskSafeRole' } }
 
 Register-PSSessionConfiguration -Name 'HelpDeskSafeJEA' -Path 'C:\\ProgramData\\HelpDeskSafeJEA.pssc' -Force
 

@@ -126,8 +126,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'هارد یا SSD به موقع به دستور خواندن/نوشتن پاسخ نداده و ویندوز مجبور به ریست کردن کنترلر یا تلاش مجدد شده است (عامل اصلی فریز و کندی شدید سیستم).',
     likelyCauseEn: 'Loose or damaged SATA cable, failing SSD/HDD controller, outdated chipset/NVMe driver, or disk overload.',
     likelyCauseFa: 'شل بودن یا خرابی کابل SATA، ضعف یا خرابی کنترلر SSD/هارد، قدیمی بودن درایور چیپ‌ست/NVMe یا اشغال ۱۰۰٪ دیسک.',
-    recommendedActionEn: 'Check Disk Usage in Module 1, inspect SATA/power cables on desktops, update storage/chipset drivers, and prepare a backup if errors repeat.',
-    recommendedActionFa: 'در تب ۱ وضعیت دیسک را چک کنید، کابل SATA/برق کیس را بررسی کرده، درایور چیپ‌ست را بروزرسانی کنید و در صورت تکرار بکاپ بگیرید.',
+    recommendedActionEn: 'Check Disk Usage in the Health & Safe Process Control tab, inspect SATA/power cables on desktops, update storage/chipset drivers, and prepare a backup if errors repeat.',
+    recommendedActionFa: 'در تب «سلامت سیستم و کنترل پروسس‌ها» وضعیت دیسک را چک کنید، کابل SATA/برق کیس را بررسی کرده، درایور چیپ‌ست را بروزرسانی کنید و در صورت تکرار بکاپ بگیرید.',
   },
   {
     eventIds: [50, 51, 55, 137],
@@ -180,8 +180,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'یک نرم‌افزار روی سیستم کاربر به دلیل خطای داخلی برنامه، خرابی افزونه (Add-in) یا فایل DLL به‌طور ناگهانی بسته شده است.',
     likelyCauseEn: 'Corrupted app cache/profile, faulty Office/browser plugin, outdated app version, or missing Visual C++/.NET update.',
     likelyCauseFa: 'خرابی کش یا پروفایل برنامه، افزونه ناسازگار (مثلاً در Outlook/Excel/Chrome)، نسخه قدیمی نرم‌افزار یا کمبود فایل‌های Runtime.',
-    recommendedActionEn: 'Check the faulting application name in the raw log; clean Temp/cache (Module 6), disable faulty add-ins, or repair/update the app.',
-    recommendedActionFa: 'نام برنامه کرش‌کرده را در لاگ خام ببینید؛ پوشه Temp/کش برنامه را پاک کنید (تب ۵)، افزونه‌های معیوب را غیرفعال یا برنامه را Repair کنید.',
+    recommendedActionEn: 'Check the faulting application name in the raw log; clean Temp/cache in Temp Cleanup & GPUpdate, disable faulty add-ins, or repair/update the app.',
+    recommendedActionFa: 'نام برنامه کرش‌کرده را در لاگ خام ببینید؛ پوشه Temp/کش برنامه را در تب «پاک‌سازی Temp و GPUpdate» پاک کنید، افزونه‌های معیوب را غیرفعال یا برنامه را Repair کنید.',
   },
   {
     eventIds: [1002],
@@ -193,8 +193,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'یک نرم‌افزار روی صفحه کاربر قفل کرده (Not Responding) و به کلیک‌ها یا دستورات ویندوز پاسخ نداده است.',
     likelyCauseEn: 'High CPU/RAM saturation, waiting on a slow network share/printer, or a buggy add-in inside Office/browser.',
     likelyCauseFa: 'پر شدن CPU یا RAM سیستم، منتظر ماندن برنامه برای پاسخ از یک پوشه شبکه/پرینتر کند، یا باگ افزونه.',
-    recommendedActionEn: 'Check top resource-consuming processes in Module 1, end frozen user app if still stuck, and verify network/printer latency.',
-    recommendedActionFa: 'در تب ۱ پروسس‌های پرمصرف را بررسی کنید، در صورت قفل ماندن برنامه آن را با دکمه End Task ببندید و سرعت شبکه/پرینتر را تست کنید.',
+    recommendedActionEn: 'Check top resource-consuming processes in Health & Safe Process Control, end the frozen user app if still stuck, and verify network/printer latency.',
+    recommendedActionFa: 'در تب «سلامت سیستم و کنترل پروسس‌ها» پروسس‌های پرمصرف را بررسی کنید، در صورت قفل ماندن برنامه آن را با دکمه End Task ببندید و سرعت شبکه/پرینتر را تست کنید.',
   },
   {
     eventIds: [1026],
@@ -206,8 +206,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'یک نرم‌افزار نوشته‌شده با دات‌نت (.NET) دچار خطای پیش‌بینی‌نشده شده و بسته شده است.',
     likelyCauseEn: 'Application bug, missing/corrupt .NET Runtime version, or broken database/network connection expected by the app.',
     likelyCauseFa: 'باگ نرم‌افزار، نسخه ناسازگار یا خراب .NET Runtime، یا قطع دسترسی برنامه به سرور/دیتابیس خودش.',
-    recommendedActionEn: 'Check the exception details in the raw log, verify network access to the app server in Module 2, or repair .NET Framework.',
-    recommendedActionFa: 'متن خطا را در لاگ خام چک کنید، دسترسی شبکه به سرور آن نرم‌افزار را در تب ۲ تست کنید یا .NET Runtime را تعمیر نمایید.',
+    recommendedActionEn: 'Check the exception details in the raw log, verify network access to the app server in Network & Safe Reset, or repair .NET Framework.',
+    recommendedActionFa: 'متن خطا را در لاگ خام چک کنید، دسترسی شبکه به سرور آن نرم‌افزار را در تب «عیب‌یابی شبکه و ریست امن» تست کنید یا .NET Runtime را تعمیر نمایید.',
   },
 
   // ---- Windows Services ----
@@ -234,8 +234,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'یک سرویس ویندوز در زمان مجاز (معمولاً ۳۰ ثانیه) پاسخ نداد و استارت آن با Timeout متوقف شد.',
     likelyCauseEn: 'Heavy disk/CPU bottleneck during boot, slow network dependency, or hung service binary.',
     likelyCauseFa: 'فشار شدید روی دیسک یا CPU هنگام بالا آمدن سیستم، کندی شبکه یا گیر کردن سرویس.',
-    recommendedActionEn: 'Check CPU/Disk saturation in Module 1. If the service is Print Spooler, restart it from Module 3.',
-    recommendedActionFa: 'فشار CPU و دیسک را در تب ۱ بررسی کنید؛ اگر سرویس مربوط به Print Spooler است از تب ۳ آن را ری‌استارت نمایید.',
+    recommendedActionEn: 'Check CPU/Disk saturation in Health & Safe Process Control. If the service is Print Spooler, restart it from Printers & Spooler.',
+    recommendedActionFa: 'فشار CPU و دیسک را در تب «سلامت سیستم و کنترل پروسس‌ها» بررسی کنید؛ اگر سرویس مربوط به Print Spooler است از تب «پرینترها و Spooler» آن را ری‌استارت نمایید.',
   },
   {
     eventIds: [7023, 7024, 7031, 7034],
@@ -247,8 +247,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'یکی از سرویس‌های در حال اجرای ویندوز به‌صورت غیرمنتظره متوقف شده یا با خطا بسته شده است.',
     likelyCauseEn: 'Corrupt service config/cache, software bug, memory exhaustion, or third-party agent crash.',
     likelyCauseFa: 'خرابی فایل تنظیمات/کش سرویس، کمبود رم، یا باگ در یک سرویس/ایجنت جانبی.',
-    recommendedActionEn: 'Identify the service name in the raw log; if it is Print Spooler use Module 3 to restart/clear queue, otherwise check RAM and updates.',
-    recommendedActionFa: 'نام سرویس را در لاگ خام چک کنید؛ اگر Print Spooler است از تب ۳ تعمیر کنید و در غیر این صورت مصرف رم و آپدیت برنامه را بررسی نمایید.',
+    recommendedActionEn: 'Identify the service name in the raw log; if it is Print Spooler use Printers & Spooler to restart/clear the queue, otherwise check RAM and updates.',
+    recommendedActionFa: 'نام سرویس را در لاگ خام چک کنید؛ اگر Print Spooler است از تب «پرینترها و Spooler» تعمیر کنید و در غیر این صورت مصرف رم و آپدیت برنامه را بررسی نمایید.',
   },
 
   // ---- Network, DNS & DHCP ----
@@ -262,8 +262,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'سیستم کاربر تلاش کرد یک نام دامنه یا سرور داخلی را ترجمه کند، اما هیچ‌یک از سرورهای DNS تنظیم‌شده در زمان مقرر پاسخ ندادند.',
     likelyCauseEn: 'Temporary Wi-Fi/LAN drop, wrong DNS server configured, VPN split-DNS conflict, or internal DNS server unreachable.',
     likelyCauseFa: 'قطعی لحظه‌ای شبکه/وای‌فای، تنظیم اشتباه DNS، تداخل VPN یا عدم دسترسی به سرور DNS داخلی سازمان.',
-    recommendedActionEn: 'Go to Module 2: inspect configured DNS servers, run an endpoint DNS & Ping test, and click "Flush DNS Cache".',
-    recommendedActionFa: 'به تب ۲ (عیب‌یابی شبکه) بروید: آدرس سرورهای DNS سیستم را چک کنید، تست DNS و پینگ بگیرید و دکمه Flush DNS را بزنید.',
+    recommendedActionEn: 'Open Network & Safe Reset: inspect configured DNS servers, run an endpoint DNS & Ping test, and click "Flush DNS Cache".',
+    recommendedActionFa: 'به تب «عیب‌یابی شبکه و ریست امن» بروید: آدرس سرورهای DNS سیستم را چک کنید، تست DNS و پینگ بگیرید و دکمه Flush DNS را بزنید.',
   },
   {
     eventIds: [1001, 1002, 50036, 50037],
@@ -275,8 +275,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'سیستم کاربر نتوانست آدرس IP معتبر از سرور DHCP شبکه دریافت یا تمدید کند.',
     likelyCauseEn: 'DHCP scope pool exhausted, VLAN/port misconfiguration on switch, disconnected cable, or DHCP server unreachable.',
     likelyCauseFa: 'پر شدن رنج IP در سرور DHCP، تنظیم اشتباه VLAN پورت سوییچ، قطعی کابل/وای‌فای یا از دسترس خارج بودن سرور DHCP.',
-    recommendedActionEn: 'Check active NIC IP in Module 2 and run "Renew DHCP IP". If it stays 169.254.x.x (APIPA), check switch port VLAN and DHCP pool.',
-    recommendedActionFa: 'در تب ۲ وضعیت کارت شبکه را چک کرده و دکمه Renew DHCP IP را بزنید؛ اگر آدرس 169.254.x.x گرفت، VLAN پورت سوییچ و سرور DHCP را بررسی کنید.',
+    recommendedActionEn: 'Check active NIC IP in Network & Safe Reset and run "Renew DHCP IP". If it stays 169.254.x.x (APIPA), check switch port VLAN and DHCP pool.',
+    recommendedActionFa: 'در تب «عیب‌یابی شبکه و ریست امن» وضعیت کارت شبکه را چک کرده و دکمه Renew DHCP IP را بزنید؛ اگر آدرس 169.254.x.x گرفت، VLAN پورت سوییچ و سرور DHCP را بررسی کنید.',
   },
   {
     eventIds: [4199, 4198],
@@ -288,8 +288,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'یک دستگاه دیگر در همین شبکه دقیقاً از همان آدرس IP این سیستم استفاده می‌کند که باعث قطع و وصل شدن مداوم شبکه می‌شود.',
     likelyCauseEn: 'A manually configured static IP colliding with DHCP range or duplicate static IP assignment.',
     likelyCauseFa: 'ست کردن دستی IP تکراری روی یک دستگاه دیگر یا همپوشانی IP استاتیک با رنج DHCP.',
-    recommendedActionEn: 'Run "Renew DHCP IP" in Module 2 and use the panel’s MAC/IP Tracker tool to locate the conflicting MAC address.',
-    recommendedActionFa: 'در تب ۲ گزینه Renew DHCP IP را بزنید و با ابزار MAC/IP Tracker پنل دستگاه دارای IP تکراری را پیدا کنید.',
+    recommendedActionEn: 'Run "Renew DHCP IP" in Network & Safe Reset and use the panel’s MAC/IP Tracker tool to locate the conflicting MAC address.',
+    recommendedActionFa: 'در تب «عیب‌یابی شبکه و ریست امن» گزینه Renew DHCP IP را بزنید و با ابزار MAC/IP Tracker پنل دستگاه دارای IP تکراری را پیدا کنید.',
   },
 
   // ---- Group Policy & Active Directory ----
@@ -303,8 +303,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'ویندوز نتوانست به Domain Controller متصل شود یا فایل‌های پالیسی (SYSVOL) را جهت اعمال تنظیمات سازمانی دریافت کند.',
     likelyCauseEn: 'Workstation booted before network/VPN was ready, DNS pointing outside AD DNS, or broken domain trust/clock skew.',
     likelyCauseFa: 'بالا آمدن سیستم پیش از اتصال شبکه/VPN، تنظیم اشتباه DNS (عدم اشاره به DC)، یا اختلاف ساعت/قطع ارتباط با دامین.',
-    recommendedActionEn: 'Verify internal AD DNS in Module 2, then open Module 5 (GPUpdate) to inspect GPO status and click "Run gpupdate /force".',
-    recommendedActionFa: 'در تب ۲ مطمئن شوید DNS روی سرور دامین تنظیم است، سپس در تب ۵ وضعیت GPO را بررسی کرده و دکمه gpupdate /force را اجرا کنید.',
+    recommendedActionEn: 'Verify internal AD DNS in Network & Safe Reset, then open Temp Cleanup & GPUpdate to inspect GPO status and click "Run gpupdate /force".',
+    recommendedActionFa: 'در تب «عیب‌یابی شبکه و ریست امن» مطمئن شوید DNS روی سرور دامین تنظیم است، سپس در تب «پاک‌سازی Temp و GPUpdate» وضعیت GPO را بررسی کرده و دکمه gpupdate /force را اجرا کنید.',
   },
   {
     eventIds: [5719, 5722, 5723, 5805],
@@ -316,8 +316,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'این سیستم نتوانست با هیچ Domain Controller ارتباط امن برقرار کند (یا رابطه اعتماد سیستم با دامین خراب شده است).',
     likelyCauseEn: 'Offline/disconnected from corporate LAN/VPN, DNS issue, or computer account password out of sync with Active Directory.',
     likelyCauseFa: 'قطع بودن از شبکه شرکت/VPN، مشکل DNS، یا ناهماهنگی رمز اکانت کامپیوتر با Active Directory.',
-    recommendedActionEn: 'Verify DNS & TCP port 389/88 reachability to the Domain Controller in Module 2. If Trust is broken, rejoin domain or reset computer secure channel.',
-    recommendedActionFa: 'در تب ۲ دسترسی DNS و پورت 389/88 به Domain Controller را تست کنید؛ در صورت خرابی Trust، کانال امن سیستم در دامین باید ترمیم شود.',
+    recommendedActionEn: 'Verify DNS & TCP port 389/88 reachability to the Domain Controller in Network & Safe Reset. If Trust is broken, rejoin domain or reset computer secure channel.',
+    recommendedActionFa: 'در تب «عیب‌یابی شبکه و ریست امن» دسترسی DNS و پورت 389/88 به Domain Controller را تست کنید؛ در صورت خرابی Trust، کانال امن سیستم در دامین باید ترمیم شود.',
   },
 
   // ---- Security & Auth ----
@@ -331,8 +331,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'آنتی‌ویروس ویندوز یک فایل مشکوک/بدافزار شناسایی کرده یا وضعیت محافظت لحظه‌ای (Real-Time Protection) آن تغییر کرده یا خاموش شده است.',
     likelyCauseEn: 'Downloaded malicious/unwanted file, false positive on internal tool, or unauthorized attempt to disable protection.',
     likelyCauseFa: 'دانلود فایل آلوده توسط کاربر، تشخیص اشتباه روی یک ابزار داخلی، یا غیرفعال شدن محافظت آنتی‌ویروس.',
-    recommendedActionEn: 'Verify Defender Real-Time status in Module 1 immediately and escalate to IT Security if malware detection (1116) is confirmed.',
-    recommendedActionFa: 'فوراً وضعیت فعال بودن Defender را در تب ۱ بررسی کرده و در صورت تایید هشدار بدافزار (کد 1116) به تیم امنیت اطلاع دهید.',
+    recommendedActionEn: 'Verify Defender Real-Time status in Health & Safe Process Control immediately and escalate to IT Security if malware detection (1116) is confirmed.',
+    recommendedActionFa: 'فوراً وضعیت فعال بودن Defender را در تب «سلامت سیستم و کنترل پروسس‌ها» بررسی کرده و در صورت تایید هشدار بدافزار (کد 1116) به تیم امنیت اطلاع دهید.',
   },
   {
     eventIds: [36871, 36874, 36887, 36888],
@@ -359,8 +359,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'حافظه رم و حافظه مجازی (Pagefile) سیستم تقریباً به طور کامل پر شده است که باعث کندی شدید یا بسته شدن ناگهانی برنامه‌ها می‌شود.',
     likelyCauseEn: 'Too many browser tabs (Chrome/Edge), memory leak in an open app, or insufficient RAM/Pagefile size.',
     likelyCauseFa: 'باز بودن تب‌های زیاد در مرورگر (کروم/اج)، نشت حافظه (Memory Leak) در یک برنامه، یا کم بودن ظرفیت رم/فضای درایو C.',
-    recommendedActionEn: 'Open Module 1 to identify the top RAM process, safely close frozen heavy apps, and free up C: drive space via Module 5 (Temp Cleanup).',
-    recommendedActionFa: 'در تب ۱ پروسس پرمصرف RAM را شناسایی کرده، برنامه‌های سنگین غیرضروری را ببندید و فضای درایو C را با پاک‌سازی Temp (تب ۵) آزاد کنید.',
+    recommendedActionEn: 'Open Health & Safe Process Control to identify the top RAM process, safely close frozen heavy apps, and free up C: drive space via Temp Cleanup & GPUpdate.',
+    recommendedActionFa: 'در تب «سلامت سیستم و کنترل پروسس‌ها» پروسس پرمصرف RAM را شناسایی کرده، برنامه‌های سنگین غیرضروری را ببندید و فضای درایو C را از تب «پاک‌سازی Temp و GPUpdate» آزاد کنید.',
   },
 
   // ---- Display / GPU ----
@@ -389,8 +389,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'سرویس Print Spooler نتوانست سند کاربر را پردازش یا به پرینتر ارسال کند (معمولاً به علت سند خراب، آفلاین بودن پرینتر یا خطای درایور).',
     likelyCauseEn: 'Stuck corrupted spool file, unreachable network printer IP, or incompatible printer driver.',
     likelyCauseFa: 'فایل گیرکرده و خراب در صف چاپ، قطع بودن ارتباط با IP پرینتر شبکه، یا ناسازگاری درایور پرینتر.',
-    recommendedActionEn: 'Go to Module 3 (Printers & Spooler): inspect the queue and click "Clear Stuck Queue & Restart Spooler".',
-    recommendedActionFa: 'به تب ۳ (پرینترها و Spooler) بروید، صف پرینت را بررسی کرده و دکمه پاک‌سازی صف گیرکرده و ری‌استارت Spooler را اجرا کنید.',
+    recommendedActionEn: 'Open Printers & Spooler: inspect the queue and click "Clear Stuck Queue & Restart Spooler".',
+    recommendedActionFa: 'به تب «پرینترها و Spooler» بروید، صف پرینت را بررسی کرده و دکمه پاک‌سازی صف گیرکرده و ری‌استارت Spooler را اجرا کنید.',
   },
 
   // ---- DCOM Noise ----
@@ -419,8 +419,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'سرویس Windows Update نتوانست یک بسته بروزرسانی امنیتی یا سیستمی را دانلود یا نصب کند.',
     likelyCauseEn: 'Low free space on C: drive, proxy/WSUS connectivity issue, or pending reboot from an earlier update.',
     likelyCauseFa: 'کمبود فضای خالی درایو C، مشکل اتصال به اینترنت/WSUS/پراکسی، یا نیاز به ری‌استارت از آپدیت قبلی.',
-    recommendedActionEn: 'Check C: drive free space in Module 1, clean Temp files in Module 5, and verify proxy/network reachability in Module 2.',
-    recommendedActionFa: 'فضای خالی درایو C را در تب ۱ بررسی کرده، پوشه Temp را در تب ۵ پاک‌سازی کنید و وضعیت Proxy/شبکه را در تب ۲ چک نمایید.',
+    recommendedActionEn: 'Check C: drive free space in Health & Safe Process Control, clean Temp files in Temp Cleanup & GPUpdate, and verify proxy/network reachability in Network & Safe Reset.',
+    recommendedActionFa: 'فضای خالی درایو C را در تب «سلامت سیستم و کنترل پروسس‌ها» بررسی کرده، پوشه Temp را در تب «پاک‌سازی Temp و GPUpdate» پاک‌سازی کنید و وضعیت Proxy/شبکه را در تب «عیب‌یابی شبکه و ریست امن» چک نمایید.',
   },
   {
     eventIds: [36, 47, 129, 134],
@@ -432,8 +432,8 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     humanReasonFa: 'ویندوز نتوانست ساعت سیستم را با Domain Controller یا سرور NTP همگام کند. اختلاف ساعت بیش از ۵ دقیقه باعث خرابی لاگین دامین و خطای HTTPS می‌شود.',
     likelyCauseEn: 'UDP port 123 blocked, unreachable DC/NTP server, or depleted CMOS motherboard battery.',
     likelyCauseFa: 'بسته بودن پورت UDP 123، عدم دسترسی به DC یا سرور NTP، یا ضعیف شدن باتری CMOS مادربرد.',
-    recommendedActionEn: 'Verify network connectivity to the Domain Controller in Module 2 and check if workstation time matches corporate DC time.',
-    recommendedActionFa: 'دسترسی شبکه به Domain Controller را در تب ۲ تست کنید و مطمئن شوید ساعت سیستم با سرور دامین اختلاف ندارد.',
+    recommendedActionEn: 'Verify network connectivity to the Domain Controller in Network & Safe Reset and check if workstation time matches corporate DC time.',
+    recommendedActionFa: 'دسترسی شبکه به Domain Controller را در تب «عیب‌یابی شبکه و ریست امن» تست کنید و مطمئن شوید ساعت سیستم با سرور دامین اختلاف ندارد.',
   },
 ];
 
@@ -514,8 +514,8 @@ export function explainEventCodeHuman(input: {
       'سیستم‌عامل هنگام خواندن، نوشتن یا بررسی ساختار یکی از درایوها با خطا مواجه شده است.',
       'Low disk space, file system inconsistency, loose cable, or aging HDD/SSD.',
       'پر شدن فضا، خرابی فایل‌سیستم، مشکل کابل یا فرسودگی هارد/SSD.',
-      'Check free disk space in Module 1, run Temp Cleanup if C: is full, and monitor for recurring disk errors.',
-      'فضای خالی دیسک را در تب ۱ بررسی کنید، در صورت پر بودن درایو C از تب ۵ Temp را پاک کنید و در صورت تکرار سلامت هارد را چک نمایید.'
+      'Check free disk space in Health & Safe Process Control, run Temp Cleanup if C: is full, and monitor for recurring disk errors.',
+      'فضای خالی دیسک را در تب «سلامت سیستم و کنترل پروسس‌ها» بررسی کنید، در صورت پر بودن درایو C از تب «پاک‌سازی Temp و GPUpdate» فایل‌های موقت را پاک کنید و در صورت تکرار سلامت هارد را چک نمایید.'
     );
   }
 
@@ -528,8 +528,8 @@ export function explainEventCodeHuman(input: {
       'کارت شبکه، استعلام DNS یا اتصال به یک سرویس تحت شبکه روی سیستم کاربر با خطا یا Timeout روبه‌رو شده است.',
       'Temporary LAN/Wi-Fi drop, incorrect DNS/Proxy settings, or firewall blocking the target port.',
       'قطعی لحظه‌ای شبکه/وای‌فای، تنظیم اشتباه DNS یا Proxy، یا مسدود شدن پورت توسط فایروال.',
-      'Use Module 2 to run Ping/Port/DNS tests directly from this workstation and flush DNS if needed.',
-      'در تب ۲ تست Ping، پورت و DNS را از داخل خود سیستم کاربر اجرا کنید و در صورت نیاز کش DNS را پاک نمایید.'
+      'Use Network & Safe Reset to run Ping/Port/DNS tests directly from this workstation and flush DNS if needed.',
+      'در تب «عیب‌یابی شبکه و ریست امن» تست Ping، پورت و DNS را از داخل خود سیستم کاربر اجرا کنید و در صورت نیاز کش DNS را پاک نمایید.'
     );
   }
 
@@ -542,8 +542,8 @@ export function explainEventCodeHuman(input: {
       'سند چاپی، درایور پرینتر یا سرویس Spooler روی سیستم کاربر دچار خطا شده است.',
       'Stuck print document, offline printer, or driver conflict.',
       'گیر کردن سند خراب در صف پرینت، آفلاین بودن پرینتر یا مشکل درایور.',
-      'Open Module 3 (Printers & Spooler) to inspect queued jobs and restart or clear the Print Spooler.',
-      'در تب ۳ صف چاپ را بررسی کرده و در صورت گیر کردن اسناد، سرویس Spooler را ری‌استارت یا صف را پاک‌سازی کنید.'
+      'Open Printers & Spooler to inspect queued jobs and restart or clear the Print Spooler.',
+      'در تب «پرینترها و Spooler» صف چاپ را بررسی کرده و در صورت گیر کردن اسناد، سرویس Spooler را ری‌استارت یا صف را پاک‌سازی کنید.'
     );
   }
 
@@ -556,8 +556,8 @@ export function explainEventCodeHuman(input: {
       'سیستم کاربر در احراز هویت دامین یا دریافت و اعمال پالیسی‌های Active Directory دچار مشکل شده است.',
       'DNS not pointing to Domain Controller, VPN disconnected, or expired computer/user ticket.',
       'اشاره نکردن DNS به Domain Controller، قطع بودن VPN، یا ناهماهنگی تیکت/ساعت سیستم.',
-      'Check DNS in Module 2 and run gpupdate /force from Module 5 once Domain Controller reachability is confirmed.',
-      'در تب ۲ تنظیمات DNS و دسترسی به DC را چک کرده و سپس از تب ۵ دستور gpupdate /force را اجرا کنید.'
+      'Check DNS in Network & Safe Reset and run gpupdate /force from Temp Cleanup & GPUpdate once Domain Controller reachability is confirmed.',
+      'در تب «عیب‌یابی شبکه و ریست امن» تنظیمات DNS و دسترسی به DC را چک کرده و سپس از تب «پاک‌سازی Temp و GPUpdate» دستور gpupdate /force را اجرا کنید.'
     );
   }
 
@@ -570,8 +570,8 @@ export function explainEventCodeHuman(input: {
       'حافظه RAM یا حافظه مجازی سیستم به حد بحرانی رسیده و عملکرد برنامه‌ها را مختل کرده است.',
       'Heavy browser tabs, memory leak in an open app, or full C: drive preventing pagefile growth.',
       'مصرف بالای مرورگر یا یک برنامه، یا پر بودن درایو C.',
-      'Inspect top RAM consumers in Module 1, close stuck heavy user apps, and clear Temp files in Module 5.',
-      'در تب ۱ پروسس‌های پرمصرف رم را شناسایی کنید، برنامه‌های هنگ‌کرده را ببندید و پوشه Temp را پاک‌سازی کنید.'
+      'Inspect top RAM consumers in Health & Safe Process Control, close stuck heavy user apps, and clear Temp files in Temp Cleanup & GPUpdate.',
+      'در تب «سلامت سیستم و کنترل پروسس‌ها» پروسس‌های پرمصرف رم را شناسایی کنید، برنامه‌های هنگ‌کرده را ببندید و پوشه Temp را پاک‌سازی کنید.'
     );
   }
 
@@ -584,8 +584,8 @@ export function explainEventCodeHuman(input: {
       'یک بررسی امنیتی، تلاش ورود، اعتبارسنجی گواهینامه یا محافظت آنتی‌ویروس خطا یا هشدار ثبت کرده است.',
       'Invalid/expired credentials, locked user account, expired certificate, or blocked unsigned software.',
       'اشتباه بودن یا انقضای رمز عبور، قفل شدن اکانت، انقضای گواهینامه یا مسدودسازی توسط آنتی‌ویروس.',
-      'Review the raw message for the exact account or resource name and verify Antivirus/Firewall status in Module 1.',
-      'نام اکانت یا منبع خطا را در متن خام بررسی کرده و وضعیت آنتی‌ویروس و فایروال را در تب ۱ کنترل نمایید.'
+      'Review the raw message for the exact account or resource name and verify Antivirus/Firewall status in Health & Safe Process Control.',
+      'نام اکانت یا منبع خطا را در متن خام بررسی کرده و وضعیت آنتی‌ویروس و فایروال را در تب «سلامت سیستم و کنترل پروسس‌ها» کنترل نمایید.'
     );
   }
 
@@ -598,8 +598,8 @@ export function explainEventCodeHuman(input: {
       'یکی از برنامه‌های نصب‌شده روی سیستم کاربر به دلیل خطای داخلی متوقف شده یا هنگ کرده است.',
       'Corrupted temp/cache files, buggy plugin/add-in, or outdated application build.',
       'خرابی فایل‌های موقت و کش، افزونه ناسازگار یا نسخه قدیمی نرم‌افزار.',
-      'Clean Temp folders in Module 5, check RAM/CPU load in Module 1, and repair or update the affected software.',
-      'پوشه Temp را در تب ۵ پاک‌سازی کنید، وضعیت رم/CPU را در تب ۱ چک کنید و در صورت تکرار نرم‌افزار را Repair یا آپدیت نمایید.'
+      'Clean Temp folders in Temp Cleanup & GPUpdate, check RAM/CPU load in Health & Safe Process Control, and repair or update the affected software.',
+      'پوشه Temp را در تب «پاک‌سازی Temp و GPUpdate» پاک‌سازی کنید، وضعیت رم/CPU را در تب «سلامت سیستم و کنترل پروسس‌ها» چک کنید و در صورت تکرار نرم‌افزار را Repair یا آپدیت نمایید.'
     );
   }
 

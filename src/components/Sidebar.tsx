@@ -273,7 +273,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'helpdesk',
           labelKey: 'tab_helpdesk',
           icon: Headphones,
-          badge: 'Phase 1',
+          badge: null,
         },
       ],
     },

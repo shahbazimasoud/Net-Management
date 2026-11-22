@@ -769,70 +769,55 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const isAnyLoading =
     loadingHealth || loadingNetwork || loadingPrinters || loadingEvents || loadingTempScan || loadingGpo;
 
-  const phase1Roadmap = [
+  const activeCapabilities = [
     {
-      num: '01',
-      status: 'live' as const,
+      id: 'health',
       titleEn: 'Read-Only Endpoint Health & Visual Process Telemetry',
       titleFa: 'مشاهده سلامت سیستم و وضعیت گرافیکی پروسس‌ها',
       descEn: 'Live CPU/RAM/Disk radial gauges, interactive process resource donut + progress bars, uptime, active user, Defender & Firewall status.',
       descFa: 'نمایش دایره‌ای و پراگرسی CPU، RAM، دیسک و پروسس‌های پرمصرف، Uptime، کاربر فعال و وضعیت آنتی‌ویروس و فایروال.',
     },
     {
-      num: '02',
-      status: 'live' as const,
+      id: 'network',
       titleEn: 'Endpoint-Side Network Diagnostics & Safe Reset',
       titleFa: 'عیب‌یابی شبکه از داخل سیستم کاربر + ریست امن',
       descEn: 'Live NIC/DNS/Gateway/Proxy inspection, endpoint-originated Ping/TCP Port/DNS tests, plus allowlisted Flush DNS & Renew DHCP IP.',
       descFa: 'بررسی کارت شبکه، DNS، Gateway و Proxy، اجرای Ping/Port/DNS از داخل کلاینت به همراه دکمه‌های ثابت Flush DNS و Renew IP.',
     },
     {
-      num: '03',
-      status: 'live' as const,
+      id: 'printers',
       titleEn: 'Printer Queue Inspection & Print Spooler Repair',
       titleFa: 'تعمیر پرینتر و مدیریت صف پرینت (محدود فقط به Spooler)',
       descEn: 'Inspect Print Spooler service, installed printers, and stuck print jobs; execute isolated Spooler restart or queue clear.',
       descFa: 'مشاهده سرویس Spooler، پرینترهای نصب‌شده و صف گیرکرده پرینت با امکان ری‌استارت Spooler یا پاک‌سازی ایمن صف.',
     },
     {
-      num: '04',
-      status: 'live' as const,
+      id: 'events',
       titleEn: 'Event Viewer with Plain-Language Human Diagnostics',
       titleFa: 'مشاهده خطاهای Event Viewer با توضیح شفاف و انسانی علت خطا',
       descEn: 'Reads recent System/Application Critical, Error & Warning logs and translates every Event ID into clear human reason, likely root cause, and action.',
       descFa: 'خواندن خطاهای اخیر System و Application به همراه ترجمه انسانی دقیق کنار هر کد خطا (چه اتفاقی افتاده، علت احتمالی و اقدام پیشنهادی).',
     },
     {
-      num: '05',
-      status: 'live' as const,
+      id: 'process-stop',
       titleEn: 'Controlled User-Space Process Termination',
       titleFa: 'بستن کنترل‌شده برنامه‌های کاربری هنگ‌کرده (با قفل OS/AV)',
       descEn: 'Safely ends frozen user apps (Chrome, Excel, Outlook) with exact PID+Name verification while strictly blocking OS core & Antivirus/EDR processes.',
       descFa: 'بستن صرفاً برنامه‌های کاربری هنگ‌کرده با تطبیق دقیق PID و نام پروسس، در حالی که هسته سیستم‌عامل و آنتی‌ویروس کاملاً قفل هستند.',
     },
     {
-      num: '06',
-      status: 'live' as const,
+      id: 'temp-clean',
       titleEn: 'Confined Temp Folder Scan & Cleanup',
       titleFa: 'اسکن و پاک‌سازی ایمن پوشه Temp کاربر و ویندوز',
       descEn: 'Hard-confined cleanup limited strictly to Windows\\Temp and active user AppData\\Local\\Temp with zero custom path input; safely skips in-use files.',
       descFa: 'اسکن حجم قابل آزادسازی و پاک‌سازی محدود فقط در پوشه‌های Temp ویندوز و کاربر (بدون امکان ارسال مسیر دلخواه) با رد کردن ایمن فایل‌های در حال اجرا.',
     },
     {
-      num: '07',
-      status: 'live' as const,
+      id: 'gpupdate',
       titleEn: 'Group Policy Inspection & Non-Disruptive gpupdate /force',
       titleFa: 'بررسی Group Policy و اجرای فوری gpupdate /force بدون ری‌استارت اجباری',
       descEn: 'Inspects applied domain GPOs and pending reboot state, plus one-click parameterless gpupdate /force /wait:0 that declines forced user logoff.',
       descFa: 'مشاهده پالیسی‌های اعمال‌شده دامین و وضعیت Pending Reboot به همراه دکمه ثابت gpupdate /force بدون خارج کردن ناگهانی کاربر.',
-    },
-    {
-      num: '08',
-      status: 'planned' as const,
-      titleEn: 'Active Directory Account Unlock & Lockout Source',
-      titleFa: 'عملیات سریع Active Directory (Unlock و بررسی علت قفل)',
-      descEn: 'Inspect lockout state, password expiry, and unlock accounts via LDAPS with RBAC approval.',
-      descFa: 'مشاهده وضعیت قفل اکانت، تاریخ انقضای رمز و باز کردن قفل اکانت با کنترل دسترسی RBAC.',
     },
   ];
 
@@ -849,8 +834,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           </div>
           <p className={`mt-1 text-xs ${textMuted}`}>
             {isEn
-              ? 'On-Demand Single-Host Support · Phase 1 (Modules 1–7 Active) · Zero Stored Credentials · Granular RBAC & Full Audit Trail'
-              : 'پشتیبانی لحظه‌ای تک‌سیستمی بدون لیست ثابت · فاز ۱ (موارد ۱ تا ۷ فعال) · بدون ذخیره رمز · کنترل دسترسی دقیق RBAC و ثبت کامل لاگ'}
+              ? 'On-Demand Single-Host Support · Zero Stored Credentials · Granular RBAC & Full Audit Trail'
+              : 'پشتیبانی لحظه‌ای تک‌سیستمی · بدون ذخیره رمز عبور · کنترل دسترسی دقیق RBAC و ثبت کامل لاگ'}
           </p>
         </div>
 
@@ -1086,38 +1071,38 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           {
             id: 'health' as HelpdeskSubTab,
             icon: Cpu,
-            labelEn: '01. Health & Safe Process Control',
-            labelFa: '۱. سلامت و کنترل پروسس‌ها',
+            labelEn: 'Health & Safe Process Control',
+            labelFa: 'سلامت سیستم و کنترل پروسس‌ها',
           },
           {
             id: 'network' as HelpdeskSubTab,
             icon: Network,
-            labelEn: '02. Network & Safe Reset',
-            labelFa: '۲. عیب‌یابی شبکه و ریست امن',
+            labelEn: 'Network & Safe Reset',
+            labelFa: 'عیب‌یابی شبکه و ریست امن',
           },
           {
             id: 'printers' as HelpdeskSubTab,
             icon: Printer,
-            labelEn: '03. Printers & Spooler',
-            labelFa: '۳. پرینترها و Spooler',
+            labelEn: 'Printers & Spooler',
+            labelFa: 'پرینترها و Spooler',
           },
           {
             id: 'events' as HelpdeskSubTab,
             icon: FileWarning,
-            labelEn: '04. Event Viewer (Human Guide)',
-            labelFa: '۴. Event Viewer (تحلیل انسانی)',
+            labelEn: 'Event Viewer (Human Guide)',
+            labelFa: 'Event Viewer (تحلیل خطاها)',
           },
           {
             id: 'maintenance' as HelpdeskSubTab,
             icon: Wrench,
-            labelEn: '05. Temp Cleanup & GPUpdate',
-            labelFa: '۵. پاک‌سازی Temp و GPUpdate',
+            labelEn: 'Temp Cleanup & GPUpdate',
+            labelFa: 'پاک‌سازی Temp و GPUpdate',
           },
           {
             id: 'architecture' as HelpdeskSubTab,
             icon: Layers,
-            labelEn: 'Phase 1 & Security Guards',
-            labelFa: 'جمع‌بندی و معماری امنیتی',
+            labelEn: 'Security & Hardening',
+            labelFa: 'امنیت و لایه‌های حفاظتی',
           },
         ].map((tab) => {
           const Icon = tab.icon;
@@ -2718,7 +2703,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 <div className="flex items-center gap-2">
                   <FolderOpen className="w-4 h-4 text-sky-500" />
                   <h2 className={`text-sm font-bold ${textPrimary}`}>
-                    {isEn ? '06. Safe Confined Temp Folder Cleanup' : '۶. اسکن و پاک‌سازی ایمن پوشه‌های Temp سیستم کاربر'}
+                    {isEn ? 'Safe Confined Temp Folder Cleanup' : 'اسکن و پاک‌سازی ایمن پوشه‌های Temp سیستم کاربر'}
                   </h2>
                   <FieldInfoTooltip
                     isEn={isEn}
@@ -2924,7 +2909,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-teal-500" />
                   <h2 className={`text-sm font-bold ${textPrimary}`}>
-                    {isEn ? '07. Group Policy Inspection & Non-Disruptive gpupdate /force' : '۷. بررسی وضعیت Group Policy و اجرای فوری gpupdate /force'}
+                    {isEn ? 'Group Policy Inspection & Non-Disruptive gpupdate /force' : 'بررسی وضعیت Group Policy و اجرای فوری gpupdate /force'}
                   </h2>
                   <FieldInfoTooltip
                     isEn={isEn}
@@ -3171,34 +3156,24 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             </div>
           </div>
 
-          {/* 8-Item Phase 1 Engineered Roadmap Grid */}
+          {/* Active HelpDesk Capabilities Overview */}
           <div className={`rounded-xl border p-5 space-y-4 ${surfaceBg}`}>
             <div>
               <h3 className={`text-sm font-bold ${textPrimary}`}>
                 {isEn
-                  ? 'Phase 1 Low-Risk Agentless Roadmap (Items 1–7 Active · Item 8 Next)'
-                  : 'نقشه راه مهندسی‌شده فاز ۱ بدون ایجنت (موارد ۱ تا ۷ فعال · مورد ۸ در صف توسعه)'}
+                  ? 'Available HelpDesk Capabilities'
+                  : 'قابلیت‌های فعال پشتیبانی سیستم کاربران'}
               </h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {phase1Roadmap.map((item) => (
-                <div key={item.num} className={`p-4 rounded-xl border space-y-1.5 ${subSurfaceBg}`}>
+              {activeCapabilities.map((item) => (
+                <div key={item.id} className={`p-4 rounded-xl border space-y-1.5 ${subSurfaceBg}`}>
                   <div className="flex items-center justify-between gap-2">
                     <span className={`text-xs font-bold ${textPrimary}`}>
-                      {item.num}. {isEn ? item.titleEn : item.titleFa}
+                      {isEn ? item.titleEn : item.titleFa}
                     </span>
-                    <span
-                      className={`text-[11px] font-semibold shrink-0 ${
-                        item.status === 'live' ? 'text-emerald-500' : textMuted
-                      }`}
-                    >
-                      {item.status === 'live'
-                        ? isEn
-                          ? 'Active'
-                          : 'فعال'
-                        : isEn
-                        ? 'Phase 1 Next'
-                        : 'مرحله بعدی فاز ۱'}
+                    <span className="text-[11px] font-semibold shrink-0 text-emerald-500">
+                      {isEn ? 'Enabled' : 'فعال'}
                     </span>
                   </div>
                   <p className={`text-xs leading-relaxed ${textMuted}`}>
@@ -3248,8 +3223,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     </h3>
                     <p className={`text-[11px] truncate ${textMuted}`}>
                       {isEn
-                        ? 'Locks workstations so WinRM only permits Phase 1 read-only + DNS/Spooler cmdlets from your panel IP.'
-                        : 'سیستم‌های کاربران را طوری قفل می‌کند که WinRM فقط دستورات فاز ۱ را و صرفاً از IP سرور پنل بپذیرد.'}
+                        ? 'Locks workstations so WinRM only permits approved HelpDesk diagnostic & safe remediation cmdlets from your panel IP.'
+                        : 'سیستم‌های کاربران را طوری قفل می‌کند که WinRM فقط دستورات مجاز هلپ‌دسک را و صرفاً از IP سرور پنل بپذیرد.'}
                     </p>
                   </div>
                 </div>

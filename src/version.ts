@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.456.0';
+export const APP_VERSION = '1.456.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.456.1',
+    releaseDate: '2026-11-22',
+    type: 'patch',
+    title: 'اصلاح و پاک‌سازی متون داخلی توسعه (فاز ۱، شماره ماژول‌ها و نقشه راه) از ظاهر صفحه HelpDesk و سایدبار',
+    title_en: 'Clean Internal Phase, Module Numbers & Roadmap Labels from HelpDesk UI, Sidebar & Event Viewer Guidance',
+    changes: [
+      'حذف کامل برچسب‌ها و عبارات داخلی توسعه مانند «فاز ۱»، «موارد ۱ تا ۷ فعال»، شماره‌گذاری‌های `01.` تا `07.` / `۱.` تا `۷.` و بخش نقشه راه توسعه از هدر، تب‌ها، عناوین و تب «امنیت و لایه‌های حفاظتی» در `HelpDeskView.tsx` و جایگزینی آن‌ها با عناوین حرفه‌ای و نهایی محصول.',
+      'حذف برچسب `Phase 1` از منوی HelpDesk در سایدبار (`Sidebar.tsx`) و پاک‌سازی عنوان و نام فایل اسکریپت امن‌سازی JEA (`HelpDeskSafeRole.psrc`) در `server/helpdeskService.ts`.',
+      'بازنویسی ارجاعات راهنمای انسانی خطاهای Event Viewer (`server/helpdeskEventCatalog.ts`) به نام واقعی و خوانای تب‌های صفحه HelpDesk به‌جای شماره ماژول/تب داخلی.'
+    ],
+    changes_en: [
+      'Removed internal planning labels (`Phase 1`, `Modules 1–7 Active`, `01.`–`07.` numbering, and planned roadmap placeholders) from `HelpDeskView.tsx` headers, navigation tabs, section titles, JEA modal subtitle, and the Security & Hardening overview.',
+      'Removed the `Phase 1` badge from the HelpDesk navigation item in `Sidebar.tsx` and renamed the JEA template capability name to `HelpDeskSafeRole.psrc` in `server/helpdeskService.ts`.',
+      'Updated Event Viewer human-readable action recommendations in `server/helpdeskEventCatalog.ts` to reference actual HelpDesk tab names instead of internal module or tab numbers.'
+    ]
+  },
   {
     version: '1.456.0',
     releaseDate: '2026-11-22',
