@@ -984,7 +984,7 @@ export async function authorizeSchematicExport(payload: {
 
 export interface HelpdeskConnectionPayload {
   targetIp: string;
-  protocol: 'auto' | 'winrm_https' | 'winrm_http' | 'ssh';
+  protocol: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
   port?: number;
   username: string;
   password: string;

@@ -51,7 +51,7 @@ import {
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
-import { isUserSuperAdmin } from '../utils/rbac';
+import { isUserSuperAdmin, isUserDomainAdmin } from '../utils/rbac';
 import {
   fetchHelpdeskStatus,
   fetchHelpdeskEndpointHealth,
@@ -193,39 +193,41 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 }) => {
   const { dockModal, undockModal } = useModalDock();
   const isSuper = isUserSuperAdmin(currentUser, effectivePolicy);
+  const isDomainAdmin = isUserDomainAdmin(currentUser);
+  const hasElevatedHelpdesk = isSuper || isDomainAdmin;
 
   // RBAC permissions (also double-checked by backend on every request)
   const canRunDiagnostics = Boolean(
-    isSuper || (effectivePolicy?.canViewHelpdesk !== false && effectivePolicy?.canRunHelpdeskDiagnostics === true)
+    hasElevatedHelpdesk || (effectivePolicy?.canViewHelpdesk !== false && effectivePolicy?.canRunHelpdeskDiagnostics === true)
   );
   const canExecuteActions = Boolean(
-    isSuper || (canRunDiagnostics && effectivePolicy?.canExecuteHelpdeskActions === true)
+    hasElevatedHelpdesk || (canRunDiagnostics && effectivePolicy?.canExecuteHelpdeskActions === true)
   );
   const canViewEventViewer = Boolean(
-    isSuper || (canRunDiagnostics && effectivePolicy?.canViewHelpdeskEventViewer === true)
+    hasElevatedHelpdesk || (canRunDiagnostics && effectivePolicy?.canViewHelpdeskEventViewer === true)
   );
   const canTerminateProcesses = Boolean(
-    isSuper || (canExecuteActions && effectivePolicy?.canTerminateHelpdeskProcesses === true)
+    hasElevatedHelpdesk || (canExecuteActions && effectivePolicy?.canTerminateHelpdeskProcesses === true)
   );
   const canCleanTemp = Boolean(
-    isSuper || (canExecuteActions && effectivePolicy?.canCleanHelpdeskTemp === true)
+    hasElevatedHelpdesk || (canExecuteActions && effectivePolicy?.canCleanHelpdeskTemp === true)
   );
   const canRunGpupdate = Boolean(
-    isSuper || (canExecuteActions && effectivePolicy?.canRunHelpdeskGpupdate === true)
+    hasElevatedHelpdesk || (canExecuteActions && effectivePolicy?.canRunHelpdeskGpupdate === true)
   );
   const canRunSystemRepair = Boolean(
-    isSuper || (canExecuteActions && effectivePolicy?.canRunHelpdeskSystemRepair === true)
+    hasElevatedHelpdesk || (canExecuteActions && effectivePolicy?.canRunHelpdeskSystemRepair === true)
   );
   const canInspectDomainUsers = Boolean(
-    isSuper || (canRunDiagnostics && effectivePolicy?.canInspectHelpdeskDomainUsers === true)
+    hasElevatedHelpdesk || (canRunDiagnostics && effectivePolicy?.canInspectHelpdeskDomainUsers === true)
   );
   const canPowerControl = Boolean(
-    isSuper || (canExecuteActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true)
+    hasElevatedHelpdesk || (canExecuteActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true)
   );
 
   // Ephemeral On-Demand Session State (NEVER stored in localStorage or DB!)
   const [targetIp, setTargetIp] = useState('');
-  const [protocol, setProtocol] = useState<'auto' | 'winrm_https' | 'winrm_http' | 'ssh'>('auto');
+  const [protocol, setProtocol] = useState<'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh'>('auto');
   const [customPort, setCustomPort] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -1150,18 +1152,18 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               fieldName={isEn ? 'On-Demand Single-Host Connection' : 'اتصال لحظه‌ای تک‌سیستمی'}
               whatIsIt={
                 isEn
-                  ? 'Connects directly to a single workstation IP on demand via WinRM HTTPS/HTTP or SSH without storing endpoint inventory or static passwords.'
-                  : 'به صورت لحظه‌ای از طریق WinRM HTTPS/HTTP یا SSH فقط به یک سیستم کاربر متصل می‌شود و هیچ IP یا رمز عبوری را در دیتابیس ذخیره نمی‌کند.'
+                  ? 'Connects directly to a single workstation IP on demand via WinRM HTTPS/HTTP, Domain Admin SMB/RPC (TCP 445), or SSH without storing endpoint inventory or static passwords.'
+                  : 'به صورت لحظه‌ای از طریق WinRM HTTPS/HTTP، پروتکل دامین ادمین SMB/RPC (پورت 445) یا SSH فقط به یک سیستم کاربر متصل می‌شود و هیچ IP یا رمز عبوری را در دیتابیس ذخیره نمی‌کند.'
               }
               whyNeeded={
                 isEn
-                  ? 'Prevents the panel from holding a persistent fleet credential database and eliminates mass lateral-movement risk.'
-                  : 'مانع از نگهداری رمزهای ثابت کلاینت‌ها در سرور پنل شده و ریسک انتشار باج‌افزار یا حمله گروهی را به حداقل می‌رساند.'
+                  ? 'Allows Domain Admins to connect even when WinRM/SSH are disabled on domain-joined PCs, while preventing persistent credential storage and mass lateral movement.'
+                  : 'امکان اتصال دامین ادمین به سیستم‌های عضو دامین را حتی زمانی که WinRM و SSH خاموش هستند فراهم می‌کند و هم‌زمان مانع ذخیره رمزهای ثابت کلاینت‌ها می‌شود.'
               }
               example={
                 isEn
-                  ? 'IP: 192.168.10.45 · Protocol: Auto · User: CORP\\helpdesk_svc'
-                  : 'مثال IP: 192.168.10.45 · پروتکل: Auto · نام کاربری: CORP\\helpdesk_svc'
+                  ? 'IP: 192.168.10.45 · Protocol: Auto · User: CORP\\Administrator or admin@corp.local'
+                  : 'مثال IP: 192.168.10.45 · پروتکل: Auto · نام کاربری: CORP\\Administrator یا admin@corp.local'
               }
             />
           </div>
@@ -1212,9 +1214,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               onChange={(e) => setProtocol(e.target.value as any)}
               className={`w-full px-3 py-2 rounded-lg border text-xs outline-none transition ${inputCls}`}
             >
-              <option value="auto">{isEn ? 'Auto (5986 → 5985 → 22)' : 'خودکار (5986 → 5985 → 22)'}</option>
+              <option value="auto">{isEn ? 'Auto (5986 → 5985 → 445 → 22)' : 'خودکار (5986 → 5985 → 445 → 22)'}</option>
               <option value="winrm_https">WinRM HTTPS (5986)</option>
               <option value="winrm_http">WinRM HTTP (5985)</option>
+              <option value="smb_rpc">{isEn ? 'Domain Admin SMB/RPC (445)' : 'دامین ادمین SMB/RPC (445)'}</option>
               <option value="ssh">OpenSSH / Linux (22)</option>
             </select>
           </div>
@@ -1230,7 +1233,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               autoComplete="off"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="CORP\helpdesk"
+              placeholder="CORP\Administrator"
               className={`w-full px-3 py-2 rounded-lg border text-xs font-mono outline-none transition ${inputCls}`}
               required
             />

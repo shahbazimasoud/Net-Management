@@ -1522,6 +1522,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
 
       const samAccountName = authenticatedProfile.samAccountName || (username.includes('@') ? username.split('@')[0] : username);
       const userGroups = Array.isArray(authenticatedProfile.groups) ? authenticatedProfile.groups : [];
+      const isAdDomainAdmin = isDomainAdminGroups(userGroups);
 
       const adUser = {
         id: `ad-${samAccountName.replace(/[^a-zA-Z0-9]/g, '_')}`,
@@ -1530,7 +1531,11 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         dn: authenticatedProfile.dn || '',
         fullName: authenticatedProfile.displayName || `Domain User (${samAccountName})`,
         email: authenticatedProfile.email || (username.includes('@') ? username : `${samAccountName}@${domain}`),
-        role: samAccountName.toLowerCase().includes('admin') ? 'Super Administrator' : 'Network Operator (AD)',
+        role: samAccountName.toLowerCase().includes('admin')
+          ? 'Super Administrator'
+          : isAdDomainAdmin
+          ? 'Domain Admin (AD)'
+          : 'Network Operator (AD)',
         userType: 'ad' as const,
         groups: userGroups,
         groupIds: userGroups,
@@ -1539,15 +1544,16 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       // Authoritative effective policy calculation from PostgreSQL
       const effectivePolicy = await getEffectivePolicyForUser(adUser);
 
-      // Verify that user or their groups actually possess an authorized panel policy
+      // Verify that user or their groups actually possess an authorized panel policy (or AD Domain Admin privilege)
       const hasAssignedRole = effectivePolicy && effectivePolicy.id !== 'policy-guest' && (
         effectivePolicy.canViewDashboard ||
         effectivePolicy.canViewTopology ||
         effectivePolicy.canViewDevices ||
-        effectivePolicy.canViewServers
+        effectivePolicy.canViewServers ||
+        effectivePolicy.canViewHelpdesk
       );
 
-      if (!hasAssignedRole && !samAccountName.toLowerCase().includes('admin')) {
+      if (!hasAssignedRole && !samAccountName.toLowerCase().includes('admin') && !isAdDomainAdmin) {
         await addAuditLog({
           userName: adUser.username,
           action: isEn ? 'Active Directory Login Blocked (No RBAC Policy)' : 'مسدودسازی ورود اکتیو دایرکتوری (بدون پالیسی دسترسی)',
@@ -7790,6 +7796,34 @@ apiRouter.post('/schematic/export-authorize', async (req: Request, res: Response
 // AGENTLESS HELPDESK (Single-Host Only, Allowlisted Safe Actions, RBAC + Anti-Ransomware Guard)
 // ============================================================================
 
+// Helper: recognize Active Directory Domain Admins / Enterprise Admins membership
+function isDomainAdminGroups(groups?: unknown, role?: string): boolean {
+  const roleLow = String(role || '').toLowerCase().trim();
+  if (roleLow.includes('domain admin') || roleLow.includes('enterprise admin')) {
+    return true;
+  }
+  const list = Array.isArray(groups) ? groups : [];
+  for (const item of list) {
+    const raw =
+      typeof item === 'string'
+        ? item
+        : String((item as any)?.name || (item as any)?.cn || (item as any)?.dn || '');
+    const low = raw.toLowerCase().trim();
+    if (!low) continue;
+    if (
+      low === 'domain admins' ||
+      low === 'enterprise admins' ||
+      low.startsWith('cn=domain admins,') ||
+      low.startsWith('cn=enterprise admins,') ||
+      /(^|\\|\/|,)domain admins($|,)/i.test(low) ||
+      /(^|\\|\/|,)enterprise admins($|,)/i.test(low)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function resolveHelpdeskAuth(
   req: Request,
   requiredPerm:
@@ -7821,16 +7855,22 @@ async function resolveHelpdeskAuth(
       : String(req.headers['x-forwarded-for'] || '').split(',')[0]
     ).trim() || req.socket?.remoteAddress || 'unknown';
 
-  const canView = isSuperAdmin || effectivePolicy?.canViewHelpdesk === true;
-  const canDiagnostics = isSuperAdmin || (canView && effectivePolicy?.canRunHelpdeskDiagnostics === true);
-  const canActions = isSuperAdmin || (canDiagnostics && effectivePolicy?.canExecuteHelpdeskActions === true);
-  const canEventViewer = isSuperAdmin || (canDiagnostics && effectivePolicy?.canViewHelpdeskEventViewer === true);
-  const canTerminateProc = isSuperAdmin || (canActions && effectivePolicy?.canTerminateHelpdeskProcesses === true);
-  const canCleanTemp = isSuperAdmin || (canActions && effectivePolicy?.canCleanHelpdeskTemp === true);
-  const canGpupdate = isSuperAdmin || (canActions && effectivePolicy?.canRunHelpdeskGpupdate === true);
-  const canSystemRepair = isSuperAdmin || (canActions && effectivePolicy?.canRunHelpdeskSystemRepair === true);
-  const canDomainUsers = isSuperAdmin || (canDiagnostics && effectivePolicy?.canInspectHelpdeskDomainUsers === true);
-  const canPowerControl = isSuperAdmin || (canActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true);
+  const isDomainAdmin = isDomainAdminGroups(
+    (user as any).groups || (user as any).groupIds,
+    user.role
+  );
+  const hasFullHelpdeskAccess = isSuperAdmin || isDomainAdmin;
+
+  const canView = hasFullHelpdeskAccess || effectivePolicy?.canViewHelpdesk === true;
+  const canDiagnostics = hasFullHelpdeskAccess || (canView && effectivePolicy?.canRunHelpdeskDiagnostics === true);
+  const canActions = hasFullHelpdeskAccess || (canDiagnostics && effectivePolicy?.canExecuteHelpdeskActions === true);
+  const canEventViewer = hasFullHelpdeskAccess || (canDiagnostics && effectivePolicy?.canViewHelpdeskEventViewer === true);
+  const canTerminateProc = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canTerminateHelpdeskProcesses === true);
+  const canCleanTemp = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canCleanHelpdeskTemp === true);
+  const canGpupdate = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canRunHelpdeskGpupdate === true);
+  const canSystemRepair = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canRunHelpdeskSystemRepair === true);
+  const canDomainUsers = hasFullHelpdeskAccess || (canDiagnostics && effectivePolicy?.canInspectHelpdeskDomainUsers === true);
+  const canPowerControl = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true);
 
   const allowed =
     requiredPerm === 'view'
@@ -7945,7 +7985,12 @@ async function resolveHelpdeskAuth(
 function extractHelpdeskTargetFromBody(body: any): HelpdeskTargetInput {
   const rawProto = String(body?.protocol || 'auto').trim().toLowerCase();
   const protocol: HelpdeskProtocol =
-    rawProto === 'winrm_https' || rawProto === 'winrm_http' || rawProto === 'ssh' ? rawProto : 'auto';
+    rawProto === 'winrm_https' ||
+    rawProto === 'winrm_http' ||
+    rawProto === 'smb_rpc' ||
+    rawProto === 'ssh'
+      ? rawProto
+      : 'auto';
   const port = body?.port !== undefined && body?.port !== '' ? Number(body.port) : undefined;
   return {
     targetIp: String(body?.targetIp || '').trim(),

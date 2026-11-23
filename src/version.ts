@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.458.0';
+export const APP_VERSION = '1.459.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.459.0',
+    releaseDate: '2026-11-23',
+    type: 'minor',
+    title: 'افزودن اتصال ویژه دامین ادمین از طریق SMB2/DCERPC (پورت 445)، ارتقای احراز هویت WinRM به SPNEGO Negotiate/UPN و پشتیبانی از نقش Domain Admins در RBAC هلپ‌دسک',
+    title_en: 'Add Domain Admin SMB2/DCERPC (TCP 445) Transport, WinRM SPNEGO Negotiate/UPN Auth & AD Domain Admins HelpDesk RBAC',
+    changes: [
+      'پیاده‌سازی موتور بومی **SMB2/3 + NTLMv2/SPNEGO + DCERPC (`\\pipe\\svcctl` و `ADMIN$`)** بر بستر **TCP 445** در فایل جدید `server/helpdeskSmbRpcTransport.ts` جهت اتصال امن دامین ادمین به کلاینت‌های ویندوزی عضو دامین حتی زمانی که سرویس‌های WinRM (5985/5986) و OpenSSH (22) غیرفعال هستند، همراه با امضای بسته‌های SMB (HMAC-SHA256 / AES-128-CMAC) و پاک‌سازی کامل فایل‌ها و سرویس موقت پس از اجرا.',
+      'ارتقای نشست بومی **WinRM (`NativeWinRmSession`)** با پشتیبانی کامل از هدر **`WWW-Authenticate: Negotiate` (SPNEGO)**، فرمت نام کاربری **UPN (`user@domain.local`)** مطابق استاندارد MS-NLMP §3.3.2، استفاده از `MsvAvTimestamp` جهت جلوگیری از خطای اختلاف ساعت دامین و کشف خودکار نام NetBIOS دامین برای نام‌های کاربری بدون پیشوند.',
+      'افزودن گزینه **«دامین ادمین SMB/RPC (445)»** در انتخابگر پروتکل HelpDesk و فعال‌سازی مسیر تطبیقی خودکار (`Auto: 5986 → 5985 → 445 → 22`) به همراه Fallback خودکار از WinRM ناموفق به پورت 445.',
+      'پشتیبانی از اعضای گروه‌های اکتیو دایرکتوری **`Domain Admins`** و **`Enterprise Admins`** در ورود به پنل و احراز دسترسی ماژول HelpDesk (`server/routes.ts`، `src/utils/rbac.ts`، `src/services/settingsStorage.ts`، `src/components/HelpDeskView.tsx`) بدون افزایش غیرمجاز سطح دسترسی به منوی تنظیمات Super Admin و با ثبت کامل Audit Logs.'
+    ],
+    changes_en: [
+      'Implemented a native pure-TypeScript **SMB2/3 + NTLMv2/SPNEGO + DCERPC (`\\pipe\\svcctl` + `ADMIN$`)** transport over **TCP 445** (`server/helpdeskSmbRpcTransport.ts`) allowing Domain Admins to manage domain-joined Windows workstations even when WinRM (5985/5986) and OpenSSH (22) are closed, with full SMB2/3 packet signing (HMAC-SHA256 / AES-128-CMAC) and guaranteed cleanup of ephemeral temp files and SCM handles.',
+      'Upgraded **`NativeWinRmSession`** to support **`WWW-Authenticate: Negotiate` (SPNEGO)**, MS-NLMP §3.3.2 compliant **UPN (`user@domain.local`)** logins, server `MsvAvTimestamp` clock-skew immunity, and automatic NetBIOS domain retry for bare usernames.',
+      'Added **`Domain Admin SMB/RPC (445)`** to the HelpDesk protocol selector and upgraded adaptive `Auto` probing (`5986 → 5985 → 445 → 22`) with automatic SMB/RPC fallback when WinRM rejects authentication or unencrypted requests.',
+      'Recognized Active Directory **`Domain Admins`** and **`Enterprise Admins`** group membership in AD login and HelpDesk RBAC (`server/routes.ts`, `src/utils/rbac.ts`, `src/services/settingsStorage.ts`, `src/components/HelpDeskView.tsx`) while keeping panel Settings strictly restricted to Super Admins and logging every operation in Audit Logs.'
+    ],
+  },
   {
     version: '1.458.0',
     releaseDate: '2026-11-23',

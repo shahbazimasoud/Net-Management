@@ -1766,6 +1766,44 @@ export function isUserSuperAdmin(
 }
 
 /**
+ * Evaluates whether an active session user belongs to Active Directory
+ * Domain Admins or Enterprise Admins (enabling HelpDesk workstation access
+ * without escalating to panel Super Admin settings authority).
+ */
+export function isUserDomainAdmin(
+  user?: { role?: string; groups?: any[]; groupIds?: any[] } | null | undefined
+): boolean {
+  if (!user) return false;
+  const roleLow = String(user.role || '').toLowerCase().trim();
+  if (roleLow.includes('domain admin') || roleLow.includes('enterprise admin')) {
+    return true;
+  }
+  const allGroups = [
+    ...(Array.isArray(user.groups) ? user.groups : []),
+    ...(Array.isArray(user.groupIds) ? user.groupIds : []),
+  ];
+  for (const item of allGroups) {
+    const raw =
+      typeof item === 'string'
+        ? item
+        : String((item as any)?.name || (item as any)?.cn || (item as any)?.dn || '');
+    const low = raw.toLowerCase().trim();
+    if (!low) continue;
+    if (
+      low === 'domain admins' ||
+      low === 'enterprise admins' ||
+      low.startsWith('cn=domain admins,') ||
+      low.startsWith('cn=enterprise admins,') ||
+      /(^|\\|\/|,)domain admins($|,)/i.test(low) ||
+      /(^|\\|\/|,)enterprise admins($|,)/i.test(low)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Strict RBAC rule: ONLY Super Administrator profiles possess the authority to access
  * the Settings navigation menu and all configuration sub-menus.
  */

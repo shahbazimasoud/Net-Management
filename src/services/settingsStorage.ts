@@ -13,6 +13,7 @@ import {
 import {
   canUserViewSessionRecordings,
   canUserManageSessionRecordingSettings,
+  isUserDomainAdmin,
 } from '../utils/rbac';
 
 export const STORAGE_KEYS = {
@@ -1499,7 +1500,7 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
     case 'ssl-certificates':
       return policy?.canViewSslCertificates !== undefined ? Boolean(policy?.canViewSslCertificates) : true;
     case 'helpdesk':
-      return policy?.canViewHelpdesk !== undefined ? Boolean(policy?.canViewHelpdesk) : false;
+      return (policy?.canViewHelpdesk !== undefined ? Boolean(policy?.canViewHelpdesk) : false) || isUserDomainAdmin(user);
     case 'communications':
       return policy?.canViewCommunications !== undefined ? Boolean(policy?.canViewCommunications) : true;
     case 'profile-security':

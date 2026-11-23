@@ -4,8 +4,17 @@ import https from 'https';
 import net from 'net';
 import { Client, ConnectConfig } from 'ssh2';
 import { explainEventCodeHuman, HumanEventExplanation } from './helpdeskEventCatalog';
+import {
+  createNtlmType1Buffer,
+  createNtlmType3Result,
+  parseNtlmCredentials,
+  wrapSpnegoNegTokenInit,
+  wrapSpnegoNegTokenResp,
+  runDomainAdminSmbRpcPowerShell,
+} from './helpdeskSmbRpcTransport';
 
-export type HelpdeskProtocol = 'auto' | 'winrm_https' | 'winrm_http' | 'ssh';
+export type HelpdeskProtocol = 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
+export type HelpdeskResolvedProtocol = 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
 export type HelpdeskWriteAction =
   | 'network_flush_dns'
   | 'network_renew_ip'
@@ -70,7 +79,7 @@ export interface HelpdeskDiskItem {
 
 export interface HelpdeskHealthResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   portUsed: number;
   osFamily: 'windows' | 'linux';
   collectedAt: string;
@@ -124,7 +133,7 @@ export interface HelpdeskNetworkAdapter {
 
 export interface HelpdeskNetworkSnapshotResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   portUsed: number;
   osFamily: 'windows' | 'linux';
   collectedAt: string;
@@ -140,7 +149,7 @@ export interface HelpdeskNetworkSnapshotResult {
 
 export interface HelpdeskProbeResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   osFamily: 'windows' | 'linux';
   probeType: 'ping' | 'port' | 'dns';
   probeTarget: string;
@@ -156,7 +165,7 @@ export interface HelpdeskProbeResult {
 
 export interface HelpdeskActionResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   osFamily: 'windows' | 'linux';
   action: HelpdeskWriteAction;
   success: boolean;
@@ -190,7 +199,7 @@ export interface HelpdeskPrintJobItem {
 
 export interface HelpdeskPrinterStatusResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   portUsed: number;
   osFamily: 'windows' | 'linux';
   collectedAt: string;
@@ -231,7 +240,7 @@ export interface HelpdeskEventLogItem {
 
 export interface HelpdeskEventViewerResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   portUsed: number;
   osFamily: 'windows' | 'linux';
   hostname: string;
@@ -275,7 +284,7 @@ export interface HelpdeskTempLargeFile {
 
 export interface HelpdeskTempScanResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   portUsed: number;
   osFamily: 'windows' | 'linux';
   hostname: string;
@@ -288,7 +297,7 @@ export interface HelpdeskTempScanResult {
 
 export interface HelpdeskTempCleanResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   osFamily: 'windows' | 'linux';
   hostname: string;
   scope: 'user_temp' | 'windows_temp' | 'both';
@@ -304,7 +313,7 @@ export interface HelpdeskTempCleanResult {
 
 export interface HelpdeskGpoStatusResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   portUsed: number;
   osFamily: 'windows' | 'linux';
   hostname: string;
@@ -485,222 +494,12 @@ function escapeXml(val: string): string {
 }
 
 // ============================================================================
-// 3. PURE TYPESCRIPT NTLMv2 IMPLEMENTATION (RFC / MS-NLMP for Native WinRM)
+// 3. NATIVE WS-MAN / WINRM TRANSPORT (HTTPS 5986 & HTTP 5985)
+//    Supports NTLMv2, SPNEGO Negotiate (AD default), UPN (user@domain), Basic
 // ============================================================================
 
-function md4(message: Buffer): Buffer {
-  const bitLen = BigInt(message.length) * 8n;
-  const padLen = ((55 - (message.length % 64)) + 64) % 64;
-  const padded = Buffer.alloc(message.length + 1 + padLen + 8);
-  message.copy(padded, 0);
-  padded[message.length] = 0x80;
-  padded.writeBigUInt64LE(bitLen, padded.length - 8);
-
-  let a = 0x67452301;
-  let b = 0xefcdab89;
-  let c = 0x98badcfe;
-  let d = 0x10325476;
-
-  const rotl = (x: number, n: number) => ((x << n) | (x >>> (32 - n))) >>> 0;
-  const F = (x: number, y: number, z: number) => ((x & y) | (~x & z)) >>> 0;
-  const G = (x: number, y: number, z: number) => ((x & y) | (x & z) | (y & z)) >>> 0;
-  const H = (x: number, y: number, z: number) => (x ^ y ^ z) >>> 0;
-
-  const x = new Uint32Array(16);
-  for (let offset = 0; offset < padded.length; offset += 64) {
-    for (let i = 0; i < 16; i++) x[i] = padded.readUInt32LE(offset + i * 4);
-    const aa = a;
-    const bb = b;
-    const cc = c;
-    const dd = d;
-
-    const r1 = [
-      [0, 3], [1, 7], [2, 11], [3, 19],
-      [4, 3], [5, 7], [6, 11], [7, 19],
-      [8, 3], [9, 7], [10, 11], [11, 19],
-      [12, 3], [13, 7], [14, 11], [15, 19],
-    ];
-    for (let i = 0; i < 16; i++) {
-      const [k, s] = r1[i];
-      if (i % 4 === 0) a = rotl((a + F(b, c, d) + x[k]) >>> 0, s);
-      else if (i % 4 === 1) d = rotl((d + F(a, b, c) + x[k]) >>> 0, s);
-      else if (i % 4 === 2) c = rotl((c + F(d, a, b) + x[k]) >>> 0, s);
-      else b = rotl((b + F(c, d, a) + x[k]) >>> 0, s);
-    }
-
-    const r2 = [
-      [0, 3], [4, 5], [8, 9], [12, 13],
-      [1, 3], [5, 5], [9, 9], [13, 13],
-      [2, 3], [6, 5], [10, 9], [14, 13],
-      [3, 3], [7, 5], [11, 9], [15, 13],
-    ];
-    for (let i = 0; i < 16; i++) {
-      const [k, s] = r2[i];
-      if (i % 4 === 0) a = rotl((a + G(b, c, d) + x[k] + 0x5a827999) >>> 0, s);
-      else if (i % 4 === 1) d = rotl((d + G(a, b, c) + x[k] + 0x5a827999) >>> 0, s);
-      else if (i % 4 === 2) c = rotl((c + G(d, a, b) + x[k] + 0x5a827999) >>> 0, s);
-      else b = rotl((b + G(c, d, a) + x[k] + 0x5a827999) >>> 0, s);
-    }
-
-    const r3 = [
-      [0, 3], [8, 9], [4, 11], [12, 15],
-      [2, 3], [10, 9], [6, 11], [14, 15],
-      [1, 3], [9, 9], [5, 11], [13, 15],
-      [3, 3], [11, 9], [7, 11], [15, 15],
-    ];
-    for (let i = 0; i < 16; i++) {
-      const [k, s] = r3[i];
-      if (i % 4 === 0) a = rotl((a + H(b, c, d) + x[k] + 0x6ed9eba1) >>> 0, s);
-      else if (i % 4 === 1) d = rotl((d + H(a, b, c) + x[k] + 0x6ed9eba1) >>> 0, s);
-      else if (i % 4 === 2) c = rotl((c + H(d, a, b) + x[k] + 0x6ed9eba1) >>> 0, s);
-      else b = rotl((b + H(c, d, a) + x[k] + 0x6ed9eba1) >>> 0, s);
-    }
-
-    a = (a + aa) >>> 0;
-    b = (b + bb) >>> 0;
-    c = (c + cc) >>> 0;
-    d = (d + dd) >>> 0;
-  }
-
-  const out = Buffer.alloc(16);
-  out.writeUInt32LE(a, 0);
-  out.writeUInt32LE(b, 4);
-  out.writeUInt32LE(c, 8);
-  out.writeUInt32LE(d, 12);
-  return out;
-}
-
-function hmacMd5(key: Buffer, data: Buffer): Buffer {
-  return crypto.createHmac('md5', key).update(data).digest();
-}
-
-function parseDomainAndUser(rawUsername: string): { domain: string; user: string } {
-  const trimmed = rawUsername.trim();
-  if (trimmed.includes('\\')) {
-    const idx = trimmed.indexOf('\\');
-    const dom = trimmed.slice(0, idx);
-    return { domain: dom === '.' ? '' : dom, user: trimmed.slice(idx + 1) };
-  }
-  if (trimmed.includes('@')) {
-    const idx = trimmed.indexOf('@');
-    return { domain: trimmed.slice(idx + 1), user: trimmed.slice(0, idx) };
-  }
-  return { domain: '', user: trimmed };
-}
-
-function createNtlmType1Message(): string {
-  const buf = Buffer.alloc(32);
-  buf.write('NTLMSSP\0', 0, 'ascii');
-  buf.writeUInt32LE(1, 8); // Type 1
-  // Flags: Negotiate Unicode | Request Target | Negotiate NTLM | Negotiate Extended Security
-  buf.writeUInt32LE(0x00088205, 12);
-  return `NTLM ${buf.toString('base64')}`;
-}
-
-function createNtlmType3Message(
-  type2Base64: string,
-  rawUsername: string,
-  password: string,
-  workstation = 'HELPDESK'
-): string {
-  const type2 = Buffer.from(type2Base64, 'base64');
-  if (type2.length < 32 || type2.toString('ascii', 0, 8) !== 'NTLMSSP\0') {
-    throw new Error('Invalid NTLM Type 2 challenge received from Windows endpoint.');
-  }
-  const serverChallenge = type2.subarray(24, 32);
-  let targetInfo = Buffer.alloc(0);
-  if (type2.length >= 48) {
-    const targetInfoLen = type2.readUInt16LE(40);
-    const targetInfoOffset = type2.readUInt32LE(44);
-    if (targetInfoLen > 0 && targetInfoOffset + targetInfoLen <= type2.length) {
-      targetInfo = type2.subarray(targetInfoOffset, targetInfoOffset + targetInfoLen);
-    }
-  }
-
-  const { domain, user } = parseDomainAndUser(rawUsername);
-  const ntHash = md4(Buffer.from(password, 'utf16le'));
-  const ntlmv2Hash = hmacMd5(ntHash, Buffer.from(`${user.toUpperCase()}${domain}`, 'utf16le'));
-
-  const clientChallenge = crypto.randomBytes(8);
-  // Windows FILETIME (100ns intervals since Jan 1, 1601)
-  const filetime = (BigInt(Date.now()) + 11644473600000n) * 10000n;
-  const timestampBuf = Buffer.alloc(8);
-  timestampBuf.writeBigUInt64LE(filetime, 0);
-
-  const blobHeader = Buffer.alloc(28);
-  blobHeader.writeUInt32LE(0x00000101, 0); // RespType=1, HiRespType=1
-  blobHeader.writeUInt32LE(0, 4); // Reserved
-  timestampBuf.copy(blobHeader, 8);
-  clientChallenge.copy(blobHeader, 16);
-  blobHeader.writeUInt32LE(0, 24);
-
-  const blob = Buffer.concat([blobHeader, targetInfo, Buffer.alloc(4)]);
-  const ntProofStr = hmacMd5(ntlmv2Hash, Buffer.concat([serverChallenge, blob]));
-  const ntResponse = Buffer.concat([ntProofStr, blob]);
-
-  const lmProof = hmacMd5(ntlmv2Hash, Buffer.concat([serverChallenge, clientChallenge]));
-  const lmResponse = Buffer.concat([lmProof, clientChallenge]);
-
-  const domainBuf = Buffer.from(domain, 'utf16le');
-  const userBuf = Buffer.from(user, 'utf16le');
-  const workstationBuf = Buffer.from(workstation, 'utf16le');
-
-  const headerLen = 64;
-  let offset = headerLen;
-  const lmOffset = offset;
-  offset += lmResponse.length;
-  const ntOffset = offset;
-  offset += ntResponse.length;
-  const domOffset = offset;
-  offset += domainBuf.length;
-  const userOffset = offset;
-  offset += userBuf.length;
-  const wsOffset = offset;
-  offset += workstationBuf.length;
-
-  const msg = Buffer.alloc(offset);
-  msg.write('NTLMSSP\0', 0, 'ascii');
-  msg.writeUInt32LE(3, 8); // Type 3
-
-  // LM
-  msg.writeUInt16LE(lmResponse.length, 12);
-  msg.writeUInt16LE(lmResponse.length, 14);
-  msg.writeUInt32LE(lmOffset, 16);
-  // NT
-  msg.writeUInt16LE(ntResponse.length, 20);
-  msg.writeUInt16LE(ntResponse.length, 22);
-  msg.writeUInt32LE(ntOffset, 24);
-  // Domain
-  msg.writeUInt16LE(domainBuf.length, 28);
-  msg.writeUInt16LE(domainBuf.length, 30);
-  msg.writeUInt32LE(domOffset, 32);
-  // User
-  msg.writeUInt16LE(userBuf.length, 36);
-  msg.writeUInt16LE(userBuf.length, 38);
-  msg.writeUInt32LE(userOffset, 40);
-  // Workstation
-  msg.writeUInt16LE(workstationBuf.length, 44);
-  msg.writeUInt16LE(workstationBuf.length, 46);
-  msg.writeUInt32LE(wsOffset, 48);
-  // Session key (empty)
-  msg.writeUInt16LE(0, 52);
-  msg.writeUInt16LE(0, 54);
-  msg.writeUInt32LE(offset, 56);
-  // Flags
-  msg.writeUInt32LE(0x00088205, 60);
-
-  lmResponse.copy(msg, lmOffset);
-  ntResponse.copy(msg, ntOffset);
-  domainBuf.copy(msg, domOffset);
-  userBuf.copy(msg, userOffset);
-  workstationBuf.copy(msg, wsOffset);
-
-  return `NTLM ${msg.toString('base64')}`;
-}
-
-// ============================================================================
-// 4. NATIVE WS-MAN / WINRM TRANSPORT (HTTPS 5986 & HTTP 5985)
-// ============================================================================
+// WinRM HTTP/HTTPS NTLM flags: Unicode | RequestTarget | NTLM | AlwaysSign | ExtendedSessionSecurity
+const WINRM_NTLM_FLAGS = 0x00088205;
 
 class NativeWinRmSession {
   private host: string;
@@ -710,7 +509,7 @@ class NativeWinRmSession {
   private password: string;
   private timeoutMs: number;
   private agent: http.Agent | https.Agent;
-  private authMode: 'unknown' | 'ntlm' | 'basic' = 'unknown';
+  private authMode: 'unknown' | 'ntlm' | 'negotiate' | 'basic' = 'unknown';
 
   constructor(opts: {
     host: string;
@@ -726,7 +525,7 @@ class NativeWinRmSession {
     this.username = opts.username;
     this.password = opts.password;
     this.timeoutMs = opts.timeoutMs;
-    // Keep-Alive is mandatory for NTLM connection-bound authentication
+    // Keep-Alive is mandatory for NTLM/Negotiate connection-bound authentication
     this.agent = opts.useHttps
       ? new https.Agent({ keepAlive: true, maxSockets: 1, rejectUnauthorized: false })
       : new http.Agent({ keepAlive: true, maxSockets: 1 });
@@ -786,6 +585,50 @@ class NativeWinRmSession {
     });
   }
 
+  private async tryNtlmOrNegotiateHandshake(
+    scheme: 'NTLM' | 'Negotiate',
+    envelopeXml: string,
+    domainOverride?: string
+  ): Promise<{ ok: boolean; status: number; wwwAuth: string; serverNbDomain: string; body: string }> {
+    const type1Buf = createNtlmType1Buffer(WINRM_NTLM_FLAGS);
+    const step1Token =
+      scheme === 'Negotiate'
+        ? wrapSpnegoNegTokenInit(type1Buf).toString('base64')
+        : type1Buf.toString('base64');
+
+    const type1Res = await this.rawPost('', `${scheme} ${step1Token}`);
+    const wwwAuthRaw = type1Res.headers['www-authenticate'];
+    const wwwAuth = Array.isArray(wwwAuthRaw) ? wwwAuthRaw.join(', ') : String(wwwAuthRaw || '');
+
+    const regex = scheme === 'Negotiate' ? /Negotiate\s+([A-Za-z0-9+/=]+)/i : /NTLM\s+([A-Za-z0-9+/=]+)/i;
+    const match = wwwAuth.match(regex);
+    if (type1Res.status !== 401 || !match) {
+      return { ok: false, status: type1Res.status, wwwAuth, serverNbDomain: '', body: type1Res.body };
+    }
+
+    const type3 = createNtlmType3Result(Buffer.from(match[1], 'base64'), this.username, this.password, {
+      domainOverride,
+      requestFlags: WINRM_NTLM_FLAGS,
+    });
+    const step3Token =
+      scheme === 'Negotiate'
+        ? wrapSpnegoNegTokenResp(type3.type3Buf).toString('base64')
+        : type3.type3Buf.toString('base64');
+
+    const authRes = await this.rawPost(envelopeXml, `${scheme} ${step3Token}`);
+    if (authRes.status >= 200 && authRes.status < 300) {
+      this.authMode = scheme === 'Negotiate' ? 'negotiate' : 'ntlm';
+      return { ok: true, status: authRes.status, wwwAuth, serverNbDomain: type3.serverNbDomain, body: authRes.body };
+    }
+    return {
+      ok: false,
+      status: authRes.status,
+      wwwAuth,
+      serverNbDomain: type3.serverNbDomain,
+      body: authRes.body,
+    };
+  }
+
   private async soapRequest(envelopeXml: string): Promise<string> {
     if (this.authMode === 'basic') {
       const basic = `Basic ${Buffer.from(`${this.username}:${this.password}`).toString('base64')}`;
@@ -799,8 +642,8 @@ class NativeWinRmSession {
       return r.body;
     }
 
-    // If NTLM already authenticated on keep-alive socket, send directly; if server asks 401 re-negotiate
-    if (this.authMode === 'ntlm') {
+    // If NTLM/Negotiate already authenticated on keep-alive socket, send directly; if server asks 401 re-negotiate
+    if (this.authMode === 'ntlm' || this.authMode === 'negotiate') {
       const r = await this.rawPost(envelopeXml);
       if (r.status >= 200 && r.status < 300) return r.body;
       if (r.status !== 401) {
@@ -808,31 +651,37 @@ class NativeWinRmSession {
       }
     }
 
-    // Step 1: Send NTLM Type 1 Negotiate
-    const type1Res = await this.rawPost('', createNtlmType1Message());
-    const wwwAuthRaw = type1Res.headers['www-authenticate'];
-    const wwwAuthList = Array.isArray(wwwAuthRaw)
-      ? wwwAuthRaw.join(', ')
-      : String(wwwAuthRaw || '');
+    const parsedCred = parseNtlmCredentials(this.username);
+    const canRetryWithServerDomain = !parsedCred.domain && !parsedCred.isUpn && !parsedCred.explicitLocal;
 
-    const ntlmChallengeMatch = wwwAuthList.match(/NTLM\s+([A-Za-z0-9+/=]+)/i);
-    if (type1Res.status === 401 && ntlmChallengeMatch) {
-      const type3Header = createNtlmType3Message(ntlmChallengeMatch[1], this.username, this.password);
-      const authRes = await this.rawPost(envelopeXml, type3Header);
-      if (authRes.status === 401) {
-        throw new Error(
-          'WinRM NTLM authentication rejected (HTTP 401). Verify username (e.g. DOMAIN\\user), password, and WinRM permissions.'
-        );
-      }
-      if (authRes.status >= 400) {
-        throw new Error(`WinRM SOAP error (HTTP ${authRes.status}): ${extractSoapFault(authRes.body)}`);
-      }
-      this.authMode = 'ntlm';
-      return authRes.body;
+    // 1. Try NTLM directly (modern NTLMv2 with UPN + MsvAvTimestamp support)
+    const ntlmAttempt = await this.tryNtlmOrNegotiateHandshake('NTLM', envelopeXml);
+    if (ntlmAttempt.ok) return ntlmAttempt.body;
+
+    if (ntlmAttempt.status === 401 && canRetryWithServerDomain && ntlmAttempt.serverNbDomain) {
+      const retryNtlm = await this.tryNtlmOrNegotiateHandshake('NTLM', envelopeXml, ntlmAttempt.serverNbDomain);
+      if (retryNtlm.ok) return retryNtlm.body;
+    }
+    if (ntlmAttempt.status >= 400 && ntlmAttempt.status !== 401) {
+      throw new Error(`WinRM SOAP error (HTTP ${ntlmAttempt.status}): ${extractSoapFault(ntlmAttempt.body)}`);
     }
 
-    // Fallback to Basic Auth if server advertises Basic
-    if (type1Res.status === 401 && /basic/i.test(wwwAuthList)) {
+    // 2. Try SPNEGO Negotiate (default auth scheme on AD domain-joined Windows WinRM)
+    if (ntlmAttempt.status === 401 && /negotiate/i.test(ntlmAttempt.wwwAuth)) {
+      const negAttempt = await this.tryNtlmOrNegotiateHandshake('Negotiate', envelopeXml);
+      if (negAttempt.ok) return negAttempt.body;
+
+      if (negAttempt.status === 401 && canRetryWithServerDomain && negAttempt.serverNbDomain) {
+        const retryNeg = await this.tryNtlmOrNegotiateHandshake('Negotiate', envelopeXml, negAttempt.serverNbDomain);
+        if (retryNeg.ok) return retryNeg.body;
+      }
+      if (negAttempt.status >= 400 && negAttempt.status !== 401) {
+        throw new Error(`WinRM SOAP error (HTTP ${negAttempt.status}): ${extractSoapFault(negAttempt.body)}`);
+      }
+    }
+
+    // 3. Fallback to Basic Auth if server advertises Basic
+    if (ntlmAttempt.status === 401 && /basic/i.test(ntlmAttempt.wwwAuth)) {
       const basic = `Basic ${Buffer.from(`${this.username}:${this.password}`).toString('base64')}`;
       const basicRes = await this.rawPost(envelopeXml, basic);
       if (basicRes.status === 401) {
@@ -845,13 +694,13 @@ class NativeWinRmSession {
       return basicRes.body;
     }
 
-    if (type1Res.status === 401) {
+    if (ntlmAttempt.status === 401) {
       throw new Error(
-        `WinRM authentication failed (HTTP 401). Endpoint advertised: ${wwwAuthList || 'none'}. Ensure NTLM or Basic over HTTPS is enabled on WinRM.`
+        `WinRM authentication rejected (HTTP 401). Advertised schemes: ${ntlmAttempt.wwwAuth || 'none'}. Verify DOMAIN\\user (or user@domain.local) credentials and WinRM permissions.`
       );
     }
 
-    throw new Error(`Unexpected WinRM HTTP status ${type1Res.status} from ${this.host}:${this.port}.`);
+    throw new Error(`Unexpected WinRM HTTP status ${ntlmAttempt.status} from ${this.host}:${this.port}.`);
   }
 
   async runPowerShellScript(script: string, jeaConfigName?: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
@@ -1169,7 +1018,7 @@ function tcpPortOpen(host: string, port: number, timeoutMs = 2000): Promise<bool
 
 async function resolveConnectionRoute(input: HelpdeskTargetInput): Promise<{
   host: string;
-  protocol: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocol: HelpdeskResolvedProtocol;
   port: number;
   jeaConfigName?: string;
 }> {
@@ -1183,23 +1032,28 @@ async function resolveConnectionRoute(input: HelpdeskTargetInput): Promise<{
   if (requested === 'winrm_http') {
     return { host, protocol: 'winrm_http', port: input.port || 5985, jeaConfigName };
   }
+  if (requested === 'smb_rpc') {
+    return { host, protocol: 'smb_rpc', port: input.port || 445, jeaConfigName };
+  }
   if (requested === 'ssh') {
     return { host, protocol: 'ssh', port: input.port || 22, jeaConfigName };
   }
 
-  // Auto adaptive negotiation: modern WinRM HTTPS (5986) -> WinRM HTTP (5985) -> OpenSSH (22)
-  const [p5986, p5985, p22] = await Promise.all([
+  // Adaptive negotiation: WinRM HTTPS (5986) -> WinRM HTTP (5985) -> Domain Admin SMB/RPC (445) -> OpenSSH (22)
+  const [p5986, p5985, p445, p22] = await Promise.all([
     tcpPortOpen(host, 5986, 2200),
     tcpPortOpen(host, 5985, 2200),
+    tcpPortOpen(host, 445, 2200),
     tcpPortOpen(host, 22, 2200),
   ]);
 
   if (p5986) return { host, protocol: 'winrm_https', port: 5986, jeaConfigName };
   if (p5985) return { host, protocol: 'winrm_http', port: 5985, jeaConfigName };
+  if (p445) return { host, protocol: 'smb_rpc', port: 445, jeaConfigName };
   if (p22) return { host, protocol: 'ssh', port: 22, jeaConfigName };
 
   throw new Error(
-    `Endpoint ${host} is unreachable on management ports (WinRM HTTPS 5986, WinRM HTTP 5985, SSH 22). Ensure the workstation is online and WinRM or OpenSSH is permitted by Windows Firewall.`
+    `Endpoint ${host} is unreachable on management ports (WinRM HTTPS 5986, WinRM HTTP 5985, Domain Admin SMB/RPC 445, SSH 22). Ensure the workstation is online and Windows Firewall permits WinRM, File & Printer Sharing (TCP 445 for Domain Admin), or OpenSSH.`
   );
 }
 
@@ -1209,7 +1063,7 @@ async function executeHardcodedScripts(
   linuxShellScript: string
 ): Promise<{
   host: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   portUsed: number;
   osFamily: 'windows' | 'linux';
   stdout: string;
@@ -1221,8 +1075,31 @@ async function executeHardcodedScripts(
     throw new Error('Session username and password are required to connect to the target endpoint.');
   }
 
+  const requested = input.protocol || 'auto';
   const route = await resolveConnectionRoute(input);
   const timeoutMs = Math.max(5000, Math.min(300000, Number(input.timeoutMs) || 18000));
+
+  if (route.protocol === 'smb_rpc') {
+    const smbRes = await runDomainAdminSmbRpcPowerShell({
+      host: route.host,
+      port: route.port,
+      username,
+      password,
+      script: windowsPsScript,
+      timeoutMs,
+    });
+    if (!smbRes.stdout.trim() && smbRes.stderr.trim()) {
+      throw new Error(smbRes.stderr.trim().slice(0, 400));
+    }
+    return {
+      host: route.host,
+      protocolUsed: 'smb_rpc',
+      portUsed: route.port,
+      osFamily: 'windows',
+      stdout: smbRes.stdout,
+      stderr: smbRes.stderr,
+    };
+  }
 
   if (route.protocol === 'winrm_https' || route.protocol === 'winrm_http') {
     const winrm = new NativeWinRmSession({
@@ -1246,6 +1123,37 @@ async function executeHardcodedScripts(
         stdout: res.stdout,
         stderr: res.stderr,
       };
+    } catch (winrmErr: any) {
+      // Adaptive Domain Admin fallback in 'auto' mode: if WinRM rejects (e.g., AllowUnencrypted=false or Kerberos-only),
+      // automatically retry over Domain Admin SMB2/DCERPC (TCP 445) when port 445 is open.
+      if (requested === 'auto' && !route.jeaConfigName && (await tcpPortOpen(route.host, 445, 1800))) {
+        try {
+          const smbRes = await runDomainAdminSmbRpcPowerShell({
+            host: route.host,
+            port: 445,
+            username,
+            password,
+            script: windowsPsScript,
+            timeoutMs,
+          });
+          if (!smbRes.stdout.trim() && smbRes.stderr.trim()) {
+            throw new Error(smbRes.stderr.trim().slice(0, 400));
+          }
+          return {
+            host: route.host,
+            protocolUsed: 'smb_rpc',
+            portUsed: 445,
+            osFamily: 'windows',
+            stdout: smbRes.stdout,
+            stderr: smbRes.stderr,
+          };
+        } catch (smbErr: any) {
+          throw new Error(
+            `WinRM (${route.port}) failed: ${winrmErr?.message || 'unknown'} | Domain Admin SMB/RPC (445) fallback also failed: ${smbErr?.message || 'unknown'}`
+          );
+        }
+      }
+      throw winrmErr;
     } finally {
       winrm.destroy();
     }
@@ -3280,7 +3188,7 @@ export interface HelpdeskHotfixItem {
 
 export interface HelpdeskSystemInfoResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   portUsed: number;
   osFamily: 'windows' | 'linux';
   hostname: string;
@@ -3493,7 +3401,7 @@ export interface HelpdeskLogicalVolumeHealth {
 
 export interface HelpdeskDiskHealthResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   portUsed: number;
   osFamily: 'windows' | 'linux';
   hostname: string;
@@ -3512,7 +3420,7 @@ export type HelpdeskRepairMode =
 
 export interface HelpdeskSystemRepairResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   portUsed: number;
   osFamily: 'windows' | 'linux';
   mode: HelpdeskRepairMode;
@@ -3882,7 +3790,7 @@ $sched = ($out -match 'next time the system restarts|scheduled to be checked')
 
 export interface HelpdeskDomainUserResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   portUsed: number;
   username: string;
   found: boolean;
@@ -4217,7 +4125,7 @@ export interface HelpdeskBatteryHistoryEntry {
 
 export interface HelpdeskBatteryReportResult {
   targetIp: string;
-  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  protocolUsed: HelpdeskResolvedProtocol;
   portUsed: number;
   osFamily: 'windows' | 'linux';
   hostname: string;
