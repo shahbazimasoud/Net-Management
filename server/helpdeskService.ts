@@ -13,7 +13,17 @@ export type HelpdeskWriteAction =
   | 'spooler_clear_queue'
   | 'process_terminate'
   | 'temp_clean'
-  | 'gpupdate_force';
+  | 'gpupdate_force'
+  | 'sfc_verify'
+  | 'sfc_scannow'
+  | 'dism_check'
+  | 'dism_scan'
+  | 'dism_restore'
+  | 'chkdsk_readonly'
+  | 'chkdsk_hdd_badsector'
+  | 'power_restart'
+  | 'power_shutdown'
+  | 'power_abort';
 
 export type HelpdeskProcessCategory =
   | 'user_app'
@@ -919,12 +929,15 @@ class NativeWinRmSession {
       }
       const commandId = cmdIdMatch[1].trim();
 
-      // 3. Receive Loop
+      // 3. Receive Loop (honors extended timeouts for SFC / DISM / CHKDSK)
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let exitCode = 0;
+      const deadline = Date.now() + this.timeoutMs;
+      const maxIters = Math.max(30, Math.ceil(this.timeoutMs / 10000) + 12);
+      const pollTimeoutSec = Math.max(10, Math.min(25, Math.floor(this.timeoutMs / 1000)));
 
-      for (let iter = 0; iter < 30; iter++) {
+      for (let iter = 0; iter < maxIters && Date.now() < deadline; iter++) {
         const receiveXml = `<?xml version="1.0" encoding="UTF-8"?>
 <env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope"
   xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
@@ -937,7 +950,7 @@ class NativeWinRmSession {
     <a:Action mustUnderstand="true">http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive</a:Action>
     <w:MaxEnvelopeSize mustUnderstand="true">512000</w:MaxEnvelopeSize>
     <a:MessageID>${msgId()}</a:MessageID>
-    <w:OperationTimeout>PT30S</w:OperationTimeout>
+    <w:OperationTimeout>PT${pollTimeoutSec}S</w:OperationTimeout>
     <w:SelectorSet><w:Selector Name="ShellId">${escapeXml(shellId)}</w:Selector></w:SelectorSet>
   </env:Header>
   <env:Body>
@@ -947,7 +960,16 @@ class NativeWinRmSession {
   </env:Body>
 </env:Envelope>`;
 
-        const recRes = await this.soapRequest(receiveXml);
+        let recRes = '';
+        try {
+          recRes = await this.soapRequest(receiveXml);
+        } catch (pollErr: any) {
+          // WinRM OperationTimeout fault (2150858793) on long-running commands simply means command is still running
+          if (/OperationTimeout|2150858793/i.test(String(pollErr?.message || '')) && Date.now() < deadline) {
+            continue;
+          }
+          throw pollErr;
+        }
 
         const streamRegex = /<[^>]*Stream[^>]*Name="([^"]+)"[^>]*>([^<]*)<\/[^>]*Stream>/gi;
         let m: RegExpExecArray | null;
@@ -1200,7 +1222,7 @@ async function executeHardcodedScripts(
   }
 
   const route = await resolveConnectionRoute(input);
-  const timeoutMs = Math.max(5000, Math.min(35000, Number(input.timeoutMs) || 18000));
+  const timeoutMs = Math.max(5000, Math.min(300000, Number(input.timeoutMs) || 18000));
 
   if (route.protocol === 'winrm_https' || route.protocol === 'winrm_http') {
     const winrm = new NativeWinRmSession({
@@ -3246,7 +3268,1212 @@ PY
 }
 
 // ============================================================================
-// 15. WINDOWS JEA & GPO HARDENING TEMPLATES (Zero-Ransomware Endpoint Lock)
+// 15. DETAILED SYSTEM INFO & INSTALLED WINDOWS UPDATES (systeminfo + HotFix)
+// ============================================================================
+
+export interface HelpdeskHotfixItem {
+  hotfixId: string;
+  description: string;
+  installedOn: string;
+  installedBy: string;
+}
+
+export interface HelpdeskSystemInfoResult {
+  targetIp: string;
+  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  osName: string;
+  osVersion: string;
+  osDisplayVersion: string;
+  osBuild: string;
+  osArchitecture: string;
+  installDate: string;
+  lastBootTime: string;
+  uptimeSeconds: number;
+  uptimeFormatted: string;
+  domain: string;
+  domainJoined: boolean;
+  manufacturer: string;
+  model: string;
+  biosVersion: string;
+  serialNumber: string;
+  cpuModel: string;
+  totalRamGb: number;
+  availableRamGb: number;
+  virtualMemTotalGb: number;
+  virtualMemAvailGb: number;
+  hotfixes: HelpdeskHotfixItem[];
+  rawSystemInfo: string;
+  collectedAt: string;
+}
+
+export async function collectEndpointSystemInfo(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskSystemInfoResult> {
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$os = Get-CimInstance Win32_OperatingSystem
+$cs = Get-CimInstance Win32_ComputerSystem
+$bios = Get-CimInstance Win32_BIOS
+$cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+$reg = Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'
+$dispVer = if ($reg.DisplayVersion) { [string]$reg.DisplayVersion } elseif ($reg.ReleaseId) { [string]$reg.ReleaseId } else { '' }
+$ubr = if ($null -ne $reg.UBR) { [string]$reg.UBR } else { '' }
+$fullBuild = if ($ubr) { "$($os.BuildNumber).$ubr" } else { [string]$os.BuildNumber }
+$uptimeSec = if ($os.LastBootUpTime) { [math]::Round(((Get-Date) - $os.LastBootUpTime).TotalSeconds) } else { 0 }
+$bootIso = if ($os.LastBootUpTime) { $os.LastBootUpTime.ToString('yyyy-MM-dd HH:mm:ss') } else { '' }
+$instIso = if ($os.InstallDate) { $os.InstallDate.ToString('yyyy-MM-dd') } else { '' }
+
+$hotfixes = @(Get-CimInstance Win32_QuickFixEngineering | Sort-Object -Property InstalledOn -Descending | Select-Object -First 80 | ForEach-Object {
+  $dt = ''
+  try {
+    if ($_.InstalledOn -is [datetime]) { $dt = $_.InstalledOn.ToString('yyyy-MM-dd') }
+    elseif ($_.InstalledOn) { $dt = [string]$_.InstalledOn }
+  } catch {}
+  [PSCustomObject]@{
+    hotfixId = [string]$_.HotFixID
+    description = [string]$_.Description
+    installedOn = $dt
+    installedBy = [string]$_.InstalledBy
+  }
+})
+
+$rawSys = ''
+try {
+  $rawSys = (& systeminfo.exe 2>&1 | Out-String)
+  if ($rawSys.Length -gt 12000) { $rawSys = $rawSys.Substring(0, 12000) }
+} catch {}
+
+[PSCustomObject]@{
+  hostname = [string]$env:COMPUTERNAME
+  osName = [string]$os.Caption
+  osVersion = [string]$os.Version
+  osDisplayVersion = $dispVer
+  osBuild = $fullBuild
+  osArchitecture = [string]$os.OSArchitecture
+  installDate = $instIso
+  lastBootTime = $bootIso
+  uptimeSeconds = [int]$uptimeSec
+  domain = [string]$cs.Domain
+  domainJoined = [bool]$cs.PartOfDomain
+  manufacturer = [string]$cs.Manufacturer
+  model = [string]$cs.Model
+  biosVersion = [string]($bios.SMBIOSBIOSVersion)
+  serialNumber = [string]($bios.SerialNumber)
+  cpuModel = [string]($cpu.Name)
+  totalRamGb = [math]::Round(($cs.TotalPhysicalMemory / 1GB), 2)
+  availableRamGb = [math]::Round(($os.FreePhysicalMemory / 1MB), 2)
+  virtualMemTotalGb = [math]::Round(($os.TotalVirtualMemorySize / 1MB), 2)
+  virtualMemAvailGb = [math]::Round(($os.FreeVirtualMemory / 1MB), 2)
+  hotfixes = $hotfixes
+  rawSystemInfo = $rawSys
+} | ConvertTo-Json -Depth 5 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PYEOF'
+import json, os, platform, subprocess
+def run(cmd):
+    try:
+        return subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT, text=True, timeout=8).strip()
+    except Exception:
+        return ""
+os_name = platform.platform()
+os_ver = platform.release()
+if os.path.exists('/etc/os-release'):
+    for line in open('/etc/os-release'):
+        if line.startswith('PRETTY_NAME='):
+            os_name = line.split('=',1)[1].strip().strip('"')
+boot = run("uptime -s")
+up_sec = 0
+try:
+    up_sec = int(float(open('/proc/uptime').read().split()[0]))
+except Exception:
+    pass
+mem_total = mem_avail = 0.0
+try:
+    for line in open('/proc/meminfo'):
+        if line.startswith('MemTotal:'): mem_total = round(int(line.split()[1]) / 1048576.0, 2)
+        elif line.startswith('MemAvailable:'): mem_avail = round(int(line.split()[1]) / 1048576.0, 2)
+except Exception:
+    pass
+raw = run("uname -a && lsb_release -a 2>/dev/null || cat /etc/os-release 2>/dev/null")
+print(json.dumps({
+    "hostname": platform.node(),
+    "osName": os_name,
+    "osVersion": os_ver,
+    "osDisplayVersion": platform.machine(),
+    "osBuild": platform.release(),
+    "osArchitecture": platform.machine(),
+    "installDate": "",
+    "lastBootTime": boot,
+    "uptimeSeconds": up_sec,
+    "domain": run("dnsdomainname") or "Workgroup",
+    "domainJoined": bool(run("realm list 2>/dev/null")),
+    "manufacturer": run("cat /sys/devices/virtual/dmi/id/sys_vendor 2>/dev/null"),
+    "model": run("cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null"),
+    "biosVersion": run("cat /sys/devices/virtual/dmi/id/bios_version 2>/dev/null"),
+    "serialNumber": run("cat /sys/devices/virtual/dmi/id/product_serial 2>/dev/null"),
+    "cpuModel": run("lscpu 2>/dev/null | grep -i 'model name' | head -n1 | cut -d: -f2").strip(),
+    "totalRamGb": mem_total,
+    "availableRamGb": mem_avail,
+    "virtualMemTotalGb": 0,
+    "virtualMemAvailGb": 0,
+    "hotfixes": [],
+    "rawSystemInfo": raw[:12000],
+}))
+PYEOF`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(35000, input.timeoutMs || 35000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'systeminfo');
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    osName: String(parsed.osName || ''),
+    osVersion: String(parsed.osVersion || ''),
+    osDisplayVersion: String(parsed.osDisplayVersion || ''),
+    osBuild: String(parsed.osBuild || ''),
+    osArchitecture: String(parsed.osArchitecture || ''),
+    installDate: String(parsed.installDate || ''),
+    lastBootTime: String(parsed.lastBootTime || ''),
+    uptimeSeconds: Number(parsed.uptimeSeconds) || 0,
+    uptimeFormatted: formatUptime(Number(parsed.uptimeSeconds) || 0),
+    domain: String(parsed.domain || ''),
+    domainJoined: Boolean(parsed.domainJoined),
+    manufacturer: String(parsed.manufacturer || ''),
+    model: String(parsed.model || ''),
+    biosVersion: String(parsed.biosVersion || ''),
+    serialNumber: String(parsed.serialNumber || ''),
+    cpuModel: String(parsed.cpuModel || ''),
+    totalRamGb: Number(parsed.totalRamGb) || 0,
+    availableRamGb: Number(parsed.availableRamGb) || 0,
+    virtualMemTotalGb: Number(parsed.virtualMemTotalGb) || 0,
+    virtualMemAvailGb: Number(parsed.virtualMemAvailGb) || 0,
+    hotfixes: Array.isArray(parsed.hotfixes)
+      ? parsed.hotfixes.map((h: any) => ({
+          hotfixId: String(h.hotfixId || ''),
+          description: String(h.description || 'Update'),
+          installedOn: String(h.installedOn || ''),
+          installedBy: String(h.installedBy || ''),
+        }))
+      : [],
+    rawSystemInfo: String(parsed.rawSystemInfo || ''),
+    collectedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// 16. SMART DISK MEDIA HEALTH (HDD vs SSD) + SFC / DISM / CHKDSK REPAIR
+// ============================================================================
+
+export interface HelpdeskLogicalVolumeHealth {
+  driveLetter: string;
+  label: string;
+  fileSystem: string;
+  sizeGb: number;
+  freeGb: number;
+  usedPercent: number;
+  mediaType: 'HDD' | 'SSD' | 'NVMe' | 'Unknown';
+  busType: string;
+  diskModel: string;
+  healthStatus: string;
+  isDirty: boolean;
+  isSsd: boolean;
+  badSectorScanAllowed: boolean;
+}
+
+export interface HelpdeskDiskHealthResult {
+  targetIp: string;
+  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  volumes: HelpdeskLogicalVolumeHealth[];
+  collectedAt: string;
+}
+
+export type HelpdeskRepairMode =
+  | 'sfc_verify'
+  | 'sfc_scannow'
+  | 'dism_check'
+  | 'dism_scan'
+  | 'dism_restore'
+  | 'chkdsk_readonly'
+  | 'chkdsk_hdd_badsector';
+
+export interface HelpdeskSystemRepairResult {
+  targetIp: string;
+  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  mode: HelpdeskRepairMode;
+  driveLetter?: string;
+  success: boolean;
+  blockedSsd?: boolean;
+  rebootScheduled?: boolean;
+  statusCode: 'clean' | 'repaired' | 'issues_found' | 'scheduled' | 'blocked_ssd' | 'failed';
+  summaryEn: string;
+  summaryFa: string;
+  rawOutput: string;
+  executedAt: string;
+}
+
+export async function collectEndpointDiskHealth(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskDiskHealthResult> {
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$physList = @(Get-PhysicalDisk | Select-Object DeviceId, FriendlyName, MediaType, BusType, HealthStatus, OperationalStatus, SpindleSpeed)
+$volOut = @()
+$logicals = @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3")
+
+foreach ($ld in $logicals) {
+  $letter = ([string]$ld.DeviceID).Replace(':','').Trim().ToUpper()
+  if (-not $letter) { continue }
+  $media = 'Unknown'
+  $bus = ''
+  $model = ''
+  $health = 'Healthy'
+  $isSsd = $false
+  try {
+    $part = Get-Partition -DriveLetter $letter -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($part) {
+      $diskNum = [string]$part.DiskNumber
+      $pd = $physList | Where-Object { [string]$_.DeviceId -eq $diskNum } | Select-Object -First 1
+      if ($pd) {
+        $bus = [string]$pd.BusType
+        $model = [string]$pd.FriendlyName
+        $health = if ($pd.HealthStatus) { [string]$pd.HealthStatus } else { 'Healthy' }
+        $mt = [string]$pd.MediaType
+        if ($bus -match 'NVMe') { $media = 'NVMe'; $isSsd = $true }
+        elseif ($mt -match 'SSD' -or $pd.SpindleSpeed -eq 0 -or $model -match 'SSD|NVMe|Solid State') { $media = 'SSD'; $isSsd = $true }
+        elseif ($mt -match 'HDD' -or ($pd.SpindleSpeed -gt 0)) { $media = 'HDD'; $isSsd = $false }
+      }
+    }
+  } catch {}
+
+  $dirty = $false
+  try {
+    $dOut = (& fsutil.exe dirty query "$($letter):" 2>&1 | Out-String)
+    if ($dOut -match 'is Dirty' -and $dOut -notmatch 'NOT Dirty') { $dirty = $true }
+  } catch {}
+
+  $sizeGb = [math]::Round(($ld.Size / 1GB), 1)
+  $freeGb = [math]::Round(($ld.FreeSpace / 1GB), 1)
+  $usedPct = if ($ld.Size -gt 0) { [math]::Round((($ld.Size - $ld.FreeSpace) / $ld.Size) * 100, 1) } else { 0 }
+
+  $volOut += [PSCustomObject]@{
+    driveLetter = $letter
+    label = [string]$ld.VolumeName
+    fileSystem = [string]$ld.FileSystem
+    sizeGb = $sizeGb
+    freeGb = $freeGb
+    usedPercent = $usedPct
+    mediaType = $media
+    busType = $bus
+    diskModel = $model
+    healthStatus = $health
+    isDirty = $dirty
+    isSsd = $isSsd
+    badSectorScanAllowed = (-not $isSsd)
+  }
+}
+
+[PSCustomObject]@{
+  hostname = [string]$env:COMPUTERNAME
+  volumes = $volOut
+} | ConvertTo-Json -Depth 5 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PYEOF'
+import json, platform, subprocess, shutil
+vols = []
+try:
+    raw = subprocess.check_output("lsblk -J -b -o NAME,ROTA,TRAN,MODEL,SIZE,MOUNTPOINT,FSTYPE", shell=True, text=True)
+    data = json.loads(raw)
+    def walk(devs, parent_rota=None, parent_tran="", parent_model=""):
+        for d in devs or []:
+            rota = d.get("rota") if d.get("rota") is not None else parent_rota
+            tran = d.get("tran") or parent_tran or ""
+            model = (d.get("model") or parent_model or "").strip()
+            mp = d.get("mountpoint")
+            if mp and mp.startswith('/'):
+                try:
+                    st = shutil.disk_usage(mp)
+                    is_ssd = (str(rota) in ('0', 'False', 'false')) or ('nvme' in tran.lower())
+                    media = 'NVMe' if 'nvme' in tran.lower() else ('SSD' if is_ssd else 'HDD')
+                    vols.append({
+                        "driveLetter": mp,
+                        "label": d.get("name") or mp,
+                        "fileSystem": d.get("fstype") or "",
+                        "sizeGb": round(st.total / (1024**3), 1),
+                        "freeGb": round(st.free / (1024**3), 1),
+                        "usedPercent": round((st.used / st.total) * 100, 1) if st.total else 0,
+                        "mediaType": media,
+                        "busType": tran.upper(),
+                        "diskModel": model,
+                        "healthStatus": "Healthy",
+                        "isDirty": False,
+                        "isSsd": is_ssd,
+                        "badSectorScanAllowed": not is_ssd,
+                    })
+                except Exception:
+                    pass
+            walk(d.get("children"), rota, tran, model)
+    walk(data.get("blockdevices", []))
+except Exception:
+    pass
+print(json.dumps({"hostname": platform.node(), "volumes": vols}))
+PYEOF`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(25000, input.timeoutMs || 25000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'disk health');
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    volumes: Array.isArray(parsed.volumes) ? parsed.volumes : [],
+    collectedAt: new Date().toISOString(),
+  };
+}
+
+export async function executeEndpointSystemRepair(
+  input: HelpdeskTargetInput,
+  mode: HelpdeskRepairMode,
+  rawDriveLetter?: string
+): Promise<HelpdeskSystemRepairResult> {
+  const allowedModes: HelpdeskRepairMode[] = [
+    'sfc_verify',
+    'sfc_scannow',
+    'dism_check',
+    'dism_scan',
+    'dism_restore',
+    'chkdsk_readonly',
+    'chkdsk_hdd_badsector',
+  ];
+  if (!allowedModes.includes(mode)) {
+    throw new Error(`Unsupported repair operation: ${String(mode)}`);
+  }
+
+  let driveLetter = 'C';
+  if (mode === 'chkdsk_readonly' || mode === 'chkdsk_hdd_badsector') {
+    const cleaned = String(rawDriveLetter || 'C').trim().replace(/:$/, '').toUpperCase();
+    if (!/^[A-Z]$/.test(cleaned)) {
+      throw new Error('Invalid drive letter. Only a single drive letter (A–Z) is permitted.');
+    }
+    driveLetter = cleaned;
+  }
+
+  let winPs = '';
+  let timeoutMs = 240000;
+
+  if (mode === 'sfc_verify') {
+    timeoutMs = 240000;
+    winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$out = (& sfc.exe /verifyonly 2>&1 | Out-String) -replace "\\0", ""
+$code = $LASTEXITCODE
+[PSCustomObject]@{ exitCode = $code; output = $out.Trim(); blockedSsd = $false; scheduled = $false } | ConvertTo-Json -Compress
+`;
+  } else if (mode === 'sfc_scannow') {
+    timeoutMs = 270000;
+    winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$out = (& sfc.exe /scannow 2>&1 | Out-String) -replace "\\0", ""
+$code = $LASTEXITCODE
+[PSCustomObject]@{ exitCode = $code; output = $out.Trim(); blockedSsd = $false; scheduled = $false } | ConvertTo-Json -Compress
+`;
+  } else if (mode === 'dism_check') {
+    timeoutMs = 60000;
+    winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$out = (& dism.exe /Online /Cleanup-Image /CheckHealth 2>&1 | Out-String)
+$code = $LASTEXITCODE
+[PSCustomObject]@{ exitCode = $code; output = $out.Trim(); blockedSsd = $false; scheduled = $false } | ConvertTo-Json -Compress
+`;
+  } else if (mode === 'dism_scan') {
+    timeoutMs = 240000;
+    winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$out = (& dism.exe /Online /Cleanup-Image /ScanHealth 2>&1 | Out-String)
+$code = $LASTEXITCODE
+[PSCustomObject]@{ exitCode = $code; output = $out.Trim(); blockedSsd = $false; scheduled = $false } | ConvertTo-Json -Compress
+`;
+  } else if (mode === 'dism_restore') {
+    timeoutMs = 285000;
+    winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$out = (& dism.exe /Online /Cleanup-Image /RestoreHealth 2>&1 | Out-String)
+$code = $LASTEXITCODE
+[PSCustomObject]@{ exitCode = $code; output = $out.Trim(); blockedSsd = $false; scheduled = $false } | ConvertTo-Json -Compress
+`;
+  } else if (mode === 'chkdsk_readonly') {
+    timeoutMs = 150000;
+    winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$out = (& chkdsk.exe "${driveLetter}:" 2>&1 | Out-String)
+$code = $LASTEXITCODE
+[PSCustomObject]@{ exitCode = $code; output = $out.Trim(); blockedSsd = $false; scheduled = $false } | ConvertTo-Json -Compress
+`;
+  } else if (mode === 'chkdsk_hdd_badsector') {
+    timeoutMs = 120000;
+    // Strict endpoint-side SSD/NVMe protection: NEVER run bad-sector /r rewrite on SSD or NVMe!
+    winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$isSsd = $false
+$mediaLabel = 'Unknown'
+try {
+  $part = Get-Partition -DriveLetter '${driveLetter}' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($part) {
+    $pd = Get-PhysicalDisk | Where-Object { [string]$_.DeviceId -eq [string]$part.DiskNumber } | Select-Object -First 1
+    if ($pd) {
+      $mediaLabel = "$($pd.MediaType) / $($pd.BusType) ($($pd.FriendlyName))"
+      if ([string]$pd.BusType -match 'NVMe' -or [string]$pd.MediaType -match 'SSD' -or $pd.SpindleSpeed -eq 0 -or [string]$pd.FriendlyName -match 'SSD|NVMe|Solid State') {
+        $isSsd = $true
+      }
+    }
+  }
+} catch {}
+
+if ($isSsd) {
+  [PSCustomObject]@{
+    exitCode = 403
+    blockedSsd = $true
+    scheduled = $false
+    output = "BLOCKED_SSD: Drive ${driveLetter}: resides on an SSD/NVMe ($mediaLabel). Surface bad-sector scan (chkdsk /r) is strictly prohibited on SSDs to prevent unnecessary flash wear."
+  } | ConvertTo-Json -Compress
+  exit 0
+}
+
+# For genuine HDD: schedule chkdsk /r safely on next reboot if drive is locked, or run online scan
+$out = (cmd.exe /c "echo Y | chkdsk.exe ${driveLetter}: /r" 2>&1 | Out-String)
+$code = $LASTEXITCODE
+$sched = ($out -match 'next time the system restarts|scheduled to be checked')
+[PSCustomObject]@{ exitCode = $code; output = $out.Trim(); blockedSsd = $false; scheduled = $sched } | ConvertTo-Json -Compress
+`;
+  }
+
+  const linuxSh = `echo '{"exitCode":1,"blockedSsd":false,"scheduled":false,"output":"SFC, DISM, and CHKDSK are Windows-only system maintenance utilities."}'`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<{
+    exitCode: number;
+    output: string;
+    blockedSsd?: boolean;
+    scheduled?: boolean;
+  }>(execRes.stdout, `repair ${mode}`);
+
+  const rawOut = String(parsed.output || '').slice(0, 14000);
+  const lower = rawOut.toLowerCase();
+
+  let statusCode: HelpdeskSystemRepairResult['statusCode'] = 'clean';
+  let success = true;
+  let summaryEn = '';
+  let summaryFa = '';
+
+  if (parsed.blockedSsd) {
+    statusCode = 'blocked_ssd';
+    success = false;
+    summaryEn = `Blocked: Drive ${driveLetter}: is on an SSD/NVMe. Bad-sector surface scanning (chkdsk /r) is allowed only on mechanical HDDs.`;
+    summaryFa = `مسدود شد: درایو ${driveLetter}: روی دیسک SSD/NVMe قرار دارد. اسکن بدسکتور (chkdsk /r) صرفاً برای هاردهای مکانیکی HDD مجاز است تا به عمر SSD آسیب نرسد.`;
+  } else if (execRes.osFamily !== 'windows') {
+    statusCode = 'failed';
+    success = false;
+    summaryEn = 'SFC, DISM, and CHKDSK are Windows-specific repair utilities.';
+    summaryFa = 'ابزارهای SFC، DISM و CHKDSK اختصاصی سیستم‌های ویندوز هستند.';
+  } else if (mode === 'sfc_verify' || mode === 'sfc_scannow') {
+    if (lower.includes('did not find any integrity violations')) {
+      statusCode = 'clean';
+      summaryEn = 'Windows Resource Protection found NO corrupt system files (100% healthy).';
+      summaryFa = 'بررسی فایل‌های سیستمی (SFC) کامل شد: هیچ فایل سیستمی خرابی پیدا نشد (کاملاً سالم).';
+    } else if (lower.includes('found corrupt files and successfully repaired')) {
+      statusCode = 'repaired';
+      summaryEn = 'Windows Resource Protection found corrupt system files and successfully repaired them.';
+      summaryFa = 'فایل‌های سیستمی خراب شناسایی و با موفقیت توسط SFC تعمیر شدند.';
+    } else if (lower.includes('unable to fix some')) {
+      statusCode = 'issues_found';
+      summaryEn = 'Corrupt system files were found, but SFC could not fix all of them. Run DISM /RestoreHealth next, then re-run SFC.';
+      summaryFa = 'فایل‌های سیستمی خراب شناسایی شدند اما SFC نتوانست همه را تعمیر کند. ابتدا DISM RestoreHealth را اجرا کرده و سپس دوباره SFC بزنید.';
+    } else {
+      statusCode = parsed.exitCode === 0 ? 'clean' : 'failed';
+      success = parsed.exitCode === 0;
+      summaryEn = parsed.exitCode === 0 ? 'SFC completed.' : 'SFC exited with a warning or error; see raw output.';
+      summaryFa = parsed.exitCode === 0 ? 'اجرای SFC تکمیل شد.' : 'اجرای SFC با خطا یا هشدار مواجه شد؛ خروجی کامل را ببینید.';
+    }
+  } else if (mode === 'dism_check' || mode === 'dism_scan' || mode === 'dism_restore') {
+    if (lower.includes('no component store corruption detected')) {
+      statusCode = 'clean';
+      summaryEn = 'DISM confirmed the Windows Component Store (image) has zero corruption.';
+      summaryFa = 'بررسی DISM نشان داد ایمیج ویندوز (Component Store) کاملاً سالم و بدون خرابی است.';
+    } else if (lower.includes('restore operation completed successfully')) {
+      statusCode = 'repaired';
+      summaryEn = 'DISM /RestoreHealth successfully repaired the Windows system image.';
+      summaryFa = 'تعمیر ایمیج ویندوز (DISM /RestoreHealth) با موفقیت کامل انجام شد.';
+    } else if (lower.includes('component store is repairable')) {
+      statusCode = 'issues_found';
+      summaryEn = 'DISM detected repairable Windows image corruption. Run "DISM RestoreHealth" now.';
+      summaryFa = 'DISM خرابی قابل تعمیر در ایمیج ویندوز شناسایی کرد. اکنون گزینه «DISM RestoreHealth» را اجرا کنید.';
+    } else {
+      statusCode = parsed.exitCode === 0 ? 'clean' : 'failed';
+      success = parsed.exitCode === 0;
+      summaryEn = parsed.exitCode === 0 ? 'DISM operation finished.' : 'DISM returned an error; inspect the output below.';
+      summaryFa = parsed.exitCode === 0 ? 'عملیات DISM به پایان رسید.' : 'عملیات DISM با خطا مواجه شد؛ خروجی کامل را بررسی کنید.';
+    }
+  } else if (mode === 'chkdsk_readonly' || mode === 'chkdsk_hdd_badsector') {
+    if (parsed.scheduled) {
+      statusCode = 'scheduled';
+      summaryEn = `HDD Bad-Sector Repair (chkdsk ${driveLetter}: /r) has been scheduled to run automatically on the next system restart.`;
+      summaryFa = `اسکن و تعمیر بدسکتور هارد مکانیکی (chkdsk ${driveLetter}: /r) برای اجرا در ری‌استارت بعدی سیستم زمان‌بندی شد.`;
+    } else if (lower.includes('found no problems')) {
+      statusCode = 'clean';
+      summaryEn = `CHKDSK scanned drive ${driveLetter}: and found zero file-system problems.`;
+      summaryFa = `بررسی درایو ${driveLetter}: توسط CHKDSK به پایان رسید و هیچ خطای فایل‌سیستمی یافت نشد.`;
+    } else if (lower.includes('errors found') || lower.includes('bad sectors')) {
+      statusCode = 'issues_found';
+      summaryEn = `CHKDSK detected file-system errors or bad sectors on drive ${driveLetter}:. Review output and schedule repair if HDD.`;
+      summaryFa = `CHKDSK روی درایو ${driveLetter}: خطای فایل‌سیستم یا بدسکتور شناسایی کرد. خروجی زیر را بررسی کنید.`;
+    } else {
+      statusCode = parsed.exitCode === 0 ? 'clean' : 'issues_found';
+      summaryEn = `CHKDSK finished on drive ${driveLetter}: (exit code ${parsed.exitCode}).`;
+      summaryFa = `بررسی CHKDSK روی درایو ${driveLetter}: پایان یافت (کد خروج ${parsed.exitCode}).`;
+    }
+  }
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    mode,
+    driveLetter: mode.startsWith('chkdsk_') ? driveLetter : undefined,
+    success,
+    blockedSsd: Boolean(parsed.blockedSsd),
+    rebootScheduled: Boolean(parsed.scheduled),
+    statusCode,
+    summaryEn,
+    summaryFa,
+    rawOutput: rawOut,
+    executedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// 17. ACTIVE DIRECTORY DOMAIN ACCOUNT INSPECTION (net user <USER> /domain)
+// ============================================================================
+
+export interface HelpdeskDomainUserResult {
+  targetIp: string;
+  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  portUsed: number;
+  username: string;
+  found: boolean;
+  fullName: string;
+  comment: string;
+  accountActive: string;
+  accountLocked: boolean | null;
+  accountExpires: string;
+  passwordLastSet: string;
+  passwordExpires: string;
+  passwordChangeable: string;
+  passwordRequired: string;
+  userMayChangePassword: string;
+  lastLogon: string;
+  passwordStatus: 'active' | 'expired' | 'never_expires' | 'must_change' | 'unknown';
+  localGroups: string[];
+  globalGroups: string[];
+  rawOutput: string;
+  collectedAt: string;
+}
+
+export async function inspectDomainAccount(
+  input: HelpdeskTargetInput,
+  rawDomainUsername: string
+): Promise<HelpdeskDomainUserResult> {
+  const cleanUser = String(rawDomainUsername || '').trim();
+  // Strict sAMAccountName allowlist: prevents any command or LDAP injection
+  if (!/^[a-zA-Z0-9._-]{1,64}$/.test(cleanUser)) {
+    throw new Error(
+      'Invalid domain username. Only letters, numbers, dots, underscores, and hyphens (1–64 chars) are allowed.'
+    );
+  }
+
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$u = '${cleanUser}'
+$netOut = (& net.exe user $u /domain 2>&1 | Out-String)
+$netExit = $LASTEXITCODE
+
+$adsiLocked = $null
+$adsiPwdExpired = $null
+try {
+  $searcher = [adsisearcher]"(&(objectCategory=person)(objectClass=user)(sAMAccountName=$u))"
+  $res = $searcher.FindOne()
+  if ($res) {
+    $entry = $res.GetDirectoryEntry()
+    $lockTime = 0
+    try {
+      $ltProp = $res.Properties['lockouttime']
+      if ($ltProp -and $ltProp.Count -gt 0) { $lockTime = [int64]$ltProp[0] }
+    } catch {}
+    $adsiLocked = ($lockTime -gt 0)
+  }
+} catch {}
+
+[PSCustomObject]@{
+  exitCode = $netExit
+  rawOutput = $netOut.Trim()
+  adsiLocked = $adsiLocked
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `echo '{"exitCode":1,"rawOutput":"Domain user lookup via net user /domain requires a Windows domain-joined workstation.","adsiLocked":null}'`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(25000, input.timeoutMs || 25000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<{
+    exitCode: number;
+    rawOutput: string;
+    adsiLocked: boolean | null;
+  }>(execRes.stdout, 'domain user lookup');
+
+  const raw = String(parsed.rawOutput || '');
+  const found = parsed.exitCode === 0 && /User name/i.test(raw);
+
+  const extractField = (label: string): string => {
+    const regex = new RegExp(`^${label}\\s+(.+)$`, 'im');
+    const m = raw.match(regex);
+    return m ? m[1].trim() : '';
+  };
+
+  const extractGroups = (startLabel: string, stopLabels: string[]): string[] => {
+    const lines = raw.split(/\r?\n/);
+    const groups: string[] = [];
+    let capturing = false;
+    for (const line of lines) {
+      if (!capturing) {
+        if (new RegExp(`^${startLabel}`, 'i').test(line)) {
+          capturing = true;
+          const rest = line.replace(new RegExp(`^${startLabel}`, 'i'), '').trim();
+          const matches = rest.match(/\*([^*]+)/g);
+          if (matches) matches.forEach((g) => groups.push(g.replace(/^\*/, '').trim()));
+        }
+      } else {
+        if (
+          !line.trim() ||
+          stopLabels.some((lbl) => new RegExp(`^${lbl}`, 'i').test(line)) ||
+          /command completed successfully/i.test(line)
+        ) {
+          break;
+        }
+        const matches = line.match(/\*([^*]+)/g);
+        if (matches) matches.forEach((g) => groups.push(g.replace(/^\*/, '').trim()));
+      }
+    }
+    return groups.filter(Boolean);
+  };
+
+  const accountActive = extractField('Account active');
+  const passwordLastSet = extractField('Password last set');
+  const passwordExpires = extractField('Password expires');
+  const passwordChangeable = extractField('Password changeable');
+  const passwordRequired = extractField('Password required');
+  const userMayChangePassword = extractField('User may change password');
+  const lastLogon = extractField('Last logon');
+  const accountExpires = extractField('Account expires');
+  const fullName = extractField('Full Name');
+  const comment = extractField('Comment');
+  const localGroups = extractGroups('Local Group Memberships', ['Global Group memberships']);
+  const globalGroups = extractGroups('Global Group memberships', ['The command completed']);
+
+  let passwordStatus: HelpdeskDomainUserResult['passwordStatus'] = 'unknown';
+  if (found) {
+    if (/never/i.test(passwordExpires)) {
+      passwordStatus = 'never_expires';
+    } else if (/^1\/1\/1601|^0\/|must change/i.test(passwordLastSet)) {
+      passwordStatus = 'must_change';
+    } else if (passwordExpires) {
+      const expDate = Date.parse(passwordExpires);
+      if (!isNaN(expDate)) {
+        passwordStatus = expDate < Date.now() ? 'expired' : 'active';
+      } else {
+        passwordStatus = 'active';
+      }
+    }
+  }
+
+  let accountLocked: boolean | null =
+    typeof parsed.adsiLocked === 'boolean' ? parsed.adsiLocked : null;
+  if (accountLocked === null && /locked/i.test(accountActive)) {
+    accountLocked = true;
+  }
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    username: cleanUser,
+    found,
+    fullName,
+    comment,
+    accountActive,
+    accountLocked,
+    accountExpires,
+    passwordLastSet,
+    passwordExpires,
+    passwordChangeable,
+    passwordRequired,
+    userMayChangePassword,
+    lastLogon,
+    passwordStatus,
+    localGroups,
+    globalGroups,
+    rawOutput: raw,
+    collectedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// 18. SAFE REMOTE POWER CONTROL (RESTART / FORCE SHUTDOWN / SCHEDULED / ABORT)
+// ============================================================================
+
+export type HelpdeskPowerAction =
+  | 'restart_now'
+  | 'restart_scheduled'
+  | 'shutdown_force'
+  | 'shutdown_scheduled'
+  | 'abort';
+
+export async function executeEndpointPowerControl(
+  input: HelpdeskTargetInput,
+  powerAction: HelpdeskPowerAction,
+  rawDelaySeconds?: number,
+  rawReason?: string
+): Promise<HelpdeskActionResult> {
+  const allowed: HelpdeskPowerAction[] = [
+    'restart_now',
+    'restart_scheduled',
+    'shutdown_force',
+    'shutdown_scheduled',
+    'abort',
+  ];
+  if (!allowed.includes(powerAction)) {
+    throw new Error(`Unsupported power action: ${String(powerAction)}`);
+  }
+
+  const isScheduled = powerAction === 'restart_scheduled' || powerAction === 'shutdown_scheduled';
+  const delaySec =
+    powerAction === 'abort'
+      ? 0
+      : isScheduled
+      ? Math.max(30, Math.min(86400, Math.floor(Number(rawDelaySeconds) || 300)))
+      : 5;
+
+  const safeComment = String(rawReason || 'IT HelpDesk Remote Maintenance')
+    .replace(/[^\w\s.,:;!?()-]/g, ' ')
+    .trim()
+    .slice(0, 120) || 'IT HelpDesk Remote Maintenance';
+
+  let winPs = '';
+  let linuxSh = '';
+
+  if (powerAction === 'abort') {
+    winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$out = (& shutdown.exe /a 2>&1 | Out-String)
+$code = $LASTEXITCODE
+[PSCustomObject]@{ ok = ($code -eq 0); exitCode = $code; output = $out.Trim() } | ConvertTo-Json -Compress
+`;
+    linuxSh = `shutdown -c 2>&1 && echo '{"ok":true,"exitCode":0,"output":"Scheduled shutdown/reboot cancelled."}' || echo '{"ok":false,"exitCode":1,"output":"No pending shutdown to cancel or permission denied."}'`;
+  } else {
+    const flag = powerAction.startsWith('restart') ? '/r' : '/s';
+    const linuxFlag = powerAction.startsWith('restart') ? '-r' : '-h';
+    const linuxMin = Math.max(1, Math.ceil(delaySec / 60));
+    // Strictly pass arguments as array to shutdown.exe inside Base64 PowerShell (zero shell quoting injection)
+    winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$argsList = @('${flag}', '/f', '/t', '${delaySec}', '/c', '${safeComment.replace(/'/g, "''")}')
+$out = (& shutdown.exe @argsList 2>&1 | Out-String)
+$code = $LASTEXITCODE
+[PSCustomObject]@{ ok = ($code -eq 0); exitCode = $code; output = $out.Trim() } | ConvertTo-Json -Compress
+`;
+    linuxSh = `shutdown ${linuxFlag} +${powerAction.endsWith('_now') || powerAction.endsWith('_force') ? 0 : linuxMin} "${safeComment}" 2>&1 && echo '{"ok":true,"exitCode":0,"output":"Shutdown/reboot scheduled."}' || echo '{"ok":false,"exitCode":1,"output":"Failed to schedule shutdown/reboot."}'`;
+  }
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: 20000 },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<{ ok: boolean; exitCode: number; output: string }>(
+    execRes.stdout,
+    `power ${powerAction}`
+  );
+
+  const actionMap: Record<HelpdeskPowerAction, { en: string; fa: string }> = {
+    restart_now: {
+      en: `Immediate forced restart issued on ${execRes.host} (rebooting in ${delaySec}s).`,
+      fa: `دستور ری‌استارت فوری و اجباری روی سیستم ${execRes.host} اجرا شد (ری‌استارت تا ${delaySec} ثانیه دیگر).`,
+    },
+    restart_scheduled: {
+      en: `Scheduled restart set on ${execRes.host} in ${delaySec} seconds (${Math.round(delaySec / 60)} min).`,
+      fa: `ری‌استارت زمان‌بندی‌شده روی سیستم ${execRes.host} برای ${delaySec} ثانیه (${Math.round(delaySec / 60)} دقیقه) دیگر تنظیم شد.`,
+    },
+    shutdown_force: {
+      en: `Immediate forced shutdown issued on ${execRes.host} (powering off in ${delaySec}s).`,
+      fa: `دستور خاموش کردن فوری و اجباری روی سیستم ${execRes.host} اجرا شد (خاموشی تا ${delaySec} ثانیه دیگر).`,
+    },
+    shutdown_scheduled: {
+      en: `Scheduled shutdown set on ${execRes.host} in ${delaySec} seconds (${Math.round(delaySec / 60)} min).`,
+      fa: `خاموشی زمان‌بندی‌شده روی سیستم ${execRes.host} برای ${delaySec} ثانیه (${Math.round(delaySec / 60)} دقیقه) دیگر تنظیم شد.`,
+    },
+    abort: {
+      en: `Pending scheduled shutdown/restart on ${execRes.host} was cancelled (shutdown /a).`,
+      fa: `خاموشی یا ری‌استارت زمان‌بندی‌شده روی سیستم ${execRes.host} با موفقیت لغو شد (shutdown /a).`,
+    },
+  };
+
+  const mappedWriteAction: HelpdeskWriteAction =
+    powerAction === 'abort'
+      ? 'power_abort'
+      : powerAction.startsWith('restart')
+      ? 'power_restart'
+      : 'power_shutdown';
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: mappedWriteAction,
+    success: Boolean(parsed.ok),
+    message: parsed.ok
+      ? actionMap[powerAction].en
+      : `Power command (${powerAction}) failed on ${execRes.host}: ${parsed.output || `exit code ${parsed.exitCode}`}`,
+    messageFa: parsed.ok
+      ? actionMap[powerAction].fa
+      : `اجرای دستور پاور (${powerAction}) روی ${execRes.host} ناموفق بود: ${parsed.output || `کد خطا ${parsed.exitCode}`}`,
+    details: {
+      powerAction,
+      delaySeconds: delaySec,
+      reason: safeComment,
+      exitCode: parsed.exitCode,
+      portUsed: execRes.portUsed,
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// 19. LAPTOP BATTERY HEALTH & CYCLE COUNT REPORT (powercfg /batteryreport + WMI)
+// ============================================================================
+
+export interface HelpdeskBatteryItem {
+  id: string;
+  name: string;
+  manufacturer: string;
+  serialNumber: string;
+  chemistry: string;
+  designCapacityMwh: number;
+  fullChargeCapacityMwh: number;
+  healthPercent: number | null;
+  wearPercent: number | null;
+  cycleCount: number | null;
+  chargePercent: number | null;
+  isCharging: boolean;
+  onAcPower: boolean;
+  estimatedRuntimeMin: number | null;
+  statusLabel: string;
+  condition: 'excellent' | 'good' | 'fair' | 'poor' | 'unknown';
+}
+
+export interface HelpdeskBatteryHistoryEntry {
+  period: string;
+  fullChargeCapacityMwh: number;
+  designCapacityMwh: number;
+  healthPercent: number | null;
+}
+
+export interface HelpdeskBatteryReportResult {
+  targetIp: string;
+  protocolUsed: 'winrm_https' | 'winrm_http' | 'ssh';
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  hasBattery: boolean;
+  batteries: HelpdeskBatteryItem[];
+  capacityHistory: HelpdeskBatteryHistoryEntry[];
+  sourceMethod: string;
+  collectedAt: string;
+}
+
+export async function collectEndpointBatteryReport(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskBatteryReportResult> {
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$batteries = @()
+$history = @()
+$sourceMethod = 'WMI'
+$xmlPath = Join-Path $env:TEMP ("hd_batt_" + [guid]::NewGuid().ToString('N') + ".xml")
+
+# Live Win32_Battery & root\\wmi metrics
+$w32Batts = @(Get-CimInstance Win32_Battery)
+$wmiStatic = @(Get-CimInstance -Namespace root\\wmi -ClassName BatteryStaticData)
+$wmiFull = @(Get-CimInstance -Namespace root\\wmi -ClassName BatteryFullChargedCapacity)
+$wmiCycle = @(Get-CimInstance -Namespace root\\wmi -ClassName BatteryCycleCount)
+$wmiStatus = @(Get-CimInstance -Namespace root\\wmi -ClassName BatteryStatus)
+
+# Primary source: powercfg /batteryreport /xml (authoritative cycle count + design/full capacity + history)
+try {
+  $null = (& powercfg.exe /batteryreport /xml /output "$xmlPath" 2>&1)
+  if (Test-Path $xmlPath) {
+    [xml]$doc = Get-Content -Path $xmlPath -Raw -Encoding UTF8
+    $xmlBatts = @($doc.BatteryReport.Batteries.Battery)
+    if ($xmlBatts.Count -gt 0) {
+      $sourceMethod = 'powercfg /batteryreport + WMI'
+      for ($i = 0; $i -lt $xmlBatts.Count; $i++) {
+        $xb = $xmlBatts[$i]
+        $w32 = if ($i -lt $w32Batts.Count) { $w32Batts[$i] } else { $null }
+        $ws = if ($i -lt $wmiStatus.Count) { $wmiStatus[$i] } else { $null }
+        $wc = if ($i -lt $wmiCycle.Count) { $wmiCycle[$i] } else { $null }
+        $design = [int]($xb.DesignCapacity)
+        $full = [int]($xb.FullChargeCapacity)
+        if ($design -le 0 -and $i -lt $wmiStatic.Count) { $design = [int]$wmiStatic[$i].DesignedCapacity }
+        if ($full -le 0 -and $i -lt $wmiFull.Count) { $full = [int]$wmiFull[$i].FullChargedCapacity }
+        $cycles = $null
+        if ($xb.CycleCount -and [string]$xb.CycleCount -ne '-' -and [int]$xb.CycleCount -ge 0) {
+          $cycles = [int]$xb.CycleCount
+        } elseif ($wc -and $null -ne $wc.CycleCount) {
+          $cycles = [int]$wc.CycleCount
+        }
+        $chargePct = if ($w32 -and $null -ne $w32.EstimatedChargeRemaining) { [int]$w32.EstimatedChargeRemaining } else { $null }
+        $charging = [bool](($ws -and $ws.Charging) -or ($w32 -and ($w32.BatteryStatus -in @(2,6,7,8,9))))
+        $onAc = [bool](($ws -and $ws.PowerOnline) -or ($w32 -and ($w32.BatteryStatus -in @(2,6,7,8,9))))
+        $runtimeMin = if ($w32 -and $w32.EstimatedRunTime -and $w32.EstimatedRunTime -lt 100000) { [int]$w32.EstimatedRunTime } else { $null }
+        $batteries += [PSCustomObject]@{
+          id = if ($xb.Id) { [string]$xb.Id } else { "BAT$($i+1)" }
+          name = if ($xb.Id) { [string]$xb.Id } elseif ($w32) { [string]$w32.Name } else { "Battery $($i+1)" }
+          manufacturer = [string]$xb.Manufacturer
+          serialNumber = [string]$xb.SerialNumber
+          chemistry = [string]$xb.Chemistry
+          designCapacityMwh = $design
+          fullChargeCapacityMwh = $full
+          cycleCount = $cycles
+          chargePercent = $chargePct
+          isCharging = $charging
+          onAcPower = $onAc
+          estimatedRuntimeMin = $runtimeMin
+          statusLabel = if ($charging) { 'Charging' } elseif ($onAc) { 'Plugged In (AC)' } else { 'Discharging (On Battery)' }
+        }
+      }
+    }
+    $histNodes = @($doc.BatteryReport.History.HistoryEntry)
+    if ($histNodes.Count -gt 0) {
+      $recentHist = $histNodes | Select-Object -Last 10
+      foreach ($h in $recentHist) {
+        $dCap = [int]$h.DesignCapacity
+        $fCap = [int]$h.FullChargeCapacity
+        if ($dCap -gt 0 -and $fCap -gt 0) {
+          $pStart = [string]$h.StartDate
+          $history += [PSCustomObject]@{
+            period = if ($pStart.Length -ge 10) { $pStart.Substring(0, 10) } else { $pStart }
+            fullChargeCapacityMwh = $fCap
+            designCapacityMwh = $dCap
+          }
+        }
+      }
+    }
+  }
+} catch {}
+finally {
+  if (Test-Path $xmlPath) { Remove-Item -Path $xmlPath -Force -ErrorAction SilentlyContinue }
+}
+
+# Fallback purely to WMI if powercfg returned nothing but WMI sees a battery
+if ($batteries.Count -eq 0 -and $w32Batts.Count -gt 0) {
+  for ($i = 0; $i -lt $w32Batts.Count; $i++) {
+    $w32 = $w32Batts[$i]
+    $ws = if ($i -lt $wmiStatus.Count) { $wmiStatus[$i] } else { $null }
+    $design = if ($i -lt $wmiStatic.Count) { [int]$wmiStatic[$i].DesignedCapacity } else { [int]$w32.DesignCapacity }
+    $full = if ($i -lt $wmiFull.Count) { [int]$wmiFull[$i].FullChargedCapacity } else { 0 }
+    $cycles = if ($i -lt $wmiCycle.Count -and $null -ne $wmiCycle[$i].CycleCount) { [int]$wmiCycle[$i].CycleCount } else { $null }
+    $charging = [bool](($ws -and $ws.Charging) -or ($w32.BatteryStatus -in @(2,6,7,8,9)))
+    $onAc = [bool](($ws -and $ws.PowerOnline) -or ($w32.BatteryStatus -in @(2,6,7,8,9)))
+    $batteries += [PSCustomObject]@{
+      id = [string]$w32.DeviceID
+      name = [string]$w32.Name
+      manufacturer = if ($i -lt $wmiStatic.Count) { [string]$wmiStatic[$i].ManufactureName } else { '' }
+      serialNumber = if ($i -lt $wmiStatic.Count) { [string]$wmiStatic[$i].SerialNumber } else { '' }
+      chemistry = ''
+      designCapacityMwh = $design
+      fullChargeCapacityMwh = $full
+      cycleCount = $cycles
+      chargePercent = if ($null -ne $w32.EstimatedChargeRemaining) { [int]$w32.EstimatedChargeRemaining } else { $null }
+      isCharging = $charging
+      onAcPower = $onAc
+      estimatedRuntimeMin = if ($w32.EstimatedRunTime -and $w32.EstimatedRunTime -lt 100000) { [int]$w32.EstimatedRunTime } else { $null }
+      statusLabel = if ($charging) { 'Charging' } elseif ($onAc) { 'Plugged In (AC)' } else { 'Discharging (On Battery)' }
+    }
+  }
+}
+
+[PSCustomObject]@{
+  hostname = [string]$env:COMPUTERNAME
+  hasBattery = ($batteries.Count -gt 0)
+  sourceMethod = $sourceMethod
+  batteries = $batteries
+  capacityHistory = $history
+} | ConvertTo-Json -Depth 5 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PYEOF'
+import glob, json, os, platform
+def rd(p):
+    try:
+        return open(p).read().strip()
+    except Exception:
+        return ""
+batts = []
+for bdir in sorted(glob.glob('/sys/class/power_supply/BAT*')):
+    bid = os.path.basename(bdir)
+    design = int(rd(os.path.join(bdir, 'energy_full_design')) or 0) // 1000
+    full = int(rd(os.path.join(bdir, 'energy_full')) or 0) // 1000
+    if design <= 0:
+        volt = int(rd(os.path.join(bdir, 'voltage_min_design')) or rd(os.path.join(bdir, 'voltage_now')) or 11400000) / 1e6
+        design = int((int(rd(os.path.join(bdir, 'charge_full_design')) or 0) / 1000.0) * volt)
+        full = int((int(rd(os.path.join(bdir, 'charge_full')) or 0) / 1000.0) * volt)
+    cyc_raw = rd(os.path.join(bdir, 'cycle_count'))
+    cyc = int(cyc_raw) if cyc_raw.isdigit() else None
+    cap_raw = rd(os.path.join(bdir, 'capacity'))
+    cap = int(cap_raw) if cap_raw.isdigit() else None
+    st = rd(os.path.join(bdir, 'status')) or 'Unknown'
+    batts.append({
+        "id": bid,
+        "name": rd(os.path.join(bdir, 'model_name')) or bid,
+        "manufacturer": rd(os.path.join(bdir, 'manufacturer')),
+        "serialNumber": rd(os.path.join(bdir, 'serial_number')),
+        "chemistry": rd(os.path.join(bdir, 'technology')),
+        "designCapacityMwh": design,
+        "fullChargeCapacityMwh": full,
+        "cycleCount": cyc,
+        "chargePercent": cap,
+        "isCharging": st.lower() == 'charging',
+        "onAcPower": st.lower() in ('charging', 'full', 'not charging'),
+        "estimatedRuntimeMin": None,
+        "statusLabel": st,
+    })
+print(json.dumps({"hostname": platform.node(), "hasBattery": len(batts) > 0, "sourceMethod": "/sys/class/power_supply", "batteries": batts, "capacityHistory": []}))
+PYEOF`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(35000, input.timeoutMs || 35000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'battery report');
+
+  const batteries: HelpdeskBatteryItem[] = (Array.isArray(parsed.batteries) ? parsed.batteries : []).map(
+    (b: any) => {
+      const design = Math.max(0, Number(b.designCapacityMwh) || 0);
+      const full = Math.max(0, Number(b.fullChargeCapacityMwh) || 0);
+      const healthPercent =
+        design > 0 && full > 0
+          ? Math.min(100, Math.round((full / design) * 1000) / 10)
+          : null;
+      const wearPercent =
+        healthPercent !== null ? Math.max(0, Math.round((100 - healthPercent) * 10) / 10) : null;
+      const condition: HelpdeskBatteryItem['condition'] =
+        healthPercent === null
+          ? 'unknown'
+          : healthPercent >= 85
+          ? 'excellent'
+          : healthPercent >= 70
+          ? 'good'
+          : healthPercent >= 50
+          ? 'fair'
+          : 'poor';
+
+      return {
+        id: String(b.id || 'BAT1'),
+        name: String(b.name || 'Battery'),
+        manufacturer: String(b.manufacturer || ''),
+        serialNumber: String(b.serialNumber || ''),
+        chemistry: String(b.chemistry || ''),
+        designCapacityMwh: design,
+        fullChargeCapacityMwh: full,
+        healthPercent,
+        wearPercent,
+        cycleCount:
+          b.cycleCount !== null && b.cycleCount !== undefined && !isNaN(Number(b.cycleCount))
+            ? Number(b.cycleCount)
+            : null,
+        chargePercent:
+          b.chargePercent !== null && b.chargePercent !== undefined && !isNaN(Number(b.chargePercent))
+            ? Number(b.chargePercent)
+            : null,
+        isCharging: Boolean(b.isCharging),
+        onAcPower: Boolean(b.onAcPower),
+        estimatedRuntimeMin:
+          b.estimatedRuntimeMin !== null && b.estimatedRuntimeMin !== undefined
+            ? Number(b.estimatedRuntimeMin)
+            : null,
+        statusLabel: String(b.statusLabel || ''),
+        condition,
+      };
+    }
+  );
+
+  const capacityHistory: HelpdeskBatteryHistoryEntry[] = (
+    Array.isArray(parsed.capacityHistory) ? parsed.capacityHistory : []
+  ).map((h: any) => {
+    const d = Math.max(0, Number(h.designCapacityMwh) || 0);
+    const f = Math.max(0, Number(h.fullChargeCapacityMwh) || 0);
+    return {
+      period: String(h.period || ''),
+      designCapacityMwh: d,
+      fullChargeCapacityMwh: f,
+      healthPercent: d > 0 && f > 0 ? Math.min(100, Math.round((f / d) * 1000) / 10) : null,
+    };
+  });
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    hasBattery: Boolean(parsed.hasBattery) && batteries.length > 0,
+    batteries,
+    capacityHistory,
+    sourceMethod: String(parsed.sourceMethod || 'WMI'),
+    collectedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// 20. WINDOWS JEA & GPO HARDENING TEMPLATES (Zero-Ransomware Endpoint Lock)
 // ============================================================================
 
 export function getHelpdeskJeaTemplates() {
@@ -3256,9 +4483,13 @@ export function getHelpdeskJeaTemplates() {
 @{
     GUID = '9b7c4d21-6e18-4b4e-8f42-3a8a5e0d1c01'
     Author = 'Enterprise IT Security'
-    Description = 'Anti-Ransomware Least-Privilege HelpDesk JEA Role (Health, Network, Spooler, Event Viewer, Safe User-App Stop, Temp Cleanup, GPUpdate)'
+    Description = 'Anti-Ransomware Least-Privilege HelpDesk JEA Role (Health, SystemInfo, HotFixes, Network, Spooler, Event Viewer, Safe User-App Stop, Temp Cleanup, GPUpdate, SFC/DISM/CHKDSK, Domain User Info, Battery Report, Power Control)'
     VisibleCmdlets = @(
         'Get-CimInstance',
+        'Get-HotFix',
+        'Get-PhysicalDisk',
+        'Get-Disk',
+        'Get-Partition',
         'Get-Process',
         'Stop-Process',
         'Get-WinEvent',
@@ -3268,6 +4499,7 @@ export function getHelpdeskJeaTemplates() {
         'Get-NetNeighbor',
         'Get-ItemProperty',
         'Get-ChildItem',
+        'Get-Content',
         'Remove-Item',
         'Measure-Object',
         'Test-Path',
@@ -3280,11 +4512,19 @@ export function getHelpdeskJeaTemplates() {
         'ConvertTo-Json', 'Select-Object', 'Sort-Object', 'Where-Object', 'ForEach-Object', 'Start-Sleep', 'Out-String'
     )
     VisibleExternalCommands = @(
+        'C:\\Windows\\System32\\systeminfo.exe',
         'C:\\Windows\\System32\\ping.exe',
         'C:\\Windows\\System32\\ipconfig.exe',
         'C:\\Windows\\System32\\nslookup.exe',
         'C:\\Windows\\System32\\gpresult.exe',
-        'C:\\Windows\\System32\\gpupdate.exe'
+        'C:\\Windows\\System32\\gpupdate.exe',
+        'C:\\Windows\\System32\\sfc.exe',
+        'C:\\Windows\\System32\\dism.exe',
+        'C:\\Windows\\System32\\chkdsk.exe',
+        'C:\\Windows\\System32\\fsutil.exe',
+        'C:\\Windows\\System32\\net.exe',
+        'C:\\Windows\\System32\\powercfg.exe',
+        'C:\\Windows\\System32\\shutdown.exe'
     )
 }`,
     registerSessionScript: `# 2. Register Restricted JEA Endpoint & Lock WinRM HTTPS (Port 5986) via GPO

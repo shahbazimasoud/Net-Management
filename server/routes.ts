@@ -55,12 +55,20 @@ import {
   cleanEndpointTempFolders,
   collectEndpointGpoStatus,
   executeEndpointGpupdate,
+  collectEndpointSystemInfo,
+  collectEndpointDiskHealth,
+  executeEndpointSystemRepair,
+  inspectDomainAccount,
+  executeEndpointPowerControl,
+  collectEndpointBatteryReport,
   getHelpdeskRateLimitStatus,
   checkAndRecordHelpdeskWriteRateLimit,
   getHelpdeskJeaTemplates,
   HelpdeskProtocol,
   HelpdeskTargetInput,
   HelpdeskWriteAction,
+  HelpdeskRepairMode,
+  HelpdeskPowerAction,
 } from './helpdeskService';
 import { ZipArchive } from 'archiver';
 import { runRetentionPurgeJob } from './logRetentionDaemon';
@@ -7662,7 +7670,7 @@ apiRouter.post('/schematic/export-authorize', async (req: Request, res: Response
 });
 
 // ============================================================================
-// AGENTLESS HELPDESK PHASE 1 (Single-Host Only, Allowlisted Safe Actions, RBAC + Anti-Ransomware Guard)
+// AGENTLESS HELPDESK (Single-Host Only, Allowlisted Safe Actions, RBAC + Anti-Ransomware Guard)
 // ============================================================================
 
 async function resolveHelpdeskAuth(
@@ -7675,6 +7683,9 @@ async function resolveHelpdeskAuth(
     | 'terminate_process'
     | 'clean_temp'
     | 'gpupdate'
+    | 'system_repair'
+    | 'domain_user'
+    | 'power_control'
 ) {
   const { user, effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
   if (!user) {
@@ -7700,6 +7711,9 @@ async function resolveHelpdeskAuth(
   const canTerminateProc = isSuperAdmin || (canActions && effectivePolicy?.canTerminateHelpdeskProcesses === true);
   const canCleanTemp = isSuperAdmin || (canActions && effectivePolicy?.canCleanHelpdeskTemp === true);
   const canGpupdate = isSuperAdmin || (canActions && effectivePolicy?.canRunHelpdeskGpupdate === true);
+  const canSystemRepair = isSuperAdmin || (canActions && effectivePolicy?.canRunHelpdeskSystemRepair === true);
+  const canDomainUsers = isSuperAdmin || (canDiagnostics && effectivePolicy?.canInspectHelpdeskDomainUsers === true);
+  const canPowerControl = isSuperAdmin || (canActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true);
 
   const allowed =
     requiredPerm === 'view'
@@ -7714,7 +7728,13 @@ async function resolveHelpdeskAuth(
       ? canTerminateProc
       : requiredPerm === 'clean_temp'
       ? canCleanTemp
-      : canGpupdate;
+      : requiredPerm === 'gpupdate'
+      ? canGpupdate
+      : requiredPerm === 'system_repair'
+      ? canSystemRepair
+      : requiredPerm === 'domain_user'
+      ? canDomainUsers
+      : canPowerControl;
 
   if (!allowed) {
     await addPortalAuditLog({
@@ -7762,6 +7782,18 @@ async function resolveHelpdeskAuth(
         en: 'Access denied: Your policy does not permit running gpupdate /force (canRunHelpdeskGpupdate).',
         fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز اجرای gpupdate /force (canRunHelpdeskGpupdate) است.',
       },
+      system_repair: {
+        en: 'Access denied: Your policy does not permit SFC/DISM/CHKDSK system repair (canRunHelpdeskSystemRepair).',
+        fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز تعمیر فایل‌های سیستمی و ایمیج ویندوز (canRunHelpdeskSystemRepair) است.',
+      },
+      domain_user: {
+        en: 'Access denied: Your policy does not permit Active Directory account lookup (canInspectHelpdeskDomainUsers).',
+        fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز بررسی وضعیت اکانت‌های دامین (canInspectHelpdeskDomainUsers) است.',
+      },
+      power_control: {
+        en: 'Access denied: Your policy does not permit remote workstation shutdown or restart (canPowerControlHelpdeskEndpoints).',
+        fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز خاموش کردن یا ری‌استارت از راه دور سیستم (canPowerControlHelpdeskEndpoints) است.',
+      },
     };
 
     return {
@@ -7786,6 +7818,9 @@ async function resolveHelpdeskAuth(
       canTerminateHelpdeskProcesses: canTerminateProc,
       canCleanHelpdeskTemp: canCleanTemp,
       canRunHelpdeskGpupdate: canGpupdate,
+      canRunHelpdeskSystemRepair: canSystemRepair,
+      canInspectHelpdeskDomainUsers: canDomainUsers,
+      canPowerControlHelpdeskEndpoints: canPowerControl,
     },
   };
 }
@@ -8490,6 +8525,357 @@ apiRouter.post('/helpdesk/gpo/refresh', async (req: Request, res: Response) => {
       error: msg,
       errorFa: msg,
       rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/sysinfo - Detailed Windows/Linux System Info, Boot Time, RAM, Domain & Installed Updates (HotFixes)
+apiRouter.post('/helpdesk/sysinfo', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointSystemInfo(target);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_sysinfo',
+      title: `دریافت مشخصات سیستم و آپدیت‌های ویندوز: ${data.targetIp}`,
+      title_en: `HelpDesk Detailed System Info & Updates: ${data.targetIp}`,
+      description: `سیستم‌عامل: ${data.osName} (${data.osDisplayVersion || data.osBuild}) — آخرین بوت: ${data.lastBootTime || '-'} — تعداد آپدیت‌ها: ${data.hotfixes.length}.`,
+      description_en: `OS: ${data.osName} (${data.osDisplayVersion || data.osBuild}) — Last Boot: ${data.lastBootTime || '-'} — Installed HotFixes: ${data.hotfixes.length}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.hostname || data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        osBuild: data.osBuild,
+        hotfixCount: data.hotfixes.length,
+        domain: data.domain,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to collect endpoint system information');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/disks/status - Disk Media Detection (HDD vs SSD/NVMe) & Volume Health
+apiRouter.post('/helpdesk/disks/status', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointDiskHealth(target);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_disk_health',
+      title: `بررسی نوع دیسک‌ها (HDD/SSD) و سلامت فایل‌سیستم: ${data.targetIp}`,
+      title_en: `HelpDesk Disk Media (HDD/SSD) & Volume Health Scan: ${data.targetIp}`,
+      description: `${data.volumes.length} درایو روی ${data.hostname} بررسی شد (${data.volumes.filter((v) => v.isSsd).length} SSD/NVMe، ${data.volumes.filter((v) => !v.isSsd).length} HDD).`,
+      description_en: `Scanned ${data.volumes.length} volume(s) on ${data.hostname} (${data.volumes.filter((v) => v.isSsd).length} SSD/NVMe, ${data.volumes.filter((v) => !v.isSsd).length} non-SSD).`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.hostname || data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        volumeCount: data.volumes.length,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to inspect endpoint disk media and health');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/repair/system - Safe Allowlisted SFC / DISM / CHKDSK (with strict SSD protection on chkdsk /r)
+apiRouter.post('/helpdesk/repair/system', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'system_repair');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const mode = String(req.body?.mode || '').trim() as HelpdeskRepairMode;
+  const driveLetter = req.body?.driveLetter ? String(req.body.driveLetter).trim() : undefined;
+
+  const allowedModes: HelpdeskRepairMode[] = [
+    'sfc_verify',
+    'sfc_scannow',
+    'dism_check',
+    'dism_scan',
+    'dism_restore',
+    'chkdsk_readonly',
+    'chkdsk_hdd_badsector',
+  ];
+  if (!allowedModes.includes(mode)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Unsupported system repair mode.',
+      errorFa: 'نوع عملیات تعمیر سیستم نامعتبر است.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, mode as HelpdeskWriteAction);
+  if (!rl.allowed) {
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_rate_limit_tripped',
+      title: `فعال‌شدن مدارقطع‌کن امنیتی ضدباج‌افزار برای ${auth.actorName}`,
+      title_en: `Anti-Ransomware HelpDesk Circuit Breaker Tripped for ${auth.actorName}`,
+      description: rl.reasonFa || rl.reason || 'Rate limit exceeded',
+      description_en: rl.reason || 'Rate limit exceeded',
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'denied',
+      severity: 'warning',
+      targetName: target.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { action: mode, targetIp: target.targetIp, rateLimit: rl.status },
+    }).catch(() => {});
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await executeEndpointSystemRepair(target, mode, driveLetter);
+    await addPortalAuditLog({
+      category: 'system',
+      action: `helpdesk_${mode}`,
+      title: `اجرای عملیات بررسی/تعمیر سیستم (${mode}${data.driveLetter ? ` - ${data.driveLetter}:` : ''}) روی ${data.targetIp}`,
+      title_en: `HelpDesk System Integrity / Repair (${mode}${data.driveLetter ? ` - ${data.driveLetter}:` : ''}) on ${data.targetIp}`,
+      description: data.summaryFa,
+      description_en: data.summaryEn,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : data.blockedSsd ? 'denied' : 'failed',
+      severity: data.blockedSsd || data.statusCode === 'issues_found' ? 'warning' : 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        mode,
+        driveLetter: data.driveLetter,
+        statusCode: data.statusCode,
+        blockedSsd: data.blockedSsd,
+        rebootScheduled: data.rebootScheduled,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'System integrity or repair execution failed');
+    return res.status(/invalid|blocked|required|unsupported/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/ad/user - Active Directory Domain Account Lookup (net user <USERNAME> /domain)
+apiRouter.post('/helpdesk/ad/user', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'domain_user');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const domainUsername = String(req.body?.domainUsername || '').trim();
+  if (!domainUsername) {
+    return res.status(400).json({
+      success: false,
+      error: 'Domain username is required.',
+      errorFa: 'وارد کردن نام کاربری دامین الزامی است.',
+    });
+  }
+
+  try {
+    const data = await inspectDomainAccount(target, domainUsername);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_domain_user_lookup',
+      title: `بررسی وضعیت اکانت دامین (${data.username}) از طریق ${data.targetIp}`,
+      title_en: `HelpDesk Domain Account Lookup (${data.username}) via ${data.targetIp}`,
+      description: data.found
+        ? `اکانت ${data.username} پیدا شد — فعال: ${data.accountActive || '-'} — وضعیت رمز: ${data.passwordStatus} — گروه‌های Global: ${data.globalGroups.length}.`
+        : `اکانت دامین ${data.username} در دامین یافت نشد یا دسترسی استعلام وجود ندارد.`,
+      description_en: data.found
+        ? `Account ${data.username} found — Active: ${data.accountActive || '-'} — Password Status: ${data.passwordStatus} — Global Groups: ${data.globalGroups.length}.`
+        : `Domain account ${data.username} was not found or domain query failed.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.found ? 'success' : 'failed',
+      severity: 'info',
+      targetName: `${data.username}@${data.targetIp}`,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        domainUsername: data.username,
+        found: data.found,
+        passwordStatus: data.passwordStatus,
+        accountLocked: data.accountLocked,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Domain user lookup failed');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/power - Remote Power Control (Force/Scheduled Shutdown, Immediate/Scheduled Restart, Abort)
+apiRouter.post('/helpdesk/power', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'power_control');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const powerAction = String(req.body?.powerAction || '').trim() as HelpdeskPowerAction;
+  const delaySeconds = req.body?.delaySeconds !== undefined ? Number(req.body.delaySeconds) : undefined;
+  const reason = req.body?.reason ? String(req.body.reason) : undefined;
+
+  const allowedActions: HelpdeskPowerAction[] = [
+    'restart_now',
+    'restart_scheduled',
+    'shutdown_force',
+    'shutdown_scheduled',
+    'abort',
+  ];
+  if (!allowedActions.includes(powerAction)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Unsupported power control action.',
+      errorFa: 'نوع عملیات پاور نامعتبر است.',
+    });
+  }
+
+  const rlAction: HelpdeskWriteAction =
+    powerAction === 'abort'
+      ? 'power_abort'
+      : powerAction.startsWith('restart')
+      ? 'power_restart'
+      : 'power_shutdown';
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rlAction);
+  if (!rl.allowed) {
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_rate_limit_tripped',
+      title: `فعال‌شدن مدارقطع‌کن امنیتی ضدباج‌افزار برای ${auth.actorName}`,
+      title_en: `Anti-Ransomware HelpDesk Circuit Breaker Tripped for ${auth.actorName}`,
+      description: rl.reasonFa || rl.reason || 'Rate limit exceeded',
+      description_en: rl.reason || 'Rate limit exceeded',
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'denied',
+      severity: 'warning',
+      targetName: target.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { action: rlAction, powerAction, targetIp: target.targetIp, rateLimit: rl.status },
+    }).catch(() => {});
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await executeEndpointPowerControl(target, powerAction, delaySeconds, reason);
+    await addPortalAuditLog({
+      category: 'system',
+      action: `helpdesk_power_${powerAction}`,
+      title: `عملیات پاور از راه دور (${powerAction}) روی ${data.targetIp}`,
+      title_en: `HelpDesk Remote Power Control (${powerAction}) on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: powerAction === 'abort' ? 'info' : 'warning',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, protocol: data.protocolUsed, ...data.details },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Remote power control failed');
+    return res.status(/invalid|blocked|required|unsupported/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/battery - Laptop Battery Health, Cycle Count & Capacity History Report
+apiRouter.post('/helpdesk/battery', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointBatteryReport(target);
+    const primaryBatt = data.batteries[0];
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_battery_report',
+      title: `گزارش سلامت باتری و تعداد سایکل شارژ: ${data.targetIp}`,
+      title_en: `HelpDesk Laptop Battery Health & Cycle Count Report: ${data.targetIp}`,
+      description: data.hasBattery && primaryBatt
+        ? `سلامت باتری: ${primaryBatt.healthPercent ?? '-'}% — تعداد دفعات شارژ (Cycle): ${primaryBatt.cycleCount ?? 'نامشخص'} — ظرفیت فعلی: ${primaryBatt.fullChargeCapacityMwh} / ${primaryBatt.designCapacityMwh} mWh.`
+        : `هیچ باتری روی سیستم ${data.hostname} یافت نشد (سیستم دسکتاپ یا بدون باتری).`,
+      description_en: data.hasBattery && primaryBatt
+        ? `Battery Health: ${primaryBatt.healthPercent ?? '-'}% — Cycle Count: ${primaryBatt.cycleCount ?? 'N/A'} — Full/Design Capacity: ${primaryBatt.fullChargeCapacityMwh} / ${primaryBatt.designCapacityMwh} mWh.`
+        : `No battery detected on ${data.hostname} (Desktop PC or battery absent).`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.hostname || data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        hasBattery: data.hasBattery,
+        healthPercent: primaryBatt?.healthPercent ?? null,
+        cycleCount: primaryBatt?.cycleCount ?? null,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to collect laptop battery health report');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
     });
   }
 });

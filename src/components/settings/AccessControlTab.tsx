@@ -395,7 +395,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       canCheckSslCertificates: false,
       targetSslScope: 'all',
       targetSslIds: [],
-      // HelpDesk Phase 1 RBAC (fail-closed)
+      // HelpDesk RBAC (fail-closed)
       canViewHelpdesk: false,
       canRunHelpdeskDiagnostics: false,
       canExecuteHelpdeskActions: false,
@@ -403,6 +403,9 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       canTerminateHelpdeskProcesses: false,
       canCleanHelpdeskTemp: false,
       canRunHelpdeskGpupdate: false,
+      canRunHelpdeskSystemRepair: false,
+      canInspectHelpdeskDomainUsers: false,
+      canPowerControlHelpdeskEndpoints: false,
       perServerPermissions: {},
       defaultServerApprovalRules: {},
       perServerApprovalRules: {},

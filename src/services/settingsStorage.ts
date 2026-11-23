@@ -217,7 +217,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canCheckSslCertificates: false,
     targetSslScope: 'all',
     targetSslIds: [],
-    // HelpDesk Phase 1 RBAC
+    // HelpDesk RBAC
     canViewHelpdesk: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: true,
@@ -225,6 +225,9 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canTerminateHelpdeskProcesses: true,
     canCleanHelpdeskTemp: true,
     canRunHelpdeskGpupdate: true,
+    canRunHelpdeskSystemRepair: true,
+    canInspectHelpdeskDomainUsers: true,
+    canPowerControlHelpdeskEndpoints: false,
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: true,
@@ -305,7 +308,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canCheckSslCertificates: true,
     targetSslScope: 'all',
     targetSslIds: [],
-    // HelpDesk Phase 1 RBAC (Read-Only for NOC Observer)
+    // HelpDesk RBAC (Read-Only for NOC Observer)
     canViewHelpdesk: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: false,
@@ -313,6 +316,9 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canTerminateHelpdeskProcesses: false,
     canCleanHelpdeskTemp: false,
     canRunHelpdeskGpupdate: false,
+    canRunHelpdeskSystemRepair: false,
+    canInspectHelpdeskDomainUsers: false,
+    canPowerControlHelpdeskEndpoints: false,
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: false,
@@ -397,7 +403,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canCheckSslCertificates: true,
     targetSslScope: 'all',
     targetSslIds: [],
-    // HelpDesk Phase 1 RBAC
+    // HelpDesk RBAC
     canViewHelpdesk: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: true,
@@ -405,6 +411,9 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canTerminateHelpdeskProcesses: true,
     canCleanHelpdeskTemp: true,
     canRunHelpdeskGpupdate: true,
+    canRunHelpdeskSystemRepair: true,
+    canInspectHelpdeskDomainUsers: true,
+    canPowerControlHelpdeskEndpoints: true,
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: true,
@@ -1389,6 +1398,9 @@ export function getEffectiveUserPolicy(
         canTerminateHelpdeskProcesses: true,
         canCleanHelpdeskTemp: true,
         canRunHelpdeskGpupdate: true,
+        canRunHelpdeskSystemRepair: true,
+        canInspectHelpdeskDomainUsers: true,
+        canPowerControlHelpdeskEndpoints: true,
       }
     );
   }
@@ -1433,6 +1445,9 @@ export function getEffectiveUserPolicy(
     canTerminateHelpdeskProcesses: false,
     canCleanHelpdeskTemp: false,
     canRunHelpdeskGpupdate: false,
+    canRunHelpdeskSystemRepair: false,
+    canInspectHelpdeskDomainUsers: false,
+    canPowerControlHelpdeskEndpoints: false,
   });
 }
 

@@ -1000,6 +1000,9 @@ export async function fetchHelpdeskStatus(): Promise<{
     canTerminateHelpdeskProcesses: boolean;
     canCleanHelpdeskTemp: boolean;
     canRunHelpdeskGpupdate: boolean;
+    canRunHelpdeskSystemRepair: boolean;
+    canInspectHelpdeskDomainUsers: boolean;
+    canPowerControlHelpdeskEndpoints: boolean;
   };
   rateLimit: {
     windowMinutes: number;
@@ -1232,6 +1235,118 @@ export async function runHelpdeskGpupdate(payload: HelpdeskConnectionPayload): P
     body: JSON.stringify(payload),
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Group Policy refresh (gpupdate /force) failed');
+  return res.json();
+}
+
+export async function fetchHelpdeskSystemInfo(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/sysinfo`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to collect detailed system info and updates');
+  return res.json();
+}
+
+export async function fetchHelpdeskDiskHealth(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/disks/status`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to detect endpoint disk media and health');
+  return res.json();
+}
+
+export async function executeHelpdeskSystemRepair(
+  payload: HelpdeskConnectionPayload & {
+    mode:
+      | 'sfc_verify'
+      | 'sfc_scannow'
+      | 'dism_check'
+      | 'dism_scan'
+      | 'dism_restore'
+      | 'chkdsk_readonly'
+      | 'chkdsk_hdd_badsector';
+    driveLetter?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/repair/system`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'System integrity or disk repair execution failed');
+  return res.json();
+}
+
+export async function inspectHelpdeskDomainUser(
+  payload: HelpdeskConnectionPayload & {
+    domainUsername: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/ad/user`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Active Directory domain user lookup failed');
+  return res.json();
+}
+
+export async function executeHelpdeskPowerControl(
+  payload: HelpdeskConnectionPayload & {
+    powerAction: 'restart_now' | 'restart_scheduled' | 'shutdown_force' | 'shutdown_scheduled' | 'abort';
+    delaySeconds?: number;
+    reason?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/power`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Remote power control execution failed');
+  return res.json();
+}
+
+export async function fetchHelpdeskBatteryReport(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/battery`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to collect laptop battery health report');
   return res.json();
 }
 

@@ -1063,7 +1063,7 @@ export interface AccessPolicy {
   targetSslScope?: 'all' | 'specific';
   targetSslIds?: string[];
 
-  // 8b. Agentless HelpDesk Phase 1 (Single-Host Safe Diagnostics & Spooler/Network Reset + Modules 4-7)
+  // 8b. Agentless HelpDesk RBAC (Diagnostics, Remediation, System Repair, AD Lookup & Power Control)
   canViewHelpdesk?: boolean;
   canRunHelpdeskDiagnostics?: boolean;
   canExecuteHelpdeskActions?: boolean;
@@ -1071,6 +1071,9 @@ export interface AccessPolicy {
   canTerminateHelpdeskProcesses?: boolean;
   canCleanHelpdeskTemp?: boolean;
   canRunHelpdeskGpupdate?: boolean;
+  canRunHelpdeskSystemRepair?: boolean;
+  canInspectHelpdeskDomainUsers?: boolean;
+  canPowerControlHelpdeskEndpoints?: boolean;
 
   // 9. Communications, Notifications, Profile Security & Two-Step Approvals (RBAC)
   canViewCommunications?: boolean;

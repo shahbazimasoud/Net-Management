@@ -39,6 +39,15 @@ import {
   PowerOff,
   Lightbulb,
   ShieldAlert,
+  BatteryCharging,
+  Battery,
+  UserCheck,
+  Power,
+  FileCheck2,
+  Clock,
+  Monitor,
+  PackageCheck,
+  Ban,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -57,6 +66,12 @@ import {
   cleanHelpdeskTemp,
   fetchHelpdeskGpoStatus,
   runHelpdeskGpupdate,
+  fetchHelpdeskSystemInfo,
+  fetchHelpdeskDiskHealth,
+  executeHelpdeskSystemRepair,
+  inspectHelpdeskDomainUser,
+  executeHelpdeskPowerControl,
+  fetchHelpdeskBatteryReport,
   HelpdeskConnectionPayload,
 } from '../services/api';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
@@ -69,7 +84,14 @@ interface HelpDeskViewProps {
   currentUser?: AuthUser | null;
 }
 
-type HelpdeskSubTab = 'health' | 'network' | 'printers' | 'events' | 'maintenance' | 'architecture';
+type HelpdeskSubTab =
+  | 'health'
+  | 'network'
+  | 'printers'
+  | 'events'
+  | 'maintenance'
+  | 'hardware_domain'
+  | 'architecture';
 
 interface CircularGaugeProps {
   value: number;
@@ -191,6 +213,15 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const canRunGpupdate = Boolean(
     isSuper || (canExecuteActions && effectivePolicy?.canRunHelpdeskGpupdate === true)
   );
+  const canRunSystemRepair = Boolean(
+    isSuper || (canExecuteActions && effectivePolicy?.canRunHelpdeskSystemRepair === true)
+  );
+  const canInspectDomainUsers = Boolean(
+    isSuper || (canRunDiagnostics && effectivePolicy?.canInspectHelpdeskDomainUsers === true)
+  );
+  const canPowerControl = Boolean(
+    isSuper || (canExecuteActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true)
+  );
 
   // Ephemeral On-Demand Session State (NEVER stored in localStorage or DB!)
   const [targetIp, setTargetIp] = useState('');
@@ -284,13 +315,54 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [cleaningTemp, setCleaningTemp] = useState(false);
   const [tempCleanResult, setTempCleanResult] = useState<any | null>(null);
 
-  // Module 7: Group Policy Inspection & GPUpdate state
+  // Group Policy Inspection & GPUpdate state
   const [gpoData, setGpoData] = useState<any | null>(null);
   const [loadingGpo, setLoadingGpo] = useState(false);
   const [gpoError, setGpoError] = useState<string | null>(null);
   const [runningGpupdate, setRunningGpupdate] = useState(false);
   const [gpupdateResult, setGpupdateResult] = useState<any | null>(null);
   const [showRawGpo, setShowRawGpo] = useState(false);
+
+  // Detailed System Info & Installed Updates (systeminfo + HotFixes)
+  const [sysInfoData, setSysInfoData] = useState<any | null>(null);
+  const [loadingSysInfo, setLoadingSysInfo] = useState(false);
+  const [sysInfoError, setSysInfoError] = useState<string | null>(null);
+  const [hotfixSearch, setHotfixSearch] = useState('');
+  const [showRawSysInfo, setShowRawSysInfo] = useState(false);
+
+  // System Integrity Repair (SFC / DISM) & Smart Disk Media (HDD vs SSD) + CHKDSK
+  const [diskHealthData, setDiskHealthData] = useState<any | null>(null);
+  const [loadingDiskHealth, setLoadingDiskHealth] = useState(false);
+  const [diskHealthError, setDiskHealthError] = useState<string | null>(null);
+  const [runningRepairMode, setRunningRepairMode] = useState<string | null>(null);
+  const [confirmRepairKey, setConfirmRepairKey] = useState<string | null>(null);
+  const [repairResult, setRepairResult] = useState<any | null>(null);
+  const [repairError, setRepairError] = useState<string | null>(null);
+  const [showRawRepair, setShowRawRepair] = useState(false);
+
+  // Remote Power Control (Force/Scheduled Shutdown, Immediate/Scheduled Restart, Abort)
+  const [powerAction, setPowerAction] = useState<
+    'restart_now' | 'restart_scheduled' | 'shutdown_force' | 'shutdown_scheduled' | 'abort'
+  >('restart_scheduled');
+  const [powerDelayMinutes, setPowerDelayMinutes] = useState<number>(5);
+  const [powerReason, setPowerReason] = useState('IT HelpDesk Remote Maintenance');
+  const [confirmPowerAction, setConfirmPowerAction] = useState(false);
+  const [runningPower, setRunningPower] = useState(false);
+  const [powerResult, setPowerResult] = useState<any | null>(null);
+  const [powerError, setPowerError] = useState<string | null>(null);
+
+  // Laptop Battery Health & Cycle Count Report
+  const [batteryData, setBatteryData] = useState<any | null>(null);
+  const [loadingBattery, setLoadingBattery] = useState(false);
+  const [batteryError, setBatteryError] = useState<string | null>(null);
+
+  // Active Directory Domain Account Lookup (net user <USERNAME> /domain)
+  const [domainQueryUser, setDomainQueryUser] = useState('');
+  const [domainUserData, setDomainUserData] = useState<any | null>(null);
+  const [loadingDomainUser, setLoadingDomainUser] = useState(false);
+  const [domainUserError, setDomainUserError] = useState<string | null>(null);
+  const [domainGroupFilter, setDomainGroupFilter] = useState('');
+  const [showRawDomainUser, setShowRawDomainUser] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -363,6 +435,23 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setGpoData(null);
     setGpoError(null);
     setGpupdateResult(null);
+    setSysInfoData(null);
+    setSysInfoError(null);
+    setHotfixSearch('');
+    setShowRawSysInfo(false);
+    setDiskHealthData(null);
+    setDiskHealthError(null);
+    setRepairResult(null);
+    setRepairError(null);
+    setConfirmRepairKey(null);
+    setPowerResult(null);
+    setPowerError(null);
+    setConfirmPowerAction(false);
+    setBatteryData(null);
+    setBatteryError(null);
+    setDomainUserData(null);
+    setDomainUserError(null);
+    setDomainQueryUser('');
   };
 
   const handleInspectHealth = async (e?: React.FormEvent) => {
@@ -620,6 +709,148 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
+  const handleInspectSysInfo = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingSysInfo(true);
+    setSysInfoError(null);
+    try {
+      const res = await fetchHelpdeskSystemInfo(payload);
+      setSysInfoData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setSysInfoData(null);
+      setSysInfoError(
+        err?.message || (isEn ? 'Failed to collect detailed system info and updates.' : 'خطا در دریافت مشخصات سیستم و لیست آپدیت‌ها.')
+      );
+    } finally {
+      setLoadingSysInfo(false);
+    }
+  };
+
+  const handleInspectDisks = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingDiskHealth(true);
+    setDiskHealthError(null);
+    try {
+      const res = await fetchHelpdeskDiskHealth(payload);
+      setDiskHealthData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setDiskHealthData(null);
+      setDiskHealthError(
+        err?.message || (isEn ? 'Failed to inspect disk media types.' : 'خطا در شناسایی نوع دیسک‌ها (HDD/SSD).')
+      );
+    } finally {
+      setLoadingDiskHealth(false);
+    }
+  };
+
+  const handleRunSystemRepair = async (
+    mode:
+      | 'sfc_verify'
+      | 'sfc_scannow'
+      | 'dism_check'
+      | 'dism_scan'
+      | 'dism_restore'
+      | 'chkdsk_readonly'
+      | 'chkdsk_hdd_badsector',
+    driveLetter?: string
+  ) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    const key = driveLetter ? `${mode}:${driveLetter}` : mode;
+    setRunningRepairMode(key);
+    setConfirmRepairKey(null);
+    setRepairError(null);
+    setRepairResult(null);
+    try {
+      const res = await executeHelpdeskSystemRepair({ ...payload, mode, driveLetter });
+      setRepairResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setRepairError(
+        err?.message || (isEn ? 'System repair execution failed.' : 'اجرای عملیات بررسی یا تعمیر سیستم ناموفق بود.')
+      );
+    } finally {
+      setRunningRepairMode(null);
+    }
+  };
+
+  const handleExecutePowerControl = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setRunningPower(true);
+    setConfirmPowerAction(false);
+    setPowerError(null);
+    setPowerResult(null);
+    try {
+      const isSched = powerAction === 'restart_scheduled' || powerAction === 'shutdown_scheduled';
+      const delaySec = isSched ? Math.max(30, Math.round(powerDelayMinutes * 60)) : undefined;
+      const res = await executeHelpdeskPowerControl({
+        ...payload,
+        powerAction,
+        delaySeconds: delaySec,
+        reason: powerReason.trim() || undefined,
+      });
+      setPowerResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setPowerError(
+        err?.message || (isEn ? 'Remote power control failed.' : 'اجرای دستور پاور از راه دور ناموفق بود.')
+      );
+    } finally {
+      setRunningPower(false);
+    }
+  };
+
+  const handleInspectBattery = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingBattery(true);
+    setBatteryError(null);
+    try {
+      const res = await fetchHelpdeskBatteryReport(payload);
+      setBatteryData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setBatteryData(null);
+      setBatteryError(
+        err?.message || (isEn ? 'Failed to generate battery health report.' : 'خطا در دریافت گزارش سلامت باتری.')
+      );
+    } finally {
+      setLoadingBattery(false);
+    }
+  };
+
+  const handleInspectDomainUser = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const payload = buildPayload();
+    if (!payload) return;
+    const targetUser = domainQueryUser.trim();
+    if (!targetUser) {
+      setDomainUserError(
+        isEn ? 'Enter a domain username (sAMAccountName) first.' : 'ابتدا نام کاربری دامین (مثلاً a.rezaei) را وارد کنید.'
+      );
+      return;
+    }
+    setLoadingDomainUser(true);
+    setDomainUserError(null);
+    try {
+      const res = await inspectHelpdeskDomainUser({ ...payload, domainUsername: targetUser });
+      setDomainUserData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setDomainUserData(null);
+      setDomainUserError(
+        err?.message || (isEn ? 'Domain user lookup failed.' : 'استعلام وضعیت اکانت دامین با خطا مواجه شد.')
+      );
+    } finally {
+      setLoadingDomainUser(false);
+    }
+  };
+
   const handleConnectCurrentTab = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (activeSubTab === 'network') {
@@ -629,7 +860,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     } else if (activeSubTab === 'events') {
       await handleInspectEvents();
     } else if (activeSubTab === 'maintenance') {
-      await Promise.all([handleScanTemp(), handleInspectGpo()]);
+      await Promise.all([handleScanTemp(), handleInspectGpo(), handleInspectDisks()]);
+    } else if (activeSubTab === 'hardware_domain') {
+      await handleInspectBattery();
     } else {
       setActiveSubTab('health');
       await handleInspectHealth();
@@ -767,15 +1000,36 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     : 'bg-slate-950 border-slate-700 text-slate-100 placeholder-slate-500 focus:border-sky-400';
 
   const isAnyLoading =
-    loadingHealth || loadingNetwork || loadingPrinters || loadingEvents || loadingTempScan || loadingGpo;
+    loadingHealth ||
+    loadingSysInfo ||
+    loadingNetwork ||
+    loadingPrinters ||
+    loadingEvents ||
+    loadingTempScan ||
+    loadingGpo ||
+    loadingDiskHealth ||
+    loadingBattery ||
+    loadingDomainUser;
+
+  const filteredHotfixes = useMemo(() => {
+    const list: any[] = Array.isArray(sysInfoData?.hotfixes) ? sysInfoData.hotfixes : [];
+    const q = hotfixSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (h) =>
+        String(h.hotfixId || '').toLowerCase().includes(q) ||
+        String(h.description || '').toLowerCase().includes(q) ||
+        String(h.installedOn || '').toLowerCase().includes(q)
+    );
+  }, [sysInfoData, hotfixSearch]);
 
   const activeCapabilities = [
     {
       id: 'health',
-      titleEn: 'Read-Only Endpoint Health & Visual Process Telemetry',
-      titleFa: 'مشاهده سلامت سیستم و وضعیت گرافیکی پروسس‌ها',
-      descEn: 'Live CPU/RAM/Disk radial gauges, interactive process resource donut + progress bars, uptime, active user, Defender & Firewall status.',
-      descFa: 'نمایش دایره‌ای و پراگرسی CPU، RAM، دیسک و پروسس‌های پرمصرف، Uptime، کاربر فعال و وضعیت آنتی‌ویروس و فایروال.',
+      titleEn: 'Endpoint Health, Detailed System Info & Installed Updates',
+      titleFa: 'سلامت سیستم، مشخصات کامل ویندوز (systeminfo) و آپدیت‌های نصب‌شده',
+      descEn: 'Live CPU/RAM/Disk radial gauges, interactive process rings, exact Windows build/DisplayVersion, last boot time, RAM, domain, BIOS, and HotFix KB inventory.',
+      descFa: 'نمایش دایره‌ای CPU/RAM/دیسک، نسخه دقیق ویندوز و بیلد، زمان آخرین بوت، رم، دامین، مشخصات سخت‌افزار و لیست آپدیت‌های نصب‌شده (HotFix).',
     },
     {
       id: 'network',
@@ -806,18 +1060,25 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       descFa: 'بستن صرفاً برنامه‌های کاربری هنگ‌کرده با تطبیق دقیق PID و نام پروسس، در حالی که هسته سیستم‌عامل و آنتی‌ویروس کاملاً قفل هستند.',
     },
     {
-      id: 'temp-clean',
-      titleEn: 'Confined Temp Folder Scan & Cleanup',
-      titleFa: 'اسکن و پاک‌سازی ایمن پوشه Temp کاربر و ویندوز',
-      descEn: 'Hard-confined cleanup limited strictly to Windows\\Temp and active user AppData\\Local\\Temp with zero custom path input; safely skips in-use files.',
-      descFa: 'اسکن حجم قابل آزادسازی و پاک‌سازی محدود فقط در پوشه‌های Temp ویندوز و کاربر (بدون امکان ارسال مسیر دلخواه) با رد کردن ایمن فایل‌های در حال اجرا.',
+      id: 'system-repair',
+      titleEn: 'Windows Integrity Repair (SFC / DISM) & HDD-Only CHKDSK',
+      titleFa: 'تعمیر فایل‌های سیستمی (SFC)، ایمیج ویندوز (DISM) و اسکن بدسکتور فقط روی HDD',
+      descEn: 'Allowlisted sfc /verifyonly, sfc /scannow, DISM Check/Scan/RestoreHealth, and automatic HDD vs SSD detection that strictly blocks chkdsk /r on SSD/NVMe drives.',
+      descFa: 'اجرای ایمن sfc و DISM RestoreHealth همراه با تشخیص خودکار نوع هارد (HDD در برابر SSD/NVMe) و مسدودسازی قطعی اسکن بدسکتور روی SSD.',
     },
     {
-      id: 'gpupdate',
-      titleEn: 'Group Policy Inspection & Non-Disruptive gpupdate /force',
-      titleFa: 'بررسی Group Policy و اجرای فوری gpupdate /force بدون ری‌استارت اجباری',
-      descEn: 'Inspects applied domain GPOs and pending reboot state, plus one-click parameterless gpupdate /force /wait:0 that declines forced user logoff.',
-      descFa: 'مشاهده پالیسی‌های اعمال‌شده دامین و وضعیت Pending Reboot به همراه دکمه ثابت gpupdate /force بدون خارج کردن ناگهانی کاربر.',
+      id: 'temp-gpo',
+      titleEn: 'Confined Temp Cleanup & Non-Disruptive gpupdate /force',
+      titleFa: 'پاک‌سازی ایمن Temp، مشاهده پالیسی‌ها (gpresult /r) و اجرای gpupdate /force',
+      descEn: 'Hard-confined Temp cleanup, applied GPO inspection via gpresult /r, and non-disruptive gpupdate /force without forced logoff.',
+      descFa: 'پاک‌سازی محدود فقط در پوشه‌های Temp، مشاهده پالیسی‌های دامین و اجرای فوری gpupdate /force بدون خارج کردن ناگهانی کاربر.',
+    },
+    {
+      id: 'battery-domain-power',
+      titleEn: 'Laptop Battery Health/Cycles, Domain Account Lookup & Power Control',
+      titleFa: 'گزارش سلامت و سایکل باتری لپ‌تاپ، بررسی اکانت دامین و کنترل پاور از راه دور',
+      descEn: 'Exact battery charge cycle count & auto-calculated health %, AD account inspection (net user /domain), and RBAC-gated immediate/scheduled restart & shutdown with abort.',
+      descFa: 'محاسبه دقیق درصد سلامت و تعداد دفعات شارژ باتری لپ‌تاپ، استعلام وضعیت اکانت دامین (انقضای رمز و گروه‌ها) و خاموشی/ری‌استارت فوری یا زمان‌بندی‌شده.',
     },
   ];
 
@@ -1095,8 +1356,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           {
             id: 'maintenance' as HelpdeskSubTab,
             icon: Wrench,
-            labelEn: 'Temp Cleanup & GPUpdate',
-            labelFa: 'پاک‌سازی Temp و GPUpdate',
+            labelEn: 'System Repair, Temp & GPO',
+            labelFa: 'تعمیر سیستم، Temp و GPO',
+          },
+          {
+            id: 'hardware_domain' as HelpdeskSubTab,
+            icon: BatteryCharging,
+            labelEn: 'Battery & Domain Account',
+            labelFa: 'سلامت باتری و اکانت دامین',
           },
           {
             id: 'architecture' as HelpdeskSubTab,
@@ -1752,6 +2019,187 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </div>
             </>
           )}
+
+          {/* DETAILED SYSTEM INFO & INSTALLED WINDOWS UPDATES (systeminfo + HotFixes) */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Monitor className="w-4 h-4 text-sky-500" />
+                  <h3 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'Detailed System Info, Boot Time & Installed Updates (systeminfo)'
+                      : 'مشخصات دقیق ویندوز، زمان آخرین بوت، رم، دامین و آپدیت‌های نصب‌شده (systeminfo)'}
+                  </h3>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'System Info & Installed Updates' : 'مشخصات کامل سیستم و آپدیت‌ها'}
+                    whatIsIt={
+                      isEn
+                        ? 'Collects exact Windows edition, DisplayVersion/build, last boot timestamp, physical/virtual RAM, domain, hardware/BIOS serial, and installed HotFixes.'
+                        : 'نسخه دقیق ویندوز (مثل 23H2/24H2 و شماره بیلد)، زمان دقیق آخرین بوت، حافظه فیزیکی/مجازی، دامین، سریال بایوس و لیست آپدیت‌های نصب‌شده (KB) را می‌خواند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Helps verify patch compliance, detect stale reboot uptime, and confirm hardware/domain identity in one click.'
+                        : 'برای بررسی نصب بودن آپدیت‌های امنیتی، تشخیص سیستم‌هایی که مدت طولانی ری‌استارت نشده‌اند و مشاهده دقیق مشخصات سخت‌افزاری ضروری است.'
+                    }
+                    example={
+                      isEn
+                        ? 'Windows 11 Pro 23H2 (Build 22631.4169) · Last Boot: 2026-05-12 08:14 · 34 HotFixes'
+                        : 'Windows 11 Pro 23H2 (Build 22631.4169) · آخرین بوت: 2026-05-12 08:14 · ۳۴ آپدیت نصب‌شده'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Exact OS build, last boot time, physical & virtual memory, domain membership, BIOS/hardware serial, and searchable Windows HotFix KB list.'
+                    : 'نمایش نسخه دقیق ویندوز، زمان آخرین بوت، رم فیزیکی و مجازی، دامین، مشخصات مادربرد/بایوس و جدول قابل جستجوی آپدیت‌های KB.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleInspectSysInfo}
+                disabled={!canRunDiagnostics || loadingSysInfo}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+              >
+                {loadingSysInfo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PackageCheck className="w-3.5 h-3.5" />}
+                <span>{isEn ? 'Fetch System Info & Updates' : 'دریافت مشخصات سیستم و آپدیت‌ها'}</span>
+              </button>
+            </div>
+
+            {sysInfoError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{sysInfoError}</span>
+              </div>
+            )}
+
+            {sysInfoData && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Windows / OS Edition' : 'نسخه دقیق سیستم‌عامل'}</div>
+                    <div className={`mt-1 font-bold ${textPrimary}`}>{sysInfoData.osName || '-'}</div>
+                    <div className={`mt-0.5 font-mono text-[11px] tabular-nums ${textMuted}`}>
+                      {sysInfoData.osDisplayVersion ? `${sysInfoData.osDisplayVersion} · ` : ''}
+                      Build {sysInfoData.osBuild || sysInfoData.osVersion || '-'} ({sysInfoData.osArchitecture || '-'})
+                    </div>
+                  </div>
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Last Boot Time & Uptime' : 'زمان آخرین بوت و روشن بودن'}</div>
+                    <div className={`mt-1 font-bold font-mono tabular-nums ${textPrimary}`} dir="ltr">
+                      {sysInfoData.lastBootTime || '-'}
+                    </div>
+                    <div className={`mt-0.5 font-mono text-[11px] tabular-nums ${textMuted}`}>
+                      {isEn ? 'Uptime' : 'آپتایم'}: {sysInfoData.uptimeFormatted || '-'}
+                    </div>
+                  </div>
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Physical & Virtual RAM' : 'حافظه رم فیزیکی و مجازی'}</div>
+                    <div className={`mt-1 font-bold font-mono tabular-nums ${textPrimary}`}>
+                      {sysInfoData.totalRamGb} GB ({isEn ? 'Free' : 'آزاد'}: {sysInfoData.availableRamGb} GB)
+                    </div>
+                    <div className={`mt-0.5 font-mono text-[11px] tabular-nums ${textMuted}`}>
+                      {isEn ? 'Virtual' : 'مجازی'}: {sysInfoData.virtualMemAvailGb} / {sysInfoData.virtualMemTotalGb} GB
+                    </div>
+                  </div>
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Domain & Hardware' : 'دامین و سخت‌افزار'}</div>
+                    <div className={`mt-1 font-bold font-mono ${textPrimary}`}>
+                      {sysInfoData.domain || '-'}{' '}
+                      <span className={sysInfoData.domainJoined ? 'text-emerald-500 font-normal' : 'text-amber-500 font-normal'}>
+                        ({sysInfoData.domainJoined ? (isEn ? 'Domain' : 'عضو دامین') : 'Workgroup'})
+                      </span>
+                    </div>
+                    <div className={`mt-0.5 text-[11px] truncate ${textMuted}`} title={`${sysInfoData.manufacturer} ${sysInfoData.model} · S/N: ${sysInfoData.serialNumber}`}>
+                      {sysInfoData.manufacturer} {sysInfoData.model} {sysInfoData.serialNumber ? `· S/N ${sysInfoData.serialNumber}` : ''}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Installed Windows Updates (HotFixes) Table */}
+                <div className="space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className={`text-xs font-bold ${textPrimary}`}>
+                      {isEn
+                        ? `Installed Windows Updates / HotFixes (${sysInfoData.hotfixes?.length || 0})`
+                        : `آپدیت‌های نصب‌شده ویندوز (${sysInfoData.hotfixes?.length || 0} مورد)`}
+                    </div>
+                    <div className="relative">
+                      <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 start-2.5 ${textMuted}`} />
+                      <input
+                        type="text"
+                        value={hotfixSearch}
+                        onChange={(e) => setHotfixSearch(e.target.value)}
+                        placeholder={isEn ? 'Filter KB number or date...' : 'جستجوی شماره KB یا تاریخ...'}
+                        className={`ps-8 pe-3 py-1.5 rounded-lg border text-xs outline-none w-52 ${inputCls}`}
+                      />
+                    </div>
+                  </div>
+
+                  {filteredHotfixes.length === 0 ? (
+                    <div className={`p-4 rounded-lg border text-xs text-center ${subSurfaceBg} ${textMuted}`}>
+                      {isEn ? 'No installed HotFixes reported.' : 'هیچ آپدیت HotFix ثبت نشده یا با فیلتر مطابقت ندارد.'}
+                    </div>
+                  ) : (
+                    <div className="max-h-64 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                      <table className="w-full text-xs border-collapse">
+                        <thead className={`sticky top-0 ${isLightMode ? 'bg-slate-50 text-slate-600' : 'bg-slate-900 text-slate-400'}`}>
+                          <tr className="border-b border-slate-200 dark:border-slate-800 text-start">
+                            <th className="py-2 px-3 text-start font-semibold">KB / HotFix ID</th>
+                            <th className="py-2 px-3 text-start font-semibold">{isEn ? 'Category' : 'نوع آپدیت'}</th>
+                            <th className="py-2 px-3 text-end font-semibold">{isEn ? 'Installed On' : 'تاریخ نصب'}</th>
+                            <th className="py-2 px-3 text-end font-semibold">{isEn ? 'Installed By' : 'نصب توسط'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
+                          {filteredHotfixes.map((hf: any, idx: number) => (
+                            <tr key={`${hf.hotfixId}-${idx}`}>
+                              <td className={`py-2 px-3 font-mono font-semibold text-sky-500`}>{hf.hotfixId}</td>
+                              <td className={`py-2 px-3 ${textPrimary}`}>{hf.description || '-'}</td>
+                              <td className={`py-2 px-3 text-end font-mono tabular-nums ${textMuted}`}>{hf.installedOn || '-'}</td>
+                              <td className={`py-2 px-3 text-end font-mono ${textMuted}`}>{hf.installedBy || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {sysInfoData.rawSystemInfo && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowRawSysInfo((v) => !v)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-sky-500 hover:underline cursor-pointer"
+                    >
+                      {showRawSysInfo ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      <span>
+                        {showRawSysInfo
+                          ? isEn
+                            ? 'Hide Raw systeminfo Output'
+                            : 'بستن خروجی خام systeminfo'
+                          : isEn
+                          ? 'Show Full systeminfo Output'
+                          : 'مشاهده خروجی کامل systeminfo'}
+                      </span>
+                    </button>
+                    {showRawSysInfo && (
+                      <pre
+                        dir="ltr"
+                        className={`mt-2 p-3.5 rounded-xl border font-mono text-[11px] overflow-x-auto max-h-64 ${subSurfaceBg} ${textMuted}`}
+                      >
+                        {sysInfoData.rawSystemInfo}
+                      </pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -3088,11 +3536,1168 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </div>
             )}
           </div>
+
+          {/* SYSTEM FILE INTEGRITY (SFC) & WINDOWS IMAGE REPAIR (DISM) */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-5 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <FileCheck2 className="w-4 h-4 text-sky-500" />
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'Corrupt System File Check (SFC) & Windows Image Repair (DISM)'
+                      : 'یافتن و تعمیر فایل‌های سیستمی خراب (SFC) و تعمیر ایمیج ویندوز (DISM)'}
+                  </h2>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'SFC & DISM System Repair' : 'تعمیر فایل‌های سیستمی و ایمیج ویندوز'}
+                    whatIsIt={
+                      isEn
+                        ? 'Runs official Windows integrity tools (sfc /verifyonly, sfc /scannow, and DISM /CheckHealth, /ScanHealth, /RestoreHealth) remotely.'
+                        : 'ابزارهای رسمی سلامت ویندوز شامل sfc /verifyonly، sfc /scannow و DISM CheckHealth/ScanHealth/RestoreHealth را از راه دور و ایمن اجرا می‌کند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Fixes broken OS DLLs, Windows Update failures, and crashes without reinstalling Windows.'
+                        : 'خرابی فایل‌های هسته ویندوز، خطاهای Windows Update و کرش‌های ناگهانی را بدون نیاز به نصب مجدد ویندوز برطرف می‌کند.'
+                    }
+                    example={
+                      isEn
+                        ? 'Recommended order: 1) DISM RestoreHealth → 2) SFC /scannow (takes 1–4 minutes)'
+                        : 'ترتیب پیشنهادی: ۱) DISM RestoreHealth و سپس ۲) SFC /scannow (زمان اجرا ۱ تا ۴ دقیقه)'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Allowlisted system integrity commands only. Deep scans (SFC /scannow and DISM /RestoreHealth) may take 1 to 4 minutes to complete.'
+                    : 'فقط دستورات ثابت و مجاز تعمیر ویندوز اجرا می‌شوند. اسکن‌های عمیق (SFC /scannow و DISM RestoreHealth) ممکن است ۱ تا ۴ دقیقه زمان ببرند.'}
+                </p>
+              </div>
+              {!canRunSystemRepair && (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-500">
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>{isEn ? 'Requires canRunHelpdeskSystemRepair' : 'نیازمند مجوز canRunHelpdeskSystemRepair'}</span>
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* SFC Controls */}
+              <div className={`p-4 rounded-xl border space-y-3 ${subSurfaceBg}`}>
+                <div>
+                  <div className={`text-xs font-bold ${textPrimary}`}>
+                    {isEn ? 'System File Checker (SFC)' : 'بررسی و تعمیر فایل‌های سیستمی (SFC)'}
+                  </div>
+                  <div className={`text-[11px] mt-0.5 ${textMuted}`}>
+                    {isEn
+                      ? 'Verify protected Windows system files or repair corrupted system binaries.'
+                      : 'بررسی سلامت فایل‌های محافظت‌شده ویندوز و تعمیر خودکار فایل‌های خراب.'}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!canRunSystemRepair || runningRepairMode !== null}
+                    onClick={() => handleRunSystemRepair('sfc_verify')}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition disabled:opacity-50 cursor-pointer ${
+                      isLightMode ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-100'
+                    }`}
+                  >
+                    {runningRepairMode === 'sfc_verify' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5 text-sky-500" />}
+                    <span>{isEn ? 'SFC Verify Only' : 'فقط بررسی (sfc /verifyonly)'}</span>
+                  </button>
+
+                  {confirmRepairKey === 'sfc_scannow' ? (
+                    <div className="inline-flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={runningRepairMode !== null}
+                        onClick={() => handleRunSystemRepair('sfc_scannow')}
+                        className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold cursor-pointer"
+                      >
+                        {isEn ? 'Confirm sfc /scannow' : 'تأیید اجرای sfc /scannow'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmRepairKey(null)}
+                        className={`px-2.5 py-2 rounded-lg border text-xs cursor-pointer ${isLightMode ? 'border-slate-300 text-slate-700' : 'border-slate-700 text-slate-300'}`}
+                      >
+                        {isEn ? 'Cancel' : 'انصراف'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={!canRunSystemRepair || runningRepairMode !== null}
+                      onClick={() => setConfirmRepairKey('sfc_scannow')}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                    >
+                      {runningRepairMode === 'sfc_scannow' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
+                      <span>{isEn ? 'Repair (sfc /scannow)' : 'یافتن و تعمیر (sfc /scannow)'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* DISM Controls */}
+              <div className={`p-4 rounded-xl border space-y-3 ${subSurfaceBg}`}>
+                <div>
+                  <div className={`text-xs font-bold ${textPrimary}`}>
+                    {isEn ? 'Windows Image Servicing (DISM)' : 'تعمیر ایمیج ویندوز (DISM Component Store)'}
+                  </div>
+                  <div className={`text-[11px] mt-0.5 ${textMuted}`}>
+                    {isEn
+                      ? 'Check, deep-scan, or restore the Windows Component Store image.'
+                      : 'بررسی سریع، اسکن عمیق و تعمیر کامل ایمیج ویندوز با DISM RestoreHealth.'}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!canRunSystemRepair || runningRepairMode !== null}
+                    onClick={() => handleRunSystemRepair('dism_check')}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition disabled:opacity-50 cursor-pointer ${
+                      isLightMode ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-100'
+                    }`}
+                  >
+                    {runningRepairMode === 'dism_check' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-teal-500" />}
+                    <span>CheckHealth</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canRunSystemRepair || runningRepairMode !== null}
+                    onClick={() => handleRunSystemRepair('dism_scan')}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition disabled:opacity-50 cursor-pointer ${
+                      isLightMode ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-100'
+                    }`}
+                  >
+                    {runningRepairMode === 'dism_scan' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5 text-sky-500" />}
+                    <span>ScanHealth</span>
+                  </button>
+                  {confirmRepairKey === 'dism_restore' ? (
+                    <div className="inline-flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={runningRepairMode !== null}
+                        onClick={() => handleRunSystemRepair('dism_restore')}
+                        className="px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold cursor-pointer"
+                      >
+                        {isEn ? 'Confirm RestoreHealth' : 'تأیید RestoreHealth'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmRepairKey(null)}
+                        className={`px-2.5 py-2 rounded-lg border text-xs cursor-pointer ${isLightMode ? 'border-slate-300 text-slate-700' : 'border-slate-700 text-slate-300'}`}
+                      >
+                        {isEn ? 'Cancel' : 'انصراف'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={!canRunSystemRepair || runningRepairMode !== null}
+                      onClick={() => setConfirmRepairKey('dism_restore')}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                    >
+                      {runningRepairMode === 'dism_restore' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
+                      <span>RestoreHealth</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {runningRepairMode && (
+              <div className="p-3.5 rounded-xl border border-sky-500/40 bg-sky-500/10 text-xs flex items-center gap-2.5 text-sky-500">
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                <span>
+                  {isEn
+                    ? `Executing ${runningRepairMode} on ${targetIp}... Please wait (deep system scans can take 1–4 minutes).`
+                    : `در حال اجرای ${runningRepairMode} روی سیستم ${targetIp}... لطفاً صبر کنید (اسکن‌های عمیق ممکن است ۱ تا ۴ دقیقه زمان ببرند).`}
+                </span>
+              </div>
+            )}
+
+            {repairError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{repairError}</span>
+              </div>
+            )}
+
+            {repairResult && (
+              <div
+                className={`p-4 rounded-xl border space-y-2 text-xs ${
+                  repairResult.statusCode === 'clean' || repairResult.statusCode === 'repaired' || repairResult.statusCode === 'scheduled'
+                    ? 'border-emerald-500/40 bg-emerald-500/10'
+                    : repairResult.blockedSsd
+                    ? 'border-amber-500/40 bg-amber-500/10'
+                    : 'border-rose-500/40 bg-rose-500/10'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div
+                    className={`font-bold flex items-center gap-2 ${
+                      repairResult.statusCode === 'clean' || repairResult.statusCode === 'repaired' || repairResult.statusCode === 'scheduled'
+                        ? 'text-emerald-500'
+                        : repairResult.blockedSsd
+                        ? 'text-amber-500'
+                        : 'text-rose-500'
+                    }`}
+                  >
+                    {repairResult.blockedSsd ? (
+                      <Ban className="w-4 h-4 shrink-0" />
+                    ) : repairResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                    )}
+                    <span>{isEn ? repairResult.summaryEn : repairResult.summaryFa}</span>
+                  </div>
+                  {repairResult.rawOutput && (
+                    <button
+                      type="button"
+                      onClick={() => setShowRawRepair((v) => !v)}
+                      className="text-sky-500 hover:underline font-semibold shrink-0 cursor-pointer"
+                    >
+                      {showRawRepair ? (isEn ? 'Hide Output' : 'بستن خروجی') : isEn ? 'Raw Output' : 'خروجی کامل'}
+                    </button>
+                  )}
+                </div>
+                {showRawRepair && repairResult.rawOutput && (
+                  <pre
+                    dir="ltr"
+                    className={`p-3 rounded-lg border font-mono text-[11px] overflow-x-auto max-h-60 ${subSurfaceBg} ${textMuted}`}
+                  >
+                    {repairResult.rawOutput}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* SMART DISK MEDIA DETECTION (HDD vs SSD/NVMe) & NON-SSD BAD-SECTOR CHKDSK */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <HardDrive className="w-4 h-4 text-sky-500" />
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'File-System & Bad-Sector Check (Strictly Non-SSD / HDD Protected)'
+                      : 'بررسی خطای فایل‌سیستم و بدسکتور هارد (محافظت‌شده: صرفاً برای هاردهای غیر SSD)'}
+                  </h2>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Smart HDD-Only Bad-Sector Guard' : 'محافظت هوشمند SSD در CHKDSK'}
+                    whatIsIt={
+                      isEn
+                        ? 'Detects whether each logical volume resides on a mechanical HDD or an SSD/NVMe drive before offering CHKDSK actions.'
+                        : 'ابتدا نوع فیزیکی هر درایو (HDD مکانیکی در برابر SSD/NVMe) و وضعیت Dirty Bit را تشخیص می‌دهد و سپس گزینه‌های ایمن CHKDSK را فعال می‌کند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Surface bad-sector rewrite (chkdsk /r) causes unnecessary flash wear on SSDs; this guard hard-blocks /r on both UI and endpoint PowerShell.'
+                        : 'اجرای اسکن سطح بدسکتور (chkdsk /r) روی SSD باعث کاهش عمر سلول‌های فلش می‌شود؛ بنابراین هم در رابط کاربری و هم در اسکریپت روی سیستم کاربر، اجرای /r روی SSD/NVMe به‌صورت قطعی مسدود شده است.'
+                    }
+                    example={
+                      isEn
+                        ? 'C: (NVMe SSD) → Read-only CHKDSK only · D: (SATA HDD) → Bad-Sector Scan (/r) enabled'
+                        : 'درایو C (SSD/NVMe): فقط بررسی خواندنی · درایو D (HDD مکانیکی): اسکن بدسکتور (/r) فعال'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Automatically distinguishes mechanical HDDs from SSD/NVMe drives. Bad-sector scan (chkdsk /r) is hard-blocked on SSD/NVMe drives.'
+                    : 'تشخیص خودکار هارد مکانیکی (HDD) از SSD/NVMe؛ اجرای اسکن بدسکتور (chkdsk /r) روی دیسک‌های SSD و NVMe به‌صورت خودکار مسدود می‌شود.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleInspectDisks}
+                disabled={!canRunDiagnostics || loadingDiskHealth}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+              >
+                {loadingDiskHealth ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                <span>{isEn ? 'Detect Disks (HDD / SSD)' : 'شناسایی دیسک‌ها (HDD / SSD)'}</span>
+              </button>
+            </div>
+
+            {diskHealthError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{diskHealthError}</span>
+              </div>
+            )}
+
+            {diskHealthData && Array.isArray(diskHealthData.volumes) && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className={`border-b text-start ${isLightMode ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>
+                      <th className="py-2 px-2.5 text-start font-semibold">{isEn ? 'Drive' : 'درایو'}</th>
+                      <th className="py-2 px-2.5 text-start font-semibold">{isEn ? 'Media Type & Model' : 'نوع دیسک و مدل'}</th>
+                      <th className="py-2 px-2.5 text-start font-semibold">{isEn ? 'Health / Dirty Bit' : 'سلامت / Dirty Bit'}</th>
+                      <th className="py-2 px-2.5 text-end font-semibold">{isEn ? 'Free / Total' : 'خالی / کل'}</th>
+                      <th className="py-2 px-2.5 text-end font-semibold">{isEn ? 'CHKDSK Actions' : 'عملیات CHKDSK'}</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
+                    {diskHealthData.volumes.map((v: any) => {
+                      const confirmKey = `chkdsk_hdd_badsector:${v.driveLetter}`;
+                      const isSsdDrive = Boolean(v.isSsd || v.mediaType === 'SSD' || v.mediaType === 'NVMe');
+                      const canBadSector = !isSsdDrive && v.badSectorScanAllowed !== false && diskHealthData.osFamily === 'windows';
+                      return (
+                        <tr key={v.driveLetter}>
+                          <td className="py-2.5 px-2.5 font-mono font-bold">
+                            <span className={textPrimary}>{v.driveLetter}:</span>
+                            <div className={`text-[10px] font-normal ${textMuted}`}>
+                              {v.label || '-'} · {v.fileSystem || '-'}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-2.5">
+                            <div
+                              className={`font-bold font-mono ${
+                                isSsdDrive ? 'text-sky-500' : v.mediaType === 'HDD' ? 'text-amber-500' : textMuted
+                              }`}
+                            >
+                              {v.mediaType} {v.busType ? `· ${v.busType}` : ''}
+                            </div>
+                            <div className={`text-[11px] truncate max-w-[240px] ${textMuted}`} title={v.diskModel}>
+                              {v.diskModel || '-'}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-2.5">
+                            <div className={`font-semibold ${v.healthStatus === 'Healthy' ? 'text-emerald-500' : 'text-amber-500'}`}>
+                              {v.healthStatus || 'Unknown'}
+                            </div>
+                            <div className={`text-[10px] ${v.isDirty ? 'text-rose-500 font-semibold' : textMuted}`}>
+                              {v.isDirty
+                                ? isEn
+                                  ? 'FS Dirty Flag Set'
+                                  : 'فلگ خطای فایل‌سیستم (Dirty)'
+                                : isEn
+                                ? 'FS Clean'
+                                : 'فایل‌سیستم سالم'}
+                            </div>
+                          </td>
+                          <td className={`py-2.5 px-2.5 text-end font-mono tabular-nums ${textPrimary}`}>
+                            {v.freeGb} / {v.sizeGb} GB
+                            <div className={`text-[10px] ${textMuted}`}>{v.usedPercent}% {isEn ? 'used' : 'پر'}</div>
+                          </td>
+                          <td className="py-2.5 px-2.5 text-end whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5">
+                              {diskHealthData.osFamily === 'windows' && (
+                                <button
+                                  type="button"
+                                  disabled={!canRunSystemRepair || runningRepairMode !== null}
+                                  onClick={() => handleRunSystemRepair('chkdsk_readonly', v.driveLetter)}
+                                  className={`px-2.5 py-1 rounded-md border text-[11px] font-semibold transition disabled:opacity-50 cursor-pointer ${
+                                    isLightMode ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800' : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-200'
+                                  }`}
+                                >
+                                  {runningRepairMode === `chkdsk_readonly:${v.driveLetter}` ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : isEn ? (
+                                    'Read-Only Check'
+                                  ) : (
+                                    'بررسی خواندنی'
+                                  )}
+                                </button>
+                              )}
+                              {isSsdDrive ? (
+                                <span
+                                  title={
+                                    isEn
+                                      ? 'Bad-sector scan (chkdsk /r) is strictly blocked on SSD/NVMe drives to protect flash lifespan.'
+                                      : 'اسکن بدسکتور (chkdsk /r) روی هاردهای SSD/NVMe برای حفظ عمر درایو مسدود است.'
+                                  }
+                                  className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 ${textMuted}`}
+                                >
+                                  <Lock className="w-3 h-3 text-sky-500" />
+                                  <span>{isEn ? 'SSD Protected' : 'محافظت SSD (مسدود)'}</span>
+                                </span>
+                              ) : canBadSector ? (
+                                confirmRepairKey === confirmKey ? (
+                                  <div className="inline-flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRunSystemRepair('chkdsk_hdd_badsector', v.driveLetter)}
+                                      className="px-2 py-1 rounded-md bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-semibold cursor-pointer"
+                                    >
+                                      {isEn ? 'Confirm /r' : 'تأیید /r'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmRepairKey(null)}
+                                      className={`px-2 py-1 rounded-md border text-[11px] cursor-pointer ${isLightMode ? 'border-slate-300 text-slate-700' : 'border-slate-700 text-slate-300'}`}
+                                    >
+                                      {isEn ? 'Cancel' : 'انصراف'}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={!canRunSystemRepair || runningRepairMode !== null}
+                                    onClick={() => setConfirmRepairKey(confirmKey)}
+                                    className="px-2.5 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-[11px] font-semibold transition disabled:opacity-50 cursor-pointer"
+                                  >
+                                    {isEn ? 'HDD Bad-Sector (/r)' : 'اسکن بدسکتور HDD (/r)'}
+                                  </button>
+                                )
+                              ) : (
+                                <span className={`text-[11px] ${textMuted}`}>—</span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* REMOTE POWER CONTROL (FORCE / SCHEDULED SHUTDOWN, IMMEDIATE / SCHEDULED RESTART, ABORT) */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Power className="w-4 h-4 text-rose-500" />
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'Remote Workstation Power Control (Force / Scheduled Shutdown & Restart)'
+                      : 'کنترل پاور از راه دور سیستم (خاموشی اجباری یا زمان‌بندی‌شده و ری‌استارت فوری)'}
+                  </h2>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Remote Endpoint Power Control' : 'کنترل خاموشی و ری‌استارت از راه دور'}
+                    whatIsIt={
+                      isEn
+                        ? 'Issues controlled shutdown /r, shutdown /s (immediate forced or scheduled with countdown warning), or cancels a pending shutdown via shutdown /a.'
+                        : 'امکان ری‌استارت فوری، خاموشی اجباری یا زمان‌بندی‌شده (با پیام هشدار به کاربر) و لغو زمان‌بندی (shutdown /a) را از راه دور فراهم می‌کند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Completes pending updates/repairs or powers off unattended workstations safely under an explicit high-impact RBAC permission.'
+                        : 'برای تکمیل آپدیت‌ها یا تعمیرات و خاموش کردن سیستم‌های رهاشده تحت مجوز اختصاصی و ثبت کامل در لاگ ممیزی.'
+                    }
+                    example={
+                      isEn
+                        ? 'Scheduled Shutdown: 5 min countdown with message · Cancel anytime with Abort (shutdown /a)'
+                        : 'خاموشی زمان‌بندی‌شده با ۵ دقیقه فرصت ذخیره کار به کاربر · قابل لغو فوری با Abort'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Protected by dedicated opt-in RBAC permission (canPowerControlHelpdeskEndpoints), 2-step confirmation, and full PostgreSQL audit trail.'
+                    : 'محافظت‌شده با مجوز مستقل (canPowerControlHelpdeskEndpoints)، تأیید دو مرحله‌ای و ثبت کامل در Audit Logs.'}
+                </p>
+              </div>
+              {!canPowerControl && (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-500">
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>{isEn ? 'Requires canPowerControlHelpdeskEndpoints' : 'نیازمند مجوز canPowerControlHelpdeskEndpoints'}</span>
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+              <div className="md:col-span-4">
+                <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
+                  {isEn ? 'Power Operation' : 'نوع عملیات پاور'}
+                </label>
+                <select
+                  value={powerAction}
+                  onChange={(e) => {
+                    setPowerAction(e.target.value as any);
+                    setConfirmPowerAction(false);
+                  }}
+                  className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+                >
+                  <option value="restart_now">{isEn ? 'Immediate Forced Restart (shutdown /r /f /t 5)' : 'ری‌استارت فوری و اجباری (۵ ثانیه)'}</option>
+                  <option value="restart_scheduled">{isEn ? 'Scheduled Restart (Custom Delay)' : 'ری‌استارت زمان‌بندی‌شده (با تأخیر دلخواه)'}</option>
+                  <option value="shutdown_force">{isEn ? 'Immediate Forced Shutdown (shutdown /s /f /t 5)' : 'خاموش کردن فوری و اجباری (۵ ثانیه)'}</option>
+                  <option value="shutdown_scheduled">{isEn ? 'Scheduled Shutdown (Custom Delay)' : 'خاموش کردن زمان‌بندی‌شده (با تأخیر دلخواه)'}</option>
+                  <option value="abort">{isEn ? 'Cancel Pending Shutdown / Restart (shutdown /a)' : 'لغو خاموشی / ری‌استارت زمان‌بندی‌شده (shutdown /a)'}</option>
+                </select>
+              </div>
+
+              {(powerAction === 'restart_scheduled' || powerAction === 'shutdown_scheduled') && (
+                <div className="md:col-span-2">
+                  <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
+                    {isEn ? 'Delay (Minutes)' : 'زمان‌بندی (دقیقه)'}
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={powerDelayMinutes}
+                    onChange={(e) => setPowerDelayMinutes(Math.max(1, Math.min(1440, Number(e.target.value) || 1)))}
+                    className={`w-full px-3 py-2 rounded-lg border text-xs font-mono tabular-nums outline-none ${inputCls}`}
+                  />
+                </div>
+              )}
+
+              {powerAction !== 'abort' && (
+                <div className={powerAction === 'restart_scheduled' || powerAction === 'shutdown_scheduled' ? 'md:col-span-3' : 'md:col-span-5'}>
+                  <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
+                    {isEn ? 'User Notification Message (Optional)' : 'پیام نمایشی به کاربر (اختیاری)'}
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={120}
+                    value={powerReason}
+                    onChange={(e) => setPowerReason(e.target.value)}
+                    placeholder="IT HelpDesk Remote Maintenance"
+                    className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+                  />
+                </div>
+              )}
+
+              <div className={powerAction === 'abort' ? 'md:col-span-8 flex justify-end' : 'md:col-span-3 flex justify-end'}>
+                {powerAction === 'abort' ? (
+                  <button
+                    type="button"
+                    disabled={!canPowerControl || runningPower}
+                    onClick={handleExecutePowerControl}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                  >
+                    {runningPower ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                    <span>{isEn ? 'Cancel Scheduled Power Action' : 'لغو زمان‌بندی (shutdown /a)'}</span>
+                  </button>
+                ) : confirmPowerAction ? (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={!canPowerControl || runningPower}
+                      onClick={handleExecutePowerControl}
+                      className="px-3.5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer"
+                    >
+                      {runningPower ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : isEn ? (
+                        'Confirm Execute'
+                      ) : (
+                        'تأیید قطعی اجرا'
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmPowerAction(false)}
+                      className={`px-2.5 py-2 rounded-lg border text-xs cursor-pointer ${isLightMode ? 'border-slate-300 text-slate-700' : 'border-slate-700 text-slate-300'}`}
+                    >
+                      {isEn ? 'Cancel' : 'انصراف'}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!canPowerControl || runningPower}
+                    onClick={() => setConfirmPowerAction(true)}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 disabled:opacity-50 text-xs font-semibold transition cursor-pointer"
+                  >
+                    {!canPowerControl ? <Lock className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
+                    <span>{isEn ? 'Issue Power Command' : 'ارسال دستور پاور'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {powerError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{powerError}</span>
+              </div>
+            )}
+
+            {powerResult && (
+              <div
+                className={`p-3.5 rounded-xl border text-xs flex items-center gap-2 font-semibold ${
+                  powerResult.success
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+                    : 'border-rose-500/40 bg-rose-500/10 text-rose-500'
+                }`}
+              >
+                {powerResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                <span>{isEn ? powerResult.message : powerResult.messageFa}</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {/* =================================================================== */}
-      {/* TAB 6: PHASE 1 SUMMARY & ANTI-RANSOMWARE SECURITY ARCHITECTURE      */}
+      {/* TAB 6: LAPTOP BATTERY HEALTH/CYCLES & DOMAIN ACCOUNT LOOKUP         */}
+      {/* =================================================================== */}
+      {activeSubTab === 'hardware_domain' && (
+        <div className="space-y-6">
+          {/* LAPTOP BATTERY HEALTH & EXACT CYCLE COUNT REPORT */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-5 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <BatteryCharging className="w-4 h-4 text-emerald-500" />
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'Laptop Battery Health, Wear & Exact Cycle Count Report'
+                      : 'گزارش کامل سلامت باتری لپ‌تاپ، تعداد دفعات شارژ (Cycle) و میزان فرسودگی'}
+                  </h2>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Battery Health & Cycle Count' : 'سلامت و سایکل باتری لپ‌تاپ'}
+                    whatIsIt={
+                      isEn
+                        ? 'Generates a real Windows powercfg /batteryreport XML + WMI inspection to calculate exact battery health % (Full Charge / Design Capacity) and exact cycle count.'
+                        : 'گزارش واقعی powercfg /batteryreport و WMI را از لپ‌تاپ کاربر می‌گیرد و به‌طور خودکار درصد سلامت باتری (نسبت ظرفیت فعلی به ظرفیت کارخانه) و تعداد دقیق دفعات شارژ (Cycle Count) را محاسبه می‌کند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Instantly determines whether a user laptop needs battery replacement without physical access.'
+                        : 'به کارشناس هلپ‌دسک نشان می‌دهد آیا باتری لپ‌تاپ کاربر دچار افت ظرفیت شده و نیازمند تعویض است یا خیر.'
+                    }
+                    example={
+                      isEn
+                        ? 'Health: 84.2% (Good) · Cycles: 187 · Full 42,100 mWh / Design 50,000 mWh'
+                        : 'سلامت: 84.2% (خوب) · تعداد سایکل: ۱۸۷ بار · ظرفیت فعلی 42,100 از 50,000 mWh'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Reads exact Design Capacity vs Full-Charge Capacity (mWh), Charge Cycle Count, auto-computed Health %, and Capacity History.'
+                    : 'خواندن ظرفیت کارخانه در برابر ظرفیت فعلی (mWh)، تعداد دقیق دفعات شارژ (Cycle Count)، محاسبه خودکار درصد سلامت و تاریخچه افت ظرفیت.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleInspectBattery}
+                disabled={!canRunDiagnostics || loadingBattery}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+              >
+                {loadingBattery ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Battery className="w-3.5 h-3.5" />}
+                <span>{isEn ? 'Generate Battery Report' : 'دریافت گزارش سلامت باتری'}</span>
+              </button>
+            </div>
+
+            {batteryError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{batteryError}</span>
+              </div>
+            )}
+
+            {batteryData && !batteryData.hasBattery && (
+              <div className={`p-6 rounded-xl border text-center space-y-2 ${subSurfaceBg}`}>
+                <Monitor className="w-8 h-8 mx-auto text-slate-400" />
+                <div className={`text-sm font-bold ${textPrimary}`}>
+                  {isEn ? 'No Battery Detected on This Endpoint' : 'هیچ باتری روی این سیستم شناسایی نشد'}
+                </div>
+                <p className={`text-xs ${textMuted}`}>
+                  {isEn
+                    ? `${batteryData.hostname} appears to be a desktop workstation, virtual machine, or has its battery removed.`
+                    : `سیستم ${batteryData.hostname} احتمالاً کامپیوتر دسکتاپ، ماشین مجازی است یا باتری آن جدا شده است.`}
+                </p>
+              </div>
+            )}
+
+            {batteryData && batteryData.hasBattery && (
+              <div className="space-y-5">
+                {(batteryData.batteries || []).map((batt: any, idx: number) => {
+                  const healthPct = typeof batt.healthPercent === 'number' ? batt.healthPercent : 0;
+                  const ringSize = 136;
+                  const strokeWidth = 11;
+                  const radius = (ringSize - strokeWidth) / 2;
+                  const circumference = 2 * Math.PI * radius;
+                  const dashOffset = circumference * (1 - Math.max(0, Math.min(100, healthPct)) / 100);
+                  const ringColor =
+                    batt.healthPercent === null
+                      ? '#64748b'
+                      : healthPct >= 80
+                      ? '#10b981'
+                      : healthPct >= 65
+                      ? '#0ea5e9'
+                      : healthPct >= 50
+                      ? '#f59e0b'
+                      : '#e11d48';
+                  const condLabel =
+                    batt.condition === 'excellent'
+                      ? isEn
+                        ? 'Excellent Health'
+                        : 'سلامت عالی'
+                      : batt.condition === 'good'
+                      ? isEn
+                        ? 'Good Health'
+                        : 'سلامت خوب'
+                      : batt.condition === 'fair'
+                      ? isEn
+                        ? 'Fair (Moderate Wear)'
+                        : 'متوسط (افت ظرفیت)'
+                      : batt.condition === 'poor'
+                      ? isEn
+                        ? 'Poor — Replacement Recommended'
+                        : 'ضعیف — نیاز به تعویض باتری'
+                      : isEn
+                      ? 'Unknown'
+                      : 'نامشخص';
+
+                  return (
+                    <div
+                      key={`${batt.id}-${idx}`}
+                      className={`p-4 sm:p-5 rounded-xl border grid grid-cols-1 lg:grid-cols-12 gap-6 items-center ${subSurfaceBg}`}
+                    >
+                      {/* Radial Battery Health Gauge */}
+                      <div className="lg:col-span-3 flex flex-col items-center text-center">
+                        <div className="relative" style={{ width: ringSize, height: ringSize }}>
+                          <svg width={ringSize} height={ringSize} className="-rotate-90">
+                            <circle
+                              cx={ringSize / 2}
+                              cy={ringSize / 2}
+                              r={radius}
+                              fill="none"
+                              stroke={isLightMode ? '#e2e8f0' : '#1e293b'}
+                              strokeWidth={strokeWidth}
+                            />
+                            <circle
+                              cx={ringSize / 2}
+                              cy={ringSize / 2}
+                              r={radius}
+                              fill="none"
+                              stroke={ringColor}
+                              strokeWidth={strokeWidth}
+                              strokeLinecap="round"
+                              strokeDasharray={circumference}
+                              strokeDashoffset={dashOffset}
+                              style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+                            />
+                          </svg>
+                          <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <span className="text-2xl font-bold font-mono tabular-nums" style={{ color: ringColor }}>
+                              {batt.healthPercent !== null ? `${batt.healthPercent}%` : 'N/A'}
+                            </span>
+                            <span className={`text-[11px] font-medium ${textMuted}`}>
+                              {isEn ? 'Battery Health' : 'سلامت باتری'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-2 text-xs font-bold" style={{ color: ringColor }}>
+                          {condLabel}
+                        </div>
+                        {batt.wearPercent !== null && (
+                          <div className={`text-[11px] font-mono tabular-nums ${textMuted}`}>
+                            {isEn ? `Wear Level: ${batt.wearPercent}%` : `میزان فرسودگی: ${batt.wearPercent}%`}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* KPI Cards & Capacity Bar */}
+                      <div className="lg:col-span-9 space-y-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                          <div className={`p-3 rounded-lg border ${surfaceBg}`}>
+                            <div className={textMuted}>{isEn ? 'Charge Cycles' : 'تعداد دفعات شارژ (Cycle)'}</div>
+                            <div className={`mt-1 text-xl font-bold font-mono tabular-nums ${textPrimary}`}>
+                              {batt.cycleCount !== null ? batt.cycleCount : isEn ? 'N/A' : 'گزارش نشد'}
+                            </div>
+                            <div className={`text-[10px] ${textMuted}`}>
+                              {isEn ? 'Full charge cycles' : 'سایکل شارژ کامل'}
+                            </div>
+                          </div>
+
+                          <div className={`p-3 rounded-lg border ${surfaceBg}`}>
+                            <div className={textMuted}>{isEn ? 'Current Charge' : 'شارژ فعلی'}</div>
+                            <div className={`mt-1 text-xl font-bold font-mono tabular-nums text-sky-500`}>
+                              {batt.chargePercent !== null ? `${batt.chargePercent}%` : '-'}
+                            </div>
+                            <div className={`text-[10px] ${textMuted}`}>
+                              {batt.isCharging
+                                ? isEn
+                                  ? 'Charging'
+                                  : 'در حال شارژ'
+                                : batt.onAcPower
+                                ? isEn
+                                  ? 'Plugged In (AC)'
+                                  : 'متصل به برق'
+                                : isEn
+                                ? 'On Battery'
+                                : 'روی باتری'}
+                            </div>
+                          </div>
+
+                          <div className={`p-3 rounded-lg border ${surfaceBg}`}>
+                            <div className={textMuted}>{isEn ? 'Full Charge Cap.' : 'ظرفیت فعلی باتری'}</div>
+                            <div className={`mt-1 text-base font-bold font-mono tabular-nums ${textPrimary}`}>
+                              {batt.fullChargeCapacityMwh > 0 ? `${batt.fullChargeCapacityMwh.toLocaleString()} mWh` : '-'}
+                            </div>
+                            <div className={`text-[10px] ${textMuted}`}>{isEn ? 'Current max capacity' : 'حداکثر ظرفیت فعلی'}</div>
+                          </div>
+
+                          <div className={`p-3 rounded-lg border ${surfaceBg}`}>
+                            <div className={textMuted}>{isEn ? 'Design Capacity' : 'ظرفیت کارخانه (Design)'}</div>
+                            <div className={`mt-1 text-base font-bold font-mono tabular-nums ${textPrimary}`}>
+                              {batt.designCapacityMwh > 0 ? `${batt.designCapacityMwh.toLocaleString()} mWh` : '-'}
+                            </div>
+                            <div className={`text-[10px] ${textMuted}`}>{isEn ? 'Factory specification' : 'ظرفیت استاندارد کارخانه'}</div>
+                          </div>
+                        </div>
+
+                        {/* Capacity Ratio Bar */}
+                        {batt.designCapacityMwh > 0 && batt.fullChargeCapacityMwh > 0 && (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs font-mono tabular-nums">
+                              <span className={textMuted}>
+                                {isEn ? 'Effective Capacity vs Factory Design' : 'نسبت ظرفیت فعلی به ظرفیت اولیه کارخانه'}
+                              </span>
+                              <span className={`font-semibold ${textPrimary}`}>
+                                {batt.fullChargeCapacityMwh.toLocaleString()} / {batt.designCapacityMwh.toLocaleString()} mWh ({batt.healthPercent}%)
+                              </span>
+                            </div>
+                            <div className={`h-2.5 w-full rounded-full overflow-hidden ${isLightMode ? 'bg-slate-200' : 'bg-slate-800'}`}>
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{ width: `${Math.max(4, Math.min(100, healthPct))}%`, backgroundColor: ringColor }}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className={`text-[11px] flex flex-wrap items-center gap-2 font-mono ${textMuted}`}>
+                          <span>{batt.manufacturer || 'Unknown OEM'}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>{batt.name || batt.id}</span>
+                          {batt.chemistry && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span>{batt.chemistry}</span>
+                            </>
+                          )}
+                          {batt.serialNumber && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span>S/N: {batt.serialNumber}</span>
+                            </>
+                          )}
+                          <span aria-hidden="true">·</span>
+                          <span>{batteryData.sourceMethod}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {Array.isArray(batteryData.capacityHistory) && batteryData.capacityHistory.length > 0 && (
+                  <div className="space-y-2">
+                    <div className={`text-xs font-bold ${textPrimary}`}>
+                      {isEn ? 'Recent Battery Capacity History' : 'تاریخچه روند تغییر ظرفیت باتری'}
+                    </div>
+                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className={`border-b text-start ${isLightMode ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-900 border-slate-800 text-slate-400'}`}>
+                            <th className="py-2 px-3 text-start font-semibold">{isEn ? 'Date / Period' : 'تاریخ'}</th>
+                            <th className="py-2 px-3 text-end font-semibold">{isEn ? 'Full Charge Capacity' : 'ظرفیت کامل ثبت‌شده'}</th>
+                            <th className="py-2 px-3 text-end font-semibold">{isEn ? 'Design Capacity' : 'ظرفیت کارخانه'}</th>
+                            <th className="py-2 px-3 text-end font-semibold">{isEn ? 'Health %' : 'درصد سلامت'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
+                          {batteryData.capacityHistory.map((h: any, idx: number) => (
+                            <tr key={`${h.period}-${idx}`}>
+                              <td className={`py-2 px-3 font-mono tabular-nums ${textPrimary}`}>{h.period}</td>
+                              <td className={`py-2 px-3 text-end font-mono tabular-nums ${textPrimary}`}>
+                                {Number(h.fullChargeCapacityMwh).toLocaleString()} mWh
+                              </td>
+                              <td className={`py-2 px-3 text-end font-mono tabular-nums ${textMuted}`}>
+                                {Number(h.designCapacityMwh).toLocaleString()} mWh
+                              </td>
+                              <td className={`py-2 px-3 text-end font-mono tabular-nums font-bold ${
+                                (h.healthPercent ?? 0) >= 80 ? 'text-emerald-500' : (h.healthPercent ?? 0) >= 60 ? 'text-amber-500' : 'text-rose-500'
+                              }`}>
+                                {h.healthPercent !== null ? `${h.healthPercent}%` : '-'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ACTIVE DIRECTORY DOMAIN ACCOUNT INSPECTOR (net user <USERNAME> /domain) */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-5 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-sky-500" />
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'Active Directory Domain Account Inspector (net user /domain)'
+                      : 'بررسی وضعیت اکانت دامین کاربر (آخرین تغییر پسورد، انقضا، قفل حساب و گروه‌ها)'}
+                  </h2>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Domain Account Lookup' : 'استعلام اکانت دامین'}
+                    whatIsIt={
+                      isEn
+                        ? 'Queries Active Directory from the domain-joined workstation using net user <username> /domain plus ADSI lockout state.'
+                        : 'وضعیت اکانت کاربری را از طریق سیستم عضو دامین با دستور net user USERNAME /domain و بررسی ADSI Lockout استعلام می‌گیرد.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Quickly reveals expired passwords, locked accounts, last logon time, and AD group memberships during login troubleshooting.'
+                        : 'بلافاصله مشخص می‌کند آیا پسورد کاربر منقضی شده، اکانت قفل (Locked) شده، آخرین بار چه زمانی رمز عوض کرده و عضو کدام گروه‌ها است.'
+                    }
+                    example={
+                      isEn
+                        ? 'Username: m.shahbazi → Password Last Set, Expires, Active/Locked, Global & Local Groups'
+                        : 'نام کاربری: m.shahbazi ← نمایش تاریخ آخرین تغییر رمز، انقضا، وضعیت قفل و لیست کامل گروه‌ها'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Inspect password last set, expiration state, lockout flag, last logon, and Local/Global group memberships.'
+                    : 'بررسی تاریخ آخرین تغییر پسورد، وضعیت انقضا، قفل بودن حساب، آخرین لاگین و عضویت گروه‌های Local و Global در اکتیو دایرکتوری.'}
+                </p>
+              </div>
+              {!canInspectDomainUsers && (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-500">
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>{isEn ? 'Requires canInspectHelpdeskDomainUsers' : 'نیازمند مجوز canInspectHelpdeskDomainUsers'}</span>
+                </span>
+              )}
+            </div>
+
+            <form onSubmit={handleInspectDomainUser} className="flex flex-wrap items-end gap-3">
+              <div className="flex-1 min-w-[220px] max-w-md">
+                <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
+                  {isEn ? 'Domain Username (sAMAccountName)' : 'نام کاربری دامین (بدون نام دامین)'}
+                </label>
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={domainQueryUser}
+                  onChange={(e) => setDomainQueryUser(e.target.value)}
+                  placeholder="j.smith"
+                  className={`w-full px-3 py-2 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={!canInspectDomainUsers || loadingDomainUser}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+              >
+                {loadingDomainUser ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                <span>{isEn ? 'Inspect Domain Account' : 'استعلام اکانت دامین'}</span>
+              </button>
+            </form>
+
+            {domainUserError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{domainUserError}</span>
+              </div>
+            )}
+
+            {domainUserData && !domainUserData.found && (
+              <div className="p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs space-y-2">
+                <div className="font-bold text-amber-500 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>
+                    {isEn
+                      ? `Domain user "${domainUserData.username}" was not found or the endpoint cannot reach a Domain Controller.`
+                      : `اکانت دامین «${domainUserData.username}» یافت نشد یا سیستم به Domain Controller دسترسی ندارد.`}
+                  </span>
+                </div>
+                {domainUserData.rawOutput && (
+                  <pre dir="ltr" className={`p-3 rounded-lg border font-mono text-[11px] overflow-x-auto ${subSurfaceBg} ${textMuted}`}>
+                    {domainUserData.rawOutput}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            {domainUserData && domainUserData.found && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'User & Full Name' : 'نام کاربری و نام کامل'}</div>
+                    <div className={`mt-1 font-bold font-mono ${textPrimary}`}>{domainUserData.username}</div>
+                    <div className={`mt-0.5 truncate ${textMuted}`}>{domainUserData.fullName || '-'}</div>
+                  </div>
+
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Account Status & Lockout' : 'وضعیت فعال و قفل اکانت'}</div>
+                    <div className={`mt-1 font-bold ${
+                      String(domainUserData.accountActive).toLowerCase() === 'yes' ? 'text-emerald-500' : 'text-rose-500'
+                    }`}>
+                      {isEn ? 'Active' : 'فعال'}: {domainUserData.accountActive || '-'}
+                    </div>
+                    <div className={`mt-0.5 font-semibold ${
+                      domainUserData.accountLocked === true
+                        ? 'text-rose-500'
+                        : domainUserData.accountLocked === false
+                        ? 'text-emerald-500'
+                        : textMuted
+                    }`}>
+                      {domainUserData.accountLocked === true
+                        ? isEn
+                          ? 'LOCKED OUT'
+                          : 'قفل‌شده (Locked)'
+                        : domainUserData.accountLocked === false
+                        ? isEn
+                          ? 'Unlocked'
+                          : 'باز (قفل نیست)'
+                        : isEn
+                        ? 'Lockout: N/A'
+                        : 'وضعیت قفل نامشخص'}
+                    </div>
+                  </div>
+
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Password Status' : 'وضعیت پسورد'}</div>
+                    <div className={`mt-1 font-bold ${
+                      domainUserData.passwordStatus === 'expired' || domainUserData.passwordStatus === 'must_change'
+                        ? 'text-rose-500'
+                        : domainUserData.passwordStatus === 'active' || domainUserData.passwordStatus === 'never_expires'
+                        ? 'text-emerald-500'
+                        : textMuted
+                    }`}>
+                      {domainUserData.passwordStatus === 'expired'
+                        ? isEn
+                          ? 'Expired'
+                          : 'منقضی شده (Expired)'
+                        : domainUserData.passwordStatus === 'must_change'
+                        ? isEn
+                          ? 'Must Change at Next Logon'
+                          : 'اجبار به تغییر در ورود بعدی'
+                        : domainUserData.passwordStatus === 'never_expires'
+                        ? isEn
+                          ? 'Active (Never Expires)'
+                          : 'فعال (بدون انقضا)'
+                        : domainUserData.passwordStatus === 'active'
+                        ? isEn
+                          ? 'Valid / Active'
+                          : 'معتبر و فعال'
+                        : isEn
+                        ? 'Unknown'
+                        : 'نامشخص'}
+                    </div>
+                    <div className={`mt-0.5 text-[11px] font-mono ${textMuted}`} dir="ltr">
+                      {isEn ? 'Exp' : 'انقضا'}: {domainUserData.passwordExpires || '-'}
+                    </div>
+                  </div>
+
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Last Password Set / Logon' : 'آخرین تغییر رمز / آخرین لاگین'}</div>
+                    <div className={`mt-1 font-mono text-[11px] font-semibold ${textPrimary}`} dir="ltr">
+                      {domainUserData.passwordLastSet || '-'}
+                    </div>
+                    <div className={`mt-0.5 font-mono text-[11px] ${textMuted}`} dir="ltr">
+                      {isEn ? 'Logon' : 'لاگین'}: {domainUserData.lastLogon || '-'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Group Memberships */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
+                  <div className={`p-4 rounded-xl border space-y-2.5 ${subSurfaceBg}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`font-bold ${textPrimary}`}>
+                        {isEn
+                          ? `Global Group Memberships (${domainUserData.globalGroups?.length || 0})`
+                          : `عضویت در گروه‌های Global دامین (${domainUserData.globalGroups?.length || 0})`}
+                      </span>
+                      {(domainUserData.globalGroups?.length || 0) > 6 && (
+                        <input
+                          type="text"
+                          value={domainGroupFilter}
+                          onChange={(e) => setDomainGroupFilter(e.target.value)}
+                          placeholder={isEn ? 'Filter groups...' : 'فیلتر گروه...'}
+                          className={`px-2 py-1 rounded-md border text-[11px] outline-none w-36 ${inputCls}`}
+                        />
+                      )}
+                    </div>
+                    <div className="max-h-48 overflow-y-auto space-y-1">
+                      {(domainUserData.globalGroups || [])
+                        .filter((g: string) => !domainGroupFilter.trim() || g.toLowerCase().includes(domainGroupFilter.trim().toLowerCase()))
+                        .map((g: string, idx: number) => (
+                          <div key={`gg-${g}-${idx}`} className={`px-2.5 py-1.5 rounded-md border font-mono ${surfaceBg} ${textPrimary}`} dir="ltr">
+                            {g}
+                          </div>
+                        ))}
+                      {(domainUserData.globalGroups?.length || 0) === 0 && (
+                        <div className={textMuted}>{isEn ? 'No Global groups listed.' : 'گروه Global ثبت نشده است.'}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={`p-4 rounded-xl border space-y-2.5 ${subSurfaceBg}`}>
+                    <div className={`font-bold ${textPrimary}`}>
+                      {isEn
+                        ? `Local Group Memberships (${domainUserData.localGroups?.length || 0})`
+                        : `عضویت در گروه‌های Local (${domainUserData.localGroups?.length || 0})`}
+                    </div>
+                    <div className="max-h-48 overflow-y-auto space-y-1">
+                      {(domainUserData.localGroups || []).map((g: string, idx: number) => (
+                        <div key={`lg-${g}-${idx}`} className={`px-2.5 py-1.5 rounded-md border font-mono ${surfaceBg} ${textPrimary}`} dir="ltr">
+                          {g}
+                        </div>
+                      ))}
+                      {(domainUserData.localGroups?.length || 0) === 0 && (
+                        <div className={textMuted}>{isEn ? 'No Local groups listed.' : 'گروه Local ثبت نشده است.'}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {domainUserData.rawOutput && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowRawDomainUser((v) => !v)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-sky-500 hover:underline cursor-pointer"
+                    >
+                      {showRawDomainUser ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      <span>
+                        {showRawDomainUser
+                          ? isEn
+                            ? 'Hide Raw net user /domain Output'
+                            : 'بستن خروجی خام net user /domain'
+                          : isEn
+                          ? 'Show Full net user /domain Output'
+                          : 'مشاهده خروجی کامل net user /domain'}
+                      </span>
+                    </button>
+                    {showRawDomainUser && (
+                      <pre
+                        dir="ltr"
+                        className={`mt-2 p-3.5 rounded-xl border font-mono text-[11px] overflow-x-auto max-h-64 ${subSurfaceBg} ${textMuted}`}
+                      >
+                        {domainUserData.rawOutput}
+                      </pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 7: ANTI-RANSOMWARE SECURITY ARCHITECTURE & CAPABILITIES         */}
       {/* =================================================================== */}
       {activeSubTab === 'architecture' && (
         <div className="space-y-6">
@@ -3130,10 +4735,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   descFa: 'هر درخواست فقط یک IP اعتبارسنجی‌شده می‌پذیرد و هیچ امکان اجرای گروهی روی کلاینت‌ها وجود ندارد.',
                 },
                 {
-                  titleEn: 'Hardcoded Allowlist + OS/AV Lock',
-                  titleFa: 'لیست سفید ثابت + قفل هسته و آنتی‌ویروس',
-                  descEn: 'Zero free shell; process termination permanently locks OS core & AV/EDR, and Temp cleanup accepts zero custom paths.',
-                  descFa: 'بدون ترمینال آزاد؛ بستن پروسس روی هسته سیستم و آنتی‌ویروس قفل است و پاک‌سازی Temp هیچ مسیر دلخواهی نمی‌پذیرد.',
+                  titleEn: 'Hardcoded Allowlist + OS/AV & SSD Lock',
+                  titleFa: 'لیست سفید ثابت + قفل OS/AV و محافظت SSD',
+                  descEn: 'Zero free shell; OS core & AV/EDR processes are locked, Temp accepts zero custom paths, and chkdsk /r is blocked on SSD/NVMe.',
+                  descFa: 'بدون ترمینال آزاد؛ هسته سیستم و آنتی‌ویروس قفل هستند، پاک‌سازی Temp مسیر دلخواه نمی‌پذیرد و اسکن بدسکتور روی SSD مسدود است.',
                 },
                 {
                   titleEn: 'Ephemeral Zero-Storage Credentials',
@@ -3144,8 +4749,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 {
                   titleEn: 'Granular RBAC + Circuit Breaker + Audit',
                   titleFa: 'دسترسی دقیق RBAC + مدارقطع‌کن + لاگ ممیزی',
-                  descEn: '7 separate HelpDesk RBAC permissions, 6 ops / 3 hosts per 5-minute circuit breaker, and complete PostgreSQL audit trail.',
-                  descFa: '۷ مجوز مستقل در Access Policy، مدارقطع‌کن ۶ عملیات روی حداکثر ۳ سیستم در ۵ دقیقه و ثبت کامل در Audit Logs.',
+                  descEn: '10 separate HelpDesk RBAC permissions, 6 ops / 3 hosts per 5-minute circuit breaker, and complete PostgreSQL audit trail.',
+                  descFa: '۱۰ مجوز مستقل در Access Policy، مدارقطع‌کن ۶ عملیات روی حداکثر ۳ سیستم در ۵ دقیقه و ثبت کامل در Audit Logs.',
                 },
               ].map((card) => (
                 <div key={card.titleEn} className={`p-4 rounded-xl border space-y-1.5 ${subSurfaceBg}`}>

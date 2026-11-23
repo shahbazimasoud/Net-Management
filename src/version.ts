@@ -10,9 +10,47 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.456.1';
+export const APP_VERSION = '1.457.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.457.0',
+    releaseDate: '2026-11-22',
+    type: 'minor',
+    title: 'توسعه جامع ماژول HelpDesk: مشخصات کامل ویندوز و آپدیت‌ها (systeminfo)، تعمیر SFC/DISM، بررسی بدسکتور محافظت‌شده ویژه HDD، بررسی اکانت دامین، کنترل پاور از راه دور و گزارش سلامت و سایکل باتری لپ‌تاپ',
+    title_en: 'Expand Agentless HelpDesk Suite: Detailed System Info & HotFixes, SFC/DISM Repair, Smart HDD-Only CHKDSK, Domain Account Lookup, Remote Power Control & Laptop Battery Health/Cycle Report',
+    changes: [
+      'افزودن بخش **مشخصات دقیق ویندوز و آپدیت‌های نصب‌شده (`systeminfo` + `Win32_QuickFixEngineering`)** در تب سلامت سیستم: نمایش نسخه دقیق ویندوز (DisplayVersion و Build)، زمان دقیق آخرین بوت و آپتایم، رم فیزیکی و مجازی، عضویت دامین، مشخصات سخت‌افزار/بایوس و جدول قابل جستجوی آپدیت‌های نصب‌شده (KB).',
+      'افزودن ابزارهای **یافتن و تعمیر فایل‌های سیستمی خراب (`sfc /verifyonly`، `sfc /scannow`)** و **تعمیر ایمیج ویندوز (`DISM /CheckHealth`، `/ScanHealth`، `/RestoreHealth`)** همراه با ارتقای حلقه WinRM برای اجرای ایمن عملیات زمان‌بر تا ۵ دقیقه و نمایش نتیجه تحلیل‌شده و خروجی کامل.',
+      'افزودن **تشخیص خودکار نوع دیسک (`HDD` در برابر `SSD/NVMe`) و بررسی خطای فایل‌سیستم/بدسکتور (`CHKDSK`)**: مسدودسازی قطعی اسکن بدسکتور (`chkdsk /r`) روی درایوهای SSD و NVMe (هم در رابط کاربری و هم درون اسکریپت PowerShell روی سیستم مقصد) و فعال‌سازی آن منحصراً برای هاردهای مکانیکی HDD.',
+      'افزودن تب جدید **«سلامت باتری و اکانت دامین»** شامل: ۱) **گزارش کامل سلامت باتری لپ‌تاپ (`powercfg /batteryreport` + WMI)** با نمودار دایره‌ای درصد سلامت محاسبه‌شده خودکار، میزان فرسودگی، **تعداد دقیق دفعات شارژ (Cycle Count)**، مقایسه ظرفیت فعلی با ظرفیت کارخانه (mWh) و تاریخچه ظرفیت؛ ۲) **استعلام وضعیت اکانت دامین (`net user <USER> /domain` + ADSI)** شامل آخرین تغییر رمز، انقضای پسورد، قفل حساب (Lockout) و لیست گروه‌های Local و Global.',
+      'افزودن بخش **کنترل پاور از راه دور** (ری‌استارت فوری و اجباری، خاموش کردن فوری یا زمان‌بندی‌شده با پیام هشدار به کاربر و لغو زمان‌بندی با `shutdown /a`) همراه با تأیید دو مرحله‌ای درون‌خطی.',
+      'افزودن ۳ مجوز جدید و مستقل در **Access Policy (RBAC)** (`canRunHelpdeskSystemRepair`، `canInspectHelpdeskDomainUsers` و مجوز حساس و غیرفعالِ پیش‌فرض `canPowerControlHelpdeskEndpoints`)، به‌روزرسانی اسکریپت JEA و ثبت کامل تمامی عملیات در **Audit Logs** بدون تکرار قابلیت‌های قبلی (لیست پروسس، بستن برنامه، `gpupdate /force` و `gpresult /r`).'
+    ],
+    changes_en: [
+      'Added **Detailed System Info & Installed Updates (`systeminfo` + `Win32_QuickFixEngineering`)** inside the Health tab: displays exact Windows edition, DisplayVersion/build, last boot timestamp, physical/virtual RAM, domain membership, BIOS/serial details, and a searchable HotFix KB table.',
+      'Added **Windows System File Integrity (`sfc /verifyonly`, `sfc /scannow`)** and **Windows Image Servicing (`DISM /CheckHealth`, `/ScanHealth`, `/RestoreHealth`)** with extended WinRM Receive polling support up to 300s and parsed plain-language verdicts.',
+      'Added **Smart Disk Media Detection (`HDD` vs `SSD/NVMe`) & Safe CHKDSK**: allows read-only checks on Windows volumes while hard-blocking bad-sector surface scanning (`chkdsk /r`) on SSD/NVMe drives in both the UI and endpoint PowerShell guard.',
+      'Added the **Battery & Domain Account** tab featuring: (1) **Laptop Battery Health & Cycle Count Report (`powercfg /batteryreport /xml` + WMI)** with radial health % gauge, wear %, exact charge cycle count, full vs design capacity (mWh), capacity history, and clean desktop fallback; (2) **Active Directory Domain Account Inspector (`net user <USER> /domain` + ADSI lockout)** showing password last set, expiration, lockout status, and Local/Global group memberships.',
+      'Added **Remote Power Control** supporting immediate forced restart/shutdown, scheduled restart/shutdown with custom delay and user warning notice, and `shutdown /a` abort with 2-step inline confirmation.',
+      'Added 3 granular PostgreSQL RBAC permissions (`canRunHelpdeskSystemRepair`, `canInspectHelpdeskDomainUsers`, and opt-in high-impact `canPowerControlHelpdeskEndpoints`), updated Windows JEA templates, and wired complete bilingual Portal Audit Logs without duplicating existing process/GPO features.'
+    ]
+  },
+  {
+    version: '1.456.2',
+    releaseDate: '2026-11-22',
+    type: 'patch',
+    title: 'رفع تأخیر و Timeout بالا آمدن سرور توسعه (اجرای غیرمسدودکننده بررسی محیط‌های SSH و سرویس‌های جانبی پس از Bind پورت 3000)',
+    title_en: 'Fix Dev Server Startup Timeout by Making SSH Venv & Sidecar Initialization Non-Blocking After Port Binding',
+    changes: [
+      'حذف اجرای همزمان و مسدودکننده (`execSync` تا ۱۲۰ ثانیه) اسکریپت ساخت محیط مجازی SSH (`setup-ssh-venvs.sh`) پیش از `server.listen(3000)` در `server/sshBackendResolver.ts` و تبدیل آن به فرآیند پس‌زمینه غیرمسدودکننده (`spawn`).',
+      'تبدیل ساخت خودکار محیط مجازی پایتون در `startPythonBackend` به اجرای غیرهمگام و انتقال آغاز به کار بررسی SSH، بک‌اند پایتون و `guacd` در `server.ts` به بلافاصله پس از گوش دادن سریع سرور روی پورت `3000` جهت جلوگیری قطعی از خطای Timeout استارت سرور.'
+    ],
+    changes_en: [
+      'Removed the synchronous blocking 120s `execSync` call to `setup-ssh-venvs.sh` during startup health verification in `server/sshBackendResolver.ts`, switching missing-venv initialization to a non-blocking background `spawn`.',
+      'Converted Python legacy venv provisioning in `server.ts` to async execution and deferred `checkSshBackendsOnStartup`, `startPythonBackend`, and `ensureGuacdServiceRunning` until immediately after Express binds port `3000`, preventing cold-start server timeout failures.'
+    ]
+  },
   {
     version: '1.456.1',
     releaseDate: '2026-11-22',

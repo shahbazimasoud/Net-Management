@@ -565,6 +565,9 @@ export const DEFAULT_ACCESS_POLICIES = [
     canTerminateHelpdeskProcesses: true,
     canCleanHelpdeskTemp: true,
     canRunHelpdeskGpupdate: true,
+    canRunHelpdeskSystemRepair: true,
+    canInspectHelpdeskDomainUsers: true,
+    canPowerControlHelpdeskEndpoints: false,
     // Device & Port Actions
     terminalAccess: 'none',
     canToggleAdminStatus: false,
@@ -661,6 +664,9 @@ export const DEFAULT_ACCESS_POLICIES = [
     canTerminateHelpdeskProcesses: false,
     canCleanHelpdeskTemp: false,
     canRunHelpdeskGpupdate: false,
+    canRunHelpdeskSystemRepair: false,
+    canInspectHelpdeskDomainUsers: false,
+    canPowerControlHelpdeskEndpoints: false,
     // Device & Port Actions
     terminalAccess: 'view_only',
     canToggleAdminStatus: false,
@@ -757,6 +763,9 @@ export const DEFAULT_ACCESS_POLICIES = [
     canTerminateHelpdeskProcesses: true,
     canCleanHelpdeskTemp: true,
     canRunHelpdeskGpupdate: true,
+    canRunHelpdeskSystemRepair: true,
+    canInspectHelpdeskDomainUsers: true,
+    canPowerControlHelpdeskEndpoints: true,
     // Device & Port Actions
     terminalAccess: 'full',
     canToggleAdminStatus: true,
@@ -1859,6 +1868,14 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
         pData.canTerminateHelpdeskProcesses = isSuper || isHelpdesk || Boolean(pData.canExecuteHelpdeskActions);
         pData.canCleanHelpdeskTemp = isSuper || isHelpdesk || Boolean(pData.canExecuteHelpdeskActions);
         pData.canRunHelpdeskGpupdate = isSuper || isHelpdesk || Boolean(pData.canExecuteHelpdeskActions);
+        changed = true;
+      }
+      if (pData.canRunHelpdeskSystemRepair === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        const isHelpdesk = r.id === 'policy-helpdesk' || r.id === 'policy-helpdesk-tech';
+        pData.canRunHelpdeskSystemRepair = isSuper || isHelpdesk || Boolean(pData.canExecuteHelpdeskActions);
+        pData.canInspectHelpdeskDomainUsers = isSuper || isHelpdesk || Boolean(pData.canRunHelpdeskDiagnostics);
+        pData.canPowerControlHelpdeskEndpoints = isSuper;
         changed = true;
       }
       if (changed) {
@@ -5018,6 +5035,9 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canTerminateHelpdeskProcesses: false,
       canCleanHelpdeskTemp: false,
       canRunHelpdeskGpupdate: false,
+      canRunHelpdeskSystemRepair: false,
+      canInspectHelpdeskDomainUsers: false,
+      canPowerControlHelpdeskEndpoints: false,
       canCheckUpdate: false,
       canPerformUpdate: false,
       canBulkConfigureDevices: false,
@@ -5376,6 +5396,9 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canTerminateHelpdeskProcesses: true,
       canCleanHelpdeskTemp: true,
       canRunHelpdeskGpupdate: true,
+      canRunHelpdeskSystemRepair: true,
+      canInspectHelpdeskDomainUsers: true,
+      canPowerControlHelpdeskEndpoints: true,
       terminalAccess: 'full',
       canToggleAdminStatus: true,
       canChangeVlan: true,
@@ -5504,6 +5527,9 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canTerminateHelpdeskProcesses: false,
     canCleanHelpdeskTemp: false,
     canRunHelpdeskGpupdate: false,
+    canRunHelpdeskSystemRepair: false,
+    canInspectHelpdeskDomainUsers: false,
+    canPowerControlHelpdeskEndpoints: false,
     terminalAccess: 'none',
     canToggleAdminStatus: false,
     canChangeVlan: false,

@@ -226,6 +226,15 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canRunHelpdeskGpupdate:
         initialPolicy.canRunHelpdeskGpupdate ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canRunHelpdeskSystemRepair:
+        initialPolicy.canRunHelpdeskSystemRepair ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canInspectHelpdeskDomainUsers:
+        initialPolicy.canInspectHelpdeskDomainUsers ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canPowerControlHelpdeskEndpoints:
+        initialPolicy.canPowerControlHelpdeskEndpoints ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
       canViewCommunications: initialPolicy.canViewCommunications ?? true,
       canSendCommunications: initialPolicy.canSendCommunications ?? true,
       canSendAnnouncements:
@@ -639,6 +648,15 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
         canRunHelpdeskGpupdate:
           initialPolicy.canRunHelpdeskGpupdate ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canRunHelpdeskSystemRepair:
+          initialPolicy.canRunHelpdeskSystemRepair ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canInspectHelpdeskDomainUsers:
+          initialPolicy.canInspectHelpdeskDomainUsers ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canPowerControlHelpdeskEndpoints:
+          initialPolicy.canPowerControlHelpdeskEndpoints ??
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
         canViewCommunications: initialPolicy.canViewCommunications ?? true,
         canSendCommunications: initialPolicy.canSendCommunications ?? true,
@@ -1672,6 +1690,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canTerminateHelpdeskProcesses: enabled,
         canCleanHelpdeskTemp: enabled,
         canRunHelpdeskGpupdate: enabled,
+        canRunHelpdeskSystemRepair: enabled,
+        canInspectHelpdeskDomainUsers: enabled,
+        canPowerControlHelpdeskEndpoints: enabled,
         canBatchOperate: enabled,
         canViewSessionRecordings: enabled,
         canPlaybackSessionRecordings: enabled,
@@ -6810,6 +6831,39 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         whatFa: 'مجوز بررسی وضعیت اعمال Group Policy و اجرای دکمه ثابت gpupdate /force بدون ری‌استارت ناخواسته سیستم کاربر.',
                         why: 'Applies new AD permissions, mapped drives, and security policies immediately during a support call',
                         whyFa: 'باعث اعمال فوری تغییرات Active Directory، دسترسی‌ها و پالیسی‌های جدید در همان لحظه تماس پشتیبانی می‌شود.',
+                      },
+                      {
+                        key: 'canRunHelpdeskSystemRepair',
+                        labelEn: 'HelpDesk: System Integrity & Disk Repair (SFC / DISM / HDD CHKDSK)',
+                        labelFa: 'هلپ‌دسک: تعمیر فایل‌های سیستمی، ایمیج ویندوز و بررسی دیسک (SFC / DISM / CHKDSK)',
+                        descEn: 'Run SFC verify/repair, DISM CheckHealth/ScanHealth/RestoreHealth, and safe CHKDSK (bad-sector scan strictly blocked on SSD/NVMe)',
+                        descFa: 'اجرای بررسی و تعمیر فایل‌های سیستمی (SFC)، تعمیر ایمیج ویندوز (DISM) و اسکن فایل‌سیستم/بدسکتور منحصراً روی هاردهای مکانیکی HDD',
+                        what: 'Authorizes hardcoded Windows integrity and image repair workflows (sfc, DISM, chkdsk) with automatic SSD/NVMe protection against chkdsk /r',
+                        whatFa: 'مجوز اجرای دستورات استاندارد بررسی و تعمیر سیستم‌عامل (sfc، DISM و chkdsk) با محافظت خودکار جهت منع اجرای bad-sector scan روی درایوهای SSD و NVMe.',
+                        why: 'Repairs corrupted OS binaries and schedules non-SSD disk checks remotely without granting arbitrary command shell access',
+                        whyFa: 'امکان رفع خرابی فایل‌های ویندوز و بررسی سلامت هاردهای مکانیکی را از راه دور بدون باز کردن شل آزاد فراهم می‌کند.',
+                      },
+                      {
+                        key: 'canInspectHelpdeskDomainUsers',
+                        labelEn: 'HelpDesk: Active Directory Domain Account Inspection (net user /domain)',
+                        labelFa: 'هلپ‌دسک: بررسی وضعیت اکانت کاربری دامین (net user /domain)',
+                        descEn: 'Check AD password last set, expiration, account active/lockout status, and local/global group memberships',
+                        descFa: 'استعلام وضعیت اکانت دامین شامل تاریخ آخرین تغییر رمز، انقضا، قفل بودن حساب و فهرست گروه‌های Local و Global',
+                        what: 'Permits read-only domain user inspection via sanitized net user <username> /domain queries',
+                        whatFa: 'مجوز استعلام فقط‌خواندنی مشخصات اکانت‌های دامین از طریق دستور کنترل‌شده net user /domain.',
+                        why: 'Allows HelpDesk technicians to diagnose locked or expired domain accounts immediately without full Domain Admin rights',
+                        whyFa: 'کارشناسان هلپ‌دسک می‌توانند علت عدم ورود کاربر (قفل شدن یا انقضای رمز) و عضویت گروه‌ها را سریعاً تشخیص دهند.',
+                      },
+                      {
+                        key: 'canPowerControlHelpdeskEndpoints',
+                        labelEn: 'HelpDesk: Remote Power Control (Force/Scheduled Shutdown & Restart)',
+                        labelFa: 'هلپ‌دسک: کنترل پاور از راه دور (خاموش کردن و ری‌استارت فوری/زمان‌بندی‌شده)',
+                        descEn: 'High-impact permission to remotely restart, shut down (immediate or scheduled), or abort pending shutdown on an endpoint',
+                        descFa: 'دسترسی حساس برای ری‌استارت فوری، خاموش کردن اجباری یا زمان‌بندی‌شده سیستم کاربر و لغو زمان‌بندی خاموشی (shutdown /a)',
+                        what: 'Grants explicit authority to execute remote shutdown /r, shutdown /s, and shutdown /a actions with full audit logging',
+                        whatFa: 'مجوز صریح اجرای خاموشی یا ری‌استارت فوری/زمان‌بندی‌شده و لغو آن روی ایستگاه کاری با ثبت کامل در لاگ ممیزی.',
+                        why: 'Separated as an opt-in high-impact permission so routine HelpDesk staff cannot accidentally power off active workstations',
+                        whyFa: 'به دلیل ریسک قطع ناگهانی کار کاربر به صورت مجزا و غیرفعال پیش‌فرض برای غیرمدیران طراحی شده تا فقط در صورت نیاز واگذار شود.',
                       },
                       {
                         key: 'canBatchOperate',
