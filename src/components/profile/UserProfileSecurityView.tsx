@@ -48,6 +48,7 @@ import {
 } from '../../services/profileApi';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ModalHeaderControls } from '../common/ModalHeaderControls';
+import { HelpdeskNotificationSettingsCard } from '../settings/HelpdeskNotificationSettingsCard';
 
 interface UserProfileSecurityViewProps {
   isLightMode?: boolean;
@@ -1316,6 +1317,7 @@ export const UserProfileSecurityView: React.FC<UserProfileSecurityViewProps> = (
 
           {/* TAB 4: NOTIFICATIONS, EMAIL ALERTS & QUIET HOURS */}
           {subTab === 'notifications' && (
+            <div className="space-y-5">
             <form onSubmit={handleSaveNotifications} className="space-y-5">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 {/* Inbox Notification Category Toggles */}
@@ -1650,6 +1652,10 @@ export const UserProfileSecurityView: React.FC<UserProfileSecurityViewProps> = (
                 </div>
               </div>
             </form>
+
+            {/* HelpDesk Failure & Alert Email Routing Controls (Default OFF + Recipient Picker) */}
+            <HelpdeskNotificationSettingsCard isEn={isEn} isLightMode={isLightMode} />
+            </div>
           )}
         </>
       )}

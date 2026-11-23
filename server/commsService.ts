@@ -22,6 +22,7 @@ import {
   getAllRemoteServers,
   isDeviceActionPermitted,
   isServerActionPermitted,
+  getHelpdeskNotificationConfig,
 } from './db';
 import { searchMacOrIp } from './macIpTrackerService';
 import {
@@ -1400,6 +1401,7 @@ export async function emitSystemNotification(params: {
   actionTab?: string | null;
   requiresAcknowledgment?: boolean;
   recipients?: ResolvedRecipient[];
+  skipEmail?: boolean;
   metadata?: Record<string, any>;
 }): Promise<void> {
   try {
@@ -1447,7 +1449,7 @@ export async function emitSystemNotification(params: {
 
     for (const rec of recipients) {
       const pref = await evaluateNotificationDeliveryForUser(rec, resolvedCat, resolvedSev, reqAck);
-      if (pref.deliverEmailNotification) {
+      if (!params.skipEmail && pref.deliverEmailNotification) {
         emailTargets.push({
           recipient: rec,
           category: resolvedCat,
@@ -1527,6 +1529,178 @@ export function initCommsIntegration(): void {
     const sev = (auditRecord.severity || '').toLowerCase();
     const status = (auditRecord.status || '').toLowerCase();
     if (sev !== 'critical' && sev !== 'warning' && sev !== 'warn' && status !== 'failed') return;
+
+    const actionLower = String(auditRecord.action || '').toLowerCase();
+    const isHelpdeskEvent =
+      actionLower.startsWith('helpdesk_') ||
+      String(auditRecord.category || '').toLowerCase() === 'helpdesk';
+
+    // HelpDesk alerts are strictly governed by HelpdeskNotificationConfig (default OFF)
+    // so failed workstation connections never spam emails unless explicitly configured by an admin.
+    if (isHelpdeskEvent) {
+      const hdCfg = await getHelpdeskNotificationConfig().catch(() => null);
+      if (!hdCfg || !hdCfg.enabled) return;
+
+      const isDenied = actionLower.includes('denied') || status === 'denied';
+      const isRateLimit = actionLower.includes('rate_limit');
+      if (isDenied && !hdCfg.notifyOnUnauthorizedAttempt) return;
+      if (isRateLimit && !hdCfg.notifyOnRateLimitTripped) return;
+      if (!isDenied && !isRateLimit && !hdCfg.notifyOnConnectionFailure) return;
+      if (!hdCfg.sendInboxNotification && !hdCfg.sendEmail) return;
+
+      // Resolve panel user recipients based on configured recipientMode
+      const resolvedMap = new Map<string, ResolvedRecipient>();
+      const addRec = (r: ResolvedRecipient) => {
+        const key = (r.username || r.userId || '').toLowerCase();
+        if (key && !resolvedMap.has(key)) resolvedMap.set(key, r);
+      };
+
+      if (hdCfg.recipientMode === 'super_admins') {
+        const allUsers = (await getAllUsers().catch(() => [])).filter((u) => u && u.status !== 'disabled');
+        const policies = await getAccessPolicies().catch(() => []);
+        const adminPolicy = policies.find((p: any) => p.id === 'policy-super-admin');
+        const adminSubjects = new Set<string>(
+          [adminPolicy?.subjectId, ...(Array.isArray(adminPolicy?.subjectIds) ? adminPolicy.subjectIds : [])]
+            .filter(Boolean)
+            .map((s: string) => s.toLowerCase())
+        );
+        for (const u of allUsers) {
+          const uname = (u.username || '').toLowerCase();
+          const role = (u.role || '').toLowerCase();
+          if (
+            uname === 'admin' ||
+            role.includes('super admin') ||
+            role.includes('administrator') ||
+            adminSubjects.has(uname) ||
+            adminSubjects.has((u.id || '').toLowerCase())
+          ) {
+            addRec({ userId: u.id, username: u.username });
+          }
+        }
+      } else if (
+        hdCfg.recipientMode === 'selected_users' ||
+        hdCfg.recipientMode === 'selected_and_custom'
+      ) {
+        if (hdCfg.recipientUserIds.length > 0) {
+          const usersRecs = await resolveTargetRecipients('users', hdCfg.recipientUserIds).catch(() => []);
+          usersRecs.forEach(addRec);
+        }
+        if (hdCfg.recipientGroupIds.length > 0) {
+          const groupRecs = await resolveTargetRecipients('group', hdCfg.recipientGroupIds).catch(() => []);
+          groupRecs.forEach(addRec);
+        }
+      }
+
+      const panelRecipients = Array.from(resolvedMap.values());
+      const titleFa = auditRecord.title || auditRecord.action || 'هشدار هلپ‌دسک';
+      const titleEn = auditRecord.title_en || auditRecord.title || auditRecord.action || 'HelpDesk Alert';
+      const bodyFa =
+        auditRecord.details ||
+        auditRecord.title ||
+        `رویداد ${auditRecord.action} توسط ${auditRecord.user_name}`;
+      const bodyEn =
+        auditRecord.details_en ||
+        auditRecord.title_en ||
+        `Event ${auditRecord.action} triggered by ${auditRecord.user_name}`;
+      const mappedSev: CommsSeverity = sev === 'critical' ? 'critical' : 'warning';
+
+      // 1. Optional internal Inbox delivery (skipEmail: true because email is dispatched explicitly below)
+      if (hdCfg.sendInboxNotification && panelRecipients.length > 0) {
+        await emitSystemNotification({
+          category: 'system_alert',
+          severity: mappedSev,
+          senderName: auditRecord.user_name || 'HelpDesk',
+          senderRole: auditRecord.user_role || 'HelpDesk Module',
+          title: titleFa,
+          titleEn,
+          body: bodyFa,
+          bodyEn,
+          linkedEntityType: 'helpdesk',
+          linkedEntityId: auditRecord.target_id || null,
+          linkedEntityName: auditRecord.target_name || null,
+          actionTab: 'helpdesk',
+          recipients: panelRecipients,
+          skipEmail: true,
+          metadata: {
+            auditLogId: auditRecord.id,
+            auditCategory: 'helpdesk',
+            auditAction: auditRecord.action,
+            clientIp: auditRecord.client_ip,
+          },
+        });
+      }
+
+      // 2. Optional explicit Email delivery ONLY to configured recipients/emails
+      if (hdCfg.sendEmail) {
+        const emailItems: CommsEmailDispatchItem[] = [];
+        const seenEmails = new Set<string>();
+
+        if (panelRecipients.length > 0) {
+          const emailMap = await resolveDirectoryEmailLookup().catch(() => new Map());
+          for (const rec of panelRecipients) {
+            const ids = resolveUserIdentifiers({ userId: rec.userId, username: rec.username });
+            let found: { email: string; fullName?: string } | undefined;
+            for (const k of ids) {
+              found = emailMap.get(k);
+              if (found) break;
+            }
+            if (found?.email) {
+              const lower = found.email.trim().toLowerCase();
+              if (!seenEmails.has(lower)) {
+                seenEmails.add(lower);
+                emailItems.push({
+                  to: found.email.trim(),
+                  recipientUsername: rec.username,
+                  recipientFullName: found.fullName,
+                  category: 'system_alert',
+                  severity: mappedSev,
+                  senderName: auditRecord.user_name || 'HelpDesk',
+                  senderRole: 'HelpDesk Alert Routing',
+                  title: titleFa,
+                  titleEn,
+                  body: bodyFa,
+                  bodyEn,
+                  linkedEntityName: auditRecord.target_name || null,
+                });
+              }
+            }
+          }
+        }
+
+        if (
+          hdCfg.recipientMode === 'custom_emails' ||
+          hdCfg.recipientMode === 'selected_and_custom'
+        ) {
+          for (const rawEmail of hdCfg.customEmails || []) {
+            const clean = String(rawEmail || '').trim();
+            const lower = clean.toLowerCase();
+            if (!clean || seenEmails.has(lower)) continue;
+            seenEmails.add(lower);
+            emailItems.push({
+              to: clean,
+              recipientUsername: clean,
+              recipientFullName: clean,
+              category: 'system_alert',
+              severity: mappedSev,
+              senderName: auditRecord.user_name || 'HelpDesk',
+              senderRole: 'HelpDesk Alert Routing',
+              title: titleFa,
+              titleEn,
+              body: bodyFa,
+              bodyEn,
+              linkedEntityName: auditRecord.target_name || null,
+            });
+          }
+        }
+
+        if (emailItems.length > 0) {
+          void sendCommsCategoryEmailBatch(emailItems).catch((err: any) => {
+            console.warn('[CommsService] HelpDesk email dispatch notice:', err?.message || err);
+          });
+        }
+      }
+      return;
+    }
 
     const category: CommsCategory =
       auditRecord.category === 'system_auth' || auditRecord.category === 'security_rbac' || auditRecord.category === 'rbac'

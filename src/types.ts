@@ -1684,6 +1684,27 @@ export interface UserQuietHours {
   timezone: string;
 }
 
+export type HelpdeskNotificationRecipientMode =
+  | 'super_admins'
+  | 'selected_users'
+  | 'custom_emails'
+  | 'selected_and_custom';
+
+export interface HelpdeskNotificationConfig {
+  enabled: boolean;
+  sendEmail: boolean;
+  sendInboxNotification: boolean;
+  notifyOnConnectionFailure: boolean;
+  notifyOnUnauthorizedAttempt: boolean;
+  notifyOnRateLimitTripped: boolean;
+  recipientMode: HelpdeskNotificationRecipientMode;
+  recipientUserIds: string[];
+  recipientGroupIds: string[];
+  customEmails: string[];
+  updated_at?: string;
+  updated_by?: string;
+}
+
 export interface TrustedDeviceEntry {
   id: string;
   userId: string;

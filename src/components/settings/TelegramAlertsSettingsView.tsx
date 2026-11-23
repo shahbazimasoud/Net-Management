@@ -45,6 +45,7 @@ import {
   testTelegramConfigApi
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { HelpdeskNotificationSettingsCard } from './HelpdeskNotificationSettingsCard';
 import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
 import { isUserSuperAdmin } from '../../utils/rbac';
@@ -291,6 +292,9 @@ export const TelegramAlertsSettingsView: React.FC<TelegramAlertsSettingsViewProp
           {isGuideOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         </button>
       </div>
+
+      {/* HelpDesk Failure & Security Alert Email Routing (Default OFF + Recipient Picker) */}
+      <HelpdeskNotificationSettingsCard isEn={isEn} isLightMode={isLightMode} />
 
       {/* Save Feedback Banner */}
       {saveFeedback && (

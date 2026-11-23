@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.457.0';
+export const APP_VERSION = '1.458.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.458.0',
+    releaseDate: '2026-11-23',
+    type: 'minor',
+    title: 'کنترل کامل و قابل تنظیم ارسال ایمیل و اعلان خطاهای HelpDesk در بخش تنظیمات نوتیفیکیشن (غیرفعال در حالت پیش‌فرض + انتخاب دقیق گیرندگان)',
+    title_en: 'Configurable HelpDesk Failure Email & Alert Notification Routing (Disabled by Default + Granular Recipient Picker)',
+    changes: [
+      'رفع ریشه‌ای ارسال خودکار و ناخواسته ایمیل هنگام خطای اتصال در صفحه **HelpDesk**: جدا کردن رویدادهای `helpdesk_*` در هوک ممیزی `server/commsService.ts` از جریان عمومی `system_alert` و هدایت منحصربه‌فرد آنها از طریق سیاست قابل تنظیم **`helpdesk_notification_config`** در پایگاه داده PostgreSQL.',
+      'تنظیم وضعیت پیش‌فرض ارسال ایمیل و اعلان صندوق برای خطاهای هلپ‌دسک روی **غیرفعال (`enabled: false`, `sendEmail: false`)**، به طوری که تمامی خطاها همچنان در **Audit Logs** ثبت می‌شوند اما هیچ ایمیل ناخواسته‌ای ارسال نمی‌گردد مگر آنکه مدیر آن را فعال کند.',
+      'افزودن کارت تنظیمات **«تنظیمات اعلان و ارسال ایمیل خطاهای هلپ‌دسک» (`HelpdeskNotificationSettingsCard`)** در هر دو مسیر **پروفایل کاربری ← اعلانات (Notifications)** و **تنظیمات ← اعلان‌ها و هشدارها** با کلید فعال/غیرفعال‌سازی، انتخاب کانال (ایمیل SMTP / صندوق پنل)، انتخاب نوع رویداد (خطای اتصال، تلاش غیرمجاز RBAC، فعال‌شدن مدارقطع‌کن) و انتخاب دقیق گیرندگان (کاربران محلی/دامین، گروه‌ها، ایمیل‌های دلخواه یا مدیران ارشد).'
+    ],
+    changes_en: [
+      'Resolved automatic unsolicited email alerts on failed HelpDesk endpoint connections by decoupling `helpdesk_*` audit events in `server/commsService.ts` from generic `system_alert` broadcasts and routing them exclusively through PostgreSQL-persisted **`helpdesk_notification_config`**.',
+      'Set HelpDesk alert and email notifications to **OFF by default (`enabled: false`, `sendEmail: false`)** while preserving full Audit Log recording for every connection attempt.',
+      'Added the reusable **HelpDesk Failure & Security Alert Notifications** settings panel in both **Profile -> Notifications** and **Settings -> Alerting & Notifications** with master ON/OFF toggle, Email/Inbox channel switches, event trigger filters, and granular recipient targeting (selected panel/AD users, local/AD groups, custom email addresses, or Super Admins).'
+    ],
+  },
   {
     version: '1.457.0',
     releaseDate: '2026-11-22',

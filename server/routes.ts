@@ -131,6 +131,8 @@ import {
   getTelegramConfig,
   saveTelegramConfig,
   TelegramAlertConfig,
+  getHelpdeskNotificationConfig,
+  saveHelpdeskNotificationConfig,
   getHierarchy,
   saveHierarchy,
   getCompleteHierarchy,
@@ -2738,6 +2740,121 @@ apiRouter.post(['/settings/telegram', '/alerts/telegram/config'], async (req: Re
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// HelpDesk Alert & Email Notification Routing Settings (PostgreSQL)
+// -------------------------------------------------------------
+
+apiRouter.get('/settings/helpdesk-notifications', async (req: Request, res: Response) => {
+  try {
+    const ctx = await resolveRequestContextPolicy(req);
+    if (!ctx.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+        errorFa: 'احراز هویت الزامی است.',
+      });
+    }
+    const config = await getHelpdeskNotificationConfig();
+    const emailCfg = await getEmailConfig().catch(() => null);
+    const smtpConfigured = Boolean(emailCfg?.smtp_host && emailCfg.smtp_host.trim());
+    return res.json({
+      success: true,
+      config,
+      smtpConfigured,
+      canEdit: ctx.isSuperAdmin,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to load HelpDesk notification settings' });
+  }
+});
+
+apiRouter.post(['/settings/helpdesk-notifications', '/alerts/helpdesk/config'], async (req: Request, res: Response) => {
+  try {
+    const ctx = await resolveRequestContextPolicy(req);
+    if (!ctx.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+        errorFa: 'احراز هویت الزامی است.',
+      });
+    }
+    if (!ctx.isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only Super Administrators can modify HelpDesk notification routing settings.',
+        errorFa: 'تنها مدیر ارشد (Super Admin) مجاز به ویرایش تنظیمات اعلان‌های هلپ‌دسک است.',
+      });
+    }
+
+    const incoming = req.body?.config || req.body || {};
+    const updatedBy = ctx.user.username || 'admin';
+    const saved = await saveHelpdeskNotificationConfig(incoming, updatedBy);
+
+    await addPortalAuditLog({
+      category: 'settings',
+      action: 'HELPDESK_NOTIFICATION_SETTINGS_UPDATED',
+      title: `به‌روزرسانی تنظیمات اعلان و ایمیل هلپ‌دسک (${saved.enabled ? 'فعال' : 'غیرفعال'})`,
+      title_en: `HelpDesk Notification Settings Updated (${saved.enabled ? 'Enabled' : 'Disabled'})`,
+      description: `وضعیت: ${saved.enabled ? 'فعال' : 'غیرفعال'} · ایمیل: ${saved.sendEmail ? 'بله' : 'خیر'} · صندوق اعلان: ${saved.sendInboxNotification ? 'بله' : 'خیر'} · الگوی گیرندگان: ${saved.recipientMode}`,
+      description_en: `Enabled: ${saved.enabled} · Email: ${saved.sendEmail} · Inbox: ${saved.sendInboxNotification} · Mode: ${saved.recipientMode}`,
+      userName: updatedBy,
+      userRole: ctx.user.role || 'Super Administrator',
+      status: 'success',
+      severity: 'info',
+      targetName: 'HelpDesk Notifications',
+      metadata: {
+        enabled: saved.enabled,
+        sendEmail: saved.sendEmail,
+        sendInboxNotification: saved.sendInboxNotification,
+        recipientMode: saved.recipientMode,
+        recipientUsersCount: saved.recipientUserIds.length,
+        recipientGroupsCount: saved.recipientGroupIds.length,
+        customEmailsCount: saved.customEmails.length,
+      },
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      config: saved,
+      message: 'HelpDesk notification routing settings saved successfully.',
+      message_fa: 'تنظیمات ارسال اعلان و ایمیل هلپ‌دسک با موفقیت ذخیره شد.',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to save HelpDesk notification settings' });
+  }
+});
+
+apiRouter.put('/settings/helpdesk-notifications', async (req: Request, res: Response) => {
+  try {
+    const ctx = await resolveRequestContextPolicy(req);
+    if (!ctx.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+        errorFa: 'احراز هویت الزامی است.',
+      });
+    }
+    if (!ctx.isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only Super Administrators can modify HelpDesk notification routing settings.',
+        errorFa: 'تنها مدیر ارشد (Super Admin) مجاز به ویرایش تنظیمات اعلان‌های هلپ‌دسک است.',
+      });
+    }
+    const incoming = req.body?.config || req.body || {};
+    const updatedBy = ctx.user.username || 'admin';
+    const saved = await saveHelpdeskNotificationConfig(incoming, updatedBy);
+    return res.json({
+      success: true,
+      config: saved,
+      message: 'HelpDesk notification routing settings saved successfully.',
+      message_fa: 'تنظیمات ارسال اعلان و ایمیل هلپ‌دسک با موفقیت ذخیره شد.',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to save HelpDesk notification settings' });
   }
 });
 

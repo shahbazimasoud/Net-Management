@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { hashPassword } from './auth';
 import { encryptServerSecret, decryptServerSecret, decryptServerSecretWithMeta, decryptVaultSecret, decryptVaultSecretWithMeta } from './vaultCrypto';
+import type { HelpdeskNotificationConfig, HelpdeskNotificationRecipientMode } from '../src/types';
 
 const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
@@ -290,6 +291,7 @@ export interface FallbackStore {
   scheduled_backup_jobs?: ScheduledBackupJob[];
   email_config?: EmailConfig;
   telegram_config?: TelegramAlertConfig;
+  helpdesk_notification_config?: HelpdeskNotificationConfig;
   audit_report_schedule?: any;
   audit_email_reports?: any[];
   config_templates?: any[];
@@ -2622,6 +2624,16 @@ export async function initDatabase(): Promise<void> {
       // 17. Telegram Alert & Incident Notification Config
       await client.query(`
         CREATE TABLE IF NOT EXISTS telegram_alert_config (
+          id VARCHAR(64) PRIMARY KEY,
+          config_data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_by VARCHAR(128)
+        )
+      `);
+
+      // 17.1 HelpDesk Alert & Email Notification Routing Config
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS helpdesk_notification_config (
           id VARCHAR(64) PRIMARY KEY,
           config_data JSONB NOT NULL,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -8098,6 +8110,137 @@ export async function saveTelegramConfig(config: Partial<TelegramAlertConfig>, u
   }
 
   return updated;
+}
+
+const DEFAULT_HELPDESK_NOTIFICATION_CONFIG: HelpdeskNotificationConfig = {
+  enabled: false,
+  sendEmail: false,
+  sendInboxNotification: false,
+  notifyOnConnectionFailure: true,
+  notifyOnUnauthorizedAttempt: true,
+  notifyOnRateLimitTripped: true,
+  recipientMode: 'selected_users',
+  recipientUserIds: [],
+  recipientGroupIds: [],
+  customEmails: [],
+};
+
+function normalizeHelpdeskNotificationConfig(raw: any): HelpdeskNotificationConfig {
+  const modeRaw = String(raw?.recipientMode || DEFAULT_HELPDESK_NOTIFICATION_CONFIG.recipientMode);
+  const recipientMode: HelpdeskNotificationRecipientMode =
+    modeRaw === 'super_admins' ||
+    modeRaw === 'selected_users' ||
+    modeRaw === 'custom_emails' ||
+    modeRaw === 'selected_and_custom'
+      ? modeRaw
+      : 'selected_users';
+
+  const cleanStrList = (arr: any, maxItems = 100): string[] => {
+    if (!Array.isArray(arr)) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const item of arr) {
+      const s = String(item || '').trim().slice(0, 200);
+      if (!s) continue;
+      const key = s.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(s);
+      if (out.length >= maxItems) break;
+    }
+    return out;
+  };
+
+  const cleanEmailList = (arr: any): string[] => {
+    return cleanStrList(arr, 50).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+  };
+
+  return {
+    enabled: raw?.enabled !== undefined ? Boolean(raw.enabled) : DEFAULT_HELPDESK_NOTIFICATION_CONFIG.enabled,
+    sendEmail: raw?.sendEmail !== undefined ? Boolean(raw.sendEmail) : DEFAULT_HELPDESK_NOTIFICATION_CONFIG.sendEmail,
+    sendInboxNotification:
+      raw?.sendInboxNotification !== undefined
+        ? Boolean(raw.sendInboxNotification)
+        : DEFAULT_HELPDESK_NOTIFICATION_CONFIG.sendInboxNotification,
+    notifyOnConnectionFailure:
+      raw?.notifyOnConnectionFailure !== undefined
+        ? Boolean(raw.notifyOnConnectionFailure)
+        : DEFAULT_HELPDESK_NOTIFICATION_CONFIG.notifyOnConnectionFailure,
+    notifyOnUnauthorizedAttempt:
+      raw?.notifyOnUnauthorizedAttempt !== undefined
+        ? Boolean(raw.notifyOnUnauthorizedAttempt)
+        : DEFAULT_HELPDESK_NOTIFICATION_CONFIG.notifyOnUnauthorizedAttempt,
+    notifyOnRateLimitTripped:
+      raw?.notifyOnRateLimitTripped !== undefined
+        ? Boolean(raw.notifyOnRateLimitTripped)
+        : DEFAULT_HELPDESK_NOTIFICATION_CONFIG.notifyOnRateLimitTripped,
+    recipientMode,
+    recipientUserIds: cleanStrList(raw?.recipientUserIds),
+    recipientGroupIds: cleanStrList(raw?.recipientGroupIds),
+    customEmails: cleanEmailList(raw?.customEmails),
+    updated_at: raw?.updated_at ? String(raw.updated_at) : undefined,
+    updated_by: raw?.updated_by ? String(raw.updated_by) : undefined,
+  };
+}
+
+export async function getHelpdeskNotificationConfig(): Promise<HelpdeskNotificationConfig> {
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query(
+        "SELECT config_data FROM helpdesk_notification_config WHERE id = 'primary' LIMIT 1"
+      );
+      if (res.rows.length > 0 && res.rows[0].config_data) {
+        const raw = res.rows[0].config_data;
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return normalizeHelpdeskNotificationConfig(parsed);
+      }
+    } catch (e) {
+      console.warn('[DB] Fallback to file store for helpdesk_notification_config:', e);
+    }
+  }
+
+  const store = loadFallbackStore();
+  if (store.helpdesk_notification_config) {
+    return normalizeHelpdeskNotificationConfig(store.helpdesk_notification_config);
+  }
+  return { ...DEFAULT_HELPDESK_NOTIFICATION_CONFIG };
+}
+
+export async function saveHelpdeskNotificationConfig(
+  config: Partial<HelpdeskNotificationConfig>,
+  updatedBy: string = 'admin'
+): Promise<HelpdeskNotificationConfig> {
+  const current = await getHelpdeskNotificationConfig();
+  const merged = normalizeHelpdeskNotificationConfig({
+    ...current,
+    ...config,
+    updated_at: new Date().toISOString(),
+    updated_by: updatedBy,
+  });
+
+  const store = loadFallbackStore();
+  store.helpdesk_notification_config = merged;
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO helpdesk_notification_config (id, config_data, updated_at, updated_by)
+         VALUES ('primary', $1, CURRENT_TIMESTAMP, $2)
+         ON CONFLICT (id) DO UPDATE SET
+           config_data = EXCLUDED.config_data,
+           updated_at = CURRENT_TIMESTAMP,
+           updated_by = EXCLUDED.updated_by`,
+        [JSON.stringify(merged), updatedBy]
+      );
+    } catch (e) {
+      console.error('[DB] Error saving helpdesk_notification_config to PostgreSQL:', e);
+    }
+  }
+
+  return merged;
 }
 
 // -------------------------------------------------------------

@@ -15,6 +15,7 @@ import {
   SslCertificateItem,
   SslCertificatesSummary,
   SslCertificateProbeResult,
+  HelpdeskNotificationConfig,
   RemoteServerTagSummary,
   PostgresConnectionTestResult,
   PostgresRemediateConnectionResult,
@@ -1347,6 +1348,37 @@ export async function fetchHelpdeskBatteryReport(payload: HelpdeskConnectionPayl
     body: JSON.stringify(payload),
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Failed to collect laptop battery health report');
+  return res.json();
+}
+
+export async function fetchHelpdeskNotificationConfigApi(): Promise<{
+  success: boolean;
+  config: HelpdeskNotificationConfig;
+  smtpConfigured: boolean;
+  canEdit: boolean;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/settings/helpdesk-notifications`, {
+    method: 'GET',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to load HelpDesk notification settings');
+  return res.json();
+}
+
+export async function saveHelpdeskNotificationConfigApi(
+  config: Partial<HelpdeskNotificationConfig>
+): Promise<{
+  success: boolean;
+  config: HelpdeskNotificationConfig;
+  message?: string;
+  message_fa?: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/settings/helpdesk-notifications`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to save HelpDesk notification settings');
   return res.json();
 }
 
