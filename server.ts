@@ -215,14 +215,14 @@ async function startPythonBackend(forceRestart = false) {
     }
 
     if (!fs.existsSync(LEGACY_PYTHON_BIN)) {
-      console.warn(`[Python Manager] Dedicated Legacy Python virtual environment not found at '${LEGACY_PYTHON_BIN}'. Attempting auto-provision...`);
+      console.warn(`[Python Manager] Dedicated Legacy Python virtual environment not found at '${LEGACY_PYTHON_BIN}'. Attempting async auto-provision...`);
       try {
         const venvDir = path.join(projectRoot, 'backend', 'venv_legacy');
-        execSync(`python3 -m venv "${venvDir}" && "${LEGACY_PYTHON_BIN}" -m pip install "paramiko>=2.12.0,<2.13.0" cryptography websockets requests 2>/dev/null || true`, {
-          cwd: projectRoot,
-          timeout: 60000,
-          stdio: 'ignore',
-        });
+        await executeShell(
+          `python3 -m venv "${venvDir}" && "${LEGACY_PYTHON_BIN}" -m pip install "paramiko>=2.12.0,<2.13.0" cryptography websockets requests 2>/dev/null || true`,
+          projectRoot,
+          60000
+        );
       } catch (autoErr: any) {
         console.warn(`[Python Manager] Auto-provision notice: ${autoErr.message}`);
       }
@@ -270,15 +270,7 @@ async function startPythonBackend(forceRestart = false) {
   }
 }
 
-// Start Python
-startPythonBackend().catch((err) => {
-  console.error('[Python Manager] Error during initial backend start:', err);
-});
-
-// Ensure Apache Guacamole Daemon (guacd) is active for in-browser RDP/VNC remote desktop
-ensureGuacdServiceRunning().catch((err) => {
-  console.warn('[RemoteDesktop] Failed to check/start guacd on boot:', err);
-});
+// Sidecar services (Python backend & guacd) are launched right after HTTP server binds its port in startServer()
 
 // Clean up on exit
 process.on('SIGTERM', () => {
@@ -1634,9 +1626,6 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 });
 
 async function startServer() {
-  // Validate dedicated SSH Virtual Environments on startup
-  checkSshBackendsOnStartup();
-
   // Initialize Database (PostgreSQL or fallback store)
   await initDatabase();
   await initServerTime();
@@ -1691,6 +1680,20 @@ async function startServer() {
 
   server.listen(PORT, HOST, () => {
     console.log(`Node/Express frontend + proxy running on http://${HOST}:${PORT}`);
+    // Defer sidecar startups & SSH venv verification until after HTTP port is bound (prevents startup probe timeouts)
+    setImmediate(() => {
+      try {
+        checkSshBackendsOnStartup();
+      } catch (err) {
+        console.warn('[SSH Backend Startup] Check warning:', err);
+      }
+      startPythonBackend().catch((err) => {
+        console.error('[Python Manager] Error during initial backend start:', err);
+      });
+      ensureGuacdServiceRunning().catch((err) => {
+        console.warn('[RemoteDesktop] Failed to check/start guacd on boot:', err);
+      });
+    });
     // Start automated disaster recovery backup scheduler daemon
     startBackupSchedulerDaemon();
     // Start automated audit & command logs report scheduler daemon

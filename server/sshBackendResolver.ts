@@ -183,7 +183,10 @@ const autoProvisionAttempted: Record<string, boolean> = {};
  * Python executable and script with absolute paths. All SSH code paths (Test & Fetch, Terminal,
  * Port modal) must use this resolver, with strictly NO fallback to system Python.
  */
-export function resolveSshBackend(sshVersion?: string | null): SshBackendResolution {
+export function resolveSshBackend(
+  sshVersion?: string | null,
+  options?: { skipAutoProvision?: boolean }
+): SshBackendResolution {
   const clean = String(sshVersion || '').toLowerCase().trim();
   const version: SshVersionMode = clean.includes('modern') ? 'modern' : 'legacy';
 
@@ -193,8 +196,8 @@ export function resolveSshBackend(sshVersion?: string | null): SshBackendResolut
   // Verify whether pythonBin exists and Paramiko is functional
   let verifyResult = pythonBin ? verifyParamikoInPython(pythonBin, version) : { ok: false, error: 'No python binary' };
 
-  // If missing or broken, attempt auto-provisioning via setup script once
-  if (!verifyResult.ok && !isAutoProvisioning && !autoProvisionAttempted[version]) {
+  // If missing or broken, attempt auto-provisioning via setup script once (unless skipped for fast non-blocking boot)
+  if (!verifyResult.ok && !options?.skipAutoProvision && !isAutoProvisioning && !autoProvisionAttempted[version]) {
     autoProvisionAttempted[version] = true;
     const setupScript = path.resolve(getProjectRoot(), 'scripts', 'setup-ssh-venvs.sh');
     if (fs.existsSync(setupScript)) {
@@ -250,7 +253,7 @@ export function resolveSshBackend(sshVersion?: string | null): SshBackendResolut
 
 /**
  * Startup health check for both Legacy and Modern SSH backends.
- * Runs on Node backend boot and logs Paramiko version or clear instructions.
+ * Runs non-blocking on Node backend boot so port binding is never delayed by venv provisioning.
  */
 export function checkSshBackendsOnStartup(): {
   legacyOk: boolean;
@@ -266,10 +269,11 @@ export function checkSshBackendsOnStartup(): {
   let modernOk = false;
   let legacyVersion: string | undefined;
   let modernVersion: string | undefined;
+  let needsAsyncProvision = false;
 
   for (const mode of modes) {
     try {
-      const resolution = resolveSshBackend(mode);
+      const resolution = resolveSshBackend(mode, { skipAutoProvision: true });
       if (mode === 'legacy') {
         legacyOk = true;
         legacyVersion = resolution.paramikoInstalled;
@@ -284,9 +288,35 @@ export function checkSshBackendsOnStartup(): {
         );
       }
     } catch (err: any) {
+      needsAsyncProvision = true;
       const msg = `SSH backend '${mode}' is not installed: run scripts/setup-ssh-venvs.sh`;
       errors.push(msg);
-      console.error(`[SSH Backend Startup] CRITICAL: ${msg}`);
+      console.warn(`[SSH Backend Startup] ${msg} (triggering non-blocking background setup if available)`);
+    }
+  }
+
+  if (needsAsyncProvision && !isAutoProvisioning) {
+    const setupScript = path.resolve(getProjectRoot(), 'scripts', 'setup-ssh-venvs.sh');
+    if (fs.existsSync(setupScript)) {
+      isAutoProvisioning = true;
+      try {
+        const child = spawn('bash', [setupScript, getProjectRoot()], {
+          cwd: getProjectRoot(),
+          stdio: 'ignore',
+          detached: false,
+        });
+        child.on('exit', (code) => {
+          isAutoProvisioning = false;
+          console.log(`[SSH Backend Startup] Background venv setup finished (exit code: ${code}).`);
+        });
+        child.on('error', (err) => {
+          isAutoProvisioning = false;
+          console.warn(`[SSH Backend Startup] Background venv setup error: ${err.message}`);
+        });
+      } catch (spawnErr: any) {
+        isAutoProvisioning = false;
+        console.warn(`[SSH Backend Startup] Could not spawn background venv setup: ${spawnErr.message}`);
+      }
     }
   }
 
