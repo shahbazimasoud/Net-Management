@@ -81,6 +81,9 @@ import {
   collectEndpointBatteryReport,
   collectEndpointUserLogons,
   executeEndpointUserSessionAction,
+  collectEndpointPrograms,
+  uninstallEndpointProgram,
+  HelpdeskProgramRegistryHive,
   getHelpdeskRateLimitStatus,
   checkAndRecordHelpdeskWriteRateLimit,
   getHelpdeskJeaTemplates,
@@ -10635,6 +10638,125 @@ apiRouter.post('/helpdesk/updates/uninstall', async (req: Request, res: Response
       metadata: { kbId },
     });
     return res.status(/invalid|required|expected|blocked/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/programs/list - Inspect Installed Applications (Machine + Active User Profiles / Linux Packages)
+apiRouter.post('/helpdesk/programs/list', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointPrograms(target);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_programs_list',
+      title: `دریافت لیست برنامه‌های نصب‌شده روی ${data.targetIp} (${data.totalCount} برنامه)`,
+      title_en: `HelpDesk Installed Programs Scan on ${data.targetIp} (${data.totalCount} apps)`,
+      details: `لیست نرم‌افزارهای نصب‌شده (${data.machineCount} سیستمی / ${data.userCount} کاربری) از سیستم ${data.hostname} دریافت شد.`,
+      details_en: `Collected ${data.totalCount} installed applications (${data.machineCount} machine-wide / ${data.userCount} per-user) from ${data.hostname}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      target: {
+        type: 'device',
+        name: data.hostname || data.targetIp,
+        ip: data.targetIp,
+        metadata: { totalCount: data.totalCount, machineCount: data.machineCount, userCount: data.userCount },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Installed programs inspection failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_programs_list_failed',
+      title: `خطا در دریافت لیست برنامه‌های نصب‌شده از ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Programs Scan Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/programs/uninstall - Safely Uninstall Installed Program Remotely (MSI / Silent EXE / APT / RPM)
+apiRouter.post('/helpdesk/programs/uninstall', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const programName = String(req.body?.programName || '').trim();
+  const registryHive = String(req.body?.registryHive || '').trim() as HelpdeskProgramRegistryHive;
+  const registryKeyName = String(req.body?.registryKeyName || '').trim();
+  const ownerSid = String(req.body?.ownerSid || '').trim() || undefined;
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'program_uninstall');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: 'program_uninstall',
+      rl,
+    });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await uninstallEndpointProgram(target, {
+      programName,
+      registryHive,
+      registryKeyName,
+      ownerSid,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_program_uninstall',
+      title: `حذف نرم‌افزار «${data.details?.programName || programName || registryKeyName}» از ${data.targetIp}`,
+      title_en: `HelpDesk Uninstall "${data.details?.programName || programName || registryKeyName}" on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'warning',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Application uninstall failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_program_uninstall_failed',
+      title: `خطا در حذف نرم‌افزار ${programName || registryKeyName || 'Program'} از ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Uninstall Program Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { programName, registryHive, registryKeyName },
+    });
+    return res.status(/invalid|required|protected|blocked|unsupported/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,

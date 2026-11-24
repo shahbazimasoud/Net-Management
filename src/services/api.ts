@@ -1868,6 +1868,43 @@ export async function uninstallHelpdeskHotfix(
   return res.json();
 }
 
+export async function fetchHelpdeskPrograms(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/programs/list`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to load installed programs from endpoint');
+  return res.json();
+}
+
+export async function uninstallHelpdeskProgram(
+  payload: HelpdeskConnectionPayload & {
+    programName?: string;
+    registryHive: 'HKLM64' | 'HKLM32' | 'HKCU' | 'HKU' | 'linux_pkg';
+    registryKeyName: string;
+    ownerSid?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/programs/uninstall`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to uninstall application from endpoint');
+  return res.json();
+}
+
 export async function fetchHelpdeskDiskHealth(payload: HelpdeskConnectionPayload): Promise<{
   success: boolean;
   data: any;

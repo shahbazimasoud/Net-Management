@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.467.0';
+export const APP_VERSION = '1.468.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.468.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'افزودن تب جدید «برنامه‌های نصب‌شده (Add / Remove Programs)» در HelpDesk با لیست دقیق سیستمی/کاربری، جستجو و حذف ایمن از راه دور',
+    title_en: 'HelpDesk Add / Remove Programs Tab with Machine & Per-User Registry Inventory, Search/Filter/Sort & Safe Silent Remote Uninstall',
+    changes: [
+      'افزودن تب **برنامه‌های نصب‌شده (`Add / Remove Programs`)** به **Agentless Endpoint HelpDesk** با دریافت خودکار هنگام اتصال و واکشی دقیق از رجیستری ۶۴ بیتی (`HKLM64`)، ۳۲ بیتی (`HKLM32`) و پروفایل کاربران فعال (`HKU`/`HKCU`) به همراه فیلتر خودکار موارد تکراری، کامپوننت‌های داخلی و آپدیت‌های ویندوز (پشتیبانی کامل از پکیج‌های `APT`/`RPM` روی سیستم‌های لینوکسی).',
+      'امکان **جستجو** (بر اساس نام، ناشر، نسخه، مسیر نصب یا کد GUID)، **فیلتر بر اساس دامنه (`همه‌کاربران` / `پروفایل کاربر`) و نوع نصاب (`MSI` / `EXE`)**، **مرتب‌سازی** صعودی/نزولی ستون‌ها، **صفحه‌بندی ۲۰تایی**، نمایش جزئیات رجیستری و مسیر نصب، و دریافت **خروجی CSV**.',
+      'امکان **حذف ایمن از راه دور (`Remote Uninstall`)** با تأیید دومرحله‌ای بدون ارسال دستور خام از کلاینت؛ بازخوانی رشته‌های حذف مستقیم از رجیستری سمت مقصد (اجرای بی‌صدای `msiexec /x /qn /norestart`، `QuietUninstallString`، سوییچ‌های بی‌صدای Inno/NSIS/Squirrel)، **قفل محافظتی سمت سرور** برای جلوگیری از حذف آنتی‌ویروس‌ها (AV/EDR) و `OpenSSH` و ثبت کامل رویدادها در **Audit Logs**.'
+    ],
+    changes_en: [
+      'Added an **Add / Remove Programs** tab inside **Agentless Endpoint HelpDesk** with automatic sequential pre-fetch and accurate software inventory across Windows `HKLM` (64-bit/32-bit) and active user profile hives (`HKEY_USERS` / `HKCU`) plus Linux `dpkg`/`rpm` packages, automatically filtering out updates, subcomponents, and duplicates.',
+      'Included real-time search (name, publisher, version, install path, GUID), scope (`Machine` vs `User Profile`) and installer type (`MSI` vs `EXE`) filters, multi-column ascending/descending sorting, 20-row pagination, expandable technical details, and CSV export.',
+      'Implemented **Safe Remote Uninstall** with 2-step confirmation: clients send only validated registry hive/key identifiers (never raw shell commands); the backend resolves `QuietUninstallString` / `UninstallString` / MSI `ProductCode` from the endpoint registry, enforces a server-side protection denylist for AV/EDR and OpenSSH, and logs every action in **Audit Logs**.'
+    ],
+  },
   {
     version: '1.467.0',
     releaseDate: '2026-11-24',

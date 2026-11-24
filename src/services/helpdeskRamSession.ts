@@ -11,6 +11,7 @@ import {
   fetchHelpdeskGpoStatus,
   fetchHelpdeskDiskHealth,
   fetchHelpdeskBatteryReport,
+  fetchHelpdeskPrograms,
   HelpdeskConnectionPayload,
 } from './api';
 
@@ -21,6 +22,7 @@ export type HelpdeskSubTab =
   | 'events'
   | 'logins'
   | 'updates'
+  | 'programs'
   | 'maintenance'
   | 'hardware_domain'
   | 'history';
@@ -120,6 +122,13 @@ export interface HelpdeskRamState {
   updateActionResult: any | null;
   updateActionError: string | null;
 
+  // Tab 6B: Add / Remove Programs
+  programsData: any | null;
+  loadingPrograms: boolean;
+  programsError: string | null;
+  programActionResult: any | null;
+  programActionError: string | null;
+
   // Tab 7: Temp, GPO & Disk Repair
   tempScanData: any | null;
   loadingTempScan: boolean;
@@ -208,6 +217,12 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     updateStatusError: null,
     updateActionResult: null,
     updateActionError: null,
+
+    programsData: null,
+    loadingPrograms: false,
+    programsError: null,
+    programActionResult: null,
+    programActionError: null,
 
     tempScanData: null,
     loadingTempScan: false,
@@ -368,6 +383,11 @@ export async function runHelpdeskSequentialConnect(options: {
     loadingUpdateStatus: false,
     updateActionResult: null,
     updateActionError: null,
+    programsData: null,
+    loadingPrograms: false,
+    programsError: null,
+    programActionResult: null,
+    programActionError: null,
     tempScanData: null,
     tempError: null,
     loadingTempScan: false,
@@ -634,6 +654,37 @@ export async function runHelpdeskSequentialConnect(options: {
                 (isEn
                   ? 'Failed to inspect Windows Update & WSUS policy.'
                   : 'خطا در بررسی وضعیت Windows Update و پالیسی WSUS.'),
+            });
+          }
+        }
+        return true;
+      },
+    },
+    {
+      id: 'programs',
+      labelEn: 'Add / Remove Programs',
+      labelFa: 'برنامه‌های نصب‌شده (Add / Remove)',
+      run: async () => {
+        patchHelpdeskRamSnapshot({ loadingPrograms: true, programsError: null });
+        try {
+          const progRes = await fetchHelpdeskPrograms(payload);
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              programsData: progRes.data,
+              loadingPrograms: false,
+              ...(progRes.rateLimit ? { rateLimit: progRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              programsData: null,
+              loadingPrograms: false,
+              programsError:
+                err?.message ||
+                (isEn
+                  ? 'Failed to inspect installed applications.'
+                  : 'خطا در دریافت لیست برنامه‌های نصب‌شده سیستم کاربر.'),
             });
           }
         }

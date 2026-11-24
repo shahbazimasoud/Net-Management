@@ -50,7 +50,8 @@ export type HelpdeskWriteAction =
   | 'power_shutdown'
   | 'power_abort'
   | 'session_lock'
-  | 'session_logoff';
+  | 'session_logoff'
+  | 'program_uninstall';
 
 export type HelpdeskProcessCategory =
   | 'user_app'
@@ -10455,3 +10456,610 @@ New-NetFirewallRule -DisplayName 'WinRM HTTPS - HelpDesk Panel Only' \`
     -RemoteAddress $PanelServerIP -Action Allow -Profile Domain`,
   };
 }
+
+// ============================================================================
+// 19. ADD / REMOVE PROGRAMS (MACHINE + PER-USER REGISTRY / LINUX PKG)
+// ============================================================================
+
+export type HelpdeskProgramRegistryHive = 'HKLM64' | 'HKLM32' | 'HKCU' | 'HKU' | 'linux_pkg';
+export type HelpdeskProgramInstallerType = 'msi' | 'inno' | 'nsis' | 'squirrel' | 'exe' | 'apt' | 'rpm';
+
+export interface HelpdeskInstalledProgram {
+  id: string;
+  name: string;
+  version: string;
+  publisher: string;
+  installDate: string;
+  sizeMb: number;
+  scope: 'machine' | 'user';
+  arch: 'x64' | 'x86' | 'user' | 'pkg';
+  registryHive: HelpdeskProgramRegistryHive;
+  registryKeyName: string;
+  ownerSid?: string;
+  ownerUser?: string;
+  installLocation: string;
+  productCode?: string;
+  installerType: HelpdeskProgramInstallerType;
+  quietSupported: boolean;
+  canUninstall: boolean;
+  isProtected: boolean;
+  protectionReason?: string;
+  protectionReasonFa?: string;
+  uninstallPreview: string;
+}
+
+export interface HelpdeskProgramsResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  activeUser: string;
+  totalCount: number;
+  machineCount: number;
+  userCount: number;
+  totalSizeMb: number;
+  programs: HelpdeskInstalledProgram[];
+  collectedAt: string;
+}
+
+const PROTECTED_PROGRAM_PATTERNS: Array<{ re: RegExp; reasonEn: string; reasonFa: string }> = [
+  {
+    re: /(windows defender|microsoft defender|eset|crowdstrike|falcon sensor|kaspersky|sentinelone|bitdefender|symantec|norton|mcafee|sophos|malwarebytes|trellix|carbon black|cortex xdr|forticlient)/i,
+    reasonEn: 'Endpoint security / Antivirus / EDR software is protected from remote removal.',
+    reasonFa: 'نرم‌افزارهای امنیتی و آنتی‌ویروس (AV / EDR) برای حفظ امنیت سیستم در برابر حذف از راه دور محافظت شده‌اند.',
+  },
+  {
+    re: /(openssh|winrm|systemd|openssh-server|openssh-client|linux-image|glibc|libc6|dpkg|apt|rpm|bash|sudo)/i,
+    reasonEn: 'Core OS / remote management component is protected to prevent session lockout.',
+    reasonFa: 'سرویس‌های حیاتی سیستم‌عامل یا مدیریت از راه دور (مانند OpenSSH) برای جلوگیری از قطع ارتباط قفل شده‌اند.',
+  },
+];
+
+function checkProtectedProgram(name: string, keyName: string): {
+  isProtected: boolean;
+  reasonEn?: string;
+  reasonFa?: string;
+} {
+  const combined = `${name} ${keyName}`.trim();
+  for (const rule of PROTECTED_PROGRAM_PATTERNS) {
+    if (rule.re.test(combined)) {
+      return { isProtected: true, reasonEn: rule.reasonEn, reasonFa: rule.reasonFa };
+    }
+  }
+  return { isProtected: false };
+}
+
+export async function collectEndpointPrograms(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskProgramsResult> {
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$hostName = $env:COMPUTERNAME
+$activeUser = ''
+try {
+  $cs = Get-CimInstance -ClassName Win32_ComputerSystem
+  if ($cs -and $cs.UserName) { $activeUser = [string]$cs.UserName }
+} catch {}
+
+$sidMap = @{}
+$userHives = @()
+try {
+  foreach ($k in (Get-ChildItem -Path 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue)) {
+    $sid = [string]$k.PSChildName
+    if ($sid -match '^S-1-5-21-' -and $sid -notmatch '_Classes$') {
+      $uLabel = $sid
+      try {
+        $nt = (New-Object System.Security.Principal.SecurityIdentifier($sid)).Translate([System.Security.Principal.NTAccount])
+        if ($nt -and $nt.Value) { $uLabel = [string]$nt.Value }
+      } catch {}
+      $sidMap[$sid] = $uLabel
+      $uninstPath = "Registry::HKEY_USERS\\$sid\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
+      if (Test-Path $uninstPath) {
+        $userHives += [PSCustomObject]@{ Path = "$uninstPath\\*"; Hive = 'HKU'; Scope = 'user'; Arch = 'user'; Sid = $sid; Owner = $uLabel }
+      }
+    }
+  }
+} catch {}
+
+$roots = @(
+  [PSCustomObject]@{ Path = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'; Hive = 'HKLM64'; Scope = 'machine'; Arch = 'x64'; Sid = ''; Owner = '' },
+  [PSCustomObject]@{ Path = 'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'; Hive = 'HKLM32'; Scope = 'machine'; Arch = 'x86'; Sid = ''; Owner = '' }
+)
+if ($userHives.Count -eq 0) {
+  $cuUser = "$env:USERDOMAIN\\$env:USERNAME".Trim('\\')
+  $roots += [PSCustomObject]@{ Path = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'; Hive = 'HKCU'; Scope = 'user'; Arch = 'user'; Sid = ''; Owner = $cuUser }
+} else {
+  $roots += $userHives
+}
+
+$seen = @{}
+$items = New-Object System.Collections.Generic.List[object]
+
+foreach ($rt in $roots) {
+  $entries = Get-ItemProperty -Path $rt.Path -ErrorAction SilentlyContinue
+  if (-not $entries) { continue }
+  foreach ($e in $entries) {
+    $dispName = [string]$e.DisplayName
+    if ([string]::IsNullOrWhiteSpace($dispName)) { continue }
+    $dispName = $dispName.Trim()
+    if ($e.SystemComponent -eq 1) { continue }
+    if (-not [string]::IsNullOrWhiteSpace([string]$e.ParentKeyName) -or -not [string]::IsNullOrWhiteSpace([string]$e.ParentDisplayName)) { continue }
+    $relType = [string]$e.ReleaseType
+    if ($relType -match '^(Update|Hotfix|Security Update|Service Pack|Update Rollup)') { continue }
+    if ($dispName -match '^(KB\\d{5,9}\\b|Update for (Windows|Microsoft)|Security Update for Windows)') { continue }
+
+    $uninst = [string]$e.UninstallString
+    $quietUninst = [string]$e.QuietUninstallString
+    $isWinInst = ($e.WindowsInstaller -eq 1)
+    if ([string]::IsNullOrWhiteSpace($uninst) -and [string]::IsNullOrWhiteSpace($quietUninst) -and -not $isWinInst) { continue }
+
+    $dispVer = ([string]$e.DisplayVersion).Trim()
+    $dedupeKey = ($dispName.ToLowerInvariant() + '|' + $dispVer.ToLowerInvariant() + '|' + $rt.Scope + '|' + $rt.Sid)
+    if ($seen.ContainsKey($dedupeKey)) { continue }
+    $seen[$dedupeKey] = $true
+
+    $pub = ([string]$e.Publisher).Trim()
+    $loc = ([string]$e.InstallLocation).Trim()
+    $rawDate = ([string]$e.InstallDate).Trim()
+    $fmtDate = ''
+    if ($rawDate -match '^(\\d{4})(\\d{2})(\\d{2})$') {
+      $fmtDate = "$($Matches[1])-$($Matches[2])-$($Matches[3])"
+    }
+    $sizeMb = 0
+    if ($e.EstimatedSize -and [double]$e.EstimatedSize -gt 0) {
+      $sizeMb = [Math]::Round(([double]$e.EstimatedSize) / 1024.0, 1)
+    }
+
+    $keyName = [string]$e.PSChildName
+    $cmdAll = ($quietUninst + ' ' + $uninst).Trim()
+    $prodCode = ''
+    if ($cmdAll -match '(\\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\\})') {
+      $prodCode = $Matches[1].ToUpperInvariant()
+    } elseif ($keyName -match '^\\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\\}$') {
+      $prodCode = $keyName.ToUpperInvariant()
+    }
+
+    $instType = 'exe'
+    $quietSupported = (-not [string]::IsNullOrWhiteSpace($quietUninst))
+    if ($isWinInst -or $cmdAll -match 'msiexec') {
+      $instType = 'msi'
+      $quietSupported = $true
+    } elseif ($cmdAll -match 'unins0\\d+\\.exe|/VERYSILENT') {
+      $instType = 'inno'
+      $quietSupported = $true
+    } elseif ($cmdAll -match 'Update\\.exe.*--uninstall') {
+      $instType = 'squirrel'
+      $quietSupported = $true
+    } elseif ($cmdAll -match 'uninstall\\.exe|uninst\\.exe|/S(\\s|$)') {
+      $instType = 'nsis'
+      $quietSupported = $true
+    }
+
+    $preview = if (-not [string]::IsNullOrWhiteSpace($quietUninst)) {
+      $quietUninst.Trim()
+    } elseif ($instType -eq 'msi' -and $prodCode) {
+      "msiexec.exe /x $prodCode /qn /norestart"
+    } else {
+      $uninst.Trim()
+    }
+
+    $noRemove = ($e.NoRemove -eq 1)
+    $items.Add([PSCustomObject]@{
+      registryHive = $rt.Hive
+      registryKeyName = $keyName
+      ownerSid = $rt.Sid
+      ownerUser = $rt.Owner
+      name = $dispName
+      version = $dispVer
+      publisher = $pub
+      installDate = $fmtDate
+      sizeMb = $sizeMb
+      scope = $rt.Scope
+      arch = $rt.Arch
+      installLocation = $loc
+      productCode = $prodCode
+      installerType = $instType
+      quietSupported = $quietSupported
+      noRemove = $noRemove
+      uninstallPreview = $preview
+    })
+  }
+}
+
+$sorted = @($items | Sort-Object -Property name)
+[PSCustomObject]@{
+  hostname = $hostName
+  activeUser = $activeUser
+  programs = $sorted
+} | ConvertTo-Json -Depth 4 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import json, socket, subprocess, os
+
+hostname = socket.gethostname()
+active_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or ""
+programs = []
+
+def run_cmd(args):
+    return subprocess.run(args, capture_output=True, text=True, timeout=25)
+
+try:
+    r = run_cmd(["dpkg-query", "-W", "-f=\${Package}\\t\${Version}\\t\${Installed-Size}\\t\${Maintainer}\\n"])
+    if r.returncode == 0 and r.stdout:
+        for line in r.stdout.splitlines():
+            parts = line.split("\\t")
+            if len(parts) < 2 or not parts[0].strip():
+                continue
+            name = parts[0].strip()
+            ver = parts[1].strip()
+            try:
+                kb = float(parts[2].strip()) if len(parts) > 2 and parts[2].strip().isdigit() else 0.0
+            except Exception:
+                kb = 0.0
+            pub = parts[3].strip() if len(parts) > 3 else ""
+            programs.append({
+                "registryHive": "linux_pkg",
+                "registryKeyName": name,
+                "ownerSid": "",
+                "ownerUser": "",
+                "name": name,
+                "version": ver,
+                "publisher": pub,
+                "installDate": "",
+                "sizeMb": round(kb / 1024.0, 1),
+                "scope": "machine",
+                "arch": "pkg",
+                "installLocation": "",
+                "productCode": "",
+                "installerType": "apt",
+                "quietSupported": True,
+                "noRemove": False,
+                "uninstallPreview": f"apt-get remove -y {name}",
+            })
+except Exception:
+    pass
+
+if not programs:
+    try:
+        r = run_cmd(["rpm", "-qa", "--queryformat", "%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{SIZE}\\t%{VENDOR}\\n"])
+        if r.returncode == 0 and r.stdout:
+            for line in r.stdout.splitlines():
+                parts = line.split("\\t")
+                if len(parts) < 2 or not parts[0].strip():
+                    continue
+                name = parts[0].strip()
+                ver = parts[1].strip()
+                try:
+                    sz_b = float(parts[2].strip()) if len(parts) > 2 and parts[2].strip().isdigit() else 0.0
+                except Exception:
+                    sz_b = 0.0
+                pub = parts[3].strip() if len(parts) > 3 else ""
+                programs.append({
+                    "registryHive": "linux_pkg",
+                    "registryKeyName": name,
+                    "ownerSid": "",
+                    "ownerUser": "",
+                    "name": name,
+                    "version": ver,
+                    "publisher": pub,
+                    "installDate": "",
+                    "sizeMb": round(sz_b / (1024.0 * 1024.0), 1),
+                    "scope": "machine",
+                    "arch": "pkg",
+                    "installLocation": "",
+                    "productCode": "",
+                    "installerType": "rpm",
+                    "quietSupported": True,
+                    "noRemove": False,
+                    "uninstallPreview": f"rpm -e {name}",
+                })
+    except Exception:
+        pass
+
+programs.sort(key=lambda x: x["name"].lower())
+print(json.dumps({"hostname": hostname, "activeUser": active_user, "programs": programs}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(60000, input.timeoutMs || 60000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'collect installed programs');
+  const rawList: any[] = Array.isArray(parsed.programs) ? parsed.programs : [];
+
+  const programs: HelpdeskInstalledProgram[] = rawList.map((raw, idx) => {
+    const name = String(raw.name || '').trim();
+    const keyName = String(raw.registryKeyName || '').trim();
+    const hive = (String(raw.registryHive || 'HKLM64') as HelpdeskProgramRegistryHive);
+    const ownerSid = String(raw.ownerSid || '').trim();
+    const prot = checkProtectedProgram(name, keyName);
+    const noRemove = Boolean(raw.noRemove);
+    const canUninstall = !prot.isProtected && !noRemove && Boolean(keyName);
+    const instTypeRaw = String(raw.installerType || 'exe').toLowerCase();
+    const installerType: HelpdeskProgramInstallerType =
+      instTypeRaw === 'msi' ||
+      instTypeRaw === 'inno' ||
+      instTypeRaw === 'nsis' ||
+      instTypeRaw === 'squirrel' ||
+      instTypeRaw === 'apt' ||
+      instTypeRaw === 'rpm'
+        ? (instTypeRaw as HelpdeskProgramInstallerType)
+        : 'exe';
+
+    return {
+      id: `${hive}:${ownerSid || 'sys'}:${keyName}:${idx}`,
+      name,
+      version: String(raw.version || ''),
+      publisher: String(raw.publisher || ''),
+      installDate: String(raw.installDate || ''),
+      sizeMb: Number(raw.sizeMb) || 0,
+      scope: raw.scope === 'user' ? 'user' : 'machine',
+      arch: raw.arch === 'x86' || raw.arch === 'user' || raw.arch === 'pkg' ? raw.arch : 'x64',
+      registryHive: hive,
+      registryKeyName: keyName,
+      ...(ownerSid ? { ownerSid } : {}),
+      ...(raw.ownerUser ? { ownerUser: String(raw.ownerUser) } : {}),
+      installLocation: String(raw.installLocation || ''),
+      ...(raw.productCode ? { productCode: String(raw.productCode) } : {}),
+      installerType,
+      quietSupported: Boolean(raw.quietSupported),
+      canUninstall,
+      isProtected: prot.isProtected,
+      ...(prot.reasonEn ? { protectionReason: prot.reasonEn, protectionReasonFa: prot.reasonFa } : {}),
+      uninstallPreview: String(raw.uninstallPreview || ''),
+    };
+  });
+
+  const machineCount = programs.filter((p) => p.scope === 'machine').length;
+  const userCount = programs.filter((p) => p.scope === 'user').length;
+  const totalSizeMb = Number(
+    programs.reduce((acc, p) => acc + (Number(p.sizeMb) || 0), 0).toFixed(1)
+  );
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    activeUser: String(parsed.activeUser || ''),
+    totalCount: programs.length,
+    machineCount,
+    userCount,
+    totalSizeMb,
+    programs,
+    collectedAt: new Date().toISOString(),
+  };
+}
+
+export async function uninstallEndpointProgram(
+  input: HelpdeskTargetInput,
+  options: {
+    programName?: string;
+    registryHive: HelpdeskProgramRegistryHive;
+    registryKeyName: string;
+    ownerSid?: string;
+  }
+): Promise<HelpdeskActionResult> {
+  const hive = String(options.registryHive || '').trim() as HelpdeskProgramRegistryHive;
+  const allowedHives: HelpdeskProgramRegistryHive[] = ['HKLM64', 'HKLM32', 'HKCU', 'HKU', 'linux_pkg'];
+  if (!allowedHives.includes(hive)) {
+    throw new Error('Invalid program registry hive specified.');
+  }
+
+  const keyName = String(options.registryKeyName || '').trim();
+  if (!keyName || keyName.length > 260 || /[\x00-\x1F\x7F\\/]/.test(keyName)) {
+    throw new Error('Invalid program registry key or package identifier.');
+  }
+
+  const ownerSid = String(options.ownerSid || '').trim();
+  if (hive === 'HKU') {
+    if (!/^S-1-5-21-[0-9-]+$/.test(ownerSid)) {
+      throw new Error('Valid user profile SID (S-1-5-21-...) is required for HKU per-user uninstallation.');
+    }
+  }
+
+  const declaredName = String(options.programName || keyName).trim();
+  const preCheck = checkProtectedProgram(declaredName, keyName);
+  if (preCheck.isProtected) {
+    throw new Error(preCheck.reasonEn || 'Protected program cannot be uninstalled remotely.');
+  }
+
+  if (hive === 'linux_pkg' && !/^[a-zA-Z0-9][a-zA-Z0-9.+:_-]{0,127}$/.test(keyName)) {
+    throw new Error('Invalid Linux package name format.');
+  }
+
+  const keyB64 = Buffer.from(keyName, 'utf8').toString('base64');
+  const sidB64 = Buffer.from(ownerSid, 'utf8').toString('base64');
+  const linuxPkgB64 = Buffer.from(keyName, 'utf8').toString('base64');
+
+  const winPs = `
+$ErrorActionPreference = 'Continue'
+$hive = '${hive}'
+$keyName = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${keyB64}'))
+$ownerSid = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sidB64}'))
+
+$basePath = switch ($hive) {
+  'HKLM64' { 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall' }
+  'HKLM32' { 'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall' }
+  'HKCU'   { 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall' }
+  'HKU'    { "Registry::HKEY_USERS\\$ownerSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall" }
+  default  { '' }
+}
+
+if (-not $basePath) {
+  [PSCustomObject]@{ ok = $false; exitCode = -1; rebootRequired = $false; programName = $keyName; output = 'Unsupported registry hive on Windows host.' } | ConvertTo-Json -Compress
+  return
+}
+
+$fullKey = Join-Path $basePath $keyName
+if (-not (Test-Path -LiteralPath $fullKey)) {
+  [PSCustomObject]@{ ok = $false; exitCode = -1; rebootRequired = $false; programName = $keyName; output = "Registry uninstall key not found: $fullKey (may already be uninstalled)." } | ConvertTo-Json -Compress
+  return
+}
+
+$item = Get-ItemProperty -LiteralPath $fullKey -ErrorAction Stop
+$dispName = [string]$item.DisplayName
+if (-not $dispName) { $dispName = $keyName }
+
+if ($dispName -match '(windows defender|microsoft defender|eset|crowdstrike|falcon sensor|kaspersky|sentinelone|bitdefender|symantec|norton|mcafee|sophos|malwarebytes|trellix|carbon black|cortex xdr|forticlient|openssh|winrm)') {
+  [PSCustomObject]@{ ok = $false; exitCode = 5; rebootRequired = $false; programName = $dispName; output = "Blocked by security policy: $dispName is a protected endpoint security or remote management component." } | ConvertTo-Json -Compress
+  return
+}
+
+$quietStr = ([string]$item.QuietUninstallString).Trim()
+$uninstStr = ([string]$item.UninstallString).Trim()
+$isWinInst = ($item.WindowsInstaller -eq 1)
+$rawCmd = if ($quietStr) { $quietStr } else { $uninstStr }
+
+$guid = ''
+if ("$quietStr $uninstStr" -match '(\\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\\})') {
+  $guid = $Matches[1].ToUpperInvariant()
+} elseif ($keyName -match '^\\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\\}$') {
+  $guid = $keyName.ToUpperInvariant()
+}
+
+$ok = $false
+$reb = $false
+$code = -1
+$out = ''
+
+if (($isWinInst -or $rawCmd -match '(?i)msiexec') -and $guid) {
+  $args = @('/x', $guid, '/qn', '/norestart', 'REBOOT=ReallySuppress')
+  $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList $args -Wait -PassThru -NoNewWindow
+  $code = $p.ExitCode
+  $reb = ($code -eq 3010 -or $code -eq 1641)
+  $ok = ($code -eq 0 -or $code -eq 3010 -or $code -eq 1641 -or -not (Test-Path -LiteralPath $fullKey))
+  $out = "msiexec.exe /x $guid /qn /norestart ExitCode=$code"
+} elseif ($rawCmd) {
+  $exe = ''
+  $argStr = ''
+  if ($rawCmd.StartsWith('"')) {
+    $qEnd = $rawCmd.IndexOf('"', 1)
+    if ($qEnd -gt 1) {
+      $exe = $rawCmd.Substring(1, $qEnd - 1).Trim()
+      $argStr = $rawCmd.Substring($qEnd + 1).Trim()
+    }
+  } else {
+    if ($rawCmd -match '^(.*?\\.exe)(?:\\s+(.*))?$') {
+      $exe = $Matches[1].Trim()
+      if ($Matches[2]) { $argStr = $Matches[2].Trim() }
+    } else {
+      $exe = $rawCmd
+    }
+  }
+
+  $exe = [Environment]::ExpandEnvironmentVariables($exe)
+  if (-not $exe -or -not (Test-Path -LiteralPath $exe)) {
+    [PSCustomObject]@{ ok = $false; exitCode = -1; rebootRequired = $false; programName = $dispName; output = "Uninstaller executable not found on disk: $exe" } | ConvertTo-Json -Compress
+    return
+  }
+
+  if (-not $quietStr) {
+    $lowExe = $exe.ToLowerInvariant()
+    $lowArgs = $argStr.ToLowerInvariant()
+    if ($lowExe -match 'unins0\\d+\\.exe$') {
+      if ($lowArgs -notmatch '/verysilent') { $argStr = "$argStr /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-".Trim() }
+    } elseif ($lowExe -match 'update\\.exe$' -and $lowArgs -match '--uninstall') {
+      if ($lowArgs -notmatch '(^|\\s)(-s|--silent)(\\s|$)') { $argStr = "$argStr -s".Trim() }
+    } elseif ($lowExe -match '(uninstall|uninst)\\.exe$') {
+      if ($lowArgs -notmatch '(^|\\s)/s(\\s|$)') { $argStr = "$argStr /S".Trim() }
+    }
+  }
+
+  if ($argStr) {
+    $p = Start-Process -FilePath $exe -ArgumentList $argStr -Wait -PassThru -NoNewWindow
+  } else {
+    $p = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow
+  }
+  $code = $p.ExitCode
+
+  # NSIS / Squirrel child uninstaller processes sometimes spawn a temp copy and return immediately
+  for ($i = 0; $i -lt 30; $i++) {
+    if (-not (Test-Path -LiteralPath $fullKey)) { break }
+    Start-Sleep -Milliseconds 500
+  }
+
+  $stillExists = Test-Path -LiteralPath $fullKey
+  $reb = ($code -eq 3010 -or $code -eq 1641)
+  $ok = ((-not $stillExists) -and ($code -eq 0 -or $code -eq 3010 -or $code -eq 1641 -or $code -eq 1)) -or ($code -eq 0 -or $code -eq 3010 -or $code -eq 1641)
+  $out = "Executed '$exe' ($argStr) -> ExitCode=$code; RegistryKeyPresent=$stillExists"
+} else {
+  $out = 'No UninstallString or MSI ProductCode found for this application.'
+}
+
+[PSCustomObject]@{
+  ok = $ok
+  exitCode = $code
+  rebootRequired = $reb
+  programName = $dispName
+  output = $out
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import base64, json, shutil, subprocess, re
+
+pkg = base64.b64decode('${linuxPkgB64}').decode('utf-8', errors='ignore').strip()
+if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9.+:_-]{0,127}$', pkg):
+    print(json.dumps({"ok": False, "exitCode": 1, "rebootRequired": False, "programName": pkg, "output": "Invalid package identifier."}))
+    raise SystemExit(0)
+
+if re.search(r'^(systemd|openssh|linux-image|glibc|libc6|dpkg|apt|rpm|bash|sudo)', pkg, re.I):
+    print(json.dumps({"ok": False, "exitCode": 5, "rebootRequired": False, "programName": pkg, "output": f"Blocked by security policy: {pkg} is protected."}))
+    raise SystemExit(0)
+
+if shutil.which("apt-get"):
+    r = subprocess.run(["apt-get", "remove", "-y", pkg], capture_output=True, text=True, timeout=180)
+elif shutil.which("dnf"):
+    r = subprocess.run(["dnf", "remove", "-y", pkg], capture_output=True, text=True, timeout=180)
+elif shutil.which("rpm"):
+    r = subprocess.run(["rpm", "-e", pkg], capture_output=True, text=True, timeout=180)
+else:
+    print(json.dumps({"ok": False, "exitCode": 1, "rebootRequired": False, "programName": pkg, "output": "No supported package manager found."}))
+    raise SystemExit(0)
+
+out = ((r.stdout or "") + "\\n" + (r.stderr or "")).strip()
+print(json.dumps({"ok": r.returncode == 0, "exitCode": r.returncode, "rebootRequired": False, "programName": pkg, "output": out[:2000]}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(180000, input.timeoutMs || 180000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, `uninstall ${declaredName}`);
+  const ok = Boolean(parsed.ok);
+  const reb = Boolean(parsed.rebootRequired);
+  const finalName = String(parsed.programName || declaredName).trim();
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'program_uninstall',
+    success: ok,
+    message: ok
+      ? `Application "${finalName}" was uninstalled from ${execRes.host}.${reb ? ' A system restart is recommended to finalize cleanup.' : ''}`
+      : `Failed to uninstall "${finalName}" on ${execRes.host}: ${parsed.output}`,
+    messageFa: ok
+      ? `نرم‌افزار «${finalName}» با موفقیت از روی سیستم ${execRes.host} حذف (Uninstall) شد.${reb ? ' برای تکمیل پاک‌سازی، ری‌استارت سیستم توصیه می‌شود.' : ''}`
+      : `حذف نرم‌افزار «${finalName}» روی ${execRes.host} ناموفق بود: ${parsed.output}`,
+    details: {
+      programName: finalName,
+      registryHive: hive,
+      registryKeyName: keyName,
+      ...(ownerSid ? { ownerSid } : {}),
+      exitCode: Number(parsed.exitCode ?? -1),
+      rebootRequired: reb,
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
