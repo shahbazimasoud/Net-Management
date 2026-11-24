@@ -124,6 +124,11 @@ import {
   fetchHelpdeskServicesAndStartup,
   executeHelpdeskServiceAction,
   executeHelpdeskStartupAction,
+  fetchHelpdeskRegionAndFonts,
+  updateHelpdeskDateTime,
+  updateHelpdeskLanguagesAndLocale,
+  installHelpdeskFont,
+  deleteHelpdeskFont,
   fetchHelpdeskDiskHealth,
   executeHelpdeskSystemRepair,
   inspectHelpdeskDomainUser,
@@ -154,6 +159,7 @@ import {
 import { PrintServerConnectModal } from './helpdesk/PrintServerConnectModal';
 import { NetworkShareMapModal } from './helpdesk/NetworkShareMapModal';
 import { ServicesStartupTab } from './helpdesk/ServicesStartupTab';
+import { RegionFontsTab } from './helpdesk/RegionFontsTab';
 
 interface HelpDeskViewProps {
   isLightMode: boolean;
@@ -615,6 +621,19 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const serviceStartupActionError = ram.serviceStartupActionError;
   const setServiceStartupActionError = setRamField('serviceStartupActionError');
   const [serviceStartupBusyKey, setServiceStartupBusyKey] = useState<string | null>(null);
+
+  // Region, Time/Timezone, Languages & Fonts
+  const regionFontsData = ram.regionFontsData;
+  const setRegionFontsData = setRamField('regionFontsData');
+  const loadingRegionFonts = ram.loadingRegionFonts;
+  const setLoadingRegionFonts = setRamField('loadingRegionFonts');
+  const regionFontsError = ram.regionFontsError;
+  const setRegionFontsError = setRamField('regionFontsError');
+  const regionFontsActionResult = ram.regionFontsActionResult;
+  const setRegionFontsActionResult = setRamField('regionFontsActionResult');
+  const regionFontsActionError = ram.regionFontsActionError;
+  const setRegionFontsActionError = setRamField('regionFontsActionError');
+  const [regionFontsBusyKey, setRegionFontsBusyKey] = useState<string | null>(null);
 
   // System Integrity Repair (SFC / DISM) & Smart Disk Media (HDD vs SSD) + CHKDSK
   const diskHealthData = ram.diskHealthData;
@@ -1969,6 +1988,168 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
+  const handleInspectRegionFonts = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingRegionFonts(true);
+    setRegionFontsError(null);
+    try {
+      const res = await fetchHelpdeskRegionAndFonts(payload);
+      setRegionFontsData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setRegionFontsData(null);
+      setRegionFontsError(
+        err?.message ||
+          (isEn
+            ? 'Failed to inspect region, time, languages, and fonts from endpoint.'
+            : 'خطا در دریافت تنظیمات زمان، زبان‌ها و فونت‌های سیستم کاربر.')
+      );
+    } finally {
+      setLoadingRegionFonts(false);
+    }
+  };
+
+  const handleUpdateRegionDateTime = async (params: {
+    operation: 'set_timezone' | 'set_datetime' | 'sync_ntp' | 'toggle_ntp';
+    timezoneId?: string;
+    localDate?: string;
+    localTime?: string;
+    ntpEnabled?: boolean;
+    ntpServer?: string;
+  }) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setRegionFontsBusyKey(`dt:${params.operation}`);
+    setRegionFontsActionError(null);
+    setRegionFontsActionResult(null);
+    try {
+      const res = await updateHelpdeskDateTime({ ...payload, ...params });
+      setRegionFontsActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskRegionAndFonts(payload);
+        setRegionFontsData(refreshed.data);
+        if (refreshed.rateLimit) setRateLimit(refreshed.rateLimit);
+      } catch {}
+    } catch (err: any) {
+      setRegionFontsActionError(
+        err?.message ||
+          (isEn
+            ? 'Failed to update endpoint date, time, or timezone.'
+            : 'تغییر ساعت، تاریخ یا تایم‌زون سیستم با خطا مواجه شد.')
+      );
+    } finally {
+      setRegionFontsBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleUpdateRegionLanguages = async (params: {
+    operation: 'set_languages' | 'set_locale';
+    languageTags?: string[];
+    activeUserSid?: string;
+    systemLocale?: string;
+    currentCulture?: string;
+    homeLocationGeoId?: number | null;
+  }) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setRegionFontsBusyKey(`lang:${params.operation}`);
+    setRegionFontsActionError(null);
+    setRegionFontsActionResult(null);
+    try {
+      const res = await updateHelpdeskLanguagesAndLocale({ ...payload, ...params });
+      setRegionFontsActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskRegionAndFonts(payload);
+        setRegionFontsData(refreshed.data);
+        if (refreshed.rateLimit) setRateLimit(refreshed.rateLimit);
+      } catch {}
+    } catch (err: any) {
+      setRegionFontsActionError(
+        err?.message ||
+          (isEn
+            ? 'Failed to update endpoint languages or regional settings.'
+            : 'تغییر زبان‌ها یا تنظیمات ریجن سیستم با خطا مواجه شد.')
+      );
+    } finally {
+      setRegionFontsBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleInstallEndpointFont = async (params: {
+    fileName: string;
+    fileBase64: string;
+    fontDisplayName?: string;
+    installScope: 'system' | 'user';
+    activeUserSid?: string;
+  }) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setRegionFontsBusyKey(`font:install:${params.fileName}`);
+    setRegionFontsActionError(null);
+    setRegionFontsActionResult(null);
+    try {
+      const res = await installHelpdeskFont({ ...payload, ...params });
+      setRegionFontsActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskRegionAndFonts(payload);
+        setRegionFontsData(refreshed.data);
+        if (refreshed.rateLimit) setRateLimit(refreshed.rateLimit);
+      } catch {}
+    } catch (err: any) {
+      setRegionFontsActionError(
+        err?.message ||
+          (isEn
+            ? `Failed to install font "${params.fileName}".`
+            : `نصب فونت «${params.fileName}» روی سیستم کاربر ناموفق بود.`)
+      );
+      throw err;
+    } finally {
+      setRegionFontsBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleDeleteEndpointFont = async (font: any) => {
+    const payload = buildPayload();
+    if (!payload || !font?.fileName) return;
+    setRegionFontsBusyKey(`font:del:${font.id}`);
+    setRegionFontsActionError(null);
+    setRegionFontsActionResult(null);
+    try {
+      const res = await deleteHelpdeskFont({
+        ...payload,
+        fileName: font.fileName,
+        registryValueName: font.registryValueName || font.fileName,
+        scope: font.scope === 'user' ? 'user' : 'system',
+        ownerSid: font.ownerSid,
+        filePath: font.filePath,
+      });
+      setRegionFontsActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskRegionAndFonts(payload);
+        setRegionFontsData(refreshed.data);
+        if (refreshed.rateLimit) setRateLimit(refreshed.rateLimit);
+      } catch {}
+    } catch (err: any) {
+      setRegionFontsActionError(
+        err?.message ||
+          (isEn
+            ? `Failed to uninstall font "${font.displayName || font.fileName}".`
+            : `حذف فونت «${font.displayName || font.fileName}» با خطا مواجه شد.`)
+      );
+    } finally {
+      setRegionFontsBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
   const handleInspectDisks = async () => {
     const payload = buildPayload();
     if (!payload) return;
@@ -3034,6 +3215,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'سرویس‌ها و استارت‌آپ (Services & startup)',
           },
           {
+            id: 'region_fonts' as HelpdeskSubTab,
+            icon: Globe,
+            labelEn: 'Region & Fonts',
+            labelFa: 'ریجن و فونت',
+          },
+          {
             id: 'maintenance' as HelpdeskSubTab,
             icon: Wrench,
             labelEn: 'System Repair, Temp & GPO',
@@ -3065,6 +3252,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'updates' && (loadingSysInfo || loadingUpdateStatus)) ||
             (tab.id === 'programs' && loadingPrograms) ||
             (tab.id === 'services_startup' && loadingServicesStartup) ||
+            (tab.id === 'region_fonts' && loadingRegionFonts) ||
             (tab.id === 'maintenance' && (loadingTempScan || loadingGpo || loadingDiskHealth)) ||
             (tab.id === 'hardware_domain' && loadingBattery) ||
             (tab.id === 'history' && loadingHistory);
@@ -3078,6 +3266,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'updates' && Boolean(sysInfoData || updateStatusData)) ||
             (tab.id === 'programs' && Boolean(programsData)) ||
             (tab.id === 'services_startup' && Boolean(servicesStartupData)) ||
+            (tab.id === 'region_fonts' && Boolean(regionFontsData)) ||
             (tab.id === 'maintenance' && Boolean(tempScanData || gpoData || diskHealthData)) ||
             (tab.id === 'hardware_domain' && Boolean(batteryData)) ||
             (tab.id === 'history' && Boolean(historyStats?.totalConnections));
@@ -3105,6 +3294,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     handleInspectPrograms();
                   } else if (tab.id === 'services_startup' && !servicesStartupData && !loadingServicesStartup) {
                     handleInspectServicesStartup();
+                  } else if (tab.id === 'region_fonts' && !regionFontsData && !loadingRegionFonts) {
+                    handleInspectRegionFonts();
                   } else if (tab.id === 'maintenance') {
                     if (!tempScanData && !loadingTempScan) handleScanTemp();
                     if (!gpoData && !loadingGpo) handleInspectGpo();
@@ -11308,6 +11499,33 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           onServiceAction={handleServiceAction}
           onStartupAction={handleStartupAction}
           busyKey={serviceStartupBusyKey}
+        />
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 6D: REGION, TIME/TIMEZONE, LANGUAGES & FONTS                    */}
+      {/* =================================================================== */}
+      {activeSubTab === 'region_fonts' && (
+        <RegionFontsTab
+          isLightMode={isLightMode}
+          isEn={isEn}
+          targetIp={targetIp}
+          canExecuteActions={canExecuteActions}
+          data={regionFontsData}
+          loading={loadingRegionFonts}
+          error={regionFontsError}
+          actionResult={regionFontsActionResult}
+          actionError={regionFontsActionError}
+          onClearActionBanner={() => {
+            setRegionFontsActionResult(null);
+            setRegionFontsActionError(null);
+          }}
+          onRefresh={handleInspectRegionFonts}
+          onUpdateDateTime={handleUpdateRegionDateTime}
+          onUpdateLanguages={handleUpdateRegionLanguages}
+          onInstallFont={handleInstallEndpointFont}
+          onDeleteFont={handleDeleteEndpointFont}
+          busyKey={regionFontsBusyKey}
         />
       )}
 

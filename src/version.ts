@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.471.0';
+export const APP_VERSION = '1.472.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.472.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'افزودن تب جدید «ریجن و فونت (Region & Fonts)» در HelpDesk برای تنظیم ساعت، تاریخ، تایم‌زون، زبان‌ها و نصب فونت با آپلود',
+    title_en: 'Add HelpDesk "Region & Fonts" Tab for Live Clock/TimeZone Editor, 1st/2nd/3rd Languages & Remote Font Installer',
+    changes: [
+      'افزودن تب جدید **«ریجن و فونت» (`Region & Fonts`)** در **Agentless Endpoint HelpDesk** همراه با واکشی خودکار هنگام اتصال و خروجی استاندارد `CSV` لیست فونت‌ها.',
+      'طراحی **کادر بزرگ و مرکزی ساعت، تاریخ و تایم‌زون** در بالاترین بخش تب (با شمارنده زنده ساعت، تاریخ میلادی و شمسی، وضعیت `NTP`) و پنل ویرایش فوری در همان کادر برای **تنظیم ساعت و تاریخ دستی، تغییر تایم‌زون (`Timezone`)، درج سریع ساعت فعلی، فعال/غیرفعال‌سازی و سینک فوری `NTP`**.',
+      'مدیریت کامل **زبان‌ها و ریجن (`Languages & System Locale`)**: نمایش زبان‌های نصب‌شده ویندوز (`MUI`)، مشاهده و تغییر اولویت **زبان اول، دوم، سوم و بیشتر** مستقیماً روی پروفایل کاربر فعال دسکتاپ (`HKU` + `WinUserLanguageList`) و همچنین تنظیم **زبان برنامه‌های غیر یونیکد (`System Locale`)** و کشور.',
+      'بخش **مدیریت و نصب فونت (`Fonts Manager`)**: جستجو، فیلتر و حذف امن فونت‌های غیرحیاتی (با محافظت خودکار از فونت‌های هسته ویندوز) به همراه **آپلود و کشیدن/رها کردن فایل فونت (`.ttf`, `.otf`, `.ttc`, `.fon`)** و نصب فوری روی سیستم یا پروفایل کاربر (با انتقال امن تکه‌ای و رجیستر آنی `AddFontResourceW` / `WM_FONTCHANGE`).'
+    ],
+    changes_en: [
+      'Added a new **Region & Fonts** tab to **Agentless Endpoint HelpDesk** with sequential pre-fetch on connect and CSV font inventory export.',
+      'Built a **top-centered Hero Live Clock, Date & Timezone** panel with inline controls right inside the hero card to edit manual Date & Time, switch System Timezone (searchable dropdown), toggle automatic NTP sync, and trigger immediate `w32tm` / `timedatectl` resync.',
+      'Added **Multi-Language & Regional Locale Management**: displays installed OS MUI languages, inspects/reorders **1st, 2nd, 3rd+** keyboard input languages targeting the active logged-in desktop user profile (`HKU` + `WinUserLanguageList`), and updates **Non-Unicode System Locale**, Culture format, and Home Location.',
+      'Added **Fonts Manager & Remote Font Installer**: browse, search, filter, and safely uninstall non-protected fonts (with core OS UI font protection), plus drag-and-drop **Font File Upload (`.ttf`, `.otf`, `.ttc`, `.fon`)** with magic-byte validation, WinRM-safe chunked transfer, and immediate `AddFontResourceW` / `WM_FONTCHANGE` broadcast so desktop apps and Office recognize new fonts right away.'
+    ],
+  },
   {
     version: '1.471.0',
     releaseDate: '2026-11-24',

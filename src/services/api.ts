@@ -1992,6 +1992,115 @@ export async function executeHelpdeskStartupAction(
   return res.json();
 }
 
+export async function fetchHelpdeskRegionAndFonts(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/region-fonts/list`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to load region, time, languages and fonts from endpoint');
+  return res.json();
+}
+
+export async function updateHelpdeskDateTime(
+  payload: HelpdeskConnectionPayload & {
+    operation: 'set_timezone' | 'set_datetime' | 'sync_ntp' | 'toggle_ntp';
+    timezoneId?: string;
+    localDate?: string;
+    localTime?: string;
+    ntpEnabled?: boolean;
+    ntpServer?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/region/datetime`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update endpoint date, time, or timezone');
+  return res.json();
+}
+
+export async function updateHelpdeskLanguagesAndLocale(
+  payload: HelpdeskConnectionPayload & {
+    operation: 'set_languages' | 'set_locale';
+    languageTags?: string[];
+    activeUserSid?: string;
+    systemLocale?: string;
+    currentCulture?: string;
+    homeLocationGeoId?: number | null;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/region/languages`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update endpoint languages or regional settings');
+  return res.json();
+}
+
+export async function installHelpdeskFont(
+  payload: HelpdeskConnectionPayload & {
+    fileName: string;
+    fileBase64: string;
+    fontDisplayName?: string;
+    installScope?: 'system' | 'user';
+    activeUserSid?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/fonts/install`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to install font on endpoint');
+  return res.json();
+}
+
+export async function deleteHelpdeskFont(
+  payload: HelpdeskConnectionPayload & {
+    fileName: string;
+    registryValueName: string;
+    scope: 'system' | 'user';
+    ownerSid?: string;
+    filePath?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/fonts/delete`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to delete font from endpoint');
+  return res.json();
+}
+
 export async function fetchHelpdeskDiskHealth(payload: HelpdeskConnectionPayload): Promise<{
   success: boolean;
   data: any;

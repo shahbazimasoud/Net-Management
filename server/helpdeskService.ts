@@ -61,7 +61,15 @@ export type HelpdeskWriteAction =
   | 'startup_enable'
   | 'startup_disable'
   | 'startup_delete'
-  | 'startup_add';
+  | 'startup_add'
+  | 'region_datetime_set'
+  | 'region_timezone_set'
+  | 'region_ntp_sync'
+  | 'region_ntp_toggle'
+  | 'region_languages_set'
+  | 'region_locale_set'
+  | 'font_install'
+  | 'font_delete';
 
 export type HelpdeskProcessCategory =
   | 'user_app'
@@ -13174,6 +13182,1563 @@ PY`;
     executedAt: new Date().toISOString(),
   };
 }
+
+// ============================================================================
+// 22. REGION, TIME/TIMEZONE, LANGUAGES & FONTS MANAGEMENT
+// ============================================================================
+
+export interface HelpdeskTimezoneOption {
+  id: string;
+  displayName: string;
+  standardName: string;
+  offsetMinutes: number;
+  supportsDst: boolean;
+}
+
+export interface HelpdeskLanguageEntry {
+  tag: string;
+  englishName: string;
+  nativeName: string;
+  autonym: string;
+  inputMethodTips: string[];
+  rank: number;
+  source: 'active_user_hive' | 'session_profile' | 'system';
+}
+
+export interface HelpdeskInstalledFontItem {
+  id: string;
+  displayName: string;
+  registryValueName: string;
+  fileName: string;
+  filePath: string;
+  format: 'TrueType' | 'OpenType' | 'Collection' | 'Raster' | 'Other';
+  scope: 'system' | 'user';
+  ownerSid?: string;
+  ownerUser?: string;
+  sizeBytes: number | null;
+  isProtected: boolean;
+  protectionReason?: string;
+  protectionReasonFa?: string;
+}
+
+export interface HelpdeskRegionFontsResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  activeUser: string;
+  activeUserSid: string;
+  clock: {
+    currentIso: string;
+    localDate: string;
+    localTime: string;
+    dayOfWeek: string;
+    timezoneId: string;
+    timezoneDisplayName: string;
+    timezoneStandardName: string;
+    utcOffsetMinutes: number;
+    supportsDst: boolean;
+    ntpEnabled: boolean;
+    ntpServer: string;
+    ntpType: string;
+    w32TimeStatus: string;
+  };
+  availableTimezones: HelpdeskTimezoneOption[];
+  region: {
+    systemLocale: string;
+    systemLocaleName: string;
+    currentCulture: string;
+    currentCultureName: string;
+    homeLocationGeoId: number | null;
+    homeLocationName: string;
+    installedMuiLanguages: string[];
+  };
+  userLanguages: HelpdeskLanguageEntry[];
+  fonts: HelpdeskInstalledFontItem[];
+  summary: {
+    totalFonts: number;
+    systemFonts: number;
+    userFonts: number;
+    configuredLanguages: number;
+    installedMuiCount: number;
+  };
+  collectedAt: string;
+}
+
+const PROTECTED_FONT_PREFIXES = [
+  'segoeui',
+  'segoeuib',
+  'segoeuii',
+  'segoeuil',
+  'segoeuisl',
+  'segoeuiz',
+  'seguibl',
+  'seguiemj',
+  'seguihis',
+  'seguisbi',
+  'seguisli',
+  'seguisym',
+  'segmdl2',
+  'segoeicons',
+  'tahoma',
+  'tahomabd',
+  'arial',
+  'arialbd',
+  'arialbi',
+  'ariali',
+  'ariblk',
+  'calibri',
+  'calibrib',
+  'calibrii',
+  'calibril',
+  'calibriz',
+  'cambria',
+  'cambriab',
+  'cambriai',
+  'cambriaz',
+  'consola',
+  'consolab',
+  'consolai',
+  'consolaz',
+  'cour',
+  'courbd',
+  'courbi',
+  'couri',
+  'times',
+  'timesbd',
+  'timesbi',
+  'timesi',
+  'micross',
+  'marlett',
+  'symbol',
+  'wingding',
+  'webdings',
+  'verdana',
+  'verdanab',
+  'verdanai',
+  'verdanaz',
+  'georgia',
+  'trebuc',
+  'lucon',
+  'l_10646',
+  'vga',
+  'dosapp',
+  '8514',
+];
+
+function checkProtectedFont(
+  fileName: string,
+  displayName: string,
+  scope: 'system' | 'user'
+): { isProtected: boolean; reasonEn?: string; reasonFa?: string } {
+  if (scope === 'user') {
+    return { isProtected: false };
+  }
+  const base = pathBaseNameNoExt(fileName).toLowerCase();
+  const disp = String(displayName || '').toLowerCase();
+  if (
+    PROTECTED_FONT_PREFIXES.some((p) => base === p || base.startsWith(p + '_')) ||
+    /\b(segoe ui|segoe mdl2|segoe fluent|microsoft sans serif|marlett|tahoma|wingdings|webdings|symbol)\b/i.test(disp)
+  ) {
+    return {
+      isProtected: true,
+      reasonEn: 'Core Windows system font required for OS UI rendering cannot be deleted.',
+      reasonFa: 'فونت هسته ویندوز برای نمایش رابط کاربری سیستم عامل محافظت‌شده است و قابل حذف نیست.',
+    };
+  }
+  return { isProtected: false };
+}
+
+function pathBaseNameNoExt(filePath: string): string {
+  const s = String(filePath || '').replace(/\\/g, '/');
+  const idx = s.lastIndexOf('/');
+  const base = idx >= 0 ? s.slice(idx + 1) : s;
+  const dot = base.lastIndexOf('.');
+  return dot > 0 ? base.slice(0, dot) : base;
+}
+
+function sanitizeFontFileName(rawName: string): string {
+  const normalized = String(rawName || '').replace(/\\/g, '/').trim();
+  const base = normalized.includes('/') ? normalized.slice(normalized.lastIndexOf('/') + 1) : normalized;
+  if (
+    !base ||
+    base.length > 140 ||
+    base.includes('..') ||
+    /[\x00-\x1F\x7F<>:"/\\|?*]/.test(base) ||
+    !/^[a-zA-Z0-9._\- ()+\[\]]+\.(ttf|otf|ttc|fon)$/i.test(base)
+  ) {
+    throw new Error('Invalid font filename. Allowed extensions: .ttf, .otf, .ttc, .fon (alphanumeric and - _ . spaces only).');
+  }
+  return base;
+}
+
+function validateFontBinaryMagic(buf: Buffer, fileName: string): 'TrueType' | 'OpenType' | 'Collection' | 'Raster' {
+  if (!Buffer.isBuffer(buf) || buf.length < 16) {
+    throw new Error('Font file is empty or too small to be a valid font.');
+  }
+  if (buf.length > 15 * 1024 * 1024) {
+    throw new Error('Font file exceeds the maximum allowed size of 15 MB.');
+  }
+  const lower = fileName.toLowerCase();
+  const b0 = buf[0], b1 = buf[1], b2 = buf[2], b3 = buf[3];
+  const tag = buf.subarray(0, 4).toString('ascii');
+
+  if (lower.endsWith('.ttf')) {
+    const isTtfMagic =
+      (b0 === 0x00 && b1 === 0x01 && b2 === 0x00 && b3 === 0x00) ||
+      tag === 'true' ||
+      tag === 'typ1';
+    if (!isTtfMagic) {
+      throw new Error('Invalid TrueType (.ttf) file header.');
+    }
+    return 'TrueType';
+  }
+  if (lower.endsWith('.otf')) {
+    const isOtfMagic = tag === 'OTTO' || (b0 === 0x00 && b1 === 0x01 && b2 === 0x00 && b3 === 0x00);
+    if (!isOtfMagic) {
+      throw new Error('Invalid OpenType (.otf) file header.');
+    }
+    return 'OpenType';
+  }
+  if (lower.endsWith('.ttc')) {
+    if (tag !== 'ttcf') {
+      throw new Error('Invalid TrueType Collection (.ttc) file header.');
+    }
+    return 'Collection';
+  }
+  if (lower.endsWith('.fon')) {
+    if (!(b0 === 0x4d && b1 === 0x5a)) {
+      throw new Error('Invalid Windows Raster Font (.fon) file header.');
+    }
+    return 'Raster';
+  }
+  throw new Error('Unsupported font extension.');
+}
+
+function detectFontFormatFromFile(fileName: string, regName: string): HelpdeskInstalledFontItem['format'] {
+  const fn = String(fileName || '').toLowerCase();
+  const rn = String(regName || '').toLowerCase();
+  if (fn.endsWith('.otf') || rn.includes('(opentype)')) return 'OpenType';
+  if (fn.endsWith('.ttc')) return 'Collection';
+  if (fn.endsWith('.ttf') || rn.includes('(truetype)')) return 'TrueType';
+  if (fn.endsWith('.fon') || rn.includes('(all res)') || rn.includes('(vga res)')) return 'Raster';
+  return 'Other';
+}
+
+export async function collectEndpointRegionAndFonts(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskRegionFontsResult> {
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+function To-Str($v) {
+  if ($null -eq $v) { return '' }
+  if ($v -is [System.Array]) {
+    if ($v.Count -eq 0) { return '' }
+    return [string]$v[0]
+  }
+  return [string]$v
+}
+function To-Int($v) {
+  if ($null -eq $v) { return 0 }
+  try {
+    if ($v -is [System.Array]) {
+      if ($v.Count -eq 0) { return 0 }
+      return [int]$v[0]
+    }
+    return [int]$v
+  } catch { return 0 }
+}
+
+$hostName = $env:COMPUTERNAME
+try { $hostName = To-Str ([System.Net.Dns]::GetHostName()) } catch {}
+
+# 1. Resolve Active Desktop User & SID
+$activeUser = ''
+$activeSid = ''
+try {
+  $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+  if ($cs -and $cs.UserName) {
+    $activeUser = To-Str $cs.UserName
+    try {
+      $nt = New-Object System.Security.Principal.NTAccount($activeUser)
+      $activeSid = To-Str ($nt.Translate([System.Security.Principal.SecurityIdentifier]).Value)
+    } catch {}
+  }
+} catch {}
+if (-not $activeSid) {
+  try {
+    $exp = @(Get-CimInstance -ClassName Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue) | Select-Object -First 1
+    if ($exp) {
+      $own = Invoke-CimMethod -InputObject $exp -MethodName GetOwnerSid -ErrorAction SilentlyContinue
+      if ($own -and $own.Sid) { $activeSid = To-Str $own.Sid }
+      if (-not $activeUser) {
+        $oname = Invoke-CimMethod -InputObject $exp -MethodName GetOwner -ErrorAction SilentlyContinue
+        if ($oname -and $oname.User) {
+          $activeUser = if ($oname.Domain) { "$($oname.Domain)\\$($oname.User)" } else { To-Str $oname.User }
+        }
+      }
+    }
+  } catch {}
+}
+
+# 2. Clock, TimeZone & NTP
+$now = Get-Date
+$tz = $null
+try { $tz = Get-TimeZone -ErrorAction SilentlyContinue } catch {}
+$tzId = if ($tz) { To-Str $tz.Id } else { 'UTC' }
+$tzDisp = if ($tz) { To-Str $tz.DisplayName } else { 'UTC' }
+$tzStd = if ($tz) { To-Str $tz.StandardName } else { 'UTC' }
+$utcOffMin = 0
+$supportsDst = $false
+try {
+  if ($tz) {
+    $utcOffMin = [int]$tz.GetUtcOffset([DateTime]::UtcNow).TotalMinutes
+    $supportsDst = [bool]$tz.SupportsDaylightSavingTime
+  }
+} catch {}
+
+$availTz = @()
+try {
+  foreach ($z in @(Get-TimeZone -ListAvailable -ErrorAction SilentlyContinue)) {
+    $availTz += [PSCustomObject]@{
+      id = To-Str $z.Id
+      displayName = To-Str $z.DisplayName
+      standardName = To-Str $z.StandardName
+      offsetMinutes = [int]$z.BaseUtcOffset.TotalMinutes
+      supportsDst = [bool]$z.SupportsDaylightSavingTime
+    }
+  }
+} catch {}
+
+$ntpType = 'Unknown'
+$ntpServer = ''
+$ntpEnabled = $false
+$w32Status = 'Unknown'
+try {
+  $w32 = Get-Service -Name 'W32Time' -ErrorAction SilentlyContinue
+  if ($w32) { $w32Status = To-Str $w32.Status }
+} catch {}
+try {
+  $p = Get-ItemProperty -LiteralPath 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\W32Time\\Parameters' -ErrorAction SilentlyContinue
+  if ($p) {
+    $ntpType = To-Str $p.Type
+    $ntpServer = To-Str $p.NtpServer
+  }
+  $nc = Get-ItemProperty -LiteralPath 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\W32Time\\TimeProviders\\NtpClient' -ErrorAction SilentlyContinue
+  $ncEn = if ($nc -and $null -ne $nc.Enabled) { (To-Int $nc.Enabled) -ne 0 } else { $true }
+  $ntpEnabled = ($w32Status -eq 'Running') -and ($ntpType -ne 'NoSync') -and $ncEn
+} catch {}
+
+# 3. Region, System Locale, Home Location & Installed MUI
+$sysLocName = ''
+$sysLocDisp = ''
+try {
+  $sl = Get-WinSystemLocale -ErrorAction SilentlyContinue
+  if ($sl) {
+    $sysLocName = To-Str $sl.Name
+    $sysLocDisp = To-Str $sl.DisplayName
+  }
+} catch {}
+
+$curCultName = ''
+$curCultDisp = ''
+try {
+  $cc = Get-Culture -ErrorAction SilentlyContinue
+  if ($cc) {
+    $curCultName = To-Str $cc.Name
+    $curCultDisp = To-Str $cc.DisplayName
+  }
+} catch {}
+
+$geoId = $null
+$geoName = ''
+try {
+  $hl = Get-WinHomeLocation -ErrorAction SilentlyContinue
+  if ($hl) {
+    $geoId = To-Int $hl.GeoId
+    $geoName = To-Str $hl.HomeLocation
+  }
+} catch {}
+
+$muiList = @()
+try {
+  $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+  if ($os -and $os.MUILanguages) {
+    foreach ($m in @($os.MUILanguages)) {
+      $ms = (To-Str $m).Trim()
+      if ($ms) { $muiList += $ms }
+    }
+  }
+} catch {}
+
+# 4. User Languages (Active Desktop User Hive first, then WinUserLanguageList fallback)
+$userLangs = @()
+$seenTags = @{}
+
+if ($activeSid -and (Test-Path -LiteralPath "Registry::HKEY_USERS\\$activeSid\\Control Panel\\International\\User Profile")) {
+  try {
+    $upKey = "Registry::HKEY_USERS\\$activeSid\\Control Panel\\International\\User Profile"
+    $upProps = Get-ItemProperty -LiteralPath $upKey -ErrorAction SilentlyContinue
+    $tags = @()
+    if ($upProps -and $upProps.Languages) {
+      $tags = @($upProps.Languages)
+    }
+    $rank = 1
+    foreach ($t in $tags) {
+      $tagStr = (To-Str $t).Trim()
+      if (-not $tagStr -or $seenTags.ContainsKey($tagStr.ToLower())) { continue }
+      $seenTags[$tagStr.ToLower()] = $true
+      $eng = $tagStr
+      $nat = $tagStr
+      try {
+        $ci = [System.Globalization.CultureInfo]::GetCultureInfo($tagStr)
+        if ($ci) {
+          $eng = To-Str $ci.EnglishName
+          $nat = To-Str $ci.NativeName
+        }
+      } catch {}
+      $tips = @()
+      try {
+        $subPath = "$upKey\\$tagStr"
+        if (Test-Path -LiteralPath $subPath) {
+          $subItem = Get-Item -LiteralPath $subPath -ErrorAction SilentlyContinue
+          if ($subItem) {
+            foreach ($vn in @($subItem.GetValueNames())) {
+              if ($vn -match '^[0-9a-fA-F]{4}:[0-9a-fA-F]{8}$') { $tips += $vn }
+            }
+          }
+        }
+      } catch {}
+      $userLangs += [PSCustomObject]@{
+        tag = $tagStr
+        englishName = $eng
+        nativeName = $nat
+        autonym = $nat
+        inputMethodTips = @($tips)
+        rank = $rank
+        source = 'active_user_hive'
+      }
+      $rank++
+    }
+  } catch {}
+}
+
+if ($userLangs.Count -eq 0) {
+  try {
+    $wull = @(Get-WinUserLanguageList -ErrorAction SilentlyContinue)
+    $rank = 1
+    foreach ($wl in $wull) {
+      $tagStr = (To-Str $wl.LanguageTag).Trim()
+      if (-not $tagStr -or $seenTags.ContainsKey($tagStr.ToLower())) { continue }
+      $seenTags[$tagStr.ToLower()] = $true
+      $tips = @()
+      if ($wl.InputMethodTips) {
+        foreach ($tip in @($wl.InputMethodTips)) { $tips += (To-Str $tip) }
+      }
+      $userLangs += [PSCustomObject]@{
+        tag = $tagStr
+        englishName = To-Str $wl.EnglishName
+        nativeName = To-Str $wl.LocalizedName
+        autonym = To-Str $wl.Autonym
+        inputMethodTips = @($tips)
+        rank = $rank
+        source = 'session_profile'
+      }
+      $rank++
+    }
+  } catch {}
+}
+
+# 5. Installed Fonts (System-wide HKLM + Active User HKU/HKCU)
+$fontsList = @()
+$sysFontsDir = Join-Path $env:SystemRoot 'Fonts'
+try {
+  $regSys = 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'
+  if (Test-Path -LiteralPath $regSys) {
+    $keyObj = Get-Item -LiteralPath $regSys -ErrorAction SilentlyContinue
+    if ($keyObj) {
+      foreach ($vn in @($keyObj.GetValueNames())) {
+        try {
+          if (-not $vn) { continue }
+          $val = (To-Str $keyObj.GetValue($vn)).Trim()
+          if (-not $val) { continue }
+          $fullPath = if ([System.IO.Path]::IsPathRooted($val)) { $val } else { Join-Path $sysFontsDir $val }
+          $fn = [System.IO.Path]::GetFileName($fullPath)
+          $sz = $null
+          try {
+            if (Test-Path -LiteralPath $fullPath) {
+              $sz = [int64](Get-Item -LiteralPath $fullPath -ErrorAction SilentlyContinue).Length
+            }
+          } catch {}
+          $disp = ($vn -replace '\\s*\\((TrueType|OpenType|All res|VGA res|8514a res|Set of \\d+).*\\)$', '').Trim()
+          $fontsList += [PSCustomObject]@{
+            displayName = if ($disp) { $disp } else { $vn }
+            registryValueName = $vn
+            fileName = $fn
+            filePath = $fullPath
+            scope = 'system'
+            ownerSid = ''
+            ownerUser = ''
+            sizeBytes = $sz
+          }
+        } catch {}
+      }
+    }
+  }
+} catch {}
+
+# Per-user Fonts for Active User or Current Session
+$userFontSources = @()
+if ($activeSid) {
+  $profPath = ''
+  try {
+    $pl = Get-ItemProperty -LiteralPath "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$activeSid" -ErrorAction SilentlyContinue
+    if ($pl -and $pl.ProfileImagePath) { $profPath = To-Str $pl.ProfileImagePath }
+  } catch {}
+  $userFontSources += [PSCustomObject]@{
+    regPath = "Registry::HKEY_USERS\\$activeSid\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts"
+    baseDir = if ($profPath) { Join-Path $profPath 'AppData\\Local\\Microsoft\\Windows\\Fonts' } else { '' }
+    sid = $activeSid
+    user = $activeUser
+  }
+} else {
+  $userFontSources += [PSCustomObject]@{
+    regPath = 'HKCU:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'
+    baseDir = Join-Path $env:LOCALAPPDATA 'Microsoft\\Windows\\Fonts'
+    sid = ''
+    user = $env:USERNAME
+  }
+}
+
+foreach ($ufs in $userFontSources) {
+  try {
+    if (Test-Path -LiteralPath $ufs.regPath) {
+      $uObj = Get-Item -LiteralPath $ufs.regPath -ErrorAction SilentlyContinue
+      if ($uObj) {
+        foreach ($vn in @($uObj.GetValueNames())) {
+          try {
+            if (-not $vn) { continue }
+            $val = (To-Str $uObj.GetValue($vn)).Trim()
+            if (-not $val) { continue }
+            $fullPath = if ([System.IO.Path]::IsPathRooted($val)) { $val } elseif ($ufs.baseDir) { Join-Path $ufs.baseDir $val } else { $val }
+            $fn = [System.IO.Path]::GetFileName($fullPath)
+            $sz = $null
+            try {
+              if ($fullPath -and (Test-Path -LiteralPath $fullPath)) {
+                $sz = [int64](Get-Item -LiteralPath $fullPath -ErrorAction SilentlyContinue).Length
+              }
+            } catch {}
+            $disp = ($vn -replace '\\s*\\((TrueType|OpenType|All res|VGA res).*\\)$', '').Trim()
+            $fontsList += [PSCustomObject]@{
+              displayName = if ($disp) { $disp } else { $vn }
+              registryValueName = $vn
+              fileName = $fn
+              filePath = $fullPath
+              scope = 'user'
+              ownerSid = $ufs.sid
+              ownerUser = $ufs.user
+              sizeBytes = $sz
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+}
+
+[PSCustomObject]@{
+  hostname = $hostName
+  activeUser = $activeUser
+  activeUserSid = $activeSid
+  clock = [PSCustomObject]@{
+    currentIso = $now.ToString('o')
+    localDate = $now.ToString('yyyy-MM-dd')
+    localTime = $now.ToString('HH:mm:ss')
+    dayOfWeek = To-Str $now.DayOfWeek
+    timezoneId = $tzId
+    timezoneDisplayName = $tzDisp
+    timezoneStandardName = $tzStd
+    utcOffsetMinutes = $utcOffMin
+    supportsDst = $supportsDst
+    ntpEnabled = $ntpEnabled
+    ntpServer = $ntpServer
+    ntpType = $ntpType
+    w32TimeStatus = $w32Status
+  }
+  availableTimezones = @($availTz | Sort-Object -Property offsetMinutes, displayName)
+  region = [PSCustomObject]@{
+    systemLocale = $sysLocName
+    systemLocaleName = $sysLocDisp
+    currentCulture = $curCultName
+    currentCultureName = $curCultDisp
+    homeLocationGeoId = $geoId
+    homeLocationName = $geoName
+    installedMuiLanguages = @($muiList)
+  }
+  userLanguages = @($userLangs)
+  fonts = @($fontsList | Sort-Object -Property scope, displayName)
+} | ConvertTo-Json -Depth 6 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import datetime, glob, json, os, socket, subprocess
+
+hostname = socket.gethostname()
+active_user = os.environ.get("USER", "")
+now_dt = datetime.datetime.now().astimezone()
+tz_name = str(now_dt.tzinfo or "UTC")
+utc_off = int((now_dt.utcoffset() or datetime.timedelta(0)).total_seconds() // 60)
+
+ntp_enabled = False
+try:
+    td = subprocess.run(["timedatectl", "show", "-p", "Timezone", "-p", "NTP"], capture_output=True, text=True, timeout=8)
+    for ln in (td.stdout or "").splitlines():
+        if ln.startswith("Timezone=") and ln.split("=", 1)[1].strip():
+            tz_name = ln.split("=", 1)[1].strip()
+        elif ln.startswith("NTP="):
+            ntp_enabled = ln.split("=", 1)[1].strip().lower() == "yes"
+except Exception:
+    pass
+
+avail_tz = []
+try:
+    tzl = subprocess.run(["timedatectl", "list-timezones"], capture_output=True, text=True, timeout=10)
+    for ln in (tzl.stdout or "").splitlines():
+        z = ln.strip()
+        if z:
+            avail_tz.append({"id": z, "displayName": z, "standardName": z, "offsetMinutes": 0, "supportsDst": False})
+except Exception:
+    pass
+
+locales = []
+try:
+    la = subprocess.run(["locale", "-a"], capture_output=True, text=True, timeout=8)
+    locales = [x.strip() for x in (la.stdout or "").splitlines() if x.strip()][:80]
+except Exception:
+    pass
+
+cur_lang = os.environ.get("LANG", "en_US.UTF-8")
+fonts = []
+try:
+    fc = subprocess.run(["fc-list", "--format=%{family}|%{style}|%{file}\\n"], capture_output=True, text=True, timeout=12)
+    seen = set()
+    for ln in (fc.stdout or "").splitlines():
+        parts = ln.split("|")
+        if len(parts) < 3:
+            continue
+        fam = parts[0].split(",")[0].strip()
+        fp = parts[2].strip()
+        if not fp or fp in seen:
+            continue
+        seen.add(fp)
+        sz = None
+        try:
+            sz = os.path.getsize(fp)
+        except Exception:
+            pass
+        scope = "user" if ("/.local/share/fonts" in fp or "/.fonts" in fp) else "system"
+        fonts.append({
+            "displayName": fam or os.path.basename(fp),
+            "registryValueName": os.path.basename(fp),
+            "fileName": os.path.basename(fp),
+            "filePath": fp,
+            "scope": scope,
+            "ownerSid": "",
+            "ownerUser": active_user if scope == "user" else "",
+            "sizeBytes": sz,
+        })
+except Exception:
+    pass
+
+print(json.dumps({
+    "hostname": hostname,
+    "activeUser": active_user,
+    "activeUserSid": "",
+    "clock": {
+        "currentIso": now_dt.isoformat(),
+        "localDate": now_dt.strftime("%Y-%m-%d"),
+        "localTime": now_dt.strftime("%H:%M:%S"),
+        "dayOfWeek": now_dt.strftime("%A"),
+        "timezoneId": tz_name,
+        "timezoneDisplayName": tz_name,
+        "timezoneStandardName": tz_name,
+        "utcOffsetMinutes": utc_off,
+        "supportsDst": False,
+        "ntpEnabled": ntp_enabled,
+        "ntpServer": "systemd-timesyncd",
+        "ntpType": "NTP" if ntp_enabled else "NoSync",
+        "w32TimeStatus": "Running" if ntp_enabled else "Stopped",
+    },
+    "availableTimezones": avail_tz,
+    "region": {
+        "systemLocale": cur_lang,
+        "systemLocaleName": cur_lang,
+        "currentCulture": cur_lang,
+        "currentCultureName": cur_lang,
+        "homeLocationGeoId": None,
+        "homeLocationName": "",
+        "installedMuiLanguages": locales,
+    },
+    "userLanguages": [{
+        "tag": cur_lang.split(".")[0].replace("_", "-"),
+        "englishName": cur_lang,
+        "nativeName": cur_lang,
+        "autonym": cur_lang,
+        "inputMethodTips": [],
+        "rank": 1,
+        "source": "system",
+    }],
+    "fonts": sorted(fonts, key=lambda x: (x["scope"], x["displayName"].lower())),
+}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(60000, input.timeoutMs || 60000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'collect region, time, languages, and fonts');
+  const rawFonts: any[] = Array.isArray(parsed.fonts) ? parsed.fonts : [];
+  const fonts: HelpdeskInstalledFontItem[] = rawFonts.map((f, idx) => {
+    const scope = f.scope === 'user' ? 'user' : 'system';
+    const fileName = String(f.fileName || '').trim();
+    const displayName = String(f.displayName || fileName || 'Font').trim();
+    const regVal = String(f.registryValueName || fileName).trim();
+    const prot = checkProtectedFont(fileName, displayName, scope);
+    return {
+      id: `${scope}:${regVal}:${idx}`,
+      displayName,
+      registryValueName: regVal,
+      fileName,
+      filePath: String(f.filePath || '').trim(),
+      format: detectFontFormatFromFile(fileName, regVal),
+      scope,
+      ...(f.ownerSid ? { ownerSid: String(f.ownerSid) } : {}),
+      ...(f.ownerUser ? { ownerUser: String(f.ownerUser) } : {}),
+      sizeBytes: typeof f.sizeBytes === 'number' && f.sizeBytes >= 0 ? f.sizeBytes : null,
+      isProtected: prot.isProtected,
+      ...(prot.reasonEn ? { protectionReason: prot.reasonEn, protectionReasonFa: prot.reasonFa } : {}),
+    };
+  });
+
+  const userLanguages: HelpdeskLanguageEntry[] = Array.isArray(parsed.userLanguages)
+    ? parsed.userLanguages.map((l: any, idx: number) => ({
+        tag: String(l.tag || '').trim(),
+        englishName: String(l.englishName || l.tag || '').trim(),
+        nativeName: String(l.nativeName || l.englishName || l.tag || '').trim(),
+        autonym: String(l.autonym || l.nativeName || l.tag || '').trim(),
+        inputMethodTips: Array.isArray(l.inputMethodTips) ? l.inputMethodTips.map(String) : [],
+        rank: typeof l.rank === 'number' ? l.rank : idx + 1,
+        source: l.source === 'active_user_hive' || l.source === 'session_profile' ? l.source : 'system',
+      }))
+    : [];
+
+  const installedMui: string[] = Array.isArray(parsed?.region?.installedMuiLanguages)
+    ? parsed.region.installedMuiLanguages.map(String).filter(Boolean)
+    : [];
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    activeUser: String(parsed.activeUser || ''),
+    activeUserSid: String(parsed.activeUserSid || ''),
+    clock: {
+      currentIso: String(parsed?.clock?.currentIso || new Date().toISOString()),
+      localDate: String(parsed?.clock?.localDate || ''),
+      localTime: String(parsed?.clock?.localTime || ''),
+      dayOfWeek: String(parsed?.clock?.dayOfWeek || ''),
+      timezoneId: String(parsed?.clock?.timezoneId || 'UTC'),
+      timezoneDisplayName: String(parsed?.clock?.timezoneDisplayName || parsed?.clock?.timezoneId || 'UTC'),
+      timezoneStandardName: String(parsed?.clock?.timezoneStandardName || ''),
+      utcOffsetMinutes: Number(parsed?.clock?.utcOffsetMinutes ?? 0),
+      supportsDst: Boolean(parsed?.clock?.supportsDst),
+      ntpEnabled: Boolean(parsed?.clock?.ntpEnabled),
+      ntpServer: String(parsed?.clock?.ntpServer || ''),
+      ntpType: String(parsed?.clock?.ntpType || ''),
+      w32TimeStatus: String(parsed?.clock?.w32TimeStatus || ''),
+    },
+    availableTimezones: Array.isArray(parsed.availableTimezones) ? parsed.availableTimezones : [],
+    region: {
+      systemLocale: String(parsed?.region?.systemLocale || ''),
+      systemLocaleName: String(parsed?.region?.systemLocaleName || ''),
+      currentCulture: String(parsed?.region?.currentCulture || ''),
+      currentCultureName: String(parsed?.region?.currentCultureName || ''),
+      homeLocationGeoId:
+        typeof parsed?.region?.homeLocationGeoId === 'number' ? parsed.region.homeLocationGeoId : null,
+      homeLocationName: String(parsed?.region?.homeLocationName || ''),
+      installedMuiLanguages: installedMui,
+    },
+    userLanguages,
+    fonts,
+    summary: {
+      totalFonts: fonts.length,
+      systemFonts: fonts.filter((f) => f.scope === 'system').length,
+      userFonts: fonts.filter((f) => f.scope === 'user').length,
+      configuredLanguages: userLanguages.length,
+      installedMuiCount: installedMui.length,
+    },
+    collectedAt: new Date().toISOString(),
+  };
+}
+
+export async function manageEndpointDateTime(
+  input: HelpdeskTargetInput,
+  options: {
+    operation: 'set_timezone' | 'set_datetime' | 'sync_ntp' | 'toggle_ntp';
+    timezoneId?: string;
+    localDate?: string; // YYYY-MM-DD
+    localTime?: string; // HH:mm or HH:mm:ss
+    ntpEnabled?: boolean;
+    ntpServer?: string;
+  }
+): Promise<HelpdeskActionResult> {
+  const op = String(options.operation || '').trim() as
+    | 'set_timezone'
+    | 'set_datetime'
+    | 'sync_ntp'
+    | 'toggle_ntp';
+  if (!['set_timezone', 'set_datetime', 'sync_ntp', 'toggle_ntp'].includes(op)) {
+    throw new Error('Invalid date/time operation specified.');
+  }
+
+  let tzId = '';
+  let yr = 0, mo = 0, dy = 0, hr = 0, mn = 0, sc = 0;
+  let ntpServer = '';
+  const ntpEn = Boolean(options.ntpEnabled);
+
+  if (op === 'set_timezone') {
+    tzId = String(options.timezoneId || '').trim();
+    if (!tzId || !/^[a-zA-Z0-9 _/+\-()]{1,120}$/.test(tzId)) {
+      throw new Error('Invalid timezone ID format.');
+    }
+  } else if (op === 'set_datetime') {
+    const dStr = String(options.localDate || '').trim();
+    const tStr = String(options.localTime || '').trim();
+    const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dStr);
+    const tm = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(tStr);
+    if (!dm || !tm) {
+      throw new Error('Valid date (YYYY-MM-DD) and time (HH:mm or HH:mm:ss) are required.');
+    }
+    yr = Number(dm[1]);
+    mo = Number(dm[2]);
+    dy = Number(dm[3]);
+    hr = Number(tm[1]);
+    mn = Number(tm[2]);
+    sc = tm[3] ? Number(tm[3]) : 0;
+    if (yr < 2000 || yr > 2100 || mo < 1 || mo > 12 || dy < 1 || dy > 31 || hr > 23 || mn > 59 || sc > 59) {
+      throw new Error('Date or time values are out of valid bounds.');
+    }
+  } else if (op === 'sync_ntp' || op === 'toggle_ntp') {
+    ntpServer = String(options.ntpServer || '').trim();
+    if (ntpServer && !/^[a-zA-Z0-9.-]{1,120}$/.test(ntpServer)) {
+      throw new Error('Invalid NTP server hostname or IP.');
+    }
+  }
+
+  const tzB64 = Buffer.from(tzId, 'utf8').toString('base64');
+  const ntpB64 = Buffer.from(ntpServer, 'utf8').toString('base64');
+
+  const winPs = `
+$ErrorActionPreference = 'Stop'
+$op = '${op}'
+$tzId = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${tzB64}'))
+$ntpSrv = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${ntpB64}'))
+$ntpEn = ${ntpEn ? '$true' : '$false'}
+
+$msg = ''
+switch ($op) {
+  'set_timezone' {
+    try {
+      Set-TimeZone -Id $tzId -ErrorAction Stop
+    } catch {
+      & tzutil.exe /s $tzId
+      if ($LASTEXITCODE -ne 0) { throw "Failed to set timezone '$tzId'." }
+    }
+    $msg = "Timezone changed to '$tzId'."
+  }
+  'set_datetime' {
+    $targetDt = Get-Date -Year ${yr} -Month ${mo} -Day ${dy} -Hour ${hr} -Minute ${mn} -Second ${sc}
+    Set-Date -Date $targetDt -ErrorAction Stop
+    $msg = "System date/time updated to $($targetDt.ToString('yyyy-MM-dd HH:mm:ss'))."
+  }
+  'toggle_ntp' {
+    if ($ntpEn) {
+      Set-Service -Name 'W32Time' -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name 'W32Time' -ErrorAction SilentlyContinue
+      if ($ntpSrv) {
+        & w32tm.exe /config /manualpeerlist:"$ntpSrv,0x9" /syncfromflags:manual /reliable:YES /update | Out-Null
+      } else {
+        & w32tm.exe /config /syncfromflags:domhier,manual /update | Out-Null
+      }
+      & w32tm.exe /resync /force 2>&1 | Out-Null
+      $msg = "Automatic NTP time synchronization enabled."
+    } else {
+      & w32tm.exe /config /syncfromflags:no /update 2>&1 | Out-Null
+      Stop-Service -Name 'W32Time' -Force -ErrorAction SilentlyContinue
+      $msg = "Automatic NTP time synchronization disabled."
+    }
+  }
+  'sync_ntp' {
+    Start-Service -Name 'W32Time' -ErrorAction SilentlyContinue
+    if ($ntpSrv) {
+      & w32tm.exe /config /manualpeerlist:"$ntpSrv,0x9" /syncfromflags:manual /update | Out-Null
+    }
+    $resyncOut = (& w32tm.exe /resync /force 2>&1) -join ' '
+    $msg = if ($resyncOut) { $resyncOut } else { "NTP resync triggered." }
+  }
+}
+
+$nowAfter = Get-Date
+$tzAfter = Get-TimeZone
+[PSCustomObject]@{
+  ok = $true
+  currentIso = $nowAfter.ToString('o')
+  localDate = $nowAfter.ToString('yyyy-MM-dd')
+  localTime = $nowAfter.ToString('HH:mm:ss')
+  timezoneId = [string]$tzAfter.Id
+  timezoneDisplayName = [string]$tzAfter.DisplayName
+  utcOffsetMinutes = [int]$tzAfter.GetUtcOffset([DateTime]::UtcNow).TotalMinutes
+  output = $msg
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import base64, datetime, json, subprocess
+
+op = '${op}'
+tz = base64.b64decode('${tzB64}').decode('utf-8', errors='ignore').strip()
+ntp_en = ${ntpEn ? 'True' : 'False'}
+
+if op == 'set_timezone':
+    r = subprocess.run(["timedatectl", "set-timezone", tz], capture_output=True, text=True, timeout=15)
+elif op == 'set_datetime':
+    subprocess.run(["timedatectl", "set-ntp", "false"], capture_output=True, text=True, timeout=10)
+    dt_str = "${String(yr).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(dy).padStart(2, '0')} ${String(hr).padStart(2, '0')}:${String(mn).padStart(2, '0')}:${String(sc).padStart(2, '0')}"
+    r = subprocess.run(["timedatectl", "set-time", dt_str], capture_output=True, text=True, timeout=15)
+elif op == 'toggle_ntp':
+    r = subprocess.run(["timedatectl", "set-ntp", "true" if ntp_en else "false"], capture_output=True, text=True, timeout=15)
+else:
+    r = subprocess.run(["timedatectl", "set-ntp", "true"], capture_output=True, text=True, timeout=15)
+
+now_dt = datetime.datetime.now().astimezone()
+out = ((r.stdout or "") + "\\n" + (r.stderr or "")).strip() or f"Operation {op} completed"
+print(json.dumps({
+    "ok": r.returncode == 0,
+    "currentIso": now_dt.isoformat(),
+    "localDate": now_dt.strftime("%Y-%m-%d"),
+    "localTime": now_dt.strftime("%H:%M:%S"),
+    "timezoneId": tz or str(now_dt.tzinfo or "UTC"),
+    "timezoneDisplayName": tz or str(now_dt.tzinfo or "UTC"),
+    "utcOffsetMinutes": int((now_dt.utcoffset() or datetime.timedelta(0)).total_seconds() // 60),
+    "output": out[:1000],
+}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(45000, input.timeoutMs || 45000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, `date/time operation (${op})`);
+  const ok = Boolean(parsed.ok);
+  const actionMap: Record<typeof op, HelpdeskWriteAction> = {
+    set_timezone: 'region_timezone_set',
+    set_datetime: 'region_datetime_set',
+    sync_ntp: 'region_ntp_sync',
+    toggle_ntp: 'region_ntp_toggle',
+  };
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: actionMap[op],
+    success: ok,
+    message: ok
+      ? `Date/Time settings (${op}) applied on ${execRes.host}: ${parsed.localDate} ${parsed.localTime} (${parsed.timezoneId}).`
+      : `Date/Time update (${op}) failed on ${execRes.host}: ${parsed.output}`,
+    messageFa: ok
+      ? `تنظیمات زمان/تاریخ و تایم‌زون در سیستم ${execRes.host} با موفقیت اعمال شد (${parsed.localDate} ${parsed.localTime}).`
+      : `اعمال تنظیمات زمان و تایم‌زون روی ${execRes.host} ناموفق بود: ${parsed.output}`,
+    details: parsed,
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function manageEndpointLanguagesAndLocale(
+  input: HelpdeskTargetInput,
+  options: {
+    operation: 'set_languages' | 'set_locale';
+    languageTags?: string[];
+    activeUserSid?: string;
+    systemLocale?: string;
+    currentCulture?: string;
+    homeLocationGeoId?: number | null;
+  }
+): Promise<HelpdeskActionResult> {
+  const op = options.operation === 'set_locale' ? 'set_locale' : 'set_languages';
+  const tags = Array.isArray(options.languageTags)
+    ? options.languageTags.map((t) => String(t || '').trim()).filter(Boolean)
+    : [];
+
+  if (op === 'set_languages') {
+    if (tags.length === 0 || tags.length > 8) {
+      throw new Error('Provide between 1 and 8 valid language tags (e.g., en-US, fa-IR).');
+    }
+    for (const tag of tags) {
+      if (!/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8}){0,3}$/.test(tag)) {
+        throw new Error(`Invalid BCP-47 language tag format: "${tag}".`);
+      }
+    }
+  }
+
+  const activeUserSid = String(options.activeUserSid || '').trim();
+  if (activeUserSid && !/^S-1-5-21-[0-9-]+$/.test(activeUserSid)) {
+    throw new Error('Invalid active user SID format.');
+  }
+
+  const sysLoc = String(options.systemLocale || '').trim();
+  const cult = String(options.currentCulture || '').trim();
+  if (sysLoc && !/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8}){0,3}$/.test(sysLoc)) {
+    throw new Error('Invalid system locale tag.');
+  }
+  if (cult && !/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8}){0,3}$/.test(cult)) {
+    throw new Error('Invalid culture format tag.');
+  }
+  const geoId =
+    options.homeLocationGeoId !== undefined && options.homeLocationGeoId !== null
+      ? Number(options.homeLocationGeoId)
+      : null;
+  if (geoId !== null && (!Number.isInteger(geoId) || geoId < 1 || geoId > 999999)) {
+    throw new Error('Invalid Home Location GeoID.');
+  }
+
+  const tagsB64 = Buffer.from(JSON.stringify(tags), 'utf8').toString('base64');
+  const sidB64 = Buffer.from(activeUserSid, 'utf8').toString('base64');
+  const sysLocB64 = Buffer.from(sysLoc, 'utf8').toString('base64');
+  const cultB64 = Buffer.from(cult, 'utf8').toString('base64');
+
+  const winPs = `
+$ErrorActionPreference = 'Stop'
+$op = '${op}'
+$tagsJson = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${tagsB64}'))
+$tags = @($tagsJson | ConvertFrom-Json)
+$activeSid = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sidB64}'))
+$sysLoc = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sysLocB64}'))
+$cult = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${cultB64}'))
+$geoId = ${geoId !== null ? geoId : '$null'}
+
+$tipFallback = @{
+  'en-us' = '0409:00000409'
+  'en-gb' = '0809:00000809'
+  'fa-ir' = '0429:00000429'
+  'ar-sa' = '0401:00000401'
+  'ar-iq' = '0801:00000401'
+  'ar-ae' = '3801:00000401'
+  'de-de' = '0407:00000407'
+  'fr-fr' = '040C:0000040C'
+  'tr-tr' = '041F:0000041F'
+  'ru-ru' = '0419:00000419'
+  'es-es' = '0C0A:0000040A'
+  'it-it' = '0410:00000410'
+  'zh-cn' = '0804:0804'
+  'ja-jp' = '0411:0411'
+  'ko-kr' = '0412:0412'
+}
+
+$notes = @()
+
+if ($op -eq 'set_languages') {
+  # 1. Apply to active WinUserLanguageList (session profile)
+  try {
+    $newList = New-WinUserLanguageList -Language $tags[0]
+    for ($i = 1; $i -lt $tags.Count; $i++) {
+      $newList.Add($tags[$i]) | Out-Null
+    }
+    Set-WinUserLanguageList -LanguageList $newList -Force -ErrorAction SilentlyContinue
+    $notes += "Updated WinUserLanguageList ($($tags -join ', '))"
+  } catch {
+    $notes += "WinUserLanguageList note: $($_.Exception.Message)"
+  }
+
+  # 2. Apply directly to Active Logged-In User's loaded HKU Registry Hive so desktop user receives languages immediately/on refresh
+  if (-not $activeSid) {
+    try {
+      $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+      if ($cs -and $cs.UserName) {
+        $nt = New-Object System.Security.Principal.NTAccount([string]$cs.UserName)
+        $activeSid = [string]$nt.Translate([System.Security.Principal.SecurityIdentifier]).Value
+      }
+    } catch {}
+  }
+
+  if ($activeSid -and (Test-Path -LiteralPath "Registry::HKEY_USERS\\$activeSid")) {
+    $upPath = "Registry::HKEY_USERS\\$activeSid\\Control Panel\\International\\User Profile"
+    if (-not (Test-Path -LiteralPath $upPath)) {
+      New-Item -Path $upPath -Force | Out-Null
+    }
+    Set-ItemProperty -LiteralPath $upPath -Name 'Languages' -Value ([string[]]$tags) -Type MultiString -Force
+
+    $preloadPath = "Registry::HKEY_USERS\\$activeSid\\Keyboard Layout\\Preload"
+    if (-not (Test-Path -LiteralPath $preloadPath)) {
+      New-Item -Path $preloadPath -Force | Out-Null
+    }
+    $existingPreload = Get-Item -LiteralPath $preloadPath -ErrorAction SilentlyContinue
+    if ($existingPreload) {
+      foreach ($vn in @($existingPreload.GetValueNames())) {
+        Remove-ItemProperty -LiteralPath $preloadPath -Name $vn -ErrorAction SilentlyContinue
+      }
+    }
+
+    $preloadIdx = 1
+    foreach ($tag in $tags) {
+      $tagLower = $tag.ToLower()
+      $tipCode = ''
+      try {
+        $tmpL = New-WinUserLanguageList -Language $tag -ErrorAction SilentlyContinue
+        if ($tmpL -and $tmpL[0].InputMethodTips -and $tmpL[0].InputMethodTips.Count -gt 0) {
+          $tipCode = [string]$tmpL[0].InputMethodTips[0]
+        }
+      } catch {}
+      if (-not $tipCode -and $tipFallback.ContainsKey($tagLower)) {
+        $tipCode = $tipFallback[$tagLower]
+      }
+      if (-not $tipCode) {
+        try {
+          $ci = [System.Globalization.CultureInfo]::GetCultureInfo($tag)
+          $lcidHex = ('{0:X4}' -f $ci.LCID)
+          $tipCode = ($lcidHex + ':0000' + $lcidHex)
+        } catch {
+          $tipCode = '0409:00000409'
+        }
+      }
+
+      $langSubKey = "$upPath\\$tag"
+      if (-not (Test-Path -LiteralPath $langSubKey)) {
+        New-Item -Path $langSubKey -Force | Out-Null
+      }
+      Set-ItemProperty -LiteralPath $langSubKey -Name 'CachedLanguageName' -Value "@Winlangdb.dll,-1" -Type String -Force -ErrorAction SilentlyContinue
+      Set-ItemProperty -LiteralPath $langSubKey -Name $tipCode -Value 1 -Type DWord -Force
+
+      # Also populate Preload layout ID for instant Alt+Shift / Win+Space switching
+      $parts = $tipCode -split ':'
+      $klid = if ($parts.Count -ge 2) { $parts[1] } else { '00000409' }
+      Set-ItemProperty -LiteralPath $preloadPath -Name ([string]$preloadIdx) -Value $klid -Type String -Force
+      $preloadIdx++
+    }
+    $notes += "Updated Active User Hive (HKU\\$activeSid) Languages & Preload keyboards"
+  }
+} else {
+  if ($sysLoc) {
+    Set-WinSystemLocale -SystemLocale $sysLoc -ErrorAction Stop
+    $notes += "Non-Unicode System Locale set to '$sysLoc' (takes full effect after restart)"
+  }
+  if ($cult) {
+    Set-Culture -CultureInfo $cult -ErrorAction Stop
+    if ($activeSid -and (Test-Path -LiteralPath "Registry::HKEY_USERS\\$activeSid\\Control Panel\\International")) {
+      Set-ItemProperty -LiteralPath "Registry::HKEY_USERS\\$activeSid\\Control Panel\\International" -Name 'LocaleName' -Value $cult -Type String -Force -ErrorAction SilentlyContinue
+    }
+    $notes += "Regional Format / Culture set to '$cult'"
+  }
+  if ($null -ne $geoId) {
+    Set-WinHomeLocation -GeoId ([int]$geoId) -ErrorAction Stop
+    $notes += "Home Location GeoID set to $geoId"
+  }
+}
+
+[PSCustomObject]@{
+  ok = $true
+  output = ($notes -join '; ')
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import base64, json, subprocess
+
+op = '${op}'
+tags = json.loads(base64.b64decode('${tagsB64}').decode('utf-8', errors='ignore') or '[]')
+sys_loc = base64.b64decode('${sysLocB64}').decode('utf-8', errors='ignore').strip()
+
+if op == 'set_languages' and tags:
+    target = tags[0].replace('-', '_') + '.UTF-8'
+    r = subprocess.run(["localectl", "set-locale", f"LANG={target}"], capture_output=True, text=True, timeout=15)
+    out = ((r.stdout or "") + "\\n" + (r.stderr or "")).strip() or f"Set LANG={target}"
+    print(json.dumps({"ok": r.returncode == 0, "output": out}))
+elif op == 'set_locale' and sys_loc:
+    target = sys_loc.replace('-', '_') + '.UTF-8'
+    r = subprocess.run(["localectl", "set-locale", f"LANG={target}"], capture_output=True, text=True, timeout=15)
+    out = ((r.stdout or "") + "\\n" + (r.stderr or "")).strip() or f"Set LANG={target}"
+    print(json.dumps({"ok": r.returncode == 0, "output": out}))
+else:
+    print(json.dumps({"ok": False, "output": "No locale parameter specified"}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(45000, input.timeoutMs || 45000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, `language/locale update (${op})`);
+  const ok = Boolean(parsed.ok);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: op === 'set_locale' ? 'region_locale_set' : 'region_languages_set',
+    success: ok,
+    message: ok
+      ? op === 'set_languages'
+        ? `Input languages (${tags.join(', ')}) configured on ${execRes.host}. User may need to sign out/in or toggle language bar if icons do not refresh immediately.`
+        : `Regional system locale/format updated on ${execRes.host}.`
+      : `Failed to update language/region settings on ${execRes.host}: ${parsed.output}`,
+    messageFa: ok
+      ? op === 'set_languages'
+        ? `زبان‌های ورودی (${tags.join('، ')}) با موفقیت روی سیستم ${execRes.host} تنظیم شد. در صورت عدم بروزرسانی آنی نوار زبان، یک‌بار Sign out / Sign in شود.`
+        : `تنظیمات ریجن و System Locale سیستم ${execRes.host} با موفقیت ذخیره شد (تغییر System Locale پس از ری‌استارت کامل اعمال می‌شود).`
+      : `بروزرسانی زبان/ریجن روی ${execRes.host} ناموفق بود: ${parsed.output}`,
+    details: { op, tags: tags.join(', '), sysLoc, cult, geoId },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function installEndpointFont(
+  input: HelpdeskTargetInput,
+  options: {
+    fileName: string;
+    fileBase64: string;
+    fontDisplayName?: string;
+    installScope?: 'system' | 'user';
+    activeUserSid?: string;
+  }
+): Promise<HelpdeskActionResult> {
+  const safeFileName = sanitizeFontFileName(options.fileName);
+  const rawB64 = String(options.fileBase64 || '').replace(/^data:[^;]+;base64,/i, '').trim();
+  if (!rawB64) {
+    throw new Error('Font file binary content is required.');
+  }
+  const buf = Buffer.from(rawB64, 'base64');
+  const format = validateFontBinaryMagic(buf, safeFileName);
+
+  const scope = options.installScope === 'user' ? 'user' : 'system';
+  const activeSid = String(options.activeUserSid || '').trim();
+  if (activeSid && !/^S-1-5-21-[0-9-]+$/.test(activeSid)) {
+    throw new Error('Invalid active user SID format.');
+  }
+
+  const baseTitle = pathBaseNameNoExt(safeFileName);
+  const displayTitle = String(options.fontDisplayName || baseTitle)
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    .trim()
+    .slice(0, 120) || baseTitle;
+  const regSuffix =
+    format === 'OpenType' ? ' (OpenType)' : format === 'Raster' ? ' (All res)' : ' (TrueType)';
+  const regValueName = `${displayTitle}${regSuffix}`;
+
+  // Normalize clean base64 from validated buffer and chunk safely under WinRM default 500 KB envelope
+  const cleanB64 = buf.toString('base64');
+  const CHUNK_LEN = 160000;
+  const transferId = crypto.randomBytes(6).toString('hex');
+  const fileNameB64 = Buffer.from(safeFileName, 'utf8').toString('base64');
+  const regNameB64 = Buffer.from(regValueName, 'utf8').toString('base64');
+  const sidB64 = Buffer.from(activeSid, 'utf8').toString('base64');
+
+  const totalChunks = Math.max(1, Math.ceil(cleanB64.length / CHUNK_LEN));
+  let finalParsed: any = null;
+  let lastExecHost = input.targetIp;
+  let lastProto: HelpdeskResolvedProtocol = 'winrm_http';
+  let lastOsFamily: 'windows' | 'linux' = 'windows';
+
+  for (let i = 0; i < totalChunks; i++) {
+    const part = cleanB64.slice(i * CHUNK_LEN, (i + 1) * CHUNK_LEN);
+    const isFirst = i === 0;
+    const isLast = i === totalChunks - 1;
+    const pyOpenMode = isFirst ? 'w' : 'a';
+
+    const winPs = `
+$ErrorActionPreference = 'Stop'
+$tmpB64 = Join-Path $env:TEMP 'hd_font_${transferId}.b64'
+$chunk = '${part}'
+${isFirst ? `[System.IO.File]::WriteAllText($tmpB64, $chunk)` : `[System.IO.File]::AppendAllText($tmpB64, $chunk)`}
+
+${
+  !isLast
+    ? `[PSCustomObject]@{ ok = $true; staged = $true } | ConvertTo-Json -Compress`
+    : `
+try {
+  $fn = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${fileNameB64}'))
+  $regValName = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${regNameB64}'))
+  $activeSid = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sidB64}'))
+  $scope = '${scope}'
+
+  $b64All = [System.IO.File]::ReadAllText($tmpB64)
+  $bytes = [Convert]::FromBase64String($b64All)
+
+  $destDir = ''
+  $regPath = ''
+  $regValData = $fn
+
+  if ($scope -eq 'user') {
+    if ($activeSid) {
+      $pl = Get-ItemProperty -LiteralPath "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$activeSid" -ErrorAction Stop
+      $profPath = [string]$pl.ProfileImagePath
+      $destDir = Join-Path $profPath 'AppData\\Local\\Microsoft\\Windows\\Fonts'
+      $regPath = "Registry::HKEY_USERS\\$activeSid\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts"
+    } else {
+      $destDir = Join-Path $env:LOCALAPPDATA 'Microsoft\\Windows\\Fonts'
+      $regPath = 'HKCU:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'
+    }
+    if (-not (Test-Path -LiteralPath $destDir)) { New-Item -Path $destDir -ItemType Directory -Force | Out-Null }
+    $destPath = Join-Path $destDir $fn
+    $regValData = $destPath
+  } else {
+    $destDir = Join-Path $env:SystemRoot 'Fonts'
+    $regPath = 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'
+    $destPath = Join-Path $destDir $fn
+    $regValData = $fn
+  }
+
+  [System.IO.File]::WriteAllBytes($destPath, $bytes)
+  if (-not (Test-Path -LiteralPath $regPath)) {
+    New-Item -Path $regPath -Force | Out-Null
+  }
+  Set-ItemProperty -LiteralPath $regPath -Name $regValName -Value $regValData -Type String -Force
+
+  try {
+    $code = @"
+using System;
+using System.Runtime.InteropServices;
+public class HdFontBroadcast {
+  [DllImport("gdi32.dll", CharSet=CharSet.Unicode)]
+  public static extern int AddFontResourceW(string lpszFilename);
+  [DllImport("user32.dll", CharSet=CharSet.Auto, SetLastError=true)]
+  public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+}
+"@
+    if (-not ([System.Management.Automation.PSTypeName]'HdFontBroadcast').Type) {
+      Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue
+    }
+    [HdFontBroadcast]::AddFontResourceW($destPath) | Out-Null
+    $rPtr = [IntPtr]::Zero
+    [HdFontBroadcast]::SendMessageTimeout([IntPtr]0xFFFF, 0x001D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]$rPtr) | Out-Null
+  } catch {}
+
+  [PSCustomObject]@{
+    ok = $true
+    destPath = $destPath
+    regPath = $regPath
+    regValName = $regValName
+    sizeBytes = $bytes.Length
+    output = "Installed font '$regValName' ($($bytes.Length) bytes) at $destPath"
+  } | ConvertTo-Json -Compress
+} finally {
+  if (Test-Path -LiteralPath $tmpB64) { Remove-Item -LiteralPath $tmpB64 -Force -ErrorAction SilentlyContinue }
+}
+`
+}
+`;
+
+    const linuxSh = `python3 - <<'PY'
+import base64, json, os, subprocess
+
+fn = base64.b64decode('${fileNameB64}').decode('utf-8', errors='ignore').strip()
+chunk = '${part}'
+tmp_path = '/tmp/hd_font_${transferId}.b64'
+with open(tmp_path, '${pyOpenMode}', encoding='ascii') as f:
+    f.write(chunk)
+
+if not ${isLast ? 'True' : 'False'}:
+    print(json.dumps({"ok": True, "staged": True}))
+else:
+    try:
+        with open(tmp_path, 'r', encoding='ascii') as f:
+            raw_bytes = base64.b64decode(f.read())
+        dest_dir = os.path.expanduser('~/.local/share/fonts') if '${scope}' == 'user' else '/usr/local/share/fonts/helpdesk'
+        os.makedirs(dest_dir, exist_ok=True)
+        dest_file = os.path.join(dest_dir, fn)
+        with open(dest_file, 'wb') as out_f:
+            out_f.write(raw_bytes)
+        os.chmod(dest_file, 0o644)
+        subprocess.run(['fc-cache', '-f'], capture_output=True, text=True, timeout=20)
+        print(json.dumps({"ok": True, "destPath": dest_file, "output": f"Installed {fn} to {dest_file}"}))
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+PY`;
+
+    const execRes = await executeHardcodedScripts(
+      { ...input, timeoutMs: Math.max(60000, input.timeoutMs || 60000) },
+      winPs,
+      linuxSh
+    );
+    lastExecHost = execRes.host;
+    lastProto = execRes.protocolUsed;
+    lastOsFamily = execRes.osFamily;
+    if (isLast) {
+      finalParsed = parseJsonFromStdout<any>(execRes.stdout, `install font (${safeFileName})`);
+    }
+  }
+
+  return {
+    targetIp: lastExecHost,
+    protocolUsed: lastProto,
+    osFamily: lastOsFamily,
+    action: 'font_install',
+    success: Boolean(finalParsed?.ok),
+    message: `Font "${displayTitle}" (${safeFileName}, ${format}) installed (${scope}) on ${lastExecHost} and broadcast to active apps.`,
+    messageFa: `فونت «${displayTitle}» (${safeFileName}) در حالت ${scope === 'system' ? 'کل سیستم (تمام کاربران)' : 'پروفایل کاربر'} روی سیستم ${lastExecHost} نصب و بلافاصله فعال شد.`,
+    details: {
+      fileName: safeFileName,
+      regValueName,
+      scope,
+      sizeBytes: buf.length,
+      destPath: finalParsed?.destPath,
+    },
+    rawOutput: String(finalParsed?.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function deleteEndpointFont(
+  input: HelpdeskTargetInput,
+  options: {
+    registryValueName: string;
+    fileName: string;
+    scope: 'system' | 'user';
+    ownerSid?: string;
+    filePath?: string;
+  }
+): Promise<HelpdeskActionResult> {
+  const safeFile = sanitizeFontFileName(options.fileName);
+  const regValName = String(options.registryValueName || '').trim();
+  if (!regValName || regValName.length > 200 || /[\x00-\x1F\x7F]/.test(regValName)) {
+    throw new Error('Invalid font registry value name.');
+  }
+  const scope = options.scope === 'user' ? 'user' : 'system';
+  const ownerSid = String(options.ownerSid || '').trim();
+  if (ownerSid && !/^S-1-5-21-[0-9-]+$/.test(ownerSid)) {
+    throw new Error('Invalid owner SID format.');
+  }
+
+  const prot = checkProtectedFont(safeFile, regValName, scope);
+  if (prot.isProtected) {
+    throw new Error(prot.reasonEn || `Protected Windows system font "${regValName}" cannot be removed.`);
+  }
+
+  const fnB64 = Buffer.from(safeFile, 'utf8').toString('base64');
+  const regB64 = Buffer.from(regValName, 'utf8').toString('base64');
+  const sidB64 = Buffer.from(ownerSid, 'utf8').toString('base64');
+
+  const winPs = `
+$ErrorActionPreference = 'Stop'
+$fn = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${fnB64}'))
+$regValName = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${regB64}'))
+$ownerSid = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sidB64}'))
+$scope = '${scope}'
+
+if ($scope -eq 'user') {
+  if ($ownerSid) {
+    $pl = Get-ItemProperty -LiteralPath "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$ownerSid" -ErrorAction Stop
+    $destPath = Join-Path ([string]$pl.ProfileImagePath) ("AppData\\Local\\Microsoft\\Windows\\Fonts\\" + $fn)
+    $regPath = "Registry::HKEY_USERS\\$ownerSid\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts"
+  } else {
+    $destPath = Join-Path $env:LOCALAPPDATA ("Microsoft\\Windows\\Fonts\\" + $fn)
+    $regPath = 'HKCU:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'
+  }
+} else {
+  $destPath = Join-Path (Join-Path $env:SystemRoot 'Fonts') $fn
+  $regPath = 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'
+}
+
+if (Test-Path -LiteralPath $regPath) {
+  Remove-ItemProperty -LiteralPath $regPath -Name $regValName -ErrorAction SilentlyContinue
+}
+
+try {
+  $code = @"
+using System;
+using System.Runtime.InteropServices;
+public class HdFontRm {
+  [DllImport("gdi32.dll", CharSet=CharSet.Unicode)]
+  public static extern bool RemoveFontResourceW(string lpFileName);
+  [DllImport("user32.dll", CharSet=CharSet.Auto)]
+  public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+}
+"@
+  if (-not ([System.Management.Automation.PSTypeName]'HdFontRm').Type) {
+    Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue
+  }
+  [HdFontRm]::RemoveFontResourceW($destPath) | Out-Null
+  $rPtr = [IntPtr]::Zero
+  [HdFontRm]::SendMessageTimeout([IntPtr]0xFFFF, 0x001D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]$rPtr) | Out-Null
+} catch {}
+
+$fileDeleted = $false
+if (Test-Path -LiteralPath $destPath) {
+  try {
+    Remove-Item -LiteralPath $destPath -Force -ErrorAction Stop
+    $fileDeleted = $true
+  } catch {}
+}
+
+[PSCustomObject]@{
+  ok = $true
+  fileDeleted = $fileDeleted
+  destPath = $destPath
+  output = "Removed font '$regValName' ($fn) from registry" + $(if ($fileDeleted) { " and disk" } else { " (file in use; will clear after restart)" })
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import base64, json, os, subprocess
+
+fn = base64.b64decode('${fnB64}').decode('utf-8', errors='ignore').strip()
+removed = []
+for base in [os.path.expanduser('~/.local/share/fonts'), '/usr/local/share/fonts/helpdesk']:
+    p = os.path.join(base, fn)
+    if os.path.isfile(p):
+        os.remove(p)
+        removed.append(p)
+if removed:
+    subprocess.run(['fc-cache', '-f'], capture_output=True, text=True, timeout=20)
+print(json.dumps({"ok": len(removed) > 0, "output": f"Removed: {', '.join(removed)}" if removed else f"Font {fn} not found in user/custom dirs"}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(45000, input.timeoutMs || 45000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, `delete font (${safeFile})`);
+  const ok = Boolean(parsed.ok);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'font_delete',
+    success: ok,
+    message: ok
+      ? `Font "${regValName}" (${safeFile}) removed from ${execRes.host}.`
+      : `Could not remove font "${safeFile}" on ${execRes.host}: ${parsed.output}`,
+    messageFa: ok
+      ? `فونت «${regValName}» (${safeFile}) با موفقیت از سیستم ${execRes.host} حذف شد.`
+      : `حذف فونت «${safeFile}» روی ${execRes.host} ناموفق بود: ${parsed.output}`,
+    details: { fileName: safeFile, regValName, scope, fileDeleted: parsed.fileDeleted },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
 
 
 

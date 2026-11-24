@@ -14,6 +14,7 @@ import {
   fetchHelpdeskPrograms,
   fetchHelpdeskHardwareInventory,
   fetchHelpdeskServicesAndStartup,
+  fetchHelpdeskRegionAndFonts,
   HelpdeskConnectionPayload,
 } from './api';
 
@@ -27,6 +28,7 @@ export type HelpdeskSubTab =
   | 'updates'
   | 'programs'
   | 'services_startup'
+  | 'region_fonts'
   | 'maintenance'
   | 'hardware_domain'
   | 'history';
@@ -145,6 +147,13 @@ export interface HelpdeskRamState {
   serviceStartupActionResult: any | null;
   serviceStartupActionError: string | null;
 
+  // Tab 6D: Region, Time, Languages & Fonts
+  regionFontsData: any | null;
+  loadingRegionFonts: boolean;
+  regionFontsError: string | null;
+  regionFontsActionResult: any | null;
+  regionFontsActionError: string | null;
+
   // Tab 7: Temp, GPO & Disk Repair
   tempScanData: any | null;
   loadingTempScan: boolean;
@@ -249,6 +258,12 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     servicesStartupError: null,
     serviceStartupActionResult: null,
     serviceStartupActionError: null,
+
+    regionFontsData: null,
+    loadingRegionFonts: false,
+    regionFontsError: null,
+    regionFontsActionResult: null,
+    regionFontsActionError: null,
 
     tempScanData: null,
     loadingTempScan: false,
@@ -417,6 +432,16 @@ export async function runHelpdeskSequentialConnect(options: {
     programsError: null,
     programActionResult: null,
     programActionError: null,
+    servicesStartupData: null,
+    loadingServicesStartup: false,
+    servicesStartupError: null,
+    serviceStartupActionResult: null,
+    serviceStartupActionError: null,
+    regionFontsData: null,
+    loadingRegionFonts: false,
+    regionFontsError: null,
+    regionFontsActionResult: null,
+    regionFontsActionError: null,
     tempScanData: null,
     tempError: null,
     loadingTempScan: false,
@@ -776,6 +801,37 @@ export async function runHelpdeskSequentialConnect(options: {
                 (isEn
                   ? 'Failed to inspect Windows services and startup programs.'
                   : 'خطا در دریافت لیست سرویس‌ها و برنامه‌های استارت‌آپ سیستم کاربر.'),
+            });
+          }
+        }
+        return true;
+      },
+    },
+    {
+      id: 'region_fonts',
+      labelEn: 'Region & Fonts',
+      labelFa: 'ریجن و فونت',
+      run: async () => {
+        patchHelpdeskRamSnapshot({ loadingRegionFonts: true, regionFontsError: null });
+        try {
+          const rfRes = await fetchHelpdeskRegionAndFonts(payload);
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              regionFontsData: rfRes.data,
+              loadingRegionFonts: false,
+              ...(rfRes.rateLimit ? { rateLimit: rfRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              regionFontsData: null,
+              loadingRegionFonts: false,
+              regionFontsError:
+                err?.message ||
+                (isEn
+                  ? 'Failed to inspect region, time, languages and fonts.'
+                  : 'خطا در دریافت تنظیمات زمان، زبان و فونت‌های سیستم کاربر.'),
             });
           }
         }

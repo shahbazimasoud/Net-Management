@@ -87,6 +87,11 @@ import {
   collectEndpointServicesAndStartup,
   manageEndpointService,
   manageEndpointStartupItem,
+  collectEndpointRegionAndFonts,
+  manageEndpointDateTime,
+  manageEndpointLanguagesAndLocale,
+  installEndpointFont,
+  deleteEndpointFont,
   HelpdeskProgramRegistryHive,
   HelpdeskServiceActionType,
   HelpdeskStartupSourceType,
@@ -11035,6 +11040,335 @@ apiRouter.post('/helpdesk/startup/action', async (req: Request, res: Response) =
       metadata: { itemName, action, locationHive },
     });
     return res.status(/invalid|required|protected|unsupported|blocked/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/region-fonts/list - Inspect Time, TimeZone, Languages, Region & Installed Fonts
+apiRouter.post('/helpdesk/region-fonts/list', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointRegionAndFonts(target);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_region_fonts_list',
+      title: `دریافت تنظیمات زمان، زبان و فونت‌های ${data.targetIp} (${data.summary.totalFonts} فونت / ${data.summary.configuredLanguages} زبان)`,
+      title_en: `HelpDesk Region, Time, Languages & Fonts Scan on ${data.targetIp} (${data.summary.totalFonts} fonts, ${data.summary.configuredLanguages} languages)`,
+      details: `زمان سیستم: ${data.clock.localDate} ${data.clock.localTime} (${data.clock.timezoneId}) | ${data.summary.totalFonts} فونت از ${data.hostname} دریافت شد.`,
+      details_en: `Clock: ${data.clock.localDate} ${data.clock.localTime} (${data.clock.timezoneId}) | Collected ${data.summary.totalFonts} fonts from ${data.hostname}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      target: {
+        type: 'device',
+        name: data.hostname || data.targetIp,
+        ip: data.targetIp,
+        metadata: data.summary,
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Region & Fonts inspection failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_region_fonts_list_failed',
+      title: `خطا در دریافت تنظیمات ریجن و فونت از ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Region & Fonts Scan Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/region/datetime - Configure Endpoint TimeZone, Date/Time, and NTP Sync
+apiRouter.post('/helpdesk/region/datetime', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const operation = String(req.body?.operation || '').trim() as
+    | 'set_timezone'
+    | 'set_datetime'
+    | 'sync_ntp'
+    | 'toggle_ntp';
+  const rateAction: HelpdeskWriteAction =
+    operation === 'set_timezone'
+      ? 'region_timezone_set'
+      : operation === 'set_datetime'
+      ? 'region_datetime_set'
+      : operation === 'toggle_ntp'
+      ? 'region_ntp_toggle'
+      : 'region_ntp_sync';
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rateAction);
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: rateAction,
+      rl,
+    });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await manageEndpointDateTime(target, {
+      operation,
+      timezoneId: req.body?.timezoneId,
+      localDate: req.body?.localDate,
+      localTime: req.body?.localTime,
+      ntpEnabled: req.body?.ntpEnabled,
+      ntpServer: req.body?.ntpServer,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: `helpdesk_${rateAction}`,
+      title: `تنظیم زمان/تایم‌زون (${operation}) روی ${data.targetIp}`,
+      title_en: `HelpDesk Date/Time Update (${operation}) on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Date/time update failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_region_datetime_failed',
+      title: `خطا در تنظیم زمان/تایم‌زون روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Date/Time Update Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|bounds|unsupported/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/region/languages - Configure 1st/2nd/3rd Input Languages & Regional System Locale
+apiRouter.post('/helpdesk/region/languages', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const operation = req.body?.operation === 'set_locale' ? 'set_locale' : 'set_languages';
+  const rateAction: HelpdeskWriteAction =
+    operation === 'set_locale' ? 'region_locale_set' : 'region_languages_set';
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rateAction);
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: rateAction,
+      rl,
+    });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await manageEndpointLanguagesAndLocale(target, {
+      operation,
+      languageTags: Array.isArray(req.body?.languageTags) ? req.body.languageTags : undefined,
+      activeUserSid: req.body?.activeUserSid,
+      systemLocale: req.body?.systemLocale,
+      currentCulture: req.body?.currentCulture,
+      homeLocationGeoId: req.body?.homeLocationGeoId,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: `helpdesk_${rateAction}`,
+      title: `بروزرسانی زبان‌ها/ریجن روی ${data.targetIp}`,
+      title_en: `HelpDesk Languages & Locale Update (${operation}) on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Language/region update failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_region_languages_failed',
+      title: `خطا در تنظیم زبان و ریجن روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Languages Update Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|provide/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/fonts/install - Upload and Install Font File (.ttf/.otf/.ttc/.fon) on Endpoint
+apiRouter.post('/helpdesk/fonts/install', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'font_install');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: 'font_install',
+      rl,
+    });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  const fileName = String(req.body?.fileName || '').trim();
+  try {
+    const data = await installEndpointFont(target, {
+      fileName,
+      fileBase64: String(req.body?.fileBase64 || ''),
+      fontDisplayName: req.body?.fontDisplayName,
+      installScope: req.body?.installScope === 'user' ? 'user' : 'system',
+      activeUserSid: req.body?.activeUserSid,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_font_install',
+      title: `نصب فونت «${fileName}» روی ${data.targetIp}`,
+      title_en: `HelpDesk Font Install "${fileName}" on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Font installation failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_font_install_failed',
+      title: `خطا در نصب فونت «${fileName || 'Font'}» روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Font Install Failed (${fileName}): ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|allowed|exceeds|header|unsupported|empty/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/fonts/delete - Remove Non-Protected Font from Endpoint
+apiRouter.post('/helpdesk/fonts/delete', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'font_delete');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: 'font_delete',
+      rl,
+    });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  const fileName = String(req.body?.fileName || '').trim();
+  const registryValueName = String(req.body?.registryValueName || '').trim();
+  try {
+    const data = await deleteEndpointFont(target, {
+      fileName,
+      registryValueName,
+      scope: req.body?.scope === 'user' ? 'user' : 'system',
+      ownerSid: req.body?.ownerSid,
+      filePath: req.body?.filePath,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_font_delete',
+      title: `حذف فونت «${registryValueName || fileName}» از ${data.targetIp}`,
+      title_en: `HelpDesk Font Removed "${registryValueName || fileName}" on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'warning',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Font deletion failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_font_delete_failed',
+      title: `خطا در حذف فونت «${fileName || 'Font'}» از ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Font Delete Failed (${fileName}): ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|protected|cannot be removed|blocked/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,
