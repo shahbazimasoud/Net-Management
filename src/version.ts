@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.470.0';
+export const APP_VERSION = '1.471.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.471.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'افزودن تب جدید «Services & startup» در بخش HelpDesk برای مدیریت کامل سرویس‌های ویندوز و برنامه‌های استارت‌آپ',
+    title_en: 'Add HelpDesk "Services & startup" Tab for Full Windows Services & Startup Programs Management',
+    changes: [
+      'افزودن تب جدید **«Services & startup»** در **Agentless Endpoint HelpDesk** با واکشی خودکار هنگام اتصال و خروجی استاندارد `CSV`.',
+      'بخش **مدیریت سرویس‌های سیستم (`Windows Services` / `systemd`)**: نمایش لیست کامل سرویس‌ها، جستجو، فیلتر بر اساس وضعیت (`Running`/`Stopped`/`Paused`) و نوع اجرا (`Automatic`/`Automatic Delayed`/`Manual`/`Disabled`)، مرتب‌سازی، صفحه‌بندی، نمایش توضیحات، مسیر فایل اجرایی و وابستگی‌ها (`Dependencies`) به همراه عملیات **Start، Stop، Restart، Pause/Resume** و تغییر **Startup Type** (همراه با محافظت خودکار از سرویس‌های حیاتی شبکه و امنیتی نظیر `WinRM`، `SSH`، `Windows Defender` و `EDR`).',
+      'بخش **مدیریت برنامه‌های استارت‌آپ (`Startup Programs`)**: شناسایی یکپارچه ورودی‌های رجیستری (`HKLM64`/`HKLM32`/`HKU`/`HKCU` Run و RunOnce)، وضعیت واقعی **StartupApproved** (مشابه Task Manager ویندوز)، پوشه‌های **Startup** همگانی و کاربری، و تسک‌های زمان‌بندی ورود (`Logon Scheduled Tasks`) با امکان جستجو، فیلتر، **فعال/غیرفعال‌سازی (`Enable`/`Disable`)**، **حذف** و **افزودن برنامه جدید به استارت‌آپ**.'
+    ],
+    changes_en: [
+      'Added a new **Services & startup** tab to **Agentless Endpoint HelpDesk** with automatic sequential pre-fetch on connect and CSV export.',
+      'Added **Windows Services Management** (`Win32_Service` + `DelayedAutostart` / Linux `systemctl`): live search, status/startup-type filters, sorting, pagination, expandable binary path & dependency inspector, and remote **Start, Stop, Restart, Pause/Resume**, and **Startup Type** (`Automatic`, `Automatic (Delayed)`, `Manual`, `Disabled`) controls with strict guardrails protecting critical remote-management (`WinRM`, `sshd`), core OS, and AV/EDR services.',
+      'Added **Startup Programs Management**: unified inventory across `HKLM`/`HKU`/`HKCU` Run & RunOnce keys, Windows Task Manager `StartupApproved` binary flags, Common & Per-User Startup Folders (`.lnk` target resolution), and Logon Scheduled Tasks with search, filters, non-destructive **Enable / Disable**, **Remove**, and **Add Startup Entry** controls.'
+    ],
+  },
   {
     version: '1.470.0',
     releaseDate: '2026-11-24',

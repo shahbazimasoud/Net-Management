@@ -84,7 +84,13 @@ import {
   collectEndpointPrograms,
   uninstallEndpointProgram,
   collectEndpointHardwareInventory,
+  collectEndpointServicesAndStartup,
+  manageEndpointService,
+  manageEndpointStartupItem,
   HelpdeskProgramRegistryHive,
+  HelpdeskServiceActionType,
+  HelpdeskStartupSourceType,
+  HelpdeskStartupHive,
   getHelpdeskRateLimitStatus,
   checkAndRecordHelpdeskWriteRateLimit,
   getHelpdeskJeaTemplates,
@@ -10813,6 +10819,222 @@ apiRouter.post('/helpdesk/hardware/inventory', async (req: Request, res: Respons
       errorMsg: msg,
     });
     return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/services-startup/list - Inspect Windows Services & Startup Programs
+apiRouter.post('/helpdesk/services-startup/list', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointServicesAndStartup(target);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_services_startup_list',
+      title: `دریافت لیست سرویس‌ها و برنامه‌های استارت‌آپ ${data.targetIp} (${data.summary.totalServices} سرویس / ${data.summary.totalStartupItems} استارت‌آپ)`,
+      title_en: `HelpDesk Services & Startup Scan on ${data.targetIp} (${data.summary.totalServices} services, ${data.summary.totalStartupItems} startup items)`,
+      details: `لیست ${data.summary.totalServices} سرویس (${data.summary.runningServices} در حال اجرا) و ${data.summary.totalStartupItems} برنامه استارت‌آپ از سیستم ${data.hostname} دریافت شد.`,
+      details_en: `Collected ${data.summary.totalServices} services (${data.summary.runningServices} running) and ${data.summary.totalStartupItems} startup items from ${data.hostname}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      target: {
+        type: 'device',
+        name: data.hostname || data.targetIp,
+        ip: data.targetIp,
+        metadata: data.summary,
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Services & startup inspection failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_services_startup_list_failed',
+      title: `خطا در دریافت لیست سرویس‌ها و استارت‌آپ از ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Services & Startup Scan Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/services/action - Start, Stop, Restart, Pause, Resume or Change StartupType of a Service
+apiRouter.post('/helpdesk/services/action', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const serviceName = String(req.body?.serviceName || '').trim();
+  const action = String(req.body?.action || '').trim() as HelpdeskServiceActionType;
+  const startupType = req.body?.startupType ? String(req.body.startupType).trim() as any : undefined;
+
+  const rateAction: HelpdeskWriteAction =
+    action === 'start'
+      ? 'service_start'
+      : action === 'stop'
+      ? 'service_stop'
+      : action === 'restart'
+      ? 'service_restart'
+      : action === 'pause'
+      ? 'service_pause'
+      : action === 'resume'
+      ? 'service_resume'
+      : 'service_startup_type';
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rateAction);
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: rateAction,
+      rl,
+    });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await manageEndpointService(target, {
+      serviceName,
+      action,
+      startupType,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: `helpdesk_${rateAction}`,
+      title: `تغییر وضعیت سرویس «${serviceName}» (${action}) روی ${data.targetIp}`,
+      title_en: `HelpDesk Service "${serviceName}" (${action}) on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: action === 'stop' || (action === 'set_startup' && startupType === 'Disabled') ? 'warning' : 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Service action failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_service_action_failed',
+      title: `خطا در تغییر سرویس «${serviceName || 'Service'}» روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Service Action Failed (${serviceName}): ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { serviceName, action, startupType },
+    });
+    return res.status(/invalid|required|protected|unsupported|blocked/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/startup/action - Enable, Disable, Delete, or Add Startup Program
+apiRouter.post('/helpdesk/startup/action', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const action = String(req.body?.action || '').trim() as 'enable' | 'disable' | 'delete' | 'add';
+  const sourceType = String(req.body?.sourceType || 'registry_run').trim() as HelpdeskStartupSourceType;
+  const locationHive = String(req.body?.locationHive || 'HKLM64_Run').trim() as HelpdeskStartupHive;
+  const itemName = String(req.body?.itemName || '').trim();
+  const ownerSid = String(req.body?.ownerSid || '').trim() || undefined;
+  const taskPath = String(req.body?.taskPath || '').trim() || undefined;
+  const command = String(req.body?.command || '').trim() || undefined;
+  const startupScope = req.body?.startupScope === 'user' ? 'user' : 'machine';
+
+  const rateAction: HelpdeskWriteAction =
+    action === 'enable'
+      ? 'startup_enable'
+      : action === 'disable'
+      ? 'startup_disable'
+      : action === 'delete'
+      ? 'startup_delete'
+      : 'startup_add';
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rateAction);
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: rateAction,
+      rl,
+    });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await manageEndpointStartupItem(target, {
+      action,
+      sourceType,
+      locationHive,
+      itemName,
+      ownerSid,
+      taskPath,
+      command,
+      startupScope,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: `helpdesk_${rateAction}`,
+      title: `مدیریت استارت‌آپ «${itemName}» (${action}) روی ${data.targetIp}`,
+      title_en: `HelpDesk Startup "${itemName}" (${action}) on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: action === 'delete' ? 'warning' : 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Startup item action failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_startup_action_failed',
+      title: `خطا در مدیریت استارت‌آپ «${itemName || 'Startup'}» روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Startup Action Failed (${itemName}): ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { itemName, action, locationHive },
+    });
+    return res.status(/invalid|required|protected|unsupported|blocked/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,

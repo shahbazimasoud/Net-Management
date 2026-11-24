@@ -51,7 +51,17 @@ export type HelpdeskWriteAction =
   | 'power_abort'
   | 'session_lock'
   | 'session_logoff'
-  | 'program_uninstall';
+  | 'program_uninstall'
+  | 'service_start'
+  | 'service_stop'
+  | 'service_restart'
+  | 'service_pause'
+  | 'service_resume'
+  | 'service_startup_type'
+  | 'startup_enable'
+  | 'startup_disable'
+  | 'startup_delete'
+  | 'startup_add';
 
 export type HelpdeskProcessCategory =
   | 'user_app'
@@ -11900,5 +11910,1270 @@ PY`;
     collectedAt: new Date().toISOString(),
   };
 }
+
+// ============================================================================
+// 21. WINDOWS SERVICES & STARTUP PROGRAMS MANAGEMENT
+// ============================================================================
+
+export type HelpdeskServiceStatus =
+  | 'Running'
+  | 'Stopped'
+  | 'Paused'
+  | 'StartPending'
+  | 'StopPending'
+  | 'Unknown';
+
+export type HelpdeskServiceStartType =
+  | 'Automatic'
+  | 'AutomaticDelayed'
+  | 'Manual'
+  | 'Disabled'
+  | 'Boot'
+  | 'System'
+  | 'Unknown';
+
+export type HelpdeskServiceActionType =
+  | 'start'
+  | 'stop'
+  | 'restart'
+  | 'pause'
+  | 'resume'
+  | 'set_startup';
+
+export interface HelpdeskServiceItem {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string;
+  status: HelpdeskServiceStatus;
+  startType: HelpdeskServiceStartType;
+  account: string;
+  pid: number | null;
+  pathName: string;
+  canPauseAndContinue: boolean;
+  canStop: boolean;
+  dependentServices: string[];
+  dependsOn: string[];
+  isProtected: boolean;
+  protectionReason?: string;
+  protectionReasonFa?: string;
+}
+
+export type HelpdeskStartupSourceType =
+  | 'registry_run'
+  | 'registry_runonce'
+  | 'startup_folder'
+  | 'scheduled_task';
+
+export type HelpdeskStartupHive =
+  | 'HKLM64_Run'
+  | 'HKLM32_Run'
+  | 'HKLM64_RunOnce'
+  | 'HKCU_Run'
+  | 'HKU_Run'
+  | 'HKU_RunOnce'
+  | 'CommonStartupFolder'
+  | 'UserStartupFolder'
+  | 'ScheduledTask'
+  | 'linux_autostart';
+
+export interface HelpdeskStartupItem {
+  id: string;
+  name: string;
+  command: string;
+  publisher: string;
+  scope: 'machine' | 'user';
+  ownerSid?: string;
+  ownerUser?: string;
+  sourceType: HelpdeskStartupSourceType;
+  locationHive: HelpdeskStartupHive;
+  locationLabel: string;
+  enabled: boolean;
+  canToggle: boolean;
+  canDelete: boolean;
+  isProtected: boolean;
+  protectionReason?: string;
+  protectionReasonFa?: string;
+  taskPath?: string;
+  filePath?: string;
+}
+
+export interface HelpdeskServicesAndStartupResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  activeUser: string;
+  summary: {
+    totalServices: number;
+    runningServices: number;
+    stoppedServices: number;
+    pausedServices: number;
+    automaticServices: number;
+    manualServices: number;
+    disabledServices: number;
+    totalStartupItems: number;
+    enabledStartupItems: number;
+    disabledStartupItems: number;
+  };
+  services: HelpdeskServiceItem[];
+  startupItems: HelpdeskStartupItem[];
+  collectedAt: string;
+}
+
+const PROTECTED_SERVICE_RULES: Array<{ re: RegExp; reasonEn: string; reasonFa: string }> = [
+  {
+    re: /^(winrm|sshd|ssh|ssh-agent|termservice)$/i,
+    reasonEn: 'Remote management / terminal access service is protected to prevent session lockout.',
+    reasonFa: 'سرویس مدیریت از راه دور (مانند WinRM یا SSH) برای جلوگیری از قطع دسترسی سیستم محافظت شده است.',
+  },
+  {
+    re: /^(windefend|wdnissvc|sense|securityhealthservice|mpssvc|bfe|csfalconservice|ekrn|avp|sepmasterservice|cbdefense|sentinelagent|savservice|mbamservice|fortishield|fortiedr)$/i,
+    reasonEn: 'Endpoint security / Firewall / Antivirus service is protected from remote stop or disable.',
+    reasonFa: 'سرویس امنیتی، فایروال یا آنتی‌ویروس برای حفظ امنیت سیستم در برابر توقف یا غیرفعال‌سازی محافظت شده است.',
+  },
+  {
+    re: /^(rpcss|rpceptmapper|dcomlaunch|samss|lsass|netlogon|lsm|power|plugplay|brokerinfrastructure|systemeventsbroker|staterepository|coremessagingregistrar|dhcp|dnscache|nsi|netprofm|eventlog|cryptsvc|gpsvc|systemd-journald|dbus)$/i,
+    reasonEn: 'Core OS / RPC / Networking kernel service is protected to keep the workstation stable.',
+    reasonFa: 'سرویس هسته سیستم‌عامل یا شبکه برای پایداری ویندوز محافظت شده است.',
+  },
+];
+
+function checkProtectedService(name: string, displayName = ''): {
+  isProtected: boolean;
+  reasonEn?: string;
+  reasonFa?: string;
+} {
+  const n = String(name || '').trim();
+  const d = String(displayName || '').trim();
+  for (const rule of PROTECTED_SERVICE_RULES) {
+    if (rule.re.test(n)) {
+      return { isProtected: true, reasonEn: rule.reasonEn, reasonFa: rule.reasonFa };
+    }
+  }
+  if (/(crowdstrike|sentinelone|kaspersky|bitdefender|eset|windows defender|microsoft defender)/i.test(d)) {
+    return {
+      isProtected: true,
+      reasonEn: 'Endpoint security / Antivirus service is protected from remote stop or disable.',
+      reasonFa: 'سرویس امنیتی و آنتی‌ویروس برای حفظ امنیت سیستم محافظت شده است.',
+    };
+  }
+  return { isProtected: false };
+}
+
+const PROTECTED_STARTUP_RE = /(securityhealth|windows defender|microsoft defender|crowdstrike|falcon|kaspersky|sentinelone|bitdefender|eset|symantec|norton|mcafee|sophos|fortiedr|winrm|openssh)/i;
+
+function checkProtectedStartupItem(name: string, command: string): {
+  isProtected: boolean;
+  reasonEn?: string;
+  reasonFa?: string;
+} {
+  const combined = `${name} ${command}`.trim();
+  if (PROTECTED_STARTUP_RE.test(combined)) {
+    return {
+      isProtected: true,
+      reasonEn: 'Endpoint security or remote access startup entry is protected.',
+      reasonFa: 'برنامه استارت‌آپ امنیتی یا دسترسی از راه دور برای حفظ امنیت سیستم محافظت شده است.',
+    };
+  }
+  return { isProtected: false };
+}
+
+function normalizeServiceStatus(raw: string): HelpdeskServiceStatus {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === 'running' || s === 'active') return 'Running';
+  if (s === 'stopped' || s === 'inactive' || s === 'dead' || s === 'failed') return 'Stopped';
+  if (s === 'paused') return 'Paused';
+  if (s === 'startpending' || s === 'start pending' || s === 'activating') return 'StartPending';
+  if (s === 'stoppending' || s === 'stop pending' || s === 'deactivating') return 'StopPending';
+  return 'Unknown';
+}
+
+function normalizeServiceStartType(raw: string, delayed = false): HelpdeskServiceStartType {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === 'automaticdelayed' || s === 'automatic (delayed start)' || s === 'delayed-auto') {
+    return 'AutomaticDelayed';
+  }
+  if (s === 'auto' || s === 'automatic' || s === 'enabled' || s === 'enabled-runtime') {
+    return delayed ? 'AutomaticDelayed' : 'Automatic';
+  }
+  if (s === 'manual' || s === 'demand' || s === 'static' || s === 'indirect') return 'Manual';
+  if (s === 'disabled' || s === 'masked') return 'Disabled';
+  if (s === 'boot') return 'Boot';
+  if (s === 'system') return 'System';
+  return 'Unknown';
+}
+
+export async function collectEndpointServicesAndStartup(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskServicesAndStartupResult> {
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+function To-Str($v) { if ($null -eq $v) { return '' }; try { return ([string]$v).Trim() } catch { return '' } }
+function To-Int($v) { if ($null -eq $v) { return 0 }; try { return [int]$v } catch { return 0 } }
+function To-Bool($v) { if ($null -eq $v) { return $false }; try { return [bool]$v } catch { return $false } }
+function Safe-Cim($cls) {
+  $res = $null
+  try { $res = @(Get-CimInstance -ClassName $cls -ErrorAction Stop) } catch { $res = $null }
+  if (-not $res -or $res.Count -eq 0) {
+    try { $res = @(Get-WmiObject -Class $cls -ErrorAction Stop) } catch { $res = @() }
+  }
+  return @($res)
+}
+
+$hostName = To-Str $env:COMPUTERNAME
+$activeUser = ''
+try {
+  $cs = @(Safe-Cim 'Win32_ComputerSystem')
+  if ($cs.Count -gt 0 -and $cs[0].UserName) { $activeUser = To-Str $cs[0].UserName }
+} catch {}
+
+# 1. Collect Windows Services (WMI/CIM + Get-Service + DelayedAutostart registry)
+$svcExtra = @{}
+try {
+  foreach ($gs in @(Get-Service -ErrorAction SilentlyContinue)) {
+    $sn = To-Str $gs.Name
+    if (-not $sn) { continue }
+    $depsOn = @()
+    $depBy = @()
+    try { $depsOn = @($gs.ServicesDependedOn | ForEach-Object { To-Str $_.Name } | Where-Object { $_ }) } catch {}
+    try { $depBy = @($gs.DependentServices | ForEach-Object { To-Str $_.Name } | Where-Object { $_ }) } catch {}
+    $svcExtra[$sn.ToLowerInvariant()] = @{
+      canPause = To-Bool $gs.CanPauseAndContinue
+      canStop = To-Bool $gs.CanStop
+      dependsOn = $depsOn
+      dependentServices = $depBy
+    }
+  }
+} catch {}
+
+$servicesList = @()
+try {
+  $cimSvcs = @(Safe-Cim 'Win32_Service')
+  foreach ($s in $cimSvcs) {
+    try {
+      $name = To-Str $s.Name
+      if (-not $name) { continue }
+      $disp = To-Str $s.DisplayName
+      if (-not $disp) { $disp = $name }
+      $desc = To-Str $s.Description
+      if ($desc.Length -gt 350) { $desc = $desc.Substring(0, 350) + '...' }
+      $state = To-Str $s.State
+      $startMode = To-Str $s.StartMode
+      $delayed = $false
+      if ($startMode -eq 'Auto' -or $startMode -eq 'Automatic') {
+        try {
+          $regSvc = Get-ItemProperty -LiteralPath "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\$name" -Name 'DelayedAutostart' -ErrorAction SilentlyContinue
+          if ($regSvc -and (To-Int $regSvc.DelayedAutostart) -eq 1) { $delayed = $true }
+        } catch {}
+      }
+      $pidVal = To-Int $s.ProcessId
+      $extra = $svcExtra[$name.ToLowerInvariant()]
+      $servicesList += [PSCustomObject]@{
+        name = $name
+        displayName = $disp
+        description = $desc
+        status = $state
+        startType = $startMode
+        delayedAutoStart = $delayed
+        account = To-Str $s.StartName
+        pid = if ($pidVal -gt 0) { $pidVal } else { $null }
+        pathName = To-Str $s.PathName
+        canPauseAndContinue = if ($extra) { To-Bool $extra.canPause } else { To-Bool $s.AcceptPause }
+        canStop = if ($extra) { To-Bool $extra.canStop } else { To-Bool $s.AcceptStop }
+        dependsOn = if ($extra) { @($extra.dependsOn) } else { @() }
+        dependentServices = if ($extra) { @($extra.dependentServices) } else { @() }
+      }
+    } catch {}
+  }
+} catch {}
+
+# 2. Helper to check StartupApproved state (bit 0 == 1 means Disabled)
+function Get-ApprovedState($approvedPath, $valName) {
+  try {
+    if (-not $approvedPath -or -not (Test-Path -LiteralPath $approvedPath)) { return $true }
+    $prop = Get-ItemProperty -LiteralPath $approvedPath -Name $valName -ErrorAction SilentlyContinue
+    if (-not $prop) { return $true }
+    $rawBytes = $prop.$valName
+    if ($rawBytes -is [byte[]] -and $rawBytes.Length -ge 1) {
+      return (([int]$rawBytes[0] -band 1) -eq 0)
+    }
+  } catch {}
+  return $true
+}
+
+function Get-ExePublisher($cmdStr) {
+  try {
+    $c = To-Str $cmdStr
+    if (-not $c) { return '' }
+    $exe = ''
+    if ($c.StartsWith('"')) {
+      $idx = $c.IndexOf('"', 1)
+      if ($idx -gt 1) { $exe = $c.Substring(1, $idx - 1) }
+    } elseif ($c -match '^([^\\s]+\\.exe)') {
+      $exe = $Matches[1]
+    }
+    if ($exe) {
+      $exe = [Environment]::ExpandEnvironmentVariables($exe)
+      if (($exe -match '^[A-Za-z]:\\\\') -and (Test-Path -LiteralPath $exe)) {
+        $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
+        if ($vi -and $vi.CompanyName) { return (To-Str $vi.CompanyName) }
+      }
+    }
+  } catch {}
+  return ''
+}
+
+$startupList = @()
+
+# 2A. Registry Run & RunOnce Keys (HKLM64, HKLM32, User Hives)
+$regSources = @(
+  @{ Path = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run'; Approved = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run'; Hive = 'HKLM64_Run'; SourceType = 'registry_run'; Scope = 'machine'; Label = 'HKLM\\...\\Run (64-bit)'; Sid = ''; Owner = ''; CanToggle = $true },
+  @{ Path = 'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run'; Approved = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run32'; Hive = 'HKLM32_Run'; SourceType = 'registry_run'; Scope = 'machine'; Label = 'HKLM\\...\\WOW6432Node\\Run (32-bit)'; Sid = ''; Owner = ''; CanToggle = $true },
+  @{ Path = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce'; Approved = ''; Hive = 'HKLM64_RunOnce'; SourceType = 'registry_runonce'; Scope = 'machine'; Label = 'HKLM\\...\\RunOnce'; Sid = ''; Owner = ''; CanToggle = $false }
+)
+
+$loadedUserProfiles = @()
+try {
+  foreach ($k in @(Get-ChildItem -Path 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue)) {
+    $sid = To-Str $k.PSChildName
+    if ($sid -match '^S-1-5-21-' -and $sid -notmatch '_Classes$') {
+      $uLabel = $sid
+      try {
+        $nt = (New-Object System.Security.Principal.SecurityIdentifier($sid)).Translate([System.Security.Principal.NTAccount])
+        if ($nt -and $nt.Value) { $uLabel = To-Str $nt.Value }
+      } catch {}
+      $regSources += @{
+        Path = "Registry::HKEY_USERS\\$sid\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+        Approved = "Registry::HKEY_USERS\\$sid\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run"
+        Hive = 'HKU_Run'
+        SourceType = 'registry_run'
+        Scope = 'user'
+        Label = "HKU\\$uLabel\\...\\Run"
+        Sid = $sid
+        Owner = $uLabel
+        CanToggle = $true
+      }
+      $regSources += @{
+        Path = "Registry::HKEY_USERS\\$sid\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+        Approved = ''
+        Hive = 'HKU_RunOnce'
+        SourceType = 'registry_runonce'
+        Scope = 'user'
+        Label = "HKU\\$uLabel\\...\\RunOnce"
+        Sid = $sid
+        Owner = $uLabel
+        CanToggle = $false
+      }
+      try {
+        $pl = Get-ItemProperty -LiteralPath "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$sid" -ErrorAction SilentlyContinue
+        if ($pl -and $pl.ProfileImagePath) {
+          $loadedUserProfiles += @{ Sid = $sid; Owner = $uLabel; ProfilePath = (To-Str $pl.ProfileImagePath) }
+        }
+      } catch {}
+    }
+  }
+} catch {}
+
+if ($loadedUserProfiles.Count -eq 0) {
+  $cuUser = "$env:USERDOMAIN\\$env:USERNAME".Trim('\\')
+  $regSources += @{
+    Path = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
+    Approved = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run'
+    Hive = 'HKCU_Run'
+    SourceType = 'registry_run'
+    Scope = 'user'
+    Label = 'HKCU\\...\\Run'
+    Sid = ''
+    Owner = $cuUser
+    CanToggle = $true
+  }
+}
+
+foreach ($src in $regSources) {
+  try {
+    if (-not (Test-Path -LiteralPath $src.Path)) { continue }
+    $itemObj = Get-Item -LiteralPath $src.Path -ErrorAction SilentlyContinue
+    if (-not $itemObj) { continue }
+    $props = Get-ItemProperty -LiteralPath $src.Path -ErrorAction SilentlyContinue
+    foreach ($valName in @($itemObj.GetValueNames())) {
+      $vn = To-Str $valName
+      if (-not $vn) { continue }
+      $cmd = To-Str ($props.$vn)
+      if (-not $cmd) { continue }
+      $enabled = if ($src.CanToggle) { Get-ApprovedState $src.Approved $vn } else { $true }
+      $pub = Get-ExePublisher $cmd
+      $startupList += [PSCustomObject]@{
+        name = $vn
+        command = $cmd
+        publisher = $pub
+        scope = $src.Scope
+        ownerSid = $src.Sid
+        ownerUser = $src.Owner
+        sourceType = $src.SourceType
+        locationHive = $src.Hive
+        locationLabel = $src.Label
+        enabled = $enabled
+        canToggle = $src.CanToggle
+        canDelete = $true
+        taskPath = ''
+        filePath = ''
+      }
+    }
+  } catch {}
+}
+
+# 2B. Startup Folders (Common All Users + Per-User Startup)
+$folderSources = @(
+  @{
+    Dir = (Join-Path $env:ProgramData 'Microsoft\\Windows\\Start Menu\\Programs\\Startup')
+    Approved = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\StartupFolder'
+    Hive = 'CommonStartupFolder'
+    Scope = 'machine'
+    Label = 'All Users Startup Folder'
+    Sid = ''
+    Owner = ''
+  }
+)
+foreach ($up in $loadedUserProfiles) {
+  $uDir = Join-Path $up.ProfilePath 'AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup'
+  $folderSources += @{
+    Dir = $uDir
+    Approved = "Registry::HKEY_USERS\\$($up.Sid)\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\StartupFolder"
+    Hive = 'UserStartupFolder'
+    Scope = 'user'
+    Label = "Startup Folder ($($up.Owner))"
+    Sid = $up.Sid
+    Owner = $up.Owner
+  }
+}
+if ($loadedUserProfiles.Count -eq 0) {
+  $cuDir = [Environment]::GetFolderPath('Startup')
+  if ($cuDir) {
+    $cuUser = "$env:USERDOMAIN\\$env:USERNAME".Trim('\\')
+    $folderSources += @{
+      Dir = $cuDir
+      Approved = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\StartupFolder'
+      Hive = 'UserStartupFolder'
+      Scope = 'user'
+      Label = "Startup Folder ($cuUser)"
+      Sid = ''
+      Owner = $cuUser
+    }
+  }
+}
+
+$wsh = $null
+try { $wsh = New-Object -ComObject WScript.Shell } catch { $wsh = $null }
+
+foreach ($fs in $folderSources) {
+  try {
+    if (-not $fs.Dir -or -not (Test-Path -LiteralPath $fs.Dir)) { continue }
+    foreach ($f in @(Get-ChildItem -LiteralPath $fs.Dir -File -ErrorAction SilentlyContinue)) {
+      $fn = To-Str $f.Name
+      if (-not $fn -or $fn -ieq 'desktop.ini') { continue }
+      $cmd = To-Str $f.FullName
+      if ($fn -match '\\.lnk$' -and $wsh) {
+        try {
+          $sc = $wsh.CreateShortcut($f.FullName)
+          $t = To-Str $sc.TargetPath
+          $a = To-Str $sc.Arguments
+          if ($t) { $cmd = if ($a) { "$t $a" } else { $t } }
+        } catch {}
+      }
+      $enabled = Get-ApprovedState $fs.Approved $fn
+      $pub = Get-ExePublisher $cmd
+      $startupList += [PSCustomObject]@{
+        name = $fn
+        command = $cmd
+        publisher = $pub
+        scope = $fs.Scope
+        ownerSid = $fs.Sid
+        ownerUser = $fs.Owner
+        sourceType = 'startup_folder'
+        locationHive = $fs.Hive
+        locationLabel = $fs.Label
+        enabled = $enabled
+        canToggle = $true
+        canDelete = $true
+        taskPath = ''
+        filePath = (To-Str $f.FullName)
+      }
+    }
+  } catch {}
+}
+
+# 2C. Logon Scheduled Tasks (non-Microsoft core tasks)
+try {
+  foreach ($t in @(Get-ScheduledTask -ErrorAction SilentlyContinue)) {
+    try {
+      $tp = To-Str $t.TaskPath
+      if ($tp -like '\\Microsoft\\Windows\\*') { continue }
+      $hasLogon = $false
+      foreach ($tr in @($t.Triggers)) {
+        try {
+          if ($tr.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger') { $hasLogon = $true; break }
+        } catch {}
+      }
+      if (-not $hasLogon) { continue }
+      $actCmd = ''
+      foreach ($ac in @($t.Actions)) {
+        $ex = To-Str $ac.Execute
+        $ar = To-Str $ac.Arguments
+        if ($ex) { $actCmd = if ($ar) { "$ex $ar" } else { $ex }; break }
+      }
+      $stState = To-Str $t.State
+      $isEn = ($stState -ne 'Disabled')
+      $pub = Get-ExePublisher $actCmd
+      $startupList += [PSCustomObject]@{
+        name = (To-Str $t.TaskName)
+        command = if ($actCmd) { $actCmd } else { "$tp$($t.TaskName)" }
+        publisher = $pub
+        scope = 'machine'
+        ownerSid = ''
+        ownerUser = To-Str $t.Principal.UserId
+        sourceType = 'scheduled_task'
+        locationHive = 'ScheduledTask'
+        locationLabel = "Task Scheduler ($tp)"
+        enabled = $isEn
+        canToggle = $true
+        canDelete = $false
+        taskPath = $tp
+        filePath = ''
+      }
+    } catch {}
+  }
+} catch {}
+
+[PSCustomObject]@{
+  hostname = $hostName
+  activeUser = $activeUser
+  services = @($servicesList | Sort-Object -Property displayName, name)
+  startupItems = @($startupList | Sort-Object -Property name)
+} | ConvertTo-Json -Depth 5 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import json, os, socket, subprocess, glob
+
+hostname = socket.gethostname()
+active_user = os.environ.get("USER", "")
+services = []
+
+try:
+    unit_states = {}
+    p_files = subprocess.run(
+        ["systemctl", "list-unit-files", "--type=service", "--no-pager", "--no-legend"],
+        capture_output=True, text=True, timeout=15
+    )
+    for line in (p_files.stdout or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].endswith(".service"):
+            unit_states[parts[0]] = parts[1].strip()
+
+    p_units = subprocess.run(
+        ["systemctl", "list-units", "--type=service", "--all", "--no-pager", "--no-legend", "--plain"],
+        capture_output=True, text=True, timeout=15
+    )
+    seen = set()
+    for line in (p_units.stdout or "").splitlines():
+        parts = line.split(None, 4)
+        if len(parts) < 4:
+            continue
+        unit = parts[0].strip()
+        if not unit.endswith(".service"):
+            continue
+        seen.add(unit)
+        active = parts[2].strip().lower()
+        sub = parts[3].strip().lower()
+        desc = parts[4].strip() if len(parts) > 4 else unit
+        st_type = unit_states.get(unit, "static")
+        status = "Running" if active == "active" and sub == "running" else ("Stopped" if active in ("inactive", "failed", "dead") else active)
+        services.append({
+            "name": unit[:-8],
+            "displayName": unit[:-8],
+            "description": desc,
+            "status": status,
+            "startType": "Automatic" if st_type in ("enabled", "enabled-runtime") else ("Disabled" if st_type in ("disabled", "masked") else "Manual"),
+            "delayedAutoStart": False,
+            "account": "systemd",
+            "pid": None,
+            "pathName": f"/lib/systemd/system/{unit}",
+            "canPauseAndContinue": False,
+            "canStop": True,
+            "dependsOn": [],
+            "dependentServices": [],
+        })
+    for unit, st_type in unit_states.items():
+        if unit not in seen and unit.endswith(".service"):
+            services.append({
+                "name": unit[:-8],
+                "displayName": unit[:-8],
+                "description": unit,
+                "status": "Stopped",
+                "startType": "Automatic" if st_type in ("enabled", "enabled-runtime") else ("Disabled" if st_type in ("disabled", "masked") else "Manual"),
+                "delayedAutoStart": False,
+                "account": "systemd",
+                "pid": None,
+                "pathName": f"/lib/systemd/system/{unit}",
+                "canPauseAndContinue": False,
+                "canStop": True,
+                "dependsOn": [],
+                "dependentServices": [],
+            })
+except Exception:
+    pass
+
+startup_items = []
+for directory, scope, label in [
+    ("/etc/xdg/autostart", "machine", "/etc/xdg/autostart"),
+    (os.path.expanduser("~/.config/autostart"), "user", "~/.config/autostart"),
+]:
+    for path in glob.glob(os.path.join(directory, "*.desktop")):
+        try:
+            name = os.path.basename(path)
+            cmd = path
+            hidden = False
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                for ln in f:
+                    if ln.startswith("Name="):
+                        name = ln.split("=", 1)[1].strip() or name
+                    elif ln.startswith("Exec="):
+                        cmd = ln.split("=", 1)[1].strip() or cmd
+                    elif ln.startswith("Hidden="):
+                        hidden = ln.split("=", 1)[1].strip().lower() == "true"
+            startup_items.append({
+                "name": os.path.basename(path),
+                "command": cmd,
+                "publisher": name,
+                "scope": scope,
+                "ownerSid": "",
+                "ownerUser": active_user if scope == "user" else "",
+                "sourceType": "startup_folder",
+                "locationHive": "linux_autostart",
+                "locationLabel": label,
+                "enabled": not hidden,
+                "canToggle": True,
+                "canDelete": True,
+                "taskPath": "",
+                "filePath": path,
+            })
+        except Exception:
+            pass
+
+services.sort(key=lambda x: x["name"].lower())
+startup_items.sort(key=lambda x: x["name"].lower())
+print(json.dumps({
+    "hostname": hostname,
+    "activeUser": active_user,
+    "services": services,
+    "startupItems": startup_items,
+}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(60000, input.timeoutMs || 60000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'collect services and startup items');
+  const rawServices: any[] = Array.isArray(parsed.services) ? parsed.services : [];
+  const rawStartup: any[] = Array.isArray(parsed.startupItems) ? parsed.startupItems : [];
+
+  const services: HelpdeskServiceItem[] = rawServices.map((raw) => {
+    const name = String(raw.name || '').trim();
+    const displayName = String(raw.displayName || name).trim();
+    const prot = checkProtectedService(name, displayName);
+    const status = normalizeServiceStatus(String(raw.status || 'Unknown'));
+    const startType = normalizeServiceStartType(
+      String(raw.startType || 'Unknown'),
+      Boolean(raw.delayedAutoStart)
+    );
+    return {
+      id: name,
+      name,
+      displayName,
+      description: String(raw.description || '').trim(),
+      status,
+      startType,
+      account: String(raw.account || '').trim(),
+      pid: typeof raw.pid === 'number' && raw.pid > 0 ? raw.pid : null,
+      pathName: String(raw.pathName || '').trim(),
+      canPauseAndContinue: Boolean(raw.canPauseAndContinue),
+      canStop: Boolean(raw.canStop) && !prot.isProtected,
+      dependentServices: Array.isArray(raw.dependentServices)
+        ? raw.dependentServices.map(String).filter(Boolean)
+        : [],
+      dependsOn: Array.isArray(raw.dependsOn)
+        ? raw.dependsOn.map(String).filter(Boolean)
+        : [],
+      isProtected: prot.isProtected,
+      ...(prot.reasonEn ? { protectionReason: prot.reasonEn, protectionReasonFa: prot.reasonFa } : {}),
+    };
+  });
+
+  const startupItems: HelpdeskStartupItem[] = rawStartup.map((raw, idx) => {
+    const name = String(raw.name || '').trim();
+    const command = String(raw.command || '').trim();
+    const hive = String(raw.locationHive || 'HKLM64_Run') as HelpdeskStartupHive;
+    const ownerSid = String(raw.ownerSid || '').trim();
+    const prot = checkProtectedStartupItem(name, command);
+    return {
+      id: `${hive}:${ownerSid || 'sys'}:${name}:${idx}`,
+      name,
+      command,
+      publisher: String(raw.publisher || '').trim(),
+      scope: raw.scope === 'user' ? 'user' : 'machine',
+      ...(ownerSid ? { ownerSid } : {}),
+      ...(raw.ownerUser ? { ownerUser: String(raw.ownerUser) } : {}),
+      sourceType: (raw.sourceType || 'registry_run') as HelpdeskStartupSourceType,
+      locationHive: hive,
+      locationLabel: String(raw.locationLabel || hive).trim(),
+      enabled: Boolean(raw.enabled),
+      canToggle: Boolean(raw.canToggle) && !prot.isProtected,
+      canDelete: Boolean(raw.canDelete) && !prot.isProtected,
+      isProtected: prot.isProtected,
+      ...(prot.reasonEn ? { protectionReason: prot.reasonEn, protectionReasonFa: prot.reasonFa } : {}),
+      ...(raw.taskPath ? { taskPath: String(raw.taskPath) } : {}),
+      ...(raw.filePath ? { filePath: String(raw.filePath) } : {}),
+    };
+  });
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    activeUser: String(parsed.activeUser || ''),
+    summary: {
+      totalServices: services.length,
+      runningServices: services.filter((s) => s.status === 'Running').length,
+      stoppedServices: services.filter((s) => s.status === 'Stopped').length,
+      pausedServices: services.filter((s) => s.status === 'Paused').length,
+      automaticServices: services.filter(
+        (s) => s.startType === 'Automatic' || s.startType === 'AutomaticDelayed'
+      ).length,
+      manualServices: services.filter((s) => s.startType === 'Manual').length,
+      disabledServices: services.filter((s) => s.startType === 'Disabled').length,
+      totalStartupItems: startupItems.length,
+      enabledStartupItems: startupItems.filter((i) => i.enabled).length,
+      disabledStartupItems: startupItems.filter((i) => !i.enabled).length,
+    },
+    services,
+    startupItems,
+    collectedAt: new Date().toISOString(),
+  };
+}
+
+export async function manageEndpointService(
+  input: HelpdeskTargetInput,
+  options: {
+    serviceName: string;
+    action: HelpdeskServiceActionType;
+    startupType?: 'Automatic' | 'AutomaticDelayed' | 'Manual' | 'Disabled';
+  }
+): Promise<HelpdeskActionResult> {
+  const serviceName = String(options.serviceName || '').trim();
+  if (!serviceName || !/^[a-zA-Z0-9._@$-]{1,256}$/.test(serviceName)) {
+    throw new Error('Invalid service name format.');
+  }
+
+  const allowedActions: HelpdeskServiceActionType[] = [
+    'start',
+    'stop',
+    'restart',
+    'pause',
+    'resume',
+    'set_startup',
+  ];
+  const action = String(options.action || '').trim() as HelpdeskServiceActionType;
+  if (!allowedActions.includes(action)) {
+    throw new Error('Unsupported service action requested.');
+  }
+
+  const allowedStartTypes = ['Automatic', 'AutomaticDelayed', 'Manual', 'Disabled'] as const;
+  const startupType = options.startupType ? String(options.startupType).trim() : undefined;
+  if (action === 'set_startup') {
+    if (!startupType || !(allowedStartTypes as readonly string[]).includes(startupType)) {
+      throw new Error('Valid startupType (Automatic, AutomaticDelayed, Manual, Disabled) is required.');
+    }
+  }
+
+  const prot = checkProtectedService(serviceName);
+  const destructiveOp =
+    action === 'stop' ||
+    action === 'restart' ||
+    action === 'pause' ||
+    (action === 'set_startup' && startupType === 'Disabled');
+  if (prot.isProtected && destructiveOp) {
+    throw new Error(prot.reasonEn || `Protected service "${serviceName}" cannot be stopped or disabled.`);
+  }
+
+  const svcB64 = Buffer.from(serviceName, 'utf8').toString('base64');
+  const startupVal = startupType || 'Manual';
+
+  const winPs = `
+$ErrorActionPreference = 'Stop'
+$svcName = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${svcB64}'))
+$action = '${action}'
+$startType = '${startupVal}'
+
+$svc = Get-Service -Name $svcName -ErrorAction Stop
+$disp = [string]$svc.DisplayName
+
+switch ($action) {
+  'start' {
+    if ($svc.Status -ne 'Running') {
+      Start-Service -Name $svcName -ErrorAction Stop
+      Start-Sleep -Milliseconds 700
+    }
+  }
+  'stop' {
+    if ($svc.Status -ne 'Stopped') {
+      Stop-Service -Name $svcName -Force -ErrorAction Stop
+      Start-Sleep -Milliseconds 700
+    }
+  }
+  'restart' {
+    Restart-Service -Name $svcName -Force -ErrorAction Stop
+    Start-Sleep -Milliseconds 800
+  }
+  'pause' {
+    if (-not $svc.CanPauseAndContinue) {
+      throw "Service '$svcName' does not support Pause/Continue."
+    }
+    if ($svc.Status -eq 'Running') {
+      Suspend-Service -Name $svcName -ErrorAction Stop
+      Start-Sleep -Milliseconds 500
+    }
+  }
+  'resume' {
+    if ($svc.Status -eq 'Paused') {
+      Resume-Service -Name $svcName -ErrorAction Stop
+      Start-Sleep -Milliseconds 500
+    }
+  }
+  'set_startup' {
+    $regPath = "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\$svcName"
+    if ($startType -eq 'AutomaticDelayed') {
+      Set-Service -Name $svcName -StartupType Automatic -ErrorAction Stop
+      if (Test-Path -LiteralPath $regPath) {
+        Set-ItemProperty -LiteralPath $regPath -Name 'DelayedAutostart' -Value 1 -Type DWord -Force
+      }
+    } else {
+      Set-Service -Name $svcName -StartupType $startType -ErrorAction Stop
+      if (Test-Path -LiteralPath $regPath) {
+        Set-ItemProperty -LiteralPath $regPath -Name 'DelayedAutostart' -Value 0 -Type DWord -Force
+      }
+    }
+    Start-Sleep -Milliseconds 400
+  }
+}
+
+$after = Get-Service -Name $svcName -ErrorAction Stop
+$cimAfter = Get-CimInstance -ClassName Win32_Service -Filter ("Name='" + $svcName.Replace("'", "''") + "'") -ErrorAction SilentlyContinue
+$delayedAfter = $false
+try {
+  $rp = Get-ItemProperty -LiteralPath "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\$svcName" -Name 'DelayedAutostart' -ErrorAction SilentlyContinue
+  if ($rp -and [int]$rp.DelayedAutostart -eq 1) { $delayedAfter = $true }
+} catch {}
+
+[PSCustomObject]@{
+  ok = $true
+  serviceName = $svcName
+  displayName = $disp
+  status = [string]$after.Status
+  startType = if ($cimAfter) { [string]$cimAfter.StartMode } else { [string]$after.StartType }
+  delayedAutoStart = $delayedAfter
+  pid = if ($cimAfter -and $cimAfter.ProcessId -gt 0) { [int]$cimAfter.ProcessId } else { $null }
+  output = "Action '$action' completed for '$disp' ($svcName). Status=$($after.Status)"
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import base64, json, re, subprocess
+
+svc = base64.b64decode('${svcB64}').decode('utf-8', errors='ignore').strip()
+action = '${action}'
+start_type = '${startupVal}'
+
+if not re.match(r'^[a-zA-Z0-9._@$-]{1,256}$', svc):
+    print(json.dumps({"ok": False, "output": "Invalid service name"}))
+    raise SystemExit(0)
+
+unit = svc if svc.endswith(".service") else f"{svc}.service"
+if action in ("start", "stop", "restart"):
+    cmd = ["systemctl", action, unit]
+elif action == "set_startup":
+    if start_type in ("Automatic", "AutomaticDelayed"):
+        cmd = ["systemctl", "enable", unit]
+    elif start_type == "Disabled":
+        cmd = ["systemctl", "disable", unit]
+    else:
+        cmd = ["systemctl", "disable", unit]
+else:
+    print(json.dumps({"ok": False, "output": f"Action '{action}' is not supported on systemd."}))
+    raise SystemExit(0)
+
+r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+st = subprocess.run(["systemctl", "is-active", unit], capture_output=True, text=True, timeout=10)
+en = subprocess.run(["systemctl", "is-enabled", unit], capture_output=True, text=True, timeout=10)
+out = ((r.stdout or "") + "\\n" + (r.stderr or "")).strip() or f"systemctl {action} {unit} exit={r.returncode}"
+print(json.dumps({
+    "ok": r.returncode == 0,
+    "serviceName": svc,
+    "displayName": svc,
+    "status": "Running" if st.stdout.strip() == "active" else "Stopped",
+    "startType": "Automatic" if en.stdout.strip().startswith("enabled") else ("Disabled" if en.stdout.strip() in ("disabled", "masked") else "Manual"),
+    "delayedAutoStart": False,
+    "pid": None,
+    "output": out[:1500],
+}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(45000, input.timeoutMs || 45000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, `service ${action} (${serviceName})`);
+  const ok = Boolean(parsed.ok);
+  const newStatus = normalizeServiceStatus(String(parsed.status || 'Unknown'));
+  const newStartType = normalizeServiceStartType(
+    String(parsed.startType || 'Unknown'),
+    Boolean(parsed.delayedAutoStart)
+  );
+  const disp = String(parsed.displayName || serviceName);
+
+  const writeActionMap: Record<HelpdeskServiceActionType, HelpdeskWriteAction> = {
+    start: 'service_start',
+    stop: 'service_stop',
+    restart: 'service_restart',
+    pause: 'service_pause',
+    resume: 'service_resume',
+    set_startup: 'service_startup_type',
+  };
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: writeActionMap[action],
+    success: ok,
+    message: ok
+      ? `Service "${disp}" (${serviceName}) action "${action}" completed on ${execRes.host}. Status: ${newStatus}, Startup: ${newStartType}.`
+      : `Service "${disp}" (${serviceName}) action "${action}" failed: ${parsed.output}`,
+    messageFa: ok
+      ? `عملیات روی سرویس «${disp}» (${serviceName}) در سیستم ${execRes.host} با موفقیت انجام شد. وضعیت فعلی: ${newStatus} (${newStartType}).`
+      : `اجرای عملیات روی سرویس «${disp}» (${serviceName}) ناموفق بود: ${parsed.output}`,
+    details: {
+      serviceName,
+      displayName: disp,
+      action,
+      status: newStatus,
+      startType: newStartType,
+      pid: parsed.pid ?? null,
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function manageEndpointStartupItem(
+  input: HelpdeskTargetInput,
+  options: {
+    action: 'enable' | 'disable' | 'delete' | 'add';
+    sourceType: HelpdeskStartupSourceType;
+    locationHive: HelpdeskStartupHive;
+    itemName: string;
+    ownerSid?: string;
+    taskPath?: string;
+    command?: string;
+    startupScope?: 'machine' | 'user';
+  }
+): Promise<HelpdeskActionResult> {
+  const action = String(options.action || '').trim() as 'enable' | 'disable' | 'delete' | 'add';
+  if (!['enable', 'disable', 'delete', 'add'].includes(action)) {
+    throw new Error('Invalid startup action specified.');
+  }
+
+  const itemName = String(options.itemName || '').trim();
+  if (!itemName || itemName.length > 200 || /[\x00-\x1F\x7F]/.test(itemName)) {
+    throw new Error('Invalid startup item name.');
+  }
+  if ((options.locationHive === 'CommonStartupFolder' || options.locationHive === 'UserStartupFolder') && /[\\/]|\.\./.test(itemName)) {
+    throw new Error('Invalid startup folder file name.');
+  }
+
+  const allowedHives: HelpdeskStartupHive[] = [
+    'HKLM64_Run',
+    'HKLM32_Run',
+    'HKLM64_RunOnce',
+    'HKCU_Run',
+    'HKU_Run',
+    'HKU_RunOnce',
+    'CommonStartupFolder',
+    'UserStartupFolder',
+    'ScheduledTask',
+    'linux_autostart',
+  ];
+  const hive = String(options.locationHive || '').trim() as HelpdeskStartupHive;
+  if (!allowedHives.includes(hive)) {
+    throw new Error('Invalid startup location hive specified.');
+  }
+
+  const ownerSid = String(options.ownerSid || '').trim();
+  if (ownerSid && !/^S-1-5-21-[0-9-]+$/.test(ownerSid)) {
+    throw new Error('Invalid user SID format.');
+  }
+  if ((hive === 'HKU_Run' || hive === 'HKU_RunOnce') && !ownerSid) {
+    throw new Error('Valid user SID (S-1-5-21-...) is required for per-user HKU startup operations.');
+  }
+
+  const command = String(options.command || '').trim();
+  if (action === 'add') {
+    if (!command || command.length > 500 || /[\x00-\x1F\x7F]/.test(command)) {
+      throw new Error('Valid startup command / executable path is required.');
+    }
+  }
+
+  if (action === 'disable' || action === 'delete') {
+    const prot = checkProtectedStartupItem(itemName, command);
+    if (prot.isProtected) {
+      throw new Error(prot.reasonEn || `Protected startup item "${itemName}" cannot be modified.`);
+    }
+  }
+
+  const nameB64 = Buffer.from(itemName, 'utf8').toString('base64');
+  const sidB64 = Buffer.from(ownerSid, 'utf8').toString('base64');
+  const taskPathB64 = Buffer.from(String(options.taskPath || '\\'), 'utf8').toString('base64');
+  const cmdB64 = Buffer.from(command, 'utf8').toString('base64');
+  const addScope = options.startupScope === 'user' ? 'user' : 'machine';
+
+  const winPs = `
+$ErrorActionPreference = 'Stop'
+$action = '${action}'
+$hive = '${hive}'
+$itemName = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${nameB64}'))
+$ownerSid = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sidB64}'))
+$taskPath = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${taskPathB64}'))
+$cmdVal = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${cmdB64}'))
+$addScope = '${addScope}'
+
+if ($action -in @('disable', 'delete')) {
+  if ($itemName -match '(securityhealth|windows defender|microsoft defender|crowdstrike|falcon|kaspersky|sentinelone|bitdefender|eset|winrm|openssh)') {
+    throw "Blocked by security policy: '$itemName' is protected."
+  }
+}
+
+function Set-ApprovedFlag($approvedPath, $valName, [bool]$enable) {
+  if (-not (Test-Path -LiteralPath $approvedPath)) {
+    New-Item -Path $approvedPath -Force | Out-Null
+  }
+  if ($enable) {
+    $bytes = [byte[]](0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+  } else {
+    $ft = [BitConverter]::GetBytes([DateTime]::UtcNow.ToFileTimeUtc())
+    $bytes = [byte[]](0x03, 0x00, 0x00, 0x00) + $ft
+  }
+  Set-ItemProperty -LiteralPath $approvedPath -Name $valName -Value $bytes -Type Binary -Force
+}
+
+$outMsg = ''
+
+if ($action -eq 'add') {
+  $targetRunPath = ''
+  $targetApprovedPath = ''
+  if ($addScope -eq 'user') {
+    if ($ownerSid) {
+      $targetRunPath = "Registry::HKEY_USERS\\$ownerSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+      $targetApprovedPath = "Registry::HKEY_USERS\\$ownerSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run"
+    } else {
+      $targetRunPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
+      $targetApprovedPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run'
+    }
+  } else {
+    $targetRunPath = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run'
+    $targetApprovedPath = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run'
+  }
+  if (-not (Test-Path -LiteralPath $targetRunPath)) {
+    New-Item -Path $targetRunPath -Force | Out-Null
+  }
+  Set-ItemProperty -LiteralPath $targetRunPath -Name $itemName -Value $cmdVal -Type String -Force
+  Set-ApprovedFlag $targetApprovedPath $itemName $true
+  $outMsg = "Added startup entry '$itemName' to $targetRunPath"
+} elseif ($hive -eq 'ScheduledTask') {
+  if ($action -eq 'enable') {
+    Enable-ScheduledTask -TaskPath $taskPath -TaskName $itemName -ErrorAction Stop | Out-Null
+    $outMsg = "Enabled Scheduled Task '$taskPath$itemName'"
+  } elseif ($action -eq 'disable') {
+    Disable-ScheduledTask -TaskPath $taskPath -TaskName $itemName -ErrorAction Stop | Out-Null
+    $outMsg = "Disabled Scheduled Task '$taskPath$itemName'"
+  } else {
+    throw "Deleting Scheduled Tasks is disabled for safety; disable it instead."
+  }
+} elseif ($hive -in @('CommonStartupFolder', 'UserStartupFolder')) {
+  $dirPath = ''
+  $approvedPath = ''
+  if ($hive -eq 'CommonStartupFolder') {
+    $dirPath = Join-Path $env:ProgramData 'Microsoft\\Windows\\Start Menu\\Programs\\Startup'
+    $approvedPath = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\StartupFolder'
+  } else {
+    if ($ownerSid) {
+      $pl = Get-ItemProperty -LiteralPath "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$ownerSid" -ErrorAction Stop
+      $dirPath = Join-Path ([string]$pl.ProfileImagePath) 'AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup'
+      $approvedPath = "Registry::HKEY_USERS\\$ownerSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\StartupFolder"
+    } else {
+      $dirPath = [Environment]::GetFolderPath('Startup')
+      $approvedPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\StartupFolder'
+    }
+  }
+  if ($action -eq 'enable') {
+    Set-ApprovedFlag $approvedPath $itemName $true
+    $outMsg = "Enabled Startup Folder item '$itemName'"
+  } elseif ($action -eq 'disable') {
+    Set-ApprovedFlag $approvedPath $itemName $false
+    $outMsg = "Disabled Startup Folder item '$itemName'"
+  } elseif ($action -eq 'delete') {
+    $fullFile = Join-Path $dirPath $itemName
+    if (Test-Path -LiteralPath $fullFile) {
+      Remove-Item -LiteralPath $fullFile -Force -ErrorAction Stop
+    }
+    if (Test-Path -LiteralPath $approvedPath) {
+      Remove-ItemProperty -LiteralPath $approvedPath -Name $itemName -ErrorAction SilentlyContinue
+    }
+    $outMsg = "Removed Startup Folder item '$fullFile'"
+  }
+} else {
+  $runPath = switch ($hive) {
+    'HKLM64_Run'     { 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run' }
+    'HKLM32_Run'     { 'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run' }
+    'HKLM64_RunOnce' { 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce' }
+    'HKCU_Run'       { 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' }
+    'HKU_Run'        { "Registry::HKEY_USERS\\$ownerSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" }
+    'HKU_RunOnce'    { "Registry::HKEY_USERS\\$ownerSid\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce" }
+    default { throw "Unsupported registry hive '$hive'" }
+  }
+  $approvedPath = switch ($hive) {
+    'HKLM64_Run' { 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run' }
+    'HKLM32_Run' { 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run32' }
+    'HKCU_Run'   { 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run' }
+    'HKU_Run'    { "Registry::HKEY_USERS\\$ownerSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" }
+    default { '' }
+  }
+  if ($action -eq 'enable') {
+    if (-not $approvedPath) { throw "RunOnce entries cannot be toggled via StartupApproved." }
+    Set-ApprovedFlag $approvedPath $itemName $true
+    $outMsg = "Enabled startup registry item '$itemName' in $hive"
+  } elseif ($action -eq 'disable') {
+    if (-not $approvedPath) { throw "RunOnce entries cannot be toggled via StartupApproved." }
+    Set-ApprovedFlag $approvedPath $itemName $false
+    $outMsg = "Disabled startup registry item '$itemName' in $hive"
+  } elseif ($action -eq 'delete') {
+    if (Test-Path -LiteralPath $runPath) {
+      Remove-ItemProperty -LiteralPath $runPath -Name $itemName -ErrorAction Stop
+    }
+    if ($approvedPath -and (Test-Path -LiteralPath $approvedPath)) {
+      Remove-ItemProperty -LiteralPath $approvedPath -Name $itemName -ErrorAction SilentlyContinue
+    }
+    $outMsg = "Deleted startup registry item '$itemName' from $runPath"
+  }
+}
+
+[PSCustomObject]@{
+  ok = $true
+  itemName = $itemName
+  action = $action
+  output = $outMsg
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import base64, json, os, re
+
+action = '${action}'
+name = base64.b64decode('${nameB64}').decode('utf-8', errors='ignore').strip()
+cmd_val = base64.b64decode('${cmdB64}').decode('utf-8', errors='ignore').strip()
+scope = '${addScope}'
+
+if not name or any(x in name for x in ['/', '\\\\', '..']):
+    print(json.dumps({"ok": False, "output": "Invalid startup filename"}))
+    raise SystemExit(0)
+
+if action == 'add':
+    d = os.path.expanduser("~/.config/autostart") if scope == 'user' else "/etc/xdg/autostart"
+    os.makedirs(d, exist_ok=True)
+    fn = name if name.endswith(".desktop") else f"{name}.desktop"
+    p = os.path.join(d, fn)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(f"[Desktop Entry]\\nType=Application\\nName={name}\\nExec={cmd_val}\\nHidden=false\\n")
+    print(json.dumps({"ok": True, "itemName": fn, "action": action, "output": f"Created {p}"}))
+    raise SystemExit(0)
+
+found = None
+for d in [os.path.expanduser("~/.config/autostart"), "/etc/xdg/autostart"]:
+    cand = os.path.join(d, name)
+    if os.path.isfile(cand):
+        found = cand
+        break
+
+if not found:
+    print(json.dumps({"ok": False, "output": f"Autostart entry {name} not found"}))
+    raise SystemExit(0)
+
+if action == 'delete':
+    os.remove(found)
+    print(json.dumps({"ok": True, "itemName": name, "action": action, "output": f"Deleted {found}"}))
+else:
+    with open(found, "r", encoding="utf-8", errors="ignore") as f:
+        lines = [ln for ln in f.readlines() if not ln.startswith("Hidden=")]
+    lines.append(f"Hidden={'false' if action == 'enable' else 'true'}\\n")
+    with open(found, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+    print(json.dumps({"ok": True, "itemName": name, "action": action, "output": f"Updated {found} Hidden={'false' if action == 'enable' else 'true'}"}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(45000, input.timeoutMs || 45000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, `startup ${action} (${itemName})`);
+  const ok = Boolean(parsed.ok);
+  const actionWriteMap: Record<'enable' | 'disable' | 'delete' | 'add', HelpdeskWriteAction> = {
+    enable: 'startup_enable',
+    disable: 'startup_disable',
+    delete: 'startup_delete',
+    add: 'startup_add',
+  };
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: actionWriteMap[action],
+    success: ok,
+    message: ok
+      ? `Startup item "${itemName}" (${action}) applied on ${execRes.host}.`
+      : `Startup item "${itemName}" (${action}) failed: ${parsed.output}`,
+    messageFa: ok
+      ? `تغییر استارت‌آپ «${itemName}» (${action === 'enable' ? 'فعال‌سازی' : action === 'disable' ? 'غیرفعال‌سازی' : action === 'delete' ? 'حذف' : 'افزودن'}) روی سیستم ${execRes.host} با موفقیت انجام شد.`
+      : `تغییر استارت‌آپ «${itemName}» ناموفق بود: ${parsed.output}`,
+    details: {
+      itemName,
+      locationHive: hive,
+      action,
+      ...(ownerSid ? { ownerSid } : {}),
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
 
 

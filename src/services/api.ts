@@ -1920,6 +1920,78 @@ export async function fetchHelpdeskHardwareInventory(payload: HelpdeskConnection
   return res.json();
 }
 
+export async function fetchHelpdeskServicesAndStartup(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/services-startup/list`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to load services and startup programs from endpoint');
+  return res.json();
+}
+
+export async function executeHelpdeskServiceAction(
+  payload: HelpdeskConnectionPayload & {
+    serviceName: string;
+    action: 'start' | 'stop' | 'restart' | 'pause' | 'resume' | 'set_startup';
+    startupType?: 'Automatic' | 'AutomaticDelayed' | 'Manual' | 'Disabled';
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/services/action`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to execute Windows service action');
+  return res.json();
+}
+
+export async function executeHelpdeskStartupAction(
+  payload: HelpdeskConnectionPayload & {
+    action: 'enable' | 'disable' | 'delete' | 'add';
+    sourceType: 'registry_run' | 'registry_runonce' | 'startup_folder' | 'scheduled_task';
+    locationHive:
+      | 'HKLM64_Run'
+      | 'HKLM32_Run'
+      | 'HKLM64_RunOnce'
+      | 'HKCU_Run'
+      | 'HKU_Run'
+      | 'HKU_RunOnce'
+      | 'CommonStartupFolder'
+      | 'UserStartupFolder'
+      | 'ScheduledTask'
+      | 'linux_autostart';
+    itemName: string;
+    ownerSid?: string;
+    taskPath?: string;
+    command?: string;
+    startupScope?: 'machine' | 'user';
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/startup/action`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to manage endpoint startup item');
+  return res.json();
+}
+
 export async function fetchHelpdeskDiskHealth(payload: HelpdeskConnectionPayload): Promise<{
   success: boolean;
   data: any;

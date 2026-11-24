@@ -13,6 +13,7 @@ import {
   fetchHelpdeskBatteryReport,
   fetchHelpdeskPrograms,
   fetchHelpdeskHardwareInventory,
+  fetchHelpdeskServicesAndStartup,
   HelpdeskConnectionPayload,
 } from './api';
 
@@ -25,6 +26,7 @@ export type HelpdeskSubTab =
   | 'logins'
   | 'updates'
   | 'programs'
+  | 'services_startup'
   | 'maintenance'
   | 'hardware_domain'
   | 'history';
@@ -136,6 +138,13 @@ export interface HelpdeskRamState {
   programActionResult: any | null;
   programActionError: string | null;
 
+  // Tab 6C: Services & Startup
+  servicesStartupData: any | null;
+  loadingServicesStartup: boolean;
+  servicesStartupError: string | null;
+  serviceStartupActionResult: any | null;
+  serviceStartupActionError: string | null;
+
   // Tab 7: Temp, GPO & Disk Repair
   tempScanData: any | null;
   loadingTempScan: boolean;
@@ -234,6 +243,12 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     programsError: null,
     programActionResult: null,
     programActionError: null,
+
+    servicesStartupData: null,
+    loadingServicesStartup: false,
+    servicesStartupError: null,
+    serviceStartupActionResult: null,
+    serviceStartupActionError: null,
 
     tempScanData: null,
     loadingTempScan: false,
@@ -730,6 +745,37 @@ export async function runHelpdeskSequentialConnect(options: {
                 (isEn
                   ? 'Failed to inspect installed applications.'
                   : 'خطا در دریافت لیست برنامه‌های نصب‌شده سیستم کاربر.'),
+            });
+          }
+        }
+        return true;
+      },
+    },
+    {
+      id: 'services_startup',
+      labelEn: 'Services & Startup',
+      labelFa: 'سرویس‌ها و استارت‌آپ',
+      run: async () => {
+        patchHelpdeskRamSnapshot({ loadingServicesStartup: true, servicesStartupError: null });
+        try {
+          const svcRes = await fetchHelpdeskServicesAndStartup(payload);
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              servicesStartupData: svcRes.data,
+              loadingServicesStartup: false,
+              ...(svcRes.rateLimit ? { rateLimit: svcRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              servicesStartupData: null,
+              loadingServicesStartup: false,
+              servicesStartupError:
+                err?.message ||
+                (isEn
+                  ? 'Failed to inspect Windows services and startup programs.'
+                  : 'خطا در دریافت لیست سرویس‌ها و برنامه‌های استارت‌آپ سیستم کاربر.'),
             });
           }
         }

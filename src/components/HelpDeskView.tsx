@@ -81,6 +81,7 @@ import {
   Laptop,
   Fingerprint,
   Wifi,
+  Cog,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -120,6 +121,9 @@ import {
   fetchHelpdeskPrograms,
   uninstallHelpdeskProgram,
   fetchHelpdeskHardwareInventory,
+  fetchHelpdeskServicesAndStartup,
+  executeHelpdeskServiceAction,
+  executeHelpdeskStartupAction,
   fetchHelpdeskDiskHealth,
   executeHelpdeskSystemRepair,
   inspectHelpdeskDomainUser,
@@ -149,6 +153,7 @@ import {
 } from './DeleteConfirmModal';
 import { PrintServerConnectModal } from './helpdesk/PrintServerConnectModal';
 import { NetworkShareMapModal } from './helpdesk/NetworkShareMapModal';
+import { ServicesStartupTab } from './helpdesk/ServicesStartupTab';
 
 interface HelpDeskViewProps {
   isLightMode: boolean;
@@ -597,6 +602,19 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [expandedProgramId, setExpandedProgramId] = useState<string | null>(null);
   const [confirmUninstallProgId, setConfirmUninstallProgId] = useState<string | null>(null);
   const [uninstallingProgId, setUninstallingProgId] = useState<string | null>(null);
+
+  // Services & Startup Programs (Windows Services + Registry/Folder/Task Startup Management)
+  const servicesStartupData = ram.servicesStartupData;
+  const setServicesStartupData = setRamField('servicesStartupData');
+  const loadingServicesStartup = ram.loadingServicesStartup;
+  const setLoadingServicesStartup = setRamField('loadingServicesStartup');
+  const servicesStartupError = ram.servicesStartupError;
+  const setServicesStartupError = setRamField('servicesStartupError');
+  const serviceStartupActionResult = ram.serviceStartupActionResult;
+  const setServiceStartupActionResult = setRamField('serviceStartupActionResult');
+  const serviceStartupActionError = ram.serviceStartupActionError;
+  const setServiceStartupActionError = setRamField('serviceStartupActionError');
+  const [serviceStartupBusyKey, setServiceStartupBusyKey] = useState<string | null>(null);
 
   // System Integrity Repair (SFC / DISM) & Smart Disk Media (HDD vs SSD) + CHKDSK
   const diskHealthData = ram.diskHealthData;
@@ -1815,6 +1833,142 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const handleInspectServicesStartup = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingServicesStartup(true);
+    setServicesStartupError(null);
+    try {
+      const res = await fetchHelpdeskServicesAndStartup(payload);
+      setServicesStartupData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setServicesStartupData(null);
+      setServicesStartupError(
+        err?.message ||
+          (isEn
+            ? 'Failed to collect Windows services and startup programs from endpoint.'
+            : 'خطا در دریافت لیست سرویس‌ها و برنامه‌های استارت‌آپ از سیستم کاربر.')
+      );
+    } finally {
+      setLoadingServicesStartup(false);
+    }
+  };
+
+  const handleServiceAction = async (
+    service: any,
+    action: 'start' | 'stop' | 'restart' | 'pause' | 'resume' | 'set_startup',
+    startupType?: 'Automatic' | 'AutomaticDelayed' | 'Manual' | 'Disabled'
+  ) => {
+    const payload = buildPayload();
+    if (!payload || !service?.name) return;
+    setServiceStartupBusyKey(`svc:${service.name}:${action}`);
+    setServiceStartupActionError(null);
+    setServiceStartupActionResult(null);
+    try {
+      const res = await executeHelpdeskServiceAction({
+        ...payload,
+        serviceName: String(service.name),
+        action,
+        startupType,
+      });
+      setServiceStartupActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      // Update local state immediately for snappy UX, then refresh cleanly
+      const updatedDetails = res.data?.details;
+      if (updatedDetails && servicesStartupData?.services) {
+        setServicesStartupData((prev: any) => {
+          if (!prev || !Array.isArray(prev.services)) return prev;
+          const nextServices = prev.services.map((s: any) =>
+            s.name === service.name
+              ? {
+                  ...s,
+                  status: updatedDetails.status || s.status,
+                  startType: updatedDetails.startType || s.startType,
+                  pid: updatedDetails.pid !== undefined ? updatedDetails.pid : s.pid,
+                }
+              : s
+          );
+          return {
+            ...prev,
+            services: nextServices,
+            summary: {
+              ...prev.summary,
+              runningServices: nextServices.filter((s: any) => s.status === 'Running').length,
+              stoppedServices: nextServices.filter((s: any) => s.status === 'Stopped').length,
+              pausedServices: nextServices.filter((s: any) => s.status === 'Paused').length,
+              automaticServices: nextServices.filter(
+                (s: any) => s.startType === 'Automatic' || s.startType === 'AutomaticDelayed'
+              ).length,
+              manualServices: nextServices.filter((s: any) => s.startType === 'Manual').length,
+              disabledServices: nextServices.filter((s: any) => s.startType === 'Disabled').length,
+            },
+          };
+        });
+      }
+    } catch (err: any) {
+      setServiceStartupActionError(
+        err?.message ||
+          (isEn
+            ? `Failed to execute "${action}" on service "${service.displayName || service.name}".`
+            : `اجرای عملیات روی سرویس «${service.displayName || service.name}» با خطا مواجه شد.`)
+      );
+    } finally {
+      setServiceStartupBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleStartupAction = async (params: {
+    action: 'enable' | 'disable' | 'delete' | 'add';
+    item?: any;
+    newName?: string;
+    newCommand?: string;
+    newScope?: 'machine' | 'user';
+    newOwnerSid?: string;
+  }) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    const key =
+      params.action === 'add' ? 'startup:add' : `startup:${params.item?.id || params.item?.name || 'item'}`;
+    setServiceStartupBusyKey(key);
+    setServiceStartupActionError(null);
+    setServiceStartupActionResult(null);
+    try {
+      const res = await executeHelpdeskStartupAction({
+        ...payload,
+        action: params.action,
+        sourceType: params.item?.sourceType || 'registry_run',
+        locationHive:
+          params.item?.locationHive ||
+          (params.newScope === 'user' ? (params.newOwnerSid ? 'HKU_Run' : 'HKCU_Run') : 'HKLM64_Run'),
+        itemName: params.action === 'add' ? String(params.newName || '') : String(params.item?.name || ''),
+        ownerSid: params.action === 'add' ? params.newOwnerSid : params.item?.ownerSid,
+        taskPath: params.item?.taskPath,
+        command: params.action === 'add' ? params.newCommand : params.item?.command,
+        startupScope: params.newScope,
+      });
+      setServiceStartupActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      // Refresh list cleanly to keep StartupApproved & new items in sync
+      try {
+        const refreshed = await fetchHelpdeskServicesAndStartup(payload);
+        setServicesStartupData(refreshed.data);
+        if (refreshed.rateLimit) setRateLimit(refreshed.rateLimit);
+      } catch {}
+    } catch (err: any) {
+      setServiceStartupActionError(
+        err?.message ||
+          (isEn
+            ? `Failed to ${params.action} startup entry.`
+            : `مدیریت برنامه استارت‌آپ با خطا مواجه شد.`)
+      );
+    } finally {
+      setServiceStartupBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
   const handleInspectDisks = async () => {
     const payload = buildPayload();
     if (!payload) return;
@@ -2874,6 +3028,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'برنامه‌های نصب‌شده (Add/Remove)',
           },
           {
+            id: 'services_startup' as HelpdeskSubTab,
+            icon: Cog,
+            labelEn: 'Services & startup',
+            labelFa: 'سرویس‌ها و استارت‌آپ (Services & startup)',
+          },
+          {
             id: 'maintenance' as HelpdeskSubTab,
             icon: Wrench,
             labelEn: 'System Repair, Temp & GPO',
@@ -2904,6 +3064,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'logins' && loadingLogons) ||
             (tab.id === 'updates' && (loadingSysInfo || loadingUpdateStatus)) ||
             (tab.id === 'programs' && loadingPrograms) ||
+            (tab.id === 'services_startup' && loadingServicesStartup) ||
             (tab.id === 'maintenance' && (loadingTempScan || loadingGpo || loadingDiskHealth)) ||
             (tab.id === 'hardware_domain' && loadingBattery) ||
             (tab.id === 'history' && loadingHistory);
@@ -2916,6 +3077,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'logins' && Boolean(logonsData)) ||
             (tab.id === 'updates' && Boolean(sysInfoData || updateStatusData)) ||
             (tab.id === 'programs' && Boolean(programsData)) ||
+            (tab.id === 'services_startup' && Boolean(servicesStartupData)) ||
             (tab.id === 'maintenance' && Boolean(tempScanData || gpoData || diskHealthData)) ||
             (tab.id === 'hardware_domain' && Boolean(batteryData)) ||
             (tab.id === 'history' && Boolean(historyStats?.totalConnections));
@@ -2941,6 +3103,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     if (!updateStatusData && !loadingUpdateStatus) handleInspectUpdateStatus('auto', true);
                   } else if (tab.id === 'programs' && !programsData && !loadingPrograms) {
                     handleInspectPrograms();
+                  } else if (tab.id === 'services_startup' && !servicesStartupData && !loadingServicesStartup) {
+                    handleInspectServicesStartup();
                   } else if (tab.id === 'maintenance') {
                     if (!tempScanData && !loadingTempScan) handleScanTemp();
                     if (!gpoData && !loadingGpo) handleInspectGpo();
@@ -11120,6 +11284,31 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 6C: SERVICES & STARTUP PROGRAMS                                 */}
+      {/* =================================================================== */}
+      {activeSubTab === 'services_startup' && (
+        <ServicesStartupTab
+          isLightMode={isLightMode}
+          isEn={isEn}
+          targetIp={targetIp}
+          canExecuteActions={canExecuteActions}
+          data={servicesStartupData}
+          loading={loadingServicesStartup}
+          error={servicesStartupError}
+          actionResult={serviceStartupActionResult}
+          actionError={serviceStartupActionError}
+          onClearActionBanner={() => {
+            setServiceStartupActionResult(null);
+            setServiceStartupActionError(null);
+          }}
+          onRefresh={handleInspectServicesStartup}
+          onServiceAction={handleServiceAction}
+          onStartupAction={handleStartupAction}
+          busyKey={serviceStartupBusyKey}
+        />
       )}
 
       {/* =================================================================== */}
