@@ -1366,6 +1366,99 @@ export async function disconnectHelpdeskEndpointShare(
   return res.json();
 }
 
+export async function fetchHelpdeskEndpointLogons(
+  payload: HelpdeskConnectionPayload & {
+    hoursBack?: number;
+    maxEvents?: number;
+  }
+): Promise<{
+  success: boolean;
+  data: {
+    targetIp: string;
+    protocolUsed: string;
+    portUsed: number;
+    osFamily: 'windows' | 'linux';
+    hostname: string;
+    collectedAt: string;
+    hoursBack: number;
+    isAnyoneLoggedIn: boolean;
+    activeLoggedInUser: string;
+    isScreenLocked: boolean;
+    securityLogAccessible: boolean;
+    securityLogNote?: string;
+    activeSessions: Array<{
+      username: string;
+      domain: string;
+      sessionName: string;
+      sessionId: string;
+      state: 'active' | 'disconnected' | 'locked' | 'idle';
+      logonType: string;
+      idleTime: string;
+      logonTime: string;
+      logonTimeDisplay: string;
+      sourceIp: string;
+      isCurrentConsoleOwner: boolean;
+    }>;
+    userSummaries: Array<{
+      username: string;
+      sid: string;
+      profilePath: string;
+      isCurrentlyLoggedIn: boolean;
+      currentState: 'active' | 'disconnected' | 'locked' | 'offline';
+      currentSessionName: string;
+      lastLogonTime: string;
+      lastLogoffTime: string;
+      lastSourceIp: string;
+      lastLogonType: string;
+      logonCountInWindow: number;
+      totalLogonsOnSystem: number;
+      failedCountInWindow: number;
+    }>;
+    events: Array<{
+      id: string;
+      timestamp: string;
+      eventType:
+        | 'logon'
+        | 'logoff'
+        | 'lock'
+        | 'unlock'
+        | 'rdp_disconnect'
+        | 'rdp_reconnect'
+        | 'failed';
+      eventId: number;
+      channel: string;
+      username: string;
+      domain: string;
+      logonTypeCode: number;
+      logonTypeLabel: string;
+      logonTypeLabelFa: string;
+      sourceIp: string;
+      sourceHost: string;
+      sessionName: string;
+      failureReason?: string;
+    }>;
+    summary: {
+      activeUsersCount: number;
+      disconnectedCount: number;
+      distinctUsersCount: number;
+      totalLogonEvents: number;
+      totalFailedEvents: number;
+      lastLoginUser: string;
+      lastLoginTime: string;
+    };
+  };
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/logons`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to collect endpoint user login & session report');
+  return res.json();
+}
+
 export async function fetchHelpdeskEventLogs(
   payload: HelpdeskConnectionPayload & {
     channel?: 'All' | 'System' | 'Application';

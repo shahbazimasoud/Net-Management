@@ -532,7 +532,16 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
     return portalLogs.filter((log) => {
       if (!isWithinTimeframe(log.timestamp)) return false;
       if (selectedUser !== 'all' && log.actor.username !== selectedUser) return false;
-      if (selectedCategory !== 'all' && log.category !== selectedCategory) return false;
+      if (selectedCategory !== 'all') {
+        if (selectedCategory === 'helpdesk') {
+          const isHd =
+            log.category === 'helpdesk' ||
+            (log.category === 'system' && String(log.action || '').toLowerCase().startsWith('helpdesk_'));
+          if (!isHd) return false;
+        } else if (log.category !== selectedCategory) {
+          return false;
+        }
+      }
       if (selectedSeverity !== 'all' && log.severity !== selectedSeverity) return false;
 
       if (!searchQuery.trim()) return true;
@@ -952,21 +961,29 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
   };
 
   const getActionPill = (action: string) => {
-    if (action.includes('DELETE')) {
+    const up = action.toUpperCase();
+    if (up.includes('DELETE') || up.includes('DENIED') || up.includes('FAILED') || up.includes('BLOCKED') || up.includes('DISCONNECT') || up.includes('TERMINATE') || up.includes('POWER_SHUTDOWN')) {
       return (
         <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-rose-500/20 text-rose-500 border border-rose-500/40">
           {action}
         </span>
       );
     }
-    if (action.includes('CREATED') || action.includes('ADDED')) {
+    if (up.includes('CREATED') || up.includes('ADDED') || up.includes('INSTALL') || up.includes('MAP')) {
       return (
         <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-emerald-500/20 text-emerald-500 border border-emerald-500/40">
           {action}
         </span>
       );
     }
-    if (action.includes('BACKUP')) {
+    if (up.startsWith('HELPDESK_')) {
+      return (
+        <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/35">
+          {action}
+        </span>
+      );
+    }
+    if (up.includes('BACKUP')) {
       return (
         <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/40">
           {action}
@@ -2232,6 +2249,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                 className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 max-w-full min-w-0 flex-1 sm:flex-initial"
               >
                 <option value="all" className="bg-slate-900 text-white">{isEn ? 'All Categories' : 'تمام دسته‌بندی‌ها'}</option>
+                <option value="helpdesk" className="bg-slate-900 text-white">{isEn ? 'HelpDesk & Endpoint Support' : 'پشتیبانی سیستم کاربران (HelpDesk)'}</option>
                 <option value="device_inventory" className="bg-slate-900 text-white">{isEn ? 'Device Inventory & Locations' : 'موجودی تجهیزات و رک‌ها'}</option>
                 <option value="user_management" className="bg-slate-900 text-white">{isEn ? 'User & Identity Management' : 'مدیریت کاربران و هویت'}</option>
                 <option value="rbac_policy" className="bg-slate-900 text-white">{isEn ? 'Access Control & Policies' : 'سطوح دسترسی و پالیسی RBAC'}</option>
@@ -2240,6 +2258,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
                 <option value="ssl_certificates" className="bg-slate-900 text-white">{isEn ? 'SSL / TLS Certificates' : 'گواهینامه‌های SSL / TLS'}</option>
                 <option value="licenses" className="bg-slate-900 text-white">{isEn ? 'Licenses Management' : 'مدیریت لایسنس‌ها'}</option>
                 <option value="contracts" className="bg-slate-900 text-white">{isEn ? 'Contracts & SLA' : 'مدیریت قراردادها'}</option>
+                <option value="system" className="bg-slate-900 text-white">{isEn ? 'System Operations' : 'عملیات سیستمی'}</option>
               </select>
 
               <select

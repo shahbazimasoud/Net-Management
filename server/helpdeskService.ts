@@ -6682,6 +6682,825 @@ PY
 }
 
 // ============================================================================
+// 19C. WORKSTATION USER LOGONS, LAST LOGIN & ACTIVE SESSION TELEMETRY
+// ============================================================================
+
+export interface HelpdeskActiveUserSession {
+  username: string;
+  domain: string;
+  sessionName: string;
+  sessionId: string;
+  state: 'active' | 'disconnected' | 'locked' | 'idle';
+  logonType: string;
+  idleTime: string;
+  logonTime: string;
+  logonTimeDisplay: string;
+  sourceIp: string;
+  isCurrentConsoleOwner: boolean;
+}
+
+export interface HelpdeskWorkstationUserSummary {
+  username: string;
+  sid: string;
+  profilePath: string;
+  isCurrentlyLoggedIn: boolean;
+  currentState: 'active' | 'disconnected' | 'locked' | 'offline';
+  currentSessionName: string;
+  lastLogonTime: string;
+  lastLogoffTime: string;
+  lastSourceIp: string;
+  lastLogonType: string;
+  logonCountInWindow: number;
+  totalLogonsOnSystem: number;
+  failedCountInWindow: number;
+}
+
+export interface HelpdeskWorkstationLogonEvent {
+  id: string;
+  timestamp: string;
+  eventType:
+    | 'logon'
+    | 'logoff'
+    | 'lock'
+    | 'unlock'
+    | 'rdp_disconnect'
+    | 'rdp_reconnect'
+    | 'failed';
+  eventId: number;
+  channel: string;
+  username: string;
+  domain: string;
+  logonTypeCode: number;
+  logonTypeLabel: string;
+  logonTypeLabelFa: string;
+  sourceIp: string;
+  sourceHost: string;
+  sessionName: string;
+  failureReason?: string;
+}
+
+export interface HelpdeskUserLogonsResult {
+  targetIp: string;
+  protocolUsed: string;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  collectedAt: string;
+  hoursBack: number;
+  isAnyoneLoggedIn: boolean;
+  activeLoggedInUser: string;
+  isScreenLocked: boolean;
+  securityLogAccessible: boolean;
+  securityLogNote?: string;
+  activeSessions: HelpdeskActiveUserSession[];
+  userSummaries: HelpdeskWorkstationUserSummary[];
+  events: HelpdeskWorkstationLogonEvent[];
+  summary: {
+    activeUsersCount: number;
+    disconnectedCount: number;
+    distinctUsersCount: number;
+    totalLogonEvents: number;
+    totalFailedEvents: number;
+    lastLoginUser: string;
+    lastLoginTime: string;
+  };
+}
+
+function describeWindowsLogonType(code: number): { en: string; fa: string } {
+  switch (code) {
+    case 2:
+      return { en: 'Interactive (Console)', fa: 'ورود مستقیم روی سیستم (Console)' };
+    case 3:
+      return { en: 'Network Share / SMB', fa: 'اتصال شبکه‌ای (SMB / Share)' };
+    case 7:
+      return { en: 'Screen Unlock', fa: 'باز کردن قفل صفحه (Unlock)' };
+    case 8:
+      return { en: 'Network Cleartext', fa: 'ورود شبکه‌ای' };
+    case 9:
+      return { en: 'RunAs / NewCredentials', fa: 'اجرا با اعتبار دیگر (RunAs)' };
+    case 10:
+      return { en: 'Remote Desktop (RDP)', fa: 'ریموت دسکتاپ (RDP)' };
+    case 11:
+      return { en: 'Cached Domain Logon', fa: 'ورود دامین (Cached Offline)' };
+    case 12:
+      return { en: 'Cached RDP Logon', fa: 'ورود ریموت دامین (Cached RDP)' };
+    case 21:
+    case 25:
+      return { en: 'Session Logon / Reconnect', fa: 'اتصال نشست کاربر (Session)' };
+    default:
+      return { en: 'Workstation Session', fa: 'نشست کاربری' };
+  }
+}
+
+function describeWindowsFailureSubStatus(sub: string): string {
+  const s = String(sub || '').trim().toLowerCase();
+  switch (s) {
+    case '0xc000006a':
+      return 'Incorrect password (رمز عبور اشتباه)';
+    case '0xc0000064':
+      return 'Unknown username (نام کاربری نامعتبر)';
+    case '0xc0000234':
+      return 'Account locked out (اکانت قفل شده)';
+    case '0xc000006e':
+      return 'Account logon restriction (محدودیت ورود اکانت)';
+    case '0xc0000072':
+      return 'Account disabled (اکانت غیرفعال است)';
+    case '0xc0000071':
+      return 'Password expired (رمز عبور منقضی شده)';
+    case '0xc0000193':
+      return 'Account expired (حساب منقضی شده)';
+    case '0xc000015b':
+      return 'Logon type not granted on this PC (مجوز نوع ورود ندارد)';
+    case '0xc000006f':
+      return 'Outside allowed logon hours (خارج از ساعت مجاز ورود)';
+    case '0xc0000070':
+      return 'Workstation restriction (محدودیت سیستم مجاز)';
+    default:
+      return s ? 'Authentication failed (' + s + ')' : 'Authentication failed';
+  }
+}
+
+export async function collectEndpointUserLogons(
+  input: HelpdeskTargetInput,
+  options?: { hoursBack?: number; maxEvents?: number }
+): Promise<HelpdeskUserLogonsResult> {
+  const hoursBack = Math.max(1, Math.min(720, Math.floor(Number(options?.hoursBack) || 168)));
+  const maxEvents = Math.max(20, Math.min(250, Math.floor(Number(options?.maxEvents) || 150)));
+
+  const ps = `
+$ErrorActionPreference = 'SilentlyContinue'
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+$isScreenLocked = $false
+try {
+  $lockUi = Get-CimInstance Win32_Process -Filter "Name='LogonUI.exe'" -ErrorAction SilentlyContinue
+  if ($lockUi) { $isScreenLocked = $true }
+} catch {}
+
+$activeSessions = @()
+$seenSessionKeys = @{}
+
+function Parse-DateTimeToIso($raw) {
+  if (-not $raw) { return '' }
+  try {
+    if ($raw -is [DateTime]) {
+      return ([DateTime]$raw).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    }
+    $str = ([string]$raw).Trim()
+    if (-not $str) { return '' }
+    $dt = [DateTime]::Parse($str)
+    return $dt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+  } catch {
+    return ''
+  }
+}
+
+# 1. Live Interactive / Disconnected Sessions via quser.exe
+try {
+  $qLines = @(& quser.exe 2>&1)
+  if ($LASTEXITCODE -eq 0 -and $qLines.Count -gt 1) {
+    foreach ($rawLine in $qLines[1..($qLines.Count - 1)]) {
+      $line = ([string]$rawLine)
+      if (-not $line -or $line.Trim().Length -lt 6) { continue }
+      $isCurr = $line.TrimStart().StartsWith('>')
+      $clean = $line.TrimStart('>').Trim()
+      # Format 1 (with sessionname): USERNAME  SESSIONNAME  ID  STATE  IDLE_TIME  LOGON_TIME...
+      # Format 2 (disconnected / blank sessionname): USERNAME  ID  STATE  IDLE_TIME  LOGON_TIME...
+      $u = ''; $sname = ''; $sidNum = ''; $stRaw = ''; $idle = ''; $lTimeRaw = ''
+      if ($clean -match '^(\\S+)\\s+(\\S+)\\s+(\\d+)\\s+(Active|Disc|Disconnected|Conn|Down|Idle|Listen)\\s+(\\S+)\\s+(.+)$') {
+        $u = $Matches[1]; $sname = $Matches[2]; $sidNum = $Matches[3]; $stRaw = $Matches[4]; $idle = $Matches[5]; $lTimeRaw = $Matches[6].Trim()
+      } elseif ($clean -match '^(\\S+)\\s+(\\d+)\\s+(Disc|Disconnected|Active|Idle)\\s+(\\S+)\\s+(.+)$') {
+        $u = $Matches[1]; $sname = 'disconnected'; $sidNum = $Matches[2]; $stRaw = $Matches[3]; $idle = $Matches[4]; $lTimeRaw = $Matches[5].Trim()
+      } elseif ($clean -match '^(\\S+)\\s+(.*?)\\s+(\\d+)\\s+(Active|Disc|Disconnected)\\s+(\\S+)\\s+(.+)$') {
+        $u = $Matches[1]; $sname = $Matches[2].Trim(); $sidNum = $Matches[3]; $stRaw = $Matches[4]; $idle = $Matches[5]; $lTimeRaw = $Matches[6].Trim()
+      }
+      if (-not $u) { continue }
+      $stNorm = if ($stRaw -imatch '^Disc') { 'disconnected' } elseif ($isScreenLocked -and $sname -imatch 'console') { 'locked' } elseif ($stRaw -imatch '^Idle') { 'idle' } else { 'active' }
+      $lType = if ($sname -imatch '^rdp') { 'RDP' } elseif ($sname -imatch '^console') { 'Console' } else { 'Interactive' }
+      $lIso = Parse-DateTimeToIso $lTimeRaw
+      $key = "$($u.ToLower())|$sidNum"
+      $seenSessionKeys[$key] = $true
+      $activeSessions += [PSCustomObject]@{
+        username = $u
+        domain = ''
+        sessionName = if ($sname) { $sname } else { 'console' }
+        sessionId = $sidNum
+        state = $stNorm
+        logonType = $lType
+        idleTime = if ($idle -eq '.' -or $idle -eq 'none') { '0m' } else { $idle }
+        logonTime = $lIso
+        logonTimeDisplay = $lTimeRaw
+        sourceIp = ''
+        isCurrentConsoleOwner = ($isCurr -or ($loggedUser -and ($loggedUser -ieq $u -or $loggedUser.EndsWith("\\" + $u))))
+      }
+    }
+  }
+} catch {}
+
+# 2. Enrich / fallback active sessions from Win32_ComputerSystem, explorer.exe & Win32_LogonSession
+if ($activeSessions.Count -eq 0 -and $loggedUser) {
+  $uShort = if ($loggedUser.Contains('\\')) { $loggedUser.Split('\\', 2)[1] } else { $loggedUser }
+  $uDom = if ($loggedUser.Contains('\\')) { $loggedUser.Split('\\', 2)[0] } else { '' }
+  $activeSessions += [PSCustomObject]@{
+    username = $uShort
+    domain = $uDom
+    sessionName = 'console'
+    sessionId = '1'
+    state = if ($isScreenLocked) { 'locked' } else { 'active' }
+    logonType = 'Console'
+    idleTime = '0m'
+    logonTime = ''
+    logonTimeDisplay = ''
+    sourceIp = ''
+    isCurrentConsoleOwner = $true
+  }
+}
+
+# Match domain prefixes & session start times from Win32_LogonSession (Types 2, 7, 10, 11)
+try {
+  $wmiSessions = @(Get-CimInstance Win32_LogonSession -ErrorAction SilentlyContinue | Where-Object { $_.LogonType -in @(2, 7, 10, 11) })
+  $wmiLinks = @(Get-CimInstance Win32_LoggedOnUser -ErrorAction SilentlyContinue)
+  $acctByLogonId = @{}
+  foreach ($lnk in $wmiLinks) {
+    $depId = [string]$lnk.Dependent.LogonId
+    if ($depId -and $lnk.Antecedent) {
+      $acctByLogonId[$depId] = [PSCustomObject]@{
+        Domain = [string]$lnk.Antecedent.Domain
+        Name = [string]$lnk.Antecedent.Name
+      }
+    }
+  }
+  foreach ($as in $activeSessions) {
+    foreach ($ws in $wmiSessions) {
+      $lid = [string]$ws.LogonId
+      if ($acctByLogonId.ContainsKey($lid)) {
+        $ac = $acctByLogonId[$lid]
+        if ($ac.Name -ieq $as.username) {
+          if (-not $as.domain -and $ac.Domain) { $as.domain = $ac.Domain }
+          if (-not $as.logonTime -and $ws.StartTime) {
+            $as.logonTime = ([DateTime]$ws.StartTime).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+          }
+          if ($ws.LogonType -eq 10 -and $as.logonType -eq 'Interactive') { $as.logonType = 'RDP' }
+        }
+      }
+    }
+  }
+} catch {}
+
+# 3. Collect Windows Security Logon/Logoff/Lock/Unlock/Failed Events
+$startTime = (Get-Date).AddHours(-${hoursBack})
+$events = @()
+$securityOk = $true
+$securityNote = ''
+$rdpIpByUser = @{}
+
+try {
+  $secFilter = @{
+    LogName = 'Security'
+    Id = @(4624, 4625, 4634, 4647, 4778, 4779, 4800, 4801)
+    StartTime = $startTime
+  }
+  $secRaw = @(Get-WinEvent -FilterHashtable $secFilter -MaxEvents 450 -ErrorAction Stop)
+  foreach ($ev in $secRaw) {
+    $evId = [int]$ev.Id
+    $xml = [xml]$ev.ToXml()
+    $dMap = @{}
+    foreach ($d in $xml.Event.EventData.Data) {
+      if ($d.Name) { $dMap[[string]$d.Name] = [string]$d.'#text' }
+    }
+    $tUser = [string]$dMap['TargetUserName']
+    if (-not $tUser -or $tUser -eq '-') { continue }
+    if ($tUser.EndsWith('$')) { continue }
+    if ($tUser -imatch '^(SYSTEM|LOCAL SERVICE|NETWORK SERVICE|ANONYMOUS LOGON|DWM-\\d+|UMFD-\\d+)$') { continue }
+
+    $tDom = [string]$dMap['TargetDomainName']
+    if ($tDom -imatch '^(NT AUTHORITY|Window Manager|Font Driver Host)$') { continue }
+
+    $lt = 0
+    if ($dMap.ContainsKey('LogonType')) { [void][int]::TryParse([string]$dMap['LogonType'], [ref]$lt) }
+
+    # Filter out noisy internal network/service auth on 4624/4634 unless RemoteInteractive/Interactive/Unlock/Cached
+    if (($evId -eq 4624 -or $evId -eq 4634) -and ($lt -notin @(2, 7, 10, 11, 12))) { continue }
+
+    $ip = [string]$dMap['IpAddress']
+    if ($ip -eq '-' -or $ip -eq '::1') { $ip = '' }
+    $wsName = [string]$dMap['WorkstationName']
+    if ($wsName -eq '-') { $wsName = '' }
+    $sName = [string]$dMap['SessionName']
+    if ($sName -eq '-') { $sName = '' }
+
+    $eType = switch ($evId) {
+      4624 { if ($lt -eq 7) { 'unlock' } else { 'logon' } }
+      4625 { 'failed' }
+      4634 { 'logoff' }
+      4647 { 'logoff' }
+      4778 { 'rdp_reconnect' }
+      4779 { 'rdp_disconnect' }
+      4800 { 'lock' }
+      4801 { 'unlock' }
+      default { 'logon' }
+    }
+
+    if ($ip -and ($eType -eq 'logon' -or $eType -eq 'rdp_reconnect') -and -not $rdpIpByUser.ContainsKey($tUser.ToLower())) {
+      $rdpIpByUser[$tUser.ToLower()] = $ip
+    }
+
+    $events += [PSCustomObject]@{
+      id = "sec-$($ev.RecordId)"
+      timestamp = if ($ev.TimeCreated) { $ev.TimeCreated.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { '' }
+      eventType = $eType
+      eventId = $evId
+      channel = 'Security'
+      username = $tUser
+      domain = $tDom
+      logonTypeCode = $lt
+      sourceIp = $ip
+      sourceHost = $wsName
+      sessionName = $sName
+      failureSubStatus = if ($evId -eq 4625) { [string]$dMap['SubStatus'] } else { '' }
+    }
+    if ($events.Count -ge ${maxEvents}) { break }
+  }
+} catch {
+  $securityOk = $false
+  $securityNote = [string]$_.Exception.Message
+}
+
+# 4. Also inspect TerminalServices-LocalSessionManager/Operational (captures interactive/RDP logons & source IPs even if Security Audit Logon is disabled)
+try {
+  $lsmFilter = @{
+    LogName = 'Microsoft-Windows-TerminalServices-LocalSessionManager/Operational'
+    Id = @(21, 23, 24, 25)
+    StartTime = $startTime
+  }
+  $lsmRaw = @(Get-WinEvent -FilterHashtable $lsmFilter -MaxEvents 150 -ErrorAction SilentlyContinue)
+  foreach ($ev in $lsmRaw) {
+    $evId = [int]$ev.Id
+    $xml = [xml]$ev.ToXml()
+    $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+    $ns.AddNamespace('e', 'http://schemas.microsoft.com/win/2004/08/events/event')
+    $ns.AddNamespace('u', 'Event_NS')
+    $fullUser = ''
+    $addr = ''
+    $sessIdVal = ''
+    try {
+      $uNode = $xml.SelectSingleNode('//u:User', $ns)
+      if ($uNode) { $fullUser = [string]$uNode.InnerText }
+      $aNode = $xml.SelectSingleNode('//u:Address', $ns)
+      if ($aNode) { $addr = [string]$aNode.InnerText }
+      $sNode = $xml.SelectSingleNode('//u:SessionID', $ns)
+      if ($sNode) { $sessIdVal = [string]$sNode.InnerText }
+    } catch {}
+    if (-not $fullUser) {
+      $uText = [string]$ev.Message
+      if ($uText -match 'User:\\s*([^\\r\\n]+)') { $fullUser = $Matches[1].Trim() }
+      if (-not $addr -and $uText -match 'Source Network Address:\\s*([^\\r\\n]+)') { $addr = $Matches[1].Trim() }
+    }
+    if (-not $fullUser) { continue }
+    $uDom = ''; $uName = $fullUser
+    if ($fullUser.Contains('\\')) {
+      $parts = $fullUser.Split('\\', 2)
+      $uDom = $parts[0]; $uName = $parts[1]
+    }
+    if ($addr -eq 'LOCAL' -or $addr -eq '-') { $addr = '' }
+    if ($addr -and -not $rdpIpByUser.ContainsKey($uName.ToLower())) {
+      $rdpIpByUser[$uName.ToLower()] = $addr
+    }
+    $tsIso = if ($ev.TimeCreated) { $ev.TimeCreated.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { '' }
+    $eType = switch ($evId) {
+      21 { 'logon' }
+      23 { 'logoff' }
+      24 { 'rdp_disconnect' }
+      25 { 'rdp_reconnect' }
+      default { 'logon' }
+    }
+    $ltCode = if ($addr) { 10 } else { 2 }
+    # Deduplicate against Security event within 6 seconds for same user & eventType
+    $dup = $false
+    foreach ($ex in $events) {
+      if ($ex.username -ieq $uName -and $ex.eventType -eq $eType -and $ex.timestamp -and $tsIso) {
+        $diff = [Math]::Abs(([DateTime]::Parse($ex.timestamp) - [DateTime]::Parse($tsIso)).TotalSeconds)
+        if ($diff -le 6) {
+          if ($addr -and -not $ex.sourceIp) { $ex.sourceIp = $addr }
+          $dup = $true
+          break
+        }
+      }
+    }
+    if (-not $dup -and $events.Count -lt ${maxEvents}) {
+      $events += [PSCustomObject]@{
+        id = "lsm-$($ev.RecordId)"
+        timestamp = $tsIso
+        eventType = $eType
+        eventId = $evId
+        channel = 'TerminalServices-LSM'
+        username = $uName
+        domain = $uDom
+        logonTypeCode = $ltCode
+        sourceIp = $addr
+        sourceHost = ''
+        sessionName = if ($sessIdVal) { "Session #$sessIdVal" } else { '' }
+        failureSubStatus = ''
+      }
+    }
+  }
+} catch {}
+
+# Enrich active session sourceIp from RDP events if matched
+foreach ($as in $activeSessions) {
+  $uk = ([string]$as.username).ToLower()
+  if (-not $as.sourceIp -and $rdpIpByUser.ContainsKey($uk)) {
+    $as.sourceIp = $rdpIpByUser[$uk]
+  }
+}
+
+# Sort all events newest-first
+$events = @($events | Sort-Object -Property timestamp -Descending)
+
+# 5. Build Workstation Users Summary combining ProfileList FILETIME + Win32_NetworkLoginProfile + ActiveSessions + Events
+$netProfilesByUser = @{}
+try {
+  foreach ($nlp in (Get-CimInstance Win32_NetworkLoginProfile -ErrorAction SilentlyContinue)) {
+    $nName = [string]$nlp.Name
+    if (-not $nName -or $nName.EndsWith('$')) { continue }
+    if ($nName -imatch '^(NT AUTHORITY|Window Manager|Font Driver Host)\\\\') { continue }
+    $short = if ($nName.Contains('\\')) { $nName.Split('\\', 2)[1] } else { $nName }
+    $lastL = ''
+    try {
+      if ($nlp.LastLogon -and ([DateTime]$nlp.LastLogon).Year -gt 1990) {
+        $lastL = ([DateTime]$nlp.LastLogon).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+      }
+    } catch {}
+    $netProfilesByUser[$short.ToLower()] = [PSCustomObject]@{
+      fullName = $nName
+      lastLogon = $lastL
+      numLogons = if ($nlp.NumberOfLogons) { [int]$nlp.NumberOfLogons } else { 0 }
+    }
+  }
+} catch {}
+
+$userSummariesMap = @{}
+function Ensure-UserSummary($uKey, $displayUser, $sidVal, $pPath) {
+  if (-not $userSummariesMap.ContainsKey($uKey)) {
+    $userSummariesMap[$uKey] = [PSCustomObject]@{
+      username = $displayUser
+      sid = $sidVal
+      profilePath = $pPath
+      isCurrentlyLoggedIn = $false
+      currentState = 'offline'
+      currentSessionName = ''
+      lastLogonTime = ''
+      lastLogoffTime = ''
+      lastSourceIp = ''
+      lastLogonType = ''
+      logonCountInWindow = 0
+      totalLogonsOnSystem = 0
+      failedCountInWindow = 0
+    }
+  }
+  return $userSummariesMap[$uKey]
+}
+
+try {
+  $plist = Get-ChildItem -Path 'Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList' -ErrorAction SilentlyContinue
+  foreach ($pk in $plist) {
+    $sid = [string]$pk.PSChildName
+    if ($sid -notmatch '^S-1-5-21-') { continue }
+    $props = Get-ItemProperty -Path $pk.PSPath -ErrorAction SilentlyContinue
+    $pPath = if ($props -and $props.ProfileImagePath) { [string]$props.ProfileImagePath } else { '' }
+    $acctName = ''
+    try {
+      $acctName = (New-Object System.Security.Principal.SecurityIdentifier($sid)).Translate([System.Security.Principal.NTAccount]).Value
+    } catch {
+      if ($pPath) { $acctName = Split-Path -Path $pPath -Leaf } else { $acctName = $sid }
+    }
+    $shortU = if ($acctName.Contains('\\')) { $acctName.Split('\\', 2)[1] } else { $acctName }
+    $entry = Ensure-UserSummary ($shortU.ToLower()) $acctName $sid $pPath
+    try {
+      if ($null -ne $props.LocalProfileLoadTimeHigh -and $null -ne $props.LocalProfileLoadTimeLow) {
+        $hi = [int64][uint32]$props.LocalProfileLoadTimeHigh
+        $lo = [int64][uint32]$props.LocalProfileLoadTimeLow
+        $ft = ($hi -shl 32) -bor $lo
+        if ($ft -gt 0) {
+          $dt = [DateTime]::FromFileTimeUtc($ft)
+          if ($dt.Year -gt 1995) { $entry.lastLogonTime = $dt.ToString('yyyy-MM-ddTHH:mm:ssZ') }
+        }
+      }
+      if ($null -ne $props.LocalProfileUnloadTimeHigh -and $null -ne $props.LocalProfileUnloadTimeLow) {
+        $hi2 = [int64][uint32]$props.LocalProfileUnloadTimeHigh
+        $lo2 = [int64][uint32]$props.LocalProfileUnloadTimeLow
+        $ft2 = ($hi2 -shl 32) -bor $lo2
+        if ($ft2 -gt 0) {
+          $dt2 = [DateTime]::FromFileTimeUtc($ft2)
+          if ($dt2.Year -gt 1995) { $entry.lastLogoffTime = $dt2.ToString('yyyy-MM-ddTHH:mm:ssZ') }
+        }
+      }
+    } catch {}
+  }
+} catch {}
+
+foreach ($k in $netProfilesByUser.Keys) {
+  $np = $netProfilesByUser[$k]
+  $entry = Ensure-UserSummary $k $np.fullName '' ''
+  $entry.totalLogonsOnSystem = $np.numLogons
+  if ($np.lastLogon -and (-not $entry.lastLogonTime -or $np.lastLogon -gt $entry.lastLogonTime)) {
+    $entry.lastLogonTime = $np.lastLogon
+  }
+}
+
+foreach ($as in $activeSessions) {
+  $shortKey = ([string]$as.username).ToLower()
+  $fullDisp = if ($as.domain) { "$($as.domain)\\$($as.username)" } else { [string]$as.username }
+  $entry = Ensure-UserSummary $shortKey $fullDisp '' ''
+  $entry.isCurrentlyLoggedIn = $true
+  $entry.currentState = $as.state
+  $entry.currentSessionName = $as.sessionName
+  if ($as.sourceIp -and -not $entry.lastSourceIp) { $entry.lastSourceIp = $as.sourceIp }
+  if ($as.logonType -and -not $entry.lastLogonType) { $entry.lastLogonType = $as.logonType }
+  if ($as.logonTime -and (-not $entry.lastLogonTime -or $as.logonTime -gt $entry.lastLogonTime)) {
+    $entry.lastLogonTime = $as.logonTime
+  }
+}
+
+foreach ($ev in $events) {
+  $shortKey = ([string]$ev.username).ToLower()
+  $fullDisp = if ($ev.domain) { "$($ev.domain)\\$($ev.username)" } else { [string]$ev.username }
+  $entry = Ensure-UserSummary $shortKey $fullDisp '' ''
+  if ($ev.eventType -eq 'logon' -or $ev.eventType -eq 'rdp_reconnect') {
+    $entry.logonCountInWindow += 1
+    if ($ev.timestamp -and (-not $entry.lastLogonTime -or $ev.timestamp -gt $entry.lastLogonTime)) {
+      $entry.lastLogonTime = $ev.timestamp
+      if ($ev.sourceIp) { $entry.lastSourceIp = $ev.sourceIp }
+      $entry.lastLogonType = if ($ev.logonTypeCode -eq 10) { 'RDP' } elseif ($ev.logonTypeCode -eq 11) { 'Cached Domain' } elseif ($ev.logonTypeCode -eq 2) { 'Console' } else { 'Session' }
+    }
+  } elseif ($ev.eventType -eq 'logoff') {
+    if ($ev.timestamp -and (-not $entry.lastLogoffTime -or $ev.timestamp -gt $entry.lastLogoffTime)) {
+      $entry.lastLogoffTime = $ev.timestamp
+    }
+  } elseif ($ev.eventType -eq 'failed') {
+    $entry.failedCountInWindow += 1
+  }
+}
+
+$userSummaries = @($userSummariesMap.Values | Sort-Object -Property @{Expression='isCurrentlyLoggedIn';Descending=$true}, @{Expression='lastLogonTime';Descending=$true})
+
+[PSCustomObject]@{
+  hostname = [string]$env:COMPUTERNAME
+  loggedInUser = $loggedUser
+  isScreenLocked = $isScreenLocked
+  securityLogAccessible = $securityOk
+  securityLogNote = $securityNote
+  activeSessions = $activeSessions
+  userSummaries = $userSummaries
+  events = $events
+} | ConvertTo-Json -Depth 6 -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import datetime, json, os, re, socket, subprocess
+
+hostname = socket.gethostname()
+active_sessions = []
+user_map = {}
+events = []
+
+def ensure_user(u):
+    if u not in user_map:
+        user_map[u] = {
+            "username": u, "sid": "", "profilePath": f"/home/{u}" if u != "root" else "/root",
+            "isCurrentlyLoggedIn": False, "currentState": "offline", "currentSessionName": "",
+            "lastLogonTime": "", "lastLogoffTime": "", "lastSourceIp": "", "lastLogonType": "",
+            "logonCountInWindow": 0, "totalLogonsOnSystem": 0, "failedCountInWindow": 0
+        }
+    return user_map[u]
+
+try:
+    who_out = subprocess.check_output(["who", "-u"], text=True, stderr=subprocess.DEVNULL)
+    for line in who_out.splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        u, tty = parts[0], parts[1]
+        idle = parts[4] if len(parts) >= 5 else "0m"
+        src = ""
+        m = re.search(r"\\(([^)]+)\\)", line)
+        if m:
+            src = m.group(1)
+        ltype = "SSH" if "pts/" in tty or src else "Console"
+        dt_str = f"{parts[2]} {parts[3]}"
+        iso = ""
+        try:
+            iso = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            pass
+        active_sessions.append({
+            "username": u, "domain": "", "sessionName": tty, "sessionId": tty,
+            "state": "active", "logonType": ltype, "idleTime": "0m" if idle == "." else idle,
+            "logonTime": iso, "logonTimeDisplay": dt_str, "sourceIp": src,
+            "isCurrentConsoleOwner": True
+        })
+        us = ensure_user(u)
+        us["isCurrentlyLoggedIn"] = True
+        us["currentState"] = "active"
+        us["currentSessionName"] = tty
+        if src: us["lastSourceIp"] = src
+        us["lastLogonType"] = ltype
+        if iso and (not us["lastLogonTime"] or iso > us["lastLogonTime"]):
+            us["lastLogonTime"] = iso
+except Exception:
+    pass
+
+try:
+    last_out = subprocess.check_output(["last", "-F", "-w", "-n", "120"], text=True, stderr=subprocess.DEVNULL)
+    for idx, line in enumerate(last_out.splitlines(), 1):
+        if not line.strip() or line.startswith("wtmp ") or line.startswith("reboot "):
+            continue
+        parts = line.split()
+        if len(parts) < 7:
+            continue
+        u, tty = parts[0], parts[1]
+        src = ""
+        rest_idx = 2
+        if re.match(r"^[0-9a-fA-F\\.:]+$", parts[2]) and parts[2] not in ("Mon","Tue","Wed","Thu","Fri","Sat","Sun"):
+            src = parts[2]
+            rest_idx = 3
+        m_dt = re.search(r"([A-Z][a-z]{2}\\s+[A-Z][a-z]{2}\\s+\\d+\\s+\\d{2}:\\d{2}:\\d{2}\\s+\\d{4})", " ".join(parts[rest_idx:]))
+        iso = ""
+        if m_dt:
+            try:
+                dt = datetime.datetime.strptime(m_dt.group(1), "%a %b %d %H:%M:%S %Y").replace(tzinfo=datetime.timezone.utc)
+                iso = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                pass
+        ltype = 10 if src or "pts/" in tty else 2
+        events.append({
+            "id": f"wtmp-{idx}", "timestamp": iso, "eventType": "logon", "eventId": 21,
+            "channel": "wtmp", "username": u, "domain": "", "logonTypeCode": ltype,
+            "sourceIp": src, "sourceHost": "", "sessionName": tty, "failureSubStatus": ""
+        })
+        us = ensure_user(u)
+        us["logonCountInWindow"] += 1
+        if iso and (not us["lastLogonTime"] or iso > us["lastLogonTime"]):
+            us["lastLogonTime"] = iso
+            if src: us["lastSourceIp"] = src
+except Exception:
+    pass
+
+logged_user = active_sessions[0]["username"] if active_sessions else ""
+print(json.dumps({
+    "hostname": hostname,
+    "loggedInUser": logged_user,
+    "isScreenLocked": False,
+    "securityLogAccessible": True,
+    "securityLogNote": "",
+    "activeSessions": active_sessions,
+    "userSummaries": sorted(user_map.values(), key=lambda x: (not x["isCurrentlyLoggedIn"], x["lastLogonTime"]), reverse=False),
+    "events": events[:${maxEvents}]
+}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 35000 }, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint user logons');
+
+  const rawSessions: any[] = Array.isArray(parsed.activeSessions)
+    ? parsed.activeSessions
+    : parsed.activeSessions
+    ? [parsed.activeSessions]
+    : [];
+  const rawSummaries: any[] = Array.isArray(parsed.userSummaries)
+    ? parsed.userSummaries
+    : parsed.userSummaries
+    ? [parsed.userSummaries]
+    : [];
+  const rawEvents: any[] = Array.isArray(parsed.events)
+    ? parsed.events
+    : parsed.events
+    ? [parsed.events]
+    : [];
+
+  const activeSessions: HelpdeskActiveUserSession[] = rawSessions.map((s: any) => ({
+    username: String(s.username || ''),
+    domain: String(s.domain || ''),
+    sessionName: String(s.sessionName || 'console'),
+    sessionId: String(s.sessionId || ''),
+    state:
+      s.state === 'disconnected' || s.state === 'locked' || s.state === 'idle'
+        ? s.state
+        : 'active',
+    logonType: String(s.logonType || 'Interactive'),
+    idleTime: String(s.idleTime || '0m'),
+    logonTime: String(s.logonTime || ''),
+    logonTimeDisplay: String(s.logonTimeDisplay || ''),
+    sourceIp: String(s.sourceIp || ''),
+    isCurrentConsoleOwner: Boolean(s.isCurrentConsoleOwner),
+  }));
+
+  const userSummaries: HelpdeskWorkstationUserSummary[] = rawSummaries.map((u: any) => ({
+    username: String(u.username || ''),
+    sid: String(u.sid || ''),
+    profilePath: String(u.profilePath || ''),
+    isCurrentlyLoggedIn: Boolean(u.isCurrentlyLoggedIn),
+    currentState:
+      u.currentState === 'active' ||
+      u.currentState === 'disconnected' ||
+      u.currentState === 'locked'
+        ? u.currentState
+        : 'offline',
+    currentSessionName: String(u.currentSessionName || ''),
+    lastLogonTime: String(u.lastLogonTime || ''),
+    lastLogoffTime: String(u.lastLogoffTime || ''),
+    lastSourceIp: String(u.lastSourceIp || ''),
+    lastLogonType: String(u.lastLogonType || ''),
+    logonCountInWindow: Number(u.logonCountInWindow) || 0,
+    totalLogonsOnSystem: Number(u.totalLogonsOnSystem) || 0,
+    failedCountInWindow: Number(u.failedCountInWindow) || 0,
+  }));
+
+  const events: HelpdeskWorkstationLogonEvent[] = rawEvents.map((ev: any, idx: number) => {
+    const ltCode = Number(ev.logonTypeCode) || 0;
+    const desc = describeWindowsLogonType(ltCode);
+    const eType: HelpdeskWorkstationLogonEvent['eventType'] =
+      ev.eventType === 'logoff' ||
+      ev.eventType === 'lock' ||
+      ev.eventType === 'unlock' ||
+      ev.eventType === 'rdp_disconnect' ||
+      ev.eventType === 'rdp_reconnect' ||
+      ev.eventType === 'failed'
+        ? ev.eventType
+        : 'logon';
+    return {
+      id: String(ev.id || `ev-${idx}`),
+      timestamp: String(ev.timestamp || ''),
+      eventType: eType,
+      eventId: Number(ev.eventId) || 0,
+      channel: String(ev.channel || 'Security'),
+      username: String(ev.username || ''),
+      domain: String(ev.domain || ''),
+      logonTypeCode: ltCode,
+      logonTypeLabel: execRes.osFamily === 'linux' && ltCode === 10 ? 'SSH Session' : desc.en,
+      logonTypeLabelFa: execRes.osFamily === 'linux' && ltCode === 10 ? 'نشست SSH' : desc.fa,
+      sourceIp: String(ev.sourceIp || ''),
+      sourceHost: String(ev.sourceHost || ''),
+      sessionName: String(ev.sessionName || ''),
+      failureReason:
+        eType === 'failed' && ev.failureSubStatus
+          ? describeWindowsFailureSubStatus(String(ev.failureSubStatus))
+          : undefined,
+    };
+  });
+
+  const activeUsersCount = activeSessions.filter((s) => s.state !== 'disconnected').length;
+  const disconnectedCount = activeSessions.filter((s) => s.state === 'disconnected').length;
+  const totalLogonEvents = events.filter(
+    (e) => e.eventType === 'logon' || e.eventType === 'rdp_reconnect'
+  ).length;
+  const totalFailedEvents = events.filter((e) => e.eventType === 'failed').length;
+  const latestLogonEvent = events.find(
+    (e) => e.eventType === 'logon' || e.eventType === 'rdp_reconnect'
+  );
+  const fallbackLatestUser = userSummaries.find((u) => u.lastLogonTime);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    collectedAt: new Date().toISOString(),
+    hoursBack,
+    isAnyoneLoggedIn: activeSessions.length > 0 || Boolean(parsed.loggedInUser),
+    activeLoggedInUser:
+      String(parsed.loggedInUser || '') ||
+      (activeSessions[0]
+        ? activeSessions[0].domain
+          ? `${activeSessions[0].domain}\\${activeSessions[0].username}`
+          : activeSessions[0].username
+        : ''),
+    isScreenLocked: Boolean(parsed.isScreenLocked),
+    securityLogAccessible: parsed.securityLogAccessible !== false,
+    securityLogNote: parsed.securityLogNote ? String(parsed.securityLogNote) : undefined,
+    activeSessions,
+    userSummaries,
+    events,
+    summary: {
+      activeUsersCount,
+      disconnectedCount,
+      distinctUsersCount: userSummaries.length,
+      totalLogonEvents,
+      totalFailedEvents,
+      lastLoginUser: latestLogonEvent
+        ? latestLogonEvent.domain
+          ? `${latestLogonEvent.domain}\\${latestLogonEvent.username}`
+          : latestLogonEvent.username
+        : fallbackLatestUser?.username || '',
+      lastLoginTime: latestLogonEvent?.timestamp || fallbackLatestUser?.lastLogonTime || '',
+    },
+  };
+}
+
+// ============================================================================
 // 20. WINDOWS JEA & GPO HARDENING TEMPLATES (Zero-Ransomware Endpoint Lock)
 // ============================================================================
 

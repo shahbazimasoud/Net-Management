@@ -69,6 +69,7 @@ import {
   inspectDomainAccount,
   executeEndpointPowerControl,
   collectEndpointBatteryReport,
+  collectEndpointUserLogons,
   getHelpdeskRateLimitStatus,
   checkAndRecordHelpdeskWriteRateLimit,
   getHelpdeskJeaTemplates,
@@ -8011,6 +8012,68 @@ function extractHelpdeskTargetFromBody(body: any): HelpdeskTargetInput {
   };
 }
 
+async function logHelpdeskErrorAudit(params: {
+  actorName: string;
+  actorRole: string;
+  clientIp: string;
+  action: string;
+  title: string;
+  title_en: string;
+  targetIp?: string;
+  errorMsg: string;
+  metadata?: Record<string, any>;
+}): Promise<void> {
+  const cleanMsg = String(params.errorMsg || 'Operation failed').slice(0, 350);
+  await addPortalAuditLog({
+    category: 'helpdesk',
+    action: params.action,
+    title: params.title,
+    title_en: params.title_en,
+    details: cleanMsg,
+    details_en: cleanMsg,
+    userName: params.actorName,
+    userRole: params.actorRole,
+    status: 'failed',
+    severity: 'warning',
+    target: {
+      type: 'device',
+      name: params.targetIp || 'unknown',
+      ip: params.targetIp || undefined,
+      metadata: { targetIp: params.targetIp || '', ...(params.metadata || {}) },
+    },
+    clientIp: params.clientIp,
+  }).catch(() => {});
+}
+
+async function logHelpdeskRateLimitAudit(params: {
+  actorName: string;
+  actorRole: string;
+  clientIp: string;
+  targetIp: string;
+  actionName: string;
+  rl: { reason?: string; reasonFa?: string; status: any };
+}): Promise<void> {
+  await addPortalAuditLog({
+    category: 'helpdesk',
+    action: 'helpdesk_rate_limit_tripped',
+    title: `فعال‌شدن مدارقطع‌کن امنیتی ضدباج‌افزار برای ${params.actorName}`,
+    title_en: `Anti-Ransomware HelpDesk Circuit Breaker Tripped for ${params.actorName}`,
+    details: params.rl.reasonFa || params.rl.reason || 'Rate limit exceeded',
+    details_en: params.rl.reason || 'Rate limit exceeded',
+    userName: params.actorName,
+    userRole: params.actorRole,
+    status: 'denied',
+    severity: 'warning',
+    target: {
+      type: 'device',
+      name: params.targetIp || 'unknown',
+      ip: params.targetIp || undefined,
+      metadata: { action: params.actionName, targetIp: params.targetIp, rateLimit: params.rl.status },
+    },
+    clientIp: params.clientIp,
+  }).catch(() => {});
+}
+
 // GET /helpdesk/status - RBAC permissions, anti-ransomware rate limit meter & JEA/GPO templates
 apiRouter.get('/helpdesk/status', async (req: Request, res: Response) => {
   try {
@@ -8118,6 +8181,16 @@ apiRouter.post('/helpdesk/network/snapshot', async (req: Request, res: Response)
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to read endpoint network configuration');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_network_snapshot_failed',
+      title: `خطا در خواندن وضعیت شبکه ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Network Snapshot Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -8159,6 +8232,17 @@ apiRouter.post('/helpdesk/network/probe', async (req: Request, res: Response) =>
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Endpoint diagnostic probe failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: `helpdesk_network_probe_${probeType}_failed`,
+      title: `خطا در تست ${probeType.toUpperCase()} روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Network Probe (${probeType}) Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { probeType, probeTarget, probePort },
+    });
     return res.status(/invalid|blocked|required|integer/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -8228,6 +8312,16 @@ apiRouter.post('/helpdesk/network/action', async (req: Request, res: Response) =
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Safe network reset action failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: `helpdesk_${rawAction}_failed`,
+      title: `خطا در اجرای عملیات شبکه (${rawAction}) روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Network Action (${rawAction}) Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -8264,6 +8358,16 @@ apiRouter.post('/helpdesk/printers/status', async (req: Request, res: Response) 
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to inspect printers and print spooler');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_printers_inspect_failed',
+      title: `خطا در بررسی پرینترها و Spooler روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Printer Inspection Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -8333,6 +8437,16 @@ apiRouter.post('/helpdesk/printers/action', async (req: Request, res: Response) 
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Print Spooler repair action failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: `helpdesk_${rawAction}_failed`,
+      title: `خطا در عملیات Print Spooler روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Print Spooler Action (${rawAction}) Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -8360,6 +8474,7 @@ apiRouter.post('/helpdesk/printers/set-default', async (req: Request, res: Respo
 
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'printer_set_default');
   if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'printer_set_default', rl });
     return res.status(429).json({
       success: false,
       error: rl.reason,
@@ -8388,6 +8503,17 @@ apiRouter.post('/helpdesk/printers/set-default', async (req: Request, res: Respo
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to set default printer');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_printer_set_default_failed',
+      title: `خطا در تنظیم پرینتر پیش‌فرض روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Set Default Printer Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { printerName },
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -8418,6 +8544,7 @@ apiRouter.post('/helpdesk/printers/delete', async (req: Request, res: Response) 
 
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'printer_delete');
   if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'printer_delete', rl });
     return res.status(429).json({
       success: false,
       error: rl.reason,
@@ -8446,6 +8573,17 @@ apiRouter.post('/helpdesk/printers/delete', async (req: Request, res: Response) 
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to delete printer');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_printer_delete_failed',
+      title: `خطا در حذف پرینتر «${printerName}» از ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Printer Removal Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { printerName, scope },
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -8498,6 +8636,17 @@ apiRouter.post('/helpdesk/printers/server/list', async (req: Request, res: Respo
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to query print server printers');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_print_server_browse_failed',
+      title: `خطا در خواندن پرینترهای پرینت سرور ${printServer}`,
+      title_en: `HelpDesk Print Server Browse Failed: ${printServer}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { printServer },
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -8530,6 +8679,7 @@ apiRouter.post('/helpdesk/printers/install', async (req: Request, res: Response)
 
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'printer_install');
   if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'printer_install', rl });
     return res.status(429).json({
       success: false,
       error: rl.reason,
@@ -8575,6 +8725,17 @@ apiRouter.post('/helpdesk/printers/install', async (req: Request, res: Response)
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to install printer from print server');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_printer_install_failed',
+      title: `خطا در نصب پرینتر \\\\${printServer}\\${shareName} روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Printer Install Failed: \\\\${printServer}\\${shareName}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { printServer, shareName, installScope },
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -8611,6 +8772,16 @@ apiRouter.post('/helpdesk/shares/status', async (req: Request, res: Response) =>
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to inspect mapped network shares');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_shares_inspect_failed',
+      title: `خطا در خواندن پوشه‌های اشتراکی مپ‌شده روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Mapped Shares Inspection Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -8662,6 +8833,17 @@ apiRouter.post('/helpdesk/shares/server/list', async (req: Request, res: Respons
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to query file server shares');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_shares_server_browse_failed',
+      title: `خطا در خواندن اشتراک‌های سرور ${fileServer}`,
+      title_en: `HelpDesk File Server Browse Failed: ${fileServer}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { fileServer },
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -8698,6 +8880,7 @@ apiRouter.post('/helpdesk/shares/map', async (req: Request, res: Response) => {
 
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'share_map');
   if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'share_map', rl });
     return res.status(429).json({
       success: false,
       error: rl.reason,
@@ -8745,6 +8928,17 @@ apiRouter.post('/helpdesk/shares/map', async (req: Request, res: Response) => {
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to map network share');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_share_map_failed',
+      title: `خطا در مپ کردن پوشه اشتراکی ${remotePath} روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Share Map Failed: ${remotePath}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { remotePath, driveLetter, scope },
+    });
     return res.status(/invalid|blocked|required|select/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -8779,6 +8973,7 @@ apiRouter.post('/helpdesk/shares/disconnect', async (req: Request, res: Response
 
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'share_disconnect');
   if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'share_disconnect', rl });
     return res.status(429).json({
       success: false,
       error: rl.reason,
@@ -8821,6 +9016,17 @@ apiRouter.post('/helpdesk/shares/disconnect', async (req: Request, res: Response
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to disconnect network share');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_share_disconnect_failed',
+      title: `خطا در قطع اتصال پوشه اشتراکی ${driveLetter || remotePath} روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Share Disconnect Failed: ${remotePath}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { remotePath, driveLetter, scope },
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -9006,6 +9212,16 @@ apiRouter.post('/helpdesk/temp/scan', async (req: Request, res: Response) => {
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to scan endpoint Temp folders');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_temp_scan_failed',
+      title: `خطا در اسکن پوشه‌های Temp روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Temp Scan Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -9027,21 +9243,7 @@ apiRouter.post('/helpdesk/temp/clean', async (req: Request, res: Response) => {
 
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'temp_clean');
   if (!rl.allowed) {
-    await addPortalAuditLog({
-      category: 'system',
-      action: 'helpdesk_rate_limit_tripped',
-      title: `فعال‌شدن مدارقطع‌کن امنیتی ضدباج‌افزار برای ${auth.actorName}`,
-      title_en: `Anti-Ransomware HelpDesk Circuit Breaker Tripped for ${auth.actorName}`,
-      description: rl.reasonFa || rl.reason || 'Rate limit exceeded',
-      description_en: rl.reason || 'Rate limit exceeded',
-      userName: auth.actorName,
-      userRole: auth.actorRole,
-      status: 'denied',
-      severity: 'warning',
-      targetName: target.targetIp,
-      clientIp: auth.clientIp,
-      metadata: { action: 'temp_clean', targetIp: target.targetIp, scope, rateLimit: rl.status },
-    }).catch(() => {});
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'temp_clean', rl });
     return res.status(429).json({
       success: false,
       error: rl.reason,
@@ -9076,6 +9278,17 @@ apiRouter.post('/helpdesk/temp/clean', async (req: Request, res: Response) => {
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Temp folder cleanup failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_temp_clean_failed',
+      title: `خطا در پاک‌سازی Temp روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Temp Cleanup Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { scope },
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -9117,6 +9330,16 @@ apiRouter.post('/helpdesk/gpo/status', async (req: Request, res: Response) => {
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to inspect Group Policy status');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_gpo_status_failed',
+      title: `خطا در بررسی Group Policy روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk GPO Status Inspection Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -9135,21 +9358,7 @@ apiRouter.post('/helpdesk/gpo/refresh', async (req: Request, res: Response) => {
 
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'gpupdate_force');
   if (!rl.allowed) {
-    await addPortalAuditLog({
-      category: 'system',
-      action: 'helpdesk_rate_limit_tripped',
-      title: `فعال‌شدن مدارقطع‌کن امنیتی ضدباج‌افزار برای ${auth.actorName}`,
-      title_en: `Anti-Ransomware HelpDesk Circuit Breaker Tripped for ${auth.actorName}`,
-      description: rl.reasonFa || rl.reason || 'Rate limit exceeded',
-      description_en: rl.reason || 'Rate limit exceeded',
-      userName: auth.actorName,
-      userRole: auth.actorRole,
-      status: 'denied',
-      severity: 'warning',
-      targetName: target.targetIp,
-      clientIp: auth.clientIp,
-      metadata: { action: 'gpupdate_force', targetIp: target.targetIp, rateLimit: rl.status },
-    }).catch(() => {});
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'gpupdate_force', rl });
     return res.status(429).json({
       success: false,
       error: rl.reason,
@@ -9178,6 +9387,16 @@ apiRouter.post('/helpdesk/gpo/refresh', async (req: Request, res: Response) => {
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Group Policy refresh (gpupdate /force) failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_gpupdate_force_failed',
+      title: `خطا در اجرای gpupdate /force روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk GPUpdate Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -9219,6 +9438,16 @@ apiRouter.post('/helpdesk/sysinfo', async (req: Request, res: Response) => {
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to collect endpoint system information');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_sysinfo_failed',
+      title: `خطا در دریافت مشخصات سیستم ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk System Info Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -9257,6 +9486,16 @@ apiRouter.post('/helpdesk/disks/status', async (req: Request, res: Response) => 
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to inspect endpoint disk media and health');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_disk_health_failed',
+      title: `خطا در بررسی دیسک‌های ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Disk Health Inspection Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -9344,6 +9583,17 @@ apiRouter.post('/helpdesk/repair/system', async (req: Request, res: Response) =>
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'System integrity or repair execution failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: `helpdesk_${mode}_failed`,
+      title: `خطا در اجرای عملیات تعمیر سیستم (${mode}) روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk System Repair (${mode}) Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { mode, driveLetter },
+    });
     return res.status(/invalid|blocked|required|unsupported/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -9399,6 +9649,17 @@ apiRouter.post('/helpdesk/ad/user', async (req: Request, res: Response) => {
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Domain user lookup failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_domain_user_lookup_failed',
+      title: `خطا در استعلام اکانت دامین ${domainUsername} روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Domain Account Lookup Failed: ${domainUsername}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { domainUsername },
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -9441,21 +9702,7 @@ apiRouter.post('/helpdesk/power', async (req: Request, res: Response) => {
       : 'power_shutdown';
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rlAction);
   if (!rl.allowed) {
-    await addPortalAuditLog({
-      category: 'system',
-      action: 'helpdesk_rate_limit_tripped',
-      title: `فعال‌شدن مدارقطع‌کن امنیتی ضدباج‌افزار برای ${auth.actorName}`,
-      title_en: `Anti-Ransomware HelpDesk Circuit Breaker Tripped for ${auth.actorName}`,
-      description: rl.reasonFa || rl.reason || 'Rate limit exceeded',
-      description_en: rl.reason || 'Rate limit exceeded',
-      userName: auth.actorName,
-      userRole: auth.actorRole,
-      status: 'denied',
-      severity: 'warning',
-      targetName: target.targetIp,
-      clientIp: auth.clientIp,
-      metadata: { action: rlAction, powerAction, targetIp: target.targetIp, rateLimit: rl.status },
-    }).catch(() => {});
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: rlAction, rl });
     return res.status(429).json({
       success: false,
       error: rl.reason,
@@ -9484,6 +9731,16 @@ apiRouter.post('/helpdesk/power', async (req: Request, res: Response) => {
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Remote power control failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: `helpdesk_power_${powerAction}_failed`,
+      title: `خطا در عملیات پاور (${powerAction}) روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Power Control (${powerAction}) Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
     return res.status(/invalid|blocked|required|unsupported/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
@@ -9530,6 +9787,83 @@ apiRouter.post('/helpdesk/battery', async (req: Request, res: Response) => {
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to collect laptop battery health report');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_battery_report_failed',
+      title: `خطا در گزارش سلامت باتری ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Battery Report Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/logons - Workstation User Logon History, Last Login & Live Active Session Inspection
+apiRouter.post('/helpdesk/logons', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const hoursBack = Number(req.body?.hoursBack) || 168;
+  const maxEvents = Number(req.body?.maxEvents) || 150;
+
+  try {
+    const data = await collectEndpointUserLogons(target, { hoursBack, maxEvents });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_user_logons_inspect',
+      title: `گزارش ورود کاربران و نشست‌های فعال روی ${data.hostname} (${data.targetIp})`,
+      title_en: `HelpDesk Workstation Login & Active Session Report: ${data.hostname} (${data.targetIp})`,
+      details: data.isAnyoneLoggedIn
+        ? `وضعیت فعلی: کاربر ${data.activeLoggedInUser || data.activeSessions[0]?.username || '-'} در حال حاضر لاگین است (${data.activeSessions.length} نشست، ${data.isScreenLocked ? 'صفحه قفل' : 'فعال'}) — آخرین ورود: ${data.summary.lastLoginUser || '-'} — کل رویدادها در ${data.hoursBack} ساعت گذشته: ${data.events.length} (ناموفق: ${data.summary.totalFailedEvents}).`
+        : `وضعیت فعلی: هیچ کاربری در حال حاضر روی ${data.hostname} لاگین نیست — آخرین ورود: ${data.summary.lastLoginUser || '-'} — کل رویدادها در ${data.hoursBack} ساعت گذشته: ${data.events.length}.`,
+      details_en: data.isAnyoneLoggedIn
+        ? `Currently logged in: ${data.activeLoggedInUser || data.activeSessions[0]?.username || '-'} (${data.activeSessions.length} session(s), ${data.isScreenLocked ? 'Locked' : 'Active'}) — Last login: ${data.summary.lastLoginUser || '-'} — ${data.events.length} event(s) in past ${data.hoursBack}h (${data.summary.totalFailedEvents} failed).`
+        : `No active user currently logged in on ${data.hostname} — Last login: ${data.summary.lastLoginUser || '-'} — ${data.events.length} event(s) in past ${data.hoursBack}h.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      target: {
+        type: 'device',
+        name: data.hostname || data.targetIp,
+        ip: data.targetIp,
+        metadata: {
+          targetIp: data.targetIp,
+          protocol: data.protocolUsed,
+          hoursBack: data.hoursBack,
+          isAnyoneLoggedIn: data.isAnyoneLoggedIn,
+          activeLoggedInUser: data.activeLoggedInUser,
+          activeSessionsCount: data.activeSessions.length,
+          distinctUsersCount: data.userSummaries.length,
+          totalLogonEvents: data.summary.totalLogonEvents,
+          totalFailedEvents: data.summary.totalFailedEvents,
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to inspect workstation user logons');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_user_logons_failed',
+      title: `خطا در دریافت گزارش ورود کاربران سیستم ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Workstation Login Report Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { hoursBack },
+    });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,

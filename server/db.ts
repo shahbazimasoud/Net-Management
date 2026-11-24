@@ -10437,16 +10437,22 @@ export async function getPortalAuditLogs(options: {
       role: r.user_role || 'Super Administrator',
       ipAddress: r.client_ip || '127.0.0.1',
     },
-    target: r.target || {
-      type: r.target_type || 'device',
-      id: r.target_id,
-      name: r.target_name || '',
-      location: r.target_location,
-    },
+    target: r.target
+      ? {
+          ...(typeof r.target_data === 'object' && r.target_data ? r.target_data : {}),
+          ...r.target,
+        }
+      : {
+          type: r.target_type || 'device',
+          id: r.target_id,
+          name: r.target_name || '',
+          location: r.target_location,
+          ...(typeof r.target_data === 'object' && r.target_data ? r.target_data : {}),
+        },
     severity: r.severity || 'info',
     status: r.status || 'success',
-    details: r.details || '',
-    details_en: r.details_en || '',
+    details: r.details || r.description || '',
+    details_en: r.details_en || r.detailsEn || r.description_en || '',
     changesDiff: r.changes_diff || r.changesDiff,
   }));
 
@@ -10480,6 +10486,17 @@ export async function addPortalAuditLog(log: any): Promise<any> {
   };
 
   const target = log.target || {};
+  const rawMeta =
+    typeof target.metadata === 'object' && target.metadata !== null
+      ? target.metadata
+      : typeof log.metadata === 'object' && log.metadata !== null
+      ? log.metadata
+      : typeof log.target_data === 'object' && log.target_data !== null
+      ? log.target_data
+      : {};
+  const resolvedIp = target.ip || log.targetIp || rawMeta.ip || rawMeta.targetIp || undefined;
+  const normalizedTargetData = resolvedIp ? { ...rawMeta, ip: resolvedIp } : rawMeta;
+
   const record = {
     id: log.id || `log-portal-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     category: log.category || 'system_auth',
@@ -10491,13 +10508,13 @@ export async function addPortalAuditLog(log: any): Promise<any> {
     client_ip: actor.ipAddress || '127.0.0.1',
     target_type: target.type || log.target_type || 'device',
     target_id: target.id || log.target_id || null,
-    target_name: target.name || log.target_name || '',
+    target_name: target.name || log.target_name || log.targetName || '',
     target_location: target.location || log.target_location || null,
-    target_data: typeof target.metadata === 'object' ? target.metadata : (typeof log.target_data === 'object' ? log.target_data : {}),
+    target_data: normalizedTargetData,
     severity: log.severity || 'info',
     status: log.status || 'success',
-    details: log.details || '',
-    details_en: log.details_en || log.detailsEn || '',
+    details: log.details || log.description || '',
+    details_en: log.details_en || log.detailsEn || log.description_en || log.descriptionEn || '',
     changes_diff: Array.isArray(log.changesDiff) ? log.changesDiff : (Array.isArray(log.changes_diff) ? log.changes_diff : []),
     timestamp: log.timestamp || new Date().toISOString(),
   };

@@ -2101,7 +2101,10 @@ export type AuditLogCategory =
   | 'system_auth'
   | 'licenses'
   | 'contracts'
-  | 'ssl_certificates';
+  | 'ssl_certificates'
+  | 'helpdesk'
+  | 'system'
+  | 'settings';
 
 export type AuditLogSeverity = 'info' | 'notice' | 'warning' | 'critical';
 export type AuditLogStatus = 'success' | 'failed' | 'denied';

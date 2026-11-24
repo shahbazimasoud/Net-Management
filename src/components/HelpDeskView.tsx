@@ -53,6 +53,13 @@ import {
   PlugZap,
   FolderPlus,
   FolderX,
+  LogIn,
+  LogOut,
+  User,
+  UserX,
+  Unlock,
+  History,
+  ScrollText,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -69,6 +76,7 @@ import {
   deleteHelpdeskPrinter,
   fetchHelpdeskEndpointShares,
   disconnectHelpdeskEndpointShare,
+  fetchHelpdeskEndpointLogons,
   fetchHelpdeskEventLogs,
   terminateHelpdeskProcess,
   scanHelpdeskTemp,
@@ -105,6 +113,7 @@ type HelpdeskSubTab =
   | 'network'
   | 'printers'
   | 'events'
+  | 'logins'
   | 'maintenance'
   | 'hardware_domain'
   | 'architecture';
@@ -346,6 +355,16 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [eventError, setEventError] = useState<string | null>(null);
   const [expandedEventIds, setExpandedEventIds] = useState<Record<string, boolean>>({});
 
+  // Module 4B: Workstation User Logons, Last Login & Active Session Report state
+  const [logonsData, setLogonsData] = useState<any | null>(null);
+  const [loadingLogons, setLoadingLogons] = useState(false);
+  const [logonsError, setLogonsError] = useState<string | null>(null);
+  const [logonsHoursBack, setLogonsHoursBack] = useState<number>(168);
+  const [logonsSearch, setLogonsSearch] = useState('');
+  const [logonsEventFilter, setLogonsEventFilter] = useState<
+    'all' | 'logon' | 'logoff' | 'lock_unlock' | 'rdp' | 'failed'
+  >('all');
+
   // Module 5: Safe User-App Process Termination inline confirm state
   const [confirmKillPid, setConfirmKillPid] = useState<number | null>(null);
   const [terminatingPid, setTerminatingPid] = useState<number | null>(null);
@@ -488,6 +507,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setEventData(null);
     setEventError(null);
     setExpandedEventIds({});
+    setLogonsData(null);
+    setLogonsError(null);
+    setLogonsSearch('');
+    setLogonsEventFilter('all');
     setTempScanData(null);
     setTempError(null);
     setTempCleanResult(null);
@@ -1105,6 +1128,40 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
+  const notifyHelpdeskAuditUpdated = () => {
+    try {
+      window.dispatchEvent(new CustomEvent('nettopology_audit_log_updated'));
+    } catch {}
+  };
+
+  const handleInspectLogons = async (overrideHoursBack?: number) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingLogons(true);
+    setLogonsError(null);
+    try {
+      const hours = overrideHoursBack ?? logonsHoursBack;
+      const res = await fetchHelpdeskEndpointLogons({
+        ...payload,
+        hoursBack: hours,
+        maxEvents: 120,
+      });
+      setLogonsData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setLogonsData(null);
+      setLogonsError(
+        err?.message ||
+          (isEn
+            ? 'Failed to inspect workstation user logins & active sessions.'
+            : 'خطا در دریافت گزارش ورود کاربران و نشست‌های فعال سیستم.')
+      );
+    } finally {
+      setLoadingLogons(false);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
   const handleConnectCurrentTab = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (activeSubTab === 'network') {
@@ -1113,6 +1170,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       await handleInspectPrinters();
     } else if (activeSubTab === 'events') {
       await handleInspectEvents();
+    } else if (activeSubTab === 'logins') {
+      await handleInspectLogons();
     } else if (activeSubTab === 'maintenance') {
       await Promise.all([handleScanTemp(), handleInspectGpo(), handleInspectDisks()]);
     } else if (activeSubTab === 'hardware_domain') {
@@ -1121,7 +1180,72 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       setActiveSubTab('health');
       await handleInspectHealth();
     }
+    notifyHelpdeskAuditUpdated();
   };
+
+  const formatLogonTimestamp = (isoStr?: string) => {
+    if (!isoStr || !String(isoStr).trim()) return '—';
+    const d = new Date(isoStr);
+    if (Number.isNaN(d.getTime())) return String(isoStr);
+    try {
+      return d.toLocaleString(isEn ? 'en-US' : 'fa-IR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+    } catch {
+      return d.toISOString().replace('T', ' ').slice(0, 19);
+    }
+  };
+
+  const filteredLogonEvents = useMemo(() => {
+    const list: any[] = Array.isArray(logonsData?.events) ? logonsData.events : [];
+    const q = logonsSearch.trim().toLowerCase();
+    return list.filter((ev) => {
+      if (logonsEventFilter === 'logon' && ev.eventType !== 'logon') return false;
+      if (logonsEventFilter === 'logoff' && ev.eventType !== 'logoff') return false;
+      if (logonsEventFilter === 'lock_unlock' && ev.eventType !== 'lock' && ev.eventType !== 'unlock') {
+        return false;
+      }
+      if (
+        logonsEventFilter === 'rdp' &&
+        ev.eventType !== 'rdp_disconnect' &&
+        ev.eventType !== 'rdp_reconnect' &&
+        ev.logonTypeCode !== 10 &&
+        ev.logonTypeCode !== 12
+      ) {
+        return false;
+      }
+      if (logonsEventFilter === 'failed' && ev.eventType !== 'failed') return false;
+      if (!q) return true;
+      return (
+        String(ev.username || '').toLowerCase().includes(q) ||
+        String(ev.domain || '').toLowerCase().includes(q) ||
+        String(ev.sourceIp || '').toLowerCase().includes(q) ||
+        String(ev.sourceHost || '').toLowerCase().includes(q) ||
+        String(ev.logonTypeLabel || '').toLowerCase().includes(q) ||
+        String(ev.logonTypeLabelFa || '').toLowerCase().includes(q) ||
+        String(ev.failureReason || '').toLowerCase().includes(q) ||
+        String(ev.eventId || '').includes(q)
+      );
+    });
+  }, [logonsData, logonsSearch, logonsEventFilter]);
+
+  const filteredUserSummaries = useMemo(() => {
+    const list: any[] = Array.isArray(logonsData?.userSummaries) ? logonsData.userSummaries : [];
+    const q = logonsSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (u) =>
+        String(u.username || '').toLowerCase().includes(q) ||
+        String(u.sid || '').toLowerCase().includes(q) ||
+        String(u.lastSourceIp || '').toLowerCase().includes(q) ||
+        String(u.currentState || '').toLowerCase().includes(q)
+    );
+  }, [logonsData, logonsSearch]);
 
   // Filtered Event Viewer items for Tab 4
   const filteredEvents = useMemo(() => {
@@ -1259,6 +1383,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     loadingNetwork ||
     loadingPrinters ||
     loadingEvents ||
+    loadingLogons ||
     loadingTempScan ||
     loadingGpo ||
     loadingDiskHealth ||
@@ -1333,6 +1458,13 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       titleFa: 'گزارش سلامت و سایکل باتری لپ‌تاپ، بررسی اکانت دامین و کنترل پاور از راه دور',
       descEn: 'Exact battery charge cycle count & auto-calculated health %, AD account inspection (net user /domain), and RBAC-gated immediate/scheduled restart & shutdown with abort.',
       descFa: 'محاسبه دقیق درصد سلامت و تعداد دفعات شارژ باتری لپ‌تاپ، استعلام وضعیت اکانت دامین (انقضای رمز و گروه‌ها) و خاموشی/ری‌استارت فوری یا زمان‌بندی‌شده.',
+    },
+    {
+      id: 'workstation-logons-audit',
+      titleEn: 'Workstation User Login Reports & Complete HelpDesk Audit Trail',
+      titleFa: 'گزارش ورود/خروج کاربران سیستم و ثبت جامع عملیات در Audit & Command Logs',
+      descEn: 'Real-time active user & lock-screen detection, per-user last login history, failed/RDP login timeline, and mandatory PostgreSQL Audit & Command Logging for every HelpDesk action.',
+      descFa: 'تشخیص لحظه‌ای کاربر لاگین‌شده (یا خالی بودن نشست)، آخرین زمان ورود هر کاربر، تاریخچه ورود/خروج/قفل/RDP و ثبت ۱۰۰٪ عملیات، خطاها و محدودیت‌ها در Audit & Command Logs.',
     },
   ];
 
@@ -1609,6 +1741,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'Event Viewer (تحلیل خطاها)',
           },
           {
+            id: 'logins' as HelpdeskSubTab,
+            icon: History,
+            labelEn: 'User Logins & Sessions',
+            labelFa: 'گزارش ورود و نشست کاربران',
+          },
+          {
             id: 'maintenance' as HelpdeskSubTab,
             icon: Wrench,
             labelEn: 'System Repair, Temp & GPO',
@@ -1633,7 +1771,19 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveSubTab(tab.id)}
+              onClick={() => {
+                setActiveSubTab(tab.id);
+                if (
+                  tab.id === 'logins' &&
+                  targetIp.trim() &&
+                  username.trim() &&
+                  password &&
+                  !logonsData &&
+                  !loadingLogons
+                ) {
+                  handleInspectLogons();
+                }
+              }}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition whitespace-nowrap cursor-pointer ${
                 active
                   ? isLightMode
@@ -5309,6 +5459,725 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 6B: WORKSTATION USER LOGINS, LAST LOGIN & ACTIVE SESSIONS       */}
+      {/* =================================================================== */}
+      {activeSubTab === 'logins' && (
+        <div className="space-y-6">
+          {/* Controls Header */}
+          <div className={`rounded-xl border p-5 space-y-4 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <History className="w-4 h-4 text-sky-500 shrink-0" />
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'Workstation User Login History, Last Login & Active Session Report'
+                      : 'گزارش ورود و خروج کاربران، آخرین زمان لاگین و نشست‌های فعال سیستم'}
+                  </h2>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Workstation Login & Session Telemetry' : 'تله‌متری ورود و نشست کاربران سیستم'}
+                    whatIsIt={
+                      isEn
+                        ? 'Inspects active interactive/RDP sessions (quser, Win32_LogonSession, LogonUI lock state), per-user local/domain profiles (ProfileList & Win32_NetworkLoginProfile), and Security/TerminalServices logon audit events.'
+                        : 'نشست‌های فعال کنسول/RDP، وضعیت قفل صفحه (LogonUI)، آخرین ورود ثبت‌شده هر کاربر در سیستم (ProfileList و NetworkLoginProfile) و رویدادهای Security/TerminalServices را هم‌زمان استخراج می‌کند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Lets technicians immediately verify whether anyone is currently logged into the workstation, who logged in last, and audit interactive, RDP, lock/unlock, or failed password attempts.'
+                        : 'به کارشناس نشان می‌دهد آیا در همین لحظه کاربری روی سیستم لاگین است یا خیر، آخرین ورود هر کاربر چه زمانی بوده و تاریخچه ورود، خروج، قفل، RDP و تلاش‌های ناموفق را دقیق بررسی می‌کند.'
+                    }
+                    example={
+                      isEn
+                        ? 'Active: CORP\\a.rezaei (Console) · Last Logons: 4624/4625/4800/4801 · WinRM LogonType 3 noise filtered'
+                        : 'کاربر فعال: CORP\\a.rezaei (Console) · رویدادها: ورود، خروج، قفل/بازگشایی و خطای رمز بدون شلوغی نشست WinRM'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-1 ${textMuted}`}>
+                  {isEn
+                    ? 'Shows who is logged in right now (or if no user is signed in), last login timestamps per user, and interactive/RDP login history. All HelpDesk operations are recorded in Audit & Command Logs.'
+                    : 'نمایش دقیق اینکه آیا در حال حاضر کاربری لاگین است یا خیر، چه کاربری و چه ساعتی آخرین بار وارد شده و تاریخچه کامل ورود/خروج؛ تمامی عملیات این بخش نیز در Audit & Command Logs ثبت می‌گردد.'}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={loadingLogons || !canRunDiagnostics}
+                onClick={() => handleInspectLogons()}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+              >
+                {loadingLogons ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {isEn ? 'Inspect User Logins & Sessions' : 'دریافت گزارش ورود و نشست کاربران'}
+                </span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
+              <div className="lg:col-span-3">
+                <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                  {isEn ? 'History Timeframe' : 'بازه زمانی گزارش'}
+                </label>
+                <select
+                  value={logonsHoursBack}
+                  onChange={(e) => {
+                    const nextHours = Number(e.target.value);
+                    setLogonsHoursBack(nextHours);
+                    if (logonsData && targetIp.trim() && username.trim() && password) {
+                      handleInspectLogons(nextHours);
+                    }
+                  }}
+                  className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                >
+                  <option value={24}>{isEn ? 'Last 24 Hours' : '۲۴ ساعت اخیر'}</option>
+                  <option value={48}>{isEn ? 'Last 48 Hours' : '۴۸ ساعت اخیر'}</option>
+                  <option value={168}>{isEn ? 'Last 7 Days' : '۷ روز اخیر'}</option>
+                  <option value={336}>{isEn ? 'Last 14 Days' : '۱۴ روز اخیر'}</option>
+                  <option value={720}>{isEn ? 'Last 30 Days' : '۳۰ روز اخیر'}</option>
+                </select>
+              </div>
+
+              <div className="lg:col-span-6">
+                <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                  {isEn ? 'Search User, Source IP, Event ID or Reason' : 'جستجو بر اساس کاربر، IP مبدأ، کد رویداد یا دلیل'}
+                </label>
+                <div className="relative">
+                  <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 start-2.5 ${textMuted}`} />
+                  <input
+                    type="text"
+                    value={logonsSearch}
+                    onChange={(e) => setLogonsSearch(e.target.value)}
+                    placeholder={
+                      isEn ? 'e.g. a.rezaei, 192.168.10.20, 4625, RDP...' : 'مثلاً a.rezaei، 192.168.10.20، 4625، ریموت...'
+                    }
+                    className={`w-full ps-8 pe-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                  />
+                </div>
+              </div>
+
+              <div className="lg:col-span-3 flex items-center justify-end">
+                <div
+                  className={`w-full px-3 py-1.5 rounded-lg border text-[11px] flex items-center gap-1.5 ${subSurfaceBg} ${textMuted}`}
+                >
+                  <ScrollText className="w-3.5 h-3.5 text-teal-500 shrink-0" />
+                  <span className="truncate">
+                    {isEn ? 'Audited in Audit & Command Logs (HelpDesk)' : 'ثبت خودکار در Audit & Command Logs'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {logonsError && (
+            <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 flex items-start gap-3 text-xs text-rose-500">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-bold">
+                  {isEn ? 'Workstation Login Inspection Error' : 'خطا در دریافت گزارش ورود کاربران سیستم'}
+                </div>
+                <div className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{logonsError}</div>
+              </div>
+            </div>
+          )}
+
+          {!logonsData && !loadingLogons && (
+            <div className={`rounded-xl border p-10 text-center space-y-3 ${surfaceBg}`}>
+              <History className="w-10 h-10 mx-auto text-sky-500 opacity-85" />
+              <div className={`text-sm font-bold ${textPrimary}`}>
+                {isEn
+                  ? 'Ready to Audit Workstation Logins & Active User Presence'
+                  : 'آماده دریافت گزارش ورود، آخرین لاگین و وضعیت لحظه‌ای نشست کاربران'}
+              </div>
+              <p className={`text-xs max-w-xl mx-auto ${textMuted}`}>
+                {isEn
+                  ? 'Enter the target workstation IP and ephemeral credentials above, then click "Inspect User Logins & Sessions" to see whether any user is logged in right now, who logged in recently, and full logon/logoff/lock/RDP timestamps.'
+                  : 'آدرس IP سیستم و مشخصات اتصال موقت را در بالا وارد کرده و دکمه «دریافت گزارش ورود و نشست کاربران» را بزنید تا ببینید الان کسی لاگین هست یا نه، چه یوزرهایی و چه ساعت‌هایی وارد شده‌اند و آخرین لاگین کی بوده است.'}
+              </p>
+            </div>
+          )}
+
+          {loadingLogons && (
+            <div className={`rounded-xl border p-10 text-center space-y-3 ${surfaceBg}`}>
+              <Loader2 className="w-8 h-8 mx-auto text-sky-500 animate-spin" />
+              <div className={`text-sm font-semibold ${textPrimary}`}>
+                {isEn
+                  ? `Collecting active sessions, user profiles, and logon events from ${targetIp}...`
+                  : `در حال جمع‌آوری نشست‌های فعال، پروفایل‌ها و تاریخچه ورود کاربران از ${targetIp}...`}
+              </div>
+            </div>
+          )}
+
+          {logonsData && !loadingLogons && (
+            <div className="space-y-5">
+              {/* Live Presence Answer Banner: Is Anyone Logged In Right Now? */}
+              <div
+                className={`rounded-xl border p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 ${
+                  logonsData.isAnyoneLoggedIn
+                    ? logonsData.isScreenLocked
+                      ? isLightMode
+                        ? 'bg-amber-50/90 border-amber-300'
+                        : 'bg-amber-950/25 border-amber-500/40'
+                      : isLightMode
+                      ? 'bg-emerald-50/90 border-emerald-300'
+                      : 'bg-emerald-950/25 border-emerald-500/40'
+                    : isLightMode
+                    ? 'bg-slate-50 border-slate-300'
+                    : 'bg-slate-900/80 border-slate-700'
+                }`}
+              >
+                <div className="flex items-start gap-3.5">
+                  <div
+                    className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                      logonsData.isAnyoneLoggedIn
+                        ? logonsData.isScreenLocked
+                          ? 'bg-amber-500/15 text-amber-500'
+                          : 'bg-emerald-500/15 text-emerald-500'
+                        : 'bg-slate-500/15 text-slate-500'
+                    }`}
+                  >
+                    {logonsData.isAnyoneLoggedIn ? (
+                      logonsData.isScreenLocked ? (
+                        <Lock className="w-5 h-5" />
+                      ) : (
+                        <UserCheck className="w-5 h-5" />
+                      )
+                    ) : (
+                      <UserX className="w-5 h-5" />
+                    )}
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`text-sm font-bold ${
+                          logonsData.isAnyoneLoggedIn
+                            ? logonsData.isScreenLocked
+                              ? isLightMode
+                                ? 'text-amber-900'
+                                : 'text-amber-300'
+                              : isLightMode
+                              ? 'text-emerald-900'
+                              : 'text-emerald-300'
+                            : textPrimary
+                        }`}
+                      >
+                        {logonsData.isAnyoneLoggedIn
+                          ? logonsData.isScreenLocked
+                            ? isEn
+                              ? 'User Session Present — Screen Currently Locked'
+                              : 'کاربر روی سیستم لاگین است (صفحه در حال حاضر قفل است)'
+                            : isEn
+                            ? 'User Currently Logged In (Active Session)'
+                            : 'هم‌اکنون کاربر روی سیستم لاگین است (نشست فعال)'
+                          : isEn
+                          ? 'No User Currently Logged In'
+                          : 'هم‌اکنون هیچ کاربری روی این سیستم لاگین نیست'}
+                      </span>
+
+                      <span
+                        className={`px-2 py-0.5 rounded-md text-[11px] font-mono border ${
+                          isLightMode
+                            ? 'bg-white/80 border-slate-300 text-slate-700'
+                            : 'bg-slate-950/70 border-slate-700 text-slate-300'
+                        }`}
+                        dir="ltr"
+                      >
+                        {logonsData.hostname || logonsData.targetIp} ({logonsData.osFamily?.toUpperCase()})
+                      </span>
+                    </div>
+
+                    <div className={`text-xs ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                      {logonsData.isAnyoneLoggedIn ? (
+                        <>
+                          <span>
+                            {isEn ? 'Current logged-in user: ' : 'کاربر فعلی لاگین‌شده: '}
+                          </span>
+                          <span className="font-bold font-mono" dir="ltr">
+                            {logonsData.activeLoggedInUser ||
+                              logonsData.activeSessions?.[0]?.username ||
+                              '—'}
+                          </span>
+                          {logonsData.summary?.activeUsersCount > 1 && (
+                            <span className="ms-2">
+                              {isEn
+                                ? `(+${logonsData.summary.activeUsersCount - 1} other active session)`
+                                : `(+${logonsData.summary.activeUsersCount - 1} نشست فعال دیگر)`}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span>
+                          {isEn
+                            ? 'The workstation is currently at the sign-in screen or idle with zero interactive/RDP user sessions.'
+                            : 'هیچ نشست فعال یا قفل‌شده‌ای از کاربران روی کنسول یا RDP باز نیست (سیستم در صفحه Sign-In است).'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`text-xs space-y-1 shrink-0 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                  <div>
+                    <span className={textMuted}>{isEn ? 'Most Recent Login: ' : 'آخرین لاگین ثبت‌شده: '}</span>
+                    <span className={`font-bold font-mono ${textPrimary}`} dir="ltr">
+                      {logonsData.summary?.lastLoginUser || '—'}
+                    </span>
+                  </div>
+                  <div className="font-mono text-[11px]" dir="ltr">
+                    {formatLogonTimestamp(logonsData.summary?.lastLoginTime)}
+                  </div>
+                </div>
+              </div>
+
+              {/* 5 Summary KPI Cards */}
+              <div className={`rounded-xl border p-4 grid grid-cols-2 lg:grid-cols-5 gap-3 text-xs ${surfaceBg}`}>
+                <div className={`p-3 rounded-lg border ${subSurfaceBg}`}>
+                  <div className={textMuted}>{isEn ? 'Active Logged-In Now' : 'لاگین فعال هم‌اکنون'}</div>
+                  <div className="mt-1 text-lg font-bold font-mono tabular-nums text-emerald-500">
+                    {logonsData.summary?.activeUsersCount ?? 0}
+                  </div>
+                </div>
+
+                <div className={`p-3 rounded-lg border ${subSurfaceBg}`}>
+                  <div className={textMuted}>{isEn ? 'Disconnected / Locked' : 'نشست قطع‌اتصال / قفل'}</div>
+                  <div className="mt-1 text-lg font-bold font-mono tabular-nums text-amber-500">
+                    {logonsData.summary?.disconnectedCount ?? 0}
+                  </div>
+                </div>
+
+                <div className={`p-3 rounded-lg border ${subSurfaceBg}`}>
+                  <div className={textMuted}>{isEn ? 'Distinct Users on PC' : 'کاربران شناخته‌شده سیستم'}</div>
+                  <div className={`mt-1 text-lg font-bold font-mono tabular-nums ${textPrimary}`}>
+                    {logonsData.summary?.distinctUsersCount ?? 0}
+                  </div>
+                </div>
+
+                <div className={`p-3 rounded-lg border ${subSurfaceBg}`}>
+                  <div className={textMuted}>{isEn ? `Successful Logins (${logonsHoursBack}h)` : `تعداد ورود موفق`}</div>
+                  <div className="mt-1 text-lg font-bold font-mono tabular-nums text-sky-500">
+                    {logonsData.summary?.totalLogonEvents ?? 0}
+                  </div>
+                </div>
+
+                <div className={`col-span-2 lg:col-span-1 p-3 rounded-lg border ${subSurfaceBg}`}>
+                  <div className={textMuted}>{isEn ? 'Failed Login Attempts' : 'ورودهای ناموفق'}</div>
+                  <div
+                    className={`mt-1 text-lg font-bold font-mono tabular-nums ${
+                      (logonsData.summary?.totalFailedEvents ?? 0) > 0 ? 'text-rose-500' : textPrimary
+                    }`}
+                  >
+                    {logonsData.summary?.totalFailedEvents ?? 0}
+                  </div>
+                </div>
+              </div>
+
+              {logonsData.securityLogAccessible === false && logonsData.securityLogNote && (
+                <div
+                  className={`rounded-xl border p-3.5 flex items-start gap-2.5 text-xs ${
+                    isLightMode
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-amber-950/25 border-amber-500/30 text-amber-200'
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <span>{logonsData.securityLogNote}</span>
+                </div>
+              )}
+
+              {/* Section 1: Currently Logged-In & Live Sessions */}
+              <div className={`rounded-xl border overflow-hidden ${surfaceBg}`}>
+                <div className={`px-5 py-3.5 border-b flex items-center justify-between gap-2 ${subSurfaceBg}`}>
+                  <div className="flex items-center gap-2">
+                    <Monitor className="w-4 h-4 text-emerald-500" />
+                    <h3 className={`text-xs font-bold ${textPrimary}`}>
+                      {isEn
+                        ? `Current Live Workstation Sessions (${logonsData.activeSessions?.length || 0})`
+                        : `نشست‌های زنده و فعلی روی سیستم (${logonsData.activeSessions?.length || 0})`}
+                    </h3>
+                  </div>
+                  <span className={`text-[11px] font-mono ${textMuted}`} dir="ltr">
+                    {formatLogonTimestamp(logonsData.collectedAt)}
+                  </span>
+                </div>
+
+                {(logonsData.activeSessions?.length || 0) === 0 ? (
+                  <div className={`p-6 text-center text-xs ${textMuted}`}>
+                    {isEn
+                      ? 'No interactive or RDP user sessions are currently open on this workstation.'
+                      : 'در این لحظه هیچ نشست کاربری فعالی (Console یا RDP) روی سیستم باز نیست.'}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-start">
+                      <thead className={`border-b ${subSurfaceBg} ${textMuted}`}>
+                        <tr>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'User' : 'نام کاربری'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'State' : 'وضعیت'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Session' : 'نشست'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Method' : 'نوع اتصال'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Logon Time' : 'زمان ورود'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Idle' : 'بیکاری'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Source IP' : 'IP مبدأ'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className={`divide-y ${isLightMode ? 'divide-slate-200' : 'divide-slate-800'}`}>
+                        {logonsData.activeSessions.map((sess: any, idx: number) => (
+                          <tr key={`${sess.username}-${sess.sessionId}-${idx}`}>
+                            <td className={`px-4 py-2.5 font-mono font-semibold ${textPrimary}`} dir="ltr">
+                              <div>
+                                {sess.domain ? `${sess.domain}\\${sess.username}` : sess.username}
+                              </div>
+                              {sess.isCurrentConsoleOwner && (
+                                <span className="text-[10px] font-sans text-sky-500">
+                                  {isEn ? 'Primary Console Owner' : 'مالک نشست کنسول'}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
+                                  sess.state === 'active'
+                                    ? isLightMode
+                                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                      : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                    : sess.state === 'locked'
+                                    ? isLightMode
+                                      ? 'bg-amber-50 border-amber-200 text-amber-700'
+                                      : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                                    : isLightMode
+                                    ? 'bg-slate-100 border-slate-300 text-slate-700'
+                                    : 'bg-slate-800 border-slate-700 text-slate-300'
+                                }`}
+                              >
+                                {sess.state === 'active'
+                                  ? isEn
+                                    ? 'Active'
+                                    : 'فعال'
+                                  : sess.state === 'locked'
+                                  ? isEn
+                                    ? 'Locked'
+                                    : 'قفل‌شده'
+                                  : sess.state === 'disconnected'
+                                  ? isEn
+                                    ? 'Disconnected'
+                                    : 'قطع‌اتصال'
+                                  : isEn
+                                  ? 'Idle'
+                                  : 'بیکار'}
+                              </span>
+                            </td>
+                            <td className={`px-4 py-2.5 font-mono ${textMuted}`} dir="ltr">
+                              {sess.sessionName || `ID:${sess.sessionId || '-'}`}
+                            </td>
+                            <td className={`px-4 py-2.5 ${textPrimary}`}>{sess.logonType || 'Console'}</td>
+                            <td className={`px-4 py-2.5 font-mono tabular-nums ${textMuted}`} dir="ltr">
+                              {sess.logonTime
+                                ? formatLogonTimestamp(sess.logonTime)
+                                : sess.logonTimeDisplay || '—'}
+                            </td>
+                            <td className={`px-4 py-2.5 font-mono ${textMuted}`} dir="ltr">
+                              {sess.idleTime || '0'}
+                            </td>
+                            <td className={`px-4 py-2.5 font-mono ${textMuted}`} dir="ltr">
+                              {sess.sourceIp || 'Local'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Section 2: Per-User Last Login Summary */}
+              <div className={`rounded-xl border overflow-hidden ${surfaceBg}`}>
+                <div className={`px-5 py-3.5 border-b flex items-center justify-between gap-2 ${subSurfaceBg}`}>
+                  <div className="flex items-center gap-2">
+                    <User className="w-4 h-4 text-sky-500" />
+                    <h3 className={`text-xs font-bold ${textPrimary}`}>
+                      {isEn
+                        ? `Users & Last Login Summary (${filteredUserSummaries.length})`
+                        : `خلاصه کاربران سیستم و آخرین زمان ورود (${filteredUserSummaries.length})`}
+                    </h3>
+                  </div>
+                </div>
+
+                {filteredUserSummaries.length === 0 ? (
+                  <div className={`p-6 text-center text-xs ${textMuted}`}>
+                    {isEn ? 'No matching workstation user profiles found.' : 'کاربر یا پروفایل مطابقی یافت نشد.'}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-start">
+                      <thead className={`border-b ${subSurfaceBg} ${textMuted}`}>
+                        <tr>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Username' : 'نام کاربر'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Status Now' : 'وضعیت فعلی'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Last Login' : 'آخرین ورود'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Last Logoff' : 'آخرین خروج'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Logins (Window / Total)' : 'تعداد ورود (بازه / کل)'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Failed' : 'ناموفق'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Last Source / Type' : 'آخرین مبدأ / نوع'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className={`divide-y ${isLightMode ? 'divide-slate-200' : 'divide-slate-800'}`}>
+                        {filteredUserSummaries.map((u: any, idx: number) => (
+                          <tr key={`${u.username}-${u.sid}-${idx}`}>
+                            <td className={`px-4 py-2.5 ${textPrimary}`}>
+                              <div className="font-mono font-bold" dir="ltr">
+                                {u.username}
+                              </div>
+                              {u.sid && (
+                                <div className={`text-[10px] font-mono ${textMuted}`} dir="ltr">
+                                  {u.sid}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              {u.isCurrentlyLoggedIn ? (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
+                                    u.currentState === 'locked'
+                                      ? isLightMode
+                                        ? 'bg-amber-50 border-amber-200 text-amber-700'
+                                        : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                                      : u.currentState === 'disconnected'
+                                      ? isLightMode
+                                        ? 'bg-sky-50 border-sky-200 text-sky-700'
+                                        : 'bg-sky-500/15 border-sky-500/30 text-sky-300'
+                                      : isLightMode
+                                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                      : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                  }`}
+                                >
+                                  {u.currentState === 'locked'
+                                    ? isEn
+                                      ? 'Logged In (Locked)'
+                                      : 'لاگین (صفحه قفل)'
+                                    : u.currentState === 'disconnected'
+                                    ? isEn
+                                      ? 'Disconnected Session'
+                                      : 'نشست قطع‌اتصال'
+                                    : isEn
+                                    ? 'Logged In (Active)'
+                                    : 'لاگین (فعال)'}
+                                </span>
+                              ) : (
+                                <span className={`text-[11px] font-medium ${textMuted}`}>
+                                  {isEn ? 'Offline' : 'آفلاین'}
+                                </span>
+                              )}
+                            </td>
+                            <td className={`px-4 py-2.5 font-mono tabular-nums ${textPrimary}`} dir="ltr">
+                              {formatLogonTimestamp(u.lastLogonTime)}
+                            </td>
+                            <td className={`px-4 py-2.5 font-mono tabular-nums ${textMuted}`} dir="ltr">
+                              {formatLogonTimestamp(u.lastLogoffTime)}
+                            </td>
+                            <td className={`px-4 py-2.5 font-mono tabular-nums ${textPrimary}`} dir="ltr">
+                              {u.logonCountInWindow ?? 0} / {u.totalLogonsOnSystem || '—'}
+                            </td>
+                            <td
+                              className={`px-4 py-2.5 font-mono tabular-nums font-semibold ${
+                                (u.failedCountInWindow ?? 0) > 0 ? 'text-rose-500' : textMuted
+                              }`}
+                            >
+                              {u.failedCountInWindow ?? 0}
+                            </td>
+                            <td className={`px-4 py-2.5 text-[11px] ${textMuted}`}>
+                              <div className="font-mono" dir="ltr">
+                                {u.lastSourceIp || 'Local'}
+                              </div>
+                              <div>{u.lastLogonType || '—'}</div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Section 3: Detailed Login / Logoff / Lock / RDP / Failed Event Timeline */}
+              <div className={`rounded-xl border overflow-hidden ${surfaceBg}`}>
+                <div
+                  className={`px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 ${subSurfaceBg}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-indigo-500" />
+                    <h3 className={`text-xs font-bold ${textPrimary}`}>
+                      {isEn
+                        ? `Detailed Login, Logoff & Lock Timeline (${filteredLogonEvents.length})`
+                        : `تاریخچه دقیق ورود، خروج، قفل صفحه و RDP (${filteredLogonEvents.length})`}
+                    </h3>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[
+                      { id: 'all' as const, en: 'All', fa: 'همه' },
+                      { id: 'logon' as const, en: 'Logons', fa: 'ورودها' },
+                      { id: 'logoff' as const, en: 'Logoffs', fa: 'خروج‌ها' },
+                      { id: 'lock_unlock' as const, en: 'Lock / Unlock', fa: 'قفل / بازگشایی' },
+                      { id: 'rdp' as const, en: 'RDP', fa: 'ریموت دسکتاپ' },
+                      { id: 'failed' as const, en: 'Failed', fa: 'ناموفق' },
+                    ].map((flt) => {
+                      const active = logonsEventFilter === flt.id;
+                      return (
+                        <button
+                          key={flt.id}
+                          type="button"
+                          onClick={() => setLogonsEventFilter(flt.id)}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border transition cursor-pointer ${
+                            active
+                              ? 'border-sky-500 bg-sky-500/15 text-sky-500'
+                              : isLightMode
+                              ? 'bg-white border-slate-200 text-slate-600 hover:text-slate-900'
+                              : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-100'
+                          }`}
+                        >
+                          {isEn ? flt.en : flt.fa}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {filteredLogonEvents.length === 0 ? (
+                  <div className={`p-8 text-center text-xs ${textMuted}`}>
+                    {isEn
+                      ? 'No workstation login/session events matched this filter in the selected timeframe.'
+                      : 'در این بازه زمانی و با این فیلتر، رویداد ورود یا خروجی یافت نشد.'}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto max-h-[460px]">
+                    <table className="w-full text-xs text-start">
+                      <thead className={`border-b sticky top-0 z-10 ${subSurfaceBg} ${textMuted}`}>
+                        <tr>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Time' : 'زمان دقیق'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Activity' : 'نوع رویداد'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'User' : 'کاربر'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Method' : 'روش ورود'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Source IP / Host' : 'مبدأ'}</th>
+                          <th className="px-4 py-2.5 text-start font-semibold">{isEn ? 'Event ID / Details' : 'کد و جزئیات'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className={`divide-y ${isLightMode ? 'divide-slate-200' : 'divide-slate-800'}`}>
+                        {filteredLogonEvents.map((ev: any) => {
+                          const badgeMap: Record<string, { cls: string; en: string; fa: string; Icon: any }> = {
+                            logon: {
+                              cls: isLightMode
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300',
+                              en: 'Logon',
+                              fa: 'ورود موفق',
+                              Icon: LogIn,
+                            },
+                            logoff: {
+                              cls: isLightMode
+                                ? 'bg-slate-100 border-slate-300 text-slate-700'
+                                : 'bg-slate-800 border-slate-700 text-slate-300',
+                              en: 'Logoff',
+                              fa: 'خروج',
+                              Icon: LogOut,
+                            },
+                            lock: {
+                              cls: isLightMode
+                                ? 'bg-amber-50 border-amber-200 text-amber-700'
+                                : 'bg-amber-500/15 border-amber-500/30 text-amber-300',
+                              en: 'Locked',
+                              fa: 'قفل صفحه',
+                              Icon: Lock,
+                            },
+                            unlock: {
+                              cls: isLightMode
+                                ? 'bg-sky-50 border-sky-200 text-sky-700'
+                                : 'bg-sky-500/15 border-sky-500/30 text-sky-300',
+                              en: 'Unlocked',
+                              fa: 'بازگشایی قفل',
+                              Icon: Unlock,
+                            },
+                            rdp_reconnect: {
+                              cls: isLightMode
+                                ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                                : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300',
+                              en: 'RDP Reconnect',
+                              fa: 'اتصال مجدد RDP',
+                              Icon: Monitor,
+                            },
+                            rdp_disconnect: {
+                              cls: isLightMode
+                                ? 'bg-orange-50 border-orange-200 text-orange-700'
+                                : 'bg-orange-500/15 border-orange-500/30 text-orange-300',
+                              en: 'RDP Disconnect',
+                              fa: 'قطع نشست RDP',
+                              Icon: Monitor,
+                            },
+                            failed: {
+                              cls: isLightMode
+                                ? 'bg-rose-50 border-rose-200 text-rose-700'
+                                : 'bg-rose-500/15 border-rose-500/30 text-rose-300',
+                              en: 'Failed Login',
+                              fa: 'ورود ناموفق',
+                              Icon: ShieldAlert,
+                            },
+                          };
+                          const b = badgeMap[ev.eventType] || badgeMap.logon;
+                          const EvIcon = b.Icon;
+                          return (
+                            <tr key={ev.id}>
+                              <td className={`px-4 py-2.5 font-mono tabular-nums whitespace-nowrap ${textPrimary}`} dir="ltr">
+                                {formatLogonTimestamp(ev.timestamp)}
+                              </td>
+                              <td className="px-4 py-2.5 whitespace-nowrap">
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border ${b.cls}`}
+                                >
+                                  <EvIcon className="w-3 h-3" />
+                                  <span>{isEn ? b.en : b.fa}</span>
+                                </span>
+                              </td>
+                              <td className={`px-4 py-2.5 font-mono font-semibold ${textPrimary}`} dir="ltr">
+                                {ev.domain ? `${ev.domain}\\${ev.username}` : ev.username}
+                              </td>
+                              <td className={`px-4 py-2.5 ${textPrimary}`}>
+                                {isEn ? ev.logonTypeLabel : ev.logonTypeLabelFa}
+                              </td>
+                              <td className={`px-4 py-2.5 font-mono ${textMuted}`} dir="ltr">
+                                {ev.sourceIp || ev.sourceHost || 'Local'}
+                              </td>
+                              <td className={`px-4 py-2.5 text-[11px] ${textMuted}`}>
+                                <span className="font-mono" dir="ltr">
+                                  ID {ev.eventId} · {ev.channel}
+                                </span>
+                                {ev.failureReason && (
+                                  <div className="text-rose-500 font-medium mt-0.5">{ev.failureReason}</div>
+                                )}
+                                {!ev.failureReason && ev.sessionName && (
+                                  <div className="font-mono mt-0.5" dir="ltr">
+                                    {ev.sessionName}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.461.0';
+export const APP_VERSION = '1.462.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.462.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'گزارش ورود، آخرین لاگین و نشست‌های فعال کاربران در HelpDesk + ثبت کامل تمامی عملیات در Audit & Command Logs',
+    title_en: 'HelpDesk Workstation User Logins & Live Session Report Tab + Full Audit & Command Logs Coverage',
+    changes: [
+      'افزودن تب جدید **«گزارش ورود و نشست کاربران» (`User Logins & Sessions`)** در ماژول HelpDesk جهت پاسخ لحظه‌ای به وضعیت سیستم: **آیا هم‌اکنون کسی لاگین است یا خیر**، شناسایی کاربر فعال فعلی و قفل بودن صفحه (`quser`, `Win32_LogonSession`, `LogonUI`)، و نمایش نشست‌های Console/RDP.',
+      'نمایش جدول **خلاصه کاربران سیستم و آخرین زمان ورود** (از طریق `ProfileList`، `Win32_NetworkLoginProfile` و Event Logs) به همراه **تایم‌لاین کامل ورود، خروج، قفل/بازگشایی صفحه، اتصال/قطع RDP و ورودهای ناموفق** (`4624/4625/4634/4647/4778/4779/4800/4801` و `TerminalServices-LocalSessionManager`) با فیلتر خودکار نشست‌های WinRM.',
+      'تکمیل یکپارچه‌سازی **Audit & Command Logs** برای تمامی عملیات HelpDesk: رفع مشکل نرمال‌سازی فیلدهای `description`/`targetName`/`metadata` در `addPortalAuditLog` (`server/db.ts`)، ثبت لاگ برای تمامی مسیرهای موفق، ناموفق، محدودیت نرخ (Circuit Breaker) و خطاهای دسترسی RBAC در `server/routes.ts` و افزودن فیلتر اختصاصی **HelpDesk & Endpoint Support** در `AuditLogsView.tsx`.'
+    ],
+    changes_en: [
+      'Added a dedicated **User Logins & Sessions** tab inside HelpDesk showing live workstation presence (**is anyone logged in right now**, active Console/RDP user, and lock-screen state via `quser`, `Win32_LogonSession`, and `LogonUI`), plus Linux `who`/`last` parity.',
+      'Added a **Per-User Last Login Summary** table (`ProfileList` + `Win32_NetworkLoginProfile`) and searchable/filterable **Login, Logoff, Lock/Unlock, RDP & Failed Attempt Timeline** (`4624/4625/4634/4647/4778/4779/4800/4801` + `TerminalServices-LocalSessionManager`) with automatic HelpDesk WinRM noise filtering.',
+      'Ensured **100% HelpDesk Audit & Command Logs** coverage: normalized `description`/`targetName`/`metadata` in `addPortalAuditLog` (`server/db.ts`), logged all HelpDesk diagnostics, actions, failures, and circuit-breaker blocks across `server/routes.ts`, and added the **HelpDesk & Endpoint Support** category filter in `AuditLogsView.tsx`.'
+    ],
+  },
   {
     version: '1.461.0',
     releaseDate: '2026-11-24',
