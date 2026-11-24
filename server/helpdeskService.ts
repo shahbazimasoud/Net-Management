@@ -11210,16 +11210,61 @@ export async function collectEndpointHardwareInventory(
 ): Promise<HelpdeskHardwareInventoryResult> {
   const winPs = `
 $ErrorActionPreference = 'SilentlyContinue'
-$hostName = $env:COMPUTERNAME
+$hostName = [string]$env:COMPUTERNAME
 
-function Decode-U16Array([uint16[]]$arr) {
-  if (-not $arr) { return '' }
-  $chars = foreach ($c in $arr) { if ($c -gt 0) { [char]$c } }
-  return ((-join $chars).Trim())
+function To-Str($v) {
+  if ($null -eq $v) { return '' }
+  try { return ([string]$v).Trim() } catch { return '' }
 }
 
-function Decode-MemType([int]$smbios, [int]$legacy) {
-  $code = if ($smbios -gt 0) { $smbios } else { $legacy }
+function To-Int($v) {
+  if ($null -eq $v) { return 0 }
+  try { return [int]$v } catch { return 0 }
+}
+
+function To-Dbl($v) {
+  if ($null -eq $v) { return [double]0 }
+  try { return [double]$v } catch { return [double]0 }
+}
+
+function Safe-Cim($className, $ns) {
+  try {
+    $res = if ($ns) {
+      @(Get-CimInstance -Namespace $ns -ClassName $className -ErrorAction SilentlyContinue)
+    } else {
+      @(Get-CimInstance -ClassName $className -ErrorAction SilentlyContinue)
+    }
+    if ($res -and $res.Count -gt 0) { return $res }
+  } catch {}
+  try {
+    $wmi = if ($ns) {
+      @(Get-WmiObject -Namespace $ns -Class $className -ErrorAction SilentlyContinue)
+    } else {
+      @(Get-WmiObject -Class $className -ErrorAction SilentlyContinue)
+    }
+    if ($wmi -and $wmi.Count -gt 0) { return $wmi }
+  } catch {}
+  return @()
+}
+
+function Decode-U16Array($arr) {
+  if ($null -eq $arr) { return '' }
+  try {
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($c in @($arr)) {
+      try {
+        $code = [int]$c
+        if ($code -gt 0 -and $code -lt 65535) { [void]$sb.Append([char]$code) }
+      } catch {}
+    }
+    return $sb.ToString().Trim()
+  } catch { return '' }
+}
+
+function Decode-MemType($smbios, $legacy) {
+  $sCode = To-Int $smbios
+  $lCode = To-Int $legacy
+  $code = if ($sCode -gt 0) { $sCode } else { $lCode }
   switch ($code) {
     20 { 'DDR' }
     21 { 'DDR2' }
@@ -11236,8 +11281,8 @@ function Decode-MemType([int]$smbios, [int]$legacy) {
   }
 }
 
-function Decode-FormFactor([int]$ff) {
-  switch ($ff) {
+function Decode-FormFactor($ff) {
+  switch (To-Int $ff) {
     8  { 'DIMM' }
     9  { 'SIP' }
     12 { 'SODIMM' }
@@ -11247,269 +11292,384 @@ function Decode-FormFactor([int]$ff) {
   }
 }
 
-$cs = Get-CimInstance -ClassName Win32_ComputerSystem | Select-Object -First 1
-$csp = Get-CimInstance -ClassName Win32_ComputerSystemProduct | Select-Object -First 1
-$bios = Get-CimInstance -ClassName Win32_BIOS | Select-Object -First 1
-$board = Get-CimInstance -ClassName Win32_BaseBoard | Select-Object -First 1
-$enclosure = Get-CimInstance -ClassName Win32_SystemEnclosure | Select-Object -First 1
-$os = Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object -First 1
+# 1. System, Chassis, Motherboard & BIOS
+$cs = $null; $csp = $null; $bios = $null; $board = $null; $enclosure = $null; $os = $null
+try { $cs = Safe-Cim 'Win32_ComputerSystem' | Select-Object -First 1 } catch {}
+try { $csp = Safe-Cim 'Win32_ComputerSystemProduct' | Select-Object -First 1 } catch {}
+try { $bios = Safe-Cim 'Win32_BIOS' | Select-Object -First 1 } catch {}
+try { $board = Safe-Cim 'Win32_BaseBoard' | Select-Object -First 1 } catch {}
+try { $enclosure = Safe-Cim 'Win32_SystemEnclosure' | Select-Object -First 1 } catch {}
+try { $os = Safe-Cim 'Win32_OperatingSystem' | Select-Object -First 1 } catch {}
 
-$chassisTypes = @($enclosure.ChassisTypes)
 $sysType = 'Desktop'
-if ($chassisTypes | Where-Object { $_ -in 8,9,10,11,12,14,18,21,30,31,32 }) { $sysType = 'Laptop / Notebook' }
-elseif ($chassisTypes | Where-Object { $_ -in 17,23,28,29 }) { $sysType = 'Server' }
-elseif ($chassisTypes | Where-Object { $_ -in 35,36 }) { $sysType = 'Mini PC / SFF' }
+try {
+  if ($enclosure -and $enclosure.ChassisTypes) {
+    $cNums = @()
+    foreach ($ct in @($enclosure.ChassisTypes)) { $cNums += (To-Int $ct) }
+    if ($cNums | Where-Object { $_ -in 8,9,10,11,12,14,18,21,30,31,32 }) { $sysType = 'Laptop / Notebook' }
+    elseif ($cNums | Where-Object { $_ -in 17,23,28,29 }) { $sysType = 'Server' }
+    elseif ($cNums | Where-Object { $_ -in 35,36 }) { $sysType = 'Mini PC / SFF' }
+  }
+} catch {}
 
-$oemMfg = ([string]$cs.Manufacturer).Trim()
-$oemModel = ([string]$cs.Model).Trim()
-$isVirt = ("$oemMfg $oemModel $($bios.Manufacturer)" -match '(?i)vmware|virtualbox|vbox|qemu|kvm|hyper-v|virtual machine|xen|bochs|parallels')
+$oemMfg = To-Str $cs.Manufacturer
+$oemModel = To-Str $cs.Model
+$biosVendor = To-Str $bios.Manufacturer
+$isVirt = ("$oemMfg $oemModel $biosVendor" -match '(?i)vmware|virtualbox|vbox|qemu|kvm|hyper-v|virtual machine|xen|bochs|parallels')
 if ($isVirt) { $sysType = 'Virtual Machine' }
 
-$serialNo = ([string]$bios.SerialNumber).Trim()
+$serialNo = To-Str $bios.SerialNumber
 if (-not $serialNo -or $serialNo -match 'To Be Filled|Default string|System Serial') {
-  $altSn = ([string]$enclosure.SerialNumber).Trim()
+  $altSn = To-Str $enclosure.SerialNumber
   if ($altSn -and $altSn -notmatch 'To Be Filled|Default string') { $serialNo = $altSn }
 }
 
 $biosDate = ''
-if ($bios.ReleaseDate) {
-  try { $biosDate = ([datetime]$bios.ReleaseDate).ToString('yyyy-MM-dd') } catch { $biosDate = [string]$bios.ReleaseDate }
-}
+try {
+  if ($bios -and $bios.ReleaseDate) {
+    $biosDate = ([datetime]$bios.ReleaseDate).ToString('yyyy-MM-dd')
+  }
+} catch { $biosDate = To-Str $bios.ReleaseDate }
 
 $chipset = ''
 try {
-  $chipObj = Get-CimInstance -ClassName Win32_PnPEntity -Filter "PNPClass='System' AND Present=TRUE" | Where-Object {
-    $_.Name -match '(?i)Host Bridge|PCI Express Root Complex|Chipset|DRAM Controller|LPC Controller|PCH'
+  $chipObj = Safe-Cim 'Win32_PnPEntity' | Where-Object {
+    $_.Present -eq $true -and $_.PNPClass -eq 'System' -and $_.Name -match '(?i)Host Bridge|PCI Express Root Complex|Chipset|DRAM Controller|LPC Controller|PCH'
   } | Select-Object -First 1
-  if ($chipObj) { $chipset = [string]$chipObj.Name }
+  if ($chipObj) { $chipset = To-Str $chipObj.Name }
 } catch {}
 
-# CPU
-$cpuArr = @(Get-CimInstance -ClassName Win32_Processor)
-$cpu1 = $cpuArr | Select-Object -First 1
-$totalCores = 0; $totalThreads = 0
-foreach ($c in $cpuArr) {
-  $totalCores += [int]$c.NumberOfCores
-  $totalThreads += [int]$c.NumberOfLogicalProcessors
-}
-$baseMhz = [int]$cpu1.CurrentClockSpeed
-$maxMhz = [int]$cpu1.MaxClockSpeed
-if ($maxMhz -le 0) { $maxMhz = $baseMhz }
-$archMap = @{ 0='x86'; 5='ARM'; 9='x64'; 12='ARM64' }
-$cpuArch = if ($archMap.ContainsKey([int]$cpu1.Architecture)) { $archMap[[int]$cpu1.Architecture] } else { [string]$env:PROCESSOR_ARCHITECTURE }
-
-# RAM Arrays & Physical Sticks
-$memArrays = @(Get-CimInstance -ClassName Win32_PhysicalMemoryArray | Where-Object { $_.Use -eq 3 -or $null -eq $_.Use })
-$totalSlots = 0; $maxCapKb = 0
-foreach ($ma in $memArrays) {
-  $totalSlots += [int]$ma.MemoryDevices
-  if ($ma.MaxCapacityEx -and [double]$ma.MaxCapacityEx -gt 0) {
-    $maxCapKb += [double]$ma.MaxCapacityEx
-  } elseif ($ma.MaxCapacity -and [double]$ma.MaxCapacity -gt 0) {
-    $maxCapKb += [double]$ma.MaxCapacity
+# 2. CPU
+$cpuName = ''; $cpuMfg = ''; $cpuSocket = ''; $cpuArch = To-Str $env:PROCESSOR_ARCHITECTURE
+$totalCores = 0; $totalThreads = 0; $baseMhz = 0; $maxMhz = 0; $l2Mb = [double]0; $l3Mb = [double]0
+$virtFw = $null
+try {
+  $cpuArr = @(Safe-Cim 'Win32_Processor')
+  if ($cpuArr.Count -gt 0) {
+    $cpu1 = $cpuArr[0]
+    foreach ($c in $cpuArr) {
+      $totalCores += (To-Int $c.NumberOfCores)
+      $totalThreads += (To-Int $c.NumberOfLogicalProcessors)
+    }
+    $cpuName = ((To-Str $cpu1.Name) -replace '\\s+',' ').Trim()
+    $cpuMfg = To-Str $cpu1.Manufacturer
+    $cpuSocket = To-Str $cpu1.SocketDesignation
+    $baseMhz = To-Int $cpu1.CurrentClockSpeed
+    $maxMhz = To-Int $cpu1.MaxClockSpeed
+    if ($maxMhz -le 0) { $maxMhz = $baseMhz }
+    $l2Mb = [Math]::Round((To-Dbl $cpu1.L2CacheSize) / 1024.0, 1)
+    $l3Mb = [Math]::Round((To-Dbl $cpu1.L3CacheSize) / 1024.0, 1)
+    $archCode = To-Int $cpu1.Architecture
+    if ($archCode -eq 0) { $cpuArch = 'x86' }
+    elseif ($archCode -eq 5) { $cpuArch = 'ARM' }
+    elseif ($archCode -eq 9) { $cpuArch = 'x64' }
+    elseif ($archCode -eq 12) { $cpuArch = 'ARM64' }
+    try {
+      if ($null -ne $cpu1.VirtualizationFirmwareEnabled) {
+        $virtFw = [bool]$cpu1.VirtualizationFirmwareEnabled
+      }
+    } catch { $virtFw = $null }
   }
-}
+} catch {}
 
-$physMem = @(Get-CimInstance -ClassName Win32_PhysicalMemory)
-$modules = New-Object System.Collections.Generic.List[object]
+# 3. Physical RAM Arrays & Modules
+$totalSlots = 0; $maxCapKb = [double]0
+try {
+  $memArrays = @(Safe-Cim 'Win32_PhysicalMemoryArray' | Where-Object { $null -eq $_.Use -or (To-Int $_.Use) -eq 3 })
+  foreach ($ma in $memArrays) {
+    $totalSlots += (To-Int $ma.MemoryDevices)
+    $exKb = To-Dbl $ma.MaxCapacityEx
+    $stdKb = To-Dbl $ma.MaxCapacity
+    if ($exKb -gt 0) { $maxCapKb += $exKb }
+    elseif ($stdKb -gt 0) { $maxCapKb += $stdKb }
+  }
+} catch {}
+
+$modules = @()
 $totalBytes = [double]0
 $maxSpeedMhz = 0
 $domType = 'Unknown'
-
-foreach ($m in $physMem) {
-  $capBytes = [double]$m.Capacity
-  $totalBytes += $capBytes
-  $capGb = [Math]::Round($capBytes / 1GB, 2)
-  $ratedSpd = [int]$m.Speed
-  $confSpd = [int]$m.ConfiguredClockSpeed
-  $effSpd = if ($confSpd -gt 0) { $confSpd } else { $ratedSpd }
-  if ($effSpd -gt $maxSpeedMhz) { $maxSpeedMhz = $effSpd }
-  $mType = Decode-MemType ([int]$m.SMBIOSMemoryType) ([int]$m.MemoryType)
-  if ($domType -eq 'Unknown' -and $mType -ne 'Unknown') { $domType = $mType }
-  $ff = Decode-FormFactor ([int]$m.FormFactor)
-  $volt = if ($m.ConfiguredVoltage -and [double]$m.ConfiguredVoltage -gt 0) { [Math]::Round(([double]$m.ConfiguredVoltage) / 1000.0, 2) } else { 0 }
-  $modules.Add([PSCustomObject]@{
-    slotLabel = ([string]$m.DeviceLocator).Trim()
-    bankLabel = ([string]$m.BankLabel).Trim()
-    capacityGb = $capGb
-    speedMhz = $ratedSpd
-    configuredSpeedMhz = $effSpd
-    memoryType = $mType
-    formFactor = $ff
-    manufacturer = ([string]$m.Manufacturer).Trim()
-    partNumber = ([string]$m.PartNumber).Trim()
-    serialNumber = ([string]$m.SerialNumber).Trim()
-    voltageV = $volt
-  })
-}
+try {
+  $physMem = @(Safe-Cim 'Win32_PhysicalMemory')
+  foreach ($m in $physMem) {
+    try {
+      $capBytes = To-Dbl $m.Capacity
+      $totalBytes += $capBytes
+      $capGb = [Math]::Round($capBytes / 1073741824.0, 2)
+      $ratedSpd = To-Int $m.Speed
+      $confSpd = To-Int $m.ConfiguredClockSpeed
+      $effSpd = if ($confSpd -gt 0) { $confSpd } else { $ratedSpd }
+      if ($effSpd -gt $maxSpeedMhz) { $maxSpeedMhz = $effSpd }
+      $mType = Decode-MemType $m.SMBIOSMemoryType $m.MemoryType
+      if ($domType -eq 'Unknown' -and $mType -ne 'Unknown') { $domType = $mType }
+      $ff = Decode-FormFactor $m.FormFactor
+      $voltMv = To-Dbl $m.ConfiguredVoltage
+      $volt = if ($voltMv -gt 0) { [Math]::Round($voltMv / 1000.0, 2) } else { 0 }
+      $modules += [PSCustomObject]@{
+        slotLabel = To-Str $m.DeviceLocator
+        bankLabel = To-Str $m.BankLabel
+        capacityGb = $capGb
+        speedMhz = $ratedSpd
+        configuredSpeedMhz = $effSpd
+        memoryType = $mType
+        formFactor = $ff
+        manufacturer = To-Str $m.Manufacturer
+        partNumber = To-Str $m.PartNumber
+        serialNumber = To-Str $m.SerialNumber
+        voltageV = $volt
+      }
+    } catch {}
+  }
+} catch {}
 
 $popSlots = $modules.Count
 if ($totalSlots -lt $popSlots) { $totalSlots = $popSlots }
-$freeSlots = [Math]::Max(0, $totalSlots - $popSlots)
-$totalRamGb = if ($totalBytes -gt 0) { [Math]::Round($totalBytes / 1GB, 2) } else { [Math]::Round(([double]$cs.TotalPhysicalMemory) / 1GB, 2) }
-$usableRamGb = [Math]::Round(([double]$os.TotalVisibleMemorySize) / 1MB, 2)
-$maxCapGb = if ($maxCapKb -gt 0) { [Math]::Round($maxCapKb / 1MB, 0) } else { 0 }
+$freeSlots = if ($totalSlots -gt $popSlots) { [int]($totalSlots - $popSlots) } else { 0 }
+$totalRamGb = if ($totalBytes -gt 0) {
+  [Math]::Round($totalBytes / 1073741824.0, 2)
+} else {
+  [Math]::Round((To-Dbl $cs.TotalPhysicalMemory) / 1073741824.0, 2)
+}
+$usableRamGb = [Math]::Round((To-Dbl $os.TotalVisibleMemorySize) / 1048576.0, 2)
+$maxCapGb = if ($maxCapKb -gt 0) { [Math]::Round($maxCapKb / 1048576.0, 0) } else { 0 }
 $chanMode = if ($popSlots -ge 4) { 'Multi / Quad Channel' } elseif ($popSlots -ge 2) { 'Dual Channel' } elseif ($popSlots -eq 1) { 'Single Channel' } else { 'Virtual / N/A' }
 
-# GPUs
-$gpus = New-Object System.Collections.Generic.List[object]
-foreach ($g in @(Get-CimInstance -ClassName Win32_VideoController)) {
-  $gName = ([string]$g.Name).Trim()
-  if (-not $gName) { continue }
-  $gVendor = ([string]$g.AdapterCompatibility).Trim()
-  $gType = 'integrated'
-  if ("$gName $gVendor" -match '(?i)vmware|virtualbox|hyper-v|microsoft basic display|qxl|virtio|rdpdd|citrix') { $gType = 'virtual' }
-  elseif ("$gName $gVendor" -match '(?i)nvidia|geforce|quadro|rtx|gtx|radeon rx|radeon pro|arc a\d|firepro') { $gType = 'discrete' }
-  $vramBytes = [double]$g.AdapterRAM
-  $vramGb = if ($vramBytes -gt 0) { [Math]::Round($vramBytes / 1GB, 2) } else { 0 }
-  $dDate = ''
-  if ($g.DriverDate) { try { $dDate = ([datetime]$g.DriverDate).ToString('yyyy-MM-dd') } catch {} }
-  $res = if ($g.CurrentHorizontalResolution -and $g.CurrentVerticalResolution) { "$($g.CurrentHorizontalResolution)x$($g.CurrentVerticalResolution)" } else { '' }
-  $gpus.Add([PSCustomObject]@{
-    name = $gName
-    vendor = $gVendor
-    type = $gType
-    vramGb = $vramGb
-    driverVersion = ([string]$g.DriverVersion).Trim()
-    driverDate = $dDate
-    resolution = $res
-    refreshRateHz = [int]$g.CurrentRefreshRate
-  })
-}
-
-# Connected Monitors (EDID via WmiMonitorID)
-$monitors = New-Object System.Collections.Generic.List[object]
+# 4. GPUs (with registry qwMemorySize >4GB VRAM support)
+$regVramGbMap = @{}
 try {
-  $wmiMons = @(Get-CimInstance -Namespace root\\wmi -ClassName WmiMonitorID -ErrorAction SilentlyContinue)
-  foreach ($wm in $wmiMons) {
-    $mName = Decode-U16Array $wm.UserFriendlyName
-    $mMfg = Decode-U16Array $wm.ManufacturerName
-    $mSn = Decode-U16Array $wm.SerialNumberID
-    if ($mName -or $mMfg) {
-      $monitors.Add([PSCustomObject]@{
-        name = if ($mName) { $mName } else { "$mMfg Monitor" }
-        manufacturer = $mMfg
-        serialNumber = $mSn
-      })
+  Get-ChildItem 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}' -ErrorAction SilentlyContinue | ForEach-Object {
+    if ($_.PSChildName -match '^\\d{4}$') {
+      $rp = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+      if ($rp -and $rp.DriverDesc) {
+        $qw = To-Dbl $rp.'HardwareInformation.qwMemorySize'
+        if ($qw -gt 0) {
+          $regVramGbMap[(To-Str $rp.DriverDesc)] = [Math]::Round($qw / 1073741824.0, 2)
+        }
+      }
     }
+  }
+} catch {}
+
+$gpus = @()
+try {
+  foreach ($g in @(Safe-Cim 'Win32_VideoController')) {
+    try {
+      $gName = To-Str $g.Name
+      if (-not $gName) { continue }
+      $gVendor = To-Str $g.AdapterCompatibility
+      $gType = 'integrated'
+      if ("$gName $gVendor" -match '(?i)vmware|virtualbox|hyper-v|microsoft basic display|qxl|virtio|rdpdd|citrix') { $gType = 'virtual' }
+      elseif ("$gName $gVendor" -match '(?i)nvidia|geforce|quadro|rtx|gtx|radeon rx|radeon pro|arc a\\d|firepro') { $gType = 'discrete' }
+      $vramGb = 0
+      if ($regVramGbMap.ContainsKey($gName)) {
+        $vramGb = $regVramGbMap[$gName]
+      } else {
+        $vramBytes = To-Dbl $g.AdapterRAM
+        if ($vramBytes -gt 0) { $vramGb = [Math]::Round($vramBytes / 1073741824.0, 2) }
+      }
+      $dDate = ''
+      try { if ($g.DriverDate) { $dDate = ([datetime]$g.DriverDate).ToString('yyyy-MM-dd') } } catch {}
+      $hRes = To-Int $g.CurrentHorizontalResolution
+      $vRes = To-Int $g.CurrentVerticalResolution
+      $res = if ($hRes -gt 0 -and $vRes -gt 0) { "$($hRes)x$($vRes)" } else { '' }
+      $gpus += [PSCustomObject]@{
+        name = $gName
+        vendor = $gVendor
+        type = $gType
+        vramGb = $vramGb
+        driverVersion = To-Str $g.DriverVersion
+        driverDate = $dDate
+        resolution = $res
+        refreshRateHz = To-Int $g.CurrentRefreshRate
+      }
+    } catch {}
+  }
+} catch {}
+
+# 5. Connected Monitors (EDID via WmiMonitorID, fallback Win32_DesktopMonitor)
+$monitors = @()
+try {
+  foreach ($wm in @(Safe-Cim 'WmiMonitorID' 'root\\wmi')) {
+    try {
+      $mName = Decode-U16Array $wm.UserFriendlyName
+      $mMfg = Decode-U16Array $wm.ManufacturerName
+      $mSn = Decode-U16Array $wm.SerialNumberID
+      if ($mName -or $mMfg) {
+        $monitors += [PSCustomObject]@{
+          name = if ($mName) { $mName } else { "$mMfg Monitor" }
+          manufacturer = $mMfg
+          serialNumber = $mSn
+        }
+      }
+    } catch {}
   }
 } catch {}
 if ($monitors.Count -eq 0) {
-  foreach ($dm in @(Get-CimInstance -ClassName Win32_DesktopMonitor | Where-Object { $_.Availability -eq 3 })) {
-    if ($dm.Name -and $dm.Name -notmatch 'Default Monitor') {
-      $monitors.Add([PSCustomObject]@{
-        name = [string]$dm.Name
-        manufacturer = [string]$dm.MonitorManufacturer
-        serialNumber = ''
-      })
+  try {
+    foreach ($dm in @(Safe-Cim 'Win32_DesktopMonitor' | Where-Object { (To-Int $_.Availability) -eq 3 })) {
+      try {
+        $dmName = To-Str $dm.Name
+        if ($dmName -and $dmName -notmatch 'Default Monitor') {
+          $monitors += [PSCustomObject]@{
+            name = $dmName
+            manufacturer = To-Str $dm.MonitorManufacturer
+            serialNumber = ''
+          }
+        }
+      } catch {}
     }
-  }
+  } catch {}
 }
 
-# Physical Disks
-$disks = New-Object System.Collections.Generic.List[object]
+# 6. Physical Disks
+$disks = @()
 $physDisks = @()
-try { $physDisks = @(Get-PhysicalDisk) } catch {}
+try { $physDisks = @(Get-PhysicalDisk -ErrorAction SilentlyContinue) } catch {}
 if ($physDisks.Count -gt 0) {
   foreach ($pd in $physDisks) {
-    $mType = [string]$pd.MediaType
-    $bus = [string]$pd.BusType
-    if ($bus -eq 'NVMe') { $mType = 'NVMe SSD' }
-    elseif ($mType -eq 'Unspecified' -and $bus -eq 'USB') { $mType = 'USB Drive' }
-    $disks.Add([PSCustomObject]@{
-      model = ([string]$pd.FriendlyName).Trim()
-      manufacturer = ([string]$pd.Manufacturer).Trim()
-      sizeGb = [Math]::Round(([double]$pd.Size) / 1GB, 1)
-      mediaType = $mType
-      busType = $bus
-      serialNumber = ([string]$pd.SerialNumber).Trim()
-      firmwareVersion = ([string]$pd.FirmwareVersion).Trim()
-      healthStatus = ([string]$pd.HealthStatus).Trim()
-    })
+    try {
+      $mType = To-Str $pd.MediaType
+      $bus = To-Str $pd.BusType
+      if ($bus -eq 'NVMe') { $mType = 'NVMe SSD' }
+      elseif ($mType -eq 'Unspecified' -and $bus -eq 'USB') { $mType = 'USB Drive' }
+      $disks += [PSCustomObject]@{
+        model = To-Str $pd.FriendlyName
+        manufacturer = To-Str $pd.Manufacturer
+        sizeGb = [Math]::Round((To-Dbl $pd.Size) / 1073741824.0, 1)
+        mediaType = $mType
+        busType = $bus
+        serialNumber = To-Str $pd.SerialNumber
+        firmwareVersion = To-Str $pd.FirmwareVersion
+        healthStatus = To-Str $pd.HealthStatus
+      }
+    } catch {}
   }
 } else {
-  foreach ($dd in @(Get-CimInstance -ClassName Win32_DiskDrive)) {
-    $disks.Add([PSCustomObject]@{
-      model = ([string]$dd.Model).Trim()
-      manufacturer = ([string]$dd.Manufacturer).Trim()
-      sizeGb = [Math]::Round(([double]$dd.Size) / 1GB, 1)
-      mediaType = ([string]$dd.MediaType).Trim()
-      busType = ([string]$dd.InterfaceType).Trim()
-      serialNumber = ([string]$dd.SerialNumber).Trim()
-      firmwareVersion = ([string]$dd.FirmwareRevision).Trim()
-      healthStatus = ([string]$dd.Status).Trim()
-    })
-  }
+  try {
+    foreach ($dd in @(Safe-Cim 'Win32_DiskDrive')) {
+      try {
+        $disks += [PSCustomObject]@{
+          model = To-Str $dd.Model
+          manufacturer = To-Str $dd.Manufacturer
+          sizeGb = [Math]::Round((To-Dbl $dd.Size) / 1073741824.0, 1)
+          mediaType = To-Str $dd.MediaType
+          busType = To-Str $dd.InterfaceType
+          serialNumber = To-Str $dd.SerialNumber
+          firmwareVersion = To-Str $dd.FirmwareRevision
+          healthStatus = To-Str $dd.Status
+        }
+      } catch {}
+    }
+  } catch {}
 }
 
-# Network Adapters
-$nics = New-Object System.Collections.Generic.List[object]
+# 7. Network Adapters
+$nics = @()
 try {
-  foreach ($na in @(Get-NetAdapter | Sort-Object -Property HardwareInterface -Descending)) {
-    $desc = ([string]$na.InterfaceDescription).Trim()
-    $nType = 'ethernet'
-    if (-not $na.HardwareInterface -or $desc -match '(?i)vmware|hyper-v|virtual|loopback|tap-|tun|wan miniport|vpn') { $nType = 'virtual' }
-    elseif ($desc -match '(?i)wi-fi|wifi|wireless|wlan|802\\.11|ax\d{3}|ac \d{4}') { $nType = 'wifi' }
-    elseif ($desc -match '(?i)bluetooth') { $nType = 'bluetooth' }
-    if ($nType -eq 'virtual' -and $na.Status -ne 'Up') { continue }
-    $nics.Add([PSCustomObject]@{
-      name = [string]$na.Name
-      description = $desc
-      macAddress = [string]$na.MacAddress
-      linkSpeed = [string]$na.LinkSpeed
-      adapterType = $nType
-      status = [string]$na.Status
-    })
+  foreach ($na in @(Get-NetAdapter -ErrorAction SilentlyContinue | Sort-Object -Property HardwareInterface -Descending)) {
+    try {
+      $desc = To-Str $na.InterfaceDescription
+      $nType = 'ethernet'
+      if (-not $na.HardwareInterface -or $desc -match '(?i)vmware|hyper-v|virtual|loopback|tap-|tun|wan miniport|vpn') { $nType = 'virtual' }
+      elseif ($desc -match '(?i)wi-fi|wifi|wireless|wlan|802\\.11|ax\\d{3}|ac \\d{4}') { $nType = 'wifi' }
+      elseif ($desc -match '(?i)bluetooth') { $nType = 'bluetooth' }
+      if ($nType -eq 'virtual' -and (To-Str $na.Status) -ne 'Up') { continue }
+      $nics += [PSCustomObject]@{
+        name = To-Str $na.Name
+        description = $desc
+        macAddress = To-Str $na.MacAddress
+        linkSpeed = To-Str $na.LinkSpeed
+        adapterType = $nType
+        status = To-Str $na.Status
+      }
+    } catch {}
+  }
+} catch {}
+if ($nics.Count -eq 0) {
+  try {
+    foreach ($wa in @(Safe-Cim 'Win32_NetworkAdapter' | Where-Object { $_.PhysicalAdapter -eq $true })) {
+      try {
+        $desc = To-Str $wa.Name
+        $nType = if ($desc -match '(?i)wi-fi|wifi|wireless|wlan|802\\.11') { 'wifi' } elseif ($desc -match '(?i)bluetooth') { 'bluetooth' } else { 'ethernet' }
+        $spdMbps = [Math]::Round((To-Dbl $wa.Speed) / 1000000.0, 0)
+        $nics += [PSCustomObject]@{
+          name = To-Str $wa.NetConnectionID
+          description = $desc
+          macAddress = To-Str $wa.MACAddress
+          linkSpeed = if ($spdMbps -gt 0) { "$spdMbps Mbps" } else { '' }
+          adapterType = $nType
+          status = if ((To-Int $wa.NetConnectionStatus) -eq 2) { 'Up' } else { 'Disconnected' }
+        }
+      } catch {}
+    }
+  } catch {}
+}
+
+# 8. Audio Devices
+$audios = @()
+try {
+  foreach ($au in @(Safe-Cim 'Win32_SoundDevice')) {
+    try {
+      $aName = To-Str $au.Name
+      if (-not $aName) { continue }
+      $aMfg = To-Str $au.Manufacturer
+      $onboard = ("$aName $aMfg" -match '(?i)realtek|high definition audio|intel|conexant|synaptics|idt|via')
+      $audios += [PSCustomObject]@{
+        name = $aName
+        manufacturer = $aMfg
+        status = To-Str $au.Status
+        isOnboard = [bool]$onboard
+      }
+    } catch {}
   }
 } catch {}
 
-# Audio Devices
-$audios = New-Object System.Collections.Generic.List[object]
-foreach ($au in @(Get-CimInstance -ClassName Win32_SoundDevice)) {
-  $aName = ([string]$au.Name).Trim()
-  if (-not $aName) { continue }
-  $aMfg = ([string]$au.Manufacturer).Trim()
-  $onboard = ("$aName $aMfg" -match '(?i)realtek|high definition audio|intel|conexant|synaptics|idt|via')
-  $audios.Add([PSCustomObject]@{
-    name = $aName
-    manufacturer = $aMfg
-    status = ([string]$au.Status).Trim()
-    isOnboard = $onboard
-  })
-}
+# 9. Connected Peripherals (Input, Camera, Bluetooth, USB Storage, Printers/Scanners, Biometric)
+$periphs = @()
+try {
+  $seenPnp = @{}
+  $targetClasses = @('Keyboard','Mouse','HIDClass','Camera','Image','Bluetooth','Printer','WPD','SmartCardReader','Biometric','CDROM','USB')
+  $pnpList = @(Safe-Cim 'Win32_PnPEntity')
+  foreach ($p in $pnpList) {
+    try {
+      if ($null -ne $p.Present -and $p.Present -ne $true) { continue }
+      $cls = To-Str $p.PNPClass
+      $pName = To-Str $p.Name
+      if (-not $pName -or -not ($targetClasses -contains $cls)) { continue }
+      if ($pName -match '^(HID-compliant (consumer|system|vendor-defined)|USB Input Device|USB Composite Device|Generic USB Hub|USB Root Hub|Microsoft Bluetooth Enumerator|Bluetooth Device \\(Personal Area Network\\)|PrintQueue|Microsoft Print to PDF|Microsoft XPS Document Writer|Fax|Root Print Queue)') { continue }
+      if ($cls -eq 'USB' -and $pName -notmatch '(?i)mass storage|flash|hub|controller|dock|dongle|receiver|camera|audio|card') { continue }
 
-# Connected Peripherals (Input, Camera, Bluetooth, USB Storage, Printers/Scanners, Biometric)
-$periphs = New-Object System.Collections.Generic.List[object]
-$seenPnp = @{}
-$targetClasses = @('Keyboard','Mouse','HIDClass','Camera','Image','Bluetooth','Printer','WPD','SmartCardReader','Biometric','CDROM','USB')
-$pnpList = @(Get-CimInstance -ClassName Win32_PnPEntity -Filter "Present=TRUE")
-foreach ($p in $pnpList) {
-  $cls = ([string]$p.PNPClass).Trim()
-  $pName = ([string]$p.Name).Trim()
-  if (-not $pName -or -not ($targetClasses -contains $cls)) { continue }
-  if ($pName -match '^(HID-compliant (consumer|system|vendor-defined)|USB Input Device|USB Composite Device|Generic USB Hub|USB Root Hub|Microsoft Bluetooth Enumerator|Bluetooth Device \\(Personal Area Network\\)|PrintQueue|Microsoft Print to PDF|Microsoft XPS Document Writer|Fax|Root Print Queue)') { continue }
-  if ($cls -eq 'USB' -and $pName -notmatch '(?i)mass storage|flash|hub|controller|dock|dongle|receiver|camera|audio|card') { continue }
+      $cat = 'other'
+      if ($cls -in @('Keyboard','Mouse','HIDClass')) { $cat = 'input' }
+      elseif ($cls -in @('Camera','Image')) { $cat = 'camera' }
+      elseif ($cls -eq 'Bluetooth') { $cat = 'bluetooth' }
+      elseif ($cls -in @('WPD','CDROM') -or ($cls -eq 'USB' -and $pName -match '(?i)mass storage|flash|disk')) { $cat = 'usb_storage' }
+      elseif ($cls -eq 'Printer') { $cat = 'printer_scanner' }
+      elseif ($cls -in @('Biometric','SmartCardReader')) { $cat = 'biometric' }
 
-  $cat = 'other'
-  if ($cls -in @('Keyboard','Mouse','HIDClass')) { $cat = 'input' }
-  elseif ($cls -in @('Camera','Image')) { $cat = 'camera' }
-  elseif ($cls -eq 'Bluetooth') { $cat = 'bluetooth' }
-  elseif ($cls -in @('WPD','CDROM') -or ($cls -eq 'USB' -and $pName -match '(?i)mass storage|flash|disk')) { $cat = 'usb_storage' }
-  elseif ($cls -eq 'Printer') { $cat = 'printer_scanner' }
-  elseif ($cls -in @('Biometric','SmartCardReader')) { $cat = 'biometric' }
+      $dedupe = "$cat|$($pName.ToLowerInvariant())"
+      if ($seenPnp.ContainsKey($dedupe)) { continue }
+      $seenPnp[$dedupe] = $true
 
-  $dedupe = "$cat|$($pName.ToLowerInvariant())"
-  if ($seenPnp.ContainsKey($dedupe)) { continue }
-  $seenPnp[$dedupe] = $true
+      $periphs += [PSCustomObject]@{
+        name = $pName
+        manufacturer = To-Str $p.Manufacturer
+        pnpClass = $cls
+        category = $cat
+        status = To-Str $p.Status
+        deviceId = To-Str $p.DeviceID
+      }
+    } catch {}
+  }
+} catch {}
 
-  $periphs.Add([PSCustomObject]@{
-    name = $pName
-    manufacturer = ([string]$p.Manufacturer).Trim()
-    pnpClass = $cls
-    category = $cat
-    status = ([string]$p.Status).Trim()
-    deviceId = ([string]$p.DeviceID).Trim()
-  })
+$sortedPeriphs = @()
+try {
+  if ($periphs.Count -gt 0) {
+    $sortedPeriphs = @($periphs | Sort-Object -Property category, name)
+  }
+} catch {
+  $sortedPeriphs = @($periphs)
 }
 
 [PSCustomObject]@{
@@ -11519,31 +11679,31 @@ foreach ($p in $pnpList) {
     model = $oemModel
     systemType = $sysType
     serialNumber = $serialNo
-    uuid = ([string]$csp.UUID).Trim()
-    isVirtual = $isVirt
+    uuid = To-Str $csp.UUID
+    isVirtual = [bool]$isVirt
   }
   motherboard = [PSCustomObject]@{
-    manufacturer = ([string]$board.Manufacturer).Trim()
-    product = ([string]$board.Product).Trim()
-    version = ([string]$board.Version).Trim()
-    serialNumber = ([string]$board.SerialNumber).Trim()
+    manufacturer = To-Str $board.Manufacturer
+    product = To-Str $board.Product
+    version = To-Str $board.Version
+    serialNumber = To-Str $board.SerialNumber
     chipset = $chipset
-    biosVendor = ([string]$bios.Manufacturer).Trim()
-    biosVersion = ([string]$bios.SMBIOSBIOSVersion).Trim()
+    biosVendor = $biosVendor
+    biosVersion = To-Str $bios.SMBIOSBIOSVersion
     biosReleaseDate = $biosDate
   }
   cpu = [PSCustomObject]@{
-    name = ([string]$cpu1.Name -replace '\\s+',' ').Trim()
-    manufacturer = ([string]$cpu1.Manufacturer).Trim()
-    socket = ([string]$cpu1.SocketDesignation).Trim()
+    name = $cpuName
+    manufacturer = $cpuMfg
+    socket = $cpuSocket
     cores = $totalCores
     logicalProcessors = $totalThreads
     baseClockGhz = [Math]::Round($baseMhz / 1000.0, 2)
     maxClockGhz = [Math]::Round($maxMhz / 1000.0, 2)
-    l2CacheMb = [Math]::Round(([double]$cpu1.L2CacheSize) / 1024.0, 1)
-    l3CacheMb = [Math]::Round(([double]$cpu1.L3CacheSize) / 1024.0, 1)
+    l2CacheMb = $l2Mb
+    l3CacheMb = $l3Mb
     architecture = $cpuArch
-    virtualizationEnabled = $cpu1.VirtualizationFirmwareEnabled
+    virtualizationEnabled = $virtFw
   }
   memory = [PSCustomObject]@{
     totalGb = $totalRamGb
@@ -11562,7 +11722,7 @@ foreach ($p in $pnpList) {
   disks = @($disks)
   networkAdapters = @($nics)
   audioDevices = @($audios)
-  connectedDevices = @($periphs | Sort-Object -Property category, name)
+  connectedDevices = @($sortedPeriphs)
 } | ConvertTo-Json -Depth 5 -Compress
 `;
 

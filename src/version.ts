@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.469.0';
+export const APP_VERSION = '1.470.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.470.0',
+    releaseDate: '2026-11-24',
+    type: 'patch',
+    title: 'رفع خطای PowerShell «Argument types do not match» در تب سخت‌افزار HelpDesk با ایزوله‌سازی خطای هر قطعه، تبدیل امن انواع و خواندن VRAM بالای ۴ گیگابایت',
+    title_en: 'Fix HelpDesk Hardware Tab PowerShell "Argument types do not match" Error via Per-Subsystem Fault Isolation, Untyped Safe Converters & >4GB GPU VRAM Detection',
+    changes: [
+      'رفع ریشه‌ای خطای `Argument types do not match` هنگام بارگذاری تب **سخت‌افزار و تجهیزات متصل (`Hardware & Peripherals`)** در `collectEndpointHardwareInventory` (`server/helpdeskService.ts`): حذف پارامترهای تایپ‌شده در توابع PowerShell (`Decode-U16Array` و `Decode-MemType`) و تبدیل تمام محاسبات و کلکسیون‌ها به آرایه‌های استاندارد `@()` و مبدل‌های ایمن `To-Str`/`To-Int`/`To-Dbl`.',
+      'ایزوله‌سازی کامل و مستقل هر بخش سخت‌افزاری (مادربرد، BIOS، پردازنده، اسلات‌های رم، گرافیک، مانیتور، هارد، شبکه، صدا و تجهیزات USB) درون بلوک‌های `try/catch` مجزا همراه با Fallback خودکار `Get-WmiObject` تا هیچ خطای جزئی WMI یا SMBIOS روی سیستم کاربر باعث شکست کل گزارش نشود.',
+      'افزودن پشتیبانی از تشخیص ظرفیت واقعی VRAM کارت‌های گرافیک بالای ۴ گیگابایت از طریق رجیستری ویندوز (`HardwareInformation.qwMemorySize`) و رفع کاراکترهای Regex جستجوی Wi-Fi و حذف فیلتر WQL حساس `Win32_PnPEntity -Filter "Present=TRUE"`.'
+    ],
+    changes_en: [
+      'Fixed the PowerShell `Argument types do not match` runtime error in `collectEndpointHardwareInventory` (`server/helpdeskService.ts`) when loading the HelpDesk **Hardware & Peripherals** tab by replacing strict function parameter type bindings and mixed generic list/numeric operations with untyped safe converters (`To-Str`, `To-Int`, `To-Dbl`) and standard `@()` PowerShell arrays.',
+      'Wrapped every hardware subsystem query (System/BIOS/Board, CPU, RAM arrays & sticks, GPUs, Monitors, Disks, NICs, Audio, and PnP Peripherals) and per-device loop iteration in independent `try/catch` blocks with `Safe-Cim` (`Get-CimInstance` -> `Get-WmiObject` fallback) so quirky OEM SMBIOS or WMI records never abort the JSON response.',
+      'Added >4GB GPU VRAM detection via Windows Display Class registry (`HardwareInformation.qwMemorySize`), fixed Wi-Fi regex escaping, and replaced the WQL `Win32_PnPEntity -Filter "Present=TRUE"` query with safe PowerShell-side filtering.'
+    ],
+  },
   {
     version: '1.469.0',
     releaseDate: '2026-11-24',
