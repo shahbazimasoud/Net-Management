@@ -49,6 +49,10 @@ import {
   executeSafeNetworkReset,
   collectEndpointPrinters,
   executeSafeSpoolerAction,
+  setEndpointDefaultPrinter,
+  deleteEndpointPrinter,
+  listPrintServerPrinters,
+  installPrintServerPrinter,
   collectEndpointEventLogs,
   terminateEndpointUserProcess,
   scanEndpointTempFolders,
@@ -8325,6 +8329,248 @@ apiRouter.post('/helpdesk/printers/action', async (req: Request, res: Response) 
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Print Spooler repair action failed');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/printers/set-default - Set Default Printer on Endpoint (Active User Profile + Session)
+apiRouter.post('/helpdesk/printers/set-default', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const printerName = String(req.body?.printerName || '').trim();
+  if (!printerName) {
+    return res.status(400).json({
+      success: false,
+      error: 'Printer name is required.',
+      errorFa: 'نام پرینتر الزامی است.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'printer_set_default');
+  if (!rl.allowed) {
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await setEndpointDefaultPrinter(target, printerName);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_printer_set_default',
+      title: `تغییر پرینتر پیش‌فرض روی ${data.targetIp}`,
+      title_en: `HelpDesk Default Printer Changed on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, printerName, protocol: data.protocolUsed, ...data.details },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to set default printer');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/printers/delete - Uninstall/Remove Printer from Endpoint (Machine & Active User Profile)
+apiRouter.post('/helpdesk/printers/delete', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const printerName = String(req.body?.printerName || '').trim();
+  const rawScope = String(req.body?.scope || 'auto').trim().toLowerCase();
+  const scope: 'machine' | 'user' | 'auto' =
+    rawScope === 'machine' || rawScope === 'user' ? rawScope : 'auto';
+  if (!printerName) {
+    return res.status(400).json({
+      success: false,
+      error: 'Printer name is required.',
+      errorFa: 'نام پرینتر الزامی است.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'printer_delete');
+  if (!rl.allowed) {
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await deleteEndpointPrinter(target, printerName, scope);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_printer_delete',
+      title: `حذف پرینتر «${printerName}» از ${data.targetIp}`,
+      title_en: `HelpDesk Printer Removed on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'warning',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, printerName, scope, protocol: data.protocolUsed, ...data.details },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to delete printer');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/printers/server/list - List Shared Printers on a Print Server from Workstation Context
+apiRouter.post('/helpdesk/printers/server/list', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const printServer = String(req.body?.printServer || '').trim();
+  const printServerUsername = req.body?.printServerUsername ? String(req.body.printServerUsername).trim() : undefined;
+  const printServerPassword = req.body?.printServerPassword ? String(req.body.printServerPassword) : undefined;
+  if (!printServer) {
+    return res.status(400).json({
+      success: false,
+      error: 'Print server hostname or IP address is required.',
+      errorFa: 'آدرس IP یا نام پرینت سرور الزامی است.',
+    });
+  }
+
+  try {
+    const data = await listPrintServerPrinters({
+      ...target,
+      printServer,
+      printServerUsername,
+      printServerPassword,
+    });
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_print_server_browse',
+      title: `دریافت لیست پرینترهای پرینت سرور ${data.printServer} از طریق ${data.targetIp}`,
+      title_en: `HelpDesk Browsed Print Server ${data.printServer} via ${data.targetIp}`,
+      description: `${data.printers.length} پرینتر اشتراکی روی پرینت سرور ${data.printServer} شناسایی شد.`,
+      description_en: `Discovered ${data.printers.length} shared printer(s) on print server ${data.printServer}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, printServer: data.printServer, count: data.printers.length },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to query print server printers');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/printers/install - Connect & Install Print Server Printer on User Workstation
+apiRouter.post('/helpdesk/printers/install', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const printServer = String(req.body?.printServer || '').trim();
+  const shareName = String(req.body?.shareName || '').trim();
+  const installScope = req.body?.installScope === 'all_users' ? 'all_users' : 'active_user';
+  const setAsDefault = Boolean(req.body?.setAsDefault);
+  const printServerUsername = req.body?.printServerUsername ? String(req.body.printServerUsername).trim() : undefined;
+  const printServerPassword = req.body?.printServerPassword ? String(req.body.printServerPassword) : undefined;
+
+  if (!printServer || !shareName) {
+    return res.status(400).json({
+      success: false,
+      error: 'Print server and printer share name are required.',
+      errorFa: 'آدرس پرینت سرور و نام اشتراک پرینتر الزامی است.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'printer_install');
+  if (!rl.allowed) {
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await installPrintServerPrinter({
+      ...target,
+      printServer,
+      shareName,
+      installScope,
+      setAsDefault,
+      printServerUsername,
+      printServerPassword,
+    });
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_printer_install',
+      title: `نصب پرینتر ${data.uncPath} روی سیستم ${data.targetIp}`,
+      title_en: `HelpDesk Installed Printer ${data.uncPath} on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        printServer: data.printServer,
+        shareName: data.shareName,
+        uncPath: data.uncPath,
+        installScope: data.installScope,
+        methodUsed: data.methodUsed,
+        setAsDefault: data.setAsDefault,
+        protocol: data.protocolUsed,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to install printer from print server');
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,

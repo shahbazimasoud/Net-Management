@@ -1133,6 +1133,109 @@ export async function executeHelpdeskPrinterAction(
   return res.json();
 }
 
+export async function setHelpdeskDefaultPrinter(
+  payload: HelpdeskConnectionPayload & {
+    printerName: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/printers/set-default`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to set default printer');
+  return res.json();
+}
+
+export async function deleteHelpdeskPrinter(
+  payload: HelpdeskConnectionPayload & {
+    printerName: string;
+    scope?: 'machine' | 'user' | 'auto';
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/printers/delete`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to remove printer');
+  return res.json();
+}
+
+export async function fetchHelpdeskPrintServerPrinters(
+  payload: HelpdeskConnectionPayload & {
+    printServer: string;
+    printServerUsername?: string;
+    printServerPassword?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: {
+    targetIp: string;
+    printServer: string;
+    protocolUsed: string;
+    osFamily: string;
+    loggedInUser: string;
+    collectedAt: string;
+    printers: Array<{
+      name: string;
+      shareName: string;
+      uncPath: string;
+      driverName: string;
+      portName: string;
+      location: string;
+      comment: string;
+      status: string;
+      shared: boolean;
+      alreadyInstalled: boolean;
+    }>;
+  };
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/printers/server/list`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to query print server printers');
+  return res.json();
+}
+
+export async function installHelpdeskPrintServerPrinter(
+  payload: HelpdeskConnectionPayload & {
+    printServer: string;
+    shareName: string;
+    installScope?: 'active_user' | 'all_users';
+    setAsDefault?: boolean;
+    printServerUsername?: string;
+    printServerPassword?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/printers/install`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to install printer from print server');
+  return res.json();
+}
+
 export async function fetchHelpdeskEventLogs(
   payload: HelpdeskConnectionPayload & {
     channel?: 'All' | 'System' | 'Application';

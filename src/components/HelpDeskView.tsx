@@ -48,6 +48,9 @@ import {
   Monitor,
   PackageCheck,
   Ban,
+  MoreVertical,
+  Star,
+  PlugZap,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -60,6 +63,8 @@ import {
   executeHelpdeskNetworkAction,
   fetchHelpdeskPrinterStatus,
   executeHelpdeskPrinterAction,
+  setHelpdeskDefaultPrinter,
+  deleteHelpdeskPrinter,
   fetchHelpdeskEventLogs,
   terminateHelpdeskProcess,
   scanHelpdeskTemp,
@@ -76,6 +81,8 @@ import {
 } from '../services/api';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { useModalDock } from '../context/ModalDockContext';
+import { DeleteConfirmModal, DeletePrinterTarget } from './DeleteConfirmModal';
+import { PrintServerConnectModal } from './helpdesk/PrintServerConnectModal';
 
 interface HelpDeskViewProps {
   isLightMode: boolean;
@@ -288,6 +295,16 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [printerError, setPrinterError] = useState<string | null>(null);
   const [runningSpoolerAction, setRunningSpoolerAction] = useState<string | null>(null);
   const [spoolerActionResult, setSpoolerActionResult] = useState<any | null>(null);
+  const [printerRowActionBusy, setPrinterRowActionBusy] = useState<string | null>(null);
+  const [printerMenuAnchor, setPrinterMenuAnchor] = useState<{
+    printer: any;
+    top?: number;
+    bottom?: number;
+    left?: number;
+    right?: number;
+  } | null>(null);
+  const [printerDeleteTarget, setPrinterDeleteTarget] = useState<DeletePrinterTarget | null>(null);
+  const [isPrintServerModalOpen, setIsPrintServerModalOpen] = useState(false);
 
   // Module 4: Event Viewer (Human-Readable Diagnostics) state
   const [eventChannel, setEventChannel] = useState<'All' | 'System' | 'Application'>('All');
@@ -424,6 +441,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setPrinterData(null);
     setPrinterError(null);
     setSpoolerActionResult(null);
+    setPrinterRowActionBusy(null);
+    setPrinterMenuAnchor(null);
+    setPrinterDeleteTarget(null);
+    setIsPrintServerModalOpen(false);
     setSelectedProcessPid(null);
     setConfirmKillPid(null);
     setProcessActionNotice(null);
@@ -568,6 +589,103 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     } finally {
       setRunningSpoolerAction(null);
     }
+  };
+
+  const handleTogglePrinterMenu = (e: React.MouseEvent<HTMLButtonElement>, pr: any) => {
+    e.stopPropagation();
+    if (printerMenuAnchor?.printer?.name === pr.name) {
+      setPrinterMenuAnchor(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const menuWidth = 224;
+    const spaceBelow = window.innerHeight - rect.bottom - 44;
+    const openUp = spaceBelow < 130 && rect.top > 130;
+    const leftPos = isEn
+      ? Math.max(12, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 12))
+      : Math.max(12, Math.min(rect.left, window.innerWidth - menuWidth - 12));
+    setPrinterMenuAnchor({
+      printer: pr,
+      top: openUp ? undefined : rect.bottom + 6,
+      bottom: openUp ? window.innerHeight - rect.top + 6 : undefined,
+      left: leftPos,
+    });
+  };
+
+  const handleSetDefaultPrinter = async (printerName: string) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setPrinterMenuAnchor(null);
+    setPrinterRowActionBusy(printerName);
+    setPrinterError(null);
+    setSpoolerActionResult(null);
+    try {
+      const res = await setHelpdeskDefaultPrinter({ ...payload, printerName });
+      setSpoolerActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskPrinterStatus(payload);
+        setPrinterData(refreshed.data);
+      } catch {}
+    } catch (err: any) {
+      setPrinterError(
+        err?.message ||
+          (isEn
+            ? `Failed to set "${printerName}" as default printer.`
+            : `تنظیم پرینتر «${printerName}» به‌عنوان پیش‌فرض ناموفق بود.`)
+      );
+    } finally {
+      setPrinterRowActionBusy(null);
+    }
+  };
+
+  const handleConfirmDeletePrinter = async (target: DeletePrinterTarget) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setPrinterRowActionBusy(target.name);
+    setPrinterError(null);
+    setSpoolerActionResult(null);
+    try {
+      const res = await deleteHelpdeskPrinter({
+        ...payload,
+        printerName: target.name,
+        scope: target.scope === 'user' || target.scope === 'machine' ? target.scope : 'auto',
+      });
+      setSpoolerActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskPrinterStatus(payload);
+        setPrinterData(refreshed.data);
+      } catch {}
+    } catch (err: any) {
+      setPrinterError(
+        err?.message ||
+          (isEn
+            ? `Failed to remove printer "${target.name}".`
+            : `حذف پرینتر «${target.name}» ناموفق بود.`)
+      );
+    } finally {
+      setPrinterRowActionBusy(null);
+    }
+  };
+
+  const handleMinimizePrintServerModal = () => {
+    dockModal({
+      id: 'modal-helpdesk-print-server',
+      labelEn: 'Connect Print Server Printer',
+      labelFa: 'نصب پرینتر از پرینت سرور',
+      badge: 'Print',
+      category: 'system',
+      onRestore: () => {
+        undockModal('modal-helpdesk-print-server');
+        setIsPrintServerModalOpen(true);
+      },
+      onClose: () => {
+        undockModal('modal-helpdesk-print-server');
+        setIsPrintServerModalOpen(false);
+      },
+    });
+    setIsPrintServerModalOpen(false);
   };
 
   const handleInspectEvents = async () => {
@@ -2552,6 +2670,19 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
               <button
                 type="button"
+                onClick={() => {
+                  undockModal('modal-helpdesk-print-server');
+                  setIsPrintServerModalOpen(true);
+                }}
+                disabled={!canRunDiagnostics}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+              >
+                <PlugZap className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Connect Print Server' : 'نصب از پرینت سرور'}</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => handleSpoolerAction('spooler_restart')}
                 disabled={!canExecuteActions || runningSpoolerAction !== null}
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg border text-xs font-semibold transition disabled:opacity-50 cursor-pointer ${
@@ -2641,51 +2772,128 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
               {/* Installed Printers Table */}
               <div className={`rounded-xl border p-4 sm:p-5 space-y-3 ${surfaceBg}`}>
-                <h3 className={`text-sm font-bold ${textPrimary}`}>
-                  {isEn ? 'Installed Printers' : 'پرینترهای نصب‌شده روی سیستم کاربر'}
-                </h3>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn ? 'Installed Printers' : 'پرینترهای نصب‌شده روی سیستم کاربر'}
+                  </h3>
+                  {printerData.loggedInUser && (
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border ${
+                        isLightMode
+                          ? 'bg-sky-50 text-sky-800 border-sky-200'
+                          : 'bg-sky-500/10 text-sky-300 border-sky-500/30'
+                      }`}
+                    >
+                      <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        {isEn ? 'Active User Profile:' : 'پروفایل کاربر فعال:'}{' '}
+                        <strong dir="ltr" className="font-mono">{printerData.loggedInUser}</strong>
+                      </span>
+                    </span>
+                  )}
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs border-collapse">
                     <thead>
                       <tr className={`border-b text-start ${isLightMode ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>
                         <th className="py-2 px-2.5 text-start">{isEn ? 'Printer Name' : 'نام پرینتر'}</th>
+                        <th className="py-2 px-2.5 text-start">{isEn ? 'Scope' : 'محدوده'}</th>
                         <th className="py-2 px-2.5 text-start">{isEn ? 'Port / IP' : 'پورت / IP'}</th>
                         <th className="py-2 px-2.5 text-start">{isEn ? 'Driver' : 'درایور'}</th>
                         <th className="py-2 px-2.5 text-start">{isEn ? 'Status' : 'وضعیت'}</th>
                         <th className="py-2 px-2.5 text-end">{isEn ? 'Jobs' : 'تعداد کار'}</th>
+                        <th className="py-2 px-2.5 text-center">{isEn ? 'Actions' : 'عملیات'}</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
-                      {(printerData.printers || []).map((pr: any, idx: number) => (
-                        <tr key={`${pr.name}-${idx}`}>
-                          <td className={`py-2.5 px-2.5 font-semibold ${textPrimary}`}>
-                            {pr.name}
-                            {pr.isDefault && (
-                              <span className="ms-2 text-[11px] text-sky-500 font-normal">
-                                ({isEn ? 'Default' : 'پیش‌فرض'})
+                      {(printerData.printers || []).map((pr: any, idx: number) => {
+                        const isBusy = printerRowActionBusy === pr.name;
+                        return (
+                          <tr key={`${pr.name}-${idx}`}>
+                            <td className={`py-2.5 px-2.5 font-semibold ${textPrimary}`}>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span dir="ltr">{pr.name}</span>
+                                {pr.isDefault && (
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                                      isLightMode
+                                        ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                        : 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+                                    }`}
+                                  >
+                                    <Star className="w-2.5 h-2.5 fill-current" />
+                                    {isEn ? 'Default' : 'پیش‌فرض'}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className={`py-2.5 px-2.5 ${textMuted}`}>
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${
+                                  pr.scope === 'user'
+                                    ? isLightMode
+                                      ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                                      : 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+                                    : isLightMode
+                                    ? 'bg-slate-100 text-slate-700 border-slate-200'
+                                    : 'bg-slate-800 text-slate-300 border-slate-700'
+                                }`}
+                              >
+                                {pr.scope === 'user'
+                                  ? isEn
+                                    ? 'User Profile'
+                                    : 'پروفایل کاربر'
+                                  : isEn
+                                  ? 'All Users / PC'
+                                  : 'سیستمی / همه کاربران'}
                               </span>
-                            )}
-                          </td>
-                          <td className={`py-2.5 px-2.5 font-mono ${textMuted}`}>{pr.portName || '-'}</td>
-                          <td className={`py-2.5 px-2.5 ${textMuted}`}>{pr.driverName || '-'}</td>
-                          <td
-                            className={`py-2.5 px-2.5 font-semibold ${
-                              String(pr.status).toLowerCase().includes('offline') ||
-                              String(pr.status).toLowerCase().includes('stop')
-                                ? 'text-rose-500'
-                                : 'text-emerald-500'
-                            }`}
-                          >
-                            {pr.status}
-                          </td>
-                          <td className={`py-2.5 px-2.5 text-end font-mono tabular-nums ${textPrimary}`}>
-                            {pr.jobCount}
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td dir="ltr" className={`py-2.5 px-2.5 font-mono ${textMuted}`}>{pr.portName || '-'}</td>
+                            <td className={`py-2.5 px-2.5 ${textMuted}`}>{pr.driverName || '-'}</td>
+                            <td
+                              className={`py-2.5 px-2.5 font-semibold ${
+                                String(pr.status).toLowerCase().includes('offline') ||
+                                String(pr.status).toLowerCase().includes('stop')
+                                  ? 'text-rose-500'
+                                  : 'text-emerald-500'
+                              }`}
+                            >
+                              {pr.status}
+                            </td>
+                            <td className={`py-2.5 px-2.5 text-end font-mono tabular-nums ${textPrimary}`}>
+                              {pr.jobCount}
+                            </td>
+                            <td className="py-2.5 px-2.5 text-center">
+                              {canExecuteActions ? (
+                                <button
+                                  type="button"
+                                  disabled={isBusy || printerRowActionBusy !== null}
+                                  onClick={(e) => handleTogglePrinterMenu(e, pr)}
+                                  className={`p-1.5 rounded-lg border transition cursor-pointer disabled:opacity-50 ${
+                                    printerMenuAnchor?.printer?.name === pr.name
+                                      ? 'bg-sky-600 text-white border-sky-500'
+                                      : isLightMode
+                                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                                  }`}
+                                  title={isEn ? 'Printer Actions' : 'عملیات پرینتر'}
+                                >
+                                  {isBusy ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <MoreVertical className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              ) : (
+                                <span className={`text-[11px] ${textMuted}`}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                       {(printerData.printers || []).length === 0 && (
                         <tr>
-                          <td colSpan={5} className={`py-6 text-center ${textMuted}`}>
+                          <td colSpan={7} className={`py-6 text-center ${textMuted}`}>
                             {isEn ? 'No printers installed on this workstation.' : 'هیچ پرینتری روی این سیستم نصب نشده است.'}
                           </td>
                         </tr>
@@ -4947,6 +5155,107 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           </div>,
           document.body
         )}
+
+      {/* Floating 3-Dots Action Menu for Installed Printers (Portal) */}
+      {printerMenuAnchor &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[9998] bg-transparent"
+              onClick={() => setPrinterMenuAnchor(null)}
+            />
+            <div
+              dir={isEn ? 'ltr' : 'rtl'}
+              style={{
+                position: 'fixed',
+                top: printerMenuAnchor.top !== undefined ? `${printerMenuAnchor.top}px` : undefined,
+                bottom: printerMenuAnchor.bottom !== undefined ? `${printerMenuAnchor.bottom}px` : undefined,
+                left: printerMenuAnchor.left !== undefined ? `${printerMenuAnchor.left}px` : undefined,
+                width: '14rem',
+              }}
+              className={`z-[9999] rounded-xl border shadow-2xl p-1.5 text-xs space-y-1 ${
+                isLightMode
+                  ? 'bg-white border-slate-200 text-slate-800'
+                  : 'bg-slate-900 border-slate-700 text-slate-100'
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                disabled={Boolean(printerMenuAnchor.printer?.isDefault)}
+                onClick={() => handleSetDefaultPrinter(printerMenuAnchor.printer.name)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-start transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
+                  isLightMode ? 'hover:bg-sky-50 text-slate-800' : 'hover:bg-slate-800 text-slate-100'
+                }`}
+              >
+                <Star className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                <span>
+                  {printerMenuAnchor.printer?.isDefault
+                    ? isEn
+                      ? 'Already Default'
+                      : 'در حال حاضر پیش‌فرض است'
+                    : isEn
+                    ? 'Set as Default Printer'
+                    : 'تنظیم به‌عنوان پیش‌فرض'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const pr = printerMenuAnchor.printer;
+                  setPrinterMenuAnchor(null);
+                  setPrinterDeleteTarget({
+                    type: 'printer',
+                    id: pr.name,
+                    name: pr.name,
+                    host: printerData?.targetIp || targetIp.trim(),
+                    portName: pr.portName,
+                    driverName: pr.driverName,
+                    scope: pr.scope,
+                    ownerUser: pr.ownerUser || printerData?.loggedInUser,
+                  });
+                }}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-start transition cursor-pointer ${
+                  isLightMode
+                    ? 'hover:bg-rose-50 text-rose-700'
+                    : 'hover:bg-rose-500/15 text-rose-300'
+                }`}
+              >
+                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                <span>{isEn ? 'Remove Printer' : 'حذف پرینتر از سیستم'}</span>
+              </button>
+            </div>
+          </>,
+          document.body
+        )}
+
+      {/* Print Server Connect & Install Modal */}
+      <PrintServerConnectModal
+        isOpen={isPrintServerModalOpen}
+        onClose={() => setIsPrintServerModalOpen(false)}
+        onMinimize={handleMinimizePrintServerModal}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        canExecuteActions={canExecuteActions}
+        buildPayload={buildPayload}
+        workstationIp={printerData?.targetIp || targetIp.trim()}
+        detectedLoggedInUser={printerData?.loggedInUser || healthData?.loggedInUser || ''}
+        onRateLimitUpdate={(rl) => setRateLimit(rl)}
+        onInstalled={(result) => {
+          setSpoolerActionResult(result);
+          handleInspectPrinters();
+        }}
+      />
+
+      {/* Standard Printer Removal Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={Boolean(printerDeleteTarget)}
+        onClose={() => setPrinterDeleteTarget(null)}
+        target={printerDeleteTarget}
+        onConfirmDeletePrinter={handleConfirmDeletePrinter}
+        isLightMode={isLightMode}
+      />
     </div>
   );
 };

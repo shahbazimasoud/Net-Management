@@ -20,6 +20,9 @@ export type HelpdeskWriteAction =
   | 'network_renew_ip'
   | 'spooler_restart'
   | 'spooler_clear_queue'
+  | 'printer_set_default'
+  | 'printer_delete'
+  | 'printer_install'
   | 'process_terminate'
   | 'temp_clean'
   | 'gpupdate_force'
@@ -185,6 +188,11 @@ export interface HelpdeskPrinterItem {
   isDefault: boolean;
   jobCount: number;
   location: string;
+  scope?: 'machine' | 'user' | 'unknown';
+  ownerUser?: string;
+  serverName?: string;
+  shareName?: string;
+  isNetwork?: boolean;
 }
 
 export interface HelpdeskPrintJobItem {
@@ -203,6 +211,8 @@ export interface HelpdeskPrinterStatusResult {
   portUsed: number;
   osFamily: 'windows' | 'linux';
   collectedAt: string;
+  loggedInUser: string;
+  loggedInUserSid: string;
   spooler: {
     serviceName: string;
     displayName: string;
@@ -212,6 +222,39 @@ export interface HelpdeskPrinterStatusResult {
   };
   printers: HelpdeskPrinterItem[];
   jobs: HelpdeskPrintJobItem[];
+}
+
+export interface HelpdeskPrintServerPrinterItem {
+  name: string;
+  shareName: string;
+  uncPath: string;
+  driverName: string;
+  portName: string;
+  location: string;
+  comment: string;
+  status: string;
+  shared: boolean;
+  alreadyInstalled: boolean;
+}
+
+export interface HelpdeskPrintServerListResult {
+  targetIp: string;
+  printServer: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  osFamily: 'windows' | 'linux';
+  loggedInUser: string;
+  collectedAt: string;
+  printers: HelpdeskPrintServerPrinterItem[];
+}
+
+export interface HelpdeskPrinterInstallResult extends HelpdeskActionResult {
+  printServer: string;
+  shareName: string;
+  uncPath: string;
+  installScope: 'active_user' | 'all_users';
+  methodUsed: string;
+  loggedInUser: string;
+  setAsDefault: boolean;
 }
 
 export interface HelpdeskRateLimitStatus {
@@ -1992,8 +2035,35 @@ PY
 // 9. MODULE 3: PRINTERS & PRINT SPOOLER REPAIR (Strictly Scoped to Spooler)
 // ============================================================================
 
+const PS_HELPDESK_DETECT_LOGGED_USER = `
+$loggedUser = ''
+$userSid = ''
+try {
+  $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+  if ($cs -and $cs.UserName) { $loggedUser = [string]$cs.UserName }
+} catch {}
+if (-not $loggedUser) {
+  try {
+    $exp = Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($exp) {
+      $own = Invoke-CimMethod -InputObject $exp -MethodName GetOwner -ErrorAction SilentlyContinue
+      if ($own -and $own.User) {
+        $loggedUser = if ($own.Domain) { "$($own.Domain)\\$($own.User)" } else { [string]$own.User }
+      }
+    }
+  } catch {}
+}
+if ($loggedUser) {
+  try {
+    $nt = New-Object System.Security.Principal.NTAccount($loggedUser)
+    $userSid = $nt.Translate([System.Security.Principal.SecurityIdentifier]).Value
+  } catch {}
+}
+`;
+
 const PS_PRINTER_STATUS = `
 $ErrorActionPreference = 'SilentlyContinue'
+${PS_HELPDESK_DETECT_LOGGED_USER}
 $svc = Get-CimInstance Win32_Service -Filter "Name='Spooler'"
 $spooler = [PSCustomObject]@{
   serviceName = 'Spooler'
@@ -2003,7 +2073,39 @@ $spooler = [PSCustomObject]@{
   pid = if ($svc -and $svc.ProcessId) { [int]$svc.ProcessId } else { $null }
 }
 
+$userDefaultPrinter = ''
+if ($userSid) {
+  try {
+    $winReg = Get-ItemProperty -Path "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows" -ErrorAction SilentlyContinue
+    if ($winReg -and $winReg.Device) {
+      $userDefaultPrinter = ([string]$winReg.Device).Split(',')[0].Trim()
+    }
+  } catch {}
+}
+
+$machineConnSet = @{}
+try {
+  $machKeys = Get-ChildItem -Path "Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Print\\Connections" -ErrorAction SilentlyContinue
+  foreach ($mk in $machKeys) {
+    $props = Get-ItemProperty -Path $mk.PSPath -ErrorAction SilentlyContinue
+    if ($props.Server -and $props.Printer) {
+      $srv = ([string]$props.Server).TrimStart('\\')
+      $prt = ([string]$props.Printer).TrimStart('\\')
+      if ($prt -like "$srv\\*") {
+        $machineConnSet[("\\\\" + $prt).ToLower()] = $true
+      } else {
+        $machineConnSet[("\\\\$srv\\$prt").ToLower()] = $true
+      }
+    }
+    $leaf = $mk.PSChildName
+    if ($leaf -match '^,,([^,]+),(.+)$') {
+      $machineConnSet[("\\\\$($Matches[1])\\$($Matches[2])").ToLower()] = $true
+    }
+  }
+} catch {}
+
 $printers = @()
+$seenNames = @{}
 try {
   $wmiPrinters = Get-CimInstance Win32_Printer
   foreach ($p in $wmiPrinters) {
@@ -2011,18 +2113,89 @@ try {
       1 { 'Other' } 2 { 'Unknown' } 3 { 'Idle / Ready' } 4 { 'Printing' } 5 { 'Warmup' } 6 { 'Stopped' } 7 { 'Offline' } default { if ($p.WorkOffline) { 'Offline' } else { 'Ready' } }
     }
     if ($p.WorkOffline) { $st = 'Offline' }
+    $pName = [string]$p.Name
+    $pLower = $pName.ToLower()
+    $isNet = [bool]($pName.StartsWith('\\\\') -or $p.Network)
+    $scope = 'machine'
+    if ($isNet -and -not $machineConnSet.ContainsKey($pLower) -and $userSid) {
+      if (Test-Path ("Registry::HKEY_USERS\\$userSid\\Printers\\Connections\\,," + $pName.TrimStart('\\').Replace('\\', ','))) {
+        $scope = 'user'
+      }
+    }
+    $isDef = if ($userDefaultPrinter) { $pLower -eq $userDefaultPrinter.ToLower() } else { [bool]$p.Default }
+    $srvName = ''
+    $shName = [string]$p.ShareName
+    if ($pName -match '^\\\\\\\\([^\\\\]+)\\\\(.+)$') {
+      $srvName = $Matches[1]
+      if (-not $shName) { $shName = $Matches[2] }
+    } elseif ($p.SystemName -and $p.SystemName -ne $env:COMPUTERNAME) {
+      $srvName = [string]$p.SystemName
+    }
+    $seenNames[$pLower] = $true
     $printers += [PSCustomObject]@{
-      name = [string]$p.Name
+      name = $pName
       driverName = [string]$p.DriverName
       portName = [string]$p.PortName
       status = $st
       shared = [bool]$p.Shared
-      isDefault = [bool]$p.Default
+      isDefault = $isDef
       jobCount = [int]$p.JobCountSinceLastReset
       location = [string]$p.Location
+      scope = $scope
+      ownerUser = if ($scope -eq 'user') { $loggedUser } else { '' }
+      serverName = $srvName
+      shareName = $shName
+      isNetwork = $isNet
     }
   }
 } catch {}
+
+if ($userSid) {
+  try {
+    $uConns = Get-ChildItem -Path "Registry::HKEY_USERS\\$userSid\\Printers\\Connections" -ErrorAction SilentlyContinue
+    foreach ($uc in $uConns) {
+      $props = Get-ItemProperty -Path $uc.PSPath -ErrorAction SilentlyContinue
+      $srv = if ($props.Server) { ([string]$props.Server).TrimStart('\\') } else { '' }
+      $prt = if ($props.Printer) { ([string]$props.Printer).TrimStart('\\') } else { '' }
+      $unc = ''
+      if ($srv -and $prt) {
+        if ($prt -like "$srv\\*") { $unc = "\\\\" + $prt } else { $unc = "\\\\$srv\\$prt" }
+      } elseif ($uc.PSChildName -match '^,,([^,]+),(.+)$') {
+        $srv = $Matches[1]
+        $prt = $Matches[2]
+        $unc = "\\\\$srv\\$prt"
+      }
+      if (-not $unc) { continue }
+      $uncLower = $unc.ToLower()
+      if ($seenNames.ContainsKey($uncLower)) { continue }
+      $seenNames[$uncLower] = $true
+      $isDef = if ($userDefaultPrinter) { $uncLower -eq $userDefaultPrinter.ToLower() } else { $false }
+      $devInfo = ''
+      try {
+        $devs = Get-ItemProperty -Path "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices" -ErrorAction SilentlyContinue
+        if ($devs -and $devs.PSObject.Properties[$unc]) {
+          $devInfo = [string]$devs.PSObject.Properties[$unc].Value
+        }
+      } catch {}
+      $portVal = if ($devInfo -and $devInfo -match ',([^,]+)$') { $Matches[1] } else { $unc }
+      $printers += [PSCustomObject]@{
+        name = $unc
+        driverName = 'Network Shared Printer'
+        portName = $portVal
+        status = 'Connected (User Profile)'
+        shared = $false
+        isDefault = $isDef
+        jobCount = 0
+        location = ''
+        scope = 'user'
+        ownerUser = $loggedUser
+        serverName = $srv
+        shareName = $prt
+        isNetwork = $true
+      }
+    }
+  } catch {}
+}
 
 $jobs = @()
 try {
@@ -2043,6 +2216,8 @@ try {
 } catch {}
 
 [PSCustomObject]@{
+  loggedInUser = $loggedUser
+  loggedInUserSid = $userSid
   spooler = $spooler
   printers = $printers
   jobs = $jobs
@@ -2051,25 +2226,33 @@ try {
 
 const LINUX_PRINTER_STATUS = `
 python3 - <<'PY'
-import json, subprocess
+import json, os, subprocess
 def run(cmd):
     try: return subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL).strip()
     except Exception: return ""
 
 cups_state = run("systemctl is-active cups 2>/dev/null") or "unknown"
+default_out = run("lpstat -d 2>/dev/null")
+default_name = default_out.split(":", 1)[1].strip() if ":" in default_out else ""
 printers = []
 for line in run("lpstat -p 2>/dev/null").splitlines():
     parts = line.split()
     if len(parts) >= 2 and parts[0] == "printer":
+        pname = parts[1]
         printers.append({
-            "name": parts[1],
+            "name": pname,
             "driverName": "CUPS",
             "portName": "CUPS",
             "status": " ".join(parts[2:]),
             "shared": False,
-            "isDefault": False,
+            "isDefault": (pname == default_name),
             "jobCount": 0,
-            "location": ""
+            "location": "",
+            "scope": "machine",
+            "ownerUser": "",
+            "serverName": "",
+            "shareName": "",
+            "isNetwork": False
         })
 jobs = []
 for idx, line in enumerate(run("lpstat -o 2>/dev/null").splitlines(), 1):
@@ -2085,6 +2268,8 @@ for idx, line in enumerate(run("lpstat -o 2>/dev/null").splitlines(), 1):
             "submittedTime": " ".join(parts[3:])
         })
 print(json.dumps({
+    "loggedInUser": os.environ.get("USER", ""),
+    "loggedInUserSid": "",
     "spooler": {"serviceName": "cups", "displayName": "CUPS Print Scheduler", "status": cups_state, "startType": "systemd", "pid": None},
     "printers": printers,
     "jobs": jobs
@@ -2104,6 +2289,8 @@ export async function collectEndpointPrinters(input: HelpdeskTargetInput): Promi
     portUsed: execRes.portUsed,
     osFamily: execRes.osFamily,
     collectedAt: new Date().toISOString(),
+    loggedInUser: String(parsed.loggedInUser || ''),
+    loggedInUserSid: String(parsed.loggedInUserSid || ''),
     spooler: {
       serviceName: String(parsed.spooler?.serviceName || 'Spooler'),
       displayName: String(parsed.spooler?.displayName || 'Print Spooler'),
@@ -2120,6 +2307,11 @@ export async function collectEndpointPrinters(input: HelpdeskTargetInput): Promi
       isDefault: Boolean(p.isDefault),
       jobCount: Number(p.jobCount) || 0,
       location: String(p.location || ''),
+      scope: p.scope === 'user' || p.scope === 'machine' ? p.scope : 'unknown',
+      ownerUser: String(p.ownerUser || ''),
+      serverName: String(p.serverName || ''),
+      shareName: String(p.shareName || ''),
+      isNetwork: Boolean(p.isNetwork),
     })),
     jobs: rawJobs.map((j: any) => ({
       id: Number(j.id) || 0,
@@ -2216,6 +2408,868 @@ PY
       serviceStatus: String(parsed.status || 'Running'),
       removedFiles: Number(parsed.removedFiles) || 0,
       remainingFiles: Number(parsed.remainingFiles) || 0,
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+function validatePrinterNameInput(rawName: unknown): string {
+  const name = String(rawName || '').trim();
+  if (!name || name.length > 260) {
+    throw new Error('Printer name is required and must be at most 260 characters.');
+  }
+  if (/[\r\n\0]/.test(name)) {
+    throw new Error('Printer name contains invalid control characters.');
+  }
+  return name;
+}
+
+function validatePrintServerInput(rawServer: unknown): string {
+  const cleaned = String(rawServer || '')
+    .trim()
+    .replace(/^\\\\+/, '')
+    .replace(/[\\/]+$/, '');
+  const host = validateTargetEndpointHost(cleaned);
+  return host;
+}
+
+function validatePrintShareNameInput(rawShare: unknown): string {
+  const share = String(rawShare || '').trim();
+  if (!share || share.length > 128) {
+    throw new Error('Printer share name is required and must be at most 128 characters.');
+  }
+  if (/[\\/\r\n\0]/.test(share)) {
+    throw new Error('Printer share name contains invalid path or control characters.');
+  }
+  return share;
+}
+
+function utf8Base64(val: string): string {
+  return Buffer.from(val, 'utf8').toString('base64');
+}
+
+export async function setEndpointDefaultPrinter(
+  input: HelpdeskTargetInput,
+  rawPrinterName: string
+): Promise<HelpdeskActionResult> {
+  const printerName = validatePrinterNameInput(rawPrinterName);
+  const nameB64 = utf8Base64(printerName);
+
+  const ps = `
+$ErrorActionPreference = 'Stop'
+$targetPrinter = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${nameB64}'))
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+$appliedUser = $false
+$appliedSession = $false
+$notes = @()
+
+# 1. Apply in current Admin/WMI context if printer is visible in Win32_Printer
+try {
+  $wmiMatch = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq $targetPrinter } | Select-Object -First 1
+  if ($wmiMatch) {
+    (New-Object -ComObject WScript.Network).SetDefaultPrinter($wmiMatch.Name)
+    $appliedSession = $true
+    $notes += "Session default set"
+  }
+} catch {}
+
+# 2. Apply directly to Active Logged-In User profile (HKU\\<SID> + interactive session notification)
+if ($userSid) {
+  $winKey = "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+  $devKey = "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices"
+  if (Test-Path $winKey) {
+    try {
+      Set-ItemProperty -Path $winKey -Name 'LegacyDefaultPrinterMode' -Value 1 -Type DWord -ErrorAction SilentlyContinue
+    } catch {}
+    $devStr = ''
+    try {
+      $devs = Get-ItemProperty -Path $devKey -ErrorAction SilentlyContinue
+      if ($devs) {
+        $prop = $devs.PSObject.Properties | Where-Object { $_.Name -ieq $targetPrinter } | Select-Object -First 1
+        if ($prop) {
+          $devStr = "$($prop.Name),$($prop.Value)"
+        }
+      }
+    } catch {}
+    if (-not $devStr) {
+      $portGuess = 'Ne00:'
+      try {
+        $wmiP = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq $targetPrinter } | Select-Object -First 1
+        if ($wmiP -and $wmiP.PortName) { $portGuess = [string]$wmiP.PortName }
+      } catch {}
+      $devStr = "$targetPrinter,winspool,$portGuess"
+    }
+    Set-ItemProperty -Path $winKey -Name 'Device' -Value $devStr -Type String
+    $appliedUser = $true
+    $notes += "Updated HKU\\$userSid Device='$devStr'"
+  }
+}
+
+# 3. Notify active interactive desktop session via one-shot Limited Scheduled Task (so apps update immediately)
+if ($loggedUser) {
+  $taskName = "NetTopo_SetDefPrn_" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+  try {
+    $innerB64 = '${encodePowerShellBase64(`
+$n = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${nameB64}'))
+try { (New-Object -ComObject WScript.Network).SetDefaultPrinter($n) } catch {}
+try { Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry','/y','/n',$n) -Wait -NoNewWindow } catch {}
+`)}'
+    $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $innerB64"
+    $pri = New-ScheduledTaskPrincipal -UserId $loggedUser -LogonType Interactive -RunLevel Limited
+    $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 20)
+    Register-ScheduledTask -TaskName $taskName -Action $act -Principal $pri -Settings $st -Force | Out-Null
+    Start-ScheduledTask -TaskName $taskName
+    for ($i = 0; $i -lt 20; $i++) {
+      Start-Sleep -Milliseconds 300
+      $tInfo = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+      if (-not $tInfo -or $tInfo.State -ne 'Running') { break }
+    }
+    $appliedUser = $true
+    $notes += "Interactive session updated for $loggedUser"
+  } catch {
+    $notes += "Interactive task notice: $($_.Exception.Message)"
+  } finally {
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+  }
+}
+
+if (-not $appliedUser -and -not $appliedSession) {
+  throw "Printer '$targetPrinter' could not be set as default."
+}
+
+[PSCustomObject]@{
+  ok = $true
+  printerName = $targetPrinter
+  loggedInUser = $loggedUser
+  output = ($notes -join ' | ')
+} | ConvertTo-Json -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import base64, json, subprocess
+pname = base64.b64decode("${nameB64}").decode("utf-8")
+p = subprocess.run(["lpoptions", "-d", pname], capture_output=True, text=True)
+print(json.dumps({
+    "ok": p.returncode == 0,
+    "printerName": pname,
+    "loggedInUser": "",
+    "output": (p.stdout + p.stderr).strip() or f"Default printer set to {pname}"
+}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts(input, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'set default printer');
+  const ok = Boolean(parsed.ok);
+  const loggedInUser = String(parsed.loggedInUser || '');
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'printer_set_default',
+    success: ok,
+    message: ok
+      ? `Default printer set to "${printerName}" on ${execRes.host}${loggedInUser ? ` (user ${loggedInUser})` : ''}.`
+      : `Failed to set "${printerName}" as default printer on ${execRes.host}.`,
+    messageFa: ok
+      ? `پرینتر «${printerName}» روی سیستم ${execRes.host}${loggedInUser ? ` (پروفایل کاربر ${loggedInUser})` : ''} به‌عنوان پیش‌فرض تنظیم شد.`
+      : `تنظیم پرینتر «${printerName}» به‌عنوان پیش‌فرض روی سیستم ${execRes.host} ناموفق بود.`,
+    details: {
+      printerName,
+      loggedInUser,
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function deleteEndpointPrinter(
+  input: HelpdeskTargetInput,
+  rawPrinterName: string,
+  scope: 'machine' | 'user' | 'auto' = 'auto'
+): Promise<HelpdeskActionResult> {
+  const printerName = validatePrinterNameInput(rawPrinterName);
+  const nameB64 = utf8Base64(printerName);
+  const scopeVal = scope === 'machine' || scope === 'user' ? scope : 'auto';
+
+  const ps = `
+$ErrorActionPreference = 'Stop'
+$targetPrinter = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${nameB64}'))
+$scopeMode = '${scopeVal}'
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+$actionsTaken = @()
+$removedAny = $false
+$needsSpoolerRestart = $false
+
+# 1. Remove per-machine global network printer connection (/gd) if present
+if ($targetPrinter.StartsWith('\\\\')) {
+  $machConnRoot = "Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Print\\Connections"
+  $hasMachineConn = $false
+  try {
+    $machKeys = Get-ChildItem -Path $machConnRoot -ErrorAction SilentlyContinue
+    foreach ($mk in $machKeys) {
+      $props = Get-ItemProperty -Path $mk.PSPath -ErrorAction SilentlyContinue
+      $cand = ''
+      if ($props.Server -and $props.Printer) {
+        $srv = ([string]$props.Server).TrimStart('\\')
+        $prt = ([string]$props.Printer).TrimStart('\\')
+        $cand = if ($prt -like "$srv\\*") { "\\\\$prt" } else { "\\\\$srv\\$prt" }
+      } elseif ($mk.PSChildName -match '^,,([^,]+),(.+)$') {
+        $cand = "\\\\$($Matches[1])\\$($Matches[2])"
+      }
+      if ($cand -ieq $targetPrinter) {
+        $hasMachineConn = $true
+        break
+      }
+    }
+  } catch {}
+
+  if ($hasMachineConn -or $scopeMode -eq 'machine') {
+    try {
+      Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry','/gd','/n',$targetPrinter,'/q') -Wait -NoNewWindow
+      $actionsTaken += "Removed per-machine connection (/gd)"
+      $removedAny = $true
+      $needsSpoolerRestart = $true
+    } catch {}
+    # Clean orphaned machine connection registry key if still present
+    try {
+      $machKeys = Get-ChildItem -Path $machConnRoot -ErrorAction SilentlyContinue
+      foreach ($mk in $machKeys) {
+        $props = Get-ItemProperty -Path $mk.PSPath -ErrorAction SilentlyContinue
+        $cand = ''
+        if ($props.Server -and $props.Printer) {
+          $srv = ([string]$props.Server).TrimStart('\\')
+          $prt = ([string]$props.Printer).TrimStart('\\')
+          $cand = if ($prt -like "$srv\\*") { "\\\\$prt" } else { "\\\\$srv\\$prt" }
+        } elseif ($mk.PSChildName -match '^,,([^,]+),(.+)$') {
+          $cand = "\\\\$($Matches[1])\\$($Matches[2])"
+        }
+        if ($cand -ieq $targetPrinter) {
+          Remove-Item -Path $mk.PSPath -Recurse -Force -ErrorAction SilentlyContinue
+          $needsSpoolerRestart = $true
+        }
+      }
+    } catch {}
+  }
+}
+
+# 2. Remove local / WMI printer in current Admin/SYSTEM context
+try {
+  $wmiMatch = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq $targetPrinter }
+  if ($wmiMatch) {
+    foreach ($wm in $wmiMatch) {
+      if ($wm.Name.StartsWith('\\\\')) {
+        Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry','/dn','/n',$wm.Name,'/q') -Wait -NoNewWindow -ErrorAction SilentlyContinue
+      }
+      try {
+        Remove-Printer -Name $wm.Name -ErrorAction SilentlyContinue
+      } catch {
+        try { Remove-CimInstance -InputObject $wm -ErrorAction SilentlyContinue } catch {}
+      }
+      $actionsTaken += "Removed Win32_Printer '$($wm.Name)'"
+      $removedAny = $true
+    }
+  }
+} catch {}
+
+# 3. Remove from active logged-in user profile (interactive /dn + HKU registry cleanup)
+if ($userSid) {
+  $userConnRoot = "Registry::HKEY_USERS\\$userSid\\Printers\\Connections"
+  $matchedUserKeys = @()
+  try {
+    $uConns = Get-ChildItem -Path $userConnRoot -ErrorAction SilentlyContinue
+    foreach ($uc in $uConns) {
+      $props = Get-ItemProperty -Path $uc.PSPath -ErrorAction SilentlyContinue
+      $cand = ''
+      if ($props.Server -and $props.Printer) {
+        $srv = ([string]$props.Server).TrimStart('\\')
+        $prt = ([string]$props.Printer).TrimStart('\\')
+        $cand = if ($prt -like "$srv\\*") { "\\\\$prt" } else { "\\\\$srv\\$prt" }
+      } elseif ($uc.PSChildName -match '^,,([^,]+),(.+)$') {
+        $cand = "\\\\$($Matches[1])\\$($Matches[2])"
+      }
+      if ($cand -ieq $targetPrinter) {
+        $matchedUserKeys += $uc.PSPath
+      }
+    }
+  } catch {}
+
+  if (($matchedUserKeys.Count -gt 0 -or $targetPrinter.StartsWith('\\\\')) -and $loggedUser) {
+    $taskName = "NetTopo_DelPrn_" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+    try {
+      $innerB64 = '${encodePowerShellBase64(`
+$n = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${nameB64}'))
+try { Remove-Printer -Name $n -ErrorAction SilentlyContinue } catch {}
+try { Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry','/dn','/n',$n,'/q') -Wait -NoNewWindow } catch {}
+`)}'
+      $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $innerB64"
+      $pri = New-ScheduledTaskPrincipal -UserId $loggedUser -LogonType Interactive -RunLevel Limited
+      $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 20)
+      Register-ScheduledTask -TaskName $taskName -Action $act -Principal $pri -Settings $st -Force | Out-Null
+      Start-ScheduledTask -TaskName $taskName
+      for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Milliseconds 300
+        $tInfo = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if (-not $tInfo -or $tInfo.State -ne 'Running') { break }
+      }
+      if ($matchedUserKeys.Count -gt 0) {
+        $actionsTaken += "Removed user connection in $loggedUser session"
+        $removedAny = $true
+      }
+    } catch {} finally {
+      Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    }
+  }
+
+  foreach ($ukPath in $matchedUserKeys) {
+    if (Test-Path $ukPath) {
+      Remove-Item -Path $ukPath -Recurse -Force -ErrorAction SilentlyContinue
+      $actionsTaken += "Cleaned HKU printer connection registry key"
+      $removedAny = $true
+    }
+  }
+
+  # Clear user's default Device pointer if it referenced the deleted printer
+  try {
+    $winKey = "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+    $winReg = Get-ItemProperty -Path $winKey -ErrorAction SilentlyContinue
+    if ($winReg -and $winReg.Device -and (([string]$winReg.Device).Split(',')[0].Trim() -ieq $targetPrinter)) {
+      Remove-ItemProperty -Path $winKey -Name 'Device' -ErrorAction SilentlyContinue
+    }
+    $devKey = "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices"
+    $devs = Get-ItemProperty -Path $devKey -ErrorAction SilentlyContinue
+    if ($devs) {
+      $prop = $devs.PSObject.Properties | Where-Object { $_.Name -ieq $targetPrinter } | Select-Object -First 1
+      if ($prop) {
+        Remove-ItemProperty -Path $devKey -Name $prop.Name -ErrorAction SilentlyContinue
+      }
+    }
+  } catch {}
+}
+
+if ($needsSpoolerRestart) {
+  try {
+    Restart-Service -Name 'Spooler' -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 900
+    $actionsTaken += "Restarted Spooler to sync per-machine removal"
+  } catch {}
+}
+
+if (-not $removedAny) {
+  throw "Printer '$targetPrinter' was not found or could not be removed."
+}
+
+[PSCustomObject]@{
+  ok = $true
+  printerName = $targetPrinter
+  loggedInUser = $loggedUser
+  output = ($actionsTaken -join ' | ')
+} | ConvertTo-Json -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import base64, json, subprocess
+pname = base64.b64decode("${nameB64}").decode("utf-8")
+p = subprocess.run(["lpadmin", "-x", pname], capture_output=True, text=True)
+print(json.dumps({
+    "ok": p.returncode == 0,
+    "printerName": pname,
+    "loggedInUser": "",
+    "output": (p.stdout + p.stderr).strip() or f"Removed printer {pname}"
+}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts(input, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'delete printer');
+  const ok = Boolean(parsed.ok);
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'printer_delete',
+    success: ok,
+    message: ok
+      ? `Printer "${printerName}" removed from ${execRes.host}.`
+      : `Failed to remove printer "${printerName}" from ${execRes.host}.`,
+    messageFa: ok
+      ? `پرینتر «${printerName}» از سیستم ${execRes.host} با موفقیت حذف شد.`
+      : `حذف پرینتر «${printerName}» از سیستم ${execRes.host} ناموفق بود.`,
+    details: {
+      printerName,
+      scope: scopeVal,
+      loggedInUser: String(parsed.loggedInUser || ''),
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function listPrintServerPrinters(
+  input: HelpdeskTargetInput & {
+    printServer: string;
+    printServerUsername?: string;
+    printServerPassword?: string;
+  }
+): Promise<HelpdeskPrintServerListResult> {
+  const printServer = validatePrintServerInput(input.printServer);
+  const srvB64 = utf8Base64(printServer);
+  const psUser = String(input.printServerUsername || input.username || '').trim();
+  const psPass = String(input.printServerPassword || input.password || '');
+  const userB64 = utf8Base64(psUser);
+  const passB64 = utf8Base64(psPass);
+
+  const ps = `
+$ErrorActionPreference = 'SilentlyContinue'
+$srv = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${srvB64}'))
+$psUser = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${userB64}'))
+$psPass = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${passB64}'))
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+# Collect currently installed printers on target workstation for alreadyInstalled badge
+$installedSet = @{}
+try {
+  foreach ($wp in (Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue)) {
+    $installedSet[([string]$wp.Name).ToLower()] = $true
+  }
+} catch {}
+if ($userSid) {
+  try {
+    foreach ($uc in (Get-ChildItem -Path "Registry::HKEY_USERS\\$userSid\\Printers\\Connections" -ErrorAction SilentlyContinue)) {
+      $props = Get-ItemProperty -Path $uc.PSPath -ErrorAction SilentlyContinue
+      if ($props.Server -and $props.Printer) {
+        $s = ([string]$props.Server).TrimStart('\\')
+        $p = ([string]$props.Printer).TrimStart('\\')
+        $u = if ($p -like "$s\\*") { "\\\\$p" } else { "\\\\$s\\$p" }
+        $installedSet[$u.ToLower()] = $true
+      } elseif ($uc.PSChildName -match '^,,([^,]+),(.+)$') {
+        $installedSet[("\\\\$($Matches[1])\\$($Matches[2])").ToLower()] = $true
+      }
+    }
+  } catch {}
+}
+
+$ipcConnected = $false
+function Ensure-PrintServerIpc {
+  if ($script:ipcConnected) { return }
+  if ($psUser -and $psPass) {
+    try {
+      & net use "\\\\$srv\\IPC$" $psPass "/user:$psUser" /persistent:no 2>&1 | Out-Null
+      if ($LASTEXITCODE -eq 0) { $script:ipcConnected = $true }
+    } catch {}
+  }
+}
+
+$results = @()
+$seenShares = @{}
+try {
+  # Establish IPC$ session when credentials provided (solves WinRM double-hop & SYSTEM access)
+  Ensure-PrintServerIpc
+
+  # Method 1: Get-Printer -ComputerName (PrintManagement)
+  if (Get-Command Get-Printer -ErrorAction SilentlyContinue) {
+    try {
+      $gpList = Get-Printer -ComputerName $srv -ErrorAction Stop
+      foreach ($gp in $gpList) {
+        $sh = [string]$gp.ShareName
+        if (-not $sh) {
+          if ($gp.Shared) { $sh = [string]$gp.Name } else { continue }
+        }
+        $shKey = $sh.ToLower()
+        if ($seenShares.ContainsKey($shKey)) { continue }
+        $seenShares[$shKey] = $true
+        $unc = "\\\\$srv\\$sh"
+        $results += [PSCustomObject]@{
+          name = [string]$gp.Name
+          shareName = $sh
+          uncPath = $unc
+          driverName = [string]$gp.DriverName
+          portName = [string]$gp.PortName
+          location = [string]$gp.Location
+          comment = [string]$gp.Comment
+          status = [string]$gp.PrinterStatus
+          shared = [bool]$gp.Shared
+          alreadyInstalled = $installedSet.ContainsKey($unc.ToLower())
+        }
+      }
+    } catch {}
+  }
+
+  # Method 2: WMI/CIM Win32_Printer -ComputerName
+  if ($results.Count -eq 0) {
+    try {
+      $wmiList = Get-CimInstance -ClassName Win32_Printer -ComputerName $srv -ErrorAction Stop
+      foreach ($wp in $wmiList) {
+        $sh = [string]$wp.ShareName
+        if (-not $sh) {
+          if ($wp.Shared) { $sh = [string]$wp.Name } else { continue }
+        }
+        $shKey = $sh.ToLower()
+        if ($seenShares.ContainsKey($shKey)) { continue }
+        $seenShares[$shKey] = $true
+        $unc = "\\\\$srv\\$sh"
+        $st = switch ([int]$wp.PrinterStatus) {
+          3 { 'Normal / Idle' } 4 { 'Printing' } 6 { 'Stopped' } 7 { 'Offline' } default { 'Ready' }
+        }
+        $results += [PSCustomObject]@{
+          name = [string]$wp.Name
+          shareName = $sh
+          uncPath = $unc
+          driverName = [string]$wp.DriverName
+          portName = [string]$wp.PortName
+          location = [string]$wp.Location
+          comment = [string]$wp.Comment
+          status = $st
+          shared = [bool]$wp.Shared
+          alreadyInstalled = $installedSet.ContainsKey($unc.ToLower())
+        }
+      }
+    } catch {}
+  }
+
+  # Method 3: net view \\server (SMB Browse fallback)
+  if ($results.Count -eq 0) {
+    $nvOut = & net view "\\\\$srv" 2>&1
+    if ($LASTEXITCODE -eq 0) {
+      foreach ($line in $nvOut) {
+        $lineStr = [string]$line
+        if ($lineStr -match '^(.+?)\\s{2,}Print\\s*(.*)$') {
+          $sh = $Matches[1].Trim()
+          $rem = $Matches[2].Trim()
+          if (-not $sh) { continue }
+          $shKey = $sh.ToLower()
+          if ($seenShares.ContainsKey($shKey)) { continue }
+          $seenShares[$shKey] = $true
+          $unc = "\\\\$srv\\$sh"
+          $results += [PSCustomObject]@{
+            name = $sh
+            shareName = $sh
+            uncPath = $unc
+            driverName = ''
+            portName = $srv
+            location = ''
+            comment = $rem
+            status = 'Shared'
+            shared = $true
+            alreadyInstalled = $installedSet.ContainsKey($unc.ToLower())
+          }
+        }
+      }
+    } else {
+      $errTxt = ($nvOut | Out-String).Trim()
+      if ($errTxt) { throw "Failed to query print server '\\\\$srv': $errTxt" }
+    }
+  }
+} finally {
+  if ($script:ipcConnected) {
+    & net use "\\\\$srv\\IPC$" /delete /y 2>&1 | Out-Null
+  }
+}
+
+[PSCustomObject]@{
+  printServer = $srv
+  loggedInUser = $loggedUser
+  printers = $results
+} | ConvertTo-Json -Depth 5 -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import json
+print(json.dumps({"printServer": "", "loggedInUser": "", "printers": [], "error": "Windows Print Server browsing is only supported on Windows endpoints."}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 30000 }, ps, lx);
+  if (execRes.osFamily !== 'windows') {
+    throw new Error('Windows Print Server browsing is only supported on Windows workstations.');
+  }
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'list print server printers');
+  const rawList = Array.isArray(parsed.printers) ? parsed.printers : parsed.printers ? [parsed.printers] : [];
+
+  return {
+    targetIp: execRes.host,
+    printServer,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    loggedInUser: String(parsed.loggedInUser || ''),
+    collectedAt: new Date().toISOString(),
+    printers: rawList.map((p: any) => ({
+      name: String(p.name || p.shareName || ''),
+      shareName: String(p.shareName || p.name || ''),
+      uncPath: String(p.uncPath || `\\\\${printServer}\\${p.shareName || p.name}`),
+      driverName: String(p.driverName || ''),
+      portName: String(p.portName || ''),
+      location: String(p.location || ''),
+      comment: String(p.comment || ''),
+      status: String(p.status || 'Shared'),
+      shared: p.shared !== false,
+      alreadyInstalled: Boolean(p.alreadyInstalled),
+    })),
+  };
+}
+
+export async function installPrintServerPrinter(
+  input: HelpdeskTargetInput & {
+    printServer: string;
+    shareName: string;
+    installScope?: 'active_user' | 'all_users';
+    setAsDefault?: boolean;
+    printServerUsername?: string;
+    printServerPassword?: string;
+  }
+): Promise<HelpdeskPrinterInstallResult> {
+  const printServer = validatePrintServerInput(input.printServer);
+  const shareName = validatePrintShareNameInput(input.shareName);
+  const uncPath = `\\\\${printServer}\\${shareName}`;
+  const requestedScope = input.installScope === 'all_users' ? 'all_users' : 'active_user';
+  const setAsDefault = Boolean(input.setAsDefault);
+
+  const psUser = String(input.printServerUsername || input.username || '').trim();
+  const psPass = String(input.printServerPassword || input.password || '');
+
+  const srvB64 = utf8Base64(printServer);
+  const uncB64 = utf8Base64(uncPath);
+  const userB64 = utf8Base64(psUser);
+  const passB64 = utf8Base64(psPass);
+
+  const ps = `
+$ErrorActionPreference = 'Stop'
+$srv = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${srvB64}'))
+$uncPath = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${uncB64}'))
+$psUser = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${userB64}'))
+$psPass = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${passB64}'))
+$reqScope = '${requestedScope}'
+$wantDefault = ${setAsDefault ? '$true' : '$false'}
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+$ipcConnected = $false
+$notes = @()
+$methodUsed = ''
+
+function Test-UserHasPrinter($sid, $unc) {
+  if (-not $sid) { return $false }
+  $connRoot = "Registry::HKEY_USERS\\$sid\\Printers\\Connections"
+  if (-not (Test-Path $connRoot)) { return $false }
+  foreach ($uc in (Get-ChildItem -Path $connRoot -ErrorAction SilentlyContinue)) {
+    $props = Get-ItemProperty -Path $uc.PSPath -ErrorAction SilentlyContinue
+    $cand = ''
+    if ($props.Server -and $props.Printer) {
+      $s = ([string]$props.Server).TrimStart('\\')
+      $p = ([string]$props.Printer).TrimStart('\\')
+      $cand = if ($p -like "$s\\*") { "\\\\$p" } else { "\\\\$s\\$p" }
+    } elseif ($uc.PSChildName -match '^,,([^,]+),(.+)$') {
+      $cand = "\\\\$($Matches[1])\\$($Matches[2])"
+    }
+    if ($cand -ieq $unc) { return $true }
+  }
+  return $false
+}
+
+function Apply-UserDefault($sid, $logged, $unc) {
+  if ($sid) {
+    $winKey = "Registry::HKEY_USERS\\$sid\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
+    $devKey = "Registry::HKEY_USERS\\$sid\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices"
+    if (Test-Path $winKey) {
+      try { Set-ItemProperty -Path $winKey -Name 'LegacyDefaultPrinterMode' -Value 1 -Type DWord -ErrorAction SilentlyContinue } catch {}
+      $devStr = "$unc,winspool,Ne00:"
+      try {
+        $devs = Get-ItemProperty -Path $devKey -ErrorAction SilentlyContinue
+        if ($devs) {
+          $prop = $devs.PSObject.Properties | Where-Object { $_.Name -ieq $unc } | Select-Object -First 1
+          if ($prop) { $devStr = "$($prop.Name),$($prop.Value)" }
+        }
+      } catch {}
+      Set-ItemProperty -Path $winKey -Name 'Device' -Value $devStr -Type String -ErrorAction SilentlyContinue
+    }
+  }
+  if ($logged) {
+    $tDef = "NetTopo_DefPrn_" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+    try {
+      $defB64 = '${encodePowerShellBase64(`
+$u = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${uncB64}'))
+try { (New-Object -ComObject WScript.Network).SetDefaultPrinter($u) } catch {}
+try { Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry','/y','/n',$u) -Wait -NoNewWindow } catch {}
+`)}'
+      $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $defB64"
+      $pri = New-ScheduledTaskPrincipal -UserId $logged -LogonType Interactive -RunLevel Limited
+      $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 20)
+      Register-ScheduledTask -TaskName $tDef -Action $act -Principal $pri -Settings $st -Force | Out-Null
+      Start-ScheduledTask -TaskName $tDef
+      for ($i = 0; $i -lt 15; $i++) {
+        Start-Sleep -Milliseconds 300
+        $ti = Get-ScheduledTask -TaskName $tDef -ErrorAction SilentlyContinue
+        if (-not $ti -or $ti.State -ne 'Running') { break }
+      }
+    } catch {} finally {
+      Unregister-ScheduledTask -TaskName $tDef -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    }
+  }
+}
+
+try {
+  # Step 1: Establish credentialed SMB IPC$ session to Print Server (for WinRM double-hop & driver pull)
+  if ($psUser -and $psPass) {
+    try {
+      & net use "\\\\$srv\\IPC$" $psPass "/user:$psUser" /persistent:no 2>&1 | Out-Null
+      if ($LASTEXITCODE -eq 0) {
+        $ipcConnected = $true
+        $notes += "Authenticated SMB IPC$ to \\\\$srv"
+      }
+    } catch {}
+  }
+
+  # Step 2: Admin-privileged driver staging (downloads & trusts driver into local DriverStore)
+  $adminStaged = $false
+  try {
+    if (Get-Command Add-Printer -ErrorAction SilentlyContinue) {
+      Add-Printer -ConnectionName $uncPath -ErrorAction Stop
+      $adminStaged = $true
+      $notes += "Staged driver & connection via Admin Add-Printer"
+    }
+  } catch {
+    try {
+      $pIn = Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry','/in','/n',$uncPath,'/q') -Wait -PassThru -NoNewWindow
+      if ($pIn.ExitCode -eq 0) {
+        $adminStaged = $true
+        $notes += "Staged driver via Admin printui /in"
+      }
+    } catch {}
+  }
+
+  if ($reqScope -eq 'active_user' -and $loggedUser) {
+    # Step 3A: Map inside active logged-in user's interactive session using pre-staged driver
+    $tMap = "NetTopo_MapPrn_" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+    $userMapped = $false
+    try {
+      $mapB64 = '${encodePowerShellBase64(`
+$u = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${uncB64}'))
+$ok = $false
+try {
+  if (Get-Command Add-Printer -ErrorAction SilentlyContinue) {
+    Add-Printer -ConnectionName $u -ErrorAction Stop
+    $ok = $true
+  }
+} catch {}
+if (-not $ok) {
+  try {
+    (New-Object -ComObject WScript.Network).AddWindowsPrinterConnection($u)
+    $ok = $true
+  } catch {}
+}
+if (-not $ok) {
+  Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry','/in','/n',$u,'/q') -Wait -NoNewWindow
+}
+`)}'
+      $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $mapB64"
+      $pri = New-ScheduledTaskPrincipal -UserId $loggedUser -LogonType Interactive -RunLevel Limited
+      $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 25)
+      Register-ScheduledTask -TaskName $tMap -Action $act -Principal $pri -Settings $st -Force | Out-Null
+      Start-ScheduledTask -TaskName $tMap
+      for ($i = 0; $i -lt 30; $i++) {
+        Start-Sleep -Milliseconds 400
+        $ti = Get-ScheduledTask -TaskName $tMap -ErrorAction SilentlyContinue
+        if (-not $ti -or $ti.State -ne 'Running') { break }
+      }
+      if (Test-UserHasPrinter $userSid $uncPath) {
+        $userMapped = $true
+        $methodUsed = 'active_user_profile'
+        $notes += "Mapped printer directly into active user profile ($loggedUser)"
+      }
+    } catch {
+      $notes += "User-profile mapping fallback triggered: $($_.Exception.Message)"
+    } finally {
+      Unregister-ScheduledTask -TaskName $tMap -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    }
+
+    if (-not $userMapped) {
+      # Step 3B: Point-and-Print GPO / session fallback -> Per-Machine Global (/ga) with Admin privileges + Spooler refresh
+      $pGa = Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry','/ga','/n',$uncPath,'/q') -Wait -PassThru -NoNewWindow
+      Restart-Service -Name 'Spooler' -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Milliseconds 1200
+      $methodUsed = 'per_machine_fallback'
+      $notes += "Applied Admin per-machine global connection (/ga, exit $($pGa.ExitCode)) + Spooler restart so $loggedUser sees the printer without needing local admin driver rights"
+    }
+  } else {
+    # Step 3C: Explicit All-Users / Per-Machine Global (/ga)
+    $pGa = Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry','/ga','/n',$uncPath,'/q') -Wait -PassThru -NoNewWindow
+    Restart-Service -Name 'Spooler' -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 1200
+    $methodUsed = 'per_machine_global'
+    $notes += "Installed per-machine global connection (/ga, exit $($pGa.ExitCode)) + Spooler restart for all workstation users"
+  }
+
+  if ($wantDefault) {
+    try { (New-Object -ComObject WScript.Network).SetDefaultPrinter($uncPath) } catch {}
+    Apply-UserDefault $userSid $loggedUser $uncPath
+    $notes += "Set $uncPath as default printer"
+  }
+} finally {
+  if ($ipcConnected) {
+    & net use "\\\\$srv\\IPC$" /delete /y 2>&1 | Out-Null
+  }
+}
+
+[PSCustomObject]@{
+  ok = $true
+  uncPath = $uncPath
+  installScope = if ($reqScope -eq 'active_user' -and $loggedUser) { 'active_user' } else { 'all_users' }
+  methodUsed = $methodUsed
+  loggedInUser = $loggedUser
+  setAsDefault = $wantDefault
+  output = ($notes -join ' | ')
+} | ConvertTo-Json -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import json
+print(json.dumps({"ok": False, "output": "Windows Print Server installation is only supported on Windows endpoints."}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 45000 }, ps, lx);
+  if (execRes.osFamily !== 'windows') {
+    throw new Error('Windows Print Server installation is only supported on Windows workstations.');
+  }
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'install print server printer');
+  const ok = Boolean(parsed.ok);
+  const effectiveScope = parsed.installScope === 'all_users' ? 'all_users' : 'active_user';
+  const methodUsed = String(parsed.methodUsed || effectiveScope);
+  const loggedInUser = String(parsed.loggedInUser || '');
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'printer_install',
+    success: ok,
+    printServer,
+    shareName,
+    uncPath,
+    installScope: effectiveScope,
+    methodUsed,
+    loggedInUser,
+    setAsDefault,
+    message: ok
+      ? `Printer "${uncPath}" installed on ${execRes.host}${loggedInUser ? ` (visible to ${loggedInUser})` : ''} via ${methodUsed}${setAsDefault ? ' and set as default' : ''}.`
+      : `Failed to install printer "${uncPath}" on ${execRes.host}.`,
+    messageFa: ok
+      ? `پرینتر «${uncPath}» با موفقیت روی سیستم ${execRes.host}${loggedInUser ? ` (قابل مشاهده برای کاربر ${loggedInUser})` : ''} نصب شد${setAsDefault ? ' و به‌عنوان پیش‌فرض تنظیم گردید' : ''}.`
+      : `نصب پرینتر «${uncPath}» روی سیستم ${execRes.host} ناموفق بود.`,
+    details: {
+      printServer,
+      shareName,
+      uncPath,
+      installScope: effectiveScope,
+      methodUsed,
+      loggedInUser,
+      setAsDefault,
     },
     rawOutput: String(parsed.output || ''),
     executedAt: new Date().toISOString(),

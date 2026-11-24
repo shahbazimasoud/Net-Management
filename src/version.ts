@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.459.0';
+export const APP_VERSION = '1.460.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.460.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'تکمیل مدیریت پرینترها در تب Printers & Spooler (تغییر پیش‌فرض، حذف با DeleteConfirmModal، و مودال اتصال به پرینت سرور با نصب درایور ادمین برای پروفایل کاربر فعال)',
+    title_en: 'HelpDesk Full Printer Lifecycle & Print Server Connect Modal (Default Switching, DeleteConfirmModal Removal & Admin-Staged Per-User Mapping)',
+    changes: [
+      'ارتقای بازرسی پرینترها در `server/helpdeskService.ts` جهت شناسایی کاربر فعال لاگین‌شده (`Win32_ComputerSystem` / `explorer.exe` + `SID`) و خواندن هم‌زمان پرینترهای سیستمی (`HKLM`) و پرینترهای مپ‌شده در پروفایل کاربر (`HKEY_USERS\\<SID>\\Printers\\Connections`) و پرینتر پیش‌فرض واقعی کاربر.',
+      'افزودن قابلیت **تغییر پرینتر پیش‌فرض (`setEndpointDefaultPrinter`)** با تنظیم هم‌زمان `LegacyDefaultPrinterMode=1` و `Device` در `HKU\\<SID>` به همراه همگام‌سازی فوری نشست تعاملی کاربر، و **حذف ایمن پرینتر (`deleteEndpointPrinter`)** از هر دو سطح ماشین (`/gd`) و پروفایل کاربر (`/dn`) با تایید از طریق `DeleteConfirmModal` و منوی ۳ نقطه.',
+      'طراحی مودال جدید **`PrintServerConnectModal`** برای وارد کردن آدرس پرینت سرور، مشاهده لیست پرینترهای اشتراکی (`Get-Printer` / `Win32_Printer` / `net view`)، پیش‌نصب درایور با دسترسی ادمین (رفع محدودیت PrintNightmare / Double-Hop) و مپ کردن مستقیم در پروفایل کاربر فعال با Fallback خودکار سراسری (`/ga`).'
+    ],
+    changes_en: [
+      'Upgraded HelpDesk printer inspection (`server/helpdeskService.ts`) to detect the active logged-in workstation user and inspect both machine-wide (`HKLM`) and per-user mapped printers (`HKEY_USERS\\<SID>\\Printers\\Connections`) along with the user’s true default printer.',
+      'Added **Set Default Printer** (updating `HKU\\<SID>` `Device` + `LegacyDefaultPrinterMode=1` and notifying the active interactive session) and **Remove Printer** (cleaning both `/gd` per-machine and `/dn` per-user connections) via a 3-dots portal row menu and `DeleteConfirmModal`.',
+      'Built **`PrintServerConnectModal`** (`src/components/helpdesk/PrintServerConnectModal.tsx`) to browse shared printers on any Print Server, stage drivers with Admin privileges, and map printers directly into the active user profile (with automatic `/ga` fallback) or globally for all users.'
+    ],
+  },
   {
     version: '1.459.0',
     releaseDate: '2026-11-23',

@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Trash2, Box, Server, ShieldCheck, X, AlertCircle, StickyNote, Paperclip, FolderTree } from 'lucide-react';
+import { AlertTriangle, Trash2, Box, Server, ShieldCheck, X, AlertCircle, StickyNote, Paperclip, FolderTree, Printer } from 'lucide-react';
 import { MountedHardwareDevice } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -77,6 +77,17 @@ export interface DeleteDeviceGroupTarget {
   tags?: string[];
 }
 
+export interface DeletePrinterTarget {
+  type: 'printer';
+  id: string;
+  name: string;
+  host?: string;
+  portName?: string;
+  driverName?: string;
+  scope?: 'machine' | 'user' | 'unknown';
+  ownerUser?: string;
+}
+
 export interface DeleteGenericTarget {
   type: 'generic';
   id: string;
@@ -94,6 +105,7 @@ export type DeleteTarget =
   | DeleteContractTarget
   | DeleteLicenseTarget
   | DeleteDeviceGroupTarget
+  | DeletePrinterTarget
   | DeleteGenericTarget;
 
 interface DeleteConfirmModalProps {
@@ -108,6 +120,7 @@ interface DeleteConfirmModalProps {
   onConfirmDeleteContract?: (contractId: string) => void;
   onConfirmDeleteLicense?: (licenseId: string) => void;
   onConfirmDeleteGroup?: (groupId: string) => void;
+  onConfirmDeletePrinter?: (printerTarget: DeletePrinterTarget) => void;
   onConfirm?: () => void;
   isLightMode?: boolean;
 }
@@ -124,6 +137,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   onConfirmDeleteContract,
   onConfirmDeleteLicense,
   onConfirmDeleteGroup,
+  onConfirmDeletePrinter,
   onConfirm,
   isLightMode: propIsLightMode,
 }) => {
@@ -155,11 +169,13 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   const isNote = target.type === 'note';
   const isAttachment = target.type === 'attachment';
   const isDeviceGroup = target.type === 'device_group';
+  const isPrinter = target.type === 'printer';
   const rackTarget = isRack ? (target as DeleteRackTarget) : null;
   const rackDeviceTarget = isRackDevice ? (target as DeleteRackDeviceTarget) : null;
   const noteTarget = isNote ? (target as DeleteStickyNoteTarget) : null;
   const attachmentTarget = isAttachment ? (target as DeleteAttachmentTarget) : null;
   const groupTarget = isDeviceGroup ? (target as DeleteDeviceGroupTarget) : null;
+  const printerTarget = isPrinter ? (target as DeletePrinterTarget) : null;
   const deviceTarget = target.type === 'device' ? (target as DeleteDeviceTarget) : null;
   const hasMountedDevices = (rackTarget?.devices?.length || 0) > 0;
 
@@ -215,6 +231,8 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                 <Paperclip className="w-5 h-5" />
               ) : isDeviceGroup ? (
                 <FolderTree className="w-5 h-5" />
+              ) : isPrinter ? (
+                <Printer className="w-5 h-5" />
               ) : (
                 <AlertTriangle className="w-5 h-5" />
               )}
@@ -241,6 +259,10 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   ? isEn
                     ? `Delete Group ("${target.name}")`
                     : `حذف گروه («${target.name}»)`
+                  : isPrinter
+                  ? isEn
+                    ? `Remove Printer ("${target.name}")`
+                    : `حذف پرینتر («${target.name}»)`
                   : isEn
                   ? `Delete Device (${target.name})`
                   : `حذف تجهیز («${target.name}»)`}
@@ -270,6 +292,10 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   ? isEn
                     ? `Network Zone & Resource Group • ${(groupTarget?.deviceCount || 0) + (groupTarget?.serverCount || 0)} Members`
                     : `گروه تجهیزات و زون شبکه • ${(groupTarget?.deviceCount || 0) + (groupTarget?.serverCount || 0)} عضو`
+                  : isPrinter
+                  ? isEn
+                    ? `${printerTarget?.host ? `Workstation ${printerTarget.host} • ` : ''}${printerTarget?.portName || 'Print Queue'}`
+                    : `${printerTarget?.host ? `سیستم ${printerTarget.host} • ` : ''}${printerTarget?.portName || 'صف چاپ'}`
                   : deviceTarget?.model || deviceTarget?.ip || (isEn ? 'Network Hardware' : 'تجهیز شبکه')}
               </p>
             </div>
@@ -489,6 +515,46 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   : 'توجه: این عملیات غیرقابل بازگشت است و ساختار این گروه از پایگاه داده حذف می‌شود؛ با این حال تمام تجهیزات و سرورهای عضو در فهرست کل تجهیزات سامانه باقی خواهند ماند.'}
               </p>
             </div>
+          ) : isPrinter ? (
+            /* Printer Removal Content */
+            <div className="space-y-3">
+              <div className={`p-3.5 rounded-xl border text-xs space-y-2.5 ${
+                isLightMode
+                  ? 'bg-rose-50 border-rose-200 text-rose-900'
+                  : 'bg-rose-950/25 border-rose-500/40 text-rose-200'
+              }`}>
+                <div className={`flex items-center gap-2 font-bold ${isLightMode ? 'text-rose-700' : 'text-rose-300'}`}>
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>
+                    {isEn ? 'Confirm Printer Removal from Endpoint' : 'تایید حذف پرینتر از سیستم کاربر'}
+                  </span>
+                </div>
+                <p className={`leading-relaxed ${isLightMode ? 'text-slate-700' : 'text-slate-200'}`}>
+                  {isEn
+                    ? `Are you sure you want to remove printer "${printerTarget?.name}" from ${printerTarget?.host || 'this workstation'}?`
+                    : `آیا از حذف پرینتر «${printerTarget?.name}» از روی سیستم ${printerTarget?.host || 'کاربر'} اطمینان دارید؟`}
+                </p>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono pt-1">
+                  {printerTarget?.driverName && (
+                    <span className={`px-2 py-0.5 rounded ${isLightMode ? 'bg-slate-200 text-slate-800' : 'bg-slate-800 text-slate-300'}`}>
+                      {isEn ? 'Driver' : 'درایور'}: <strong>{printerTarget.driverName}</strong>
+                    </span>
+                  )}
+                  {printerTarget?.scope && (
+                    <span className={`px-2 py-0.5 rounded ${isLightMode ? 'bg-sky-100 text-sky-900 border border-sky-200' : 'bg-sky-500/15 text-sky-300 border border-sky-500/30'}`}>
+                      {printerTarget.scope === 'user'
+                        ? isEn ? `User Profile (${printerTarget.ownerUser || 'Active User'})` : `پروفایل کاربر (${printerTarget.ownerUser || 'کاربر فعال'})`
+                        : isEn ? 'Machine / All Users' : 'سیستمی / همه کاربران'}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <p className={`text-[11px] leading-relaxed ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                {isEn
+                  ? 'If this is a network connection from a print server, it will be unmapped from the workstation/active user profile without affecting the print server itself.'
+                  : 'در صورت اشتراکی بودن پرینتر، تنها اتصال آن از سیستم/پروفایل کاربر حذف می‌شود و تنظیمات خود پرینت سرور تغییری نمی‌کند.'}
+              </p>
+            </div>
           ) : (
             /* Device Deletion Content */
             <div className="space-y-3">
@@ -638,6 +704,23 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
             >
               <Trash2 className="w-4 h-4" />
               <span>{isEn ? 'Delete Group' : 'حذف گروه'}</span>
+            </button>
+          ) : isPrinter ? (
+            <button
+              type="button"
+              id="confirm-delete-printer-btn"
+              onClick={() => {
+                if (printerTarget && onConfirmDeletePrinter) {
+                  onConfirmDeletePrinter(printerTarget);
+                } else if (onConfirm) {
+                  onConfirm();
+                }
+                onClose();
+              }}
+              className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold border border-rose-500/50 shadow-lg transition active:scale-95 cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>{isEn ? 'Remove Printer' : 'حذف پرینتر'}</span>
             </button>
           ) : (
             <button
