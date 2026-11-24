@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.463.0';
+export const APP_VERSION = '1.464.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.464.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'مدیریت کامل نشست کاربران و کنترل پاور از راه دور در تب User Logins & Sessions + تله‌متری گرافیکی GPU/VRAM و کارت صدا (آنبورد/مجزا)',
+    title_en: 'HelpDesk Interactive User Session Management & Relocated Power Control in User Logins Tab + Graphical GPU, VRAM & Audio Hardware Telemetry',
+    changes: [
+      'یکپارچه‌سازی مدیریت نشست کاربران و کنترل پاور سیستم در تب **«ورود کاربران، نشست و پاور» (`User Logins, Sessions & Power`)**: امکان **قفل کردن صفحه نمایش کاربر فعال (`LockWorkStation` / `tsdiscon` / `loginctl`)** بدون بستن برنامه‌ها، **خروج کامل نشست کاربر (`logoff.exe` / `loginctl`)** هم به‌صورت مستقیم و هم در هر ردیف از جدول نشست‌های زنده، با ثبت کامل در Audit & Command Logs.',
+      'انتقال بخش **کنترل پاور از راه دور (ری‌استارت فوری/زمان‌بندی‌شده، خاموشی اجباری/زمان‌بندی‌شده و لغو با `shutdown /a`)** از تب «تعمیر سیستم، Temp و GPO» به تب جدید **ورود کاربران، نشست و پاور** بدون هیچ‌گونه تکرار قابلیت و بدون دستکاری سایر بخش‌ها.',
+      'افزودن بخش گرافیکی **وضعیت کارت گرافیک (GPU / VRAM) و کارت صدا** در تب **«سلامت سیستم و کنترل پروسس‌ها»** با گیج‌های دایره‌ای (Circular Gauges)، نوارهای مصرف پردازش و حافظه VRAM، و تشخیص دقیق سخت‌افزار **آنبورد/مجتمع (`Onboard`)** در برابر **کارت گرافیک مجزا (`Dedicated GPU`)** و دسته‌بندی کارت‌های صدا (آنبورد مادربرد، HDMI/گرافیکی، USB اکسترنال و بلوتوث).'
+    ],
+    changes_en: [
+      'Added interactive **User Session Management** inside **User Logins, Sessions & Power**: one-click **Lock Screen** (`LockWorkStation` interactive task with `tsdiscon` / `loginctl` fallback) and 2-step **Sign Out / Logoff** (`logoff.exe` / `loginctl`) for both the active workstation user and individual live session rows, fully logged under HelpDesk Audit Logs.',
+      'Relocated **Remote Workstation Power Control (Immediate/Scheduled Restart & Shutdown + `shutdown /a` Abort)** cleanly from System Repair, Temp & GPO into the **User Logins, Sessions & Power** tab with zero duplication.',
+      'Added **Graphical GPU, VRAM & Audio Hardware Telemetry** inside **Health & Safe Process Control** featuring radial `CircularGauge` meters for GPU 3D load and VRAM usage, progress bars, and automatic classification of **Onboard / Integrated vs Dedicated GPUs** (`nvidia-smi`, Windows GPU PerfCounters, registry `qwMemorySize`, `lspci`/DRM) plus **Onboard vs HDMI/GPU vs USB/Bluetooth Audio** controllers.'
+    ],
+  },
   {
     version: '1.463.0',
     releaseDate: '2026-11-24',

@@ -1562,6 +1562,27 @@ export async function fetchHelpdeskEndpointLogons(
   return res.json();
 }
 
+export async function executeHelpdeskUserSessionAction(
+  payload: HelpdeskConnectionPayload & {
+    action: 'lock' | 'logoff';
+    sessionId?: string;
+    username?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/logons/session-action`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to execute user session action');
+  return res.json();
+}
+
 export async function fetchHelpdeskEventLogs(
   payload: HelpdeskConnectionPayload & {
     channel?: 'All' | 'System' | 'Application';

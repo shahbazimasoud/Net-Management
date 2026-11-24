@@ -44,7 +44,9 @@ export type HelpdeskWriteAction =
   | 'chkdsk_hdd_badsector'
   | 'power_restart'
   | 'power_shutdown'
-  | 'power_abort';
+  | 'power_abort'
+  | 'session_lock'
+  | 'session_logoff';
 
 export type HelpdeskProcessCategory =
   | 'user_app'
@@ -129,6 +131,47 @@ export interface HelpdeskHealthResult {
   };
   totalProcessCount: number;
   processes: HelpdeskProcessItem[];
+  gpus: HelpdeskGpuItem[];
+  audioDevices: HelpdeskAudioDeviceItem[];
+  gpuSummary: {
+    hasDedicatedGpu: boolean;
+    primaryGpuName: string;
+    primaryGpuType: 'onboard' | 'dedicated' | 'virtual' | 'none';
+    primaryUsagePercent: number | null;
+    vramTotalMb: number;
+    vramUsedMb: number | null;
+    vramUsedPercent: number | null;
+  };
+  audioSummary: {
+    onboardCount: number;
+    gpuAudioCount: number;
+    externalCount: number;
+    activeOutputName: string;
+  };
+}
+
+export interface HelpdeskGpuItem {
+  name: string;
+  vendor: string;
+  hardwareType: 'onboard' | 'dedicated' | 'virtual';
+  isOnboard: boolean;
+  busInfo: string;
+  driverVersion: string;
+  driverDate: string;
+  resolution: string;
+  vramTotalMb: number;
+  vramUsedMb: number | null;
+  vramUsedPercent: number | null;
+  usagePercent: number | null;
+  status: string;
+}
+
+export interface HelpdeskAudioDeviceItem {
+  name: string;
+  manufacturer: string;
+  deviceType: 'onboard' | 'gpu_hdmi' | 'usb_external' | 'bluetooth' | 'virtual';
+  isOnboard: boolean;
+  status: string;
 }
 
 export interface HelpdeskNetworkAdapter {
@@ -1485,6 +1528,156 @@ foreach ($pr in $allProcs2) {
 }
 $topProcs = @($procList | Sort-Object -Property @{Expression='cpuPercent';Descending=$true}, @{Expression='memoryMb';Descending=$true} | Select-Object -First 25)
 
+# GPU & VRAM Telemetry (Win32_VideoController + Registry qwMemorySize for >4GB + Performance Counters / nvidia-smi)
+$regVramMap = @{}
+try {
+  Get-ChildItem 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}' -ErrorAction SilentlyContinue | ForEach-Object {
+    if ($_.PSChildName -match '^\\d{4}$') {
+      $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+      if ($p -and $p.DriverDesc) {
+        $qw = $p.'HardwareInformation.qwMemorySize'
+        if ($qw -and [double]$qw -gt 0) {
+          $regVramMap[[string]$p.DriverDesc] = [math]::Round(([double]$qw) / 1MB, 0)
+        }
+      }
+    }
+  }
+} catch {}
+
+$gpuUtilPct = $null
+$vramUsedCounterMb = $null
+try {
+  $gpuCounters = Get-Counter @('\\GPU Engine(*engtype_3D*)\\Utilization Percentage', '\\GPU Adapter Memory(*)\\Dedicated Usage') -ErrorAction SilentlyContinue
+  if ($gpuCounters -and $gpuCounters.CounterSamples) {
+    $engVals = @($gpuCounters.CounterSamples | Where-Object { $_.Path -like '*Utilization Percentage*' } | ForEach-Object { [double]$_.CookedValue })
+    if ($engVals.Count -gt 0) {
+      $sumEng = ($engVals | Measure-Object -Sum).Sum
+      $gpuUtilPct = [math]::Round([math]::Min(100.0, [math]::Max(0.0, $sumEng)), 1)
+    }
+    $memVals = @($gpuCounters.CounterSamples | Where-Object { $_.Path -like '*Dedicated Usage*' } | ForEach-Object { [double]$_.CookedValue })
+    if ($memVals.Count -gt 0) {
+      $sumMemBytes = ($memVals | Measure-Object -Sum).Sum
+      if ($sumMemBytes -ge 0) {
+        $vramUsedCounterMb = [math]::Round($sumMemBytes / 1MB, 0)
+      }
+    }
+  }
+} catch {}
+
+$nvidiaRows = @()
+try {
+  $nvPath = @('nvidia-smi.exe', 'C:\\Windows\\System32\\nvidia-smi.exe', 'C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvidia-smi.exe') | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue } | Select-Object -First 1
+  if ($nvPath) {
+    $nvOut = (& $nvPath --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>$null)
+    foreach ($line in @($nvOut)) {
+      $parts = ([string]$line) -split ','
+      if ($parts.Count -ge 4) {
+        $nvidiaRows += [PSCustomObject]@{
+          name = $parts[0].Trim()
+          util = [double]($parts[1].Trim())
+          usedMb = [double]($parts[2].Trim())
+          totalMb = [double]($parts[3].Trim())
+        }
+      }
+    }
+  }
+} catch {}
+
+$gpus = @()
+try {
+  $vcs = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue)
+  foreach ($vc in $vcs) {
+    $gName = [string]$vc.Name
+    if ([string]::IsNullOrWhiteSpace($gName)) { continue }
+    $gVendor = [string]$vc.AdapterCompatibility
+    $pnp = [string]$vc.PNPDeviceID
+    $vramMb = 0
+    if ($regVramMap.ContainsKey($gName)) {
+      $vramMb = [int]$regVramMap[$gName]
+    } elseif ($vc.AdapterRAM -and [double]$vc.AdapterRAM -gt 0) {
+      $vramMb = [math]::Round(([double]$vc.AdapterRAM) / 1MB, 0)
+    }
+    $nvMatch = $nvidiaRows | Where-Object { $gName -like "*$($_.name)*" -or $_.name -like "*$gName*" } | Select-Object -First 1
+    if ($nvMatch -and $nvMatch.totalMb -gt $vramMb) { $vramMb = [int]$nvMatch.totalMb }
+
+    $hType = 'onboard'
+    $isOnboard = $true
+    $busInfo = 'Integrated / Shared Memory'
+    $combined = "$gName $gVendor $($vc.VideoProcessor)"
+    if ($combined -match 'Microsoft Basic Display|Hyper-V|VMware|VirtualBox|QXL|VirtIO|Citrix|Parallels|Remote Display|Mirror|VNC|SpaceDesk|IddSample') {
+      $hType = 'virtual'; $isOnboard = $true; $busInfo = 'Virtual Display Adapter'
+    } elseif ($combined -match 'NVIDIA|GeForce|RTX|GTX|Quadro|Tesla|Intel\\(R\\) Arc|Arc\\(TM\\)|Radeon RX|Radeon Pro|Radeon HD [5-9]\\d{3}|Radeon R[79]|FirePro') {
+      $hType = 'dedicated'; $isOnboard = $false; $busInfo = 'Dedicated PCIe GPU'
+    } elseif ($combined -match 'Intel.*(UHD|Iris|HD Graphics)|AMD Radeon\\(TM\\) Graphics|AMD Radeon Vega|APU|Integrated') {
+      $hType = 'onboard'; $isOnboard = $true; $busInfo = 'Onboard / CPU Integrated'
+    } elseif ($vramMb -ge 3072 -and $pnp -match '^PCI\\\\VEN_10DE|^PCI\\\\VEN_1002') {
+      $hType = 'dedicated'; $isOnboard = $false; $busInfo = 'Dedicated PCIe GPU'
+    }
+
+    $resStr = ''
+    if ($vc.CurrentHorizontalResolution -and $vc.CurrentVerticalResolution) {
+      $resStr = "$($vc.CurrentHorizontalResolution)x$($vc.CurrentVerticalResolution)"
+      if ($vc.CurrentRefreshRate) { $resStr += " @ $($vc.CurrentRefreshRate)Hz" }
+    }
+    $drvDateStr = ''
+    try { if ($vc.DriverDate) { $drvDateStr = $vc.DriverDate.ToString('yyyy-MM-dd') } } catch {}
+
+    $uPct = if ($nvMatch) { [double]$nvMatch.util } elseif ($hType -ne 'virtual') { $gpuUtilPct } else { $null }
+    $vUsed = if ($nvMatch) { [int]$nvMatch.usedMb } elseif ($hType -ne 'virtual') { $vramUsedCounterMb } else { $null }
+    if ($null -ne $vUsed -and $vramMb -gt 0 -and $vUsed -gt $vramMb) { $vUsed = $vramMb }
+    $vPct = if ($null -ne $vUsed -and $vramMb -gt 0) { [math]::Round(($vUsed / $vramMb) * 100, 1) } else { $null }
+
+    $gpus += [PSCustomObject]@{
+      name = $gName
+      vendor = $gVendor
+      hardwareType = $hType
+      isOnboard = $isOnboard
+      busInfo = $busInfo
+      driverVersion = [string]$vc.DriverVersion
+      driverDate = $drvDateStr
+      resolution = $resStr
+      vramTotalMb = [int]$vramMb
+      vramUsedMb = $vUsed
+      vramUsedPercent = $vPct
+      usagePercent = $uPct
+      status = [string]$vc.Status
+    }
+  }
+} catch {}
+
+# Audio Controllers (Win32_SoundDevice + Onboard vs GPU HDMI vs USB External vs Bluetooth)
+$audioDevices = @()
+try {
+  $sds = @(Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue)
+  foreach ($sd in $sds) {
+    $aName = [string]$sd.Name
+    if ([string]::IsNullOrWhiteSpace($aName)) { continue }
+    $aMfg = [string]$sd.Manufacturer
+    $aPnp = [string]$sd.PNPDeviceID
+    $dType = 'onboard'
+    $aOnboard = $true
+    $aCombined = "$aName $aMfg"
+    if ($aCombined -match 'Bluetooth|Hands-Free' -or $aPnp -match '^BTHENUM') {
+      $dType = 'bluetooth'; $aOnboard = $false
+    } elseif ($aPnp -match '^USB' -or $aCombined -match 'USB Audio|USB Headset|USB PnP|Jabra|Logitech|Plantronics|Poly|HyperX') {
+      $dType = 'usb_external'; $aOnboard = $false
+    } elseif ($aCombined -match 'NVIDIA.*Audio|AMD High Definition Audio|ATI.*Audio|Intel\\(R\\) Display Audio') {
+      $dType = 'gpu_hdmi'; $aOnboard = $false
+    } elseif ($aCombined -match 'Virtual|VB-Audio|Voicemeeter|Steam|Remote Audio|Citrix|VMware|Miracast') {
+      $dType = 'virtual'; $aOnboard = $false
+    } else {
+      $dType = 'onboard'; $aOnboard = $true
+    }
+    $audioDevices += [PSCustomObject]@{
+      name = $aName
+      manufacturer = $aMfg
+      deviceType = $dType
+      isOnboard = $aOnboard
+      status = [string]$sd.Status
+    }
+  }
+} catch {}
+
 $out = [PSCustomObject]@{
   hostname = [string]$env:COMPUTERNAME
   osName = [string]$os.Caption
@@ -1519,6 +1712,8 @@ $out = [PSCustomObject]@{
   }
   totalProcessCount = [int]$totalProcCount
   processes = $topProcs
+  gpus = $gpus
+  audioDevices = $audioDevices
 }
 $out | ConvertTo-Json -Depth 6 -Compress
 `;
@@ -1613,6 +1808,113 @@ primary_ip = run("hostname -I | awk '{print $1}'")
 mac_addr = run("ip -o link show up | awk '!/lo:/ {for(i=1;i<=NF;i++) if($i==\"link/ether\") {print $(i+1); exit}}'")
 ufw_active = "Status: active" in run("ufw status 2>/dev/null")
 
+# Linux GPU & VRAM detection (nvidia-smi + lspci + drm sysfs)
+gpus = []
+nv_list = []
+nv_out = run("nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,driver_version --format=csv,noheader,nounits 2>/dev/null")
+for line in nv_out.splitlines():
+    parts = [p.strip() for p in line.split(",")]
+    if len(parts) >= 5:
+        try:
+            used_mb = float(parts[2])
+            tot_mb = float(parts[3])
+            nv_list.append({
+                "name": parts[0],
+                "vendor": "NVIDIA",
+                "hardwareType": "dedicated",
+                "isOnboard": False,
+                "busInfo": "Dedicated PCIe GPU",
+                "driverVersion": parts[4],
+                "driverDate": "",
+                "resolution": "",
+                "vramTotalMb": int(tot_mb),
+                "vramUsedMb": int(used_mb),
+                "vramUsedPercent": round((used_mb / tot_mb) * 100.0, 1) if tot_mb > 0 else None,
+                "usagePercent": round(float(parts[1]), 1),
+                "status": "OK",
+            })
+        except Exception:
+            pass
+
+lspci_out = run("lspci 2>/dev/null")
+for line in lspci_out.splitlines():
+    low = line.lower()
+    if any(k in low for k in ["vga compatible controller", "3d controller", "display controller"]):
+        desc = line.split(":", 2)[-1].strip() if ":" in line else line
+        if any(nv["name"].lower() in desc.lower() or "nvidia" in desc.lower() for nv in nv_list):
+            continue
+        is_virt = any(k in low for k in ["virtio", "qxl", "vmware", "virtualbox", "bochs", "hyper-v", "cirrus"])
+        is_ded = (not is_virt) and any(k in low for k in ["nvidia", "geforce", "rtx", "gtx", "radeon rx", "radeon pro", "arc "])
+        htype = "virtual" if is_virt else ("dedicated" if is_ded else "onboard")
+        vendor = "NVIDIA" if "nvidia" in low else ("AMD" if ("amd" in low or "ati" in low) else ("Intel" if "intel" in low else "Virtual/Other"))
+        gpus.append({
+            "name": desc,
+            "vendor": vendor,
+            "hardwareType": htype,
+            "isOnboard": htype != "dedicated",
+            "busInfo": "Virtual Display Adapter" if is_virt else ("Dedicated PCIe GPU" if is_ded else "Onboard / Integrated"),
+            "driverVersion": "",
+            "driverDate": "",
+            "resolution": "",
+            "vramTotalMb": 0,
+            "vramUsedMb": None,
+            "vramUsedPercent": None,
+            "usagePercent": None,
+            "status": "OK",
+        })
+gpus = nv_list + gpus
+
+# Try DRM sysfs usage for single AMD/Intel GPU if not yet populated
+if gpus and gpus[0]["usagePercent"] is None:
+    for card in ["card0", "card1"]:
+        busy = run(f"cat /sys/class/drm/{card}/device/gpu_busy_percent 2>/dev/null")
+        if busy.isdigit():
+            gpus[0]["usagePercent"] = float(busy)
+            tot_b = run(f"cat /sys/class/drm/{card}/device/mem_info_vram_total 2>/dev/null")
+            used_b = run(f"cat /sys/class/drm/{card}/device/mem_info_vram_used 2>/dev/null")
+            if tot_b.isdigit() and int(tot_b) > 0:
+                t_mb = int(int(tot_b) / (1024 * 1024))
+                u_mb = int(int(used_b) / (1024 * 1024)) if used_b.isdigit() else 0
+                gpus[0]["vramTotalMb"] = t_mb
+                gpus[0]["vramUsedMb"] = u_mb
+                gpus[0]["vramUsedPercent"] = round((u_mb / t_mb) * 100.0, 1) if t_mb > 0 else None
+            break
+
+# Linux Audio Controllers (lspci + /proc/asound/cards)
+audio_devices = []
+for line in lspci_out.splitlines():
+    low = line.lower()
+    if "audio" in low or "multimedia" in low:
+        desc = line.split(":", 2)[-1].strip() if ":" in line else line
+        if any(k in low for k in ["nvidia", "hdmi", "display audio", "radeon", "ati "]):
+            dtype, onboard = "gpu_hdmi", False
+        elif "usb" in low:
+            dtype, onboard = "usb_external", False
+        else:
+            dtype, onboard = "onboard", True
+        audio_devices.append({
+            "name": desc,
+            "manufacturer": "NVIDIA" if "nvidia" in low else ("AMD" if "amd" in low else ("Intel" if "intel" in low else "ALSA/PCI")),
+            "deviceType": dtype,
+            "isOnboard": onboard,
+            "status": "OK",
+        })
+
+if not audio_devices:
+    asound = run("cat /proc/asound/cards 2>/dev/null")
+    for line in asound.splitlines():
+        if "]:" in line:
+            desc = line.split("]:", 1)[-1].strip()
+            low = desc.lower()
+            dtype = "usb_external" if "usb" in low else ("gpu_hdmi" if "hdmi" in low else "onboard")
+            audio_devices.append({
+                "name": desc,
+                "manufacturer": "ALSA",
+                "deviceType": dtype,
+                "isOnboard": dtype == "onboard",
+                "status": "OK",
+            })
+
 print(json.dumps({
     "hostname": hostname,
     "osName": os_name,
@@ -1635,7 +1937,9 @@ print(json.dumps({
         "firewallPublic": ufw_active
     },
     "totalProcessCount": total_procs,
-    "processes": procs
+    "processes": procs,
+    "gpus": gpus,
+    "audioDevices": audio_devices
 }))
 PY
 `;
@@ -1647,6 +1951,56 @@ export async function collectEndpointHealth(input: HelpdeskTargetInput): Promise
   const uptimeSeconds = Number(parsed.uptimeSeconds) || 0;
   const rawDisks = Array.isArray(parsed.disks) ? parsed.disks : parsed.disks ? [parsed.disks] : [];
   const rawProcs = Array.isArray(parsed.processes) ? parsed.processes : parsed.processes ? [parsed.processes] : [];
+  const rawGpus = Array.isArray(parsed.gpus) ? parsed.gpus : parsed.gpus ? [parsed.gpus] : [];
+  const rawAudio = Array.isArray(parsed.audioDevices) ? parsed.audioDevices : parsed.audioDevices ? [parsed.audioDevices] : [];
+
+  const gpus: HelpdeskGpuItem[] = rawGpus.map((g: any) => {
+    const hwType: 'onboard' | 'dedicated' | 'virtual' =
+      g.hardwareType === 'dedicated' || g.hardwareType === 'virtual' ? g.hardwareType : 'onboard';
+    return {
+      name: String(g.name || 'Display Adapter'),
+      vendor: String(g.vendor || ''),
+      hardwareType: hwType,
+      isOnboard: typeof g.isOnboard === 'boolean' ? g.isOnboard : hwType !== 'dedicated',
+      busInfo: String(g.busInfo || ''),
+      driverVersion: String(g.driverVersion || ''),
+      driverDate: String(g.driverDate || ''),
+      resolution: String(g.resolution || ''),
+      vramTotalMb: Number(g.vramTotalMb) || 0,
+      vramUsedMb: g.vramUsedMb !== null && g.vramUsedMb !== undefined ? Number(g.vramUsedMb) : null,
+      vramUsedPercent:
+        g.vramUsedPercent !== null && g.vramUsedPercent !== undefined
+          ? Math.max(0, Math.min(100, Number(g.vramUsedPercent)))
+          : null,
+      usagePercent:
+        g.usagePercent !== null && g.usagePercent !== undefined
+          ? Math.max(0, Math.min(100, Number(g.usagePercent)))
+          : null,
+      status: String(g.status || 'OK'),
+    };
+  });
+
+  const audioDevices: HelpdeskAudioDeviceItem[] = rawAudio.map((a: any) => {
+    const dType: 'onboard' | 'gpu_hdmi' | 'usb_external' | 'bluetooth' | 'virtual' =
+      a.deviceType === 'gpu_hdmi' ||
+      a.deviceType === 'usb_external' ||
+      a.deviceType === 'bluetooth' ||
+      a.deviceType === 'virtual'
+        ? a.deviceType
+        : 'onboard';
+    return {
+      name: String(a.name || 'Audio Controller'),
+      manufacturer: String(a.manufacturer || ''),
+      deviceType: dType,
+      isOnboard: typeof a.isOnboard === 'boolean' ? a.isOnboard : dType === 'onboard',
+      status: String(a.status || 'OK'),
+    };
+  });
+
+  const primaryGpu =
+    gpus.find((g) => g.hardwareType === 'dedicated') ||
+    gpus.find((g) => g.hardwareType === 'onboard') ||
+    gpus[0];
 
   return {
     targetIp: execRes.host,
@@ -1720,6 +2074,26 @@ export async function collectEndpointHealth(input: HelpdeskTargetInput): Promise
         protectionReasonFa: cls.protectionReasonFa,
       };
     }),
+    gpus,
+    audioDevices,
+    gpuSummary: {
+      hasDedicatedGpu: gpus.some((g) => g.hardwareType === 'dedicated'),
+      primaryGpuName: primaryGpu?.name || '',
+      primaryGpuType: primaryGpu?.hardwareType || 'none',
+      primaryUsagePercent: primaryGpu?.usagePercent ?? null,
+      vramTotalMb: primaryGpu?.vramTotalMb || 0,
+      vramUsedMb: primaryGpu?.vramUsedMb ?? null,
+      vramUsedPercent: primaryGpu?.vramUsedPercent ?? null,
+    },
+    audioSummary: {
+      onboardCount: audioDevices.filter((a) => a.deviceType === 'onboard').length,
+      gpuAudioCount: audioDevices.filter((a) => a.deviceType === 'gpu_hdmi').length,
+      externalCount: audioDevices.filter(
+        (a) => a.deviceType === 'usb_external' || a.deviceType === 'bluetooth'
+      ).length,
+      activeOutputName:
+        audioDevices.find((a) => a.deviceType === 'onboard')?.name || audioDevices[0]?.name || '',
+    },
   };
 }
 
@@ -9192,6 +9566,276 @@ PY
 }
 
 // ============================================================================
+// 19B. INTERACTIVE USER SESSION CONTROL (LOCK WORKSTATION / LOGOFF SESSION)
+// ============================================================================
+
+export type HelpdeskUserSessionAction = 'lock' | 'logoff';
+
+export async function executeEndpointUserSessionAction(
+  input: HelpdeskTargetInput,
+  options: {
+    action: HelpdeskUserSessionAction;
+    sessionId?: string;
+    username?: string;
+  }
+): Promise<HelpdeskActionResult> {
+  const action = options.action;
+  if (action !== 'lock' && action !== 'logoff') {
+    throw new Error(`Unsupported user session action: ${String(action)}`);
+  }
+
+  const rawSid = options.sessionId !== undefined ? String(options.sessionId).trim() : '';
+  const rawUser = options.username !== undefined ? String(options.username).trim() : '';
+
+  if (rawSid && !/^[a-zA-Z0-9_.-]{1,64}$/.test(rawSid)) {
+    throw new Error('Invalid session ID format.');
+  }
+  if (rawUser && !/^[a-zA-Z0-9._\\@-]{1,128}$/.test(rawUser)) {
+    throw new Error('Invalid target username format.');
+  }
+
+  const safeSidLiteral = rawSid.replace(/'/g, "''");
+  const safeUserLiteral = rawUser.replace(/'/g, "''");
+  const bareUser = (rawUser.includes('\\') ? rawUser.split('\\').pop() || '' : rawUser).replace(/'/g, "''");
+
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$action = '${action}'
+$reqSid = '${safeSidLiteral}'
+$reqUser = '${safeUserLiteral}'
+$reqBare = '${bareUser}'
+
+function Get-QuserSessions {
+  $list = @()
+  $lines = @(& quser.exe 2>$null)
+  if ($lines.Count -lt 2) { return $list }
+  foreach ($l in $lines | Select-Object -Skip 1) {
+    if ([string]::IsNullOrWhiteSpace($l)) { continue }
+    $clean = $l.TrimStart('>', ' ')
+    if ($clean -match '^(\\S+)\\s+(?:(\\S+)\\s+)?(\\d+)\\s+(Active|Disc|Conn|Listen|Idle)\\s+(.*)$') {
+      $u = $matches[1]; $sn = $matches[2]; $id = $matches[3]; $st = $matches[4]
+      if ([string]::IsNullOrWhiteSpace($sn)) { $sn = 'Disc' }
+      $list += [PSCustomObject]@{ user = $u; sessionName = $sn; id = $id; state = $st }
+    }
+  }
+  return $list
+}
+
+$sessions = @(Get-QuserSessions)
+$target = $null
+if ($reqSid -and ($reqSid -match '^\\d+$')) {
+  $target = $sessions | Where-Object { $_.id -eq $reqSid } | Select-Object -First 1
+  if (-not $target) {
+    $target = [PSCustomObject]@{ user = $reqUser; sessionName = ''; id = $reqSid; state = 'Active' }
+  }
+} elseif ($reqBare) {
+  $target = $sessions | Where-Object { $_.user -ieq $reqBare -or $_.user -ieq $reqUser } | Select-Object -First 1
+} else {
+  $target = $sessions | Where-Object { $_.state -eq 'Active' } | Select-Object -First 1
+  if (-not $target) { $target = $sessions | Select-Object -First 1 }
+}
+
+if (-not $target -or [string]::IsNullOrWhiteSpace([string]$target.id)) {
+  [PSCustomObject]@{
+    ok = $false
+    exitCode = 1
+    method = 'none'
+    targetUser = $reqUser
+    sessionId = $reqSid
+    output = 'No matching active or open user session found on this workstation.'
+  } | ConvertTo-Json -Compress
+  exit 0
+}
+
+if ($target.id -eq '0') {
+  [PSCustomObject]@{
+    ok = $false
+    exitCode = 1
+    method = 'guard'
+    targetUser = [string]$target.user
+    sessionId = '0'
+    output = 'Session 0 is reserved for Windows system services and cannot be logged off or locked.'
+  } | ConvertTo-Json -Compress
+  exit 0
+}
+
+if ($action -eq 'logoff') {
+  $out = (& logoff.exe $target.id 2>&1 | Out-String).Trim()
+  $code = $LASTEXITCODE
+  [PSCustomObject]@{
+    ok = ($code -eq 0)
+    exitCode = [int]$code
+    method = 'logoff.exe'
+    targetUser = [string]$target.user
+    sessionId = [string]$target.id
+    output = if ($out) { $out } else { "Signed out session $($target.id)" }
+  } | ConvertTo-Json -Compress
+} else {
+  # Lock active user desktop cleanly via ephemeral interactive scheduled task running LockWorkStation, fallback to tsdiscon
+  $csUser = ''
+  try { $csUser = [string](Get-CimInstance Win32_ComputerSystem).UserName } catch {}
+  $lockUser = if ($csUser -and $target.user -and ($csUser -like "*\\$($target.user)" -or $csUser -ieq $target.user)) {
+    $csUser
+  } elseif ($target.user) {
+    $target.user
+  } else {
+    $csUser
+  }
+  $taskName = "NetTopo_Lock_" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+  $lockedViaTask = $false
+  $outMsg = ''
+
+  if ($lockUser -and ($target.sessionName -notmatch '^rdp-tcp')) {
+    $createArgs = @('/Create', '/TN', $taskName, '/TR', 'rundll32.exe user32.dll,LockWorkStation', '/SC', 'ONCE', '/ST', '00:00', '/RU', $lockUser, '/IT', '/F')
+    $cOut = (& schtasks.exe @createArgs 2>&1 | Out-String)
+    if ($LASTEXITCODE -eq 0) {
+      $rOut = (& schtasks.exe /Run /TN $taskName 2>&1 | Out-String)
+      if ($LASTEXITCODE -eq 0) {
+        Start-Sleep -Milliseconds 650
+        $lockedViaTask = $true
+        $outMsg = "Screen locked via LockWorkStation for $lockUser."
+      } else {
+        $outMsg = $rOut.Trim()
+      }
+      & schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
+    } else {
+      $outMsg = $cOut.Trim()
+    }
+  }
+
+  if (-not $lockedViaTask) {
+    $dOut = (& tsdiscon.exe $target.id 2>&1 | Out-String).Trim()
+    $dCode = $LASTEXITCODE
+    [PSCustomObject]@{
+      ok = ($dCode -eq 0)
+      exitCode = [int]$dCode
+      method = 'tsdiscon.exe'
+      targetUser = if ($lockUser) { $lockUser } else { [string]$target.user }
+      sessionId = [string]$target.id
+      output = if ($dOut) { $dOut } else { "Disconnected/locked desktop session $($target.id) cleanly." }
+    } | ConvertTo-Json -Compress
+  } else {
+    [PSCustomObject]@{
+      ok = $true
+      exitCode = 0
+      method = 'LockWorkStation'
+      targetUser = $lockUser
+      sessionId = [string]$target.id
+      output = $outMsg
+    } | ConvertTo-Json -Compress
+  }
+}
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import json, subprocess
+
+action = ${JSON.stringify(action)}
+req_sid = ${JSON.stringify(rawSid)}
+req_user = ${JSON.stringify(rawUser)}
+
+def run(cmd):
+    p = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+    return p.returncode, (p.stdout + p.stderr).strip()
+
+target_sid = req_sid
+target_user = req_user.split("\\\\")[-1].split("@")[0] if req_user else ""
+
+if not target_sid and not target_user:
+    rc, out = run("loginctl list-sessions --no-legend 2>/dev/null | head -n 1")
+    if rc == 0 and out:
+        cols = out.split()
+        if len(cols) >= 3:
+            target_sid = cols[0]
+            target_user = cols[2]
+
+if not target_sid and target_user:
+    rc, out = run("loginctl list-sessions --no-legend 2>/dev/null")
+    for line in out.splitlines():
+        cols = line.split()
+        if len(cols) >= 3 and cols[2] == target_user:
+            target_sid = cols[0]
+            break
+
+if action == "lock":
+    if target_sid and target_sid.isalnum():
+        rc, out = run(f"loginctl lock-session {target_sid}")
+        method = "loginctl lock-session"
+    else:
+        rc, out = run("loginctl lock-sessions")
+        method = "loginctl lock-sessions"
+    print(json.dumps({
+        "ok": rc == 0,
+        "exitCode": rc,
+        "method": method,
+        "targetUser": target_user,
+        "sessionId": target_sid,
+        "output": out or "Linux session screen locked."
+    }))
+else:
+    if target_sid and target_sid.isalnum():
+        rc, out = run(f"loginctl terminate-session {target_sid}")
+        method = "loginctl terminate-session"
+    elif target_user and target_user not in ("root", ""):
+        rc, out = run(f"loginctl terminate-user {target_user} 2>/dev/null || pkill -KILL -u {target_user}")
+        method = "loginctl terminate-user"
+    else:
+        rc, out, method = 1, "No non-root target user/session found to sign out.", "guard"
+    print(json.dumps({
+        "ok": rc == 0,
+        "exitCode": rc,
+        "method": method,
+        "targetUser": target_user,
+        "sessionId": target_sid,
+        "output": out or "Linux user session terminated."
+    }))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: 20000 },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<{
+    ok: boolean;
+    exitCode: number;
+    method: string;
+    targetUser: string;
+    sessionId: string;
+    output: string;
+  }>(execRes.stdout, `user session ${action}`);
+
+  const actorLabel = parsed.targetUser || rawUser || (parsed.sessionId ? `Session ${parsed.sessionId}` : 'active user');
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: action === 'lock' ? 'session_lock' : 'session_logoff',
+    success: Boolean(parsed.ok),
+    message: parsed.ok
+      ? action === 'lock'
+        ? `Locked desktop screen for ${actorLabel} on ${execRes.host} (${parsed.method}).`
+        : `Signed out user session ${actorLabel}${parsed.sessionId ? ` (ID ${parsed.sessionId})` : ''} on ${execRes.host}.`
+      : `Failed to ${action} user session on ${execRes.host}: ${parsed.output || `exit ${parsed.exitCode}`}`,
+    messageFa: parsed.ok
+      ? action === 'lock'
+        ? `صفحه نمایش کاربر ${actorLabel} روی سیستم ${execRes.host} با موفقیت قفل شد (${parsed.method}).`
+        : `کاربر ${actorLabel}${parsed.sessionId ? ` (نشست ${parsed.sessionId})` : ''} با موفقیت از سیستم ${execRes.host} خارج (Logoff) شد.`
+      : `اجرای عملیات ${action === 'lock' ? 'قفل صفحه' : 'خروج کاربر (Logoff)'} روی ${execRes.host} ناموفق بود: ${parsed.output || `کد خطا ${parsed.exitCode}`}`,
+    details: {
+      sessionAction: action,
+      targetUser: parsed.targetUser || rawUser,
+      sessionId: parsed.sessionId || rawSid,
+      method: parsed.method,
+      exitCode: parsed.exitCode,
+      portUsed: execRes.portUsed,
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
 // 20. WINDOWS JEA & GPO HARDENING TEMPLATES (Zero-Ransomware Endpoint Lock)
 // ============================================================================
 
@@ -9202,7 +9846,7 @@ export function getHelpdeskJeaTemplates() {
 @{
     GUID = '9b7c4d21-6e18-4b4e-8f42-3a8a5e0d1c01'
     Author = 'Enterprise IT Security'
-    Description = 'Anti-Ransomware Least-Privilege HelpDesk JEA Role (Health, SystemInfo, HotFixes, Network, Spooler, Event Viewer, Safe User-App Stop, Temp Cleanup, GPUpdate, SFC/DISM/CHKDSK, Domain User Info, Battery Report, Power Control)'
+    Description = 'Anti-Ransomware Least-Privilege HelpDesk JEA Role (Health, GPU/Audio, SystemInfo, HotFixes, Network, Spooler, Event Viewer, Safe User-App Stop, Temp Cleanup, GPUpdate, SFC/DISM/CHKDSK, Domain User Info, Battery Report, Session & Power Control)'
     VisibleCmdlets = @(
         'Get-CimInstance',
         'Get-HotFix',
@@ -9256,7 +9900,12 @@ export function getHelpdeskJeaTemplates() {
         'C:\\Windows\\System32\\fsutil.exe',
         'C:\\Windows\\System32\\net.exe',
         'C:\\Windows\\System32\\powercfg.exe',
-        'C:\\Windows\\System32\\shutdown.exe'
+        'C:\\Windows\\System32\\shutdown.exe',
+        'C:\\Windows\\System32\\quser.exe',
+        'C:\\Windows\\System32\\logoff.exe',
+        'C:\\Windows\\System32\\tsdiscon.exe',
+        'C:\\Windows\\System32\\schtasks.exe',
+        'C:\\Windows\\System32\\rundll32.exe'
     )
 }`,
     registerSessionScript: `# 2. Register Restricted JEA Endpoint & Lock WinRM HTTPS (Port 5986) via GPO

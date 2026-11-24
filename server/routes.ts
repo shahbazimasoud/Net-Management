@@ -77,6 +77,7 @@ import {
   executeEndpointPowerControl,
   collectEndpointBatteryReport,
   collectEndpointUserLogons,
+  executeEndpointUserSessionAction,
   getHelpdeskRateLimitStatus,
   checkAndRecordHelpdeskWriteRateLimit,
   getHelpdeskJeaTemplates,
@@ -85,6 +86,7 @@ import {
   HelpdeskWriteAction,
   HelpdeskRepairMode,
   HelpdeskPowerAction,
+  HelpdeskUserSessionAction,
   HelpdeskDiagnosticProbeType,
 } from './helpdeskService';
 import { ZipArchive } from 'archiver';
@@ -9987,7 +9989,7 @@ apiRouter.post('/helpdesk/power', async (req: Request, res: Response) => {
   try {
     const data = await executeEndpointPowerControl(target, powerAction, delaySeconds, reason);
     await addPortalAuditLog({
-      category: 'system',
+      category: 'helpdesk',
       action: `helpdesk_power_${powerAction}`,
       title: `عملیات پاور از راه دور (${powerAction}) روی ${data.targetIp}`,
       title_en: `HelpDesk Remote Power Control (${powerAction}) on ${data.targetIp}`,
@@ -10141,6 +10143,101 @@ apiRouter.post('/helpdesk/logons', async (req: Request, res: Response) => {
       success: false,
       error: msg,
       errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/logons/session-action - Lock Workstation Screen or Sign Out (Logoff) Interactive User Session
+apiRouter.post('/helpdesk/logons/session-action', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const action = String(req.body?.action || '').trim() as HelpdeskUserSessionAction;
+  const sessionId = req.body?.sessionId !== undefined ? String(req.body.sessionId).trim() : undefined;
+  const username = req.body?.username !== undefined ? String(req.body.username).trim() : undefined;
+
+  if (action !== 'lock' && action !== 'logoff') {
+    return res.status(400).json({
+      success: false,
+      error: 'Unsupported session action (expected "lock" or "logoff").',
+      errorFa: 'نوع عملیات نشست کاربری نامعتبر است (فقط قفل صفحه یا خروج کاربر مجاز است).',
+    });
+  }
+
+  const rlAction: HelpdeskWriteAction = action === 'lock' ? 'session_lock' : 'session_logoff';
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rlAction);
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: rlAction,
+      rl,
+    });
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await executeEndpointUserSessionAction(target, { action, sessionId, username });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: action === 'lock' ? 'helpdesk_session_lock' : 'helpdesk_session_logoff',
+      title:
+        action === 'lock'
+          ? `قفل کردن صفحه کاربر روی ${data.targetIp}`
+          : `خارج کردن نشست کاربر (Logoff) روی ${data.targetIp}`,
+      title_en:
+        action === 'lock'
+          ? `HelpDesk Lock User Screen on ${data.targetIp}`
+          : `HelpDesk Logoff User Session on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: action === 'logoff' ? 'warning' : 'info',
+      target: {
+        type: 'device',
+        name: data.targetIp,
+        ip: data.targetIp,
+        metadata: {
+          targetIp: data.targetIp,
+          protocol: data.protocolUsed,
+          action,
+          sessionId: data.details?.sessionId || sessionId || '',
+          targetUser: data.details?.targetUser || username || '',
+          method: data.details?.method || '',
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'User session control failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: `helpdesk_session_${action}_failed`,
+      title: `خطا در عملیات ${action === 'lock' ? 'قفل صفحه' : 'خروج کاربر'} روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Session ${action} Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { action, sessionId, username },
+    });
+    return res.status(/invalid|blocked|required|unsupported/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
     });
   }
 });
