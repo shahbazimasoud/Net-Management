@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.462.0';
+export const APP_VERSION = '1.463.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.463.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'تب اختصاصی آپدیت ویندوز (WSUS/اینترنت)، حذف KB و مشخصات سیستم + ارتقای جامع تب Network (تغییر IP/DNS دستی، فایل hosts، پروکسی، روتینگ ساده و NSLookup)',
+    title_en: 'Dedicated HelpDesk Windows Updates, WSUS & System Info Tab + Expanded Network Control (Manual IP/DNS, Hosts, OS Proxy, Simple Routing & NSLookup/Tracert)',
+    changes: [
+      'انتقال بخش **مشخصات دقیق ویندوز، زمان آخرین بوت و آپدیت‌های نصب‌شده (`systeminfo`)** از تب سلامت به یک تب جدید و مستقل با عنوان **«آپدیت ویندوز، WSUS و مشخصات سیستم»**.',
+      'افزودن مدیریت کامل **Windows Update و WSUS** در تب جدید: تشخیص خودکار پالیسی WSUS سازمانی (`UseWUServer` / `WUServer`) یا اینترنت مستقیم (`Microsoft Update`)، اسکن و نصب آپدیت‌های جدید مطابق پالیسی WSUS یا از اینترنت، وضعیت سرویس‌های `wuauserv`/`UsoSvc`، تشخیص نیاز به ری‌استارت و امکان **حذف (Uninstall) هر آپدیت `KB`** از جدول یا به‌صورت دستی (`wusa.exe` + `DISM` Fallback).',
+      'گسترش کامل تب **Network & Safe Reset**: ۱) **تغییر دستی IPv4 (Static یا DHCP) و DNS** روی هر کارت شبکه، ۲) **بررسی و مدیریت فایل محلی `hosts`** (افزودن، غیرفعال/فعال‌سازی موقت و حذف)، ۳) **بررسی و مدیریت Proxy سیستم‌عامل** (WinINet کاربر فعال + WinHTTP سیستمی + PAC URL)، ۴) **روت‌نویس بسیار ساده و جدول مسیریابی استاتیک (`route -p add`)** با پیش‌نمایش زنده دستور، و ۵) افزودن تست‌های پیشرفته **`NSLookup` (با نوع رکورد و سرور DNS دلخواه)**، **`Tracert`**، **`HTTP/HTTPS`** و **جدول `ARP`** از داخل سیستم کاربر همراه با ثبت ۱۰۰٪ عملیات در Audit & Command Logs.'
+    ],
+    changes_en: [
+      'Moved **Detailed System Info, Boot Time & Installed Updates (`systeminfo`)** out of the Health tab into a dedicated **Updates, WSUS & System Info** tab inside HelpDesk.',
+      'Added full **Windows Update & WSUS Management**: auto-detects **WSUS GPO policy** (`UseWUServer` / `WUServer`) vs **Direct Internet (Microsoft Update)**, scans and downloads/installs pending updates from WSUS or Internet, inspects `wuauserv`/`UsoSvc` and pending reboot state, and supports safe **KB uninstallation** (`wusa.exe` with `DISM` fallback).',
+      'Significantly expanded **Network & Safe Reset**: (1) **Manual IPv4 (Static/DHCP) & DNS editor** per NIC, (2) **Local DNS `hosts` file inspector & manager** (add, toggle `#`, delete), (3) **OS Proxy inspector & manager** (Active User WinINet + System WinHTTP + PAC URL), (4) **Simple Guided Static Route Writer & Routing Table** (`route -p add` with subnet scope presets and live command preview), and (5) **Endpoint-side `NSLookup` (selectable record type + custom DNS server), `Tracert`, `HTTP/HTTPS`, and `ARP` probes** with complete HelpDesk Audit & Command Logging.'
+    ],
+  },
   {
     version: '1.462.0',
     releaseDate: '2026-11-24',

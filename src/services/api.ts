@@ -1061,9 +1061,11 @@ export async function fetchHelpdeskNetworkSnapshot(payload: HelpdeskConnectionPa
 
 export async function runHelpdeskNetworkProbe(
   payload: HelpdeskConnectionPayload & {
-    probeType: 'ping' | 'port' | 'dns';
+    probeType: 'ping' | 'port' | 'dns' | 'nslookup' | 'tracert' | 'http' | 'arp';
     probeTarget: string;
     probePort?: number;
+    dnsRecordType?: string;
+    dnsServer?: string;
   }
 ): Promise<{
   success: boolean;
@@ -1096,6 +1098,107 @@ export async function executeHelpdeskNetworkAction(
     body: JSON.stringify(payload),
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Safe network reset action failed');
+  return res.json();
+}
+
+export async function updateHelpdeskAdapterNetworkConfig(
+  payload: HelpdeskConnectionPayload & {
+    adapterName: string;
+    interfaceIndex?: number;
+    ipMode: 'keep' | 'dhcp' | 'static';
+    ipAddress?: string;
+    subnetMask?: string;
+    prefixLength?: number;
+    gateway?: string;
+    dnsMode: 'keep' | 'dhcp' | 'static';
+    dnsPrimary?: string;
+    dnsSecondary?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/network/adapter`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update endpoint NIC IP/DNS configuration');
+  return res.json();
+}
+
+export async function manageHelpdeskHostsEntry(
+  payload: HelpdeskConnectionPayload & {
+    operation: 'add' | 'toggle' | 'delete';
+    ip?: string;
+    hostnames?: string;
+    comment?: string;
+    lineIndex?: number;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/network/hosts`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update endpoint hosts file');
+  return res.json();
+}
+
+export async function updateHelpdeskProxySettings(
+  payload: HelpdeskConnectionPayload & {
+    scope: 'user' | 'winhttp' | 'both';
+    enabled: boolean;
+    server?: string;
+    override?: string;
+    autoConfigUrl?: string;
+    autoDetect?: boolean;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/network/proxy`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update OS proxy configuration');
+  return res.json();
+}
+
+export async function manageHelpdeskStaticRoute(
+  payload: HelpdeskConnectionPayload & {
+    operation: 'add' | 'delete';
+    destination: string;
+    netmask?: string;
+    prefixLength?: number;
+    gateway?: string;
+    interfaceIndex?: number;
+    metric?: number;
+    persistent?: boolean;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/network/route`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Static route operation failed');
   return res.json();
 }
 
@@ -1577,6 +1680,65 @@ export async function fetchHelpdeskSystemInfo(payload: HelpdeskConnectionPayload
     body: JSON.stringify(payload),
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Failed to collect detailed system info and updates');
+  return res.json();
+}
+
+export async function fetchHelpdeskUpdateStatus(
+  payload: HelpdeskConnectionPayload & {
+    sourceMode?: 'auto' | 'wsus' | 'internet';
+    withOnlineScan?: boolean;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/updates/status`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to inspect Windows Update & WSUS policy');
+  return res.json();
+}
+
+export async function installHelpdeskWindowsUpdates(
+  payload: HelpdeskConnectionPayload & {
+    source?: 'auto' | 'wsus' | 'internet';
+    kbFilter?: string[];
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/updates/install`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Windows Update installation failed');
+  return res.json();
+}
+
+export async function uninstallHelpdeskHotfix(
+  payload: HelpdeskConnectionPayload & {
+    kbId: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/updates/uninstall`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to uninstall Windows Update KB');
   return res.json();
 }
 

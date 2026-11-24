@@ -47,6 +47,10 @@ import {
   collectEndpointNetworkSnapshot,
   runEndpointDiagnosticProbe,
   executeSafeNetworkReset,
+  updateEndpointAdapterNetworkConfig,
+  manageEndpointHostsEntry,
+  updateEndpointProxySettings,
+  manageEndpointStaticRoute,
   collectEndpointPrinters,
   executeSafeSpoolerAction,
   setEndpointDefaultPrinter,
@@ -64,6 +68,9 @@ import {
   collectEndpointGpoStatus,
   executeEndpointGpupdate,
   collectEndpointSystemInfo,
+  collectEndpointUpdateStatus,
+  installEndpointWindowsUpdates,
+  uninstallEndpointHotfix,
   collectEndpointDiskHealth,
   executeEndpointSystemRepair,
   inspectDomainAccount,
@@ -78,6 +85,7 @@ import {
   HelpdeskWriteAction,
   HelpdeskRepairMode,
   HelpdeskPowerAction,
+  HelpdeskDiagnosticProbeType,
 } from './helpdeskService';
 import { ZipArchive } from 'archiver';
 import { runRetentionPurgeJob } from './logRetentionDaemon';
@@ -8199,7 +8207,7 @@ apiRouter.post('/helpdesk/network/snapshot', async (req: Request, res: Response)
   }
 });
 
-// POST /helpdesk/network/probe - Module 2: Endpoint-Side Ping / TCP Port / DNS Probe
+// POST /helpdesk/network/probe - Module 2: Endpoint-Side Ping / TCP Port / DNS / NSLookup / Tracert / HTTP / ARP Probe
 apiRouter.post('/helpdesk/network/probe', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
@@ -8207,27 +8215,53 @@ apiRouter.post('/helpdesk/network/probe', async (req: Request, res: Response) =>
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rawType = String(req.body?.probeType || 'ping').trim().toLowerCase();
-  const probeType: 'ping' | 'port' | 'dns' =
-    rawType === 'port' ? 'port' : rawType === 'dns' ? 'dns' : 'ping';
+  const allowedProbes: HelpdeskDiagnosticProbeType[] = [
+    'ping',
+    'port',
+    'dns',
+    'nslookup',
+    'tracert',
+    'http',
+    'arp',
+  ];
+  const probeType: HelpdeskDiagnosticProbeType = allowedProbes.includes(rawType as HelpdeskDiagnosticProbeType)
+    ? (rawType as HelpdeskDiagnosticProbeType)
+    : 'ping';
   const probeTarget = String(req.body?.probeTarget || '').trim();
   const probePort = req.body?.probePort !== undefined ? Number(req.body.probePort) : undefined;
+  const dnsRecordType = req.body?.dnsRecordType ? String(req.body.dnsRecordType).trim().toUpperCase() : undefined;
+  const dnsServer = req.body?.dnsServer ? String(req.body.dnsServer).trim() : undefined;
 
   try {
-    const data = await runEndpointDiagnosticProbe(target, probeType, probeTarget, probePort);
+    const data = await runEndpointDiagnosticProbe(target, probeType, probeTarget, probePort, {
+      dnsRecordType,
+      dnsServer,
+    });
     await addPortalAuditLog({
-      category: 'system',
+      category: 'helpdesk',
       action: `helpdesk_network_probe_${probeType}`,
       title: `تست ${probeType.toUpperCase()} از داخل سیستم ${data.targetIp} به ${data.probeTarget}`,
       title_en: `HelpDesk Endpoint-Side ${probeType.toUpperCase()} Probe from ${data.targetIp} -> ${data.probeTarget}`,
-      description: data.summaryFa,
-      description_en: data.summary,
+      details: data.summaryFa,
+      details_en: data.summary,
       userName: auth.actorName,
       userRole: auth.actorRole,
       status: data.success ? 'success' : 'warning',
       severity: 'info',
-      targetName: data.targetIp,
+      target: {
+        type: 'device',
+        name: data.targetIp,
+        ip: data.targetIp,
+        metadata: {
+          targetIp: data.targetIp,
+          probeType,
+          probeTarget: data.probeTarget,
+          probePort: data.probePort,
+          dnsRecordType,
+          dnsServer,
+        },
+      },
       clientIp: auth.clientIp,
-      metadata: { targetIp: data.targetIp, probeType, probeTarget: data.probeTarget, probePort: data.probePort },
     }).catch(() => {});
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
@@ -8241,9 +8275,9 @@ apiRouter.post('/helpdesk/network/probe', async (req: Request, res: Response) =>
       title_en: `HelpDesk Network Probe (${probeType}) Failed: ${target.targetIp || 'Unknown'}`,
       targetIp: target.targetIp,
       errorMsg: msg,
-      metadata: { probeType, probeTarget, probePort },
+      metadata: { probeType, probeTarget, probePort, dnsRecordType, dnsServer },
     });
-    return res.status(/invalid|blocked|required|integer/i.test(msg) ? 400 : 502).json({
+    return res.status(/invalid|blocked|required|integer|expected/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,
@@ -8323,6 +8357,245 @@ apiRouter.post('/helpdesk/network/action', async (req: Request, res: Response) =
       errorMsg: msg,
     });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/network/adapter - Update Endpoint NIC IPv4 (DHCP/Static) & DNS Servers
+apiRouter.post('/helpdesk/network/adapter', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'network_adapter_config');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'network_adapter_config', rl });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await updateEndpointAdapterNetworkConfig(target, {
+      adapterName: String(req.body?.adapterName || '').trim(),
+      interfaceIndex: req.body?.interfaceIndex !== undefined ? Number(req.body.interfaceIndex) : undefined,
+      ipMode: req.body?.ipMode === 'dhcp' || req.body?.ipMode === 'static' ? req.body.ipMode : 'keep',
+      ipAddress: req.body?.ipAddress,
+      subnetMask: req.body?.subnetMask,
+      prefixLength: req.body?.prefixLength !== undefined ? Number(req.body.prefixLength) : undefined,
+      gateway: req.body?.gateway,
+      dnsMode: req.body?.dnsMode === 'dhcp' || req.body?.dnsMode === 'static' ? req.body.dnsMode : 'keep',
+      dnsPrimary: req.body?.dnsPrimary,
+      dnsSecondary: req.body?.dnsSecondary,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_network_adapter_config',
+      title: `تغییر دستی IP / DNS کارت شبکه روی ${data.targetIp}`,
+      title_en: `HelpDesk Adapter IP/DNS Updated on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Adapter IP/DNS configuration failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_network_adapter_config_failed',
+      title: `خطا در تغییر IP/DNS کارت شبکه روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Adapter IP/DNS Update Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|blocked/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/network/hosts - Manage Local DNS hosts File (Add / Toggle / Delete)
+apiRouter.post('/helpdesk/network/hosts', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'network_hosts_edit');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'network_hosts_edit', rl });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await manageEndpointHostsEntry(target, {
+      operation: req.body?.operation,
+      ip: req.body?.ip,
+      hostnames: req.body?.hostnames,
+      comment: req.body?.comment,
+      lineIndex: req.body?.lineIndex !== undefined ? Number(req.body.lineIndex) : undefined,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_network_hosts_edit',
+      title: `ویرایش فایل محلی hosts روی ${data.targetIp}`,
+      title_en: `HelpDesk Local hosts File Updated on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Local hosts file update failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_network_hosts_edit_failed',
+      title: `خطا در ویرایش فایل hosts روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk hosts File Update Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|blocked/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/network/proxy - Configure or Clear Endpoint OS Proxy (WinINet & WinHTTP)
+apiRouter.post('/helpdesk/network/proxy', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'network_proxy_config');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'network_proxy_config', rl });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await updateEndpointProxySettings(target, {
+      scope: req.body?.scope || 'user',
+      enabled: Boolean(req.body?.enabled),
+      server: req.body?.server,
+      override: req.body?.override,
+      autoConfigUrl: req.body?.autoConfigUrl,
+      autoDetect: Boolean(req.body?.autoDetect),
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_network_proxy_config',
+      title: `مدیریت Proxy سیستم‌عامل روی ${data.targetIp}`,
+      title_en: `HelpDesk OS Proxy Updated on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'OS Proxy configuration failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_network_proxy_config_failed',
+      title: `خطا در تنظیم Proxy روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk OS Proxy Config Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|blocked|specify/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/network/route - Add or Delete Static IPv4 Route on Workstation
+apiRouter.post('/helpdesk/network/route', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const op = req.body?.operation === 'delete' ? 'delete' : 'add';
+  const rlAction: HelpdeskWriteAction = op === 'delete' ? 'network_route_delete' : 'network_route_add';
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rlAction);
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: rlAction, rl });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await manageEndpointStaticRoute(target, {
+      operation: op,
+      destination: String(req.body?.destination || '').trim(),
+      netmask: req.body?.netmask,
+      prefixLength: req.body?.prefixLength !== undefined ? Number(req.body.prefixLength) : undefined,
+      gateway: req.body?.gateway,
+      interfaceIndex: req.body?.interfaceIndex !== undefined ? Number(req.body.interfaceIndex) : undefined,
+      metric: req.body?.metric !== undefined ? Number(req.body.metric) : undefined,
+      persistent: Boolean(req.body?.persistent),
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: `helpdesk_${rlAction}`,
+      title: op === 'add' ? `ثبت روت شبکه (Static Route) روی ${data.targetIp}` : `حذف روت شبکه روی ${data.targetIp}`,
+      title_en: op === 'add' ? `HelpDesk Static Route Added on ${data.targetIp}` : `HelpDesk Route Deleted on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Static route operation failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: `helpdesk_${rlAction}_failed`,
+      title: `خطا در مدیریت روت شبکه روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Route Operation Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|blocked/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,
@@ -9868,6 +10141,174 @@ apiRouter.post('/helpdesk/logons', async (req: Request, res: Response) => {
       success: false,
       error: msg,
       errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/updates/status - Inspect WSUS Policy, Pending Reboot & Scan Available Updates (WSUS vs Internet)
+apiRouter.post('/helpdesk/updates/status', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rawSource = String(req.body?.sourceMode || 'auto').trim().toLowerCase();
+  const sourceMode: 'auto' | 'wsus' | 'internet' =
+    rawSource === 'wsus' || rawSource === 'internet' ? rawSource : 'auto';
+  const withOnlineScan = req.body?.withOnlineScan !== false;
+
+  try {
+    const data = await collectEndpointUpdateStatus(target, sourceMode, withOnlineScan);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_updates_status',
+      title: `بررسی وضعیت Windows Update و WSUS روی ${data.hostname} (${data.targetIp})`,
+      title_en: `HelpDesk Windows Update & WSUS Inspection: ${data.hostname} (${data.targetIp})`,
+      details: `سیاست آپدیت: ${data.wsusPolicy.useWuServer ? `WSUS (${data.wsusPolicy.wuServer})` : 'اینترنت (Microsoft Update)'} — آپدیت در انتظار: ${data.pendingUpdates.length} — نیازمند ری‌استارت: ${data.pendingReboot.required ? 'بله' : 'خیر'}.`,
+      details_en: `Policy: ${data.wsusPolicy.useWuServer ? `WSUS (${data.wsusPolicy.wuServer})` : 'Internet (Microsoft Update)'} — Pending: ${data.pendingUpdates.length} — Pending Reboot: ${data.pendingReboot.required ? 'Yes' : 'No'}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      target: {
+        type: 'device',
+        name: data.hostname || data.targetIp,
+        ip: data.targetIp,
+        metadata: {
+          sourceScanned: data.sourceScanned,
+          useWuServer: data.wsusPolicy.useWuServer,
+          wuServer: data.wsusPolicy.wuServer,
+          pendingCount: data.pendingUpdates.length,
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to inspect Windows Update / WSUS status');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_updates_status_failed',
+      title: `خطا در بررسی وضعیت آپدیت و WSUS روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Windows Update Inspection Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/updates/install - Download & Install Windows Updates (Follows WSUS Policy or Internet)
+apiRouter.post('/helpdesk/updates/install', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'windows_update_install');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'windows_update_install', rl });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  const rawSource = String(req.body?.source || 'auto').trim().toLowerCase();
+  const source: 'auto' | 'wsus' | 'internet' =
+    rawSource === 'wsus' || rawSource === 'internet' ? rawSource : 'auto';
+  const kbFilter = Array.isArray(req.body?.kbFilter) ? req.body.kbFilter.map(String) : undefined;
+
+  try {
+    const data = await installEndpointWindowsUpdates(target, { source, kbFilter });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_windows_update_install',
+      title: `دریافت و نصب آپدیت‌های ویندوز روی ${data.targetIp}`,
+      title_en: `HelpDesk Windows Update Install on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Windows Update installation failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_windows_update_install_failed',
+      title: `خطا در نصب آپدیت‌های ویندوز روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Windows Update Install Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/updates/uninstall - Safely Uninstall Installed KB Update (wusa / DISM)
+apiRouter.post('/helpdesk/updates/uninstall', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const kbId = String(req.body?.kbId || '').trim();
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'windows_update_uninstall');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'windows_update_uninstall', rl });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await uninstallEndpointHotfix(target, kbId);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_windows_update_uninstall',
+      title: `حذف آپدیت ${kbId.toUpperCase()} از سیستم ${data.targetIp}`,
+      title_en: `HelpDesk Uninstall Update ${kbId.toUpperCase()} on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'warning',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'HotFix uninstall failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_windows_update_uninstall_failed',
+      title: `خطا در حذف آپدیت ${kbId || 'KB'} از ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Uninstall Update Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { kbId },
+    });
+    return res.status(/invalid|required|expected|blocked/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
     });
   }
 });

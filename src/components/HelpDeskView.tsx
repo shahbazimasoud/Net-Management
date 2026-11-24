@@ -60,6 +60,12 @@ import {
   Unlock,
   History,
   ScrollText,
+  Download,
+  Route,
+  FileText,
+  Settings,
+  Plus,
+  Waypoints,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -70,6 +76,10 @@ import {
   fetchHelpdeskNetworkSnapshot,
   runHelpdeskNetworkProbe,
   executeHelpdeskNetworkAction,
+  updateHelpdeskAdapterNetworkConfig,
+  manageHelpdeskHostsEntry,
+  updateHelpdeskProxySettings,
+  manageHelpdeskStaticRoute,
   fetchHelpdeskPrinterStatus,
   executeHelpdeskPrinterAction,
   setHelpdeskDefaultPrinter,
@@ -84,6 +94,9 @@ import {
   fetchHelpdeskGpoStatus,
   runHelpdeskGpupdate,
   fetchHelpdeskSystemInfo,
+  fetchHelpdeskUpdateStatus,
+  installHelpdeskWindowsUpdates,
+  uninstallHelpdeskHotfix,
   fetchHelpdeskDiskHealth,
   executeHelpdeskSystemRepair,
   inspectHelpdeskDomainUser,
@@ -114,6 +127,7 @@ type HelpdeskSubTab =
   | 'printers'
   | 'events'
   | 'logins'
+  | 'updates'
   | 'maintenance'
   | 'hardware_domain'
   | 'architecture';
@@ -294,18 +308,59 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [donutMetric, setDonutMetric] = useState<'cpu' | 'memory'>('cpu');
   const [selectedProcessPid, setSelectedProcessPid] = useState<number | null>(null);
 
-  // Module 2: Network Diagnostics & Safe Reset state
+  // Module 2: Network Diagnostics, Manual IP/DNS, Hosts, Proxy, Routing & Safe Reset state
   const [networkData, setNetworkData] = useState<any | null>(null);
   const [loadingNetwork, setLoadingNetwork] = useState(false);
   const [networkError, setNetworkError] = useState<string | null>(null);
-  const [probeType, setProbeType] = useState<'ping' | 'port' | 'dns'>('ping');
+  const [probeType, setProbeType] = useState<'ping' | 'port' | 'dns' | 'nslookup' | 'tracert' | 'http' | 'arp'>('ping');
   const [probeTarget, setProbeTarget] = useState('8.8.8.8');
   const [probePort, setProbePort] = useState('443');
+  const [probeDnsRecordType, setProbeDnsRecordType] = useState('A');
+  const [probeDnsServer, setProbeDnsServer] = useState('');
   const [loadingProbe, setLoadingProbe] = useState(false);
   const [probeResult, setProbeResult] = useState<any | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
   const [runningNetAction, setRunningNetAction] = useState<string | null>(null);
   const [netActionResult, setNetActionResult] = useState<any | null>(null);
+
+  // NIC Manual IPv4 & DNS Configuration state
+  const [editingAdapter, setEditingAdapter] = useState<any | null>(null);
+  const [nicIpMode, setNicIpMode] = useState<'keep' | 'dhcp' | 'static'>('keep');
+  const [nicIpAddress, setNicIpAddress] = useState('');
+  const [nicSubnetMask, setNicSubnetMask] = useState('255.255.255.0');
+  const [nicGateway, setNicGateway] = useState('');
+  const [nicDnsMode, setNicDnsMode] = useState<'keep' | 'dhcp' | 'static'>('keep');
+  const [nicDnsPrimary, setNicDnsPrimary] = useState('');
+  const [nicDnsSecondary, setNicDnsSecondary] = useState('');
+  const [savingNicConfig, setSavingNicConfig] = useState(false);
+  const [confirmNicSave, setConfirmNicSave] = useState(false);
+
+  // OS Proxy Manager state
+  const [proxyScope, setProxyScope] = useState<'user' | 'winhttp' | 'both'>('user');
+  const [proxyEnabled, setProxyEnabled] = useState(false);
+  const [proxyServer, setProxyServer] = useState('');
+  const [proxyOverride, setProxyOverride] = useState('');
+  const [proxyAutoConfigUrl, setProxyAutoConfigUrl] = useState('');
+  const [proxyAutoDetect, setProxyAutoDetect] = useState(false);
+  const [savingProxy, setSavingProxy] = useState(false);
+
+  // Local DNS hosts file Manager state
+  const [hostsNewIp, setHostsNewIp] = useState('');
+  const [hostsNewNames, setHostsNewNames] = useState('');
+  const [hostsNewComment, setHostsNewComment] = useState('');
+  const [hostsSearch, setHostsSearch] = useState('');
+  const [busyHostsKey, setBusyHostsKey] = useState<string | null>(null);
+
+  // Simple Static Routing Table & Writer state
+  const [routeDest, setRouteDest] = useState('');
+  const [routeMask, setRouteMask] = useState('255.255.255.0');
+  const [routeGateway, setRouteGateway] = useState('');
+  const [routeIfIndex, setRouteIfIndex] = useState<number>(0);
+  const [routeMetric, setRouteMetric] = useState('');
+  const [routePersistent, setRoutePersistent] = useState(true);
+  const [routeSearch, setRouteSearch] = useState('');
+  const [busyRouteKey, setBusyRouteKey] = useState<string | null>(null);
+  const [confirmDeleteRouteId, setConfirmDeleteRouteId] = useState<string | null>(null);
 
   // Module 3: Printers & Print Spooler state
   const [printerData, setPrinterData] = useState<any | null>(null);
@@ -390,12 +445,23 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [gpupdateResult, setGpupdateResult] = useState<any | null>(null);
   const [showRawGpo, setShowRawGpo] = useState(false);
 
-  // Detailed System Info & Installed Updates (systeminfo + HotFixes)
+  // Detailed System Info, Windows Updates (WSUS vs Internet) & Installed HotFixes
   const [sysInfoData, setSysInfoData] = useState<any | null>(null);
   const [loadingSysInfo, setLoadingSysInfo] = useState(false);
   const [sysInfoError, setSysInfoError] = useState<string | null>(null);
   const [hotfixSearch, setHotfixSearch] = useState('');
   const [showRawSysInfo, setShowRawSysInfo] = useState(false);
+  const [updateStatusData, setUpdateStatusData] = useState<any | null>(null);
+  const [loadingUpdateStatus, setLoadingUpdateStatus] = useState(false);
+  const [updateStatusError, setUpdateStatusError] = useState<string | null>(null);
+  const [updateSourceMode, setUpdateSourceMode] = useState<'auto' | 'wsus' | 'internet'>('auto');
+  const [installingUpdates, setInstallingUpdates] = useState<string | null>(null);
+  const [confirmInstallAllUpdates, setConfirmInstallAllUpdates] = useState(false);
+  const [uninstallingKb, setUninstallingKb] = useState<string | null>(null);
+  const [confirmUninstallKb, setConfirmUninstallKb] = useState<string | null>(null);
+  const [manualKbUninstall, setManualKbUninstall] = useState('');
+  const [updateActionResult, setUpdateActionResult] = useState<any | null>(null);
+  const [updateActionError, setUpdateActionError] = useState<string | null>(null);
 
   // System Integrity Repair (SFC / DISM) & Smart Disk Media (HDD vs SSD) + CHKDSK
   const [diskHealthData, setDiskHealthData] = useState<any | null>(null);
@@ -522,6 +588,24 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setSysInfoError(null);
     setHotfixSearch('');
     setShowRawSysInfo(false);
+    setUpdateStatusData(null);
+    setUpdateStatusError(null);
+    setUpdateActionResult(null);
+    setUpdateActionError(null);
+    setConfirmInstallAllUpdates(false);
+    setConfirmUninstallKb(null);
+    setManualKbUninstall('');
+    setEditingAdapter(null);
+    setConfirmNicSave(false);
+    setProxyServer('');
+    setProxyOverride('');
+    setProxyAutoConfigUrl('');
+    setHostsNewIp('');
+    setHostsNewNames('');
+    setHostsNewComment('');
+    setRouteDest('');
+    setRouteGateway('');
+    setConfirmDeleteRouteId(null);
     setDiskHealthData(null);
     setDiskHealthError(null);
     setRepairResult(null);
@@ -587,6 +671,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     try {
       const res = await fetchHelpdeskNetworkSnapshot(payload);
       setNetworkData(res.data);
+      if (res.data?.proxy) {
+        setProxyEnabled(Boolean(res.data.proxy.enabled));
+        setProxyServer(String(res.data.proxy.server || ''));
+        setProxyOverride(String(res.data.proxy.override || ''));
+        setProxyAutoConfigUrl(String(res.data.proxy.autoConfigUrl || ''));
+        setProxyAutoDetect(Boolean(res.data.proxy.autoDetect));
+      }
+      if (!routeGateway && Array.isArray(res.data?.adapters)) {
+        const gwAdapter = res.data.adapters.find((ad: any) => Array.isArray(ad.defaultGateways) && ad.defaultGateways[0]);
+        if (gwAdapter) setRouteGateway(String(gwAdapter.defaultGateways[0]));
+      }
       if (res.rateLimit) setRateLimit(res.rateLimit);
     } catch (err: any) {
       setNetworkData(null);
@@ -608,6 +703,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         probeType,
         probeTarget: probeTarget.trim(),
         probePort: probeType === 'port' ? Number(probePort) : undefined,
+        dnsRecordType: probeType === 'nslookup' ? probeDnsRecordType : undefined,
+        dnsServer: probeType === 'nslookup' && probeDnsServer.trim() ? probeDnsServer.trim() : undefined,
       });
       setProbeResult(res.data);
       if (res.rateLimit) setRateLimit(res.rateLimit);
@@ -633,6 +730,204 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       setNetworkError(err?.message || (isEn ? 'Safe network action failed.' : 'اجرای عملیات امن شبکه ناموفق بود.'));
     } finally {
       setRunningNetAction(null);
+    }
+  };
+
+  const handleStartEditAdapter = (adapter: any) => {
+    setEditingAdapter(adapter);
+    setConfirmNicSave(false);
+    setNicIpMode(adapter.dhcpEnabled === false ? 'static' : 'dhcp');
+    setNicIpAddress(Array.isArray(adapter.ipv4Addresses) && adapter.ipv4Addresses[0] ? adapter.ipv4Addresses[0] : '');
+    setNicSubnetMask(
+      Array.isArray(adapter.subnetMasks) && adapter.subnetMasks[0] ? adapter.subnetMasks[0] : '255.255.255.0'
+    );
+    setNicGateway(Array.isArray(adapter.defaultGateways) && adapter.defaultGateways[0] ? adapter.defaultGateways[0] : '');
+    const hasDns = Array.isArray(adapter.dnsServers) && adapter.dnsServers.length > 0;
+    setNicDnsMode(adapter.dhcpEnabled === false || hasDns ? 'static' : 'dhcp');
+    setNicDnsPrimary(Array.isArray(adapter.dnsServers) && adapter.dnsServers[0] ? adapter.dnsServers[0] : '');
+    setNicDnsSecondary(Array.isArray(adapter.dnsServers) && adapter.dnsServers[1] ? adapter.dnsServers[1] : '');
+  };
+
+  const handleSaveAdapterConfig = async () => {
+    if (!editingAdapter) return;
+    const payload = buildPayload();
+    if (!payload) return;
+    setSavingNicConfig(true);
+    setConfirmNicSave(false);
+    setNetworkError(null);
+    setNetActionResult(null);
+    try {
+      const res = await updateHelpdeskAdapterNetworkConfig({
+        ...payload,
+        adapterName: editingAdapter.name,
+        interfaceIndex: editingAdapter.interfaceIndex ?? undefined,
+        ipMode: nicIpMode,
+        ipAddress: nicIpMode === 'static' ? nicIpAddress.trim() : undefined,
+        subnetMask: nicIpMode === 'static' ? nicSubnetMask.trim() : undefined,
+        gateway: nicIpMode === 'static' && nicGateway.trim() ? nicGateway.trim() : undefined,
+        dnsMode: nicDnsMode,
+        dnsPrimary: nicDnsMode === 'static' ? nicDnsPrimary.trim() : undefined,
+        dnsSecondary: nicDnsMode === 'static' && nicDnsSecondary.trim() ? nicDnsSecondary.trim() : undefined,
+      });
+      setNetActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      setEditingAdapter(null);
+      try {
+        const refreshed = await fetchHelpdeskNetworkSnapshot(payload);
+        setNetworkData(refreshed.data);
+      } catch {}
+    } catch (err: any) {
+      setNetworkError(
+        err?.message || (isEn ? 'Failed to update adapter IP/DNS.' : 'تغییر دستی IP یا DNS کارت شبکه ناموفق بود.')
+      );
+    } finally {
+      setSavingNicConfig(false);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleSaveProxyConfig = async (forceDisable = false) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setSavingProxy(true);
+    setNetworkError(null);
+    setNetActionResult(null);
+    try {
+      const res = await updateHelpdeskProxySettings({
+        ...payload,
+        scope: proxyScope,
+        enabled: forceDisable ? false : proxyEnabled,
+        server: forceDisable ? '' : proxyServer.trim(),
+        override: forceDisable ? '' : proxyOverride.trim(),
+        autoConfigUrl: forceDisable ? '' : proxyAutoConfigUrl.trim(),
+        autoDetect: forceDisable ? false : proxyAutoDetect,
+      });
+      setNetActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      if (forceDisable) {
+        setProxyEnabled(false);
+      }
+      try {
+        const refreshed = await fetchHelpdeskNetworkSnapshot(payload);
+        setNetworkData(refreshed.data);
+      } catch {}
+    } catch (err: any) {
+      setNetworkError(
+        err?.message || (isEn ? 'Failed to configure OS Proxy.' : 'اعمال تنظیمات Proxy سیستم‌عامل ناموفق بود.')
+      );
+    } finally {
+      setSavingProxy(false);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleManageHosts = async (
+    operation: 'add' | 'toggle' | 'delete',
+    lineIndex?: number,
+    e?: React.FormEvent
+  ) => {
+    if (e) e.preventDefault();
+    const payload = buildPayload();
+    if (!payload) return;
+    const busyKey = operation === 'add' ? 'add' : `${operation}-${lineIndex}`;
+    setBusyHostsKey(busyKey);
+    setNetworkError(null);
+    setNetActionResult(null);
+    try {
+      const res = await manageHelpdeskHostsEntry({
+        ...payload,
+        operation,
+        ip: operation === 'add' ? hostsNewIp.trim() : undefined,
+        hostnames: operation === 'add' ? hostsNewNames.trim() : undefined,
+        comment: operation === 'add' ? hostsNewComment.trim() : undefined,
+        lineIndex,
+      });
+      setNetActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      if (operation === 'add') {
+        setHostsNewIp('');
+        setHostsNewNames('');
+        setHostsNewComment('');
+      }
+      try {
+        const refreshed = await fetchHelpdeskNetworkSnapshot(payload);
+        setNetworkData(refreshed.data);
+      } catch {}
+    } catch (err: any) {
+      setNetworkError(
+        err?.message || (isEn ? 'Failed to update hosts file.' : 'بروزرسانی فایل محلی hosts ناموفق بود.')
+      );
+    } finally {
+      setBusyHostsKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleAddStaticRoute = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = buildPayload();
+    if (!payload) return;
+    setBusyRouteKey('add');
+    setNetworkError(null);
+    setNetActionResult(null);
+    try {
+      const res = await manageHelpdeskStaticRoute({
+        ...payload,
+        operation: 'add',
+        destination: routeDest.trim(),
+        netmask: routeMask,
+        gateway: routeGateway.trim(),
+        interfaceIndex: routeIfIndex > 0 ? routeIfIndex : undefined,
+        metric: routeMetric.trim() ? Number(routeMetric.trim()) : undefined,
+        persistent: routePersistent,
+      });
+      setNetActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      setRouteDest('');
+      try {
+        const refreshed = await fetchHelpdeskNetworkSnapshot(payload);
+        setNetworkData(refreshed.data);
+      } catch {}
+    } catch (err: any) {
+      setNetworkError(
+        err?.message || (isEn ? 'Failed to add static route.' : 'ثبت روت جدید در جدول مسیریابی ناموفق بود.')
+      );
+    } finally {
+      setBusyRouteKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleDeleteStaticRoute = async (rt: any) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setBusyRouteKey(rt.id);
+    setConfirmDeleteRouteId(null);
+    setNetworkError(null);
+    setNetActionResult(null);
+    try {
+      const res = await manageHelpdeskStaticRoute({
+        ...payload,
+        operation: 'delete',
+        destination: rt.destination,
+        netmask: rt.netmask,
+        gateway: rt.gateway,
+        interfaceIndex: rt.interfaceIndex > 0 ? rt.interfaceIndex : undefined,
+        persistent: Boolean(rt.persistent),
+      });
+      setNetActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskNetworkSnapshot(payload);
+        setNetworkData(refreshed.data);
+      } catch {}
+    } catch (err: any) {
+      setNetworkError(
+        err?.message || (isEn ? 'Failed to delete route.' : 'حذف روت انتخاب‌شده ناموفق بود.')
+      );
+    } finally {
+      setBusyRouteKey(null);
+      notifyHelpdeskAuditUpdated();
     }
   };
 
@@ -1005,6 +1300,93 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
+  const handleInspectUpdateStatus = async (
+    overrideSource?: 'auto' | 'wsus' | 'internet',
+    withOnlineScan = true
+  ) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingUpdateStatus(true);
+    setUpdateStatusError(null);
+    try {
+      const res = await fetchHelpdeskUpdateStatus({
+        ...payload,
+        sourceMode: overrideSource ?? updateSourceMode,
+        withOnlineScan,
+      });
+      setUpdateStatusData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setUpdateStatusData(null);
+      setUpdateStatusError(
+        err?.message ||
+          (isEn
+            ? 'Failed to inspect Windows Update & WSUS policy.'
+            : 'خطا در بررسی وضعیت Windows Update و پالیسی WSUS.')
+      );
+    } finally {
+      setLoadingUpdateStatus(false);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleInstallUpdates = async (kbFilter?: string[]) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    const busyKey = kbFilter && kbFilter.length > 0 ? kbFilter[0] : 'ALL';
+    setInstallingUpdates(busyKey);
+    setConfirmInstallAllUpdates(false);
+    setUpdateActionError(null);
+    setUpdateActionResult(null);
+    try {
+      const res = await installHelpdeskWindowsUpdates({
+        ...payload,
+        source: updateSourceMode,
+        kbFilter,
+      });
+      setUpdateActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      await Promise.all([
+        handleInspectUpdateStatus(updateSourceMode, true).catch(() => {}),
+        handleInspectSysInfo().catch(() => {}),
+      ]);
+    } catch (err: any) {
+      setUpdateActionError(
+        err?.message || (isEn ? 'Windows Update installation failed.' : 'نصب آپدیت‌های ویندوز با خطا مواجه شد.')
+      );
+    } finally {
+      setInstallingUpdates(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleUninstallHotfix = async (kbId: string) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    const cleanKb = kbId.trim().toUpperCase();
+    if (!cleanKb) return;
+    setUninstallingKb(cleanKb);
+    setConfirmUninstallKb(null);
+    setUpdateActionError(null);
+    setUpdateActionResult(null);
+    try {
+      const res = await uninstallHelpdeskHotfix({ ...payload, kbId: cleanKb });
+      setUpdateActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      setManualKbUninstall('');
+      try {
+        await handleInspectSysInfo();
+      } catch {}
+    } catch (err: any) {
+      setUpdateActionError(
+        err?.message || (isEn ? `Failed to uninstall ${cleanKb}.` : `حذف آپدیت ${cleanKb} ناموفق بود.`)
+      );
+    } finally {
+      setUninstallingKb(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
   const handleInspectDisks = async () => {
     const payload = buildPayload();
     if (!payload) return;
@@ -1172,6 +1554,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       await handleInspectEvents();
     } else if (activeSubTab === 'logins') {
       await handleInspectLogons();
+    } else if (activeSubTab === 'updates') {
+      await Promise.all([handleInspectUpdateStatus('auto', true), handleInspectSysInfo()]);
     } else if (activeSubTab === 'maintenance') {
       await Promise.all([handleScanTemp(), handleInspectGpo(), handleInspectDisks()]);
     } else if (activeSubTab === 'hardware_domain') {
@@ -1380,6 +1764,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const isAnyLoading =
     loadingHealth ||
     loadingSysInfo ||
+    loadingUpdateStatus ||
     loadingNetwork ||
     loadingPrinters ||
     loadingEvents ||
@@ -1402,27 +1787,59 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     );
   }, [sysInfoData, hotfixSearch]);
 
+  const filteredHostsEntries = useMemo(() => {
+    const list: any[] = Array.isArray(networkData?.hostsEntries) ? networkData.hostsEntries : [];
+    const q = hostsSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (h) =>
+        String(h.ip || '').toLowerCase().includes(q) ||
+        String(h.hostnames || '').toLowerCase().includes(q) ||
+        String(h.comment || '').toLowerCase().includes(q)
+    );
+  }, [networkData, hostsSearch]);
+
+  const filteredRoutes = useMemo(() => {
+    const list: any[] = Array.isArray(networkData?.routes) ? networkData.routes : [];
+    const q = routeSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (r) =>
+        String(r.destination || '').toLowerCase().includes(q) ||
+        String(r.gateway || '').toLowerCase().includes(q) ||
+        String(r.netmask || '').toLowerCase().includes(q) ||
+        String(r.interfaceName || '').toLowerCase().includes(q)
+    );
+  }, [networkData, routeSearch]);
+
   const activeCapabilities = [
     {
       id: 'health',
-      titleEn: 'Endpoint Health, Detailed System Info & Installed Updates',
-      titleFa: 'سلامت سیستم، مشخصات کامل ویندوز (systeminfo) و آپدیت‌های نصب‌شده',
-      descEn: 'Live CPU/RAM/Disk radial gauges, interactive process rings, exact Windows build/DisplayVersion, last boot time, RAM, domain, BIOS, and HotFix KB inventory.',
-      descFa: 'نمایش دایره‌ای CPU/RAM/دیسک، نسخه دقیق ویندوز و بیلد، زمان آخرین بوت، رم، دامین، مشخصات سخت‌افزار و لیست آپدیت‌های نصب‌شده (HotFix).',
+      titleEn: 'Endpoint Health, Processes & Mapped Shares',
+      titleFa: 'سلامت سیستم، پروسس‌ها و پوشه‌های اشتراکی (Shared Folders)',
+      descEn: 'Live CPU/RAM/Disk radial gauges, interactive process rings, and per-user/all-user network share mapping and disconnect.',
+      descFa: 'نمایش دایره‌ای CPU/RAM/دیسک، تحلیل گرافیکی پروسس‌ها و مشاهده، مپ و قطع اتصال پوشه‌های اشتراکی کاربران.',
     },
     {
       id: 'network',
-      titleEn: 'Endpoint-Side Network Diagnostics & Safe Reset',
-      titleFa: 'عیب‌یابی شبکه از داخل سیستم کاربر + ریست امن',
-      descEn: 'Live NIC/DNS/Gateway/Proxy inspection, endpoint-originated Ping/TCP Port/DNS tests, plus allowlisted Flush DNS & Renew DHCP IP.',
-      descFa: 'بررسی کارت شبکه، DNS، Gateway و Proxy، اجرای Ping/Port/DNS از داخل کلاینت به همراه دکمه‌های ثابت Flush DNS و Renew IP.',
+      titleEn: 'Advanced Network Control, Routing, Hosts, Proxy & Probes',
+      titleFa: 'مدیریت کامل شبکه (IP/DNS دستی، Hosts، Proxy، روتینگ ساده و NSLookup)',
+      descEn: 'Manual IPv4/DNS & DHCP editor, local DNS hosts file manager, OS WinINet/WinHTTP proxy control, guided static route writer, and endpoint Ping/Port/NSLookup/Tracert/HTTP/ARP probes.',
+      descFa: 'تغییر دستی IP و DNS کارت شبکه، مدیریت فایل hosts و Proxy سیستم‌عامل، نوشتن ساده روت شبکه (route add)، و تست‌های NSLookup، Tracert، HTTP و ARP از داخل سیستم کاربر.',
+    },
+    {
+      id: 'updates',
+      titleEn: 'Windows Updates (WSUS / Internet), KB Uninstall & System Info',
+      titleFa: 'آپدیت ویندوز (WSUS یا اینترنت)، حذف KB و مشخصات سیستم (systeminfo)',
+      descEn: 'Auto-detects WSUS GPO policy vs direct Microsoft Update, scans & installs pending updates, uninstalls problematic KBs (wusa/DISM), and shows full systeminfo.',
+      descFa: 'تشخیص خودکار پالیسی WSUS یا اینترنت مستقیم، دریافت و نصب آپدیت‌ها، حذف آپدیت‌های مشکل‌دار (KB) و نمایش مشخصات کامل سیستم و بوت.',
     },
     {
       id: 'printers',
       titleEn: 'Printer Queue Inspection & Print Spooler Repair',
-      titleFa: 'تعمیر پرینتر و مدیریت صف پرینت (محدود فقط به Spooler)',
-      descEn: 'Inspect Print Spooler service, installed printers, and stuck print jobs; execute isolated Spooler restart or queue clear.',
-      descFa: 'مشاهده سرویس Spooler، پرینترهای نصب‌شده و صف گیرکرده پرینت با امکان ری‌استارت Spooler یا پاک‌سازی ایمن صف.',
+      titleFa: 'مدیریت پرینترها، پرینت سرور و تعمیر Print Spooler',
+      descEn: 'Inspect Print Spooler service, change default printer, remove printers, install from Print Server with admin driver staging, and clear stuck queues.',
+      descFa: 'مشاهده سرویس Spooler، تغییر پرینتر پیش‌فرض، حذف پرینتر، نصب از پرینت سرور و پاک‌سازی ایمن صف گیرکرده.',
     },
     {
       id: 'events',
@@ -1747,6 +2164,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'گزارش ورود و نشست کاربران',
           },
           {
+            id: 'updates' as HelpdeskSubTab,
+            icon: Download,
+            labelEn: 'Updates, WSUS & System Info',
+            labelFa: 'آپدیت ویندوز، WSUS و مشخصات سیستم',
+          },
+          {
             id: 'maintenance' as HelpdeskSubTab,
             icon: Wrench,
             labelEn: 'System Repair, Temp & GPO',
@@ -1782,6 +2205,18 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   !loadingLogons
                 ) {
                   handleInspectLogons();
+                } else if (
+                  tab.id === 'updates' &&
+                  targetIp.trim() &&
+                  username.trim() &&
+                  password &&
+                  !sysInfoData &&
+                  !loadingSysInfo
+                ) {
+                  handleInspectSysInfo();
+                  if (!updateStatusData && !loadingUpdateStatus) {
+                    handleInspectUpdateStatus('auto', true);
+                  }
                 }
               }}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition whitespace-nowrap cursor-pointer ${
@@ -2695,187 +3130,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </div>
             )}
           </div>
-
-          {/* DETAILED SYSTEM INFO & INSTALLED WINDOWS UPDATES (systeminfo + HotFixes) */}
-          <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Monitor className="w-4 h-4 text-sky-500" />
-                  <h3 className={`text-sm font-bold ${textPrimary}`}>
-                    {isEn
-                      ? 'Detailed System Info, Boot Time & Installed Updates (systeminfo)'
-                      : 'مشخصات دقیق ویندوز، زمان آخرین بوت، رم، دامین و آپدیت‌های نصب‌شده (systeminfo)'}
-                  </h3>
-                  <FieldInfoTooltip
-                    isEn={isEn}
-                    isLightMode={isLightMode}
-                    fieldName={isEn ? 'System Info & Installed Updates' : 'مشخصات کامل سیستم و آپدیت‌ها'}
-                    whatIsIt={
-                      isEn
-                        ? 'Collects exact Windows edition, DisplayVersion/build, last boot timestamp, physical/virtual RAM, domain, hardware/BIOS serial, and installed HotFixes.'
-                        : 'نسخه دقیق ویندوز (مثل 23H2/24H2 و شماره بیلد)، زمان دقیق آخرین بوت، حافظه فیزیکی/مجازی، دامین، سریال بایوس و لیست آپدیت‌های نصب‌شده (KB) را می‌خواند.'
-                    }
-                    whyNeeded={
-                      isEn
-                        ? 'Helps verify patch compliance, detect stale reboot uptime, and confirm hardware/domain identity in one click.'
-                        : 'برای بررسی نصب بودن آپدیت‌های امنیتی، تشخیص سیستم‌هایی که مدت طولانی ری‌استارت نشده‌اند و مشاهده دقیق مشخصات سخت‌افزاری ضروری است.'
-                    }
-                    example={
-                      isEn
-                        ? 'Windows 11 Pro 23H2 (Build 22631.4169) · Last Boot: 2026-05-12 08:14 · 34 HotFixes'
-                        : 'Windows 11 Pro 23H2 (Build 22631.4169) · آخرین بوت: 2026-05-12 08:14 · ۳۴ آپدیت نصب‌شده'
-                    }
-                  />
-                </div>
-                <p className={`text-xs mt-0.5 ${textMuted}`}>
-                  {isEn
-                    ? 'Exact OS build, last boot time, physical & virtual memory, domain membership, BIOS/hardware serial, and searchable Windows HotFix KB list.'
-                    : 'نمایش نسخه دقیق ویندوز، زمان آخرین بوت، رم فیزیکی و مجازی، دامین، مشخصات مادربرد/بایوس و جدول قابل جستجوی آپدیت‌های KB.'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleInspectSysInfo}
-                disabled={!canRunDiagnostics || loadingSysInfo}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
-              >
-                {loadingSysInfo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PackageCheck className="w-3.5 h-3.5" />}
-                <span>{isEn ? 'Fetch System Info & Updates' : 'دریافت مشخصات سیستم و آپدیت‌ها'}</span>
-              </button>
-            </div>
-
-            {sysInfoError && (
-              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{sysInfoError}</span>
-              </div>
-            )}
-
-            {sysInfoData && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
-                    <div className={textMuted}>{isEn ? 'Windows / OS Edition' : 'نسخه دقیق سیستم‌عامل'}</div>
-                    <div className={`mt-1 font-bold ${textPrimary}`}>{sysInfoData.osName || '-'}</div>
-                    <div className={`mt-0.5 font-mono text-[11px] tabular-nums ${textMuted}`}>
-                      {sysInfoData.osDisplayVersion ? `${sysInfoData.osDisplayVersion} · ` : ''}
-                      Build {sysInfoData.osBuild || sysInfoData.osVersion || '-'} ({sysInfoData.osArchitecture || '-'})
-                    </div>
-                  </div>
-                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
-                    <div className={textMuted}>{isEn ? 'Last Boot Time & Uptime' : 'زمان آخرین بوت و روشن بودن'}</div>
-                    <div className={`mt-1 font-bold font-mono tabular-nums ${textPrimary}`} dir="ltr">
-                      {sysInfoData.lastBootTime || '-'}
-                    </div>
-                    <div className={`mt-0.5 font-mono text-[11px] tabular-nums ${textMuted}`}>
-                      {isEn ? 'Uptime' : 'آپتایم'}: {sysInfoData.uptimeFormatted || '-'}
-                    </div>
-                  </div>
-                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
-                    <div className={textMuted}>{isEn ? 'Physical & Virtual RAM' : 'حافظه رم فیزیکی و مجازی'}</div>
-                    <div className={`mt-1 font-bold font-mono tabular-nums ${textPrimary}`}>
-                      {sysInfoData.totalRamGb} GB ({isEn ? 'Free' : 'آزاد'}: {sysInfoData.availableRamGb} GB)
-                    </div>
-                    <div className={`mt-0.5 font-mono text-[11px] tabular-nums ${textMuted}`}>
-                      {isEn ? 'Virtual' : 'مجازی'}: {sysInfoData.virtualMemAvailGb} / {sysInfoData.virtualMemTotalGb} GB
-                    </div>
-                  </div>
-                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
-                    <div className={textMuted}>{isEn ? 'Domain & Hardware' : 'دامین و سخت‌افزار'}</div>
-                    <div className={`mt-1 font-bold font-mono ${textPrimary}`}>
-                      {sysInfoData.domain || '-'}{' '}
-                      <span className={sysInfoData.domainJoined ? 'text-emerald-500 font-normal' : 'text-amber-500 font-normal'}>
-                        ({sysInfoData.domainJoined ? (isEn ? 'Domain' : 'عضو دامین') : 'Workgroup'})
-                      </span>
-                    </div>
-                    <div className={`mt-0.5 text-[11px] truncate ${textMuted}`} title={`${sysInfoData.manufacturer} ${sysInfoData.model} · S/N: ${sysInfoData.serialNumber}`}>
-                      {sysInfoData.manufacturer} {sysInfoData.model} {sysInfoData.serialNumber ? `· S/N ${sysInfoData.serialNumber}` : ''}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Installed Windows Updates (HotFixes) Table */}
-                <div className="space-y-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className={`text-xs font-bold ${textPrimary}`}>
-                      {isEn
-                        ? `Installed Windows Updates / HotFixes (${sysInfoData.hotfixes?.length || 0})`
-                        : `آپدیت‌های نصب‌شده ویندوز (${sysInfoData.hotfixes?.length || 0} مورد)`}
-                    </div>
-                    <div className="relative">
-                      <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 start-2.5 ${textMuted}`} />
-                      <input
-                        type="text"
-                        value={hotfixSearch}
-                        onChange={(e) => setHotfixSearch(e.target.value)}
-                        placeholder={isEn ? 'Filter KB number or date...' : 'جستجوی شماره KB یا تاریخ...'}
-                        className={`ps-8 pe-3 py-1.5 rounded-lg border text-xs outline-none w-52 ${inputCls}`}
-                      />
-                    </div>
-                  </div>
-
-                  {filteredHotfixes.length === 0 ? (
-                    <div className={`p-4 rounded-lg border text-xs text-center ${subSurfaceBg} ${textMuted}`}>
-                      {isEn ? 'No installed HotFixes reported.' : 'هیچ آپدیت HotFix ثبت نشده یا با فیلتر مطابقت ندارد.'}
-                    </div>
-                  ) : (
-                    <div className="max-h-64 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-                      <table className="w-full text-xs border-collapse">
-                        <thead className={`sticky top-0 ${isLightMode ? 'bg-slate-50 text-slate-600' : 'bg-slate-900 text-slate-400'}`}>
-                          <tr className="border-b border-slate-200 dark:border-slate-800 text-start">
-                            <th className="py-2 px-3 text-start font-semibold">KB / HotFix ID</th>
-                            <th className="py-2 px-3 text-start font-semibold">{isEn ? 'Category' : 'نوع آپدیت'}</th>
-                            <th className="py-2 px-3 text-end font-semibold">{isEn ? 'Installed On' : 'تاریخ نصب'}</th>
-                            <th className="py-2 px-3 text-end font-semibold">{isEn ? 'Installed By' : 'نصب توسط'}</th>
-                          </tr>
-                        </thead>
-                        <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
-                          {filteredHotfixes.map((hf: any, idx: number) => (
-                            <tr key={`${hf.hotfixId}-${idx}`}>
-                              <td className={`py-2 px-3 font-mono font-semibold text-sky-500`}>{hf.hotfixId}</td>
-                              <td className={`py-2 px-3 ${textPrimary}`}>{hf.description || '-'}</td>
-                              <td className={`py-2 px-3 text-end font-mono tabular-nums ${textMuted}`}>{hf.installedOn || '-'}</td>
-                              <td className={`py-2 px-3 text-end font-mono ${textMuted}`}>{hf.installedBy || '-'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-                {sysInfoData.rawSystemInfo && (
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => setShowRawSysInfo((v) => !v)}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-sky-500 hover:underline cursor-pointer"
-                    >
-                      {showRawSysInfo ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                      <span>
-                        {showRawSysInfo
-                          ? isEn
-                            ? 'Hide Raw systeminfo Output'
-                            : 'بستن خروجی خام systeminfo'
-                          : isEn
-                          ? 'Show Full systeminfo Output'
-                          : 'مشاهده خروجی کامل systeminfo'}
-                      </span>
-                    </button>
-                    {showRawSysInfo && (
-                      <pre
-                        dir="ltr"
-                        className={`mt-2 p-3.5 rounded-xl border font-mono text-[11px] overflow-x-auto max-h-64 ${subSurfaceBg} ${textMuted}`}
-                      >
-                        {sysInfoData.rawSystemInfo}
-                      </pre>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
         </div>
       )}
 
@@ -2987,15 +3241,73 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             </div>
           </div>
 
-          {/* Endpoint-Side Live Probe Console (Ping / TCP Port / DNS FROM INSIDE the User's PC!) */}
+          {/* Endpoint-Side Live Probe Console (Ping / Port / DNS / NSLookup / Tracert / HTTP / ARP FROM INSIDE the User's PC!) */}
           <form onSubmit={handleRunProbe} className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
-            <div className="flex items-center gap-2 text-sm font-bold">
-              <Globe className="w-4 h-4 text-sky-500" />
-              <span className={textPrimary}>
-                {isEn
-                  ? 'Endpoint-Side Diagnostic Probe (Executes FROM Inside User Workstation)'
-                  : 'تست عیب‌یابی شبکه از داخل خود سیستم کاربر (Ping / Port / DNS)'}
-              </span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-bold">
+                <Globe className="w-4 h-4 text-sky-500" />
+                <span className={textPrimary}>
+                  {isEn
+                    ? 'Endpoint-Side Diagnostic Probe (Executes FROM Inside User Workstation)'
+                    : 'تست عیب‌یابی شبکه از داخل خود سیستم کاربر (Ping / Port / NSLookup / Tracert / HTTP / ARP)'}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                {[
+                  {
+                    label: isEn ? 'NSLookup A/MX' : 'NSLookup رکورد MX',
+                    onClick: () => {
+                      setProbeType('nslookup');
+                      setProbeDnsRecordType('MX');
+                      setProbeTarget('gmail.com');
+                    },
+                  },
+                  {
+                    label: isEn ? 'NSLookup @ 8.8.8.8' : 'تست با DNS گوگل',
+                    onClick: () => {
+                      setProbeType('nslookup');
+                      setProbeDnsRecordType('A');
+                      setProbeDnsServer('8.8.8.8');
+                      setProbeTarget('google.com');
+                    },
+                  },
+                  {
+                    label: 'Tracert 8.8.8.8',
+                    onClick: () => {
+                      setProbeType('tracert');
+                      setProbeTarget('8.8.8.8');
+                    },
+                  },
+                  {
+                    label: isEn ? 'HTTPS Check' : 'تست وب HTTPS',
+                    onClick: () => {
+                      setProbeType('http');
+                      setProbeTarget('https://www.microsoft.com');
+                    },
+                  },
+                  {
+                    label: isEn ? 'ARP Table' : 'جدول ARP همسایه‌ها',
+                    onClick: () => {
+                      setProbeType('arp');
+                      setProbeTarget('*');
+                    },
+                  },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={preset.onClick}
+                    className={`px-2 py-1 rounded-md border font-medium transition cursor-pointer ${
+                      isLightMode
+                        ? 'bg-slate-50 hover:bg-sky-50 border-slate-200 text-slate-700'
+                        : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
@@ -3010,22 +3322,50 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 >
                   <option value="ping">{isEn ? 'ICMP Ping (4 packets)' : 'پینگ ICMP (۴ بسته)'}</option>
                   <option value="port">{isEn ? 'TCP Port Connectivity' : 'تست باز بودن پورت TCP'}</option>
-                  <option value="dns">{isEn ? 'DNS Resolution Lookup' : 'تست ترجمه نام DNS'}</option>
+                  <option value="dns">{isEn ? 'Standard DNS Lookup' : 'تست ترجمه نام DNS'}</option>
+                  <option value="nslookup">{isEn ? 'NSLookup (Record Type & DNS Server)' : 'NSLookup پیشرفته (نوع رکورد و سرور DNS)'}</option>
+                  <option value="tracert">{isEn ? 'Traceroute (tracert -d)' : 'مسیر‌یابی بسته‌ها (Tracert)'}</option>
+                  <option value="http">{isEn ? 'HTTP / HTTPS Reachability' : 'تست دسترسی وب HTTP / HTTPS'}</option>
+                  <option value="arp">{isEn ? 'ARP Neighbor Table Lookup' : 'مشاهده و جستجوی جدول ARP'}</option>
                 </select>
               </div>
 
-              <div className={probeType === 'port' ? 'sm:col-span-5' : 'sm:col-span-7'}>
+              <div
+                className={
+                  probeType === 'port'
+                    ? 'sm:col-span-5'
+                    : probeType === 'nslookup'
+                    ? 'sm:col-span-3'
+                    : 'sm:col-span-7'
+                }
+              >
                 <label className={`block text-xs font-medium mb-1 ${textMuted}`}>
-                  {isEn ? 'Destination Host / IP / Domain' : 'آدرس مقصد (IP یا دامنه)'}
+                  {probeType === 'http'
+                    ? isEn
+                      ? 'URL or Hostname'
+                      : 'آدرس وب (URL یا دامنه)'
+                    : probeType === 'arp'
+                    ? isEn
+                      ? 'Filter IP/MAC (or * for all)'
+                      : 'فیلتر IP/MAC (یا * برای همه)'
+                    : isEn
+                    ? 'Destination Host / IP / Domain'
+                    : 'آدرس مقصد (IP یا دامنه)'}
                 </label>
                 <input
                   type="text"
                   dir="ltr"
                   value={probeTarget}
                   onChange={(e) => setProbeTarget(e.target.value)}
-                  placeholder="8.8.8.8 / dc01.corp.local / google.com"
+                  placeholder={
+                    probeType === 'http'
+                      ? 'https://portal.company.local'
+                      : probeType === 'arp'
+                      ? '* or 192.168.1.1'
+                      : '8.8.8.8 / dc01.corp.local / google.com'
+                  }
                   className={`w-full px-3 py-2 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
-                  required
+                  required={probeType !== 'arp'}
                 />
               </div>
 
@@ -3045,6 +3385,40 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     required
                   />
                 </div>
+              )}
+
+              {probeType === 'nslookup' && (
+                <>
+                  <div className="sm:col-span-2">
+                    <label className={`block text-xs font-medium mb-1 ${textMuted}`}>
+                      {isEn ? 'Record Type' : 'نوع رکورد'}
+                    </label>
+                    <select
+                      value={probeDnsRecordType}
+                      onChange={(e) => setProbeDnsRecordType(e.target.value)}
+                      className={`w-full px-3 py-2 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                    >
+                      {['A', 'AAAA', 'MX', 'TXT', 'CNAME', 'PTR', 'NS', 'SRV', 'SOA', 'ANY'].map((rt) => (
+                        <option key={rt} value={rt}>
+                          {rt}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={`block text-xs font-medium mb-1 ${textMuted}`}>
+                      {isEn ? 'DNS Server (Opt.)' : 'سرور DNS (اختیاری)'}
+                    </label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={probeDnsServer}
+                      onChange={(e) => setProbeDnsServer(e.target.value)}
+                      placeholder="e.g. 8.8.8.8"
+                      className={`w-full px-3 py-2 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                    />
+                  </div>
+                </>
               )}
 
               <div className="sm:col-span-2">
@@ -3083,7 +3457,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 </div>
 
                 {Array.isArray(probeResult.records) && probeResult.records.length > 0 && (
-                  <div className={`text-xs font-mono space-y-1 ${textPrimary}`}>
+                  <div className={`text-xs font-mono space-y-1 ${textPrimary}`} dir="ltr">
                     {probeResult.records.map((rec: string, i: number) => (
                       <div key={i}>{rec}</div>
                     ))}
@@ -3104,26 +3478,26 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             )}
           </form>
 
-          {/* Network Adapters & Proxy Table */}
+          {/* Network Adapters Table + Manual IPv4 & DNS Editor */}
           {networkData && (
             <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className={`text-sm font-bold ${textPrimary}`}>
                   {isEn
-                    ? `Active Network Adapters & Proxy (${networkData.hostname})`
-                    : `کارت‌های شبکه فعال و وضعیت Proxy (${networkData.hostname})`}
+                    ? `Active Network Adapters & Manual IP/DNS (${networkData.hostname})`
+                    : `کارت‌های شبکه و تنظیم دستی IP / DNS (${networkData.hostname})`}
                 </h3>
                 <div className={`text-xs ${textMuted}`}>
-                  {isEn ? 'System Proxy' : 'پروکسی سیستم'}:{' '}
+                  {isEn ? 'User Proxy' : 'پروکسی کاربر'}:{' '}
                   <strong className={networkData.proxy?.enabled ? 'text-amber-500' : 'text-emerald-500'}>
                     {networkData.proxy?.enabled
-                      ? `${isEn ? 'ENABLED' : 'فعال'} (${networkData.proxy.server || '-'})`
+                      ? `${isEn ? 'ENABLED' : 'فعال'} (${networkData.proxy.server || networkData.proxy.autoConfigUrl || '-'})`
                       : isEn
                       ? 'Direct (No Proxy)'
                       : 'مستقیم (غیرفعال)'}
                   </strong>
                   <span className="mx-2" aria-hidden="true">·</span>
-                  <span className="font-mono">ARP Neighbors: {networkData.arpSummaryCount}</span>
+                  <span className="font-mono">ARP: {networkData.arpSummaryCount}</span>
                 </div>
               </div>
 
@@ -3133,37 +3507,817 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     <tr className={`border-b text-start ${isLightMode ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>
                       <th className="py-2 px-2.5 text-start">{isEn ? 'Adapter' : 'نام کارت شبکه'}</th>
                       <th className="py-2 px-2.5 text-start">{isEn ? 'Status / Speed' : 'وضعیت / سرعت'}</th>
-                      <th className="py-2 px-2.5 text-start">IPv4</th>
+                      <th className="py-2 px-2.5 text-start">IPv4 / Mask</th>
                       <th className="py-2 px-2.5 text-start">Gateway</th>
                       <th className="py-2 px-2.5 text-start">DNS</th>
                       <th className="py-2 px-2.5 text-start">MAC / DHCP</th>
+                      <th className="py-2 px-2.5 text-end">{isEn ? 'Configure' : 'تنظیم'}</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
-                    {(networkData.adapters || []).map((a: any, i: number) => (
-                      <tr key={`${a.name}-${i}`}>
-                        <td className="py-2.5 px-2.5">
-                          <div className={`font-semibold ${textPrimary}`}>{a.name}</div>
-                          <div className={`text-[11px] ${textMuted}`}>{a.description}</div>
+                    {(networkData.adapters || []).map((a: any, i: number) => {
+                      const isEditingThis = editingAdapter?.name === a.name;
+                      return (
+                        <tr key={`${a.name}-${i}`} className={isEditingThis ? (isLightMode ? 'bg-sky-50/70' : 'bg-sky-500/10') : ''}>
+                          <td className="py-2.5 px-2.5">
+                            <div className={`font-semibold ${textPrimary}`}>{a.name}</div>
+                            <div className={`text-[11px] ${textMuted}`}>{a.description}</div>
+                          </td>
+                          <td className="py-2.5 px-2.5 font-mono">
+                            <span className={a.status === 'Up' ? 'text-emerald-500 font-semibold' : 'text-rose-500'}>
+                              {a.status}
+                            </span>
+                            <span className={`ms-1.5 ${textMuted}`}>{a.linkSpeed}</span>
+                          </td>
+                          <td className={`py-2.5 px-2.5 font-mono ${textPrimary}`} dir="ltr">
+                            <div>{(a.ipv4Addresses || []).join(', ') || '-'}</div>
+                            {Array.isArray(a.subnetMasks) && a.subnetMasks[0] && (
+                              <div className={`text-[11px] ${textMuted}`}>
+                                {a.subnetMasks[0]} {a.prefixLengths?.[0] ? `/${a.prefixLengths[0]}` : ''}
+                              </div>
+                            )}
+                          </td>
+                          <td className={`py-2.5 px-2.5 font-mono ${textMuted}`} dir="ltr">
+                            {(a.defaultGateways || []).join(', ') || '-'}
+                          </td>
+                          <td className={`py-2.5 px-2.5 font-mono ${textMuted}`} dir="ltr">
+                            {(a.dnsServers || []).join(', ') || '-'}
+                          </td>
+                          <td className={`py-2.5 px-2.5 font-mono text-[11px] ${textMuted}`}>
+                            <div>{a.macAddress || '-'}</div>
+                            <div>DHCP: {a.dhcpEnabled === true ? 'Yes' : a.dhcpEnabled === false ? 'Static' : '-'}</div>
+                          </td>
+                          <td className="py-2.5 px-2.5 text-end">
+                            <button
+                              type="button"
+                              disabled={!canExecuteActions}
+                              onClick={() => (isEditingThis ? setEditingAdapter(null) : handleStartEditAdapter(a))}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition disabled:opacity-50 cursor-pointer ${
+                                isEditingThis
+                                  ? 'border-sky-500 bg-sky-600 text-white'
+                                  : isLightMode
+                                  ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
+                                  : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-200'
+                              }`}
+                            >
+                              <Settings className="w-3 h-3" />
+                              <span>{isEditingThis ? (isEn ? 'Close' : 'بستن') : isEn ? 'Edit IP/DNS' : 'تغییر IP/DNS'}</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Inline Manual IPv4 & DNS Editor */}
+              {editingAdapter && (
+                <div className={`p-4 rounded-xl border space-y-4 ${subSurfaceBg}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs font-bold">
+                      <Settings className="w-4 h-4 text-sky-500" />
+                      <span className={textPrimary}>
+                        {isEn
+                          ? `Manual IPv4 & DNS Configuration: ${editingAdapter.name}`
+                          : `تنظیم دستی آدرس IPv4 و سرورهای DNS برای کارت شبکه: ${editingAdapter.name}`}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-amber-500 font-medium">
+                      {isEn
+                        ? 'Caution: Changing the active management IP may briefly disconnect this session.'
+                        : 'هشدار: تغییر IP اصلی که اکنون به آن متصل هستید ممکن است باعث قطع نشست فعلی شود.'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
+                    {/* IPv4 Mode */}
+                    <div className={`p-3.5 rounded-xl border space-y-3 ${surfaceBg}`}>
+                      <div className={`font-bold ${textPrimary}`}>{isEn ? 'IPv4 Address & Gateway' : 'تنظیم آدرس IP و Gateway'}</div>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { id: 'keep' as const, en: 'Keep Current', fa: 'بدون تغییر' },
+                          { id: 'dhcp' as const, en: 'Automatic (DHCP)', fa: 'خودکار (DHCP)' },
+                          { id: 'static' as const, en: 'Manual (Static IP)', fa: 'دستی (Static IP)' },
+                        ].map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setNicIpMode(m.id)}
+                            className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                              nicIpMode === m.id
+                                ? 'border-sky-500 bg-sky-500/15 text-sky-500'
+                                : isLightMode
+                                ? 'border-slate-200 bg-slate-50 text-slate-600'
+                                : 'border-slate-700 bg-slate-900 text-slate-400'
+                            }`}
+                          >
+                            {isEn ? m.en : m.fa}
+                          </button>
+                        ))}
+                      </div>
+
+                      {nicIpMode === 'static' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                          <div>
+                            <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>IPv4 Address</label>
+                            <input
+                              type="text"
+                              dir="ltr"
+                              value={nicIpAddress}
+                              onChange={(e) => setNicIpAddress(e.target.value)}
+                              placeholder="192.168.10.55"
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                            />
+                          </div>
+                          <div>
+                            <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>Subnet Mask</label>
+                            <input
+                              type="text"
+                              dir="ltr"
+                              value={nicSubnetMask}
+                              onChange={(e) => setNicSubnetMask(e.target.value)}
+                              placeholder="255.255.255.0"
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                            />
+                          </div>
+                          <div>
+                            <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>Default Gateway</label>
+                            <input
+                              type="text"
+                              dir="ltr"
+                              value={nicGateway}
+                              onChange={(e) => setNicGateway(e.target.value)}
+                              placeholder="192.168.10.1"
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* DNS Mode */}
+                    <div className={`p-3.5 rounded-xl border space-y-3 ${surfaceBg}`}>
+                      <div className={`font-bold ${textPrimary}`}>{isEn ? 'DNS Servers' : 'تنظیم سرورهای DNS'}</div>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { id: 'keep' as const, en: 'Keep Current', fa: 'بدون تغییر' },
+                          { id: 'dhcp' as const, en: 'Automatic (DHCP DNS)', fa: 'خودکار از DHCP' },
+                          { id: 'static' as const, en: 'Manual (Static DNS)', fa: 'دستی (Static DNS)' },
+                        ].map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setNicDnsMode(m.id)}
+                            className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                              nicDnsMode === m.id
+                                ? 'border-teal-500 bg-teal-500/15 text-teal-500'
+                                : isLightMode
+                                ? 'border-slate-200 bg-slate-50 text-slate-600'
+                                : 'border-slate-700 bg-slate-900 text-slate-400'
+                            }`}
+                          >
+                            {isEn ? m.en : m.fa}
+                          </button>
+                        ))}
+                      </div>
+
+                      {nicDnsMode === 'static' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div>
+                            <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                              {isEn ? 'Preferred DNS (Primary)' : 'DNS اول (اصلی)'}
+                            </label>
+                            <input
+                              type="text"
+                              dir="ltr"
+                              value={nicDnsPrimary}
+                              onChange={(e) => setNicDnsPrimary(e.target.value)}
+                              placeholder="192.168.10.10"
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                            />
+                          </div>
+                          <div>
+                            <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                              {isEn ? 'Alternate DNS (Optional)' : 'DNS دوم (اختیاری)'}
+                            </label>
+                            <input
+                              type="text"
+                              dir="ltr"
+                              value={nicDnsSecondary}
+                              onChange={(e) => setNicDnsSecondary(e.target.value)}
+                              placeholder="8.8.8.8"
+                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingAdapter(null);
+                        setConfirmNicSave(false);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-700'
+                          : 'bg-slate-900 border-slate-700 text-slate-300'
+                      }`}
+                    >
+                      {isEn ? 'Cancel' : 'انصراف'}
+                    </button>
+
+                    {!confirmNicSave ? (
+                      <button
+                        type="button"
+                        disabled={!canExecuteActions || savingNicConfig || (nicIpMode === 'keep' && nicDnsMode === 'keep')}
+                        onClick={() => setConfirmNicSave(true)}
+                        className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Apply IP / DNS Changes' : 'اعمال تغییرات IP / DNS'}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={savingNicConfig}
+                        onClick={handleSaveAdapterConfig}
+                        className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                      >
+                        {savingNicConfig ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                        <span>{isEn ? 'Confirm Save Network Config' : 'تایید و اعمال نهایی'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* OS Proxy Manager & Local DNS hosts File Manager */}
+          {networkData && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* OS Proxy Inspector & Manager Card */}
+              <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Waypoints className="w-4 h-4 text-amber-500" />
+                      <h3 className={`text-sm font-bold ${textPrimary}`}>
+                        {isEn ? 'OS Proxy Inspector & Manager' : 'بررسی و مدیریت Proxy سیستم‌عامل'}
+                      </h3>
+                    </div>
+                    <p className={`text-[11px] mt-0.5 ${textMuted}`}>
+                      {isEn
+                        ? `User WinINet (${networkData.proxy?.activeUser || 'Current'}) & System WinHTTP`
+                        : `وضعیت WinINet کاربر (${networkData.proxy?.activeUser || 'فعال'}) و WinHTTP سیستمی`}
+                    </p>
+                  </div>
+                  <span
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border ${
+                      networkData.proxy?.enabled || !networkData.proxy?.winhttpDirect
+                        ? 'border-amber-500/40 bg-amber-500/10 text-amber-500'
+                        : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+                    }`}
+                  >
+                    {networkData.proxy?.enabled
+                      ? isEn
+                        ? 'Proxy Active'
+                        : 'پروکسی فعال است'
+                      : isEn
+                      ? 'Direct Connection'
+                      : 'مستقیم (بدون پروکسی)'}
+                  </span>
+                </div>
+
+                {/* Current Status Readout */}
+                <div className={`p-3 rounded-xl border text-xs grid grid-cols-1 sm:grid-cols-2 gap-2.5 ${subSurfaceBg}`}>
+                  <div>
+                    <div className={`text-[11px] ${textMuted}`}>{isEn ? 'User WinINet Proxy' : 'پروکسی کاربر (WinINet)'}</div>
+                    <div className={`font-mono font-semibold mt-0.5 ${textPrimary}`} dir="ltr">
+                      {networkData.proxy?.enabled
+                        ? networkData.proxy?.server || networkData.proxy?.autoConfigUrl || 'Enabled'
+                        : 'Disabled'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className={`text-[11px] ${textMuted}`}>{isEn ? 'System WinHTTP Proxy' : 'پروکسی سیستمی (WinHTTP)'}</div>
+                    <div className={`font-mono font-semibold mt-0.5 ${textPrimary}`} dir="ltr">
+                      {networkData.proxy?.winhttpDirect === false
+                        ? networkData.proxy?.winhttpServer || 'Configured'
+                        : 'Direct access (no proxy)'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                        {isEn ? 'Target Scope' : 'محدوده اعمال'}
+                      </label>
+                      <select
+                        value={proxyScope}
+                        onChange={(e) => setProxyScope(e.target.value as any)}
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                      >
+                        <option value="user">{isEn ? 'Active User (WinINet / Browser)' : 'کاربر فعال (WinINet / مرورگر)'}</option>
+                        <option value="winhttp">{isEn ? 'System Services (WinHTTP)' : 'سرویس‌های ویندوز (WinHTTP)'}</option>
+                        <option value="both">{isEn ? 'Both (User + WinHTTP)' : 'هر دو (کاربر + سرویس‌ها)'}</option>
+                      </select>
+                    </div>
+                    <div className="flex items-end pb-1">
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={proxyEnabled}
+                          onChange={(e) => setProxyEnabled(e.target.checked)}
+                          className="rounded border-slate-400 text-sky-600 focus:ring-sky-500"
+                        />
+                        <span className={`font-semibold ${textPrimary}`}>
+                          {isEn ? 'Enable Manual Proxy' : 'فعال‌سازی پروکسی دستی'}
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                        {isEn ? 'Proxy Server (host:port)' : 'آدرس و پورت Proxy'}
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={proxyServer}
+                        onChange={(e) => setProxyServer(e.target.value)}
+                        placeholder="192.168.10.5:8080"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                      />
+                    </div>
+                    <div>
+                      <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                        {isEn ? 'Bypass List (Optional)' : 'استثناها / Bypass (اختیاری)'}
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={proxyOverride}
+                        onChange={(e) => setProxyOverride(e.target.value)}
+                        placeholder="<local>;10.*;192.168.*"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                    <div>
+                      <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                        {isEn ? 'PAC AutoConfig URL (Optional)' : 'لینک PAC اسکریپت (اختیاری)'}
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={proxyAutoConfigUrl}
+                        onChange={(e) => setProxyAutoConfigUrl(e.target.value)}
+                        placeholder="http://wpad.corp.local/proxy.pac"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                      />
+                    </div>
+                    <div className="pb-1">
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={proxyAutoDetect}
+                          onChange={(e) => setProxyAutoDetect(e.target.checked)}
+                          className="rounded border-slate-400 text-sky-600 focus:ring-sky-500"
+                        />
+                        <span className={textMuted}>
+                          {isEn ? 'Automatically detect settings (WPAD)' : 'تشخیص خودکار تنظیمات (WPAD)'}
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={!canExecuteActions || savingProxy}
+                      onClick={() => handleSaveProxyConfig(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
+                    >
+                      <Ban className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Disable Proxy (Direct)' : 'حذف پروکسی (اتصال مستقیم)'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canExecuteActions || savingProxy}
+                      onClick={() => handleSaveProxyConfig(false)}
+                      className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                    >
+                      {savingProxy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                      <span>{isEn ? 'Apply Proxy Settings' : 'ذخیره تنظیمات Proxy'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Local DNS hosts File Inspector & Manager Card */}
+              <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-indigo-500" />
+                      <h3 className={`text-sm font-bold ${textPrimary}`}>
+                        {isEn ? 'Local DNS Hosts File Manager' : 'بررسی و مدیریت فایل محلی DNS (hosts)'}
+                      </h3>
+                    </div>
+                    <p className={`text-[11px] font-mono mt-0.5 ${textMuted}`} dir="ltr">
+                      {networkData.hostsFilePath || 'C:\\Windows\\System32\\drivers\\etc\\hosts'}
+                    </p>
+                  </div>
+                  <div className="relative">
+                    <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 start-2.5 ${textMuted}`} />
+                    <input
+                      type="text"
+                      value={hostsSearch}
+                      onChange={(e) => setHostsSearch(e.target.value)}
+                      placeholder={isEn ? 'Filter hosts...' : 'فیلتر IP یا نام...'}
+                      className={`ps-8 pe-2.5 py-1 rounded-lg border text-xs outline-none w-40 ${inputCls}`}
+                    />
+                  </div>
+                </div>
+
+                {/* Add new hosts entry */}
+                <form
+                  onSubmit={(e) => handleManageHosts('add', undefined, e)}
+                  className={`p-3 rounded-xl border grid grid-cols-1 sm:grid-cols-12 gap-2 items-end ${subSurfaceBg}`}
+                >
+                  <div className="sm:col-span-4">
+                    <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>IP Address</label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={hostsNewIp}
+                      onChange={(e) => setHostsNewIp(e.target.value)}
+                      placeholder="192.168.10.20"
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                      required
+                    />
+                  </div>
+                  <div className="sm:col-span-5">
+                    <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                      {isEn ? 'Hostname(s)' : 'نام دامنه / سرور'}
+                    </label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={hostsNewNames}
+                      onChange={(e) => setHostsNewNames(e.target.value)}
+                      placeholder="erp.local portal"
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                      required
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <button
+                      type="submit"
+                      disabled={!canExecuteActions || busyHostsKey === 'add'}
+                      className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                    >
+                      {busyHostsKey === 'add' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                      <span>{isEn ? 'Add' : 'افزودن'}</span>
+                    </button>
+                  </div>
+                </form>
+
+                {/* Entries Table */}
+                {filteredHostsEntries.length === 0 ? (
+                  <div className={`p-5 rounded-xl border text-center text-xs ${subSurfaceBg} ${textMuted}`}>
+                    {isEn
+                      ? 'No custom host mappings found in local hosts file.'
+                      : 'هیچ رکورد اختصاصی در فایل محلی hosts سیستم کاربر ثبت نشده است.'}
+                  </div>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                    <table className="w-full text-xs border-collapse">
+                      <thead className={`sticky top-0 ${isLightMode ? 'bg-slate-50 text-slate-600' : 'bg-slate-900 text-slate-400'}`}>
+                        <tr className="border-b border-slate-200 dark:border-slate-800">
+                          <th className="py-2 px-2.5 text-start">{isEn ? 'State' : 'وضعیت'}</th>
+                          <th className="py-2 px-2.5 text-start">IP</th>
+                          <th className="py-2 px-2.5 text-start">{isEn ? 'Hostnames' : 'نام‌ها'}</th>
+                          <th className="py-2 px-2.5 text-end">{isEn ? 'Actions' : 'عملیات'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
+                        {filteredHostsEntries.map((he: any) => (
+                          <tr key={he.id} className={!he.enabled ? 'opacity-60' : ''}>
+                            <td className="py-2 px-2.5">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                                  he.enabled
+                                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+                                    : 'border-slate-500/30 bg-slate-500/10 text-slate-400'
+                                }`}
+                              >
+                                {he.enabled ? (isEn ? 'Active' : 'فعال') : isEn ? 'Disabled (#)' : 'غیرفعال (#)'}
+                              </span>
+                            </td>
+                            <td className={`py-2 px-2.5 font-mono ${textPrimary}`} dir="ltr">
+                              {he.ip}
+                            </td>
+                            <td className={`py-2 px-2.5 font-mono ${textPrimary}`} dir="ltr">
+                              <div>{he.hostnames}</div>
+                              {he.comment && <div className={`text-[10px] ${textMuted}`}># {he.comment}</div>}
+                            </td>
+                            <td className="py-2 px-2.5 text-end whitespace-nowrap space-x-1 space-x-reverse">
+                              <button
+                                type="button"
+                                disabled={!canExecuteActions || busyHostsKey !== null}
+                                onClick={() => handleManageHosts('toggle', he.lineIndex)}
+                                title={he.enabled ? (isEn ? 'Comment out (#)' : 'غیرفعال‌سازی موقت') : isEn ? 'Enable' : 'فعال‌سازی'}
+                                className={`px-2 py-1 rounded border text-[11px] font-medium cursor-pointer disabled:opacity-40 ${
+                                  isLightMode
+                                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                                }`}
+                              >
+                                {he.enabled ? (isEn ? 'Disable' : 'غیرفعال') : isEn ? 'Enable' : 'فعال'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!canExecuteActions || busyHostsKey !== null}
+                                onClick={() => handleManageHosts('delete', he.lineIndex)}
+                                title={isEn ? 'Delete entry' : 'حذف ردیف'}
+                                className="p-1 rounded border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 cursor-pointer disabled:opacity-40"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Simple Static Routing Table & Easy Route Writer */}
+          {networkData && (
+            <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Route className="w-4 h-4 text-teal-500" />
+                    <h3 className={`text-sm font-bold ${textPrimary}`}>
+                      {isEn
+                        ? 'Simple Static Route Writer & Routing Table'
+                        : 'جدول مسیریابی و افزودن بسیار ساده روت استاتیک (Static Route)'}
+                    </h3>
+                  </div>
+                  <p className={`text-xs mt-0.5 ${textMuted}`}>
+                    {isEn
+                      ? 'Easily route a specific IP or subnet through a desired Gateway without typing complex route commands.'
+                      : 'به‌سادگی تعیین کنید ترافیک یک IP یا رنج شبکه از طریق کدام Gateway یا کارت شبکه عبور کند (با پیش‌نمایش زنده دستور).'}
+                  </p>
+                </div>
+
+                <div className="relative">
+                  <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 start-2.5 ${textMuted}`} />
+                  <input
+                    type="text"
+                    value={routeSearch}
+                    onChange={(e) => setRouteSearch(e.target.value)}
+                    placeholder={isEn ? 'Filter destination / gateway...' : 'فیلتر مقصد یا گیت‌وی...'}
+                    className={`ps-8 pe-3 py-1.5 rounded-lg border text-xs outline-none w-52 ${inputCls}`}
+                  />
+                </div>
+              </div>
+
+              {/* Guided Simple Route Writer Form */}
+              <form
+                onSubmit={handleAddStaticRoute}
+                className={`p-4 rounded-xl border space-y-3 ${subSurfaceBg}`}
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
+                  <div className="lg:col-span-3">
+                    <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                      {isEn ? '1. Destination IP / Network' : '۱. آدرس IP یا شبکه مقصد'}
+                    </label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={routeDest}
+                      onChange={(e) => setRouteDest(e.target.value)}
+                      placeholder="10.20.0.0"
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                      required
+                    />
+                  </div>
+
+                  <div className="lg:col-span-3">
+                    <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                      {isEn ? '2. Subnet Scope (Mask)' : '۲. محدوده / ساب‌نت مسک'}
+                    </label>
+                    <select
+                      value={routeMask}
+                      onChange={(e) => setRouteMask(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                    >
+                      <option value="255.255.255.0">/24 (255.255.255.0) — {isEn ? 'Standard Subnet' : 'رنج عادی'}</option>
+                      <option value="255.255.255.255">/32 (255.255.255.255) — {isEn ? 'Single IP Host' : 'فقط همین یک IP'}</option>
+                      <option value="255.255.0.0">/16 (255.255.0.0) — {isEn ? 'Large Subnet' : 'رنج بزرگ'}</option>
+                      <option value="255.255.255.128">/25 (255.255.255.128)</option>
+                      <option value="255.255.254.0">/23 (255.255.254.0)</option>
+                      <option value="255.0.0.0">/8 (255.0.0.0)</option>
+                      <option value="0.0.0.0">/0 (0.0.0.0) — {isEn ? 'Default Route' : 'مسیر پیش‌فرض'}</option>
+                    </select>
+                  </div>
+
+                  <div className="lg:col-span-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className={`text-[11px] font-medium ${textMuted}`}>
+                        {isEn ? '3. Via Gateway (Next Hop)' : '۳. از طریق Gateway'}
+                      </label>
+                      {(networkData.adapters || [])
+                        .flatMap((ad: any) => ad.defaultGateways || [])
+                        .slice(0, 1)
+                        .map((gw: string) => (
+                          <button
+                            key={gw}
+                            type="button"
+                            onClick={() => setRouteGateway(gw)}
+                            className="text-[10px] font-mono text-sky-500 hover:underline cursor-pointer"
+                          >
+                            {isEn ? `Use ${gw}` : `استفاده از ${gw}`}
+                          </button>
+                        ))}
+                    </div>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={routeGateway}
+                      onChange={(e) => setRouteGateway(e.target.value)}
+                      placeholder="192.168.10.254"
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                      required
+                    />
+                  </div>
+
+                  <div className="lg:col-span-3">
+                    <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                      {isEn ? '4. Interface (Optional)' : '۴. کارت شبکه (اختیاری)'}
+                    </label>
+                    <select
+                      value={routeIfIndex}
+                      onChange={(e) => setRouteIfIndex(Number(e.target.value))}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                    >
+                      <option value={0}>{isEn ? 'Auto-select best NIC' : 'انتخاب خودکار توسط ویندوز'}</option>
+                      {(networkData.adapters || [])
+                        .filter((ad: any) => ad.interfaceIndex)
+                        .map((ad: any) => (
+                          <option key={ad.interfaceIndex} value={ad.interfaceIndex}>
+                            #{ad.interfaceIndex} {ad.name} ({ad.ipv4Addresses?.[0] || ad.status})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                  <div className="flex flex-wrap items-center gap-4 text-xs">
+                    <label className="inline-flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={routePersistent}
+                        onChange={(e) => setRoutePersistent(e.target.checked)}
+                        className="rounded border-slate-400 text-teal-600 focus:ring-teal-500"
+                      />
+                      <span className={`font-medium ${textPrimary}`}>
+                        {isEn ? 'Persistent (-p: survive reboot)' : 'ماندگار پس از ری‌استارت سیستم (-p)'}
+                      </span>
+                    </label>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-[11px] ${textMuted}`}>{isEn ? 'Metric:' : 'اولویت (Metric):'}</span>
+                      <input
+                        type="number"
+                        dir="ltr"
+                        min={1}
+                        max={9999}
+                        value={routeMetric}
+                        onChange={(e) => setRouteMetric(e.target.value)}
+                        placeholder="Auto"
+                        className={`w-20 px-2 py-1 rounded-md border text-[11px] font-mono outline-none ${inputCls}`}
+                      />
+                    </div>
+
+                    <div
+                      dir="ltr"
+                      className={`px-2.5 py-1 rounded-md border font-mono text-[11px] ${
+                        isLightMode ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-900 border-slate-800 text-slate-300'
+                      }`}
+                    >
+                      route {routePersistent ? '-p ' : ''}add {routeDest.trim() || '<Dest>'} mask {routeMask}{' '}
+                      {routeGateway.trim() || '<Gateway>'}
+                      {routeMetric.trim() ? ` metric ${routeMetric.trim()}` : ''}
+                      {routeIfIndex > 0 ? ` if ${routeIfIndex}` : ''}
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={!canExecuteActions || busyRouteKey === 'add'}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                  >
+                    {busyRouteKey === 'add' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                    <span>{isEn ? 'Add Route' : 'ثبت روت جدید'}</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Routing Table */}
+              <div className="max-h-72 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                <table className="w-full text-xs border-collapse">
+                  <thead className={`sticky top-0 ${isLightMode ? 'bg-slate-50 text-slate-600' : 'bg-slate-900 text-slate-400'}`}>
+                    <tr className="border-b border-slate-200 dark:border-slate-800">
+                      <th className="py-2 px-3 text-start">{isEn ? 'Destination' : 'مقصد'}</th>
+                      <th className="py-2 px-3 text-start">{isEn ? 'Netmask' : 'ساب‌نت مسک'}</th>
+                      <th className="py-2 px-3 text-start">{isEn ? 'Gateway' : 'گیت‌وی'}</th>
+                      <th className="py-2 px-3 text-start">{isEn ? 'Interface' : 'کارت شبکه'}</th>
+                      <th className="py-2 px-3 text-start">{isEn ? 'Metric / Type' : 'متریک / نوع'}</th>
+                      <th className="py-2 px-3 text-end">{isEn ? 'Delete' : 'حذف'}</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
+                    {filteredRoutes.map((rt: any) => (
+                      <tr key={rt.id}>
+                        <td className={`py-2 px-3 font-mono font-semibold ${textPrimary}`} dir="ltr">
+                          {rt.destination}/{rt.prefixLength}
+                          {rt.isDefault && (
+                            <span className="ms-1.5 px-1.5 py-0.5 rounded text-[10px] border border-sky-500/40 bg-sky-500/10 text-sky-500">
+                              Default
+                            </span>
+                          )}
                         </td>
-                        <td className="py-2.5 px-2.5 font-mono">
-                          <span className={a.status === 'Up' ? 'text-emerald-500 font-semibold' : 'text-rose-500'}>
-                            {a.status}
-                          </span>
-                          <span className={`ms-1.5 ${textMuted}`}>{a.linkSpeed}</span>
+                        <td className={`py-2 px-3 font-mono ${textMuted}`} dir="ltr">
+                          {rt.netmask}
                         </td>
-                        <td className={`py-2.5 px-2.5 font-mono ${textPrimary}`}>
-                          {(a.ipv4Addresses || []).join(', ') || '-'}
+                        <td className={`py-2 px-3 font-mono ${textPrimary}`} dir="ltr">
+                          {rt.gateway}
                         </td>
-                        <td className={`py-2.5 px-2.5 font-mono ${textMuted}`}>
-                          {(a.defaultGateways || []).join(', ') || '-'}
+                        <td className={`py-2 px-3 ${textMuted}`}>
+                          {rt.interfaceName} {rt.interfaceIndex > 0 ? `(#${rt.interfaceIndex})` : ''}
                         </td>
-                        <td className={`py-2.5 px-2.5 font-mono ${textMuted}`}>
-                          {(a.dnsServers || []).join(', ') || '-'}
+                        <td className="py-2 px-3 font-mono text-[11px]">
+                          <span className={textMuted}>{rt.metric}</span>
+                          {rt.persistent && (
+                            <span className="ms-1.5 px-1.5 py-0.5 rounded border border-teal-500/40 bg-teal-500/10 text-teal-500 text-[10px]">
+                              {isEn ? 'Persistent' : 'دائمی'}
+                            </span>
+                          )}
                         </td>
-                        <td className={`py-2.5 px-2.5 font-mono text-[11px] ${textMuted}`}>
-                          <div>{a.macAddress || '-'}</div>
-                          <div>DHCP: {a.dhcpEnabled === true ? 'Yes' : a.dhcpEnabled === false ? 'Static' : '-'}</div>
+                        <td className="py-2 px-3 text-end">
+                          {rt.isSystemReserved ? (
+                            <span className={`text-[11px] ${textMuted}`}>{isEn ? 'System' : 'سیستمی'}</span>
+                          ) : confirmDeleteRouteId === rt.id ? (
+                            <span className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                disabled={busyRouteKey === rt.id}
+                                onClick={() => handleDeleteStaticRoute(rt)}
+                                className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-semibold cursor-pointer"
+                              >
+                                {isEn ? 'Confirm' : 'تایید'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteRouteId(null)}
+                                className={`px-2 py-0.5 rounded border text-[11px] cursor-pointer ${
+                                  isLightMode ? 'bg-white border-slate-300 text-slate-600' : 'bg-slate-800 border-slate-700 text-slate-300'
+                                }`}
+                              >
+                                {isEn ? 'Cancel' : 'لغو'}
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={!canExecuteActions || busyRouteKey !== null}
+                              onClick={() => setConfirmDeleteRouteId(rt.id)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-[11px] font-semibold cursor-pointer disabled:opacity-40"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>{isEn ? 'Delete' : 'حذف'}</span>
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -6178,6 +7332,523 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* DEDICATED TAB: WINDOWS UPDATES, WSUS POLICY & SYSTEM INFO           */}
+      {/* =================================================================== */}
+      {activeSubTab === 'updates' && (
+        <div className="space-y-6">
+          {(updateStatusError || sysInfoError || updateActionError) && (
+            <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 flex items-start gap-3 text-xs text-rose-500">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                {updateStatusError && <div>{updateStatusError}</div>}
+                {sysInfoError && <div>{sysInfoError}</div>}
+                {updateActionError && <div>{updateActionError}</div>}
+              </div>
+            </div>
+          )}
+
+          {updateActionResult && (
+            <div
+              className={`rounded-xl border p-4 space-y-2 text-xs ${
+                updateActionResult.success
+                  ? 'border-emerald-500/40 bg-emerald-500/10'
+                  : 'border-amber-500/40 bg-amber-500/10'
+              }`}
+            >
+              <div
+                className={`flex items-center gap-2 font-bold ${
+                  updateActionResult.success ? 'text-emerald-500' : 'text-amber-500'
+                }`}
+              >
+                {updateActionResult.success ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+                <span>{isEn ? updateActionResult.message : updateActionResult.messageFa}</span>
+              </div>
+              {updateActionResult.rawOutput && (
+                <pre
+                  dir="ltr"
+                  className={`p-3 rounded-lg border font-mono text-[11px] overflow-x-auto max-h-48 ${subSurfaceBg} ${textPrimary}`}
+                >
+                  {updateActionResult.rawOutput}
+                </pre>
+              )}
+            </div>
+          )}
+
+          {/* Windows Update & WSUS Control Toolbar */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Download className="w-4 h-4 text-sky-500" />
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'Windows Updates, WSUS Policy & KB Management'
+                      : 'مدیریت آپدیت‌های ویندوز، پالیسی WSUS و حذف/نصب KB'}
+                  </h2>
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Automatically follows workstation WSUS GPO if configured, or queries Microsoft Update directly over Internet.'
+                    : 'در صورت اعمال پالیسی WSUS آخرین آپدیت‌ها را از سرور WSUS سازمانی دریافت می‌کند و در نبود WSUS مستقیماً از اینترنت (Microsoft Update) می‌گیرد.'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={updateSourceMode}
+                  onChange={(e) => setUpdateSourceMode(e.target.value as any)}
+                  className={`px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+                >
+                  <option value="auto">
+                    {isEn ? 'Auto (Follow WSUS Policy if set, else Internet)' : 'خودکار (طبق پالیسی WSUS یا اینترنت)'}
+                  </option>
+                  <option value="wsus">{isEn ? 'Force WSUS Server' : 'فقط سرور WSUS سازمانی'}</option>
+                  <option value="internet">{isEn ? 'Direct Internet (Microsoft Update)' : 'اینترنت مستقیم (Microsoft Update)'}</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => handleInspectUpdateStatus(updateSourceMode, true)}
+                  disabled={!canRunDiagnostics || loadingUpdateStatus}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                >
+                  {loadingUpdateStatus ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  <span>{isEn ? 'Scan Pending Updates' : 'بررسی WSUS و آپدیت‌های جدید'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleInspectSysInfo}
+                  disabled={!canRunDiagnostics || loadingSysInfo}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border text-xs font-semibold transition disabled:opacity-50 cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
+                      : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-100'
+                  }`}
+                >
+                  {loadingSysInfo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PackageCheck className="w-3.5 h-3.5 text-teal-500" />}
+                  <span>{isEn ? 'Fetch System Info & Installed KBs' : 'مشخصات سیستم و آپدیت‌های نصب‌شده'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* WSUS & Agent Posture Cards */}
+            {updateStatusData && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                  <div className={textMuted}>{isEn ? 'Update Policy Source' : 'منبع سیاست آپدیت'}</div>
+                  <div
+                    className={`mt-1 font-bold ${
+                      updateStatusData.wsusPolicy?.useWuServer ? 'text-sky-500' : 'text-emerald-500'
+                    }`}
+                  >
+                    {updateStatusData.wsusPolicy?.useWuServer
+                      ? isEn
+                        ? 'WSUS Policy Active'
+                        : 'سیاست WSUS فعال است'
+                      : isEn
+                      ? 'Microsoft Update (Internet)'
+                      : 'مستقیم اینترنت (Microsoft Update)'}
+                  </div>
+                  <div className={`mt-0.5 font-mono text-[11px] truncate ${textMuted}`} dir="ltr" title={updateStatusData.wsusPolicy?.wuServer}>
+                    {updateStatusData.wsusPolicy?.wuServer || (isEn ? 'No WUServer GPO' : 'بدون پالیسی WSUS')}
+                    {updateStatusData.wsusPolicy?.targetGroup ? ` (${updateStatusData.wsusPolicy.targetGroup})` : ''}
+                  </div>
+                </div>
+
+                <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                  <div className={textMuted}>{isEn ? 'Windows Update Service' : 'وضعیت سرویس آپدیت'}</div>
+                  <div className={`mt-1 font-bold font-mono ${textPrimary}`}>
+                    wuauserv: {updateStatusData.updateService?.wuauservStatus || '-'} ({updateStatusData.updateService?.wuauservStartType || '-'})
+                  </div>
+                  <div className={`mt-0.5 text-[11px] truncate ${textMuted}`}>
+                    {updateStatusData.wsusPolicy?.auOptionsLabel || '-'}
+                  </div>
+                </div>
+
+                <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                  <div className={textMuted}>{isEn ? 'Pending Reboot' : 'نیاز به ری‌استارت'}</div>
+                  <div
+                    className={`mt-1 font-bold ${
+                      updateStatusData.pendingReboot?.required ? 'text-amber-500' : 'text-emerald-500'
+                    }`}
+                  >
+                    {updateStatusData.pendingReboot?.required
+                      ? isEn
+                        ? 'Reboot Required'
+                        : 'بله (سیستم منتظر ری‌استارت است)'
+                      : isEn
+                      ? 'No Reboot Pending'
+                      : 'خیر (نیازی نیست)'}
+                  </div>
+                  <div className={`mt-0.5 text-[11px] truncate ${textMuted}`}>
+                    {(updateStatusData.pendingReboot?.reasons || []).join(', ') || (isEn ? 'Clean state' : 'وضعیت عادی')}
+                  </div>
+                </div>
+
+                <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                  <div className={textMuted}>{isEn ? 'Last Check / Pending Count' : 'آخرین بررسی و آپدیت منتظر'}</div>
+                  <div className={`mt-1 font-bold font-mono tabular-nums ${textPrimary}`}>
+                    {updateStatusData.pendingUpdates?.length || 0} {isEn ? 'Pending' : 'آپدیت در انتظار نصب'}
+                  </div>
+                  <div className={`mt-0.5 font-mono text-[11px] truncate ${textMuted}`} dir="ltr">
+                    {isEn ? 'Checked' : 'بررسی'}: {updateStatusData.lastCheckTime || '-'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Available / Pending Updates + Install Action */}
+            {updateStatusData && (
+              <div className="space-y-3 pt-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className={`text-xs font-bold ${textPrimary}`}>
+                    {isEn
+                      ? `Available Updates from ${updateStatusData.sourceScanned === 'wsus' ? 'WSUS' : 'Internet'} (${updateStatusData.pendingUpdates?.length || 0})`
+                      : `آپدیت‌های آماده دریافت از ${updateStatusData.sourceScanned === 'wsus' ? 'سرور WSUS' : 'اینترنت'} (${updateStatusData.pendingUpdates?.length || 0} مورد)`}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {!confirmInstallAllUpdates ? (
+                      <button
+                        type="button"
+                        disabled={!canExecuteActions || installingUpdates !== null}
+                        onClick={() => setConfirmInstallAllUpdates(true)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                      >
+                        {installingUpdates === 'ALL' ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5" />
+                        )}
+                        <span>
+                          {isEn
+                            ? `Download & Install Updates (${updateSourceMode.toUpperCase()})`
+                            : `دریافت و نصب آپدیت‌ها (${updateSourceMode === 'auto' ? 'طبق پالیسی/WSUS' : updateSourceMode === 'wsus' ? 'WSUS' : 'اینترنت'})`}
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="inline-flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={installingUpdates !== null}
+                          onClick={() => handleInstallUpdates()}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Confirm Download & Install' : 'تایید و شروع نصب آپدیت‌ها'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmInstallAllUpdates(false)}
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer ${
+                            isLightMode ? 'bg-white border-slate-300 text-slate-700' : 'bg-slate-800 border-slate-700 text-slate-300'
+                          }`}
+                        >
+                          {isEn ? 'Cancel' : 'انصراف'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {updateStatusData.scanNote && (
+                  <div className={`p-3 rounded-lg border text-xs ${subSurfaceBg} ${textMuted}`}>
+                    {updateStatusData.scanNote}
+                  </div>
+                )}
+
+                {Array.isArray(updateStatusData.pendingUpdates) && updateStatusData.pendingUpdates.length > 0 ? (
+                  <div className="max-h-64 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                    <table className="w-full text-xs border-collapse">
+                      <thead className={`sticky top-0 ${isLightMode ? 'bg-slate-50 text-slate-600' : 'bg-slate-900 text-slate-400'}`}>
+                        <tr className="border-b border-slate-200 dark:border-slate-800">
+                          <th className="py-2 px-3 text-start">{isEn ? 'Update Title' : 'عنوان آپدیت'}</th>
+                          <th className="py-2 px-3 text-start">KB</th>
+                          <th className="py-2 px-3 text-start">{isEn ? 'Severity' : 'اهمیت'}</th>
+                          <th className="py-2 px-3 text-end">{isEn ? 'Size' : 'حجم'}</th>
+                          <th className="py-2 px-3 text-end">{isEn ? 'Action' : 'نصب'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
+                        {updateStatusData.pendingUpdates.map((pu: any) => (
+                          <tr key={pu.id}>
+                            <td className={`py-2 px-3 ${textPrimary}`}>
+                              <div className="font-semibold">{pu.title}</div>
+                              <div className={`text-[11px] ${textMuted}`}>
+                                {pu.isDownloaded ? (isEn ? 'Downloaded' : 'دانلود شده') : isEn ? 'Needs Download' : 'نیاز به دانلود'}
+                                {pu.rebootRequired ? (isEn ? ' · Reboot required' : ' · نیازمند ری‌استارت') : ''}
+                              </div>
+                            </td>
+                            <td className="py-2 px-3 font-mono text-sky-500">
+                              {(pu.kbIds || []).join(', ') || '-'}
+                            </td>
+                            <td className={`py-2 px-3 ${textMuted}`}>{pu.severity || '-'}</td>
+                            <td className={`py-2 px-3 text-end font-mono tabular-nums ${textMuted}`}>
+                              {pu.sizeMb ? `${pu.sizeMb} MB` : '-'}
+                            </td>
+                            <td className="py-2 px-3 text-end">
+                              {Array.isArray(pu.kbIds) && pu.kbIds[0] ? (
+                                <button
+                                  type="button"
+                                  disabled={!canExecuteActions || installingUpdates !== null}
+                                  onClick={() => handleInstallUpdates([pu.kbIds[0]])}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-[11px] font-semibold cursor-pointer"
+                                >
+                                  {installingUpdates === pu.kbIds[0] ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Download className="w-3 h-3" />
+                                  )}
+                                  <span>{isEn ? 'Install' : 'نصب'}</span>
+                                </button>
+                              ) : (
+                                <span className={textMuted}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className={`p-4 rounded-xl border text-center text-xs ${subSurfaceBg} ${textMuted}`}>
+                    {updateStatusData.scanSucceeded
+                      ? isEn
+                        ? 'No pending Windows updates reported from the selected source.'
+                        : 'هیچ آپدیت منتظری در منبع انتخاب‌شده یافت نشد (سیستم بروز است).'
+                      : isEn
+                      ? 'Update scan did not list pending items. Click "Scan Pending Updates" to retry or check WSUS connectivity.'
+                      : 'اسکن آپدیت موردی برنگرداند یا ارتباط با WSUS/اینترنت برقرار نشد.'}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* DETAILED SYSTEM INFO, BOOT TIME & INSTALLED UPDATES (Moved from Health Tab + Uninstall KB) */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Monitor className="w-4 h-4 text-sky-500" />
+                  <h3 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'Detailed System Info, Boot Time & Installed Updates (systeminfo)'
+                      : 'مشخصات دقیق ویندوز، زمان آخرین بوت، رم، دامین و حذف/مدیریت آپدیت‌های نصب‌شده'}
+                  </h3>
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Exact OS build, last boot time, physical/virtual RAM, hardware serial, and installed HotFix KB list with safe KB uninstall.'
+                    : 'نمایش نسخه دقیق ویندوز، زمان آخرین بوت، رم، دامین، سریال سخت‌افزار و لیست آپدیت‌های نصب‌شده (HotFix) با امکان حذف هر KB.'}
+                </p>
+              </div>
+            </div>
+
+            {!sysInfoData && !loadingSysInfo && (
+              <div className={`p-6 rounded-xl border text-center text-xs ${subSurfaceBg} ${textMuted}`}>
+                {isEn
+                  ? 'Click "Connect & Inspect" above or "Fetch System Info & Installed KBs" to load OS build, boot time, and installed HotFixes.'
+                  : 'برای مشاهده مشخصات کامل ویندوز و لیست آپدیت‌های نصب‌شده، روی «اتصال و پایش» یا دکمه «مشخصات سیستم و آپدیت‌های نصب‌شده» کلیک کنید.'}
+              </div>
+            )}
+
+            {sysInfoData && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Windows / OS Edition' : 'نسخه دقیق سیستم‌عامل'}</div>
+                    <div className={`mt-1 font-bold ${textPrimary}`}>{sysInfoData.osName || '-'}</div>
+                    <div className={`mt-0.5 font-mono text-[11px] tabular-nums ${textMuted}`}>
+                      {sysInfoData.osDisplayVersion ? `${sysInfoData.osDisplayVersion} · ` : ''}
+                      Build {sysInfoData.osBuild || sysInfoData.osVersion || '-'} ({sysInfoData.osArchitecture || '-'})
+                    </div>
+                  </div>
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Last Boot Time & Uptime' : 'زمان آخرین بوت و روشن بودن'}</div>
+                    <div className={`mt-1 font-bold font-mono tabular-nums ${textPrimary}`} dir="ltr">
+                      {sysInfoData.lastBootTime || '-'}
+                    </div>
+                    <div className={`mt-0.5 font-mono text-[11px] tabular-nums ${textMuted}`}>
+                      {isEn ? 'Uptime' : 'آپتایم'}: {sysInfoData.uptimeFormatted || '-'}
+                    </div>
+                  </div>
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Physical & Virtual RAM' : 'حافظه رم فیزیکی و مجازی'}</div>
+                    <div className={`mt-1 font-bold font-mono tabular-nums ${textPrimary}`}>
+                      {sysInfoData.totalRamGb} GB ({isEn ? 'Free' : 'آزاد'}: {sysInfoData.availableRamGb} GB)
+                    </div>
+                    <div className={`mt-0.5 font-mono text-[11px] tabular-nums ${textMuted}`}>
+                      {isEn ? 'Virtual' : 'مجازی'}: {sysInfoData.virtualMemAvailGb} / {sysInfoData.virtualMemTotalGb} GB
+                    </div>
+                  </div>
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Domain & Hardware' : 'دامین و سخت‌افزار'}</div>
+                    <div className={`mt-1 font-bold font-mono ${textPrimary}`}>
+                      {sysInfoData.domain || '-'}{' '}
+                      <span className={sysInfoData.domainJoined ? 'text-emerald-500 font-normal' : 'text-amber-500 font-normal'}>
+                        ({sysInfoData.domainJoined ? (isEn ? 'Domain' : 'عضو دامین') : 'Workgroup'})
+                      </span>
+                    </div>
+                    <div className={`mt-0.5 text-[11px] truncate ${textMuted}`} title={`${sysInfoData.manufacturer} ${sysInfoData.model} · S/N: ${sysInfoData.serialNumber}`}>
+                      {sysInfoData.manufacturer} {sysInfoData.model} {sysInfoData.serialNumber ? `· S/N ${sysInfoData.serialNumber}` : ''}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Installed Windows Updates (HotFixes) Table + Manual KB Uninstall */}
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className={`text-xs font-bold ${textPrimary}`}>
+                      {isEn
+                        ? `Installed Windows Updates / HotFixes (${sysInfoData.hotfixes?.length || 0})`
+                        : `آپدیت‌های نصب‌شده ویندوز (${sysInfoData.hotfixes?.length || 0} مورد)`}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Direct KB Uninstall input */}
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          dir="ltr"
+                          value={manualKbUninstall}
+                          onChange={(e) => setManualKbUninstall(e.target.value)}
+                          placeholder="KB5034122"
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none w-32 ${inputCls}`}
+                        />
+                        <button
+                          type="button"
+                          disabled={!canExecuteActions || !manualKbUninstall.trim() || uninstallingKb !== null}
+                          onClick={() => handleUninstallHotfix(manualKbUninstall)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-40 text-rose-500 text-xs font-semibold cursor-pointer"
+                        >
+                          {uninstallingKb === manualKbUninstall.trim().toUpperCase() ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3 h-3" />
+                          )}
+                          <span>{isEn ? 'Uninstall KB' : 'حذف KB'}</span>
+                        </button>
+                      </div>
+
+                      <div className="relative">
+                        <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 start-2.5 ${textMuted}`} />
+                        <input
+                          type="text"
+                          value={hotfixSearch}
+                          onChange={(e) => setHotfixSearch(e.target.value)}
+                          placeholder={isEn ? 'Filter KB number or date...' : 'جستجوی شماره KB یا تاریخ...'}
+                          className={`ps-8 pe-3 py-1.5 rounded-lg border text-xs outline-none w-48 ${inputCls}`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {filteredHotfixes.length === 0 ? (
+                    <div className={`p-4 rounded-lg border text-xs text-center ${subSurfaceBg} ${textMuted}`}>
+                      {isEn ? 'No installed HotFixes reported.' : 'هیچ آپدیت HotFix ثبت نشده یا با فیلتر مطابقت ندارد.'}
+                    </div>
+                  ) : (
+                    <div className="max-h-72 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                      <table className="w-full text-xs border-collapse">
+                        <thead className={`sticky top-0 ${isLightMode ? 'bg-slate-50 text-slate-600' : 'bg-slate-900 text-slate-400'}`}>
+                          <tr className="border-b border-slate-200 dark:border-slate-800 text-start">
+                            <th className="py-2 px-3 text-start font-semibold">KB / HotFix ID</th>
+                            <th className="py-2 px-3 text-start font-semibold">{isEn ? 'Category' : 'نوع آپدیت'}</th>
+                            <th className="py-2 px-3 text-end font-semibold">{isEn ? 'Installed On' : 'تاریخ نصب'}</th>
+                            <th className="py-2 px-3 text-end font-semibold">{isEn ? 'Installed By' : 'نصب توسط'}</th>
+                            <th className="py-2 px-3 text-end font-semibold">{isEn ? 'Uninstall' : 'حذف آپدیت'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
+                          {filteredHotfixes.map((hf: any, idx: number) => {
+                            const kb = String(hf.hotfixId || '').toUpperCase();
+                            const isConfirming = confirmUninstallKb === kb;
+                            const isBusy = uninstallingKb === kb;
+                            return (
+                              <tr key={`${kb}-${idx}`}>
+                                <td className="py-2 px-3 font-mono font-semibold text-sky-500" dir="ltr">{kb}</td>
+                                <td className={`py-2 px-3 ${textPrimary}`}>{hf.description || '-'}</td>
+                                <td className={`py-2 px-3 text-end font-mono tabular-nums ${textMuted}`}>{hf.installedOn || '-'}</td>
+                                <td className={`py-2 px-3 text-end font-mono ${textMuted}`}>{hf.installedBy || '-'}</td>
+                                <td className="py-2 px-3 text-end whitespace-nowrap">
+                                  {isConfirming ? (
+                                    <span className="inline-flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        disabled={isBusy}
+                                        onClick={() => handleUninstallHotfix(kb)}
+                                        className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-semibold cursor-pointer"
+                                      >
+                                        {isBusy ? '...' : isEn ? 'Confirm Remove' : 'تایید حذف'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmUninstallKb(null)}
+                                        className={`px-2 py-0.5 rounded border text-[11px] cursor-pointer ${
+                                          isLightMode ? 'bg-white border-slate-300 text-slate-600' : 'bg-slate-800 border-slate-700 text-slate-300'
+                                        }`}
+                                      >
+                                        {isEn ? 'Cancel' : 'لغو'}
+                                      </button>
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={!canExecuteActions || uninstallingKb !== null || !/^KB\d+/i.test(kb)}
+                                      onClick={() => setConfirmUninstallKb(kb)}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-40 text-rose-500 text-[11px] font-semibold cursor-pointer"
+                                    >
+                                      {isBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                      <span>{isEn ? 'Uninstall' : 'حذف'}</span>
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {sysInfoData.rawSystemInfo && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowRawSysInfo((v) => !v)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-sky-500 hover:underline cursor-pointer"
+                    >
+                      {showRawSysInfo ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      <span>
+                        {showRawSysInfo
+                          ? isEn
+                            ? 'Hide Raw systeminfo Output'
+                            : 'بستن خروجی خام systeminfo'
+                          : isEn
+                          ? 'Show Full systeminfo Output'
+                          : 'مشاهده خروجی کامل systeminfo'}
+                      </span>
+                    </button>
+                    {showRawSysInfo && (
+                      <pre
+                        dir="ltr"
+                        className={`mt-2 p-3.5 rounded-xl border font-mono text-[11px] overflow-x-auto max-h-64 ${subSurfaceBg} ${textMuted}`}
+                      >
+                        {sysInfoData.rawSystemInfo}
+                      </pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

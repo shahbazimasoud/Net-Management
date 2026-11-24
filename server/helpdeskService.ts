@@ -18,6 +18,11 @@ export type HelpdeskResolvedProtocol = 'winrm_https' | 'winrm_http' | 'smb_rpc' 
 export type HelpdeskWriteAction =
   | 'network_flush_dns'
   | 'network_renew_ip'
+  | 'network_adapter_config'
+  | 'network_hosts_edit'
+  | 'network_proxy_config'
+  | 'network_route_add'
+  | 'network_route_delete'
   | 'spooler_restart'
   | 'spooler_clear_queue'
   | 'printer_set_default'
@@ -28,6 +33,8 @@ export type HelpdeskWriteAction =
   | 'process_terminate'
   | 'temp_clean'
   | 'gpupdate_force'
+  | 'windows_update_install'
+  | 'windows_update_uninstall'
   | 'sfc_verify'
   | 'sfc_scannow'
   | 'dism_check'
@@ -127,13 +134,39 @@ export interface HelpdeskHealthResult {
 export interface HelpdeskNetworkAdapter {
   name: string;
   description: string;
+  interfaceIndex?: number | null;
   status: string;
   macAddress: string;
   ipv4Addresses: string[];
+  subnetMasks?: string[];
+  prefixLengths?: number[];
   defaultGateways: string[];
   dnsServers: string[];
   dhcpEnabled: boolean | null;
   linkSpeed: string;
+}
+
+export interface HelpdeskHostsEntry {
+  id: string;
+  lineIndex: number;
+  ip: string;
+  hostnames: string;
+  comment: string;
+  enabled: boolean;
+}
+
+export interface HelpdeskRouteEntry {
+  id: string;
+  destination: string;
+  netmask: string;
+  prefixLength: number;
+  gateway: string;
+  interfaceName: string;
+  interfaceIndex: number;
+  metric: number;
+  persistent: boolean;
+  isDefault: boolean;
+  isSystemReserved: boolean;
 }
 
 export interface HelpdeskNetworkSnapshotResult {
@@ -148,15 +181,33 @@ export interface HelpdeskNetworkSnapshotResult {
     enabled: boolean;
     server: string;
     override: string;
+    autoConfigUrl?: string;
+    autoDetect?: boolean;
+    activeUser?: string;
+    winhttpDirect?: boolean;
+    winhttpServer?: string;
+    winhttpBypass?: string;
   };
+  hostsFilePath?: string;
+  hostsEntries?: HelpdeskHostsEntry[];
+  routes?: HelpdeskRouteEntry[];
   arpSummaryCount: number;
 }
+
+export type HelpdeskDiagnosticProbeType =
+  | 'ping'
+  | 'port'
+  | 'dns'
+  | 'nslookup'
+  | 'tracert'
+  | 'http'
+  | 'arp';
 
 export interface HelpdeskProbeResult {
   targetIp: string;
   protocolUsed: HelpdeskResolvedProtocol;
   osFamily: 'windows' | 'linux';
-  probeType: 'ping' | 'port' | 'dns';
+  probeType: HelpdeskDiagnosticProbeType;
   probeTarget: string;
   probePort?: number;
   success: boolean;
@@ -1679,12 +1730,35 @@ export async function collectEndpointHealth(input: HelpdeskTargetInput): Promise
 const PS_NETWORK_SNAPSHOT = `
 $ErrorActionPreference = 'SilentlyContinue'
 $adapters = @()
+$ifMap = @{}
+try {
+  Get-NetIPAddress -AddressFamily IPv4 | ForEach-Object {
+    $idx = [int]$_.InterfaceIndex
+    if (-not $ifMap.ContainsKey($idx)) { $ifMap[$idx] = @() }
+    $ifMap[$idx] += [int]$_.PrefixLength
+  }
+} catch {}
+
 $cfgs = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "IPEnabled=True"
 foreach ($c in $cfgs) {
   $na = Get-CimInstance Win32_NetworkAdapter -Filter "Index=$($c.Index)"
-  $ips = @($c.IPAddress | Where-Object { $_ -match '^\\d+\\.\\d+\\.\\d+\\.\\d+$' })
+  $ips = @()
+  $masks = @()
+  if ($c.IPAddress) {
+    for ($i = 0; $i -lt $c.IPAddress.Count; $i++) {
+      $ipVal = [string]$c.IPAddress[$i]
+      if ($ipVal -match '^\\d+\\.\\d+\\.\\d+\\.\\d+$') {
+        $ips += $ipVal
+        if ($c.IPSubnet -and $i -lt $c.IPSubnet.Count) {
+          $masks += [string]$c.IPSubnet[$i]
+        }
+      }
+    }
+  }
   $gws = @($c.DefaultIPGateway | Where-Object { $_ -match '^\\d+\\.\\d+\\.\\d+\\.\\d+$' })
   $dns = @($c.DNSServerSearchOrder)
+  $ifIdx = if ($c.InterfaceIndex) { [int]$c.InterfaceIndex } else { [int]$na.InterfaceIndex }
+  $prefixes = if ($ifMap.ContainsKey($ifIdx)) { @($ifMap[$ifIdx]) } else { @() }
   $spd = if ($na.Speed -and [double]$na.Speed -gt 0) {
     $mbps = [math]::Round([double]$na.Speed / 1000000, 0)
     if ($mbps -ge 1000) { "$([math]::Round($mbps / 1000, 1)) Gbps" } else { "$mbps Mbps" }
@@ -1692,9 +1766,12 @@ foreach ($c in $cfgs) {
   $adapters += [PSCustomObject]@{
     name = if ($na.NetConnectionID) { [string]$na.NetConnectionID } else { [string]$c.Description }
     description = [string]$c.Description
+    interfaceIndex = $ifIdx
     status = if ($na.NetEnabled) { 'Up' } else { 'Down' }
     macAddress = [string]$c.MACAddress
     ipv4Addresses = $ips
+    subnetMasks = $masks
+    prefixLengths = $prefixes
     defaultGateways = $gws
     dnsServers = $dns
     dhcpEnabled = [bool]$c.DHCPEnabled
@@ -1702,13 +1779,130 @@ foreach ($c in $cfgs) {
   }
 }
 
-$proxyEnabled = $false; $proxyServer = ''; $proxyOverride = ''
+$activeUser = ''
+$userSid = ''
 try {
-  $inet = Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
+  $cs = Get-CimInstance Win32_ComputerSystem
+  if ($cs -and $cs.UserName) { $activeUser = [string]$cs.UserName }
+} catch {}
+if ($activeUser) {
+  try {
+    $nt = New-Object System.Security.Principal.NTAccount($activeUser)
+    $userSid = $nt.Translate([System.Security.Principal.SecurityIdentifier]).Value
+  } catch {}
+}
+
+$proxyEnabled = $false; $proxyServer = ''; $proxyOverride = ''; $autoConfigUrl = ''; $autoDetect = $false
+$inetPath = if ($userSid -and (Test-Path "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")) {
+  "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
+} else {
+  'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
+}
+try {
+  $inet = Get-ItemProperty -Path $inetPath
   if ($inet) {
     $proxyEnabled = ([int]$inet.ProxyEnable -eq 1)
     $proxyServer = [string]$inet.ProxyServer
     $proxyOverride = [string]$inet.ProxyOverride
+    $autoConfigUrl = [string]$inet.AutoConfigURL
+    $autoDetect = ([int]$inet.AutoDetect -eq 1)
+  }
+} catch {}
+
+$winhttpDirect = $true; $winhttpServer = ''; $winhttpBypass = ''
+try {
+  $whRaw = (& netsh.exe winhttp show proxy 2>&1 | Out-String)
+  if ($whRaw -match 'Proxy Server\\(s\\)\\s*:\\s*(.+)') {
+    $srvVal = $Matches[1].Trim()
+    if ($srvVal -and $srvVal -notmatch 'Direct access') {
+      $winhttpDirect = $false
+      $winhttpServer = $srvVal
+    }
+  }
+  if ($whRaw -match 'Bypass List\\s*:\\s*(.+)') {
+    $bpVal = $Matches[1].Trim()
+    if ($bpVal -and $bpVal -notmatch '\\(none\\)') { $winhttpBypass = $bpVal }
+  }
+} catch {}
+
+$hostsPath = "$env:SystemRoot\\System32\\drivers\\etc\\hosts"
+$hostsEntries = @()
+if (Test-Path $hostsPath) {
+  $lines = Get-Content -Path $hostsPath -ErrorAction SilentlyContinue
+  for ($li = 0; $li -lt $lines.Count; $li++) {
+    $rawLine = [string]$lines[$li]
+    $t = $rawLine.Trim()
+    if (-not $t) { continue }
+    $enabled = $true
+    $work = $t
+    if ($t -match '^#+\\s*(.+)$') {
+      $cand = $Matches[1].Trim()
+      if ($cand -match '^(\\d{1,3}(?:\\.\\d{1,3}){3}|[0-9a-fA-F:]+)\\s+([a-zA-Z0-9._-]+(?:\\s+[a-zA-Z0-9._-]+)*)(?:\\s+#(.*))?$') {
+        $enabled = $false
+        $hostsEntries += [PSCustomObject]@{
+          lineIndex = $li
+          ip = $Matches[1].Trim()
+          hostnames = ($Matches[2].Trim() -replace '\\s+', ' ')
+          comment = if ($Matches[3]) { $Matches[3].Trim() } else { '' }
+          enabled = $false
+        }
+      }
+      continue
+    }
+    if ($work -match '^(\\d{1,3}(?:\\.\\d{1,3}){3}|[0-9a-fA-F:]+)\\s+([^#]+?)(?:\\s*#(.*))?$') {
+      $hostsEntries += [PSCustomObject]@{
+        lineIndex = $li
+        ip = $Matches[1].Trim()
+        hostnames = ($Matches[2].Trim() -replace '\\s+', ' ')
+        comment = if ($Matches[3]) { $Matches[3].Trim() } else { '' }
+        enabled = $true
+      }
+    }
+  }
+}
+
+$persistSet = @{}
+try {
+  Get-NetRoute -AddressFamily IPv4 -PolicyStore PersistentStore -ErrorAction SilentlyContinue | ForEach-Object {
+    $persistSet["$($_.DestinationPrefix)|$($_.NextHop)"] = $true
+  }
+} catch {}
+
+$ifNameByIdx = @{}
+foreach ($ad in $adapters) {
+  if ($ad.interfaceIndex) { $ifNameByIdx[[int]$ad.interfaceIndex] = [string]$ad.name }
+}
+
+$routes = @()
+try {
+  $netRoutes = Get-NetRoute -AddressFamily IPv4 -PolicyStore ActiveStore -ErrorAction SilentlyContinue |
+    Where-Object { $_.DestinationPrefix -notmatch '^(224\\.|255\\.255\\.255\\.255|fe80)' } |
+    Sort-Object RouteMetric, DestinationPrefix |
+    Select-Object -First 80
+  foreach ($rt in $netRoutes) {
+    $dp = [string]$rt.DestinationPrefix
+    $parts = $dp -split '/'
+    $destIp = $parts[0]
+    $plen = if ($parts.Count -gt 1) { [int]$parts[1] } else { 32 }
+    $maskInt = if ($plen -eq 0) { [uint32]0 } else { [uint32]([math]::Pow(2, 32) - [math]::Pow(2, 32 - $plen)) }
+    $maskStr = "$(($maskInt -shr 24) -band 255).$(($maskInt -shr 16) -band 255).$(($maskInt -shr 8) -band 255).$($maskInt -band 255)"
+    $gw = if ($rt.NextHop) { [string]$rt.NextHop } else { '0.0.0.0' }
+    $idx = [int]$rt.InterfaceIndex
+    $ifNm = if ($ifNameByIdx.ContainsKey($idx)) { $ifNameByIdx[$idx] } elseif ($rt.InterfaceAlias) { [string]$rt.InterfaceAlias } else { "If#$idx" }
+    $isPers = $persistSet.ContainsKey("$dp|$gw")
+    $isReserved = ($destIp -like '127.*' -or $destIp -like '169.254.*' -or $gw -eq '0.0.0.0' -and $plen -eq 32)
+    $routes += [PSCustomObject]@{
+      destination = $destIp
+      netmask = $maskStr
+      prefixLength = $plen
+      gateway = $gw
+      interfaceName = $ifNm
+      interfaceIndex = $idx
+      metric = [int]$rt.RouteMetric
+      persistent = [bool]$isPers
+      isDefault = ($dp -eq '0.0.0.0/0')
+      isSystemReserved = [bool]$isReserved
+    }
   }
 } catch {}
 
@@ -1722,14 +1916,23 @@ try { $arpCount = (Get-NetNeighbor -AddressFamily IPv4 | Where-Object { $_.State
     enabled = $proxyEnabled
     server = $proxyServer
     override = $proxyOverride
+    autoConfigUrl = $autoConfigUrl
+    autoDetect = $autoDetect
+    activeUser = $activeUser
+    winhttpDirect = $winhttpDirect
+    winhttpServer = $winhttpServer
+    winhttpBypass = $winhttpBypass
   }
+  hostsFilePath = $hostsPath
+  hostsEntries = $hostsEntries
+  routes = $routes
   arpSummaryCount = [int]$arpCount
 } | ConvertTo-Json -Depth 6 -Compress
 `;
 
 const LINUX_NETWORK_SNAPSHOT = `
 python3 - <<'PY'
-import json, os, socket, subprocess
+import json, os, re, socket, subprocess
 def run(cmd):
     try: return subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL).strip()
     except Exception: return ""
@@ -1744,29 +1947,79 @@ except Exception:
     pass
 gw = run("ip route | awk '/default/{print $3; exit}'")
 adapters = []
-for iface in run("ls /sys/class/net").splitlines():
+for idx_raw, iface in enumerate(run("ls /sys/class/net").splitlines()):
     if iface == "lo": continue
     state = run(f"cat /sys/class/net/{iface}/operstate") or "unknown"
     mac = run(f"cat /sys/class/net/{iface}/address")
-    ips = run(f"ip -4 -o addr show dev {iface} | awk '{{print $4}}'").splitlines()
+    cidr_lines = run(f"ip -4 -o addr show dev {iface} | awk '{{print $4}}'").splitlines()
+    ips = [c.split('/')[0] for c in cidr_lines]
+    prefs = [int(c.split('/')[1]) for c in cidr_lines if '/' in c and c.split('/')[1].isdigit()]
     spd = run(f"cat /sys/class/net/{iface}/speed 2>/dev/null")
     adapters.append({
         "name": iface,
         "description": iface,
+        "interfaceIndex": idx_raw + 1,
         "status": "Up" if state.lower() == "up" else state,
         "macAddress": mac,
         "ipv4Addresses": ips,
+        "subnetMasks": [],
+        "prefixLengths": prefs,
         "defaultGateways": [gw] if gw else [],
         "dnsServers": dns,
         "dhcpEnabled": None,
         "linkSpeed": f"{spd} Mbps" if spd.isdigit() else "-"
     })
+
+hosts_entries = []
+try:
+    with open("/etc/hosts") as f:
+        for li, raw in enumerate(f):
+            t = raw.strip()
+            if not t: continue
+            enabled = True
+            m = re.match(r'^(#+)\\s*(\\d{1,3}(?:\\.\\d{1,3}){3}|[0-9a-fA-F:]+)\\s+([a-zA-Z0-9._-]+(?:\\s+[a-zA-Z0-9._-]+)*)(?:\\s+#(.*))?$', t)
+            if m:
+                hosts_entries.append({"lineIndex": li, "ip": m.group(2), "hostnames": " ".join(m.group(3).split()), "comment": (m.group(4) or "").strip(), "enabled": False})
+                continue
+            m2 = re.match(r'^(\\d{1,3}(?:\\.\\d{1,3}){3}|[0-9a-fA-F:]+)\\s+([^#]+?)(?:\\s*#(.*))?$', t)
+            if m2:
+                hosts_entries.append({"lineIndex": li, "ip": m2.group(1), "hostnames": " ".join(m2.group(2).split()), "comment": (m2.group(3) or "").strip(), "enabled": True})
+except Exception:
+    pass
+
+routes = []
+for line in run("ip -4 route show").splitlines()[:80]:
+    parts = line.split()
+    if not parts: continue
+    dest_raw = parts[0]
+    if dest_raw == "default":
+        dest, plen = "0.0.0.0", 0
+    elif "/" in dest_raw:
+        dest, p_s = dest_raw.split("/", 1)
+        plen = int(p_s) if p_s.isdigit() else 32
+    else:
+        dest, plen = dest_raw, 32
+    mask_int = 0 if plen == 0 else ((0xFFFFFFFF << (32 - plen)) & 0xFFFFFFFF)
+    netmask = f"{(mask_int>>24)&255}.{(mask_int>>16)&255}.{(mask_int>>8)&255}.{mask_int&255}"
+    via = parts[parts.index("via")+1] if "via" in parts and parts.index("via")+1 < len(parts) else "0.0.0.0"
+    dev = parts[parts.index("dev")+1] if "dev" in parts and parts.index("dev")+1 < len(parts) else "-"
+    met = int(parts[parts.index("metric")+1]) if "metric" in parts and parts.index("metric")+1 < len(parts) and parts[parts.index("metric")+1].isdigit() else 0
+    routes.append({
+        "destination": dest, "netmask": netmask, "prefixLength": plen,
+        "gateway": via, "interfaceName": dev, "interfaceIndex": 0, "metric": met,
+        "persistent": False, "isDefault": (dest == "0.0.0.0" and plen == 0),
+        "isSystemReserved": dest.startswith("127.") or dest.startswith("169.254.")
+    })
+
 proxy = os.environ.get("https_proxy") or os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY") or ""
 arp_cnt = len(run("ip neigh show").splitlines())
 print(json.dumps({
     "hostname": socket.gethostname(),
     "adapters": adapters,
-    "proxy": {"enabled": bool(proxy), "server": proxy, "override": os.environ.get("no_proxy", "")},
+    "proxy": {"enabled": bool(proxy), "server": proxy, "override": os.environ.get("no_proxy", ""), "autoConfigUrl": "", "autoDetect": False, "activeUser": os.environ.get("USER", ""), "winhttpDirect": not bool(proxy), "winhttpServer": proxy, "winhttpBypass": os.environ.get("no_proxy", "")},
+    "hostsFilePath": "/etc/hosts",
+    "hostsEntries": hosts_entries,
+    "routes": routes,
     "arpSummaryCount": arp_cnt
 }))
 PY
@@ -1778,6 +2031,8 @@ export async function collectEndpointNetworkSnapshot(
   const execRes = await executeHardcodedScripts(input, PS_NETWORK_SNAPSHOT, LINUX_NETWORK_SNAPSHOT);
   const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint network snapshot');
   const rawAdapters = Array.isArray(parsed.adapters) ? parsed.adapters : parsed.adapters ? [parsed.adapters] : [];
+  const rawHosts = Array.isArray(parsed.hostsEntries) ? parsed.hostsEntries : parsed.hostsEntries ? [parsed.hostsEntries] : [];
+  const rawRoutes = Array.isArray(parsed.routes) ? parsed.routes : parsed.routes ? [parsed.routes] : [];
 
   return {
     targetIp: execRes.host,
@@ -1789,9 +2044,12 @@ export async function collectEndpointNetworkSnapshot(
     adapters: rawAdapters.map((a: any) => ({
       name: String(a.name || '-'),
       description: String(a.description || ''),
+      interfaceIndex: Number.isFinite(Number(a.interfaceIndex)) ? Number(a.interfaceIndex) : null,
       status: String(a.status || 'Unknown'),
       macAddress: String(a.macAddress || ''),
       ipv4Addresses: Array.isArray(a.ipv4Addresses) ? a.ipv4Addresses.map(String) : a.ipv4Addresses ? [String(a.ipv4Addresses)] : [],
+      subnetMasks: Array.isArray(a.subnetMasks) ? a.subnetMasks.map(String) : a.subnetMasks ? [String(a.subnetMasks)] : [],
+      prefixLengths: Array.isArray(a.prefixLengths) ? a.prefixLengths.map(Number) : a.prefixLengths ? [Number(a.prefixLengths)] : [],
       defaultGateways: Array.isArray(a.defaultGateways) ? a.defaultGateways.map(String) : a.defaultGateways ? [String(a.defaultGateways)] : [],
       dnsServers: Array.isArray(a.dnsServers) ? a.dnsServers.map(String) : a.dnsServers ? [String(a.dnsServers)] : [],
       dhcpEnabled: typeof a.dhcpEnabled === 'boolean' ? a.dhcpEnabled : null,
@@ -1801,17 +2059,235 @@ export async function collectEndpointNetworkSnapshot(
       enabled: Boolean(parsed.proxy?.enabled),
       server: String(parsed.proxy?.server || ''),
       override: String(parsed.proxy?.override || ''),
+      autoConfigUrl: String(parsed.proxy?.autoConfigUrl || ''),
+      autoDetect: Boolean(parsed.proxy?.autoDetect),
+      activeUser: String(parsed.proxy?.activeUser || ''),
+      winhttpDirect: typeof parsed.proxy?.winhttpDirect === 'boolean' ? parsed.proxy.winhttpDirect : true,
+      winhttpServer: String(parsed.proxy?.winhttpServer || ''),
+      winhttpBypass: String(parsed.proxy?.winhttpBypass || ''),
     },
+    hostsFilePath: String(parsed.hostsFilePath || (execRes.osFamily === 'linux' ? '/etc/hosts' : 'C:\\Windows\\System32\\drivers\\etc\\hosts')),
+    hostsEntries: rawHosts.map((h: any, idx: number) => ({
+      id: `host-${h.lineIndex ?? idx}-${h.ip || ''}`,
+      lineIndex: Number(h.lineIndex ?? idx),
+      ip: String(h.ip || ''),
+      hostnames: String(h.hostnames || ''),
+      comment: String(h.comment || ''),
+      enabled: Boolean(h.enabled),
+    })),
+    routes: rawRoutes.map((r: any, idx: number) => ({
+      id: `rt-${r.destination}/${r.prefixLength}->${r.gateway}-${r.interfaceIndex}-${idx}`,
+      destination: String(r.destination || ''),
+      netmask: String(r.netmask || ''),
+      prefixLength: Number(r.prefixLength ?? 0),
+      gateway: String(r.gateway || '0.0.0.0'),
+      interfaceName: String(r.interfaceName || '-'),
+      interfaceIndex: Number(r.interfaceIndex || 0),
+      metric: Number(r.metric || 0),
+      persistent: Boolean(r.persistent),
+      isDefault: Boolean(r.isDefault),
+      isSystemReserved: Boolean(r.isSystemReserved),
+    })),
     arpSummaryCount: Number(parsed.arpSummaryCount) || 0,
   };
 }
 
+export interface HelpdeskProbeExtraOptions {
+  dnsRecordType?: string;
+  dnsServer?: string;
+}
+
+const ALLOWED_DNS_RECORD_TYPES = new Set([
+  'A',
+  'AAAA',
+  'MX',
+  'TXT',
+  'CNAME',
+  'PTR',
+  'NS',
+  'SRV',
+  'SOA',
+  'ANY',
+]);
+
 export async function runEndpointDiagnosticProbe(
   input: HelpdeskTargetInput,
-  probeType: 'ping' | 'port' | 'dns',
+  probeType: HelpdeskDiagnosticProbeType,
   rawProbeTarget: string,
-  rawPort?: number
+  rawPort?: number,
+  options?: HelpdeskProbeExtraOptions
 ): Promise<HelpdeskProbeResult> {
+  if (probeType === 'arp') {
+    const filterQ = String(rawProbeTarget || '').trim();
+    if (filterQ && filterQ !== '*' && filterQ.toLowerCase() !== 'all') {
+      if (!/^[a-zA-Z0-9.:_-]{1,120}$/.test(filterQ)) {
+        throw new Error('Invalid ARP filter pattern.');
+      }
+    }
+    const cleanFilter = filterQ.toLowerCase() === 'all' || filterQ === '*' ? '' : filterQ;
+    const psArp = `
+$filter = '${cleanFilter.replace(/'/g, "''")}'
+$rows = @()
+try {
+  $nbrs = Get-NetNeighbor -AddressFamily IPv4 -ErrorAction Stop | Where-Object { $_.State -ne 'Unreachable' -and $_.IPAddress -notmatch '^(224\\.|255\\.|239\\.)' }
+  foreach ($n in $nbrs) {
+    $line = "$($n.IPAddress) | $($n.LinkLayerAddress) | $($n.State) | $($n.InterfaceAlias)"
+    if (-not $filter -or $line.ToLower().Contains($filter.ToLower())) {
+      $rows += $line
+    }
+  }
+} catch {}
+$raw = (arp.exe -a 2>&1 | Out-String).Trim()
+[PSCustomObject]@{
+  ok = $true
+  count = $rows.Count
+  records = ($rows | Select-Object -First 60)
+  rawOutput = if ($raw.Length -gt 8000) { $raw.Substring(0, 8000) } else { $raw }
+} | ConvertTo-Json -Depth 4 -Compress
+`;
+    const lxArp = `
+python3 - <<'PY'
+import json, subprocess
+flt = "${cleanFilter.replace(/"/g, '\\"')}".lower()
+p = subprocess.run(["ip", "neigh", "show"], capture_output=True, text=True)
+raw = (p.stdout + p.stderr).strip()
+recs = [l for l in raw.splitlines() if not flt or flt in l.lower()]
+print(json.dumps({"ok": True, "count": len(recs), "records": recs[:60], "rawOutput": raw[:8000]}))
+PY
+`;
+    const execRes = await executeHardcodedScripts(input, psArp, lxArp);
+    const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint ARP probe');
+    const records: string[] = Array.isArray(parsed.records) ? parsed.records.map(String) : [];
+    return {
+      targetIp: execRes.host,
+      protocolUsed: execRes.protocolUsed,
+      osFamily: execRes.osFamily,
+      probeType: 'arp',
+      probeTarget: cleanFilter || 'All IPv4 Neighbors',
+      success: true,
+      summary: `Collected ${records.length} ARP/Neighbor table entry(s) on ${execRes.host}`,
+      summaryFa: `${records.length} رکورد جدول ARP / همسایه‌های شبکه روی سیستم ${execRes.host} دریافت شد.`,
+      metrics: { count: records.length },
+      records,
+      rawOutput: String(parsed.rawOutput || ''),
+      executedAt: new Date().toISOString(),
+    };
+  }
+
+  if (probeType === 'http') {
+    let urlStr = String(rawProbeTarget || '').trim();
+    if (!urlStr) throw new Error('Target URL (http:// or https://) is required.');
+    if (!/^https?:\/\//i.test(urlStr)) urlStr = `https://${urlStr}`;
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(urlStr);
+    } catch {
+      throw new Error('Invalid HTTP/HTTPS URL format.');
+    }
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      throw new Error('Only http:// and https:// URLs are permitted.');
+    }
+    validateDiagnosticProbeHost(parsedUrl.hostname);
+    const safeUrl = parsedUrl.toString();
+    if (/['"`$\n\r]/.test(safeUrl)) {
+      throw new Error('URL contains forbidden characters.');
+    }
+
+    const psHttp = `
+$url = '${safeUrl}'
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+$ok = $false; $code = 0; $desc = ''; $err = ''; $hdr = ''
+try {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+  $req = [System.Net.HttpWebRequest]::Create($url)
+  $req.Method = 'HEAD'
+  $req.Timeout = 7000
+  $req.AllowAutoRedirect = $true
+  try {
+    $resp = $req.GetResponse()
+  } catch [System.Net.WebException] {
+    $exResp = $_.Exception.Response
+    if ($exResp) {
+      $resp = $exResp
+    } else {
+      throw
+    }
+  }
+  $code = [int]$resp.StatusCode
+  $desc = [string]$resp.StatusDescription
+  $ok = ($code -ge 100 -and $code -lt 500)
+  $hdr = "Final URI: $($resp.ResponseUri)\\nServer: $($resp.Headers['Server'])\\nContent-Type: $($resp.Headers['Content-Type'])"
+  $resp.Close()
+} catch {
+  $err = $_.Exception.Message
+}
+$sw.Stop()
+[PSCustomObject]@{
+  ok = $ok
+  statusCode = $code
+  statusText = $desc
+  latencyMs = [int]$sw.ElapsedMilliseconds
+  headers = $hdr
+  error = $err
+} | ConvertTo-Json -Depth 4 -Compress
+`;
+    const lxHttp = `
+python3 - <<'PY'
+import json, time, urllib.request, urllib.error
+url = "${safeUrl}"
+st = time.time()
+ok, code, desc, err, hdr = False, 0, "", "", ""
+try:
+    req = urllib.request.Request(url, method="HEAD")
+    with urllib.request.urlopen(req, timeout=7) as r:
+        code = r.getcode()
+        desc = getattr(r, "reason", "OK")
+        ok = True
+        hdr = f"Final URI: {r.geturl()}\\nServer: {r.headers.get('Server', '-')}"
+except urllib.error.HTTPError as e:
+    code = e.code
+    desc = str(e.reason)
+    ok = (100 <= code < 500)
+except Exception as e:
+    err = str(e)
+ms = int((time.time() - st) * 1000)
+print(json.dumps({"ok": ok, "statusCode": code, "statusText": desc, "latencyMs": ms, "headers": hdr, "error": err}))
+PY
+`;
+    const execRes = await executeHardcodedScripts(
+      { ...input, timeoutMs: Math.max(20000, input.timeoutMs || 20000) },
+      psHttp,
+      lxHttp
+    );
+    const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint HTTP probe');
+    const ok = Boolean(parsed.ok);
+    const code = Number(parsed.statusCode) || 0;
+    return {
+      targetIp: execRes.host,
+      protocolUsed: execRes.protocolUsed,
+      osFamily: execRes.osFamily,
+      probeType: 'http',
+      probeTarget: safeUrl,
+      success: ok,
+      summary: ok
+        ? `HTTP${code ? ` ${code} (${parsed.statusText})` : ''} reachable from endpoint (${parsed.latencyMs}ms)`
+        : `Endpoint failed to reach ${safeUrl}: ${parsed.error || 'Timeout / TLS / Proxy error'}`,
+      summaryFa: ok
+        ? `آدرس ${safeUrl} از داخل سیستم کاربر در دسترس است (کد HTTP ${code}، تاخیر ${parsed.latencyMs}ms)`
+        : `دسترسی وب به ${safeUrl} از سیستم کاربر ناموفق بود: ${parsed.error || 'Timeout / خطای Proxy یا TLS'}`,
+      metrics: {
+        reachable: ok,
+        statusCode: code,
+        latencyMs: Number(parsed.latencyMs) || 0,
+      },
+      records: parsed.headers ? String(parsed.headers).split('\\n') : [],
+      rawOutput: ok
+        ? `HTTP ${code} ${parsed.statusText} (${parsed.latencyMs}ms)\n${parsed.headers || ''}`.trim()
+        : `HTTP Request Failed (${parsed.latencyMs}ms): ${parsed.error}`,
+      executedAt: new Date().toISOString(),
+    };
+  }
+
   const probeTarget = validateDiagnosticProbeHost(rawProbeTarget);
 
   if (probeType === 'ping') {
@@ -1958,22 +2434,111 @@ PY
     };
   }
 
-  // DNS Lookup from inside endpoint
-  const psDns = `
+  if (probeType === 'tracert') {
+    const psTrace = `
 $target = '${probeTarget}'
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-$recs = @(); $raw = ''; $ok = $false
-try {
-  $res = Resolve-DnsName -Name $target -ErrorAction Stop
-  $ok = $true
-  foreach ($r in $res) {
-    if ($r.IPAddress) { $recs += "$($r.Type): $($r.IPAddress)" }
-    elseif ($r.NameHost) { $recs += "$($r.Type): $($r.NameHost)" }
+$out = (& tracert.exe -d -h 15 -w 1000 $target 2>&1 | Out-String).Trim()
+$sw.Stop()
+$hops = @()
+foreach ($ln in ($out -split "\`r?\`n")) {
+  if ($ln -match '^\\s*(\\d+)\\s+(.+)$') {
+    $hops += $ln.Trim()
   }
-  $raw = ($res | Format-Table -AutoSize | Out-String).Trim()
-} catch {
-  $raw = (nslookup.exe $target 2>&1 | Out-String).Trim()
-  $ok = ($raw -match 'Address(es)?:')
+}
+$reached = ($hops.Count -gt 0) -and ($out -match 'Trace complete')
+[PSCustomObject]@{
+  reached = $reached
+  hopCount = $hops.Count
+  latencyMs = [int]$sw.ElapsedMilliseconds
+  hops = $hops
+  rawOutput = $out
+} | ConvertTo-Json -Depth 4 -Compress
+`;
+    const lxTrace = `
+python3 - <<'PY'
+import json, shutil, subprocess, time
+t = "${probeTarget}"
+st = time.time()
+cmd = ["traceroute", "-n", "-m", "15", "-w", "1", t] if shutil.which("traceroute") else ["tracepath", "-n", "-m", "15", t]
+p = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+out = (p.stdout + "\\n" + p.stderr).strip()
+hops = [l.strip() for l in out.splitlines() if l.strip() and l.strip()[0].isdigit()]
+ms = int((time.time() - st) * 1000)
+print(json.dumps({"reached": p.returncode == 0 and len(hops) > 0, "hopCount": len(hops), "latencyMs": ms, "hops": hops, "rawOutput": out[:8000]}))
+PY
+`;
+    const execRes = await executeHardcodedScripts(
+      { ...input, timeoutMs: Math.max(35000, input.timeoutMs || 35000) },
+      psTrace,
+      lxTrace
+    );
+    const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint traceroute probe');
+    const hops: string[] = Array.isArray(parsed.hops) ? parsed.hops.map(String) : [];
+    const reached = Boolean(parsed.reached);
+    return {
+      targetIp: execRes.host,
+      protocolUsed: execRes.protocolUsed,
+      osFamily: execRes.osFamily,
+      probeType: 'tracert',
+      probeTarget,
+      success: reached,
+      summary: `Traceroute to ${probeTarget}: ${hops.length} hop(s) traced (${parsed.latencyMs}ms)`,
+      summaryFa: `مسیریابی (Traceroute) به ${probeTarget} در ${hops.length} گام (Hop) انجام شد (${parsed.latencyMs}ms).`,
+      metrics: {
+        reached,
+        hopCount: hops.length,
+        latencyMs: Number(parsed.latencyMs) || 0,
+      },
+      records: hops,
+      rawOutput: String(parsed.rawOutput || ''),
+      executedAt: new Date().toISOString(),
+    };
+  }
+
+  // DNS / NSLookup Suite (supports custom record type A/AAAA/MX/TXT/CNAME/PTR/NS/SRV/SOA/ANY + optional custom DNS server!)
+  const rawRecType = String(options?.dnsRecordType || 'A').trim().toUpperCase();
+  const recType = ALLOWED_DNS_RECORD_TYPES.has(rawRecType) ? rawRecType : 'A';
+  const rawDnsSrv = String(options?.dnsServer || '').trim();
+  const dnsServer = rawDnsSrv ? validateDiagnosticProbeHost(rawDnsSrv) : '';
+
+  const psDns = `
+$target = '${probeTarget}'
+$recType = '${recType}'
+$dnsSrv = '${dnsServer}'
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+$recs = @(); $raw = ''; $ok = $false
+if ('${probeType}' -eq 'nslookup' -or $dnsSrv -or $recType -ne 'A') {
+  $nsArgs = @("-type=$recType", $target)
+  if ($dnsSrv) { $nsArgs += $dnsSrv }
+  $raw = (& nslookup.exe @nsArgs 2>&1 | Out-String).Trim()
+  $ok = ($raw -match 'Address:|canonical name|nameserver|mail exchanger|text =|primary name server|internet address|SRV service') -and ($raw -notmatch 'Non-existent domain|timed out|No response')
+  try {
+    $cmdParams = @{ Name = $target; Type = $recType; ErrorAction = 'Stop' }
+    if ($dnsSrv) { $cmdParams['Server'] = $dnsSrv }
+    $res = Resolve-DnsName @cmdParams
+    foreach ($r in $res) {
+      if ($r.IPAddress) { $recs += "$($r.QueryType): $($r.IPAddress) (TTL: $($r.TTL))" }
+      elseif ($r.NameHost) { $recs += "$($r.QueryType): $($r.NameHost)" }
+      elseif ($r.NameExchange) { $recs += "MX $($r.Preference): $($r.NameExchange)" }
+      elseif ($r.Strings) { $recs += "TXT: $($r.Strings -join ' ')" }
+      elseif ($r.NameTarget) { $recs += "SRV: $($r.NameTarget):$($r.Port) (Prio $($r.Priority))" }
+    }
+    if ($recs.Count -gt 0) { $ok = $true }
+  } catch {}
+} else {
+  try {
+    $res = Resolve-DnsName -Name $target -ErrorAction Stop
+    $ok = $true
+    foreach ($r in $res) {
+      if ($r.IPAddress) { $recs += "$($r.Type): $($r.IPAddress)" }
+      elseif ($r.NameHost) { $recs += "$($r.Type): $($r.NameHost)" }
+    }
+    $raw = ($res | Format-Table -AutoSize | Out-String).Trim()
+  } catch {
+    $raw = (nslookup.exe $target 2>&1 | Out-String).Trim()
+    $ok = ($raw -match 'Address(es)?:')
+  }
 }
 $sw.Stop()
 [PSCustomObject]@{
@@ -1985,41 +2550,57 @@ $sw.Stop()
 `;
   const linuxDns = `
 python3 - <<'PY'
-import json, socket, time
-t = "${probeTarget}"
+import json, shutil, socket, subprocess, time
+t, rtype, srv = "${probeTarget}", "${recType}", "${dnsServer}"
 st = time.time()
 recs, ok, raw = [], False, ""
-try:
-    infos = socket.getaddrinfo(t, None)
-    ips = sorted(set(i[4][0] for i in infos))
-    recs = [f"A/AAAA: {ip}" for ip in ips]
-    ok = len(ips) > 0
-    raw = "\\n".join(recs)
-except Exception as e:
-    raw = str(e)
+if shutil.which("dig"):
+    cmd = ["dig", "+noall", "+answer", "+comments", t, rtype]
+    if srv: cmd.insert(1, f"@{srv}")
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    raw = (p.stdout + p.stderr).strip()
+    recs = [l.strip() for l in p.stdout.splitlines() if l.strip() and not l.startswith(";")]
+    ok = len(recs) > 0
+elif shutil.which("nslookup"):
+    cmd = ["nslookup", f"-type={rtype}", t] + ([srv] if srv else [])
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    raw = (p.stdout + p.stderr).strip()
+    ok = ("Address:" in raw or "nameserver" in raw) and ("NXDOMAIN" not in raw)
+else:
+    try:
+        infos = socket.getaddrinfo(t, None)
+        ips = sorted(set(i[4][0] for i in infos))
+        recs = [f"A/AAAA: {ip}" for ip in ips]
+        ok = len(ips) > 0
+        raw = "\\n".join(recs)
+    except Exception as e:
+        raw = str(e)
 ms = int((time.time() - st) * 1000)
 print(json.dumps({"resolved": ok, "latencyMs": ms, "records": recs, "rawOutput": raw}))
 PY
 `;
   const execRes = await executeHardcodedScripts(input, psDns, linuxDns);
-  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint DNS probe');
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint DNS/nslookup probe');
   const resolved = Boolean(parsed.resolved);
   const records: string[] = Array.isArray(parsed.records) ? parsed.records.map(String) : [];
+  const srvTag = dnsServer ? ` @ ${dnsServer}` : '';
   return {
     targetIp: execRes.host,
     protocolUsed: execRes.protocolUsed,
     osFamily: execRes.osFamily,
-    probeType: 'dns',
+    probeType,
     probeTarget,
     success: resolved,
     summary: resolved
-      ? `Endpoint resolved ${probeTarget} (${records.length} record(s), ${parsed.latencyMs}ms)`
-      : `Endpoint failed to resolve DNS name ${probeTarget}`,
+      ? `Endpoint ${probeType === 'nslookup' ? 'NSLookup' : 'DNS'} (${recType}${srvTag}) resolved ${probeTarget} (${records.length} record(s), ${parsed.latencyMs}ms)`
+      : `Endpoint ${probeType === 'nslookup' ? 'NSLookup' : 'DNS'} (${recType}${srvTag}) failed for ${probeTarget}`,
     summaryFa: resolved
-      ? `نام دامنه ${probeTarget} از سمت سیستم کاربر با موفقیت ترجمه شد (${records.length} رکورد، ${parsed.latencyMs}ms)`
-      : `سیستم کاربر نتوانست دامنه ${probeTarget} را از طریق DNS ترجمه کند`,
+      ? `استعلام ${probeType === 'nslookup' ? 'NSLookup' : 'DNS'} نوع ${recType}${srvTag ? ` از سرور ${dnsServer}` : ''} برای ${probeTarget} با موفقیت انجام شد (${records.length} رکورد، ${parsed.latencyMs}ms)`
+      : `استعلام ${probeType === 'nslookup' ? 'NSLookup' : 'DNS'} نوع ${recType}${srvTag ? ` از سرور ${dnsServer}` : ''} برای ${probeTarget} پاسخی برنگرداند`,
     metrics: {
       resolved,
+      recordType: recType,
+      dnsServer: dnsServer || 'Default System DNS',
       recordCount: records.length,
       latencyMs: Number(parsed.latencyMs) || 0,
     },
@@ -2093,6 +2674,626 @@ PY
     message: `DHCP IP renewal completed on ${execRes.host}.`,
     messageFa: `تمدید آدرس IP (DHCP Renew) روی سیستم ${execRes.host} با موفقیت انجام شد.`,
     details: { operation: 'Renew DHCP IP' },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// 8B. ENDPOINT NIC IP/DNS, HOSTS FILE, OS PROXY & STATIC ROUTING MANAGEMENT
+// ============================================================================
+
+function subnetMaskToPrefixLength(mask: string): number {
+  if (!isValidIpv4(mask)) throw new Error(`Invalid subnet mask: ${mask}`);
+  const parts = mask.split('.').map(Number);
+  const num = (((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0);
+  const bin = num.toString(2).padStart(32, '0');
+  if (!/^1*0*$/.test(bin)) throw new Error(`Non-contiguous subnet mask: ${mask}`);
+  return bin.indexOf('0') === -1 ? 32 : bin.indexOf('0');
+}
+
+function prefixLengthToSubnetMask(prefix: number): string {
+  const p = Math.max(0, Math.min(32, Math.floor(prefix)));
+  const maskInt = p === 0 ? 0 : ((0xffffffff << (32 - p)) >>> 0);
+  return `${(maskInt >>> 24) & 255}.${(maskInt >>> 16) & 255}.${(maskInt >>> 8) & 255}.${maskInt & 255}`;
+}
+
+export interface HelpdeskAdapterConfigParams {
+  adapterName: string;
+  interfaceIndex?: number;
+  ipMode: 'keep' | 'dhcp' | 'static';
+  ipAddress?: string;
+  subnetMask?: string;
+  prefixLength?: number;
+  gateway?: string;
+  dnsMode: 'keep' | 'dhcp' | 'static';
+  dnsPrimary?: string;
+  dnsSecondary?: string;
+}
+
+export async function updateEndpointAdapterNetworkConfig(
+  input: HelpdeskTargetInput,
+  params: HelpdeskAdapterConfigParams
+): Promise<HelpdeskActionResult> {
+  const cleanAdapter = String(params.adapterName || '').trim();
+  if (!cleanAdapter || cleanAdapter.length > 140 || /[`$;"'\r\n]/.test(cleanAdapter)) {
+    throw new Error('Invalid network adapter name.');
+  }
+  const ifIdx =
+    params.interfaceIndex !== undefined && Number.isInteger(Number(params.interfaceIndex))
+      ? Number(params.interfaceIndex)
+      : 0;
+
+  let staticIp = '';
+  let prefixLen = 24;
+  let staticMask = '255.255.255.0';
+  let gateway = '';
+
+  if (params.ipMode === 'static') {
+    staticIp = String(params.ipAddress || '').trim();
+    if (!isValidIpv4(staticIp) || staticIp.startsWith('127.') || staticIp === '0.0.0.0' || staticIp.startsWith('255.')) {
+      throw new Error('Valid static IPv4 address is required.');
+    }
+    if (params.subnetMask && String(params.subnetMask).trim()) {
+      staticMask = String(params.subnetMask).trim();
+      prefixLen = subnetMaskToPrefixLength(staticMask);
+    } else {
+      prefixLen = Math.floor(Number(params.prefixLength ?? 24));
+      if (!Number.isInteger(prefixLen) || prefixLen < 1 || prefixLen > 30) {
+        throw new Error('Prefix length must be between 1 and 30.');
+      }
+      staticMask = prefixLengthToSubnetMask(prefixLen);
+    }
+    if (params.gateway && String(params.gateway).trim()) {
+      gateway = String(params.gateway).trim();
+      if (!isValidIpv4(gateway)) throw new Error('Invalid Default Gateway IPv4 address.');
+    }
+  }
+
+  const dnsServers: string[] = [];
+  if (params.dnsMode === 'static') {
+    const d1 = String(params.dnsPrimary || '').trim();
+    if (!isValidIpv4(d1)) throw new Error('Primary DNS must be a valid IPv4 address.');
+    dnsServers.push(d1);
+    const d2 = String(params.dnsSecondary || '').trim();
+    if (d2) {
+      if (!isValidIpv4(d2)) throw new Error('Secondary DNS must be a valid IPv4 address.');
+      dnsServers.push(d2);
+    }
+  }
+
+  const cfgB64 = Buffer.from(
+    JSON.stringify({
+      adapterName: cleanAdapter,
+      ifIdx,
+      ipMode: params.ipMode,
+      staticIp,
+      prefixLen,
+      staticMask,
+      gateway,
+      dnsMode: params.dnsMode,
+      dnsServers,
+    }),
+    'utf8'
+  ).toString('base64');
+
+  const ps = `
+$ErrorActionPreference = 'Stop'
+$cfg = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${cfgB64}')) | ConvertFrom-Json
+$ad = $null
+if ($cfg.ifIdx -gt 0) {
+  $ad = Get-NetAdapter -InterfaceIndex ([int]$cfg.ifIdx) -ErrorAction SilentlyContinue
+}
+if (-not $ad) {
+  $ad = Get-NetAdapter -Name $cfg.adapterName -ErrorAction SilentlyContinue
+}
+if (-not $ad) {
+  throw "Network adapter '$($cfg.adapterName)' not found on endpoint."
+}
+$ifName = [string]$ad.Name
+$idx = [int]$ad.InterfaceIndex
+$logs = @()
+
+if ($cfg.ipMode -eq 'dhcp') {
+  try { Remove-NetRoute -InterfaceIndex $idx -DestinationPrefix '0.0.0.0/0' -Confirm:$false -ErrorAction SilentlyContinue } catch {}
+  try { Set-NetIPInterface -InterfaceIndex $idx -Dhcp Enabled -ErrorAction Stop } catch {
+    & netsh.exe interface ip set address name="$ifName" source=dhcp | Out-Null
+  }
+  $logs += "IPv4 switched to DHCP on '$ifName'"
+} elseif ($cfg.ipMode -eq 'static') {
+  try {
+    Get-NetIPAddress -InterfaceIndex $idx -AddressFamily IPv4 -ErrorAction SilentlyContinue | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+    Get-NetRoute -InterfaceIndex $idx -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
+    if ($cfg.gateway) {
+      New-NetIPAddress -InterfaceIndex $idx -IPAddress $cfg.staticIp -PrefixLength ([int]$cfg.prefixLen) -DefaultGateway $cfg.gateway -ErrorAction Stop | Out-Null
+    } else {
+      New-NetIPAddress -InterfaceIndex $idx -IPAddress $cfg.staticIp -PrefixLength ([int]$cfg.prefixLen) -ErrorAction Stop | Out-Null
+    }
+  } catch {
+    if ($cfg.gateway) {
+      & netsh.exe interface ip set address name="$ifName" static $cfg.staticIp $cfg.staticMask $cfg.gateway | Out-Null
+    } else {
+      & netsh.exe interface ip set address name="$ifName" static $cfg.staticIp $cfg.staticMask | Out-Null
+    }
+  }
+  $logs += "IPv4 set to $($cfg.staticIp)/$($cfg.prefixLen)$(if($cfg.gateway){" GW $($cfg.gateway)"})"
+}
+
+if ($cfg.dnsMode -eq 'dhcp') {
+  try { Set-DnsClientServerAddress -InterfaceIndex $idx -ResetServerAddresses -ErrorAction Stop } catch {
+    & netsh.exe interface ip set dns name="$ifName" source=dhcp | Out-Null
+  }
+  $logs += "DNS reset to Automatic (DHCP)"
+} elseif ($cfg.dnsMode -eq 'static') {
+  $srvs = @($cfg.dnsServers)
+  try {
+    Set-DnsClientServerAddress -InterfaceIndex $idx -ServerAddresses $srvs -ErrorAction Stop
+  } catch {
+    if ($srvs.Count -ge 1) { & netsh.exe interface ip set dns name="$ifName" static $srvs[0] | Out-Null }
+    if ($srvs.Count -ge 2) { & netsh.exe interface ip add dns name="$ifName" $srvs[1] index=2 | Out-Null }
+  }
+  $logs += "DNS set to $($srvs -join ', ')"
+}
+
+try { Clear-DnsClientCache -ErrorAction SilentlyContinue } catch {}
+[PSCustomObject]@{ ok = $true; adapter = $ifName; output = ($logs -join '; ') } | ConvertTo-Json -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import base64, json, shutil, subprocess
+cfg = json.loads(base64.b64decode("${cfgB64}").decode())
+ifname = cfg["adapterName"]
+logs = []
+if shutil.which("nmcli"):
+    con = subprocess.check_output(["nmcli", "-t", "-f", "NAME,DEVICE", "con", "show", "--active"], text=True).splitlines()
+    cname = ""
+    for line in con:
+        parts = line.split(":", 1)
+        if len(parts) == 2 and parts[1].strip() == ifname:
+            cname = parts[0].strip()
+            break
+    if cname:
+        if cfg["ipMode"] == "dhcp":
+            subprocess.check_call(["nmcli", "con", "mod", cname, "ipv4.method", "auto", "ipv4.addresses", "", "ipv4.gateway", ""])
+            logs.append("IPv4 set to DHCP")
+        elif cfg["ipMode"] == "static":
+            args = ["nmcli", "con", "mod", cname, "ipv4.method", "manual", "ipv4.addresses", f"{cfg['staticIp']}/{cfg['prefixLen']}"]
+            if cfg["gateway"]:
+                args += ["ipv4.gateway", cfg["gateway"]]
+            subprocess.check_call(args)
+            logs.append(f"IPv4 set to {cfg['staticIp']}/{cfg['prefixLen']}")
+        if cfg["dnsMode"] == "dhcp":
+            subprocess.check_call(["nmcli", "con", "mod", cname, "ipv4.ignore-auto-dns", "no", "ipv4.dns", ""])
+            logs.append("DNS reset to DHCP")
+        elif cfg["dnsMode"] == "static":
+            subprocess.check_call(["nmcli", "con", "mod", cname, "ipv4.ignore-auto-dns", "yes", "ipv4.dns", " ".join(cfg["dnsServers"])])
+            logs.append("DNS set to " + ", ".join(cfg["dnsServers"]))
+        subprocess.call(["nmcli", "con", "up", cname])
+print(json.dumps({"ok": bool(logs), "adapter": ifname, "output": "; ".join(logs) or "NetworkManager (nmcli) not active on this Linux host."}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts(input, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'adapter IP/DNS update');
+  const ok = Boolean(parsed.ok);
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'network_adapter_config',
+    success: ok,
+    message: ok
+      ? `Network configuration updated for "${parsed.adapter}" on ${execRes.host}: ${parsed.output}`
+      : `Could not update adapter configuration: ${parsed.output}`,
+    messageFa: ok
+      ? `تنظیمات IP/DNS کارت شبکه «${parsed.adapter}» روی ${execRes.host} با موفقیت اعمال شد: ${parsed.output}`
+      : `تغییر تنظیمات کارت شبکه ناموفق بود: ${parsed.output}`,
+    details: {
+      adapterName: cleanAdapter,
+      ipMode: params.ipMode,
+      staticIp,
+      dnsMode: params.dnsMode,
+      dns: dnsServers.join(', '),
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function manageEndpointHostsEntry(
+  input: HelpdeskTargetInput,
+  params: {
+    operation: 'add' | 'toggle' | 'delete';
+    ip?: string;
+    hostnames?: string;
+    comment?: string;
+    lineIndex?: number;
+  }
+): Promise<HelpdeskActionResult> {
+  const op = params.operation;
+  if (op !== 'add' && op !== 'toggle' && op !== 'delete') {
+    throw new Error('Invalid hosts file operation.');
+  }
+  let cleanIp = '';
+  let cleanHosts = '';
+  let cleanComment = '';
+  let lineIndex = -1;
+
+  if (op === 'add') {
+    cleanIp = String(params.ip || '').trim();
+    if (!isValidIpv4(cleanIp) && !/^[0-9a-fA-F:]{2,45}$/.test(cleanIp)) {
+      throw new Error('Valid IPv4 or IPv6 address is required for hosts entry.');
+    }
+    const hostTokens = String(params.hostnames || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (hostTokens.length === 0 || hostTokens.length > 6) {
+      throw new Error('Enter 1 to 6 valid hostname(s) separated by spaces.');
+    }
+    for (const h of hostTokens) {
+      if (!SAFE_HOST_REGEX.test(h)) {
+        throw new Error(`Invalid hostname in hosts entry: ${h}`);
+      }
+    }
+    cleanHosts = hostTokens.join(' ');
+    cleanComment = String(params.comment || '')
+      .replace(/[\r\n#<>`$]/g, ' ')
+      .trim()
+      .slice(0, 80);
+  } else {
+    lineIndex = Math.floor(Number(params.lineIndex));
+    if (!Number.isInteger(lineIndex) || lineIndex < 0 || lineIndex > 20000) {
+      throw new Error('Valid hosts file lineIndex is required.');
+    }
+  }
+
+  const reqB64 = Buffer.from(
+    JSON.stringify({ op, ip: cleanIp, hostnames: cleanHosts, comment: cleanComment, lineIndex }),
+    'utf8'
+  ).toString('base64');
+
+  const ps = `
+$ErrorActionPreference = 'Stop'
+$req = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${reqB64}')) | ConvertFrom-Json
+$hostsPath = "$env:SystemRoot\\System32\\drivers\\etc\\hosts"
+$bakPath = "$hostsPath.helpdesk.bak"
+if (-not (Test-Path $bakPath) -and (Test-Path $hostsPath)) {
+  Copy-Item -Path $hostsPath -Destination $bakPath -Force -ErrorAction SilentlyContinue
+}
+$lines = New-Object System.Collections.Generic.List[string]
+if (Test-Path $hostsPath) {
+  foreach ($l in (Get-Content -Path $hostsPath -ErrorAction SilentlyContinue)) { $lines.Add([string]$l) }
+}
+$msg = ''
+if ($req.op -eq 'add') {
+  $entry = "$($req.ip)\`t$($req.hostnames)"
+  if ($req.comment) { $entry += "\`t# $($req.comment)" }
+  $lines.Add($entry)
+  $msg = "Added entry: $entry"
+} elseif ($req.lineIndex -lt $lines.Count) {
+  $orig = $lines[$req.lineIndex].Trim()
+  if ($req.op -eq 'delete') {
+    $lines.RemoveAt($req.lineIndex)
+    $msg = "Deleted line $($req.lineIndex): $orig"
+  } elseif ($req.op -eq 'toggle') {
+    if ($orig -match '^#+\\s*(.+)$') {
+      $lines[$req.lineIndex] = $Matches[1].Trim()
+      $msg = "Enabled entry: $($lines[$req.lineIndex])"
+    } else {
+      $lines[$req.lineIndex] = "# $orig"
+      $msg = "Disabled entry: $($lines[$req.lineIndex])"
+    }
+  }
+} else {
+  throw "Hosts line index $($req.lineIndex) is out of range."
+}
+[System.IO.File]::WriteAllLines($hostsPath, $lines.ToArray(), [System.Text.UTF8Encoding]::new($false))
+try { & ipconfig.exe /flushdns | Out-Null } catch {}
+[PSCustomObject]@{ ok = $true; output = $msg } | ConvertTo-Json -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import base64, json
+req = json.loads(base64.b64decode("${reqB64}").decode())
+path = "/etc/hosts"
+with open(path, "r", encoding="utf-8", errors="ignore") as f:
+    lines = [l.rstrip("\\r\\n") for l in f]
+op = req["op"]
+msg = ""
+if op == "add":
+    entry = f"{req['ip']}\\t{req['hostnames']}" + (f"\\t# {req['comment']}" if req.get("comment") else "")
+    lines.append(entry)
+    msg = "Added entry: " + entry
+else:
+    idx = int(req["lineIndex"])
+    if idx < 0 or idx >= len(lines):
+        raise ValueError("Line index out of range")
+    orig = lines[idx].strip()
+    if op == "delete":
+        lines.pop(idx)
+        msg = "Deleted: " + orig
+    elif op == "toggle":
+        if orig.startswith("#"):
+            lines[idx] = orig.lstrip("#").strip()
+            msg = "Enabled: " + lines[idx]
+        else:
+            lines[idx] = "# " + orig
+            msg = "Disabled: " + lines[idx]
+with open(path, "w", encoding="utf-8") as f:
+    f.write("\\n".join(lines) + "\\n")
+print(json.dumps({"ok": True, "output": msg}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts(input, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'hosts file update');
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'network_hosts_edit',
+    success: Boolean(parsed.ok),
+    message: `Local hosts file updated on ${execRes.host}: ${parsed.output}`,
+    messageFa: `فایل محلی hosts روی سیستم ${execRes.host} با موفقیت بروزرسانی شد: ${parsed.output}`,
+    details: { operation: op, ip: cleanIp, hostnames: cleanHosts },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function updateEndpointProxySettings(
+  input: HelpdeskTargetInput,
+  params: {
+    scope: 'user' | 'winhttp' | 'both';
+    enabled: boolean;
+    server?: string;
+    override?: string;
+    autoConfigUrl?: string;
+    autoDetect?: boolean;
+  }
+): Promise<HelpdeskActionResult> {
+  const scope = params.scope === 'winhttp' || params.scope === 'both' ? params.scope : 'user';
+  const enabled = Boolean(params.enabled);
+  const server = String(params.server || '').trim();
+  const override = String(params.override || '').trim();
+  const autoConfigUrl = String(params.autoConfigUrl || '').trim();
+  const autoDetect = Boolean(params.autoDetect);
+
+  if (server && !/^[a-zA-Z0-9.:;=_-]{1,255}$/.test(server)) {
+    throw new Error('Invalid Proxy Server format (expected host:port e.g. 192.168.1.10:8080).');
+  }
+  if (override && !/^[a-zA-Z0-9.*_;<>/-]{1,500}$/.test(override)) {
+    throw new Error('Invalid Proxy Bypass list format.');
+  }
+  if (autoConfigUrl) {
+    if (!/^https?:\/\/[a-zA-Z0-9._:/?&=+-]{3,400}$/i.test(autoConfigUrl)) {
+      throw new Error('Invalid PAC AutoConfig URL (must be http:// or https://).');
+    }
+  }
+  if (enabled && !server && !autoConfigUrl && (scope === 'user' || scope === 'both')) {
+    throw new Error('Specify either a Proxy Server (host:port) or a PAC AutoConfig URL to enable proxy.');
+  }
+
+  const pB64 = Buffer.from(
+    JSON.stringify({ scope, enabled, server, override, autoConfigUrl, autoDetect }),
+    'utf8'
+  ).toString('base64');
+
+  const ps = `
+$ErrorActionPreference = 'Stop'
+${PS_HELPDESK_DETECT_LOGGED_USER}
+$p = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${pB64}')) | ConvertFrom-Json
+$logs = @()
+
+if ($p.scope -eq 'user' -or $p.scope -eq 'both') {
+  $regPath = if ($userSid -and (Test-Path "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")) {
+    "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
+  } else {
+    'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
+  }
+  Set-ItemProperty -Path $regPath -Name 'ProxyEnable' -Value $(if ($p.enabled -and $p.server) { 1 } else { 0 }) -Type DWord
+  if ($p.server) {
+    Set-ItemProperty -Path $regPath -Name 'ProxyServer' -Value ([string]$p.server) -Type String
+  } elseif (-not $p.enabled) {
+    # preserve or clear optional
+  }
+  if ($p.override) {
+    Set-ItemProperty -Path $regPath -Name 'ProxyOverride' -Value ([string]$p.override) -Type String
+  } elseif (-not $p.enabled) {
+    Remove-ItemProperty -Path $regPath -Name 'ProxyOverride' -ErrorAction SilentlyContinue
+  }
+  if ($p.autoConfigUrl) {
+    Set-ItemProperty -Path $regPath -Name 'AutoConfigURL' -Value ([string]$p.autoConfigUrl) -Type String
+  } else {
+    Remove-ItemProperty -Path $regPath -Name 'AutoConfigURL' -ErrorAction SilentlyContinue
+  }
+  Set-ItemProperty -Path $regPath -Name 'AutoDetect' -Value $(if ($p.autoDetect) { 1 } else { 0 }) -Type DWord
+
+  try {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class WinInetNotify {
+  [DllImport("wininet.dll", SetLastError=true)]
+  public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength);
+}
+"@ -ErrorAction SilentlyContinue
+    [WinInetNotify]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0) | Out-Null
+    [WinInetNotify]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0) | Out-Null
+  } catch {}
+  $logs += "User WinINet proxy $(if($p.enabled){"ENABLED ($($p.server) $($p.autoConfigUrl))"}else{"DISABLED"})"
+}
+
+if ($p.scope -eq 'winhttp' -or $p.scope -eq 'both') {
+  if ($p.enabled -and $p.server) {
+    if ($p.override) {
+      $whOut = (& netsh.exe winhttp set proxy "proxy-server=$($p.server)" "bypass-list=$($p.override)" 2>&1 | Out-String).Trim()
+    } else {
+      $whOut = (& netsh.exe winhttp set proxy "proxy-server=$($p.server)" 2>&1 | Out-String).Trim()
+    }
+    $logs += "WinHTTP Proxy set: $($p.server)"
+  } else {
+    $whOut = (& netsh.exe winhttp reset proxy 2>&1 | Out-String).Trim()
+    $logs += "WinHTTP Proxy reset to Direct"
+  }
+}
+
+[PSCustomObject]@{ ok = $true; output = ($logs -join '; ') } | ConvertTo-Json -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import json
+print(json.dumps({"ok": False, "output": "Windows WinINet/WinHTTP proxy settings apply to Windows endpoints. On Linux inspect /etc/environment or NetworkManager."}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts(input, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'OS proxy update');
+  const ok = Boolean(parsed.ok);
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'network_proxy_config',
+    success: ok,
+    message: ok
+      ? `OS Proxy settings updated on ${execRes.host}: ${parsed.output}`
+      : String(parsed.output || 'Proxy update not supported on target OS.'),
+    messageFa: ok
+      ? `تنظیمات Proxy سیستم‌عامل روی ${execRes.host} اعمال شد: ${parsed.output}`
+      : String(parsed.output || 'اعمال Proxy روی این سیستم‌عامل پشتیبانی نشد.'),
+    details: { scope, enabled, server, override, autoConfigUrl },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function manageEndpointStaticRoute(
+  input: HelpdeskTargetInput,
+  params: {
+    operation: 'add' | 'delete';
+    destination: string;
+    netmask?: string;
+    prefixLength?: number;
+    gateway?: string;
+    interfaceIndex?: number;
+    metric?: number;
+    persistent?: boolean;
+  }
+): Promise<HelpdeskActionResult> {
+  const op = params.operation;
+  if (op !== 'add' && op !== 'delete') throw new Error('Invalid route operation.');
+  const dest = String(params.destination || '').trim();
+  if (!isValidIpv4(dest)) throw new Error('Valid IPv4 Destination address is required.');
+  if (dest.startsWith('127.') || dest.startsWith('169.254.') || dest === '255.255.255.255') {
+    throw new Error('Modifying loopback, link-local, or broadcast routes is blocked.');
+  }
+
+  let mask = '255.255.255.0';
+  let prefixLen = 24;
+  if (params.netmask && String(params.netmask).trim()) {
+    mask = String(params.netmask).trim();
+    prefixLen = subnetMaskToPrefixLength(mask);
+  } else if (params.prefixLength !== undefined) {
+    prefixLen = Math.floor(Number(params.prefixLength));
+    if (!Number.isInteger(prefixLen) || prefixLen < 0 || prefixLen > 32) {
+      throw new Error('Prefix length must be between 0 and 32.');
+    }
+    mask = prefixLengthToSubnetMask(prefixLen);
+  }
+
+  const gw = String(params.gateway || '').trim();
+  if (op === 'add') {
+    if (!isValidIpv4(gw)) {
+      throw new Error('Valid IPv4 Next-Hop Gateway is required to add a route.');
+    }
+  } else if (gw && !isValidIpv4(gw)) {
+    throw new Error('Invalid Gateway IPv4 address.');
+  }
+
+  const ifIdx =
+    params.interfaceIndex !== undefined && Number.isInteger(Number(params.interfaceIndex)) && Number(params.interfaceIndex) > 0
+      ? Number(params.interfaceIndex)
+      : 0;
+  const metric =
+    params.metric !== undefined && Number.isInteger(Number(params.metric)) && Number(params.metric) >= 1 && Number(params.metric) <= 9999
+      ? Number(params.metric)
+      : 0;
+  const persistent = Boolean(params.persistent);
+
+  const rB64 = Buffer.from(
+    JSON.stringify({ op, dest, mask, prefixLen, gw, ifIdx, metric, persistent }),
+    'utf8'
+  ).toString('base64');
+
+  const ps = `
+$ErrorActionPreference = 'Continue'
+$r = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${rB64}')) | ConvertFrom-Json
+$argsList = @()
+if ($r.op -eq 'add') {
+  if ($r.persistent) { $argsList += '-p' }
+  $argsList += 'add'
+  $argsList += [string]$r.dest
+  $argsList += 'mask'
+  $argsList += [string]$r.mask
+  $argsList += [string]$r.gw
+  if ($r.metric -gt 0) { $argsList += 'METRIC'; $argsList += [string]$r.metric }
+  if ($r.ifIdx -gt 0) { $argsList += 'IF'; $argsList += [string]$r.ifIdx }
+} else {
+  $argsList += 'delete'
+  $argsList += [string]$r.dest
+  if ($r.mask -and $r.dest -ne '0.0.0.0') { $argsList += 'mask'; $argsList += [string]$r.mask }
+  if ($r.gw -and $r.gw -ne '0.0.0.0') { $argsList += [string]$r.gw }
+}
+$out = (& route.exe @argsList 2>&1 | Out-String).Trim()
+$ok = ($LASTEXITCODE -eq 0)
+if (-not $ok -and $r.op -eq 'delete') {
+  try {
+    Remove-NetRoute -DestinationPrefix "$($r.dest)/$($r.prefixLen)" -Confirm:$false -ErrorAction Stop
+    $ok = $true
+    $out = "Removed route $($r.dest)/$($r.prefixLen) via Remove-NetRoute"
+  } catch {}
+}
+[PSCustomObject]@{ ok = $ok; output = $out } | ConvertTo-Json -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import base64, json, subprocess
+r = json.loads(base64.b64decode("${rB64}").decode())
+cidr = f"{r['dest']}/{r['prefixLen']}"
+if r["op"] == "add":
+    cmd = ["ip", "route", "replace", cidr, "via", r["gw"]]
+    if r["metric"] > 0: cmd += ["metric", str(r["metric"])]
+else:
+    cmd = ["ip", "route", "del", cidr] + (["via", r["gw"]] if r.get("gw") and r["gw"] != "0.0.0.0" else [])
+p = subprocess.run(cmd, capture_output=True, text=True)
+print(json.dumps({"ok": p.returncode == 0, "output": (p.stdout + p.stderr).strip() or " ".join(cmd)}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts(input, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, `route ${op}`);
+  const ok = Boolean(parsed.ok);
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: op === 'add' ? 'network_route_add' : 'network_route_delete',
+    success: ok,
+    message: ok
+      ? `Route ${dest}/${prefixLen} ${op === 'add' ? `via ${gw}${persistent ? ' (persistent)' : ''}` : 'deleted'} on ${execRes.host}.`
+      : `Failed to ${op} route ${dest}/${prefixLen}: ${parsed.output}`,
+    messageFa: ok
+      ? op === 'add'
+        ? `مسیر ${dest}/${prefixLen} از طریق Gateway ${gw}${persistent ? ' به‌صورت دائمی' : ''} روی ${execRes.host} ثبت شد.`
+        : `مسیر ${dest}/${prefixLen} از سیستم ${execRes.host} حذف شد.`
+      : `عملیات مسیر شبکه (${op}) ناموفق بود: ${parsed.output}`,
+    details: { operation: op, destination: dest, netmask: mask, prefixLength: prefixLen, gateway: gw, persistent },
     rawOutput: String(parsed.output || ''),
     executedAt: new Date().toISOString(),
   };
@@ -4497,6 +5698,496 @@ PYEOF`;
       : [],
     rawSystemInfo: String(parsed.rawSystemInfo || ''),
     collectedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// 15B. WINDOWS UPDATE POLICY (WSUS vs INTERNET), AVAILABLE UPDATES & KB UNINSTALL
+// ============================================================================
+
+export interface HelpdeskPendingUpdateItem {
+  id: string;
+  title: string;
+  kbIds: string[];
+  severity: string;
+  sizeMb: number;
+  isDownloaded: boolean;
+  isMandatory: boolean;
+  rebootRequired: boolean;
+  description: string;
+}
+
+export interface HelpdeskWindowsUpdateStatusResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  collectedAt: string;
+  wsusPolicy: {
+    configured: boolean;
+    useWuServer: boolean;
+    wuServer: string;
+    wuStatusServer: string;
+    targetGroup: string;
+    auOptions: number | null;
+    auOptionsLabel: string;
+    sourceMode: 'wsus' | 'microsoft_update' | 'linux_pkg';
+  };
+  updateService: {
+    wuauservStatus: string;
+    wuauservStartType: string;
+    usoSvcStatus: string;
+  };
+  pendingReboot: {
+    required: boolean;
+    reasons: string[];
+  };
+  lastCheckTime: string;
+  lastInstallTime: string;
+  sourceScanned: 'wsus' | 'microsoft_update' | 'linux_pkg';
+  scanSucceeded: boolean;
+  scanNote?: string;
+  pendingUpdates: HelpdeskPendingUpdateItem[];
+}
+
+export async function collectEndpointUpdateStatus(
+  input: HelpdeskTargetInput,
+  sourceMode: 'auto' | 'wsus' | 'internet' = 'auto',
+  withOnlineScan = true
+): Promise<HelpdeskWindowsUpdateStatusResult> {
+  const safeSrc = sourceMode === 'wsus' || sourceMode === 'internet' ? sourceMode : 'auto';
+  const scanFlag = withOnlineScan ? '$true' : '$false';
+
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$wuPath = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate'
+$auPath = "$wuPath\\AU"
+$wuReg = Get-ItemProperty -Path $wuPath -ErrorAction SilentlyContinue
+$auReg = Get-ItemProperty -Path $auPath -ErrorAction SilentlyContinue
+$wuServer = if ($wuReg -and $wuReg.WUServer) { [string]$wuReg.WUServer } else { '' }
+$wuStatus = if ($wuReg -and $wuReg.WUStatusServer) { [string]$wuReg.WUStatusServer } else { '' }
+$tGroup = if ($wuReg -and $wuReg.TargetGroup) { [string]$wuReg.TargetGroup } else { '' }
+$useWu = ($auReg -and [int]$auReg.UseWUServer -eq 1 -and [bool]$wuServer)
+$auOpt = if ($auReg -and $null -ne $auReg.AUOptions) { [int]$auReg.AUOptions } else { $null }
+
+$wuaSvc = Get-CimInstance Win32_Service -Filter "Name='wuauserv'"
+$usoSvc = Get-CimInstance Win32_Service -Filter "Name='UsoSvc'"
+
+$rebReasons = @()
+if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired') { $rebReasons += 'Windows Update RebootRequired' }
+if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending') { $rebReasons += 'CBS RebootPending' }
+try {
+  $sm = Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue
+  if ($sm -and $sm.PendingFileRenameOperations) { $rebReasons += 'PendingFileRenameOperations' }
+} catch {}
+
+$lastSearch = ''; $lastInstall = ''
+try {
+  $autoUp = New-Object -ComObject Microsoft.Update.AutoUpdate
+  $res = $autoUp.Results
+  if ($res.LastSearchSuccessDate -and $res.LastSearchSuccessDate.Year -gt 1900) { $lastSearch = $res.LastSearchSuccessDate.ToString('yyyy-MM-dd HH:mm:ss') }
+  if ($res.LastInstallationSuccessDate -and $res.LastInstallationSuccessDate.Year -gt 1900) { $lastInstall = $res.LastInstallationSuccessDate.ToString('yyyy-MM-dd HH:mm:ss') }
+} catch {}
+
+$reqSrc = '${safeSrc}'
+$effectiveSource = if ($reqSrc -eq 'internet') { 'microsoft_update' } elseif ($reqSrc -eq 'wsus') { 'wsus' } elseif ($useWu) { 'wsus' } else { 'microsoft_update' }
+
+$pending = @()
+$scanOk = $true
+$scanNote = ''
+if (${scanFlag}) {
+  if ($reqSrc -eq 'wsus' -and (-not $useWu)) {
+    $scanOk = $false
+    $scanNote = 'WSUS policy (UseWUServer=1 / WUServer) is not configured on this workstation.'
+  } else {
+    try {
+      if ($wuaSvc -and $wuaSvc.State -ne 'Running') {
+        Start-Service -Name 'wuauserv' -ErrorAction SilentlyContinue
+      }
+      $session = New-Object -ComObject Microsoft.Update.Session
+      $searcher = $session.CreateUpdateSearcher()
+      if ($reqSrc -eq 'internet') {
+        $searcher.ServerSelection = 2
+      } else {
+        $searcher.ServerSelection = 0
+      }
+      $sRes = $searcher.Search("IsInstalled=0 and Type='Software' and IsHidden=0")
+      foreach ($u in $sRes.Updates) {
+        $kbs = @()
+        foreach ($kb in $u.KBArticleIDs) { $kbs += "KB$kb" }
+        $sz = [math]::Round(($u.MaxDownloadSize / 1MB), 1)
+        $pending += [PSCustomObject]@{
+          id = [string]$u.Identity.UpdateID
+          title = [string]$u.Title
+          kbIds = $kbs
+          severity = if ($u.MsrcSeverity) { [string]$u.MsrcSeverity } else { 'Normal' }
+          sizeMb = $sz
+          isDownloaded = [bool]$u.IsDownloaded
+          isMandatory = [bool]$u.IsMandatory
+          rebootRequired = [bool]($u.RebootRequired)
+          description = if ($u.Description) { ([string]$u.Description).Substring(0, [math]::Min(240, ([string]$u.Description).Length)) } else { '' }
+        }
+      }
+    } catch {
+      $scanOk = $false
+      $scanNote = $_.Exception.Message
+    }
+  }
+}
+
+[PSCustomObject]@{
+  hostname = [string]$env:COMPUTERNAME
+  wsusPolicy = [PSCustomObject]@{
+    configured = [bool]$wuServer
+    useWuServer = [bool]$useWu
+    wuServer = $wuServer
+    wuStatusServer = $wuStatus
+    targetGroup = $tGroup
+    auOptions = $auOpt
+    sourceMode = if ($useWu) { 'wsus' } else { 'microsoft_update' }
+  }
+  updateService = [PSCustomObject]@{
+    wuauservStatus = if ($wuaSvc) { [string]$wuaSvc.State } else { 'Unknown' }
+    wuauservStartType = if ($wuaSvc) { [string]$wuaSvc.StartMode } else { 'Unknown' }
+    usoSvcStatus = if ($usoSvc) { [string]$usoSvc.State } else { 'Unknown' }
+  }
+  pendingReboot = [PSCustomObject]@{
+    required = ($rebReasons.Count -gt 0)
+    reasons = $rebReasons
+  }
+  lastCheckTime = $lastSearch
+  lastInstallTime = $lastInstall
+  sourceScanned = $effectiveSource
+  scanSucceeded = $scanOk
+  scanNote = $scanNote
+  pendingUpdates = $pending
+} | ConvertTo-Json -Depth 6 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import json, os, socket, subprocess
+pending = []
+scan_ok, note = True, ""
+if ${withOnlineScan ? 'True' : 'False'}:
+    try:
+        out = subprocess.check_output(["sh", "-c", "apt list --upgradable 2>/dev/null || dnf check-update -q 2>/dev/null"], text=True, timeout=25)
+        for line in out.splitlines():
+            if not line.strip() or line.startswith("Listing"): continue
+            pkg = line.split()[0]
+            pending.append({"id": pkg, "title": line.strip(), "kbIds": [], "severity": "Normal", "sizeMb": 0, "isDownloaded": False, "isMandatory": False, "rebootRequired": False, "description": ""})
+    except Exception as e:
+        scan_ok, note = False, str(e)
+print(json.dumps({
+    "hostname": socket.gethostname(),
+    "wsusPolicy": {"configured": False, "useWuServer": False, "wuServer": "", "wuStatusServer": "", "targetGroup": "", "auOptions": None, "sourceMode": "linux_pkg"},
+    "updateService": {"wuauservStatus": "apt/dnf", "wuauservStartType": "Auto", "usoSvcStatus": "-"},
+    "pendingReboot": {"required": os.path.exists("/var/run/reboot-required"), "reasons": ["reboot-required"] if os.path.exists("/var/run/reboot-required") else []},
+    "lastCheckTime": "", "lastInstallTime": "",
+    "sourceScanned": "linux_pkg", "scanSucceeded": scan_ok, "scanNote": note,
+    "pendingUpdates": pending[:60]
+}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(90000, input.timeoutMs || 90000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'Windows Update & WSUS status');
+  const auCode = parsed.wsusPolicy?.auOptions !== null && parsed.wsusPolicy?.auOptions !== undefined
+    ? Number(parsed.wsusPolicy.auOptions)
+    : null;
+  const auLabels: Record<number, string> = {
+    2: 'Notify before download',
+    3: 'Auto download & notify for install',
+    4: 'Auto download & scheduled install',
+    5: 'Allow local admin to choose setting',
+  };
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    collectedAt: new Date().toISOString(),
+    wsusPolicy: {
+      configured: Boolean(parsed.wsusPolicy?.configured),
+      useWuServer: Boolean(parsed.wsusPolicy?.useWuServer),
+      wuServer: String(parsed.wsusPolicy?.wuServer || ''),
+      wuStatusServer: String(parsed.wsusPolicy?.wuStatusServer || ''),
+      targetGroup: String(parsed.wsusPolicy?.targetGroup || ''),
+      auOptions: auCode,
+      auOptionsLabel: auCode !== null && auLabels[auCode] ? auLabels[auCode] : 'Default Policy',
+      sourceMode: parsed.wsusPolicy?.sourceMode === 'wsus'
+        ? 'wsus'
+        : parsed.wsusPolicy?.sourceMode === 'linux_pkg'
+        ? 'linux_pkg'
+        : 'microsoft_update',
+    },
+    updateService: {
+      wuauservStatus: String(parsed.updateService?.wuauservStatus || 'Unknown'),
+      wuauservStartType: String(parsed.updateService?.wuauservStartType || 'Unknown'),
+      usoSvcStatus: String(parsed.updateService?.usoSvcStatus || 'Unknown'),
+    },
+    pendingReboot: {
+      required: Boolean(parsed.pendingReboot?.required),
+      reasons: Array.isArray(parsed.pendingReboot?.reasons)
+        ? parsed.pendingReboot.reasons.map(String)
+        : [],
+    },
+    lastCheckTime: String(parsed.lastCheckTime || ''),
+    lastInstallTime: String(parsed.lastInstallTime || ''),
+    sourceScanned: parsed.sourceScanned === 'wsus'
+      ? 'wsus'
+      : parsed.sourceScanned === 'linux_pkg'
+      ? 'linux_pkg'
+      : 'microsoft_update',
+    scanSucceeded: Boolean(parsed.scanSucceeded),
+    scanNote: parsed.scanNote ? String(parsed.scanNote) : undefined,
+    pendingUpdates: Array.isArray(parsed.pendingUpdates)
+      ? parsed.pendingUpdates.map((u: any) => ({
+          id: String(u.id || ''),
+          title: String(u.title || 'Update'),
+          kbIds: Array.isArray(u.kbIds) ? u.kbIds.map(String) : u.kbIds ? [String(u.kbIds)] : [],
+          severity: String(u.severity || 'Normal'),
+          sizeMb: Number(u.sizeMb) || 0,
+          isDownloaded: Boolean(u.isDownloaded),
+          isMandatory: Boolean(u.isMandatory),
+          rebootRequired: Boolean(u.rebootRequired),
+          description: String(u.description || ''),
+        }))
+      : [],
+  };
+}
+
+export async function installEndpointWindowsUpdates(
+  input: HelpdeskTargetInput,
+  options: {
+    source?: 'auto' | 'wsus' | 'internet';
+    kbFilter?: string[];
+  } = {}
+): Promise<HelpdeskActionResult> {
+  const src: 'auto' | 'wsus' | 'internet' =
+    options.source === 'wsus' || options.source === 'internet' ? options.source : 'auto';
+  const validKbs: string[] = [];
+  for (const k of options.kbFilter || []) {
+    const clean = String(k || '').trim().toUpperCase().replace(/^KB/, '');
+    if (/^\d{5,9}$/.test(clean)) validKbs.push(clean);
+  }
+  const kbJson = Buffer.from(JSON.stringify({ src, validKbs }), 'utf8').toString('base64');
+
+  const winPs = `
+$ErrorActionPreference = 'Stop'
+$cfg = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${kbJson}')) | ConvertFrom-Json
+$auReg = Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU' -ErrorAction SilentlyContinue
+$wuReg = Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate' -ErrorAction SilentlyContinue
+$useWu = ($auReg -and [int]$auReg.UseWUServer -eq 1 -and $wuReg -and [bool]$wuReg.WUServer)
+$effSrc = if ($cfg.src -eq 'internet') { 'Microsoft Update (Internet)' } elseif ($cfg.src -eq 'wsus') { "WSUS ($($wuReg.WUServer))" } elseif ($useWu) { "WSUS ($($wuReg.WUServer))" } else { 'Microsoft Update (Internet)' }
+
+if ($cfg.src -eq 'wsus' -and (-not $useWu)) {
+  [PSCustomObject]@{ ok = $false; installedCount = 0; foundCount = 0; rebootRequired = $false; sourceUsed = 'WSUS'; output = 'WSUS GPO (UseWUServer=1 / WUServer) is not configured on this workstation.' } | ConvertTo-Json -Compress
+  exit 0
+}
+
+try { Start-Service -Name 'wuauserv' -ErrorAction SilentlyContinue } catch {}
+$session = New-Object -ComObject Microsoft.Update.Session
+$searcher = $session.CreateUpdateSearcher()
+$searcher.ServerSelection = if ($cfg.src -eq 'internet') { 2 } else { 0 }
+$sRes = $searcher.Search("IsInstalled=0 and Type='Software' and IsHidden=0")
+
+$toInstall = New-Object -ComObject Microsoft.Update.UpdateColl
+$kbSet = @{}
+foreach ($k in $cfg.validKbs) { $kbSet[$k] = $true }
+$titles = @()
+
+foreach ($u in $sRes.Updates) {
+  if ($kbSet.Count -gt 0) {
+    $matched = $false
+    foreach ($ukb in $u.KBArticleIDs) { if ($kbSet.ContainsKey([string]$ukb)) { $matched = $true } }
+    if (-not $matched) { continue }
+  }
+  if ($u.EulaAccepted -eq $false) { try { $u.AcceptEula() } catch {} }
+  $toInstall.Add($u) | Out-Null
+  $titles += [string]$u.Title
+}
+
+if ($toInstall.Count -eq 0) {
+  [PSCustomObject]@{ ok = $true; installedCount = 0; foundCount = 0; rebootRequired = $false; sourceUsed = $effSrc; output = "No pending updates matched on $effSrc. System is up to date." } | ConvertTo-Json -Compress
+  exit 0
+}
+
+$downloader = $session.CreateUpdateDownloader()
+$downloader.Updates = $toInstall
+$dlRes = $downloader.Download()
+
+$readyColl = New-Object -ComObject Microsoft.Update.UpdateColl
+foreach ($u in $toInstall) {
+  if ($u.IsDownloaded) { $readyColl.Add($u) | Out-Null }
+}
+if ($readyColl.Count -eq 0) {
+  [PSCustomObject]@{ ok = $false; installedCount = 0; foundCount = $toInstall.Count; rebootRequired = $false; sourceUsed = $effSrc; output = "Download failed from $effSrc (Downloader ResultCode=$($dlRes.ResultCode))." } | ConvertTo-Json -Compress
+  exit 0
+}
+
+$installer = $session.CreateUpdateInstaller()
+$installer.Updates = $readyColl
+$installer.ForceQuiet = $true
+$instRes = $installer.Install()
+
+$installedCnt = 0
+for ($i = 0; $i -lt $readyColl.Count; $i++) {
+  if ($instRes.GetUpdateResult($i).ResultCode -eq 2) { $installedCnt++ }
+}
+try { & UsoClient.exe RefreshSettings | Out-Null } catch {}
+
+[PSCustomObject]@{
+  ok = ($instRes.ResultCode -eq 2 -or $instRes.ResultCode -eq 3 -or $installedCnt -gt 0)
+  installedCount = $installedCnt
+  foundCount = $toInstall.Count
+  rebootRequired = [bool]$instRes.RebootRequired
+  sourceUsed = $effSrc
+  output = "Source: $effSrc | ResultCode: $($instRes.ResultCode) | Installed: $installedCnt/$($toInstall.Count) | RebootRequired: $($instRes.RebootRequired)\\n" + ($titles -join "\\n")
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import json, subprocess
+p = subprocess.run(["sh", "-c", "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get -y upgrade || dnf -y upgrade"], capture_output=True, text=True, timeout=180)
+print(json.dumps({"ok": p.returncode == 0, "installedCount": 1 if p.returncode == 0 else 0, "foundCount": 1, "rebootRequired": False, "sourceUsed": "Linux Package Repo", "output": (p.stdout + p.stderr)[-4000:]}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(240000, input.timeoutMs || 240000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'Windows Update install');
+  const ok = Boolean(parsed.ok);
+  const installedCount = Number(parsed.installedCount) || 0;
+  const foundCount = Number(parsed.foundCount) || 0;
+  const rebootRequired = Boolean(parsed.rebootRequired);
+  const sourceUsed = String(parsed.sourceUsed || src);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'windows_update_install',
+    success: ok,
+    message: !ok
+      ? `Windows Update installation from ${sourceUsed} failed on ${execRes.host}: ${parsed.output}`
+      : foundCount === 0
+      ? `System ${execRes.host} is already up to date (${sourceUsed}).`
+      : `Installed ${installedCount}/${foundCount} update(s) from ${sourceUsed} on ${execRes.host}.${rebootRequired ? ' Reboot required to finish.' : ''}`,
+    messageFa: !ok
+      ? `نصب آپدیت از ${sourceUsed} روی ${execRes.host} ناموفق بود: ${parsed.output}`
+      : foundCount === 0
+      ? `سیستم ${execRes.host} بر اساس منبع ${sourceUsed} کاملاً بروز است (آپدیت جدیدی وجود نداشت).`
+      : `${installedCount} از ${foundCount} آپدیت از طریق ${sourceUsed} روی ${execRes.host} نصب شد.${rebootRequired ? ' (نیازمند ری‌استارت سیستم)' : ''}`,
+    details: {
+      sourceRequested: src,
+      sourceUsed,
+      foundCount,
+      installedCount,
+      rebootRequired,
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function uninstallEndpointHotfix(
+  input: HelpdeskTargetInput,
+  rawKbId: string
+): Promise<HelpdeskActionResult> {
+  const cleanKb = String(rawKbId || '').trim().toUpperCase();
+  const m = cleanKb.match(/^(?:KB)?(\d{5,9})$/);
+  if (!m) {
+    throw new Error('Invalid Windows Update KB ID. Expected format: KB5034122');
+  }
+  const kbNum = m[1];
+  const kbFull = `KB${kbNum}`;
+
+  const winPs = `
+$ErrorActionPreference = 'Continue'
+$kbNum = '${kbNum}'
+$kbFull = '${kbFull}'
+$out = ''
+$code = -1
+$ok = $false
+$reb = $false
+
+$p = Start-Process -FilePath 'wusa.exe' -ArgumentList @('/uninstall', "/kb:$kbNum", '/quiet', '/norestart') -Wait -PassThru -NoNewWindow
+$code = $p.ExitCode
+if ($code -eq 0 -or $code -eq 3010) {
+  $ok = $true
+  $reb = ($code -eq 3010)
+  $out = "wusa.exe /uninstall /kb:$kbNum completed with ExitCode=$code"
+} else {
+  $out = "wusa.exe returned ExitCode=$code. Trying DISM package lookup..."
+  try {
+    $dismList = (& dism.exe /Online /Get-Packages /Format:Table 2>&1 | Out-String)
+    $pkgName = ''
+    foreach ($ln in ($dismList -split "\`r?\`n")) {
+      if ($ln -match "(Package_for_[^\\s|]*$kbFull[^\\s|]*|[^\\s|]*KB$kbNum[^\\s|]*)") {
+        $pkgName = $Matches[1].Trim()
+        break
+      }
+    }
+    if ($pkgName) {
+      $dOut = (& dism.exe /Online /Remove-Package /PackageName:$pkgName /Quiet /NoRestart 2>&1 | Out-String).Trim()
+      $dCode = $LASTEXITCODE
+      $out += "\`nDISM /Remove-Package ($pkgName) ExitCode=$dCode: $dOut"
+      if ($dCode -eq 0 -or $dCode -eq 3010) {
+        $ok = $true
+        $reb = ($dCode -eq 3010)
+      }
+    } else {
+      $out += "\`nNo removable CBS package matched $kbFull (the update may be permanent or already removed)."
+    }
+  } catch {
+    $out += "\`nDISM fallback error: $($_.Exception.Message)"
+  }
+}
+
+[PSCustomObject]@{ ok = $ok; exitCode = $code; rebootRequired = $reb; output = $out } | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import json
+print(json.dumps({"ok": False, "exitCode": 1, "rebootRequired": False, "output": "Windows KB uninstallation (wusa/DISM) only applies to Windows workstations."}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(180000, input.timeoutMs || 180000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, `uninstall ${kbFull}`);
+  const ok = Boolean(parsed.ok);
+  const reb = Boolean(parsed.rebootRequired);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'windows_update_uninstall',
+    success: ok,
+    message: ok
+      ? `Windows Update ${kbFull} was uninstalled on ${execRes.host}.${reb ? ' A system reboot is required to complete removal.' : ''}`
+      : `Could not uninstall ${kbFull} on ${execRes.host}: ${parsed.output}`,
+    messageFa: ok
+      ? `آپدیت ${kbFull} روی سیستم ${execRes.host} با موفقیت حذف (Uninstall) شد.${reb ? ' برای تکمیل حذف، ری‌استارت سیستم لازم است.' : ''}`
+      : `حذف آپدیت ${kbFull} روی ${execRes.host} ناموفق بود (ممکن است آپدیت سیستمی دائمی باشد): ${parsed.output}`,
+    details: {
+      kbId: kbFull,
+      exitCode: Number(parsed.exitCode ?? -1),
+      rebootRequired: reb,
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
   };
 }
 
@@ -7533,17 +9224,30 @@ export function getHelpdeskJeaTemplates() {
         'Test-Path',
         'Resolve-DnsName',
         'Clear-DnsClientCache',
+        'Get-NetAdapter',
+        'Get-NetIPAddress',
+        'New-NetIPAddress',
+        'Remove-NetIPAddress',
+        'Set-NetIPInterface',
+        'Set-DnsClientServerAddress',
+        'Get-NetRoute',
+        'New-NetRoute',
+        'Remove-NetRoute',
         'Get-Service',
-        @{ Name = 'Restart-Service'; Parameters = @{ Name = 'Name'; ValidateSet = 'Spooler' } },
+        @{ Name = 'Restart-Service'; Parameters = @{ Name = 'Name'; ValidateSet = 'Spooler', 'wuauserv' } },
         @{ Name = 'Stop-Service'; Parameters = @{ Name = 'Name'; ValidateSet = 'Spooler' } },
-        @{ Name = 'Start-Service'; Parameters = @{ Name = 'Name'; ValidateSet = 'Spooler' } },
+        @{ Name = 'Start-Service'; Parameters = @{ Name = 'Name'; ValidateSet = 'Spooler', 'wuauserv' } },
         'ConvertTo-Json', 'Select-Object', 'Sort-Object', 'Where-Object', 'ForEach-Object', 'Start-Sleep', 'Out-String'
     )
     VisibleExternalCommands = @(
         'C:\\Windows\\System32\\systeminfo.exe',
         'C:\\Windows\\System32\\ping.exe',
+        'C:\\Windows\\System32\\tracert.exe',
         'C:\\Windows\\System32\\ipconfig.exe',
         'C:\\Windows\\System32\\nslookup.exe',
+        'C:\\Windows\\System32\\route.exe',
+        'C:\\Windows\\System32\\netsh.exe',
+        'C:\\Windows\\System32\\wusa.exe',
         'C:\\Windows\\System32\\gpresult.exe',
         'C:\\Windows\\System32\\gpupdate.exe',
         'C:\\Windows\\System32\\sfc.exe',
