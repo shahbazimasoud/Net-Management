@@ -1236,6 +1236,136 @@ export async function installHelpdeskPrintServerPrinter(
   return res.json();
 }
 
+export async function fetchHelpdeskEndpointShares(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: {
+    targetIp: string;
+    protocolUsed: string;
+    portUsed: number;
+    osFamily: 'windows' | 'linux';
+    hostname: string;
+    loggedInUser: string;
+    loggedInUserSid: string;
+    collectedAt: string;
+    userProfiles: Array<{
+      username: string;
+      sid: string;
+      profilePath: string;
+      isLoaded: boolean;
+      isActiveLoggedIn: boolean;
+    }>;
+    shares: Array<{
+      id: string;
+      driveLetter: string;
+      remotePath: string;
+      label: string;
+      status: string;
+      persistent: boolean;
+      scope: 'user' | 'all_users' | 'machine';
+      ownerUser: string;
+      ownerSid: string;
+      provider: string;
+      managedRuleName?: string;
+    }>;
+  };
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/shares/status`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to inspect mapped network shares');
+  return res.json();
+}
+
+export async function fetchHelpdeskFileServerShares(
+  payload: HelpdeskConnectionPayload & {
+    fileServer: string;
+    fileServerUsername?: string;
+    fileServerPassword?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: {
+    targetIp: string;
+    fileServer: string;
+    protocolUsed: string;
+    osFamily: 'windows' | 'linux';
+    loggedInUser: string;
+    collectedAt: string;
+    shares: Array<{
+      name: string;
+      uncPath: string;
+      description: string;
+      shareType: string;
+      isAdminShare: boolean;
+      alreadyMapped: boolean;
+      mappedDriveLetter: string;
+    }>;
+  };
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/shares/server/list`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to query file server shares');
+  return res.json();
+}
+
+export async function mapHelpdeskEndpointShare(
+  payload: HelpdeskConnectionPayload & {
+    remotePath: string;
+    driveLetter?: string;
+    scope: 'active_user' | 'specific_user' | 'all_users';
+    targetSids?: string[];
+    persistent?: boolean;
+    label?: string;
+    shareUsername?: string;
+    sharePassword?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/shares/map`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to map network share');
+  return res.json();
+}
+
+export async function disconnectHelpdeskEndpointShare(
+  payload: HelpdeskConnectionPayload & {
+    remotePath: string;
+    driveLetter?: string;
+    scope?: 'user' | 'all_users' | 'machine' | 'auto';
+    ownerSid?: string;
+    managedRuleName?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/shares/disconnect`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to disconnect network share');
+  return res.json();
+}
+
 export async function fetchHelpdeskEventLogs(
   payload: HelpdeskConnectionPayload & {
     channel?: 'All' | 'System' | 'Application';

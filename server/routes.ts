@@ -53,6 +53,10 @@ import {
   deleteEndpointPrinter,
   listPrintServerPrinters,
   installPrintServerPrinter,
+  collectEndpointMappedShares,
+  listFileServerShares,
+  mapEndpointNetworkShare,
+  disconnectEndpointNetworkShare,
   collectEndpointEventLogs,
   terminateEndpointUserProcess,
   scanEndpointTempFolders,
@@ -8571,6 +8575,252 @@ apiRouter.post('/helpdesk/printers/install', async (req: Request, res: Response)
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Failed to install printer from print server');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/shares/status - Read Mapped Network Drives & User Profiles on Workstation
+apiRouter.post('/helpdesk/shares/status', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointMappedShares(target);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_shares_inspect',
+      title: `بررسی پوشه‌های اشتراکی مپ‌شده روی ${data.targetIp}`,
+      title_en: `HelpDesk Mapped Shares Inspection on ${data.targetIp}`,
+      description: `${data.shares.length} پوشه اشتراکی/درایو شبکه و ${data.userProfiles.length} پروفایل کاربر روی ${data.hostname} شناسایی شد.`,
+      description_en: `Discovered ${data.shares.length} mapped share(s) and ${data.userProfiles.length} user profile(s) on ${data.hostname}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, sharesCount: data.shares.length, profilesCount: data.userProfiles.length },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to inspect mapped network shares');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/shares/server/list - Browse Shared Folders on a File Server from Workstation Context
+apiRouter.post('/helpdesk/shares/server/list', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const fileServer = String(req.body?.fileServer || '').trim();
+  const fileServerUsername = req.body?.fileServerUsername ? String(req.body.fileServerUsername).trim() : undefined;
+  const fileServerPassword = req.body?.fileServerPassword ? String(req.body.fileServerPassword) : undefined;
+  if (!fileServer) {
+    return res.status(400).json({
+      success: false,
+      error: 'File server hostname or IP address is required.',
+      errorFa: 'آدرس IP یا نام فایل سرور الزامی است.',
+    });
+  }
+
+  try {
+    const data = await listFileServerShares({
+      ...target,
+      fileServer,
+      fileServerUsername,
+      fileServerPassword,
+    });
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_shares_server_browse',
+      title: `دریافت لیست پوشه‌های اشتراکی سرور ${data.fileServer} از طریق ${data.targetIp}`,
+      title_en: `HelpDesk Browsed File Server ${data.fileServer} via ${data.targetIp}`,
+      description: `${data.shares.length} پوشه اشتراکی روی سرور ${data.fileServer} شناسایی شد.`,
+      description_en: `Discovered ${data.shares.length} shared folder(s) on file server ${data.fileServer}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, fileServer: data.fileServer, count: data.shares.length },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to query file server shares');
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/shares/map - Map Shared Folder for Active User, Specific User(s), or All Users on Workstation
+apiRouter.post('/helpdesk/shares/map', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const remotePath = String(req.body?.remotePath || '').trim();
+  const driveLetter = req.body?.driveLetter ? String(req.body.driveLetter).trim() : '';
+  const rawScope = String(req.body?.scope || 'active_user').trim();
+  const scope: 'active_user' | 'specific_user' | 'all_users' =
+    rawScope === 'specific_user' || rawScope === 'all_users' ? rawScope : 'active_user';
+  const targetSids = Array.isArray(req.body?.targetSids) ? req.body.targetSids.map(String) : [];
+  const persistent = req.body?.persistent !== false;
+  const label = req.body?.label ? String(req.body.label).trim() : '';
+  const shareUsername = req.body?.shareUsername ? String(req.body.shareUsername).trim() : undefined;
+  const sharePassword = req.body?.sharePassword ? String(req.body.sharePassword) : undefined;
+
+  if (!remotePath) {
+    return res.status(400).json({
+      success: false,
+      error: 'UNC share path (\\\\server\\share) is required.',
+      errorFa: 'مسیر اشتراکی UNC (مثلاً \\\\server\\share) الزامی است.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'share_map');
+  if (!rl.allowed) {
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await mapEndpointNetworkShare({
+      ...target,
+      remotePath,
+      driveLetter,
+      scope,
+      targetSids,
+      persistent,
+      label,
+      shareUsername,
+      sharePassword,
+    });
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_share_map',
+      title: `مپ کردن پوشه اشتراکی ${data.driveLetter ? data.driveLetter + ' ' : ''}${data.remotePath} روی ${data.targetIp}`,
+      title_en: `HelpDesk Mapped Network Share ${data.remotePath} on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        remotePath: data.remotePath,
+        driveLetter: data.driveLetter,
+        scope: data.scope,
+        appliedUsers: data.appliedUsers,
+        persistent: data.persistent,
+        managedRuleName: data.managedRuleName || null,
+        protocol: data.protocolUsed,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to map network share');
+    return res.status(/invalid|blocked|required|select/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/shares/disconnect - Disconnect / Remove Mapped Share from User Profile or Workstation
+apiRouter.post('/helpdesk/shares/disconnect', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const remotePath = String(req.body?.remotePath || '').trim();
+  const driveLetter = req.body?.driveLetter ? String(req.body.driveLetter).trim() : '';
+  const rawScope = String(req.body?.scope || 'auto').trim().toLowerCase();
+  const scope: 'user' | 'all_users' | 'machine' | 'auto' =
+    rawScope === 'user' || rawScope === 'all_users' || rawScope === 'machine' ? rawScope : 'auto';
+  const ownerSid = req.body?.ownerSid ? String(req.body.ownerSid).trim() : undefined;
+  const managedRuleName = req.body?.managedRuleName ? String(req.body.managedRuleName).trim() : undefined;
+
+  if (!remotePath) {
+    return res.status(400).json({
+      success: false,
+      error: 'Remote share path is required.',
+      errorFa: 'مسیر پوشه اشتراکی الزامی است.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'share_disconnect');
+  if (!rl.allowed) {
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await disconnectEndpointNetworkShare({
+      ...target,
+      remotePath,
+      driveLetter,
+      scope,
+      ownerSid,
+      managedRuleName,
+    });
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_share_disconnect',
+      title: `قطع اتصال پوشه اشتراکی «${driveLetter || remotePath}» از ${data.targetIp}`,
+      title_en: `HelpDesk Disconnected Share ${remotePath} on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'warning',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        remotePath,
+        driveLetter,
+        scope,
+        managedRuleName: managedRuleName || null,
+        protocol: data.protocolUsed,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to disconnect network share');
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,

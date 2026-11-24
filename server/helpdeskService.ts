@@ -23,6 +23,8 @@ export type HelpdeskWriteAction =
   | 'printer_set_default'
   | 'printer_delete'
   | 'printer_install'
+  | 'share_map'
+  | 'share_disconnect'
   | 'process_terminate'
   | 'temp_clean'
   | 'gpupdate_force'
@@ -255,6 +257,71 @@ export interface HelpdeskPrinterInstallResult extends HelpdeskActionResult {
   methodUsed: string;
   loggedInUser: string;
   setAsDefault: boolean;
+}
+
+export interface HelpdeskUserProfileItem {
+  username: string;
+  sid: string;
+  profilePath: string;
+  isLoaded: boolean;
+  isActiveLoggedIn: boolean;
+}
+
+export interface HelpdeskMappedShareItem {
+  id: string;
+  driveLetter: string;
+  remotePath: string;
+  label: string;
+  status: string;
+  persistent: boolean;
+  scope: 'user' | 'all_users' | 'machine';
+  ownerUser: string;
+  ownerSid: string;
+  provider: string;
+  managedRuleName?: string;
+}
+
+export interface HelpdeskSharesResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  loggedInUser: string;
+  loggedInUserSid: string;
+  collectedAt: string;
+  userProfiles: HelpdeskUserProfileItem[];
+  shares: HelpdeskMappedShareItem[];
+}
+
+export interface HelpdeskFileServerShareItem {
+  name: string;
+  uncPath: string;
+  description: string;
+  shareType: string;
+  isAdminShare: boolean;
+  alreadyMapped: boolean;
+  mappedDriveLetter: string;
+}
+
+export interface HelpdeskFileServerListResult {
+  targetIp: string;
+  fileServer: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  osFamily: 'windows' | 'linux';
+  loggedInUser: string;
+  collectedAt: string;
+  shares: HelpdeskFileServerShareItem[];
+}
+
+export interface HelpdeskShareMapResult extends HelpdeskActionResult {
+  remotePath: string;
+  driveLetter: string;
+  scope: 'active_user' | 'specific_user' | 'all_users';
+  appliedUsers: string[];
+  loggedInUser: string;
+  persistent: boolean;
+  managedRuleName?: string;
 }
 
 export interface HelpdeskRateLimitStatus {
@@ -5431,6 +5498,1186 @@ PYEOF`;
     capacityHistory,
     sourceMethod: String(parsed.sourceMethod || 'WMI'),
     collectedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// 19B. MAPPED NETWORK DRIVES & SHARED FOLDERS MANAGEMENT
+// ============================================================================
+
+function validateUncSharePath(rawUnc: unknown): {
+  uncPath: string;
+  fileServer: string;
+  shareName: string;
+} {
+  const raw = String(rawUnc || '')
+    .trim()
+    .replace(/\//g, '\\')
+    .replace(/\\+$/, '');
+  if (!raw || raw.length > 260) {
+    throw new Error('UNC share path is required and must be at most 260 characters.');
+  }
+  if (/[\r\n\0"`$|;&<>]/.test(raw)) {
+    throw new Error('UNC share path contains forbidden characters.');
+  }
+  const m = raw.match(/^\\\\([^\\]+)\\([^\\]+)(?:\\(.*))?$/);
+  if (!m) {
+    throw new Error('UNC share path must follow \\\\Server\\ShareName format (e.g. \\\\fileserver\\Shared).');
+  }
+  const fileServer = validateTargetEndpointHost(m[1]);
+  const shareName = m[2].trim();
+  const subPath = m[3] ? m[3].trim().replace(/^\\+|\\+$/g, '') : '';
+  if (!shareName || shareName === '.' || shareName === '..') {
+    throw new Error('Invalid share folder name in UNC path.');
+  }
+  const normalizedUnc = subPath
+    ? `\\\\${fileServer}\\${shareName}\\${subPath}`
+    : `\\\\${fileServer}\\${shareName}`;
+  return {
+    uncPath: normalizedUnc,
+    fileServer,
+    shareName,
+  };
+}
+
+function validateLinuxMountPath(rawPath: unknown): string {
+  const p = String(rawPath || '').trim();
+  if (!p || p.length > 260 || /[\r\n\0"`$|;&<>]/.test(p)) {
+    throw new Error('Invalid Linux mount path.');
+  }
+  return p;
+}
+
+function validateDriveLetterInput(rawLetter: unknown): string {
+  const val = String(rawLetter || '').trim().toUpperCase().replace(/:$/, '');
+  if (!val || val === 'NONE' || val === 'UNC') return '';
+  if (val === 'AUTO') return 'AUTO';
+  if (!/^[D-Z]$/.test(val)) {
+    throw new Error('Drive letter must be between D: and Z: (or AUTO / empty for UNC connection).');
+  }
+  return `${val}:`;
+}
+
+function validateProfileSidInput(rawSid: unknown): string {
+  const sid = String(rawSid || '').trim();
+  if (!/^S-1-5-21-[0-9-]{6,120}$/.test(sid)) {
+    throw new Error('Invalid Windows user profile SID format.');
+  }
+  return sid;
+}
+
+function validateShareLabelInput(rawLabel: unknown): string {
+  const lbl = String(rawLabel || '').trim();
+  if (!lbl) return '';
+  if (lbl.length > 64 || /[\r\n\0]/.test(lbl)) {
+    throw new Error('Drive label must be at most 64 characters without control characters.');
+  }
+  return lbl;
+}
+
+function validateManagedRuleNameInput(rawRule: unknown): string {
+  const name = String(rawRule || '').trim();
+  if (!name) return '';
+  if (!/^NetTopo_MapDrive_[A-Za-z0-9_-]{1,64}$/.test(name)) {
+    throw new Error('Invalid managed drive rule name.');
+  }
+  return name;
+}
+
+export async function collectEndpointMappedShares(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskSharesResult> {
+  const ps = `
+$ErrorActionPreference = 'SilentlyContinue'
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+$profiles = @()
+$sidToName = @{}
+$loadedHives = @{}
+
+try {
+  $plist = Get-ChildItem -Path 'Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList' -ErrorAction SilentlyContinue
+  foreach ($pk in $plist) {
+    $sid = [string]$pk.PSChildName
+    if ($sid -notmatch '^S-1-5-21-') { continue }
+    $props = Get-ItemProperty -Path $pk.PSPath -ErrorAction SilentlyContinue
+    $pPath = if ($props -and $props.ProfileImagePath) { [string]$props.ProfileImagePath } else { '' }
+    $acctName = ''
+    try {
+      $sidObj = New-Object System.Security.Principal.SecurityIdentifier($sid)
+      $acctName = $sidObj.Translate([System.Security.Principal.NTAccount]).Value
+    } catch {
+      if ($pPath) { $acctName = Split-Path -Path $pPath -Leaf } else { $acctName = $sid }
+    }
+    $isLoaded = Test-Path ("Registry::HKEY_USERS\\" + $sid)
+    if ($isLoaded) { $loadedHives[$sid] = $true }
+    $sidToName[$sid] = $acctName
+    $profiles += [PSCustomObject]@{
+      username = $acctName
+      sid = $sid
+      profilePath = $pPath
+      isLoaded = $isLoaded
+      isActiveLoggedIn = ($userSid -and $sid -eq $userSid)
+    }
+  }
+} catch {}
+
+if ($userSid -and -not $sidToName.ContainsKey($userSid)) {
+  $sidToName[$userSid] = if ($loggedUser) { $loggedUser } else { $userSid }
+  $loadedHives[$userSid] = $true
+  $profiles = @([PSCustomObject]@{
+    username = $sidToName[$userSid]
+    sid = $userSid
+    profilePath = ''
+    isLoaded = $true
+    isActiveLoggedIn = $true
+  }) + $profiles
+}
+
+$shares = @()
+$seenKeys = @{}
+
+function Get-ExplorerDriveLabel($sid, $unc) {
+  if (-not $sid -or -not $unc) { return '' }
+  try {
+    $keyName = ($unc.TrimStart('\\')).Replace('\\', '#')
+    $mp = "Registry::HKEY_USERS\\$sid\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2\\##$keyName"
+    if (Test-Path $mp) {
+      $v = Get-ItemProperty -Path $mp -Name '_LabelFromReg' -ErrorAction SilentlyContinue
+      if ($v -and $v._LabelFromReg) { return [string]$v._LabelFromReg }
+    }
+  } catch {}
+  return ''
+}
+
+# 1. Active session / WMI mapped disks and SMB mappings (includes live session state)
+$liveMapByLocal = @{}
+try {
+  foreach ($m in (Get-CimInstance Win32_MappedLogicalDisk -ErrorAction SilentlyContinue)) {
+    $loc = ([string]$m.DeviceID).ToUpper()
+    if ($loc) { $liveMapByLocal[$loc] = [string]$m.ProviderName }
+  }
+} catch {}
+if (Get-Command Get-SmbMapping -ErrorAction SilentlyContinue) {
+  try {
+    foreach ($sm in (Get-SmbMapping -ErrorAction SilentlyContinue)) {
+      $loc = ([string]$sm.LocalPath).ToUpper()
+      if ($loc) { $liveMapByLocal[$loc] = [string]$sm.RemotePath }
+    }
+  } catch {}
+}
+
+# 2. All loaded HKEY_USERS\\<SID>\\Network drives (captures active interactive user + other loaded sessions accurately)
+foreach ($sid in $loadedHives.Keys) {
+  $netRoot = "Registry::HKEY_USERS\\$sid\\Network"
+  if (-not (Test-Path $netRoot)) { continue }
+  $ownerName = if ($sidToName.ContainsKey($sid)) { $sidToName[$sid] } else { $sid }
+  foreach ($nk in (Get-ChildItem -Path $netRoot -ErrorAction SilentlyContinue)) {
+    $letter = ([string]$nk.PSChildName).Trim().ToUpper()
+    if (-not $letter) { continue }
+    $dl = $letter + ':'
+    $props = Get-ItemProperty -Path $nk.PSPath -ErrorAction SilentlyContinue
+    $remote = if ($props -and $props.RemotePath) { [string]$props.RemotePath } else { '' }
+    if (-not $remote) { continue }
+    $prov = if ($props -and $props.ProviderName) { [string]$props.ProviderName } else { 'Microsoft Windows Network' }
+    $lbl = Get-ExplorerDriveLabel $sid $remote
+    $isLiveInWmi = $liveMapByLocal.ContainsKey($dl)
+    $st = if ($isLiveInWmi) { 'Connected' } elseif ($sid -eq $userSid) { 'Persistent (Active Profile)' } else { 'Persistent (Loaded Profile)' }
+    $k = "user|$sid|$dl|$($remote.ToLower())"
+    $seenKeys[$k] = $true
+    $shares += [PSCustomObject]@{
+      id = $k
+      driveLetter = $dl
+      remotePath = $remote
+      label = $lbl
+      status = $st
+      persistent = $true
+      scope = 'user'
+      ownerUser = $ownerName
+      ownerSid = $sid
+      provider = $prov
+      managedRuleName = ''
+    }
+  }
+}
+
+# 3. NetTopo managed logon rules (All Users / Specific User persistent rules)
+try {
+  $tasks = Get-ScheduledTask -TaskName 'NetTopo_MapDrive_*' -ErrorAction SilentlyContinue
+  foreach ($t in $tasks) {
+    $desc = [string]$t.Description
+    if ($desc -like 'NetTopoMappedShare|*') {
+      $parts = @{}
+      foreach ($seg in ($desc.Substring(19).Split('|'))) {
+        $eq = $seg.IndexOf('=')
+        if ($eq -gt 0) {
+          $parts[$seg.Substring(0, $eq)] = $seg.Substring($eq + 1)
+        }
+      }
+      $dl = if ($parts.ContainsKey('drive')) { [string]$parts['drive'] } else { '' }
+      $rem = if ($parts.ContainsKey('path')) { [string]$parts['path'] } else { '' }
+      $sc = if ($parts.ContainsKey('scope') -and $parts['scope'] -eq 'user') { 'user' } else { 'all_users' }
+      $own = if ($parts.ContainsKey('owner') -and $parts['owner']) { [string]$parts['owner'] } elseif ($sc -eq 'all_users') { 'All Users (Logon Policy)' } else { '' }
+      $lbl = if ($parts.ContainsKey('label')) { [string]$parts['label'] } else { '' }
+      if (-not $rem) { continue }
+      $k = "rule|$($t.TaskName)"
+      $seenKeys[$k] = $true
+      $shares += [PSCustomObject]@{
+        id = $k
+        driveLetter = $dl
+        remotePath = $rem
+        label = $lbl
+        status = if ($sc -eq 'all_users') { 'Active All-Users Logon Rule' } else { 'Scheduled User Logon Rule' }
+        persistent = $true
+        scope = $sc
+        ownerUser = $own
+        ownerSid = if ($parts.ContainsKey('sid')) { [string]$parts['sid'] } else { '' }
+        provider = 'NetTopo Persistent Rule'
+        managedRuleName = [string]$t.TaskName
+      }
+    }
+  }
+} catch {}
+
+# 4. Any active machine / SMB / WMI network connection not yet covered by user HKU entries
+try {
+  foreach ($nc in (Get-CimInstance Win32_NetworkConnection -ErrorAction SilentlyContinue)) {
+    $dl = ([string]$nc.LocalName).Trim().ToUpper()
+    $rem = [string]$nc.RemoteName
+    if (-not $rem) { continue }
+    if ($rem -match '\\\\(IPC|ADMIN)\\$$') { continue }
+    $already = $false
+    foreach ($ex in $shares) {
+      if ($ex.remotePath -ieq $rem -and ($ex.driveLetter -ieq $dl -or (-not $dl -and -not $ex.driveLetter))) {
+        $already = $true; break
+      }
+    }
+    if ($already) { continue }
+    $st = if ($nc.ConnectionState) { [string]$nc.ConnectionState } else { 'Connected' }
+    $k = "machine|$dl|$($rem.ToLower())"
+    $shares += [PSCustomObject]@{
+      id = $k
+      driveLetter = $dl
+      remotePath = $rem
+      label = ''
+      status = $st
+      persistent = [bool]$nc.Persistent
+      scope = 'machine'
+      ownerUser = if ($nc.UserName) { [string]$nc.UserName } else { 'Workstation Session' }
+      ownerSid = ''
+      provider = if ($nc.ProviderName) { [string]$nc.ProviderName } else { 'Microsoft Windows Network' }
+      managedRuleName = ''
+    }
+  }
+} catch {}
+
+if (Get-Command Get-SmbMapping -ErrorAction SilentlyContinue) {
+  try {
+    foreach ($sm in (Get-SmbMapping -ErrorAction SilentlyContinue)) {
+      $dl = ([string]$sm.LocalPath).Trim().ToUpper()
+      $rem = [string]$sm.RemotePath
+      if (-not $rem) { continue }
+      $already = $false
+      foreach ($ex in $shares) {
+        if ($ex.remotePath -ieq $rem -and $ex.driveLetter -ieq $dl) { $already = $true; break }
+      }
+      if ($already) { continue }
+      $k = "smb|$dl|$($rem.ToLower())"
+      $shares += [PSCustomObject]@{
+        id = $k
+        driveLetter = $dl
+        remotePath = $rem
+        label = ''
+        status = [string]$sm.Status
+        persistent = $false
+        scope = 'machine'
+        ownerUser = 'Active SMB Session'
+        ownerSid = ''
+        provider = 'SMB'
+        managedRuleName = ''
+      }
+    }
+  } catch {}
+}
+
+[PSCustomObject]@{
+  hostname = $env:COMPUTERNAME
+  loggedInUser = $loggedUser
+  loggedInUserSid = $userSid
+  userProfiles = @($profiles | Sort-Object -Property @{Expression='isActiveLoggedIn';Descending=$true}, @{Expression='username';Descending=$false})
+  shares = $shares
+} | ConvertTo-Json -Depth 6 -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import json, os, socket
+shares = []
+try:
+    with open("/proc/mounts", "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            src, mnt, fstype = parts[0], parts[1], parts[2]
+            if fstype in ("cifs", "smb3", "nfs", "nfs4", "fuse.sshfs"):
+                shares.append({
+                    "id": f"linux|{mnt}|{src}",
+                    "driveLetter": mnt,
+                    "remotePath": src,
+                    "label": "",
+                    "status": "Mounted",
+                    "persistent": False,
+                    "scope": "machine",
+                    "ownerUser": os.environ.get("USER", "root"),
+                    "ownerSid": "",
+                    "provider": fstype.upper(),
+                    "managedRuleName": ""
+                })
+except Exception:
+    pass
+print(json.dumps({
+    "hostname": socket.gethostname(),
+    "loggedInUser": os.environ.get("USER", ""),
+    "loggedInUserSid": "",
+    "userProfiles": [],
+    "shares": shares
+}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts(input, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint mapped shares');
+  const rawProfiles = Array.isArray(parsed.userProfiles)
+    ? parsed.userProfiles
+    : parsed.userProfiles
+    ? [parsed.userProfiles]
+    : [];
+  const rawShares = Array.isArray(parsed.shares)
+    ? parsed.shares
+    : parsed.shares
+    ? [parsed.shares]
+    : [];
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    loggedInUser: String(parsed.loggedInUser || ''),
+    loggedInUserSid: String(parsed.loggedInUserSid || ''),
+    collectedAt: new Date().toISOString(),
+    userProfiles: rawProfiles.map((u: any) => ({
+      username: String(u.username || u.sid || ''),
+      sid: String(u.sid || ''),
+      profilePath: String(u.profilePath || ''),
+      isLoaded: Boolean(u.isLoaded),
+      isActiveLoggedIn: Boolean(u.isActiveLoggedIn),
+    })),
+    shares: rawShares.map((s: any, idx: number) => ({
+      id: String(s.id || `${s.driveLetter || 'unc'}-${s.remotePath}-${idx}`),
+      driveLetter: String(s.driveLetter || ''),
+      remotePath: String(s.remotePath || ''),
+      label: String(s.label || ''),
+      status: String(s.status || 'Connected'),
+      persistent: Boolean(s.persistent),
+      scope:
+        s.scope === 'all_users' || s.scope === 'machine' ? s.scope : 'user',
+      ownerUser: String(s.ownerUser || ''),
+      ownerSid: String(s.ownerSid || ''),
+      provider: String(s.provider || 'Microsoft Windows Network'),
+      managedRuleName: s.managedRuleName ? String(s.managedRuleName) : undefined,
+    })),
+  };
+}
+
+export async function listFileServerShares(
+  input: HelpdeskTargetInput & {
+    fileServer: string;
+    fileServerUsername?: string;
+    fileServerPassword?: string;
+  }
+): Promise<HelpdeskFileServerListResult> {
+  const fileServer = validatePrintServerInput(input.fileServer);
+  const srvB64 = utf8Base64(fileServer);
+  const fsUser = String(input.fileServerUsername || input.username || '').trim();
+  const fsPass = String(input.fileServerPassword || input.password || '');
+  const userB64 = utf8Base64(fsUser);
+  const passB64 = utf8Base64(fsPass);
+
+  const ps = `
+$ErrorActionPreference = 'SilentlyContinue'
+$srv = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${srvB64}'))
+$fsUser = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${userB64}'))
+$fsPass = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${passB64}'))
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+$mappedByUnc = @{}
+if ($userSid) {
+  try {
+    foreach ($nk in (Get-ChildItem -Path "Registry::HKEY_USERS\\$userSid\\Network" -ErrorAction SilentlyContinue)) {
+      $props = Get-ItemProperty -Path $nk.PSPath -ErrorAction SilentlyContinue
+      if ($props -and $props.RemotePath) {
+        $mappedByUnc[([string]$props.RemotePath).ToLower()] = "$($nk.PSChildName.ToUpper()):"
+      }
+    }
+  } catch {}
+}
+try {
+  foreach ($nc in (Get-CimInstance Win32_NetworkConnection -ErrorAction SilentlyContinue)) {
+    if ($nc.RemoteName) {
+      $k = ([string]$nc.RemoteName).ToLower()
+      if (-not $mappedByUnc.ContainsKey($k)) {
+        $mappedByUnc[$k] = ([string]$nc.LocalName).ToUpper()
+      }
+    }
+  }
+} catch {}
+
+$ipcConnected = $false
+if ($fsUser -and $fsPass) {
+  try {
+    & net use "\\\\$srv\\IPC$" $fsPass "/user:$fsUser" /persistent:no 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { $ipcConnected = $true }
+  } catch {}
+}
+
+$results = @()
+$seen = @{}
+try {
+  # Method 1: Win32_Share via CIM/WMI
+  try {
+    $wmiShares = Get-CimInstance -ClassName Win32_Share -ComputerName $srv -ErrorAction Stop
+    foreach ($ws in $wmiShares) {
+      $sname = [string]$ws.Name
+      if (-not $sname) { continue }
+      $tNum = [uint32]$ws.Type
+      # Include Disk shares (0) and hidden admin Disk shares (2147483648), exclude IPC$/Print$
+      if (($tNum -band 0x0FFFFFFF) -ne 0) { continue }
+      $isAdmin = ($sname.EndsWith('$'))
+      $sKey = $sname.ToLower()
+      if ($seen.ContainsKey($sKey)) { continue }
+      $seen[$sKey] = $true
+      $unc = "\\\\$srv\\$sname"
+      $mappedDl = if ($mappedByUnc.ContainsKey($unc.ToLower())) { $mappedByUnc[$unc.ToLower()] } else { '' }
+      $results += [PSCustomObject]@{
+        name = $sname
+        uncPath = $unc
+        description = [string]$ws.Description
+        shareType = if ($isAdmin) { 'Admin / Hidden Share' } else { 'Disk Share' }
+        isAdminShare = $isAdmin
+        alreadyMapped = $mappedByUnc.ContainsKey($unc.ToLower())
+        mappedDriveLetter = $mappedDl
+      }
+    }
+  } catch {}
+
+  # Method 2: net view \\server fallback (visible disk shares)
+  if ($results.Count -eq 0) {
+    $nvOut = & net view "\\\\$srv" 2>&1
+    if ($LASTEXITCODE -eq 0) {
+      foreach ($line in $nvOut) {
+        $lineStr = [string]$line
+        if ($lineStr -match '^(.+?)\\s{2,}Disk\\s*(.*)$') {
+          $sname = $Matches[1].Trim()
+          $desc = $Matches[2].Trim()
+          if (-not $sname) { continue }
+          $sKey = $sname.ToLower()
+          if ($seen.ContainsKey($sKey)) { continue }
+          $seen[$sKey] = $true
+          $unc = "\\\\$srv\\$sname"
+          $isAdmin = $sname.EndsWith('$')
+          $mappedDl = if ($mappedByUnc.ContainsKey($unc.ToLower())) { $mappedByUnc[$unc.ToLower()] } else { '' }
+          $results += [PSCustomObject]@{
+            name = $sname
+            uncPath = $unc
+            description = $desc
+            shareType = if ($isAdmin) { 'Admin / Hidden Share' } else { 'Disk Share' }
+            isAdminShare = $isAdmin
+            alreadyMapped = $mappedByUnc.ContainsKey($unc.ToLower())
+            mappedDriveLetter = $mappedDl
+          }
+        }
+      }
+    } else {
+      $errTxt = ($nvOut | Out-String).Trim()
+      if ($errTxt) { throw "Failed to query shared folders on '\\\\$srv': $errTxt" }
+    }
+  }
+} finally {
+  if ($ipcConnected) {
+    & net use "\\\\$srv\\IPC$" /delete /y 2>&1 | Out-Null
+  }
+}
+
+[PSCustomObject]@{
+  fileServer = $srv
+  loggedInUser = $loggedUser
+  shares = @($results | Sort-Object -Property @{Expression='isAdminShare';Descending=$false}, @{Expression='name';Descending=$false})
+} | ConvertTo-Json -Depth 5 -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import json
+print(json.dumps({"fileServer": "", "loggedInUser": "", "shares": []}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 30000 }, ps, lx);
+  if (execRes.osFamily !== 'windows') {
+    throw new Error('Windows File Server share browsing is only supported on Windows endpoints.');
+  }
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'list file server shares');
+  const rawList = Array.isArray(parsed.shares) ? parsed.shares : parsed.shares ? [parsed.shares] : [];
+
+  return {
+    targetIp: execRes.host,
+    fileServer,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    loggedInUser: String(parsed.loggedInUser || ''),
+    collectedAt: new Date().toISOString(),
+    shares: rawList.map((s: any) => ({
+      name: String(s.name || ''),
+      uncPath: String(s.uncPath || `\\\\${fileServer}\\${s.name}`),
+      description: String(s.description || ''),
+      shareType: String(s.shareType || 'Disk Share'),
+      isAdminShare: Boolean(s.isAdminShare),
+      alreadyMapped: Boolean(s.alreadyMapped),
+      mappedDriveLetter: String(s.mappedDriveLetter || ''),
+    })),
+  };
+}
+
+export async function mapEndpointNetworkShare(
+  input: HelpdeskTargetInput & {
+    remotePath: string;
+    driveLetter?: string;
+    scope?: 'active_user' | 'specific_user' | 'all_users';
+    targetSids?: string[];
+    persistent?: boolean;
+    label?: string;
+    shareUsername?: string;
+    sharePassword?: string;
+  }
+): Promise<HelpdeskShareMapResult> {
+  const { uncPath, fileServer } = validateUncSharePath(input.remotePath);
+  const driveLetter = validateDriveLetterInput(input.driveLetter);
+  const scope: 'active_user' | 'specific_user' | 'all_users' =
+    input.scope === 'specific_user' || input.scope === 'all_users'
+      ? input.scope
+      : 'active_user';
+  const persistent = input.persistent !== false;
+  const label = validateShareLabelInput(input.label);
+
+  const targetSids = Array.isArray(input.targetSids)
+    ? Array.from(new Set(input.targetSids.map(validateProfileSidInput))).slice(0, 25)
+    : [];
+  if (scope === 'specific_user' && targetSids.length === 0) {
+    throw new Error('Select at least one workstation user profile for specific-user share mapping.');
+  }
+
+  const shareUser = String(input.shareUsername || '').trim();
+  const sharePass = String(input.sharePassword || '');
+  if (shareUser && /[\r\n\0]/.test(shareUser)) {
+    throw new Error('Invalid share username.');
+  }
+
+  const uncB64 = utf8Base64(uncPath);
+  const srvB64 = utf8Base64(fileServer);
+  const dlB64 = utf8Base64(driveLetter);
+  const lblB64 = utf8Base64(label);
+  const shUserB64 = utf8Base64(shareUser);
+  const shPassB64 = utf8Base64(sharePass);
+  const sidsB64 = utf8Base64(JSON.stringify(targetSids));
+
+  const specificUncLogonCmdB64 = encodePowerShellBase64(
+    `$u = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${uncB64}')); & net.exe use $u /persistent:yes 2>&1 | Out-Null`
+  );
+
+  // Pre-build inner interactive mapping script via utf8 -> base64 parameters
+  const interactiveMapScriptB64 = encodePowerShellBase64(`
+$ErrorActionPreference = 'Continue'
+$unc = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${uncB64}'))
+$srv = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${srvB64}'))
+$dl = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${dlB64}'))
+$lbl = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${lblB64}'))
+$uName = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${shUserB64}'))
+$uPass = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${shPassB64}'))
+$persistStr = '${persistent ? 'yes' : 'no'}'
+$logPath = Join-Path $env:TEMP ('nt_map_' + [guid]::NewGuid().ToString('N').Substring(0,8) + '.log')
+
+if ($dl -eq 'AUTO') {
+  $used = @{}
+  foreach ($d in (Get-CimInstance Win32_LogicalDisk -ErrorAction SilentlyContinue)) {
+    $used[([string]$d.DeviceID).ToUpper()] = $true
+  }
+  foreach ($nk in (Get-ChildItem -Path 'HKCU:\\Network' -ErrorAction SilentlyContinue)) {
+    $used[("$($nk.PSChildName.ToUpper()):")] = $true
+  }
+  $dl = ''
+  foreach ($code in 90..68) {
+    $cand = ([char]$code) + ':'
+    if (-not $used.ContainsKey($cand)) { $dl = $cand; break }
+  }
+}
+
+$outText = ''
+$ok = $false
+try {
+  if ($dl) {
+    & net.exe use $dl /delete /y 2>&1 | Out-Null
+  } else {
+    & net.exe use $unc /delete /y 2>&1 | Out-Null
+  }
+
+  if ($uName -and $uPass) {
+    if ($persistStr -eq 'yes') {
+      try { & cmdkey.exe ("/add:$srv") ("/user:$uName") ("/pass:$uPass") 2>&1 | Out-Null } catch {}
+    }
+    if ($dl) {
+      $out = & net.exe use $dl $unc $uPass ("/user:$uName") ("/persistent:$persistStr") 2>&1
+    } else {
+      $out = & net.exe use $unc $uPass ("/user:$uName") ("/persistent:$persistStr") 2>&1
+    }
+  } else {
+    if ($dl) {
+      $out = & net.exe use $dl $unc ("/persistent:$persistStr") 2>&1
+    } else {
+      $out = & net.exe use $unc ("/persistent:$persistStr") 2>&1
+    }
+  }
+  $code = $LASTEXITCODE
+  $outText = ($out | Out-String).Trim()
+  $ok = ($code -eq 0)
+
+  if ($ok -and $lbl) {
+    $keyName = ($unc.TrimStart('\\')).Replace('\\', '#')
+    $mp = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2\\##$keyName"
+    if (-not (Test-Path $mp)) { New-Item -Path $mp -Force | Out-Null }
+    Set-ItemProperty -Path $mp -Name '_LabelFromReg' -Value $lbl -Type String -Force -ErrorAction SilentlyContinue
+  }
+} catch {
+  $outText = $_.Exception.Message
+  $ok = $false
+}
+
+$resObj = [PSCustomObject]@{ ok = $ok; driveLetter = $dl; output = $outText } | ConvertTo-Json -Compress
+Set-Content -Path 'C:\\Windows\\Temp\\NetTopo_LastMapResult.json' -Value $resObj -Encoding UTF8 -Force -ErrorAction SilentlyContinue
+`);
+
+  const ps = `
+$ErrorActionPreference = 'Stop'
+$unc = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${uncB64}'))
+$srv = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${srvB64}'))
+$reqDl = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${dlB64}'))
+$lbl = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${lblB64}'))
+$shUser = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${shUserB64}'))
+$scopeMode = '${scope}'
+$isPersist = ${persistent ? '$true' : '$false'}
+$targetSidsJson = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sidsB64}'))
+$targetSids = @(ConvertFrom-Json -InputObject $targetSidsJson)
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+$notes = @()
+$appliedUsers = @()
+$finalDl = $reqDl
+$managedRuleName = ''
+
+# Resolve AUTO drive letter globally across host & target user hives if needed
+if ($finalDl -eq 'AUTO') {
+  $usedLetters = @{}
+  foreach ($d in (Get-CimInstance Win32_LogicalDisk -ErrorAction SilentlyContinue)) {
+    $usedLetters[([string]$d.DeviceID).ToUpper()] = $true
+  }
+  if ($userSid -and (Test-Path ("Registry::HKEY_USERS\\" + $userSid + "\\Network"))) {
+    foreach ($nk in (Get-ChildItem -Path ("Registry::HKEY_USERS\\" + $userSid + "\\Network") -ErrorAction SilentlyContinue)) {
+      $usedLetters[("$($nk.PSChildName.ToUpper()):")] = $true
+    }
+  }
+  $finalDl = ''
+  foreach ($code in 90..68) {
+    $cand = ([char]$code) + ':'
+    if (-not $usedLetters.ContainsKey($cand)) { $finalDl = $cand; break }
+  }
+  if (-not $finalDl) { throw "No free drive letter (D:-Z:) available on endpoint." }
+}
+
+function Invoke-ActiveUserInteractiveMap($actUser) {
+  $tName = "NetTopo_ExecMap_" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+  $resFile = 'C:\\Windows\\Temp\\NetTopo_LastMapResult.json'
+  if (Test-Path $resFile) { Remove-Item -Path $resFile -Force -ErrorAction SilentlyContinue }
+  try {
+    $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${interactiveMapScriptB64}"
+    $pri = New-ScheduledTaskPrincipal -UserId $actUser -LogonType Interactive -RunLevel Limited
+    $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 30)
+    Register-ScheduledTask -TaskName $tName -Action $act -Principal $pri -Settings $st -Force | Out-Null
+    Start-ScheduledTask -TaskName $tName
+    for ($i = 0; $i -lt 35; $i++) {
+      Start-Sleep -Milliseconds 350
+      $ti = Get-ScheduledTask -TaskName $tName -ErrorAction SilentlyContinue
+      if (-not $ti -or $ti.State -ne 'Running') { break }
+    }
+    if (Test-Path $resFile) {
+      $rawJson = Get-Content -Path $resFile -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+      Remove-Item -Path $resFile -Force -ErrorAction SilentlyContinue
+      if ($rawJson) { return (ConvertFrom-Json -InputObject $rawJson) }
+    }
+    return $null
+  } finally {
+    Unregister-ScheduledTask -TaskName $tName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    if (Test-Path $resFile) { Remove-Item -Path $resFile -Force -ErrorAction SilentlyContinue }
+  }
+}
+
+function Write-HiveNetworkMapping($hiveRoot, $letterOnly, $uncVal, $labelVal, $userHint) {
+  $netKey = "$hiveRoot\\Network\\$letterOnly"
+  if (-not (Test-Path $netKey)) { New-Item -Path $netKey -Force | Out-Null }
+  Set-ItemProperty -Path $netKey -Name 'RemotePath' -Value $uncVal -Type String -Force
+  Set-ItemProperty -Path $netKey -Name 'ConnectionType' -Value 1 -Type DWord -Force
+  Set-ItemProperty -Path $netKey -Name 'ProviderName' -Value 'Microsoft Windows Network' -Type String -Force
+  Set-ItemProperty -Path $netKey -Name 'ProviderType' -Value 131072 -Type DWord -Force
+  Set-ItemProperty -Path $netKey -Name 'DeferFlags' -Value 4 -Type DWord -Force
+  Set-ItemProperty -Path $netKey -Name 'UserName' -Value ([string]$userHint) -Type String -Force
+  if ($labelVal) {
+    $keyName = ($uncVal.TrimStart('\\')).Replace('\\', '#')
+    $mp = "$hiveRoot\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2\\##$keyName"
+    if (-not (Test-Path $mp)) { New-Item -Path $mp -Force | Out-Null }
+    Set-ItemProperty -Path $mp -Name '_LabelFromReg' -Value $labelVal -Type String -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Apply-ToOfflineOrLoadedProfile($sid, $letterWithColon, $uncVal, $labelVal, $userHint) {
+  $acct = $sid
+  try { $acct = (New-Object System.Security.Principal.SecurityIdentifier($sid)).Translate([System.Security.Principal.NTAccount]).Value } catch {}
+  $letterOnly = $letterWithColon.TrimEnd(':').ToUpper()
+  if (-not $letterOnly) { return $null }
+
+  if (Test-Path ("Registry::HKEY_USERS\\" + $sid)) {
+    Write-HiveNetworkMapping ("Registry::HKEY_USERS\\" + $sid) $letterOnly $uncVal $labelVal $userHint
+    return $acct
+  }
+
+  $pKey = Get-ItemProperty -Path ("Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\" + $sid) -ErrorAction SilentlyContinue
+  if (-not $pKey -or -not $pKey.ProfileImagePath) { return $null }
+  $ntDat = Join-Path ([string]$pKey.ProfileImagePath) 'NTUSER.DAT'
+  if (-not (Test-Path $ntDat)) { return $null }
+
+  $tmpName = 'NetTopoTmp_' + ([guid]::NewGuid().ToString('N').Substring(0,8))
+  $loadOut = & reg.exe load ("HKU\\" + $tmpName) $ntDat 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to mount profile hive for $($acct): $($loadOut | Out-String)"
+  }
+  try {
+    Write-HiveNetworkMapping ("Registry::HKEY_USERS\\" + $tmpName) $letterOnly $uncVal $labelVal $userHint
+  } finally {
+    [gc]::Collect()
+    [gc]::WaitForPendingFinalizers()
+    Start-Sleep -Milliseconds 150
+    & reg.exe unload ("HKU\\" + $tmpName) 2>&1 | Out-Null
+  }
+  return $acct
+}
+
+if ($scopeMode -eq 'active_user') {
+  if (-not $loggedUser) {
+    throw "No active logged-in interactive user detected on this workstation. Choose Specific User or All Users scope."
+  }
+  $taskRes = Invoke-ActiveUserInteractiveMap $loggedUser
+  if (-not $taskRes -or -not $taskRes.ok) {
+    $errMsg = if ($taskRes -and $taskRes.output) { [string]$taskRes.output } else { 'Interactive session net use failed.' }
+    throw "Failed to map share '$unc' for active user $($loggedUser): $errMsg"
+  }
+  if ($taskRes.driveLetter) { $finalDl = [string]$taskRes.driveLetter }
+  if ($isPersist -and $finalDl -and $userSid -and (Test-Path ("Registry::HKEY_USERS\\" + $userSid))) {
+    Write-HiveNetworkMapping ("Registry::HKEY_USERS\\" + $userSid) ($finalDl.TrimEnd(':')) $unc $lbl $shUser
+  }
+  $appliedUsers += $loggedUser
+  $notes += "Mapped $finalDl -> $unc inside active user session ($loggedUser)"
+} elseif ($scopeMode -eq 'specific_user') {
+  foreach ($sid in $targetSids) {
+    if ($userSid -and $sid -eq $userSid -and $loggedUser) {
+      $taskRes = Invoke-ActiveUserInteractiveMap $loggedUser
+      if (-not $taskRes -or -not $taskRes.ok) {
+        $errMsg = if ($taskRes -and $taskRes.output) { [string]$taskRes.output } else { 'Interactive session net use failed.' }
+        throw "Failed to map share '$unc' for active user $($loggedUser): $errMsg"
+      }
+      if ($taskRes.driveLetter) { $finalDl = [string]$taskRes.driveLetter }
+      if ($isPersist -and $finalDl) {
+        Write-HiveNetworkMapping ("Registry::HKEY_USERS\\" + $userSid) ($finalDl.TrimEnd(':')) $unc $lbl $shUser
+      }
+      $appliedUsers += $loggedUser
+      $notes += "Mapped live in session for $loggedUser"
+    } else {
+      if ($finalDl) {
+        $acctRes = Apply-ToOfflineOrLoadedProfile $sid $finalDl $unc $lbl $shUser
+        if ($acctRes) {
+          $appliedUsers += $acctRes
+          $notes += "Configured persistent HKU\\Network\\$($finalDl.TrimEnd(':')) for profile $acctRes"
+        }
+      } else {
+        # UNC-only persistent logon rule for offline user
+        $acct = $sid
+        try { $acct = (New-Object System.Security.Principal.SecurityIdentifier($sid)).Translate([System.Security.Principal.NTAccount]).Value } catch {}
+        $hashSuffix = [System.BitConverter]::ToString([System.Security.Cryptography.SHA1]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($sid + '|' + $unc))).Replace('-','').Substring(0,8)
+        $rName = "NetTopo_MapDrive_U_$hashSuffix"
+        $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${specificUncLogonCmdB64}"
+        $pri = New-ScheduledTaskPrincipal -UserId $acct -LogonType Interactive -RunLevel Limited
+        $trg = New-ScheduledTaskTrigger -AtLogOn -User $acct
+        $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 30)
+        Register-ScheduledTask -TaskName $rName -Action $act -Principal $pri -Trigger $trg -Settings $st -Description ("NetTopoMappedShare|scope=user|drive=|path=$unc|label=$lbl|owner=$acct|sid=$sid") -Force | Out-Null
+        $managedRuleName = $rName
+        $appliedUsers += $acct
+        $notes += "Registered logon UNC rule $rName for $acct"
+      }
+    }
+  }
+} else {
+  # all_users scope: immediate active session + existing S-1-5-21-* profile hives + machine-wide logon rule
+  if ($loggedUser) {
+    $taskRes = Invoke-ActiveUserInteractiveMap $loggedUser
+    if ($taskRes -and $taskRes.ok) {
+      if ($taskRes.driveLetter) { $finalDl = [string]$taskRes.driveLetter }
+      $appliedUsers += $loggedUser
+      $notes += "Mapped live in current user session ($loggedUser)"
+    } else {
+      $errNote = if ($taskRes -and $taskRes.output) { [string]$taskRes.output } else { 'No active share session output' }
+      $notes += "Active session notice: $errNote"
+    }
+  }
+
+  if ($finalDl) {
+    $plist = Get-ChildItem -Path 'Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList' -ErrorAction SilentlyContinue
+    foreach ($pk in $plist) {
+      $sid = [string]$pk.PSChildName
+      if ($sid -notmatch '^S-1-5-21-') { continue }
+      try {
+        $acctRes = Apply-ToOfflineOrLoadedProfile $sid $finalDl $unc $lbl $shUser
+        if ($acctRes -and ($appliedUsers -notcontains $acctRes)) {
+          $appliedUsers += $acctRes
+        }
+      } catch {}
+    }
+    $notes += "Applied drive $finalDl to $($appliedUsers.Count) workstation user profile(s)"
+  }
+
+  # Register persistent machine-wide AtLogon rule for BUILTIN\\Users (never stores passwords)
+  $slug = if ($finalDl) { $finalDl.TrimEnd(':').ToUpper() } else {
+    'UNC_' + [System.BitConverter]::ToString([System.Security.Cryptography.SHA1]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($unc))).Replace('-','').Substring(0,8)
+  }
+  $managedRuleName = "NetTopo_MapDrive_$slug"
+  $dlSafe = ($finalDl -replace '[^A-Za-z:]', '')
+  $innerLogonPs = @(
+    '$unc = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${uncB64}"))',
+    '$lbl = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${lblB64}"))',
+    ('$dl = "' + $dlSafe + '"'),
+    'if ($dl) { & net.exe use $dl $unc /persistent:yes 2>&1 | Out-Null } else { & net.exe use $unc /persistent:yes 2>&1 | Out-Null }',
+    'if ($lbl) { $kn = ($unc.TrimStart([char]92)).Replace([char]92, [char]35); $mp = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2\\##$kn"; if (-not (Test-Path $mp)) { New-Item -Path $mp -Force | Out-Null }; Set-ItemProperty -Path $mp -Name "_LabelFromReg" -Value $lbl -Type String -Force -ErrorAction SilentlyContinue }'
+  ) -join [Environment]::NewLine
+  $logonB64 = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($innerLogonPs))
+  $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $logonB64"
+  $pri = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited
+  $trg = New-ScheduledTaskTrigger -AtLogOn
+  $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 30)
+  Register-ScheduledTask -TaskName $managedRuleName -Action $act -Principal $pri -Trigger $trg -Settings $st -Description ("NetTopoMappedShare|scope=all_users|drive=$finalDl|path=$unc|label=$lbl|owner=All Users") -Force | Out-Null
+  $notes += "Registered All-Users logon task $managedRuleName"
+}
+
+[PSCustomObject]@{
+  ok = $true
+  remotePath = $unc
+  driveLetter = $finalDl
+  scope = $scopeMode
+  appliedUsers = $appliedUsers
+  loggedInUser = $loggedUser
+  managedRuleName = $managedRuleName
+  output = ($notes -join ' | ')
+} | ConvertTo-Json -Depth 4 -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import json
+print(json.dumps({"ok": False, "output": "Windows SMB mapped drive provisioning is only supported on Windows workstations."}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 45000 }, ps, lx);
+  if (execRes.osFamily !== 'windows') {
+    throw new Error('Mapping SMB network drives for domain/local user profiles is only supported on Windows endpoints.');
+  }
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'map endpoint network share');
+  const ok = Boolean(parsed.ok);
+  const appliedUsers: string[] = Array.isArray(parsed.appliedUsers)
+    ? parsed.appliedUsers.map(String)
+    : parsed.appliedUsers
+    ? [String(parsed.appliedUsers)]
+    : [];
+  const finalDrive = String(parsed.driveLetter || driveLetter);
+  const loggedInUser = String(parsed.loggedInUser || '');
+  const managedRuleName = parsed.managedRuleName ? String(parsed.managedRuleName) : undefined;
+  const driveTag = finalDrive ? `${finalDrive} → ${uncPath}` : uncPath;
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'share_map',
+    success: ok,
+    remotePath: uncPath,
+    driveLetter: finalDrive,
+    scope,
+    appliedUsers,
+    loggedInUser,
+    persistent,
+    managedRuleName,
+    message: ok
+      ? `Mapped share ${driveTag} on ${execRes.host} (${scope === 'all_users' ? 'All Users' : appliedUsers.join(', ') || loggedInUser}).`
+      : `Failed to map share ${driveTag} on ${execRes.host}.`,
+    messageFa: ok
+      ? `پوشه اشتراکی ${driveTag} روی سیستم ${execRes.host} با موفقیت مپ شد (${scope === 'all_users' ? 'همه کاربران این سیستم' : appliedUsers.join('، ') || loggedInUser}).`
+      : `مپ کردن پوشه اشتراکی ${driveTag} روی سیستم ${execRes.host} ناموفق بود.`,
+    details: {
+      remotePath: uncPath,
+      driveLetter: finalDrive,
+      scope,
+      appliedUsersCount: appliedUsers.length,
+      managedRuleName: managedRuleName || '',
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function disconnectEndpointNetworkShare(
+  input: HelpdeskTargetInput & {
+    remotePath: string;
+    driveLetter?: string;
+    scope?: 'user' | 'all_users' | 'machine' | 'auto';
+    ownerSid?: string;
+    managedRuleName?: string;
+  }
+): Promise<HelpdeskActionResult> {
+  const driveLetter = validateDriveLetterInput(input.driveLetter);
+  const scopeVal: 'user' | 'all_users' | 'machine' | 'auto' =
+    input.scope === 'user' || input.scope === 'all_users' || input.scope === 'machine'
+      ? input.scope
+      : 'auto';
+  const ownerSid = input.ownerSid ? validateProfileSidInput(input.ownerSid) : '';
+  const managedRuleName = validateManagedRuleNameInput(input.managedRuleName);
+
+  // Allow either Windows UNC or Linux mount source
+  const rawRemote = String(input.remotePath || '').trim();
+  const isUnc = rawRemote.startsWith('\\\\') || rawRemote.startsWith('//');
+  const validatedUnc = isUnc
+    ? validateUncSharePath(rawRemote).uncPath
+    : validateLinuxMountPath(rawRemote);
+
+  const uncB64 = utf8Base64(validatedUnc);
+  const dlB64 = utf8Base64(driveLetter);
+  const sidB64 = utf8Base64(ownerSid);
+  const ruleB64 = utf8Base64(managedRuleName);
+
+  const interactiveDelB64 = encodePowerShellBase64(`
+$unc = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${uncB64}'))
+$dl = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${dlB64}'))
+if ($dl) { & net.exe use $dl /delete /y 2>&1 | Out-Null }
+if ($unc) { & net.exe use $unc /delete /y 2>&1 | Out-Null }
+`);
+
+  const ps = `
+$ErrorActionPreference = 'Continue'
+$unc = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${uncB64}'))
+$dl = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${dlB64}'))
+$targetSid = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sidB64}'))
+$ruleName = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${ruleB64}'))
+$scopeMode = '${scopeVal}'
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+$actions = @()
+$removedAny = $false
+
+# 1. Disconnect inside active logged-in interactive user session
+if ($loggedUser -and ($scopeMode -ne 'machine' -or ($targetSid -and $targetSid -eq $userSid))) {
+  $tName = "NetTopo_DelMap_" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+  try {
+    $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${interactiveDelB64}"
+    $pri = New-ScheduledTaskPrincipal -UserId $loggedUser -LogonType Interactive -RunLevel Limited
+    $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 20)
+    Register-ScheduledTask -TaskName $tName -Action $act -Principal $pri -Settings $st -Force | Out-Null
+    Start-ScheduledTask -TaskName $tName
+    for ($i = 0; $i -lt 20; $i++) {
+      Start-Sleep -Milliseconds 300
+      $ti = Get-ScheduledTask -TaskName $tName -ErrorAction SilentlyContinue
+      if (-not $ti -or $ti.State -ne 'Running') { break }
+    }
+    $actions += "Executed disconnect in active user session ($loggedUser)"
+    $removedAny = $true
+  } catch {} finally {
+    Unregister-ScheduledTask -TaskName $tName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+  }
+}
+
+# 2. Remove persistent HKU\\<SID>\\Network entry helper
+function Remove-HiveNetworkEntry($hiveRoot, $dlColon, $uncMatch) {
+  $netRoot = "$hiveRoot\\Network"
+  if (-not (Test-Path $netRoot)) { return $false }
+  $didRemove = $false
+  $letterOnly = $dlColon.TrimEnd(':').ToUpper()
+  foreach ($nk in (Get-ChildItem -Path $netRoot -ErrorAction SilentlyContinue)) {
+    $lName = ([string]$nk.PSChildName).Trim().ToUpper()
+    $props = Get-ItemProperty -Path $nk.PSPath -ErrorAction SilentlyContinue
+    $rp = if ($props -and $props.RemotePath) { [string]$props.RemotePath } else { '' }
+    $matchByLetter = ($letterOnly -and $lName -eq $letterOnly -and (-not $uncMatch -or $rp -ieq $uncMatch))
+    $matchByUnc = (-not $letterOnly -and $uncMatch -and $rp -ieq $uncMatch)
+    if ($matchByLetter -or $matchByUnc) {
+      Remove-Item -Path $nk.PSPath -Recurse -Force -ErrorAction SilentlyContinue
+      $didRemove = $true
+    }
+  }
+  return $didRemove
+}
+
+$sidsToClean = @()
+if ($scopeMode -eq 'all_users') {
+  foreach ($pk in (Get-ChildItem -Path 'Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList' -ErrorAction SilentlyContinue)) {
+    if ($pk.PSChildName -match '^S-1-5-21-') { $sidsToClean += [string]$pk.PSChildName }
+  }
+} elseif ($targetSid) {
+  $sidsToClean += $targetSid
+} elseif ($userSid) {
+  $sidsToClean += $userSid
+}
+
+foreach ($sid in ($sidsToClean | Select-Object -Unique)) {
+  if (Test-Path ("Registry::HKEY_USERS\\" + $sid)) {
+    if (Remove-HiveNetworkEntry ("Registry::HKEY_USERS\\" + $sid) $dl $unc) {
+      $actions += "Removed HKU\\$sid\\Network registry mapping"
+      $removedAny = $true
+    }
+  } elseif ($scopeMode -eq 'all_users' -or $sid -eq $targetSid) {
+    $pKey = Get-ItemProperty -Path ("Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\" + $sid) -ErrorAction SilentlyContinue
+    if ($pKey -and $pKey.ProfileImagePath) {
+      $ntDat = Join-Path ([string]$pKey.ProfileImagePath) 'NTUSER.DAT'
+      if (Test-Path $ntDat) {
+        $tmpName = 'NetTopoDel_' + ([guid]::NewGuid().ToString('N').Substring(0,8))
+        & reg.exe load ("HKU\\" + $tmpName) $ntDat 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+          try {
+            if (Remove-HiveNetworkEntry ("Registry::HKEY_USERS\\" + $tmpName) $dl $unc) {
+              $actions += "Removed offline hive Network mapping for $sid"
+              $removedAny = $true
+            }
+          } finally {
+            [gc]::Collect()
+            [gc]::WaitForPendingFinalizers()
+            Start-Sleep -Milliseconds 150
+            & reg.exe unload ("HKU\\" + $tmpName) 2>&1 | Out-Null
+          }
+        }
+      }
+    }
+  }
+}
+
+# 3. Clean machine / current session SMB or WMI mappings if present
+if ($dl) {
+  & net.exe use $dl /delete /y 2>&1 | Out-Null
+  if ($LASTEXITCODE -eq 0) { $actions += "Disconnected session drive $dl"; $removedAny = $true }
+}
+if ($unc) {
+  & net.exe use $unc /delete /y 2>&1 | Out-Null
+  if ($LASTEXITCODE -eq 0) { $actions += "Disconnected session UNC $unc"; $removedAny = $true }
+}
+if (Get-Command Remove-SmbMapping -ErrorAction SilentlyContinue) {
+  try {
+    $smMatches = Get-SmbMapping -ErrorAction SilentlyContinue | Where-Object {
+      ($dl -and $_.LocalPath -ieq $dl) -or ($unc -and $_.RemotePath -ieq $unc)
+    }
+    foreach ($sm in $smMatches) {
+      Remove-SmbMapping -LocalPath $sm.LocalPath -RemotePath $sm.RemotePath -Force -UpdateProfile -ErrorAction SilentlyContinue
+      $actions += "Removed SMB mapping $($sm.LocalPath) $($sm.RemotePath)"
+      $removedAny = $true
+    }
+  } catch {}
+}
+
+# 4. Remove NetTopo managed logon scheduled task(s) if requested or matching all_users
+if ($ruleName) {
+  $t = Get-ScheduledTask -TaskName $ruleName -ErrorAction SilentlyContinue
+  if ($t) {
+    Unregister-ScheduledTask -TaskName $ruleName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    $actions += "Removed persistent logon rule $ruleName"
+    $removedAny = $true
+  }
+} elseif ($scopeMode -eq 'all_users') {
+  foreach ($t in (Get-ScheduledTask -TaskName 'NetTopo_MapDrive_*' -ErrorAction SilentlyContinue)) {
+    $d = [string]$t.Description
+    if (($unc -and $d -like "*path=$unc*") -and (-not $dl -or $d -like "*drive=$dl*")) {
+      Unregister-ScheduledTask -TaskName $t.TaskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+      $actions += "Removed matching logon rule $($t.TaskName)"
+      $removedAny = $true
+    }
+  }
+}
+
+if (-not $removedAny) {
+  throw "Network share connection ('$dl' '$unc') was not found or already disconnected."
+}
+
+[PSCustomObject]@{
+  ok = $true
+  driveLetter = $dl
+  remotePath = $unc
+  loggedInUser = $loggedUser
+  output = ($actions -join ' | ')
+} | ConvertTo-Json -Compress
+`;
+
+  const targetMount = driveLetter || validatedUnc;
+  const mountB64 = utf8Base64(targetMount);
+  const lx = `
+python3 - <<'PY'
+import base64, json, subprocess
+mnt = base64.b64decode("${mountB64}").decode("utf-8")
+p = subprocess.run(["umount", mnt], capture_output=True, text=True)
+print(json.dumps({
+    "ok": p.returncode == 0,
+    "driveLetter": mnt,
+    "remotePath": mnt,
+    "loggedInUser": "",
+    "output": (p.stdout + p.stderr).strip() or f"Unmounted {mnt}"
+}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 35000 }, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'disconnect network share');
+  const ok = Boolean(parsed.ok);
+  const displayTarget = driveLetter ? `${driveLetter} (${validatedUnc})` : validatedUnc;
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'share_disconnect',
+    success: ok,
+    message: ok
+      ? `Disconnected network share ${displayTarget} on ${execRes.host}.`
+      : `Failed to disconnect network share ${displayTarget} on ${execRes.host}.`,
+    messageFa: ok
+      ? `اتصال پوشه اشتراکی ${displayTarget} روی سیستم ${execRes.host} با موفقیت قطع (Disconnect) شد.`
+      : `قطع اتصال پوشه اشتراکی ${displayTarget} روی سیستم ${execRes.host} ناموفق بود.`,
+    details: {
+      driveLetter,
+      remotePath: validatedUnc,
+      scope: scopeVal,
+      managedRuleName,
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
   };
 }
 

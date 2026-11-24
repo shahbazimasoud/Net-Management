@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Trash2, Box, Server, ShieldCheck, X, AlertCircle, StickyNote, Paperclip, FolderTree, Printer } from 'lucide-react';
+import { AlertTriangle, Trash2, Box, Server, ShieldCheck, X, AlertCircle, StickyNote, Paperclip, FolderTree, Printer, FolderX } from 'lucide-react';
 import { MountedHardwareDevice } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -88,6 +88,19 @@ export interface DeletePrinterTarget {
   ownerUser?: string;
 }
 
+export interface DeleteNetworkShareTarget {
+  type: 'network_share';
+  id: string;
+  name: string;
+  driveLetter?: string;
+  remotePath: string;
+  host?: string;
+  scope?: 'user' | 'all_users' | 'machine';
+  ownerUser?: string;
+  ownerSid?: string;
+  managedRuleName?: string;
+}
+
 export interface DeleteGenericTarget {
   type: 'generic';
   id: string;
@@ -106,6 +119,7 @@ export type DeleteTarget =
   | DeleteLicenseTarget
   | DeleteDeviceGroupTarget
   | DeletePrinterTarget
+  | DeleteNetworkShareTarget
   | DeleteGenericTarget;
 
 interface DeleteConfirmModalProps {
@@ -121,6 +135,7 @@ interface DeleteConfirmModalProps {
   onConfirmDeleteLicense?: (licenseId: string) => void;
   onConfirmDeleteGroup?: (groupId: string) => void;
   onConfirmDeletePrinter?: (printerTarget: DeletePrinterTarget) => void;
+  onConfirmDeleteNetworkShare?: (shareTarget: DeleteNetworkShareTarget) => void;
   onConfirm?: () => void;
   isLightMode?: boolean;
 }
@@ -138,6 +153,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   onConfirmDeleteLicense,
   onConfirmDeleteGroup,
   onConfirmDeletePrinter,
+  onConfirmDeleteNetworkShare,
   onConfirm,
   isLightMode: propIsLightMode,
 }) => {
@@ -170,12 +186,14 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   const isAttachment = target.type === 'attachment';
   const isDeviceGroup = target.type === 'device_group';
   const isPrinter = target.type === 'printer';
+  const isNetworkShare = target.type === 'network_share';
   const rackTarget = isRack ? (target as DeleteRackTarget) : null;
   const rackDeviceTarget = isRackDevice ? (target as DeleteRackDeviceTarget) : null;
   const noteTarget = isNote ? (target as DeleteStickyNoteTarget) : null;
   const attachmentTarget = isAttachment ? (target as DeleteAttachmentTarget) : null;
   const groupTarget = isDeviceGroup ? (target as DeleteDeviceGroupTarget) : null;
   const printerTarget = isPrinter ? (target as DeletePrinterTarget) : null;
+  const shareTarget = isNetworkShare ? (target as DeleteNetworkShareTarget) : null;
   const deviceTarget = target.type === 'device' ? (target as DeleteDeviceTarget) : null;
   const hasMountedDevices = (rackTarget?.devices?.length || 0) > 0;
 
@@ -233,6 +251,8 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                 <FolderTree className="w-5 h-5" />
               ) : isPrinter ? (
                 <Printer className="w-5 h-5" />
+              ) : isNetworkShare ? (
+                <FolderX className="w-5 h-5" />
               ) : (
                 <AlertTriangle className="w-5 h-5" />
               )}
@@ -263,6 +283,10 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   ? isEn
                     ? `Remove Printer ("${target.name}")`
                     : `حذف پرینتر («${target.name}»)`
+                  : isNetworkShare
+                  ? isEn
+                    ? `Disconnect Mapped Share (${shareTarget?.driveLetter || shareTarget?.remotePath})`
+                    : `قطع اتصال پوشه اشتراکی («${shareTarget?.driveLetter || shareTarget?.remotePath}»)`
                   : isEn
                   ? `Delete Device (${target.name})`
                   : `حذف تجهیز («${target.name}»)`}
@@ -296,6 +320,10 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   ? isEn
                     ? `${printerTarget?.host ? `Workstation ${printerTarget.host} • ` : ''}${printerTarget?.portName || 'Print Queue'}`
                     : `${printerTarget?.host ? `سیستم ${printerTarget.host} • ` : ''}${printerTarget?.portName || 'صف چاپ'}`
+                  : isNetworkShare
+                  ? isEn
+                    ? `${shareTarget?.host ? `Workstation ${shareTarget.host} • ` : ''}${shareTarget?.remotePath}`
+                    : `${shareTarget?.host ? `سیستم ${shareTarget.host} • ` : ''}${shareTarget?.remotePath}`
                   : deviceTarget?.model || deviceTarget?.ip || (isEn ? 'Network Hardware' : 'تجهیز شبکه')}
               </p>
             </div>
@@ -555,6 +583,46 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   : 'در صورت اشتراکی بودن پرینتر، تنها اتصال آن از سیستم/پروفایل کاربر حذف می‌شود و تنظیمات خود پرینت سرور تغییری نمی‌کند.'}
               </p>
             </div>
+          ) : isNetworkShare ? (
+            /* Network Share Disconnect Content */
+            <div className="space-y-3">
+              <div className={`p-3.5 rounded-xl border text-xs space-y-2.5 ${
+                isLightMode
+                  ? 'bg-rose-50 border-rose-200 text-rose-900'
+                  : 'bg-rose-950/25 border-rose-500/40 text-rose-200'
+              }`}>
+                <div className={`flex items-center gap-2 font-bold ${isLightMode ? 'text-rose-700' : 'text-rose-300'}`}>
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>
+                    {isEn ? 'Confirm Network Share Disconnect' : 'تایید قطع اتصال (Disconnect) پوشه اشتراکی'}
+                  </span>
+                </div>
+                <p className={`leading-relaxed ${isLightMode ? 'text-slate-700' : 'text-slate-200'}`}>
+                  {isEn
+                    ? `Are you sure you want to disconnect "${shareTarget?.driveLetter ? `${shareTarget.driveLetter} (${shareTarget.remotePath})` : shareTarget?.remotePath}" from ${shareTarget?.host || 'this workstation'}?`
+                    : `آیا از قطع اتصال پوشه اشتراکی «${shareTarget?.driveLetter ? `${shareTarget.driveLetter} (${shareTarget.remotePath})` : shareTarget?.remotePath}» روی سیستم ${shareTarget?.host || 'کاربر'} اطمینان دارید؟`}
+                </p>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono pt-1">
+                  {shareTarget?.driveLetter && (
+                    <span className={`px-2 py-0.5 rounded ${isLightMode ? 'bg-slate-200 text-slate-800' : 'bg-slate-800 text-slate-300'}`}>
+                      {isEn ? 'Drive' : 'درایو'}: <strong>{shareTarget.driveLetter}</strong>
+                    </span>
+                  )}
+                  <span className={`px-2 py-0.5 rounded ${isLightMode ? 'bg-sky-100 text-sky-900 border border-sky-200' : 'bg-sky-500/15 text-sky-300 border border-sky-500/30'}`}>
+                    {shareTarget?.scope === 'all_users'
+                      ? isEn ? 'All Users Logon Rule + Profiles' : 'قانون همه کاربران سیستم + پروفایل‌ها'
+                      : shareTarget?.scope === 'user'
+                      ? isEn ? `User Profile (${shareTarget.ownerUser || 'Active User'})` : `پروفایل کاربر (${shareTarget.ownerUser || 'کاربر فعال'})`
+                      : isEn ? 'Workstation Session' : 'نشست سیستم'}
+                  </span>
+                </div>
+              </div>
+              <p className={`text-[11px] leading-relaxed ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                {isEn
+                  ? 'Disconnecting removes the mapped drive letter, clears persistent HKU\\Network entries (and any NetTopo All-Users logon rule if applicable) without deleting files on the file server.'
+                  : 'این عملیات فقط اتصال درایو شبکه/رجیستری کاربر (و در حالت همه کاربران، قانون Logon مربوطه) را روی سیستم کلاینت قطع می‌کند و هیچ فایلی را از روی فایل سرور حذف نمی‌کند.'}
+              </p>
+            </div>
           ) : (
             /* Device Deletion Content */
             <div className="space-y-3">
@@ -721,6 +789,23 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
             >
               <Trash2 className="w-4 h-4" />
               <span>{isEn ? 'Remove Printer' : 'حذف پرینتر'}</span>
+            </button>
+          ) : isNetworkShare ? (
+            <button
+              type="button"
+              id="confirm-disconnect-share-btn"
+              onClick={() => {
+                if (shareTarget && onConfirmDeleteNetworkShare) {
+                  onConfirmDeleteNetworkShare(shareTarget);
+                } else if (onConfirm) {
+                  onConfirm();
+                }
+                onClose();
+              }}
+              className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold border border-rose-500/50 shadow-lg transition active:scale-95 cursor-pointer"
+            >
+              <FolderX className="w-4 h-4" />
+              <span>{isEn ? 'Disconnect Share' : 'قطع اتصال (Disconnect)'}</span>
             </button>
           ) : (
             <button

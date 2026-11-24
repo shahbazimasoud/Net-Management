@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.460.0';
+export const APP_VERSION = '1.461.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.461.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'مدیریت کامل درایوهای شبکه و شیر فولدرها در تب Health & Safe Process Control (مشاهده، دیسکانکت، مرور فایل سرور و مپ برای کاربر فعال، کاربران منتخب یا همه کاربران ایستگاه کاری)',
+    title_en: 'HelpDesk Mapped Network Shares & Shared Folders Management (Inspect, Disconnect, File Server Browse & Active/Selected/All-User Mapping)',
+    changes: [
+      'افزودن بخش **درایوهای شبکه و شیر فولدرهای مپ‌شده** در تب **Health & Safe Process Control** جهت شناسایی خودکار کاربر فعال، پروفایل‌های کاربری ایستگاه کاری (`ProfileList`)، اتصالات `HKEY_USERS\\<SID>\\Network`، برچسب‌های Explorer و قوانین زمان‌بندی‌شده مپ درایو (`NetTopo_MapDrive_*`).',
+      'افزودن قابلیت **دیسکانکت ایمن شیر فولدر** از طریق منوی ۳ نقطه و پنجره تایید `DeleteConfirmModal` با پاک‌سازی هم‌زمان نشست کاربر فعال، رجیستری آنلاین و آفلاین (`NTUSER.DAT`) پروفایل‌های کاربری و تسک‌های زمان‌بندی‌شده مرتبط.',
+      'طراحی مودال جدید **`NetworkShareMapModal`** برای مرور اشتراک‌های **File Server**، انتخاب حرف درایو (`AUTO` یا `D:` تا `Z:` یا اتصال UNC مستقیم) و مپ کردن برای **کاربر فعال فعلی**، **یک یا چند کاربر منتخب همین سیستم** (حتی در حالت آفلاین از طریق Hive)، یا **تمامی کاربران این ایستگاه کاری (`AtLogOn`)** بدون ذخیره‌سازی رمز عبور روی دیسک.'
+    ],
+    changes_en: [
+      'Added a **Mapped Network Drives & Shared Folders** management panel inside HelpDesk **Health & Safe Process Control** inspecting the active logged-in user, workstation profiles (`ProfileList`), `HKEY_USERS\\<SID>\\Network` mappings, Explorer labels, and managed logon rules (`NetTopo_MapDrive_*`).',
+      'Added safe **Disconnect Share** action via a 3-dots portal row menu and `DeleteConfirmModal` cleaning active interactive user sessions, loaded/offline `NTUSER.DAT` profile registries, SMB mappings, and matching managed logon tasks.',
+      'Built **`NetworkShareMapModal`** (`src/components/helpdesk/NetworkShareMapModal.tsx`) with optional File Server share browsing, `AUTO` / explicit drive letter / UNC-only mapping, and targeting for **Active User**, **Selected Workstation User(s)** (including offline hive writes), or **All Users on Workstation** via `AtLogOn` without persisting credentials to disk.'
+    ],
+  },
   {
     version: '1.460.0',
     releaseDate: '2026-11-24',

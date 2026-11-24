@@ -51,6 +51,8 @@ import {
   MoreVertical,
   Star,
   PlugZap,
+  FolderPlus,
+  FolderX,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -65,6 +67,8 @@ import {
   executeHelpdeskPrinterAction,
   setHelpdeskDefaultPrinter,
   deleteHelpdeskPrinter,
+  fetchHelpdeskEndpointShares,
+  disconnectHelpdeskEndpointShare,
   fetchHelpdeskEventLogs,
   terminateHelpdeskProcess,
   scanHelpdeskTemp,
@@ -81,8 +85,13 @@ import {
 } from '../services/api';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { useModalDock } from '../context/ModalDockContext';
-import { DeleteConfirmModal, DeletePrinterTarget } from './DeleteConfirmModal';
+import {
+  DeleteConfirmModal,
+  DeletePrinterTarget,
+  DeleteNetworkShareTarget,
+} from './DeleteConfirmModal';
 import { PrintServerConnectModal } from './helpdesk/PrintServerConnectModal';
+import { NetworkShareMapModal } from './helpdesk/NetworkShareMapModal';
 
 interface HelpDeskViewProps {
   isLightMode: boolean;
@@ -306,6 +315,26 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [printerDeleteTarget, setPrinterDeleteTarget] = useState<DeletePrinterTarget | null>(null);
   const [isPrintServerModalOpen, setIsPrintServerModalOpen] = useState(false);
 
+  // Module 1B: Shared Folders & Mapped Network Drives (inside Tab 1: Health & Safe Process Control)
+  const [sharesData, setSharesData] = useState<any | null>(null);
+  const [loadingShares, setLoadingShares] = useState(false);
+  const [sharesError, setSharesError] = useState<string | null>(null);
+  const [shareActionResult, setShareActionResult] = useState<any | null>(null);
+  const [shareRowActionBusy, setShareRowActionBusy] = useState<string | null>(null);
+  const [shareMenuAnchor, setShareMenuAnchor] = useState<{
+    share: any;
+    top?: number;
+    bottom?: number;
+    left?: number;
+  } | null>(null);
+  const [shareDeleteTarget, setShareDeleteTarget] = useState<DeleteNetworkShareTarget | null>(null);
+  const [isShareMapModalOpen, setIsShareMapModalOpen] = useState(false);
+  const [shareModalPrefill, setShareModalPrefill] = useState<{
+    remotePath?: string;
+    driveLetter?: string;
+    scope?: 'active_user' | 'specific_user' | 'all_users';
+  }>({});
+
   // Module 4: Event Viewer (Human-Readable Diagnostics) state
   const [eventChannel, setEventChannel] = useState<'All' | 'System' | 'Application'>('All');
   const [eventHoursBack, setEventHoursBack] = useState<number>(48);
@@ -445,6 +474,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setPrinterMenuAnchor(null);
     setPrinterDeleteTarget(null);
     setIsPrintServerModalOpen(false);
+    setSharesData(null);
+    setSharesError(null);
+    setShareActionResult(null);
+    setShareRowActionBusy(null);
+    setShareMenuAnchor(null);
+    setShareDeleteTarget(null);
+    setIsShareMapModalOpen(false);
+    setShareModalPrefill({});
     setSelectedProcessPid(null);
     setConfirmKillPid(null);
     setProcessActionNotice(null);
@@ -477,6 +514,28 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setDomainQueryUser('');
   };
 
+  const handleInspectShares = async (overridePayload?: HelpdeskConnectionPayload) => {
+    const payload = overridePayload || buildPayload();
+    if (!payload) return;
+    setLoadingShares(true);
+    setSharesError(null);
+    try {
+      const res = await fetchHelpdeskEndpointShares(payload);
+      setSharesData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setSharesData(null);
+      setSharesError(
+        err?.message ||
+          (isEn
+            ? 'Failed to inspect mapped network shares.'
+            : 'خطا در دریافت لیست پوشه‌های اشتراکی مپ‌شده کاربر.')
+      );
+    } finally {
+      setLoadingShares(false);
+    }
+  };
+
   const handleInspectHealth = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const payload = buildPayload();
@@ -487,6 +546,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       const res = await fetchHelpdeskEndpointHealth(payload);
       setHealthData(res.data);
       if (res.rateLimit) setRateLimit(res.rateLimit);
+      // Automatically fetch user's mapped shared folders for Tab 1 without blocking gauges
+      handleInspectShares(payload);
     } catch (err: any) {
       setHealthData(null);
       setHealthError(err?.message || (isEn ? 'Failed to inspect endpoint.' : 'خطا در اتصال و دریافت وضعیت سیستم.'));
@@ -686,6 +747,79 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       },
     });
     setIsPrintServerModalOpen(false);
+  };
+
+  const handleToggleShareMenu = (e: React.MouseEvent<HTMLButtonElement>, sh: any) => {
+    e.stopPropagation();
+    if (shareMenuAnchor?.share?.id === sh.id) {
+      setShareMenuAnchor(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const menuWidth = 230;
+    const spaceBelow = window.innerHeight - rect.bottom - 44;
+    const openUp = spaceBelow < 130 && rect.top > 130;
+    const leftPos = isEn
+      ? Math.max(12, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 12))
+      : Math.max(12, Math.min(rect.left, window.innerWidth - menuWidth - 12));
+    setShareMenuAnchor({
+      share: sh,
+      top: openUp ? undefined : rect.bottom + 6,
+      bottom: openUp ? window.innerHeight - rect.top + 6 : undefined,
+      left: leftPos,
+    });
+  };
+
+  const handleConfirmDisconnectShare = async (target: DeleteNetworkShareTarget) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setShareRowActionBusy(target.id);
+    setSharesError(null);
+    setShareActionResult(null);
+    try {
+      const res = await disconnectHelpdeskEndpointShare({
+        ...payload,
+        remotePath: target.remotePath,
+        driveLetter: target.driveLetter,
+        scope: target.scope || 'auto',
+        ownerSid: target.ownerSid,
+        managedRuleName: target.managedRuleName,
+      });
+      setShareActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskEndpointShares(payload);
+        setSharesData(refreshed.data);
+      } catch {}
+    } catch (err: any) {
+      setSharesError(
+        err?.message ||
+          (isEn
+            ? `Failed to disconnect share "${target.remotePath}".`
+            : `قطع اتصال پوشه اشتراکی «${target.remotePath}» ناموفق بود.`)
+      );
+    } finally {
+      setShareRowActionBusy(null);
+    }
+  };
+
+  const handleMinimizeShareMapModal = () => {
+    dockModal({
+      id: 'modal-helpdesk-network-share',
+      labelEn: 'Map Shared Folder',
+      labelFa: 'مپ کردن پوشه اشتراکی',
+      badge: 'Share',
+      category: 'system',
+      onRestore: () => {
+        undockModal('modal-helpdesk-network-share');
+        setIsShareMapModalOpen(true);
+      },
+      onClose: () => {
+        undockModal('modal-helpdesk-network-share');
+        setIsShareMapModalOpen(false);
+      },
+    });
+    setIsShareMapModalOpen(false);
   };
 
   const handleInspectEvents = async () => {
@@ -2140,6 +2274,277 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </div>
             </>
           )}
+
+          {/* SHARED FOLDERS & MAPPED NETWORK DRIVES (User Profile + All-Users Control) */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-amber-500" />
+                  <h3 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'Mapped Network Drives & Shared Folders'
+                      : 'پوشه‌های اشتراکی و درایوهای شبکه (Shared Folders)'}
+                  </h3>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Mapped Shared Folders Management' : 'مدیریت پوشه‌های اشتراکی کاربر'}
+                    whatIsIt={
+                      isEn
+                        ? 'Displays network drives and SMB shares mapped in the active user’s profile (HKU\\<SID>\\Network), other loaded profiles, and persistent All-Users logon rules on this workstation.'
+                        : 'درایوهای شبکه و پوشه‌های اشتراکی مپ‌شده در پروفایل کاربر فعال، سایر پروفایل‌های این سیستم و قوانین Logon همه کاربران را نمایش می‌دهد.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Allows HelpDesk engineers to disconnect broken shares or map a new shared folder for the active user, chosen user profile(s), or all users on this workstation.'
+                        : 'به کارشناس اجازه می‌دهد بدون نیاز به پسورد ادمین در دست کاربر، پوشه‌های اشتراکی را دیسکانکت کند یا برای تک‌کاربر، کاربران مشخص یا همه کاربران این آدرس مپ و مدیریت نماید.'
+                    }
+                    example={
+                      isEn
+                        ? 'Z: → \\\\fileserver\\Finance (Active User or All Users Logon Policy)'
+                        : 'درایو Z: ← \\\\fileserver\\Finance (تک‌کاربر یا همه کاربران سیستم)'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'View, disconnect, or map SMB shared folders for the logged-in user, specific user profiles, or all users on this address.'
+                    : 'مشاهده، دیسکانکت کردن و مپ کردن پوشه‌های اشتراکی برای کاربر فعال، کاربران انتخابی این سیستم یا همه کاربران این آدرس.'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleInspectShares()}
+                  disabled={!canRunDiagnostics || loadingShares}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                >
+                  {loadingShares ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  <span>{isEn ? 'Refresh Shares' : 'دریافت / بروزرسانی شیرفولدرها'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    undockModal('modal-helpdesk-network-share');
+                    setShareModalPrefill({});
+                    setIsShareMapModalOpen(true);
+                  }}
+                  disabled={!canExecuteActions}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                >
+                  {!canExecuteActions ? <Lock className="w-3.5 h-3.5" /> : <FolderPlus className="w-3.5 h-3.5" />}
+                  <span>{isEn ? 'Map Shared Folder' : 'مپ کردن شیر فولدر'}</span>
+                </button>
+              </div>
+            </div>
+
+            {sharesError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{sharesError}</span>
+              </div>
+            )}
+
+            {shareActionResult && (
+              <div className="p-3.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 space-y-1 text-xs">
+                <div className="flex items-center gap-2 font-bold text-emerald-500">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{isEn ? shareActionResult.message : shareActionResult.messageFa}</span>
+                </div>
+                {shareActionResult.rawOutput && (
+                  <div className={`font-mono text-[11px] ${textMuted}`}>{shareActionResult.rawOutput}</div>
+                )}
+              </div>
+            )}
+
+            {sharesData && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {sharesData.loggedInUser && (
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium border ${
+                          isLightMode
+                            ? 'bg-sky-50 text-sky-800 border-sky-200'
+                            : 'bg-sky-500/10 text-sky-300 border-sky-500/30'
+                        }`}
+                      >
+                        <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                        <span>
+                          {isEn ? 'Active User:' : 'کاربر فعال:'}{' '}
+                          <strong dir="ltr" className="font-mono">{sharesData.loggedInUser}</strong>
+                        </span>
+                      </span>
+                    )}
+                    {Array.isArray(sharesData.userProfiles) && sharesData.userProfiles.length > 0 && (
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium border ${
+                          isLightMode
+                            ? 'bg-slate-100 text-slate-700 border-slate-200'
+                            : 'bg-slate-800/80 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        <span>
+                          {isEn
+                            ? `Workstation Profiles: ${sharesData.userProfiles.length}`
+                            : `پروفایل‌های این سیستم: ${sharesData.userProfiles.length} کاربر`}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                  <span className={`font-mono ${textMuted}`}>
+                    {isEn ? `${(sharesData.shares || []).length} Share(s)` : `${(sharesData.shares || []).length} پوشه اشتراکی`}
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                  <table className="w-full text-xs border-collapse">
+                    <thead className={isLightMode ? 'bg-slate-50 text-slate-600' : 'bg-slate-900/90 text-slate-400'}>
+                      <tr className="border-b border-slate-200 dark:border-slate-800 text-start">
+                        <th className="py-2.5 px-3 text-start">{isEn ? 'Drive' : 'درایو'}</th>
+                        <th className="py-2.5 px-3 text-start">{isEn ? 'UNC Share Path' : 'مسیر پوشه اشتراکی (UNC)'}</th>
+                        <th className="py-2.5 px-3 text-start">{isEn ? 'Scope' : 'محدوده'}</th>
+                        <th className="py-2.5 px-3 text-start">{isEn ? 'User / Owner' : 'کاربر / مالک'}</th>
+                        <th className="py-2.5 px-3 text-start">{isEn ? 'Status' : 'وضعیت'}</th>
+                        <th className="py-2.5 px-3 text-center">{isEn ? 'Manage' : 'مدیریت'}</th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
+                      {(sharesData.shares || []).map((sh: any) => {
+                        const isBusy = shareRowActionBusy === sh.id;
+                        return (
+                          <tr key={sh.id}>
+                            <td className="py-2.5 px-3 font-mono font-bold whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded border ${
+                                  isLightMode
+                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                    : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                }`}
+                              >
+                                <HardDrive className="w-3 h-3 shrink-0" />
+                                <span dir="ltr">{sh.driveLetter || 'UNC'}</span>
+                              </span>
+                              {sh.label && (
+                                <div className={`text-[10px] font-sans font-normal mt-0.5 ${textMuted}`}>
+                                  {sh.label}
+                                </div>
+                              )}
+                            </td>
+                            <td className={`py-2.5 px-3 ${textPrimary}`}>
+                              <div dir="ltr" className="font-mono font-semibold text-start">
+                                {sh.remotePath}
+                              </div>
+                              <div className={`text-[10px] ${textMuted}`}>{sh.provider}</div>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${
+                                  sh.scope === 'all_users'
+                                    ? isLightMode
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                      : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                    : sh.scope === 'user'
+                                    ? isLightMode
+                                      ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                                      : 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+                                    : isLightMode
+                                    ? 'bg-slate-100 text-slate-700 border-slate-200'
+                                    : 'bg-slate-800 text-slate-300 border-slate-700'
+                                }`}
+                              >
+                                {sh.scope === 'all_users'
+                                  ? isEn
+                                    ? 'All Users Rule'
+                                    : 'همه کاربران آدرس'
+                                  : sh.scope === 'user'
+                                  ? isEn
+                                    ? 'User Profile'
+                                    : 'پروفایل کاربر'
+                                  : isEn
+                                  ? 'Session / PC'
+                                  : 'نشست سیستم'}
+                              </span>
+                            </td>
+                            <td dir="ltr" className={`py-2.5 px-3 font-mono text-[11px] ${textMuted}`}>
+                              {sh.ownerUser || '-'}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div
+                                className={`font-semibold ${
+                                  String(sh.status).toLowerCase().includes('disconnect') ||
+                                  String(sh.status).toLowerCase().includes('unavailable')
+                                    ? 'text-amber-500'
+                                    : 'text-emerald-500'
+                                }`}
+                              >
+                                {sh.status}
+                              </div>
+                              {sh.persistent && (
+                                <div className={`text-[10px] ${textMuted}`}>
+                                  {isEn ? 'Persistent' : 'دائمی (Persistent)'}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              {canExecuteActions ? (
+                                <button
+                                  type="button"
+                                  disabled={isBusy || shareRowActionBusy !== null}
+                                  onClick={(e) => handleToggleShareMenu(e, sh)}
+                                  className={`p-1.5 rounded-lg border transition cursor-pointer disabled:opacity-50 ${
+                                    shareMenuAnchor?.share?.id === sh.id
+                                      ? 'bg-sky-600 text-white border-sky-500'
+                                      : isLightMode
+                                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                                  }`}
+                                  title={isEn ? 'Manage Share' : 'مدیریت پوشه اشتراکی'}
+                                >
+                                  {isBusy ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <MoreVertical className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              ) : (
+                                <span className={`text-[11px] ${textMuted}`}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {(sharesData.shares || []).length === 0 && (
+                        <tr>
+                          <td colSpan={6} className={`py-6 text-center ${textMuted}`}>
+                            {isEn
+                              ? 'No mapped network drives or shared folders detected for this workstation/user.'
+                              : 'هیچ درایو شبکه یا پوشه اشتراکی مپ‌شده‌ای برای این سیستم/کاربر ثبت نشده است.'}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {!sharesData && !loadingShares && !sharesError && (
+              <div className={`p-5 rounded-xl border text-center text-xs space-y-1.5 ${subSurfaceBg}`}>
+                <div className={`font-semibold ${textPrimary}`}>
+                  {isEn ? 'Inspect or Map Network Shared Folders' : 'مشاهده و مدیریت پوشه‌های اشتراکی کاربر'}
+                </div>
+                <p className={textMuted}>
+                  {isEn
+                    ? 'Click "Connect & Inspect" above (or "Refresh Shares") to load the user’s mapped drives and discovered profiles on this workstation.'
+                    : 'با زدن «اتصال و پایش» در بالای صفحه یا دکمه «دریافت / بروزرسانی شیرفولدرها»، پوشه‌های اشتراکی این کاربر و لیست پروفایل‌های این سیستم نمایش داده می‌شود.'}
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* DETAILED SYSTEM INFO & INSTALLED WINDOWS UPDATES (systeminfo + HotFixes) */}
           <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
@@ -5230,6 +5635,88 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           document.body
         )}
 
+      {/* Floating 3-Dots Action Menu for Mapped Network Shares (Portal) */}
+      {shareMenuAnchor &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[9998] bg-transparent"
+              onClick={() => setShareMenuAnchor(null)}
+            />
+            <div
+              dir={isEn ? 'ltr' : 'rtl'}
+              style={{
+                position: 'fixed',
+                top: shareMenuAnchor.top !== undefined ? `${shareMenuAnchor.top}px` : undefined,
+                bottom: shareMenuAnchor.bottom !== undefined ? `${shareMenuAnchor.bottom}px` : undefined,
+                left: shareMenuAnchor.left !== undefined ? `${shareMenuAnchor.left}px` : undefined,
+                width: '14.5rem',
+              }}
+              className={`z-[9999] rounded-xl border shadow-2xl p-1.5 text-xs space-y-1 ${
+                isLightMode
+                  ? 'bg-white border-slate-200 text-slate-800'
+                  : 'bg-slate-900 border-slate-700 text-slate-100'
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  const sh = shareMenuAnchor.share;
+                  setShareMenuAnchor(null);
+                  undockModal('modal-helpdesk-network-share');
+                  setShareModalPrefill({
+                    remotePath: sh.remotePath,
+                    driveLetter: sh.driveLetter || 'AUTO',
+                    scope:
+                      sh.scope === 'all_users'
+                        ? 'all_users'
+                        : sharesData?.loggedInUser
+                        ? 'active_user'
+                        : 'specific_user',
+                  });
+                  setIsShareMapModalOpen(true);
+                }}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-start transition cursor-pointer ${
+                  isLightMode ? 'hover:bg-sky-50 text-slate-800' : 'hover:bg-slate-800 text-slate-100'
+                }`}
+              >
+                <FolderPlus className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                <span>{isEn ? 'Remap / Apply to Other Users' : 'مپ مجدد / اعمال برای سایر کاربران'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const sh = shareMenuAnchor.share;
+                  setShareMenuAnchor(null);
+                  setShareDeleteTarget({
+                    type: 'network_share',
+                    id: sh.id,
+                    name: sh.driveLetter ? `${sh.driveLetter} (${sh.remotePath})` : sh.remotePath,
+                    driveLetter: sh.driveLetter,
+                    remotePath: sh.remotePath,
+                    host: sharesData?.targetIp || targetIp.trim(),
+                    scope: sh.scope,
+                    ownerUser: sh.ownerUser,
+                    ownerSid: sh.ownerSid,
+                    managedRuleName: sh.managedRuleName,
+                  });
+                }}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-start transition cursor-pointer ${
+                  isLightMode
+                    ? 'hover:bg-rose-50 text-rose-700'
+                    : 'hover:bg-rose-500/15 text-rose-300'
+                }`}
+              >
+                <FolderX className="w-3.5 h-3.5 shrink-0" />
+                <span>{isEn ? 'Disconnect Share' : 'قطع اتصال (Disconnect)'}</span>
+              </button>
+            </div>
+          </>,
+          document.body
+        )}
+
       {/* Print Server Connect & Install Modal */}
       <PrintServerConnectModal
         isOpen={isPrintServerModalOpen}
@@ -5248,12 +5735,43 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         }}
       />
 
+      {/* Network Share Map & Management Modal */}
+      <NetworkShareMapModal
+        isOpen={isShareMapModalOpen}
+        onClose={() => setIsShareMapModalOpen(false)}
+        onMinimize={handleMinimizeShareMapModal}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        canExecuteActions={canExecuteActions}
+        buildPayload={buildPayload}
+        workstationIp={sharesData?.targetIp || healthData?.targetIp || targetIp.trim()}
+        detectedLoggedInUser={sharesData?.loggedInUser || healthData?.loggedInUser || ''}
+        userProfiles={sharesData?.userProfiles || []}
+        initialRemotePath={shareModalPrefill.remotePath}
+        initialDriveLetter={shareModalPrefill.driveLetter}
+        initialScope={shareModalPrefill.scope}
+        onRateLimitUpdate={(rl) => setRateLimit(rl)}
+        onMapped={(result) => {
+          setShareActionResult(result);
+          handleInspectShares();
+        }}
+      />
+
       {/* Standard Printer Removal Confirmation Modal */}
       <DeleteConfirmModal
         isOpen={Boolean(printerDeleteTarget)}
         onClose={() => setPrinterDeleteTarget(null)}
         target={printerDeleteTarget}
         onConfirmDeletePrinter={handleConfirmDeletePrinter}
+        isLightMode={isLightMode}
+      />
+
+      {/* Standard Network Share Disconnect Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={Boolean(shareDeleteTarget)}
+        onClose={() => setShareDeleteTarget(null)}
+        target={shareDeleteTarget}
+        onConfirmDeleteNetworkShare={handleConfirmDisconnectShare}
         isLightMode={isLightMode}
       />
     </div>
