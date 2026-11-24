@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Headphones,
@@ -282,6 +282,21 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
   // Active sub-workspace tab
   const [activeSubTab, setActiveSubTab] = useState<HelpdeskSubTab>('health');
+  const connectRunIdRef = useRef(0);
+  const [prefetchProgress, setPrefetchProgress] = useState<{
+    active: boolean;
+    step: number;
+    total: number;
+    currentTab: HelpdeskSubTab | null;
+    labelEn: string;
+    labelFa: string;
+  } | null>(null);
+
+  useEffect(() => {
+    return () => {
+      connectRunIdRef.current += 1;
+    };
+  }, []);
 
   // Guardrail status & JEA templates from backend
   const [rateLimit, setRateLimit] = useState<{
@@ -564,6 +579,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   };
 
   const handleClearSession = () => {
+    connectRunIdRef.current += 1;
+    setPrefetchProgress(null);
     setTargetIp('');
     setUsername('');
     setPassword('');
@@ -682,21 +699,27 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
-  const handleInspectHealth = async (e?: React.FormEvent) => {
+  const handleInspectHealth = async (
+    e?: React.FormEvent,
+    overridePayload?: HelpdeskConnectionPayload
+  ): Promise<boolean> => {
     if (e) e.preventDefault();
-    const payload = buildPayload();
-    if (!payload) return;
+    const payload = overridePayload || buildPayload();
+    if (!payload) return false;
     setLoadingHealth(true);
     setHealthError(null);
     try {
       const res = await fetchHelpdeskEndpointHealth(payload);
       setHealthData(res.data);
       if (res.rateLimit) setRateLimit(res.rateLimit);
-      // Automatically fetch user's mapped shared folders for Tab 1 without blocking gauges
-      handleInspectShares(payload);
+      setLoadingHealth(false);
+      // Automatically fetch user's mapped shared folders for Tab 1 in sequence after live gauges populate
+      await handleInspectShares(payload);
+      return true;
     } catch (err: any) {
       setHealthData(null);
       setHealthError(err?.message || (isEn ? 'Failed to inspect endpoint.' : 'خطا در اتصال و دریافت وضعیت سیستم.'));
+      return false;
     } finally {
       setLoadingHealth(false);
     }
@@ -1695,27 +1718,160 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
+  const handleStopPrefetch = () => {
+    connectRunIdRef.current += 1;
+    setPrefetchProgress(null);
+  };
+
   const handleConnectCurrentTab = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (activeSubTab === 'network') {
-      await handleInspectNetwork();
-    } else if (activeSubTab === 'printers') {
-      await handleInspectPrinters();
-    } else if (activeSubTab === 'events') {
-      await handleInspectEvents();
-    } else if (activeSubTab === 'logins') {
-      await handleInspectLogons();
-    } else if (activeSubTab === 'updates') {
-      await Promise.all([handleInspectUpdateStatus('auto', true), handleInspectSysInfo()]);
-    } else if (activeSubTab === 'maintenance') {
-      await Promise.all([handleScanTemp(), handleInspectGpo(), handleInspectDisks()]);
-    } else if (activeSubTab === 'hardware_domain') {
-      await handleInspectBattery();
-    } else {
-      setActiveSubTab('health');
-      await handleInspectHealth();
+    const payload = buildPayload();
+    if (!payload) return;
+
+    const runId = ++connectRunIdRef.current;
+    const isCancelled = () => connectRunIdRef.current !== runId;
+
+    // Reset stale host snapshots cleanly before sequential prefetch starting from Tab 1
+    setHealthData(null);
+    setHealthError(null);
+    setSharesData(null);
+    setSharesError(null);
+    setNetworkData(null);
+    setNetworkError(null);
+    setPrinterData(null);
+    setPrinterError(null);
+    setEventData(null);
+    setEventError(null);
+    setLogonsData(null);
+    setLogonsError(null);
+    setSysInfoData(null);
+    setSysInfoError(null);
+    setUpdateStatusData(null);
+    setUpdateStatusError(null);
+    setTempScanData(null);
+    setTempError(null);
+    setGpoData(null);
+    setGpoError(null);
+    setDiskHealthData(null);
+    setDiskHealthError(null);
+    setBatteryData(null);
+    setBatteryError(null);
+
+    const steps: Array<{
+      id: HelpdeskSubTab;
+      labelEn: string;
+      labelFa: string;
+      run: () => Promise<boolean>;
+    }> = [
+      {
+        id: 'health',
+        labelEn: 'Health, Processes & Shares',
+        labelFa: 'سلامت سیستم، پروسس‌ها و شیر فولدرها',
+        run: () => handleInspectHealth(undefined, payload),
+      },
+      {
+        id: 'network',
+        labelEn: 'Network, VPN, Hosts & Routing',
+        labelFa: 'شبکه، VPN، Hosts و روتینگ',
+        run: async () => {
+          await handleInspectNetwork();
+          return true;
+        },
+      },
+      {
+        id: 'printers',
+        labelEn: 'Printers & Print Spooler',
+        labelFa: 'پرینترها و Spooler',
+        run: async () => {
+          await handleInspectPrinters();
+          return true;
+        },
+      },
+      ...(canViewEventViewer
+        ? [
+            {
+              id: 'events' as HelpdeskSubTab,
+              labelEn: 'Event Viewer Diagnostics',
+              labelFa: 'تحلیل خطاهای Event Viewer',
+              run: async () => {
+                await handleInspectEvents();
+                return true;
+              },
+            },
+          ]
+        : []),
+      {
+        id: 'logins',
+        labelEn: 'User Logins, Sessions & Power',
+        labelFa: 'ورود کاربران، نشست و پاور',
+        run: async () => {
+          await handleInspectLogons();
+          return true;
+        },
+      },
+      {
+        id: 'updates',
+        labelEn: 'Updates, WSUS & System Info',
+        labelFa: 'آپدیت ویندوز، WSUS و مشخصات سیستم',
+        run: async () => {
+          await handleInspectSysInfo();
+          if (!isCancelled()) {
+            await handleInspectUpdateStatus('auto', true);
+          }
+          return true;
+        },
+      },
+      {
+        id: 'maintenance',
+        labelEn: 'Temp, GPO & Disk Health',
+        labelFa: 'پاک‌سازی Temp، GPO و دیسک‌ها',
+        run: async () => {
+          await handleScanTemp();
+          if (!isCancelled()) {
+            await handleInspectGpo();
+          }
+          if (!isCancelled()) {
+            await handleInspectDisks();
+          }
+          return true;
+        },
+      },
+      {
+        id: 'hardware_domain',
+        labelEn: 'Battery Health Report',
+        labelFa: 'گزارش سلامت باتری',
+        run: async () => {
+          await handleInspectBattery();
+          return true;
+        },
+      },
+    ];
+
+    for (let i = 0; i < steps.length; i++) {
+      if (isCancelled()) return;
+      const st = steps[i];
+      setPrefetchProgress({
+        active: true,
+        step: i + 1,
+        total: steps.length,
+        currentTab: st.id,
+        labelEn: st.labelEn,
+        labelFa: st.labelFa,
+      });
+      const ok = await st.run();
+      if (isCancelled()) return;
+      // If Tab 1 initial auth/connectivity failed, stop so we do not trigger AD account lockout retries
+      if (i === 0 && !ok) {
+        setPrefetchProgress(null);
+        notifyHelpdeskAuditUpdated();
+        return;
+      }
     }
-    notifyHelpdeskAuditUpdated();
+
+    if (!isCancelled()) {
+      setPrefetchProgress(null);
+      notifyHelpdeskAuditUpdated();
+    }
   };
 
   const formatLogonTimestamp = (isoStr?: string) => {
@@ -2222,10 +2378,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           <div className="lg:col-span-2 flex items-center gap-2">
             <button
               type="submit"
-              disabled={!canRunDiagnostics || isAnyLoading}
+              disabled={!canRunDiagnostics || loadingHealth}
               className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition whitespace-nowrap cursor-pointer"
             >
-              {isAnyLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+              {loadingHealth ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
               <span>{isEn ? 'Connect & Inspect' : 'اتصال و پایش'}</span>
             </button>
             <button
@@ -2242,6 +2398,32 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             </button>
           </div>
         </div>
+
+        {prefetchProgress?.active && (
+          <div
+            className={`px-3 py-2 rounded-lg border flex flex-wrap items-center justify-between gap-2 text-xs ${
+              isLightMode
+                ? 'bg-sky-50 border-sky-200 text-sky-900'
+                : 'bg-sky-950/30 border-sky-500/30 text-sky-200'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 text-sky-500 animate-spin shrink-0" />
+              <span>
+                {isEn
+                  ? `Fetching all tabs sequentially (${prefetchProgress.step}/${prefetchProgress.total}): ${prefetchProgress.labelEn}...`
+                  : `در حال دریافت خودکار اطلاعات تب‌ها به ترتیب (${prefetchProgress.step} از ${prefetchProgress.total}): ${prefetchProgress.labelFa}...`}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleStopPrefetch}
+              className="px-2 py-0.5 rounded border border-sky-500/40 hover:bg-sky-500/15 text-[11px] font-semibold cursor-pointer"
+            >
+              {isEn ? 'Stop' : 'توقف'}
+            </button>
+          </div>
+        )}
 
         {showAdvancedConn && (
           <div className={`pt-3 border-t grid grid-cols-1 sm:grid-cols-2 gap-3 ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
@@ -2341,33 +2523,45 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         ].map((tab) => {
           const Icon = tab.icon;
           const active = activeSubTab === tab.id;
+          const isFetchingThisTab =
+            (prefetchProgress?.active && prefetchProgress.currentTab === tab.id) ||
+            (tab.id === 'health' && loadingHealth) ||
+            (tab.id === 'network' && loadingNetwork) ||
+            (tab.id === 'printers' && loadingPrinters) ||
+            (tab.id === 'events' && loadingEvents) ||
+            (tab.id === 'logins' && loadingLogons) ||
+            (tab.id === 'updates' && (loadingSysInfo || loadingUpdateStatus)) ||
+            (tab.id === 'maintenance' && (loadingTempScan || loadingGpo || loadingDiskHealth)) ||
+            (tab.id === 'hardware_domain' && loadingBattery);
+          const hasTabData =
+            (tab.id === 'health' && Boolean(healthData)) ||
+            (tab.id === 'network' && Boolean(networkData)) ||
+            (tab.id === 'printers' && Boolean(printerData)) ||
+            (tab.id === 'events' && Boolean(eventData)) ||
+            (tab.id === 'logins' && Boolean(logonsData)) ||
+            (tab.id === 'updates' && Boolean(sysInfoData || updateStatusData)) ||
+            (tab.id === 'maintenance' && Boolean(tempScanData || gpoData || diskHealthData)) ||
+            (tab.id === 'hardware_domain' && Boolean(batteryData));
+
           return (
             <button
               key={tab.id}
               type="button"
               onClick={() => {
                 setActiveSubTab(tab.id);
-                if (
-                  tab.id === 'logins' &&
-                  targetIp.trim() &&
-                  username.trim() &&
-                  password &&
-                  !logonsData &&
-                  !loadingLogons
-                ) {
-                  handleInspectLogons();
-                } else if (
-                  tab.id === 'updates' &&
-                  targetIp.trim() &&
-                  username.trim() &&
-                  password &&
-                  !sysInfoData &&
-                  !loadingSysInfo
-                ) {
-                  handleInspectSysInfo();
-                  if (!updateStatusData && !loadingUpdateStatus) {
-                    handleInspectUpdateStatus('auto', true);
-                  }
+                if (!prefetchProgress?.active && targetIp.trim() && username.trim() && password) {
+                  if (tab.id === 'network' && !networkData && !loadingNetwork) handleInspectNetwork();
+                  else if (tab.id === 'printers' && !printerData && !loadingPrinters) handleInspectPrinters();
+                  else if (tab.id === 'events' && canViewEventViewer && !eventData && !loadingEvents) handleInspectEvents();
+                  else if (tab.id === 'logins' && !logonsData && !loadingLogons) handleInspectLogons();
+                  else if (tab.id === 'updates') {
+                    if (!sysInfoData && !loadingSysInfo) handleInspectSysInfo();
+                    if (!updateStatusData && !loadingUpdateStatus) handleInspectUpdateStatus('auto', true);
+                  } else if (tab.id === 'maintenance') {
+                    if (!tempScanData && !loadingTempScan) handleScanTemp();
+                    if (!gpoData && !loadingGpo) handleInspectGpo();
+                    if (!diskHealthData && !loadingDiskHealth) handleInspectDisks();
+                  } else if (tab.id === 'hardware_domain' && !batteryData && !loadingBattery) handleInspectBattery();
                 }
               }}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition whitespace-nowrap cursor-pointer ${
@@ -2380,8 +2574,15 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   : 'text-slate-400 hover:text-slate-100'
               }`}
             >
-              <Icon className={`w-3.5 h-3.5 ${active ? 'text-sky-500' : ''}`} />
+              {isFetchingThisTab ? (
+                <Loader2 className="w-3.5 h-3.5 text-sky-500 animate-spin" />
+              ) : (
+                <Icon className={`w-3.5 h-3.5 ${active ? 'text-sky-500' : ''}`} />
+              )}
               <span>{isEn ? tab.labelEn : tab.labelFa}</span>
+              {!isFetchingThisTab && hasTabData && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+              )}
             </button>
           );
         })}
@@ -7423,307 +7624,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             </div>
           )}
 
-          {/* Unified User Session Actions (Lock / Logoff) & Remote Workstation Power Control (No Duplication) */}
-          <div className={`rounded-xl border p-4 sm:p-5 space-y-5 ${surfaceBg}`}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Power className="w-4 h-4 text-rose-500" />
-                  <h3 className={`text-sm font-bold ${textPrimary}`}>
-                    {isEn
-                      ? 'User Session Management & Workstation Power Control'
-                      : 'مدیریت نشست کاربر (قفل / خروج) و کنترل پاور از راه دور سیستم'}
-                  </h3>
-                  <FieldInfoTooltip
-                    isEn={isEn}
-                    isLightMode={isLightMode}
-                    fieldName={isEn ? 'Session & Power Control' : 'مدیریت نشست کاربر و پاور سیستم'}
-                    whatIsIt={
-                      isEn
-                        ? 'Combines active user session actions (Lock workstation screen or Sign Out/Logoff user) with Remote Power Control (immediate/scheduled restart, force/scheduled shutdown, and shutdown /a abort).'
-                        : 'امکان قفل کردن فوری صفحه کاربر، خروج (Logoff) نشست فعال، و ری‌استارت فوری/زمان‌بندی‌شده یا خاموش کردن اجباری/زمان‌بندی‌شده و لغو آن (shutdown /a) را به‌صورت یکپارچه و بدون تکرار ارائه می‌دهد.'
-                    }
-                    whyNeeded={
-                      isEn
-                        ? 'Enables technicians to secure unattended screens, end hung user profiles, or schedule restarts after maintenance with every action logged in Audit & Command Logs.'
-                        : 'برای قفل کردن فوری سیستم رهاشده، خروج نشست معلق کاربر یا زمان‌بندی ری‌استارت/خاموشی با ثبت کامل همه عملیات در Audit & Command Logs.'
-                    }
-                    example={
-                      isEn
-                        ? 'Lock Screen: rundll32/tsdiscon · Logoff: logoff <ID> · Power: shutdown /r /f /t 300'
-                        : 'قفل صفحه بدون بستن برنامه‌ها · خروج کامل نشست (Logoff) · ری‌استارت و خاموشی زمان‌بندی‌شده'
-                    }
-                  />
-                </div>
-                <p className={`text-xs mt-0.5 ${textMuted}`}>
-                  {isEn
-                    ? 'Lock or sign out the active user session, or issue immediate/scheduled restart and shutdown commands — every action is audited.'
-                    : 'قفل کردن صفحه یا خروج کاربر فعال و کنترل پاور سیستم (ری‌استارت فوری/زمان‌بندی‌شده، خاموشی اجباری/زمان‌بندی‌شده و لغو) با ثبت در لاگ ممیزی.'}
-                </p>
-              </div>
-              {!canPowerControl && (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-500">
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>{isEn ? 'Power commands require canPowerControlHelpdeskEndpoints' : 'عملیات پاور نیازمند مجوز canPowerControlHelpdeskEndpoints است'}</span>
-                </span>
-              )}
-            </div>
-
-            {/* Zone A: Interactive User Screen Lock & Sign Out */}
-            <div className={`p-3.5 rounded-xl border flex flex-col md:flex-row md:items-center md:justify-between gap-3 ${subSurfaceBg}`}>
-              <div className="space-y-0.5">
-                <div className={`text-xs font-bold flex items-center gap-2 ${textPrimary}`}>
-                  <UserCheck className="w-4 h-4 text-sky-500" />
-                  <span>{isEn ? 'Active Interactive User Controls' : 'کنترل کاربر فعال سیستم'}</span>
-                  {logonsData?.activeLoggedInUser && (
-                    <span
-                      className={`px-2 py-0.5 rounded-md border text-[11px] font-mono ${
-                        isLightMode ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-200'
-                      }`}
-                      dir="ltr"
-                    >
-                      {logonsData.activeLoggedInUser}
-                    </span>
-                  )}
-                </div>
-                <div className={`text-[11px] ${textMuted}`}>
-                  {logonsData
-                    ? logonsData.isAnyoneLoggedIn
-                      ? isEn
-                        ? 'Lock keeps open apps intact behind the Windows lock screen; Logoff closes all open user apps cleanly.'
-                        : 'قفل صفحه برنامه‌های باز کاربر را حفظ می‌کند؛ خروج (Logoff) نشست کاربر را می‌بندد.'
-                      : isEn
-                      ? 'No interactive user session currently logged in; use row controls once a session appears.'
-                      : 'در حال حاضر کاربر فعالی روی سیستم لاگین نیست.'
-                    : isEn
-                    ? 'Applies to the current active interactive session on this workstation (or inspect first to target a specific row).'
-                    : 'روی نشست فعال فعلی سیستم اعمال می‌شود (یا برای انتخاب نشست خاص ابتدا گزارش نشست‌ها را بگیرید).'}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  disabled={!canExecuteActions || sessionActionBusy !== null || (logonsData !== null && !logonsData.isAnyoneLoggedIn)}
-                  onClick={() =>
-                    handleUserSessionAction(
-                      'lock',
-                      logonsData?.activeSessions?.[0]?.sessionId,
-                      logonsData?.activeLoggedInUser || logonsData?.activeSessions?.[0]?.username,
-                      'quick:lock'
-                    )
-                  }
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 disabled:opacity-50 text-xs font-semibold transition cursor-pointer"
-                >
-                  {sessionActionBusy === 'quick:lock' ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Lock className="w-3.5 h-3.5" />
-                  )}
-                  <span>{isEn ? 'Lock Screen' : 'قفل صفحه کاربر'}</span>
-                </button>
-
-                {confirmLogoffKey === 'quick:logoff' ? (
-                  <div className="inline-flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={!canExecuteActions || sessionActionBusy !== null}
-                      onClick={() =>
-                        handleUserSessionAction(
-                          'logoff',
-                          logonsData?.activeSessions?.[0]?.sessionId,
-                          logonsData?.activeLoggedInUser || logonsData?.activeSessions?.[0]?.username,
-                          'quick:logoff'
-                        )
-                      }
-                      className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer"
-                    >
-                      {sessionActionBusy === 'quick:logoff' ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <LogOut className="w-3.5 h-3.5" />
-                      )}
-                      <span>{isEn ? 'Confirm Logoff' : 'تأیید خروج کاربر'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmLogoffKey(null)}
-                      className={`px-2.5 py-2 rounded-lg border text-xs cursor-pointer ${
-                        isLightMode ? 'border-slate-300 text-slate-700' : 'border-slate-700 text-slate-300'
-                      }`}
-                    >
-                      {isEn ? 'Cancel' : 'انصراف'}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={!canExecuteActions || sessionActionBusy !== null || (logonsData !== null && !logonsData.isAnyoneLoggedIn)}
-                    onClick={() => setConfirmLogoffKey('quick:logoff')}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 disabled:opacity-50 text-xs font-semibold transition cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>{isEn ? 'Sign Out (Logoff)' : 'خروج کاربر (Logoff)'}</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {sessionActionError && (
-              <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{sessionActionError}</span>
-              </div>
-            )}
-
-            {sessionActionResult && (
-              <div
-                className={`p-3 rounded-xl border text-xs flex items-center gap-2 font-semibold ${
-                  sessionActionResult.success
-                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
-                    : 'border-rose-500/40 bg-rose-500/10 text-rose-500'
-                }`}
-              >
-                {sessionActionResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
-                <span>{isEn ? sessionActionResult.message : sessionActionResult.messageFa}</span>
-              </div>
-            )}
-
-            {/* Zone B: Remote Workstation Power Control (Force / Scheduled Shutdown & Restart, Abort) */}
-            <div className={`pt-4 border-t space-y-3 ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
-              <div className={`text-xs font-bold flex items-center gap-2 ${textPrimary}`}>
-                <PowerOff className="w-4 h-4 text-rose-500" />
-                <span>
-                  {isEn
-                    ? 'Workstation Power Control (Immediate / Scheduled Restart & Shutdown)'
-                    : 'کنترل پاور ایستگاه کاری (ری‌استارت و خاموشی فوری یا زمان‌بندی‌شده)'}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                <div className="md:col-span-4">
-                  <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
-                    {isEn ? 'Power Operation' : 'نوع عملیات پاور'}
-                  </label>
-                  <select
-                    value={powerAction}
-                    onChange={(e) => {
-                      setPowerAction(e.target.value as any);
-                      setConfirmPowerAction(false);
-                    }}
-                    className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
-                  >
-                    <option value="restart_now">{isEn ? 'Immediate Forced Restart (shutdown /r /f /t 5)' : 'ری‌استارت فوری و اجباری (۵ ثانیه)'}</option>
-                    <option value="restart_scheduled">{isEn ? 'Scheduled Restart (Custom Delay)' : 'ری‌استارت زمان‌بندی‌شده (با تأخیر دلخواه)'}</option>
-                    <option value="shutdown_force">{isEn ? 'Immediate Forced Shutdown (shutdown /s /f /t 5)' : 'خاموش کردن فوری و اجباری (۵ ثانیه)'}</option>
-                    <option value="shutdown_scheduled">{isEn ? 'Scheduled Shutdown (Custom Delay)' : 'خاموش کردن زمان‌بندی‌شده (با تأخیر دلخواه)'}</option>
-                    <option value="abort">{isEn ? 'Cancel Pending Shutdown / Restart (shutdown /a)' : 'لغو خاموشی / ری‌استارت زمان‌بندی‌شده (shutdown /a)'}</option>
-                  </select>
-                </div>
-
-                {(powerAction === 'restart_scheduled' || powerAction === 'shutdown_scheduled') && (
-                  <div className="md:col-span-2">
-                    <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
-                      {isEn ? 'Delay (Minutes)' : 'زمان‌بندی (دقیقه)'}
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={1440}
-                      value={powerDelayMinutes}
-                      onChange={(e) => setPowerDelayMinutes(Math.max(1, Math.min(1440, Number(e.target.value) || 1)))}
-                      className={`w-full px-3 py-2 rounded-lg border text-xs font-mono tabular-nums outline-none ${inputCls}`}
-                    />
-                  </div>
-                )}
-
-                {powerAction !== 'abort' && (
-                  <div className={powerAction === 'restart_scheduled' || powerAction === 'shutdown_scheduled' ? 'md:col-span-3' : 'md:col-span-5'}>
-                    <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
-                      {isEn ? 'User Notification Message (Optional)' : 'پیام نمایشی به کاربر (اختیاری)'}
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={120}
-                      value={powerReason}
-                      onChange={(e) => setPowerReason(e.target.value)}
-                      placeholder="IT HelpDesk Remote Maintenance"
-                      className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
-                    />
-                  </div>
-                )}
-
-                <div className={powerAction === 'abort' ? 'md:col-span-8 flex justify-end' : 'md:col-span-3 flex justify-end'}>
-                  {powerAction === 'abort' ? (
-                    <button
-                      type="button"
-                      disabled={!canPowerControl || runningPower}
-                      onClick={handleExecutePowerControl}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
-                    >
-                      {runningPower ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                      <span>{isEn ? 'Cancel Scheduled Power Action' : 'لغو زمان‌بندی (shutdown /a)'}</span>
-                    </button>
-                  ) : confirmPowerAction ? (
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        disabled={!canPowerControl || runningPower}
-                        onClick={handleExecutePowerControl}
-                        className="px-3.5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer"
-                      >
-                        {runningPower ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : isEn ? (
-                          'Confirm Execute'
-                        ) : (
-                          'تأیید قطعی اجرا'
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmPowerAction(false)}
-                        className={`px-2.5 py-2 rounded-lg border text-xs cursor-pointer ${isLightMode ? 'border-slate-300 text-slate-700' : 'border-slate-700 text-slate-300'}`}
-                      >
-                        {isEn ? 'Cancel' : 'انصراف'}
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={!canPowerControl || runningPower}
-                      onClick={() => setConfirmPowerAction(true)}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 disabled:opacity-50 text-xs font-semibold transition cursor-pointer"
-                    >
-                      {!canPowerControl ? <Lock className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
-                      <span>{isEn ? 'Issue Power Command' : 'ارسال دستور پاور'}</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {powerError && (
-                <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{powerError}</span>
-                </div>
-              )}
-
-              {powerResult && (
-                <div
-                  className={`p-3 rounded-xl border text-xs flex items-center gap-2 font-semibold ${
-                    powerResult.success
-                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
-                      : 'border-rose-500/40 bg-rose-500/10 text-rose-500'
-                  }`}
-                >
-                  {powerResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
-                  <span>{isEn ? powerResult.message : powerResult.messageFa}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
           {!logonsData && !loadingLogons && (
             <div className={`rounded-xl border p-10 text-center space-y-3 ${surfaceBg}`}>
               <History className="w-10 h-10 mx-auto text-sky-500 opacity-85" />
@@ -7734,8 +7634,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </div>
               <p className={`text-xs max-w-xl mx-auto ${textMuted}`}>
                 {isEn
-                  ? 'Enter the target workstation IP and ephemeral credentials above, then click "Inspect User Logins & Sessions" to see whether any user is logged in right now, who logged in recently, and full logon/logoff/lock/RDP timestamps.'
-                  : 'آدرس IP سیستم و مشخصات اتصال موقت را در بالا وارد کرده و دکمه «دریافت گزارش ورود و نشست کاربران» را بزنید تا ببینید الان کسی لاگین هست یا نه، چه یوزرهایی و چه ساعت‌هایی وارد شده‌اند و آخرین لاگین کی بوده است.'}
+                  ? 'Enter the target workstation IP and ephemeral credentials above, then click "Connect & Inspect" to inspect active user presence, lock/logoff controls, remote power control, and logon history.'
+                  : 'آدرس IP سیستم و مشخصات اتصال موقت را در بالا وارد کرده و دکمه «اتصال و پایش» را بزنید تا وضعیت حضور کاربر، کنترل قفل/خروج، کنترل پاور و تاریخچه لاگین‌ها نمایش داده شود.'}
               </p>
             </div>
           )}
@@ -7753,9 +7653,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
           {logonsData && !loadingLogons && (
             <div className="space-y-5">
-              {/* Live Presence Answer Banner: Is Anyone Logged In Right Now? */}
+              {/* Live Presence Answer Banner with Integrated Lock Screen & Sign Out Controls */}
               <div
-                className={`rounded-xl border p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 ${
+                className={`rounded-xl border p-5 space-y-4 ${
                   logonsData.isAnyoneLoggedIn
                     ? logonsData.isScreenLocked
                       ? isLightMode
@@ -7769,108 +7669,350 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     : 'bg-slate-900/80 border-slate-700'
                 }`}
               >
-                <div className="flex items-start gap-3.5">
-                  <div
-                    className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
-                      logonsData.isAnyoneLoggedIn
-                        ? logonsData.isScreenLocked
-                          ? 'bg-amber-500/15 text-amber-500'
-                          : 'bg-emerald-500/15 text-emerald-500'
-                        : 'bg-slate-500/15 text-slate-500'
-                    }`}
-                  >
-                    {logonsData.isAnyoneLoggedIn ? (
-                      logonsData.isScreenLocked ? (
-                        <Lock className="w-5 h-5" />
-                      ) : (
-                        <UserCheck className="w-5 h-5" />
-                      )
-                    ) : (
-                      <UserX className="w-5 h-5" />
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`text-sm font-bold ${
-                          logonsData.isAnyoneLoggedIn
-                            ? logonsData.isScreenLocked
-                              ? isLightMode
-                                ? 'text-amber-900'
-                                : 'text-amber-300'
-                              : isLightMode
-                              ? 'text-emerald-900'
-                              : 'text-emerald-300'
-                            : textPrimary
-                        }`}
-                      >
-                        {logonsData.isAnyoneLoggedIn
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div
+                      className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                        logonsData.isAnyoneLoggedIn
                           ? logonsData.isScreenLocked
-                            ? isEn
-                              ? 'User Session Present — Screen Currently Locked'
-                              : 'کاربر روی سیستم لاگین است (صفحه در حال حاضر قفل است)'
-                            : isEn
-                            ? 'User Currently Logged In (Active Session)'
-                            : 'هم‌اکنون کاربر روی سیستم لاگین است (نشست فعال)'
-                          : isEn
-                          ? 'No User Currently Logged In'
-                          : 'هم‌اکنون هیچ کاربری روی این سیستم لاگین نیست'}
-                      </span>
-
-                      <span
-                        className={`px-2 py-0.5 rounded-md text-[11px] font-mono border ${
-                          isLightMode
-                            ? 'bg-white/80 border-slate-300 text-slate-700'
-                            : 'bg-slate-950/70 border-slate-700 text-slate-300'
-                        }`}
-                        dir="ltr"
-                      >
-                        {logonsData.hostname || logonsData.targetIp} ({logonsData.osFamily?.toUpperCase()})
-                      </span>
+                            ? 'bg-amber-500/15 text-amber-500'
+                            : 'bg-emerald-500/15 text-emerald-500'
+                          : 'bg-slate-500/15 text-slate-500'
+                      }`}
+                    >
+                      {logonsData.isAnyoneLoggedIn ? (
+                        logonsData.isScreenLocked ? (
+                          <Lock className="w-5 h-5" />
+                        ) : (
+                          <UserCheck className="w-5 h-5" />
+                        )
+                      ) : (
+                        <UserX className="w-5 h-5" />
+                      )}
                     </div>
 
-                    <div className={`text-xs ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                      {logonsData.isAnyoneLoggedIn ? (
-                        <>
-                          <span>
-                            {isEn ? 'Current logged-in user: ' : 'کاربر فعلی لاگین‌شده: '}
-                          </span>
-                          <span className="font-bold font-mono" dir="ltr">
-                            {logonsData.activeLoggedInUser ||
-                              logonsData.activeSessions?.[0]?.username ||
-                              '—'}
-                          </span>
-                          {logonsData.summary?.activeUsersCount > 1 && (
-                            <span className="ms-2">
-                              {isEn
-                                ? `(+${logonsData.summary.activeUsersCount - 1} other active session)`
-                                : `(+${logonsData.summary.activeUsersCount - 1} نشست فعال دیگر)`}
-                            </span>
-                          )}
-                        </>
-                      ) : (
-                        <span>
-                          {isEn
-                            ? 'The workstation is currently at the sign-in screen or idle with zero interactive/RDP user sessions.'
-                            : 'هیچ نشست فعال یا قفل‌شده‌ای از کاربران روی کنسول یا RDP باز نیست (سیستم در صفحه Sign-In است).'}
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`text-sm font-bold ${
+                            logonsData.isAnyoneLoggedIn
+                              ? logonsData.isScreenLocked
+                                ? isLightMode
+                                  ? 'text-amber-900'
+                                  : 'text-amber-300'
+                                : isLightMode
+                                ? 'text-emerald-900'
+                                : 'text-emerald-300'
+                              : textPrimary
+                          }`}
+                        >
+                          {logonsData.isAnyoneLoggedIn
+                            ? logonsData.isScreenLocked
+                              ? isEn
+                                ? 'User Session Present — Screen Currently Locked'
+                                : 'کاربر روی سیستم لاگین است (صفحه در حال حاضر قفل است)'
+                              : isEn
+                              ? 'User Currently Logged In (Active Session)'
+                              : 'هم‌اکنون کاربر روی سیستم لاگین است (نشست فعال)'
+                            : isEn
+                            ? 'No User Currently Logged In'
+                            : 'هم‌اکنون هیچ کاربری روی این سیستم لاگین نیست'}
                         </span>
+
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[11px] font-mono border ${
+                            isLightMode
+                              ? 'bg-white/80 border-slate-300 text-slate-700'
+                              : 'bg-slate-950/70 border-slate-700 text-slate-300'
+                          }`}
+                          dir="ltr"
+                        >
+                          {logonsData.hostname || logonsData.targetIp} ({logonsData.osFamily?.toUpperCase()})
+                        </span>
+                      </div>
+
+                      <div className={`text-xs ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                        {logonsData.isAnyoneLoggedIn ? (
+                          <>
+                            <span>
+                              {isEn ? 'Current logged-in user: ' : 'کاربر فعلی لاگین‌شده: '}
+                            </span>
+                            <span className="font-bold font-mono" dir="ltr">
+                              {logonsData.activeLoggedInUser ||
+                                logonsData.activeSessions?.[0]?.username ||
+                                '—'}
+                            </span>
+                            {logonsData.summary?.activeUsersCount > 1 && (
+                              <span className="ms-2">
+                                {isEn
+                                  ? `(+${logonsData.summary.activeUsersCount - 1} other active session)`
+                                  : `(+${logonsData.summary.activeUsersCount - 1} نشست فعال دیگر)`}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span>
+                            {isEn
+                              ? 'The workstation is currently at the sign-in screen or idle with zero interactive/RDP user sessions.'
+                              : 'هیچ نشست فعال یا قفل‌شده‌ای از کاربران روی کنسول یا RDP باز نیست (سیستم در صفحه Sign-In است).'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 shrink-0">
+                    <div className={`text-xs space-y-0.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                      <div>
+                        <span className={textMuted}>{isEn ? 'Most Recent Login: ' : 'آخرین لاگین ثبت‌شده: '}</span>
+                        <span className={`font-bold font-mono ${textPrimary}`} dir="ltr">
+                          {logonsData.summary?.lastLoginUser || '—'}
+                        </span>
+                      </div>
+                      <div className="font-mono text-[11px]" dir="ltr">
+                        {formatLogonTimestamp(logonsData.summary?.lastLoginTime)}
+                      </div>
+                    </div>
+
+                    {/* Interactive Lock Screen & Sign Out Controls inside Presence Box */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!canExecuteActions || sessionActionBusy !== null || !logonsData.isAnyoneLoggedIn}
+                        onClick={() =>
+                          handleUserSessionAction(
+                            'lock',
+                            logonsData?.activeSessions?.[0]?.sessionId,
+                            logonsData?.activeLoggedInUser || logonsData?.activeSessions?.[0]?.username,
+                            'quick:lock'
+                          )
+                        }
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/50 text-xs font-semibold transition cursor-pointer disabled:opacity-45 ${
+                          isLightMode
+                            ? 'bg-white/90 hover:bg-amber-100 text-amber-800'
+                            : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300'
+                        }`}
+                      >
+                        {sessionActionBusy === 'quick:lock' ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Lock className="w-3.5 h-3.5" />
+                        )}
+                        <span>{isEn ? 'Lock Screen' : 'قفل صفحه'}</span>
+                      </button>
+
+                      {confirmLogoffKey === 'quick:logoff' ? (
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={!canExecuteActions || sessionActionBusy !== null}
+                            onClick={() =>
+                              handleUserSessionAction(
+                                'logoff',
+                                logonsData?.activeSessions?.[0]?.sessionId,
+                                logonsData?.activeLoggedInUser || logonsData?.activeSessions?.[0]?.username,
+                                'quick:logoff'
+                              )
+                            }
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer"
+                          >
+                            {sessionActionBusy === 'quick:logoff' ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <LogOut className="w-3.5 h-3.5" />
+                            )}
+                            <span>{isEn ? 'Confirm Logoff' : 'تأیید خروج'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmLogoffKey(null)}
+                            className={`px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer ${
+                              isLightMode ? 'bg-white border-slate-300 text-slate-700' : 'bg-slate-900 border-slate-700 text-slate-300'
+                            }`}
+                          >
+                            {isEn ? 'Cancel' : 'انصراف'}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!canExecuteActions || sessionActionBusy !== null || !logonsData.isAnyoneLoggedIn}
+                          onClick={() => setConfirmLogoffKey('quick:logoff')}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-500/50 text-xs font-semibold transition cursor-pointer disabled:opacity-45 ${
+                            isLightMode
+                              ? 'bg-white/90 hover:bg-rose-100 text-rose-700'
+                              : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300'
+                          }`}
+                        >
+                          <LogOut className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Sign Out (Logoff)' : 'خروج کاربر (Logoff)'}</span>
+                        </button>
                       )}
                     </div>
                   </div>
                 </div>
 
-                <div className={`text-xs space-y-1 shrink-0 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                  <div>
-                    <span className={textMuted}>{isEn ? 'Most Recent Login: ' : 'آخرین لاگین ثبت‌شده: '}</span>
-                    <span className={`font-bold font-mono ${textPrimary}`} dir="ltr">
-                      {logonsData.summary?.lastLoginUser || '—'}
+                {sessionActionError && (
+                  <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{sessionActionError}</span>
+                  </div>
+                )}
+
+                {sessionActionResult && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs flex items-center gap-2 font-semibold ${
+                      sessionActionResult.success
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+                        : 'border-rose-500/40 bg-rose-500/10 text-rose-500'
+                    }`}
+                  >
+                    {sessionActionResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                    <span>{isEn ? sessionActionResult.message : sessionActionResult.messageFa}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Workstation Power Control Directly Beneath the Presence Banner */}
+              <div className={`rounded-xl border p-4 sm:p-5 space-y-3 ${surfaceBg}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className={`text-xs font-bold flex items-center gap-2 ${textPrimary}`}>
+                    <PowerOff className="w-4 h-4 text-rose-500" />
+                    <span>
+                      {isEn
+                        ? 'Workstation Power Control (Immediate / Scheduled Restart & Shutdown)'
+                        : 'کنترل پاور ایستگاه کاری (ری‌استارت و خاموشی فوری یا زمان‌بندی‌شده)'}
                     </span>
                   </div>
-                  <div className="font-mono text-[11px]" dir="ltr">
-                    {formatLogonTimestamp(logonsData.summary?.lastLoginTime)}
+                  {!canPowerControl && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-500">
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Power commands require canPowerControlHelpdeskEndpoints' : 'عملیات پاور نیازمند مجوز canPowerControlHelpdeskEndpoints است'}</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                  <div className="md:col-span-4">
+                    <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
+                      {isEn ? 'Power Operation' : 'نوع عملیات پاور'}
+                    </label>
+                    <select
+                      value={powerAction}
+                      onChange={(e) => {
+                        setPowerAction(e.target.value as any);
+                        setConfirmPowerAction(false);
+                      }}
+                      className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+                    >
+                      <option value="restart_now">{isEn ? 'Immediate Forced Restart (shutdown /r /f /t 5)' : 'ری‌استارت فوری و اجباری (۵ ثانیه)'}</option>
+                      <option value="restart_scheduled">{isEn ? 'Scheduled Restart (Custom Delay)' : 'ری‌استارت زمان‌بندی‌شده (با تأخیر دلخواه)'}</option>
+                      <option value="shutdown_force">{isEn ? 'Immediate Forced Shutdown (shutdown /s /f /t 5)' : 'خاموش کردن فوری و اجباری (۵ ثانیه)'}</option>
+                      <option value="shutdown_scheduled">{isEn ? 'Scheduled Shutdown (Custom Delay)' : 'خاموش کردن زمان‌بندی‌شده (با تأخیر دلخواه)'}</option>
+                      <option value="abort">{isEn ? 'Cancel Pending Shutdown / Restart (shutdown /a)' : 'لغو خاموشی / ری‌استارت زمان‌بندی‌شده (shutdown /a)'}</option>
+                    </select>
+                  </div>
+
+                  {(powerAction === 'restart_scheduled' || powerAction === 'shutdown_scheduled') && (
+                    <div className="md:col-span-2">
+                      <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
+                        {isEn ? 'Delay (Minutes)' : 'زمان‌بندی (دقیقه)'}
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={1440}
+                        value={powerDelayMinutes}
+                        onChange={(e) => setPowerDelayMinutes(Math.max(1, Math.min(1440, Number(e.target.value) || 1)))}
+                        className={`w-full px-3 py-2 rounded-lg border text-xs font-mono tabular-nums outline-none ${inputCls}`}
+                      />
+                    </div>
+                  )}
+
+                  {powerAction !== 'abort' && (
+                    <div className={powerAction === 'restart_scheduled' || powerAction === 'shutdown_scheduled' ? 'md:col-span-3' : 'md:col-span-5'}>
+                      <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
+                        {isEn ? 'User Notification Message (Optional)' : 'پیام نمایشی به کاربر (اختیاری)'}
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={120}
+                        value={powerReason}
+                        onChange={(e) => setPowerReason(e.target.value)}
+                        placeholder="IT HelpDesk Remote Maintenance"
+                        className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+                      />
+                    </div>
+                  )}
+
+                  <div className={powerAction === 'abort' ? 'md:col-span-8 flex justify-end' : 'md:col-span-3 flex justify-end'}>
+                    {powerAction === 'abort' ? (
+                      <button
+                        type="button"
+                        disabled={!canPowerControl || runningPower}
+                        onClick={handleExecutePowerControl}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                      >
+                        {runningPower ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                        <span>{isEn ? 'Cancel Scheduled Power Action' : 'لغو زمان‌بندی (shutdown /a)'}</span>
+                      </button>
+                    ) : confirmPowerAction ? (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={!canPowerControl || runningPower}
+                          onClick={handleExecutePowerControl}
+                          className="px-3.5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer"
+                        >
+                          {runningPower ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : isEn ? (
+                            'Confirm Execute'
+                          ) : (
+                            'تأیید قطعی اجرا'
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmPowerAction(false)}
+                          className={`px-2.5 py-2 rounded-lg border text-xs cursor-pointer ${isLightMode ? 'border-slate-300 text-slate-700' : 'border-slate-700 text-slate-300'}`}
+                        >
+                          {isEn ? 'Cancel' : 'انصراف'}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={!canPowerControl || runningPower}
+                        onClick={() => setConfirmPowerAction(true)}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 disabled:opacity-50 text-xs font-semibold transition cursor-pointer"
+                      >
+                        {!canPowerControl ? <Lock className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
+                        <span>{isEn ? 'Issue Power Command' : 'ارسال دستور پاور'}</span>
+                      </button>
+                    )}
                   </div>
                 </div>
+
+                {powerError && (
+                  <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{powerError}</span>
+                  </div>
+                )}
+
+                {powerResult && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs flex items-center gap-2 font-semibold ${
+                      powerResult.success
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+                        : 'border-rose-500/40 bg-rose-500/10 text-rose-500'
+                    }`}
+                  >
+                    {powerResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                    <span>{isEn ? powerResult.message : powerResult.messageFa}</span>
+                  </div>
+                )}
               </div>
 
               {/* 5 Summary KPI Cards */}

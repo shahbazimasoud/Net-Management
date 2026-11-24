@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.465.0';
+export const APP_VERSION = '1.466.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.466.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'دریافت خودکار و ترتیبی اطلاعات تمام تب‌های HelpDesk پس از ورود یوزر/پسورد + یکپارچه‌سازی دکمه‌های Lock/Logoff درون بنر حضور و انتقال کنترل پاور زیر آن',
+    title_en: 'HelpDesk Ordered Sequential Tab Pre-Fetch on Connect & Integrated Lock/Logoff Controls Inside User Presence Banner',
+    changes: [
+      'ارتقای جریان اتصال در نوار **On-Demand Target Workstation Session**: بلافاصله پس از وارد کردن IP، نام کاربری و رمز عبور و زدن «اتصال و پایش»، اطلاعات **تمامی تب‌های HelpDesk به‌ترتیب از تب اول** (سلامت و شیر فولدرها ← شبکه و VPN ← پرینترها ← Event Viewer ← ورود کاربران ← آپدیت و مشخصات سیستم ← Temp/GPO/دیسک ← باتری) به‌صورت خودکار و با نوار پیشرفت و نشانگر تب واکشی می‌شوند تا هنگام جابه‌جایی بین تب‌ها داده‌ها از قبل آماده باشند.',
+      'ساده‌سازی چیدمان تب **ورود کاربران، نشست و پاور**: انتقال دکمه‌های **قفل صفحه (`Lock Screen`) و خروج کاربر (`Sign Out / Logoff`)** مستقیم به داخل بنر وضعیت حضور کاربر (`User Session Present`)، حذف باکس تکراری قبلی `User Session Management & Workstation Power Control` و انتقال کارت **کنترل پاور ایستگاه کاری (ری‌استارت و خاموشی فوری/زمان‌بندی‌شده)** به زیر بنر وضعیت حضور.'
+    ],
+    changes_en: [
+      'Upgraded **On-Demand Target Workstation Session** connect workflow: submitting credentials now triggers an **ordered sequential pre-fetch starting from Tab 1** through Health & Shares, Network & VPN, Printers, Event Viewer, User Logins, Updates & System Info, Temp/GPO/Disks, and Battery Health with live step progress, tab completion dots, Stop/Cancel support, and fail-fast auth protection on Tab 1.',
+      'Streamlined **User Logins, Sessions & Power** layout: embedded **Lock Screen** and **Sign Out (Logoff)** actions directly inside the **User Session Present** presence banner, removed the outer `User Session Management & Workstation Power Control` wrapper card, and positioned **Workstation Power Control (Immediate / Scheduled Restart & Shutdown)** cleanly right beneath the presence banner.'
+    ],
+  },
   {
     version: '1.465.0',
     releaseDate: '2026-11-24',
