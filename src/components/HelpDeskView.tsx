@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Headphones,
@@ -28,12 +28,14 @@ import {
   Minus,
   Maximize2,
   Minimize2,
-  Layers,
   Eraser,
   Server,
   FileWarning,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUpDown,
   FolderOpen,
   Wrench,
   PowerOff,
@@ -77,6 +79,9 @@ import { isUserSuperAdmin, isUserDomainAdmin } from '../utils/rbac';
 import {
   fetchHelpdeskStatus,
   fetchHelpdeskEndpointHealth,
+  fetchHelpdeskConnectionHistory,
+  deleteHelpdeskConnectionHistoryItem,
+  clearHelpdeskConnectionHistory,
   fetchHelpdeskNetworkSnapshot,
   runHelpdeskNetworkProbe,
   executeHelpdeskNetworkAction,
@@ -109,7 +114,20 @@ import {
   executeHelpdeskPowerControl,
   fetchHelpdeskBatteryReport,
   HelpdeskConnectionPayload,
+  HelpdeskConnectionHistoryItem,
+  HelpdeskConnectionHistoryResponse,
 } from '../services/api';
+import {
+  HelpdeskSubTab,
+  HelpdeskRamState,
+  getHelpdeskRamSnapshot,
+  subscribeHelpdeskRam,
+  patchHelpdeskRamSnapshot,
+  bindHelpdeskRamOwner,
+  stopHelpdeskPrefetch,
+  wipeHelpdeskRamSession,
+  runHelpdeskSequentialConnect,
+} from '../services/helpdeskRamSession';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { useModalDock } from '../context/ModalDockContext';
 import {
@@ -127,16 +145,7 @@ interface HelpDeskViewProps {
   currentUser?: AuthUser | null;
 }
 
-type HelpdeskSubTab =
-  | 'health'
-  | 'network'
-  | 'printers'
-  | 'events'
-  | 'logins'
-  | 'updates'
-  | 'maintenance'
-  | 'hardware_domain'
-  | 'architecture';
+const PROCESS_PAGE_SIZE = 20;
 
 interface CircularGaugeProps {
   value: number;
@@ -270,79 +279,97 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     hasElevatedHelpdesk || (canExecuteActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true)
   );
 
-  // Ephemeral On-Demand Session State (NEVER stored in localStorage or DB!)
-  const [targetIp, setTargetIp] = useState('');
-  const [protocol, setProtocol] = useState<'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh'>('auto');
-  const [customPort, setCustomPort] = useState('');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [jeaConfigName, setJeaConfigName] = useState('');
-  const [showAdvancedConn, setShowAdvancedConn] = useState(false);
-
-  // Active sub-workspace tab
-  const [activeSubTab, setActiveSubTab] = useState<HelpdeskSubTab>('health');
-  const connectRunIdRef = useRef(0);
-  const [prefetchProgress, setPrefetchProgress] = useState<{
-    active: boolean;
-    step: number;
-    total: number;
-    currentTab: HelpdeskSubTab | null;
-    labelEn: string;
-    labelFa: string;
-  } | null>(null);
-
-  useEffect(() => {
-    return () => {
-      connectRunIdRef.current += 1;
+  // Volatile JS RAM-Only Session State (preserved across sidebar page navigation, NEVER stored in localStorage or DB!)
+  const ram = useSyncExternalStore(subscribeHelpdeskRam, getHelpdeskRamSnapshot);
+  const setRamField =
+    <K extends keyof HelpdeskRamState>(key: K) =>
+    (
+      val:
+        | HelpdeskRamState[K]
+        | ((prev: HelpdeskRamState[K]) => HelpdeskRamState[K])
+    ) => {
+      patchHelpdeskRamSnapshot((prev) => ({
+        [key]:
+          typeof val === 'function'
+            ? (val as (p: HelpdeskRamState[K]) => HelpdeskRamState[K])(prev[key])
+            : val,
+      }));
     };
-  }, []);
+
+  const targetIp = ram.targetIp;
+  const setTargetIp = setRamField('targetIp');
+  const protocol = ram.protocol;
+  const setProtocol = setRamField('protocol');
+  const customPort = ram.customPort;
+  const setCustomPort = setRamField('customPort');
+  const username = ram.username;
+  const setUsername = setRamField('username');
+  const password = ram.password;
+  const setPassword = setRamField('password');
+  const [showPassword, setShowPassword] = useState(false);
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
+  const [reconnectBanner, setReconnectBanner] = useState<{ targetIp: string; username: string } | null>(null);
+  const jeaConfigName = ram.jeaConfigName;
+  const setJeaConfigName = setRamField('jeaConfigName');
+  const showAdvancedConn = ram.showAdvancedConn;
+  const setShowAdvancedConn = setRamField('showAdvancedConn');
+
+  // Active sub-workspace tab & sequential prefetch progress
+  const activeSubTab = ram.activeSubTab;
+  const setActiveSubTab = setRamField('activeSubTab');
+  const prefetchProgress = ram.prefetchProgress;
 
   // Guardrail status & JEA templates from backend
-  const [rateLimit, setRateLimit] = useState<{
-    windowMinutes: number;
-    maxWriteActions: number;
-    maxDistinctHosts: number;
-    usedWriteActions: number;
-    remainingWriteActions: number;
-    distinctHostsUsed: number;
-    isFrozen: boolean;
-    freezeUntilIso: string | null;
-  } | null>(null);
-  const [jeaTemplates, setJeaTemplates] = useState<{
-    jeaConfigName: string;
-    roleCapabilityScript: string;
-    registerSessionScript: string;
-  } | null>(null);
+  const rateLimit = ram.rateLimit;
+  const setRateLimit = setRamField('rateLimit');
+  const jeaTemplates = ram.jeaTemplates;
+  const setJeaTemplates = setRamField('jeaTemplates');
 
   // JEA / GPO Hardening Modal (Universal Modal Rule 7)
   const [isJeaModalOpen, setIsJeaModalOpen] = useState(false);
   const [isJeaModalMaximized, setIsJeaModalMaximized] = useState(false);
   const [copiedJeaKey, setCopiedJeaKey] = useState<string | null>(null);
 
-  // Module 1: Health & Processes state
-  const [healthData, setHealthData] = useState<any | null>(null);
-  const [loadingHealth, setLoadingHealth] = useState(false);
-  const [healthError, setHealthError] = useState<string | null>(null);
-  const [processSearch, setProcessSearch] = useState('');
-  const [processSort, setProcessSort] = useState<'cpu' | 'memory' | 'name'>('cpu');
-  const [donutMetric, setDonutMetric] = useState<'cpu' | 'memory'>('cpu');
-  const [selectedProcessPid, setSelectedProcessPid] = useState<number | null>(null);
+  // Module 1: Health & Processes state (backed by RAM store)
+  const healthData = ram.healthData;
+  const setHealthData = setRamField('healthData');
+  const loadingHealth = ram.loadingHealth;
+  const setLoadingHealth = setRamField('loadingHealth');
+  const healthError = ram.healthError;
+  const setHealthError = setRamField('healthError');
+  const processSearch = ram.processSearch;
+  const setProcessSearch = setRamField('processSearch');
+  const processSort = ram.processSort;
+  const setProcessSort = setRamField('processSort');
+  const processSortDir = ram.processSortDir;
+  const setProcessSortDir = setRamField('processSortDir');
+  const processPage = ram.processPage;
+  const setProcessPage = setRamField('processPage');
+  const donutMetric = ram.donutMetric;
+  const setDonutMetric = setRamField('donutMetric');
+  const selectedProcessPid = ram.selectedProcessPid;
+  const setSelectedProcessPid = setRamField('selectedProcessPid');
 
   // Module 2: Network Diagnostics, Manual IP/DNS, Hosts, Proxy, Routing & Safe Reset state
-  const [networkData, setNetworkData] = useState<any | null>(null);
-  const [loadingNetwork, setLoadingNetwork] = useState(false);
-  const [networkError, setNetworkError] = useState<string | null>(null);
+  const networkData = ram.networkData;
+  const setNetworkData = setRamField('networkData');
+  const loadingNetwork = ram.loadingNetwork;
+  const setLoadingNetwork = setRamField('loadingNetwork');
+  const networkError = ram.networkError;
+  const setNetworkError = setRamField('networkError');
   const [probeType, setProbeType] = useState<'ping' | 'port' | 'dns' | 'nslookup' | 'tracert' | 'http' | 'arp'>('ping');
   const [probeTarget, setProbeTarget] = useState('8.8.8.8');
   const [probePort, setProbePort] = useState('443');
   const [probeDnsRecordType, setProbeDnsRecordType] = useState('A');
   const [probeDnsServer, setProbeDnsServer] = useState('');
   const [loadingProbe, setLoadingProbe] = useState(false);
-  const [probeResult, setProbeResult] = useState<any | null>(null);
-  const [probeError, setProbeError] = useState<string | null>(null);
+  const probeResult = ram.probeResult;
+  const setProbeResult = setRamField('probeResult');
+  const probeError = ram.probeError;
+  const setProbeError = setRamField('probeError');
   const [runningNetAction, setRunningNetAction] = useState<string | null>(null);
-  const [netActionResult, setNetActionResult] = useState<any | null>(null);
+  const netActionResult = ram.netActionResult;
+  const setNetActionResult = setRamField('netActionResult');
 
   // NIC Manual IPv4 & DNS Configuration state
   const [editingAdapter, setEditingAdapter] = useState<any | null>(null);
@@ -394,15 +421,20 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [vpnDnsSuffix, setVpnDnsSuffix] = useState('');
   const [vpnCustomUser, setVpnCustomUser] = useState('');
   const [vpnCustomPass, setVpnCustomPass] = useState('');
+  const [showVpnCustomPass, setShowVpnCustomPass] = useState(false);
   const [busyVpnKey, setBusyVpnKey] = useState<string | null>(null);
   const [confirmDeleteVpnName, setConfirmDeleteVpnName] = useState<string | null>(null);
 
   // Module 3: Printers & Print Spooler state
-  const [printerData, setPrinterData] = useState<any | null>(null);
-  const [loadingPrinters, setLoadingPrinters] = useState(false);
-  const [printerError, setPrinterError] = useState<string | null>(null);
+  const printerData = ram.printerData;
+  const setPrinterData = setRamField('printerData');
+  const loadingPrinters = ram.loadingPrinters;
+  const setLoadingPrinters = setRamField('loadingPrinters');
+  const printerError = ram.printerError;
+  const setPrinterError = setRamField('printerError');
   const [runningSpoolerAction, setRunningSpoolerAction] = useState<string | null>(null);
-  const [spoolerActionResult, setSpoolerActionResult] = useState<any | null>(null);
+  const spoolerActionResult = ram.spoolerActionResult;
+  const setSpoolerActionResult = setRamField('spoolerActionResult');
   const [printerRowActionBusy, setPrinterRowActionBusy] = useState<string | null>(null);
   const [printerMenuAnchor, setPrinterMenuAnchor] = useState<{
     printer: any;
@@ -415,10 +447,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [isPrintServerModalOpen, setIsPrintServerModalOpen] = useState(false);
 
   // Module 1B: Shared Folders & Mapped Network Drives (inside Tab 1: Health & Safe Process Control)
-  const [sharesData, setSharesData] = useState<any | null>(null);
-  const [loadingShares, setLoadingShares] = useState(false);
-  const [sharesError, setSharesError] = useState<string | null>(null);
-  const [shareActionResult, setShareActionResult] = useState<any | null>(null);
+  const sharesData = ram.sharesData;
+  const setSharesData = setRamField('sharesData');
+  const loadingShares = ram.loadingShares;
+  const setLoadingShares = setRamField('loadingShares');
+  const sharesError = ram.sharesError;
+  const setSharesError = setRamField('sharesError');
+  const shareActionResult = ram.shareActionResult;
+  const setShareActionResult = setRamField('shareActionResult');
   const [shareRowActionBusy, setShareRowActionBusy] = useState<string | null>(null);
   const [shareMenuAnchor, setShareMenuAnchor] = useState<{
     share: any;
@@ -440,15 +476,21 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [eventSeverityMode, setEventSeverityMode] = useState<'all' | 'critical_error'>('all');
   const [eventSearch, setEventSearch] = useState('');
   const [eventLevelFilter, setEventLevelFilter] = useState<'all' | 'critical' | 'error' | 'warning'>('all');
-  const [eventData, setEventData] = useState<any | null>(null);
-  const [loadingEvents, setLoadingEvents] = useState(false);
-  const [eventError, setEventError] = useState<string | null>(null);
+  const eventData = ram.eventData;
+  const setEventData = setRamField('eventData');
+  const loadingEvents = ram.loadingEvents;
+  const setLoadingEvents = setRamField('loadingEvents');
+  const eventError = ram.eventError;
+  const setEventError = setRamField('eventError');
   const [expandedEventIds, setExpandedEventIds] = useState<Record<string, boolean>>({});
 
   // Module 4B: Workstation User Logons, Last Login & Active Session Report state
-  const [logonsData, setLogonsData] = useState<any | null>(null);
-  const [loadingLogons, setLoadingLogons] = useState(false);
-  const [logonsError, setLogonsError] = useState<string | null>(null);
+  const logonsData = ram.logonsData;
+  const setLogonsData = setRamField('logonsData');
+  const loadingLogons = ram.loadingLogons;
+  const setLoadingLogons = setRamField('loadingLogons');
+  const logonsError = ram.logonsError;
+  const setLogonsError = setRamField('logonsError');
   const [logonsHoursBack, setLogonsHoursBack] = useState<number>(168);
   const [logonsSearch, setLogonsSearch] = useState('');
   const [logonsEventFilter, setLogonsEventFilter] = useState<
@@ -458,54 +500,73 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   // Module 5: Safe User-App Process Termination inline confirm state
   const [confirmKillPid, setConfirmKillPid] = useState<number | null>(null);
   const [terminatingPid, setTerminatingPid] = useState<number | null>(null);
-  const [processActionNotice, setProcessActionNotice] = useState<{
-    ok: boolean;
-    text: string;
-  } | null>(null);
+  const processActionNotice = ram.processActionNotice;
+  const setProcessActionNotice = setRamField('processActionNotice');
 
   // Module 6: Confined Temp Cleanup state
-  const [tempScanData, setTempScanData] = useState<any | null>(null);
-  const [loadingTempScan, setLoadingTempScan] = useState(false);
-  const [tempError, setTempError] = useState<string | null>(null);
+  const tempScanData = ram.tempScanData;
+  const setTempScanData = setRamField('tempScanData');
+  const loadingTempScan = ram.loadingTempScan;
+  const setLoadingTempScan = setRamField('loadingTempScan');
+  const tempError = ram.tempError;
+  const setTempError = setRamField('tempError');
   const [tempScope, setTempScope] = useState<'both' | 'user_temp' | 'windows_temp'>('both');
   const [confirmTempClean, setConfirmTempClean] = useState(false);
   const [cleaningTemp, setCleaningTemp] = useState(false);
-  const [tempCleanResult, setTempCleanResult] = useState<any | null>(null);
+  const tempCleanResult = ram.tempCleanResult;
+  const setTempCleanResult = setRamField('tempCleanResult');
 
   // Group Policy Inspection & GPUpdate state
-  const [gpoData, setGpoData] = useState<any | null>(null);
-  const [loadingGpo, setLoadingGpo] = useState(false);
-  const [gpoError, setGpoError] = useState<string | null>(null);
+  const gpoData = ram.gpoData;
+  const setGpoData = setRamField('gpoData');
+  const loadingGpo = ram.loadingGpo;
+  const setLoadingGpo = setRamField('loadingGpo');
+  const gpoError = ram.gpoError;
+  const setGpoError = setRamField('gpoError');
   const [runningGpupdate, setRunningGpupdate] = useState(false);
-  const [gpupdateResult, setGpupdateResult] = useState<any | null>(null);
+  const gpupdateResult = ram.gpupdateResult;
+  const setGpupdateResult = setRamField('gpupdateResult');
   const [showRawGpo, setShowRawGpo] = useState(false);
 
   // Detailed System Info, Windows Updates (WSUS vs Internet) & Installed HotFixes
-  const [sysInfoData, setSysInfoData] = useState<any | null>(null);
-  const [loadingSysInfo, setLoadingSysInfo] = useState(false);
-  const [sysInfoError, setSysInfoError] = useState<string | null>(null);
+  const sysInfoData = ram.sysInfoData;
+  const setSysInfoData = setRamField('sysInfoData');
+  const loadingSysInfo = ram.loadingSysInfo;
+  const setLoadingSysInfo = setRamField('loadingSysInfo');
+  const sysInfoError = ram.sysInfoError;
+  const setSysInfoError = setRamField('sysInfoError');
   const [hotfixSearch, setHotfixSearch] = useState('');
   const [showRawSysInfo, setShowRawSysInfo] = useState(false);
-  const [updateStatusData, setUpdateStatusData] = useState<any | null>(null);
-  const [loadingUpdateStatus, setLoadingUpdateStatus] = useState(false);
-  const [updateStatusError, setUpdateStatusError] = useState<string | null>(null);
+  const updateStatusData = ram.updateStatusData;
+  const setUpdateStatusData = setRamField('updateStatusData');
+  const loadingUpdateStatus = ram.loadingUpdateStatus;
+  const setLoadingUpdateStatus = setRamField('loadingUpdateStatus');
+  const updateStatusError = ram.updateStatusError;
+  const setUpdateStatusError = setRamField('updateStatusError');
   const [updateSourceMode, setUpdateSourceMode] = useState<'auto' | 'wsus' | 'internet'>('auto');
   const [installingUpdates, setInstallingUpdates] = useState<string | null>(null);
   const [confirmInstallAllUpdates, setConfirmInstallAllUpdates] = useState(false);
   const [uninstallingKb, setUninstallingKb] = useState<string | null>(null);
   const [confirmUninstallKb, setConfirmUninstallKb] = useState<string | null>(null);
   const [manualKbUninstall, setManualKbUninstall] = useState('');
-  const [updateActionResult, setUpdateActionResult] = useState<any | null>(null);
-  const [updateActionError, setUpdateActionError] = useState<string | null>(null);
+  const updateActionResult = ram.updateActionResult;
+  const setUpdateActionResult = setRamField('updateActionResult');
+  const updateActionError = ram.updateActionError;
+  const setUpdateActionError = setRamField('updateActionError');
 
   // System Integrity Repair (SFC / DISM) & Smart Disk Media (HDD vs SSD) + CHKDSK
-  const [diskHealthData, setDiskHealthData] = useState<any | null>(null);
-  const [loadingDiskHealth, setLoadingDiskHealth] = useState(false);
-  const [diskHealthError, setDiskHealthError] = useState<string | null>(null);
+  const diskHealthData = ram.diskHealthData;
+  const setDiskHealthData = setRamField('diskHealthData');
+  const loadingDiskHealth = ram.loadingDiskHealth;
+  const setLoadingDiskHealth = setRamField('loadingDiskHealth');
+  const diskHealthError = ram.diskHealthError;
+  const setDiskHealthError = setRamField('diskHealthError');
   const [runningRepairMode, setRunningRepairMode] = useState<string | null>(null);
   const [confirmRepairKey, setConfirmRepairKey] = useState<string | null>(null);
-  const [repairResult, setRepairResult] = useState<any | null>(null);
-  const [repairError, setRepairError] = useState<string | null>(null);
+  const repairResult = ram.repairResult;
+  const setRepairResult = setRamField('repairResult');
+  const repairError = ram.repairError;
+  const setRepairError = setRamField('repairError');
   const [showRawRepair, setShowRawRepair] = useState(false);
 
   // Remote Power Control (Force/Scheduled Shutdown, Immediate/Scheduled Restart, Abort) & User Session Actions
@@ -516,25 +577,57 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [powerReason, setPowerReason] = useState('IT HelpDesk Remote Maintenance');
   const [confirmPowerAction, setConfirmPowerAction] = useState(false);
   const [runningPower, setRunningPower] = useState(false);
-  const [powerResult, setPowerResult] = useState<any | null>(null);
-  const [powerError, setPowerError] = useState<string | null>(null);
+  const powerResult = ram.powerResult;
+  const setPowerResult = setRamField('powerResult');
+  const powerError = ram.powerError;
+  const setPowerError = setRamField('powerError');
   const [sessionActionBusy, setSessionActionBusy] = useState<string | null>(null);
   const [confirmLogoffKey, setConfirmLogoffKey] = useState<string | null>(null);
-  const [sessionActionResult, setSessionActionResult] = useState<any | null>(null);
-  const [sessionActionError, setSessionActionError] = useState<string | null>(null);
+  const sessionActionResult = ram.sessionActionResult;
+  const setSessionActionResult = setRamField('sessionActionResult');
+  const sessionActionError = ram.sessionActionError;
+  const setSessionActionError = setRamField('sessionActionError');
 
   // Laptop Battery Health & Cycle Count Report
-  const [batteryData, setBatteryData] = useState<any | null>(null);
-  const [loadingBattery, setLoadingBattery] = useState(false);
-  const [batteryError, setBatteryError] = useState<string | null>(null);
+  const batteryData = ram.batteryData;
+  const setBatteryData = setRamField('batteryData');
+  const loadingBattery = ram.loadingBattery;
+  const setLoadingBattery = setRamField('loadingBattery');
+  const batteryError = ram.batteryError;
+  const setBatteryError = setRamField('batteryError');
 
   // Active Directory Domain Account Lookup (net user <USERNAME> /domain)
-  const [domainQueryUser, setDomainQueryUser] = useState('');
-  const [domainUserData, setDomainUserData] = useState<any | null>(null);
-  const [loadingDomainUser, setLoadingDomainUser] = useState(false);
-  const [domainUserError, setDomainUserError] = useState<string | null>(null);
+  const domainQueryUser = ram.domainQueryUser;
+  const setDomainQueryUser = setRamField('domainQueryUser');
+  const domainUserData = ram.domainUserData;
+  const setDomainUserData = setRamField('domainUserData');
+  const loadingDomainUser = ram.loadingDomainUser;
+  const setLoadingDomainUser = setRamField('loadingDomainUser');
+  const domainUserError = ram.domainUserError;
+  const setDomainUserError = setRamField('domainUserError');
   const [domainGroupFilter, setDomainGroupFilter] = useState('');
   const [showRawDomainUser, setShowRawDomainUser] = useState(false);
+
+  // Connection History Tab State (persisted non-secret metadata in DB, paginated & searchable)
+  const [historyItems, setHistoryItems] = useState<HelpdeskConnectionHistoryItem[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(15);
+  const [historyStats, setHistoryStats] = useState<HelpdeskConnectionHistoryResponse['stats'] | null>(null);
+  const [historySearchInput, setHistorySearchInput] = useState('');
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'success' | 'failed'>('all');
+  const [historyProtocolFilter, setHistoryProtocolFilter] = useState<string>('all');
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [busyHistoryId, setBusyHistoryId] = useState<string | null>(null);
+  const [confirmClearHistory, setConfirmClearHistory] = useState(false);
+  const [copiedHistoryIpId, setCopiedHistoryIpId] = useState<string | null>(null);
+  const [historyNotice, setHistoryNotice] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    bindHelpdeskRamOwner(currentUser?.id || currentUser?.username || null);
+  }, [currentUser?.id, currentUser?.username]);
 
   useEffect(() => {
     let mounted = true;
@@ -549,6 +642,70 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       mounted = false;
     };
   }, []);
+
+  // Hydrate proxy/gateway form inputs when remounting with an active network snapshot in RAM
+  const syncNetworkFormDefaults = useCallback((netData: any) => {
+    if (!netData) return;
+    if (netData.proxy) {
+      setProxyEnabled(Boolean(netData.proxy.enabled));
+      setProxyServer(String(netData.proxy.server || ''));
+      setProxyOverride(String(netData.proxy.override || ''));
+      setProxyAutoConfigUrl(String(netData.proxy.autoConfigUrl || ''));
+      setProxyAutoDetect(Boolean(netData.proxy.autoDetect));
+    }
+    if (Array.isArray(netData.adapters)) {
+      const gwAdapter = netData.adapters.find((ad: any) => Array.isArray(ad.defaultGateways) && ad.defaultGateways[0]);
+      if (gwAdapter) {
+        setRouteGateway((prev) => prev || String(gwAdapter.defaultGateways[0]));
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (networkData) {
+      syncNetworkFormDefaults(networkData);
+    }
+  }, [networkData, syncNetworkFormDefaults]);
+
+  const loadConnectionHistory = useCallback(
+    async (opts?: {
+      page?: number;
+      pageSize?: number;
+      search?: string;
+      status?: 'all' | 'success' | 'failed';
+      protocol?: string;
+    }) => {
+      setLoadingHistory(true);
+      setHistoryError(null);
+      try {
+        const res = await fetchHelpdeskConnectionHistory({
+          page: opts?.page ?? historyPage,
+          pageSize: opts?.pageSize ?? historyPageSize,
+          search: opts?.search ?? historySearch,
+          status: opts?.status ?? historyStatusFilter,
+          protocol: opts?.protocol ?? historyProtocolFilter,
+        });
+        setHistoryItems(Array.isArray(res.items) ? res.items : []);
+        setHistoryTotal(Number(res.total || 0));
+        setHistoryPage(Number(res.page || 1));
+        setHistoryStats(res.stats || null);
+      } catch (err: any) {
+        setHistoryError(
+          err?.message ||
+            (isEn ? 'Failed to load HelpDesk connection history.' : 'خطا در دریافت تاریخچه اتصالات هلپ‌دسک.')
+        );
+      } finally {
+        setLoadingHistory(false);
+      }
+    },
+    [historyPage, historyPageSize, historySearch, historyStatusFilter, historyProtocolFilter, isEn]
+  );
+
+  useEffect(() => {
+    if (activeSubTab === 'history') {
+      loadConnectionHistory();
+    }
+  }, [activeSubTab, loadConnectionHistory]);
 
   const buildPayload = (): HelpdeskConnectionPayload | null => {
     const cleanIp = targetIp.trim();
@@ -579,60 +736,25 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   };
 
   const handleClearSession = () => {
-    connectRunIdRef.current += 1;
-    setPrefetchProgress(null);
-    setTargetIp('');
-    setUsername('');
-    setPassword('');
-    setJeaConfigName('');
-    setCustomPort('');
-    setHealthData(null);
-    setHealthError(null);
-    setNetworkData(null);
-    setNetworkError(null);
-    setProbeResult(null);
-    setProbeError(null);
-    setNetActionResult(null);
-    setPrinterData(null);
-    setPrinterError(null);
-    setSpoolerActionResult(null);
+    wipeHelpdeskRamSession();
+    setShowPassword(false);
+    setReconnectBanner(null);
     setPrinterRowActionBusy(null);
     setPrinterMenuAnchor(null);
     setPrinterDeleteTarget(null);
     setIsPrintServerModalOpen(false);
-    setSharesData(null);
-    setSharesError(null);
-    setShareActionResult(null);
     setShareRowActionBusy(null);
     setShareMenuAnchor(null);
     setShareDeleteTarget(null);
     setIsShareMapModalOpen(false);
     setShareModalPrefill({});
-    setSelectedProcessPid(null);
     setConfirmKillPid(null);
-    setProcessActionNotice(null);
-    setEventData(null);
-    setEventError(null);
     setExpandedEventIds({});
-    setLogonsData(null);
-    setLogonsError(null);
     setLogonsSearch('');
     setLogonsEventFilter('all');
-    setTempScanData(null);
-    setTempError(null);
-    setTempCleanResult(null);
     setConfirmTempClean(false);
-    setGpoData(null);
-    setGpoError(null);
-    setGpupdateResult(null);
-    setSysInfoData(null);
-    setSysInfoError(null);
     setHotfixSearch('');
     setShowRawSysInfo(false);
-    setUpdateStatusData(null);
-    setUpdateStatusError(null);
-    setUpdateActionResult(null);
-    setUpdateActionError(null);
     setConfirmInstallAllUpdates(false);
     setConfirmUninstallKb(null);
     setManualKbUninstall('');
@@ -657,24 +779,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setVpnDnsSuffix('');
     setVpnCustomUser('');
     setVpnCustomPass('');
+    setShowVpnCustomPass(false);
     setConfirmDeleteVpnName(null);
-    setDiskHealthData(null);
-    setDiskHealthError(null);
-    setRepairResult(null);
-    setRepairError(null);
     setConfirmRepairKey(null);
-    setPowerResult(null);
-    setPowerError(null);
     setConfirmPowerAction(false);
     setSessionActionBusy(null);
     setConfirmLogoffKey(null);
-    setSessionActionResult(null);
-    setSessionActionError(null);
-    setBatteryData(null);
-    setBatteryError(null);
-    setDomainUserData(null);
-    setDomainUserError(null);
-    setDomainQueryUser('');
   };
 
   const handleInspectShares = async (overridePayload?: HelpdeskConnectionPayload) => {
@@ -701,7 +811,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
   const handleInspectHealth = async (
     e?: React.FormEvent,
-    overridePayload?: HelpdeskConnectionPayload
+    overridePayload?: HelpdeskConnectionPayload,
+    skipHistory = false
   ): Promise<boolean> => {
     if (e) e.preventDefault();
     const payload = overridePayload || buildPayload();
@@ -709,7 +820,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setLoadingHealth(true);
     setHealthError(null);
     try {
-      const res = await fetchHelpdeskEndpointHealth(payload);
+      const res = await fetchHelpdeskEndpointHealth({ ...payload, skipHistory });
       setHealthData(res.data);
       if (res.rateLimit) setRateLimit(res.rateLimit);
       setLoadingHealth(false);
@@ -1312,9 +1423,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         ok: Boolean(res.data?.success),
         text: isEn ? res.data?.message : res.data?.messageFa,
       });
-      // Refresh real process table from endpoint after termination
+      // Refresh real process table from endpoint after termination (without duplicating connection history)
       try {
-        const refreshed = await fetchHelpdeskEndpointHealth(payload);
+        const refreshed = await fetchHelpdeskEndpointHealth({ ...payload, skipHistory: true });
         setHealthData(refreshed.data);
       } catch {}
     } catch (err: any) {
@@ -1719,159 +1830,169 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   };
 
   const handleStopPrefetch = () => {
-    connectRunIdRef.current += 1;
-    setPrefetchProgress(null);
+    stopHelpdeskPrefetch();
   };
 
-  const handleConnectCurrentTab = async (e?: React.FormEvent) => {
+  const handleConnectCurrentTab = async (e?: React.FormEvent, overridePayload?: HelpdeskConnectionPayload) => {
     if (e) e.preventDefault();
-    const payload = buildPayload();
+    const payload = overridePayload || buildPayload();
     if (!payload) return;
+    setReconnectBanner(null);
+    if (activeSubTab === 'history') {
+      setActiveSubTab('health');
+    }
+    await runHelpdeskSequentialConnect({
+      payload,
+      isEn,
+      canViewEventViewer,
+      eventChannel,
+      eventHoursBack,
+      eventSeverityMode,
+      logonsHoursBack,
+      onNetworkLoaded: syncNetworkFormDefaults,
+    });
+    if (activeSubTab === 'history') {
+      loadConnectionHistory({ page: 1 });
+    }
+  };
 
-    const runId = ++connectRunIdRef.current;
-    const isCancelled = () => connectRunIdRef.current !== runId;
+  const handleReconnectFromHistory = async (item: HelpdeskConnectionHistoryItem) => {
+    const rawProto = (item.protocolUsed || item.protocolRequested || 'auto').toLowerCase();
+    const mappedProtocol: HelpdeskRamState['protocol'] =
+      rawProto === 'winrm_https' ||
+      rawProto === 'winrm_http' ||
+      rawProto === 'smb_rpc' ||
+      rawProto === 'ssh'
+        ? rawProto
+        : 'auto';
+    const nextUser = item.sessionUsername || username.trim();
+    const standardPort =
+      mappedProtocol === 'winrm_https'
+        ? 5986
+        : mappedProtocol === 'winrm_http'
+        ? 5985
+        : mappedProtocol === 'smb_rpc'
+        ? 445
+        : mappedProtocol === 'ssh'
+        ? 22
+        : 0;
+    const customPortStr =
+      item.portUsed && standardPort && item.portUsed !== standardPort ? String(item.portUsed) : '';
 
-    // Reset stale host snapshots cleanly before sequential prefetch starting from Tab 1
-    setHealthData(null);
-    setHealthError(null);
-    setSharesData(null);
-    setSharesError(null);
-    setNetworkData(null);
-    setNetworkError(null);
-    setPrinterData(null);
-    setPrinterError(null);
-    setEventData(null);
-    setEventError(null);
-    setLogonsData(null);
-    setLogonsError(null);
-    setSysInfoData(null);
-    setSysInfoError(null);
-    setUpdateStatusData(null);
-    setUpdateStatusError(null);
-    setTempScanData(null);
-    setTempError(null);
-    setGpoData(null);
-    setGpoError(null);
-    setDiskHealthData(null);
-    setDiskHealthError(null);
-    setBatteryData(null);
-    setBatteryError(null);
+    patchHelpdeskRamSnapshot({
+      targetIp: item.targetIp,
+      protocol: mappedProtocol,
+      customPort: customPortStr,
+      username: nextUser,
+      jeaConfigName: item.jeaConfigName || '',
+      activeSubTab: 'health',
+      healthError: null,
+    });
 
-    const steps: Array<{
-      id: HelpdeskSubTab;
-      labelEn: string;
-      labelFa: string;
-      run: () => Promise<boolean>;
-    }> = [
-      {
-        id: 'health',
-        labelEn: 'Health, Processes & Shares',
-        labelFa: 'سلامت سیستم، پروسس‌ها و شیر فولدرها',
-        run: () => handleInspectHealth(undefined, payload),
-      },
-      {
-        id: 'network',
-        labelEn: 'Network, VPN, Hosts & Routing',
-        labelFa: 'شبکه، VPN، Hosts و روتینگ',
-        run: async () => {
-          await handleInspectNetwork();
-          return true;
-        },
-      },
-      {
-        id: 'printers',
-        labelEn: 'Printers & Print Spooler',
-        labelFa: 'پرینترها و Spooler',
-        run: async () => {
-          await handleInspectPrinters();
-          return true;
-        },
-      },
-      ...(canViewEventViewer
-        ? [
-            {
-              id: 'events' as HelpdeskSubTab,
-              labelEn: 'Event Viewer Diagnostics',
-              labelFa: 'تحلیل خطاهای Event Viewer',
-              run: async () => {
-                await handleInspectEvents();
-                return true;
-              },
-            },
-          ]
-        : []),
-      {
-        id: 'logins',
-        labelEn: 'User Logins, Sessions & Power',
-        labelFa: 'ورود کاربران، نشست و پاور',
-        run: async () => {
-          await handleInspectLogons();
-          return true;
-        },
-      },
-      {
-        id: 'updates',
-        labelEn: 'Updates, WSUS & System Info',
-        labelFa: 'آپدیت ویندوز، WSUS و مشخصات سیستم',
-        run: async () => {
-          await handleInspectSysInfo();
-          if (!isCancelled()) {
-            await handleInspectUpdateStatus('auto', true);
-          }
-          return true;
-        },
-      },
-      {
-        id: 'maintenance',
-        labelEn: 'Temp, GPO & Disk Health',
-        labelFa: 'پاک‌سازی Temp، GPO و دیسک‌ها',
-        run: async () => {
-          await handleScanTemp();
-          if (!isCancelled()) {
-            await handleInspectGpo();
-          }
-          if (!isCancelled()) {
-            await handleInspectDisks();
-          }
-          return true;
-        },
-      },
-      {
-        id: 'hardware_domain',
-        labelEn: 'Battery Health Report',
-        labelFa: 'گزارش سلامت باتری',
-        run: async () => {
-          await handleInspectBattery();
-          return true;
-        },
-      },
-    ];
+    const canImmediateConnect =
+      Boolean(password) &&
+      Boolean(nextUser) &&
+      (!item.sessionUsername || username.trim().toLowerCase() === item.sessionUsername.trim().toLowerCase());
 
-    for (let i = 0; i < steps.length; i++) {
-      if (isCancelled()) return;
-      const st = steps[i];
-      setPrefetchProgress({
-        active: true,
-        step: i + 1,
-        total: steps.length,
-        currentTab: st.id,
-        labelEn: st.labelEn,
-        labelFa: st.labelFa,
+    if (canImmediateConnect) {
+      await handleConnectCurrentTab(undefined, {
+        targetIp: item.targetIp,
+        protocol: mappedProtocol,
+        port: customPortStr ? Number(customPortStr) : undefined,
+        username: nextUser,
+        password,
+        jeaConfigName: item.jeaConfigName || undefined,
       });
-      const ok = await st.run();
-      if (isCancelled()) return;
-      // If Tab 1 initial auth/connectivity failed, stop so we do not trigger AD account lockout retries
-      if (i === 0 && !ok) {
-        setPrefetchProgress(null);
-        notifyHelpdeskAuditUpdated();
-        return;
-      }
+    } else {
+      setReconnectBanner({ targetIp: item.targetIp, username: nextUser });
+      setTimeout(() => {
+        passwordInputRef.current?.focus();
+      }, 60);
     }
+  };
 
-    if (!isCancelled()) {
-      setPrefetchProgress(null);
+  const handleDeleteHistoryItem = async (id: string) => {
+    setBusyHistoryId(id);
+    setHistoryError(null);
+    setHistoryNotice(null);
+    try {
+      await deleteHelpdeskConnectionHistoryItem(id);
+      setHistoryNotice({
+        ok: true,
+        text: isEn ? 'Connection history entry removed.' : 'رکورد انتخاب‌شده از تاریخچه اتصالات حذف شد.',
+      });
+      await loadConnectionHistory();
       notifyHelpdeskAuditUpdated();
+    } catch (err: any) {
+      setHistoryError(err?.message || (isEn ? 'Failed to remove history entry.' : 'حذف رکورد تاریخچه ناموفق بود.'));
+    } finally {
+      setBusyHistoryId(null);
     }
+  };
+
+  const handleClearAllHistory = async () => {
+    setBusyHistoryId('ALL');
+    setConfirmClearHistory(false);
+    setHistoryError(null);
+    setHistoryNotice(null);
+    try {
+      const res = await clearHelpdeskConnectionHistory();
+      setHistoryNotice({
+        ok: true,
+        text: isEn
+          ? `Cleared ${res.clearedCount} connection history record(s).`
+          : `تعداد ${res.clearedCount} رکورد از تاریخچه اتصالات با موفقیت پاک شد.`,
+      });
+      await loadConnectionHistory({ page: 1 });
+      notifyHelpdeskAuditUpdated();
+    } catch (err: any) {
+      setHistoryError(err?.message || (isEn ? 'Failed to clear history.' : 'پاک‌سازی تاریخچه اتصالات ناموفق بود.'));
+    } finally {
+      setBusyHistoryId(null);
+    }
+  };
+
+  const handleExportHistoryCsv = () => {
+    if (historyItems.length === 0) return;
+    const headers = [
+      'Connected At',
+      'Target IP',
+      'Hostname',
+      'OS',
+      'Logged-In PC User',
+      'Session Username',
+      'Protocol Used',
+      'Port',
+      'Status',
+      'Operator',
+      'Error',
+    ];
+    const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = historyItems.map((it) =>
+      [
+        it.connectedAt,
+        it.targetIp,
+        it.hostname,
+        it.osName,
+        it.loggedInUser,
+        it.sessionUsername,
+        it.protocolUsed || it.protocolRequested,
+        it.portUsed || '',
+        it.status,
+        it.actorName,
+        it.errorMessage || '',
+      ]
+        .map(esc)
+        .join(',')
+    );
+    const csv = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `helpdesk_connection_history_p${historyPage}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const formatLogonTimestamp = (isoStr?: string) => {
@@ -1960,7 +2081,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     });
   }, [eventData, eventSearch, eventLevelFilter]);
 
-  // Filtered & sorted process list for Module 1
+  // Filtered & sorted process list for Module 1 (with Asc/Desc + 20/page pagination)
   const filteredProcesses = useMemo(() => {
     const list: any[] = Array.isArray(healthData?.processes) ? healthData.processes : [];
     const q = processSearch.trim().toLowerCase();
@@ -1972,12 +2093,46 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             String(p.status || '').toLowerCase().includes(q)
         )
       : list;
+    const mult = processSortDir === 'asc' ? 1 : -1;
     return [...filtered].sort((a, b) => {
-      if (processSort === 'memory') return (b.memoryMb || 0) - (a.memoryMb || 0);
-      if (processSort === 'name') return String(a.name || '').localeCompare(String(b.name || ''));
-      return (b.cpuPercent || 0) - (a.cpuPercent || 0) || (b.memoryMb || 0) - (a.memoryMb || 0);
+      if (processSort === 'memory') {
+        const diff = (Number(a.memoryMb) || 0) - (Number(b.memoryMb) || 0);
+        if (diff !== 0) return diff * mult;
+        return ((Number(a.cpuPercent) || 0) - (Number(b.cpuPercent) || 0)) * mult;
+      }
+      if (processSort === 'name') {
+        const cmp = String(a.name || '').localeCompare(String(b.name || ''));
+        if (cmp !== 0) return cmp * mult;
+        return (Number(a.pid) || 0) - (Number(b.pid) || 0);
+      }
+      if (processSort === 'pid') {
+        return ((Number(a.pid) || 0) - (Number(b.pid) || 0)) * mult;
+      }
+      const cpuDiff = (Number(a.cpuPercent) || 0) - (Number(b.cpuPercent) || 0);
+      if (cpuDiff !== 0) return cpuDiff * mult;
+      return ((Number(a.memoryMb) || 0) - (Number(b.memoryMb) || 0)) * mult;
     });
-  }, [healthData, processSearch, processSort]);
+  }, [healthData, processSearch, processSort, processSortDir]);
+
+  const processTotalPages = Math.max(1, Math.ceil(filteredProcesses.length / PROCESS_PAGE_SIZE));
+  const clampedProcessPage = Math.min(Math.max(1, processPage), processTotalPages);
+  const paginatedProcesses = useMemo(() => {
+    const start = (clampedProcessPage - 1) * PROCESS_PAGE_SIZE;
+    return filteredProcesses.slice(start, start + PROCESS_PAGE_SIZE);
+  }, [filteredProcesses, clampedProcessPage]);
+
+  const handleToggleProcessColumnSort = (col: 'cpu' | 'memory' | 'name' | 'pid') => {
+    if (processSort === col) {
+      setProcessSortDir((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setProcessSort(col);
+      setProcessSortDir(col === 'name' || col === 'pid' ? 'asc' : 'desc');
+    }
+    if (col === 'cpu' || col === 'memory') {
+      setDonutMetric(col);
+    }
+    setProcessPage(1);
+  };
 
   // Top 6 Process Donut segments (SVG circular distribution chart)
   const processDonutSegments = useMemo(() => {
@@ -2119,79 +2274,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     );
   }, [networkData, routeSearch]);
 
-  const activeCapabilities = [
-    {
-      id: 'health',
-      titleEn: 'Endpoint Health, GPU/Audio, Processes & Shares',
-      titleFa: 'سلامت سیستم، گرافیک و صدا (آنبورد/مجزا)، پروسس‌ها و شیر فولدرها',
-      descEn: 'Live CPU/RAM/Disk/GPU/VRAM radial gauges, onboard vs dedicated GPU & audio telemetry, interactive process rings, and network share management.',
-      descFa: 'نمایش گرافیکی مصرف CPU، RAM، دیسک، کارت گرافیک (GPU/VRAM) و کارت صدا با تشخیص آنبورد/مجزا، پروسس‌ها و شیر فولدرها.',
-    },
-    {
-      id: 'network',
-      titleEn: 'Advanced Network Control, VPN, Routing, Hosts, Proxy & Probes',
-      titleFa: 'مدیریت کامل شبکه (IP/DNS دستی، VPN، Hosts، Proxy، روتینگ و NSLookup)',
-      descEn: 'Manual IPv4/DNS & DHCP editor, Endpoint VPN provisioning (with default Windows SSO user credentials), local DNS hosts file manager, OS proxy control, guided static route writer, and endpoint Ping/Port/NSLookup/Tracert/HTTP/ARP probes.',
-      descFa: 'تغییر دستی IP و DNS، ساخت و مدیریت کانکشن VPN با یوزر و پسورد ویندوز کاربر، مدیریت فایل hosts و Proxy، نوشتن ساده روت شبکه، و تست‌های NSLookup، Tracert، HTTP و ARP.',
-    },
-    {
-      id: 'updates',
-      titleEn: 'Windows Updates (WSUS / Internet), KB Uninstall & System Info',
-      titleFa: 'آپدیت ویندوز (WSUS یا اینترنت)، حذف KB و مشخصات سیستم (systeminfo)',
-      descEn: 'Auto-detects WSUS GPO policy vs direct Microsoft Update, scans & installs pending updates, uninstalls problematic KBs (wusa/DISM), and shows full systeminfo.',
-      descFa: 'تشخیص خودکار پالیسی WSUS یا اینترنت مستقیم، دریافت و نصب آپدیت‌ها، حذف آپدیت‌های مشکل‌دار (KB) و نمایش مشخصات کامل سیستم و بوت.',
-    },
-    {
-      id: 'printers',
-      titleEn: 'Printer Queue Inspection & Print Spooler Repair',
-      titleFa: 'مدیریت پرینترها، پرینت سرور و تعمیر Print Spooler',
-      descEn: 'Inspect Print Spooler service, change default printer, remove printers, install from Print Server with admin driver staging, and clear stuck queues.',
-      descFa: 'مشاهده سرویس Spooler، تغییر پرینتر پیش‌فرض، حذف پرینتر، نصب از پرینت سرور و پاک‌سازی ایمن صف گیرکرده.',
-    },
-    {
-      id: 'events',
-      titleEn: 'Event Viewer with Plain-Language Human Diagnostics',
-      titleFa: 'مشاهده خطاهای Event Viewer با توضیح شفاف و انسانی علت خطا',
-      descEn: 'Reads recent System/Application Critical, Error & Warning logs and translates every Event ID into clear human reason, likely root cause, and action.',
-      descFa: 'خواندن خطاهای اخیر System و Application به همراه ترجمه انسانی دقیق کنار هر کد خطا (چه اتفاقی افتاده، علت احتمالی و اقدام پیشنهادی).',
-    },
-    {
-      id: 'process-stop',
-      titleEn: 'Controlled User-Space Process Termination',
-      titleFa: 'بستن کنترل‌شده برنامه‌های کاربری هنگ‌کرده (با قفل OS/AV)',
-      descEn: 'Safely ends frozen user apps (Chrome, Excel, Outlook) with exact PID+Name verification while strictly blocking OS core & Antivirus/EDR processes.',
-      descFa: 'بستن صرفاً برنامه‌های کاربری هنگ‌کرده با تطبیق دقیق PID و نام پروسس، در حالی که هسته سیستم‌عامل و آنتی‌ویروس کاملاً قفل هستند.',
-    },
-    {
-      id: 'system-repair',
-      titleEn: 'Windows Integrity Repair (SFC / DISM) & HDD-Only CHKDSK',
-      titleFa: 'تعمیر فایل‌های سیستمی (SFC)، ایمیج ویندوز (DISM) و اسکن بدسکتور فقط روی HDD',
-      descEn: 'Allowlisted sfc /verifyonly, sfc /scannow, DISM Check/Scan/RestoreHealth, and automatic HDD vs SSD detection that strictly blocks chkdsk /r on SSD/NVMe drives.',
-      descFa: 'اجرای ایمن sfc و DISM RestoreHealth همراه با تشخیص خودکار نوع هارد (HDD در برابر SSD/NVMe) و مسدودسازی قطعی اسکن بدسکتور روی SSD.',
-    },
-    {
-      id: 'temp-gpo',
-      titleEn: 'Confined Temp Cleanup & Non-Disruptive gpupdate /force',
-      titleFa: 'پاک‌سازی ایمن Temp، مشاهده پالیسی‌ها (gpresult /r) و اجرای gpupdate /force',
-      descEn: 'Hard-confined Temp cleanup, applied GPO inspection via gpresult /r, and non-disruptive gpupdate /force without forced logoff.',
-      descFa: 'پاک‌سازی محدود فقط در پوشه‌های Temp، مشاهده پالیسی‌های دامین و اجرای فوری gpupdate /force بدون خارج کردن ناگهانی کاربر.',
-    },
-    {
-      id: 'battery-domain',
-      titleEn: 'Laptop Battery Health/Cycles & Domain Account Lookup',
-      titleFa: 'گزارش سلامت و سایکل باتری لپ‌تاپ و استعلام اکانت دامین',
-      descEn: 'Exact battery charge cycle count & auto-calculated health % and AD account inspection (net user /domain).',
-      descFa: 'محاسبه دقیق درصد سلامت و تعداد دفعات شارژ باتری لپ‌تاپ و استعلام وضعیت اکانت دامین (انقضای رمز، قفل و گروه‌ها).',
-    },
-    {
-      id: 'workstation-logons-audit',
-      titleEn: 'User Logins, Session Lock/Logoff, Power Control & Audit Trail',
-      titleFa: 'ورود کاربران، مدیریت نشست (Lock/Logoff)، کنترل پاور و Audit Logs',
-      descEn: 'Live presence detection, per-user login history, interactive screen lock & session logoff, RBAC-gated immediate/scheduled power control, and full Audit & Command Logging.',
-      descFa: 'تشخیص کاربر فعال، تاریخچه ورود و خروج، قفل صفحه و Logoff کاربر، خاموشی/ری‌استارت فوری یا زمان‌بندی‌شده و ثبت ۱۰۰٪ عملیات در Audit & Command Logs.',
-    },
-  ];
-
   return (
     <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 space-y-6 pb-10" dir={isEn ? 'ltr' : 'rtl'}>
       {/* Page Header — Clean Top Contract */}
@@ -2246,12 +2328,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       {/* On-Demand Single-Host Connection Bar (Zero Pre-Populated Endpoint List!) */}
       <form
         onSubmit={handleConnectCurrentTab}
-        className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}
+        className={`rounded-xl border p-4 sm:p-5 space-y-4 overflow-hidden ${surfaceBg}`}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <Server className="w-4 h-4 text-sky-500" />
-            <span className={textPrimary}>
+          <div className="flex items-center gap-2 text-sm font-semibold min-w-0">
+            <Server className="w-4 h-4 text-sky-500 shrink-0" />
+            <span className={`truncate ${textPrimary}`}>
               {isEn ? 'On-Demand Target Workstation Session' : 'اتصال لحظه‌ای به سیستم کاربر (بدون لیست از پیش ثبت‌شده)'}
             </span>
             <FieldInfoTooltip
@@ -2276,7 +2358,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             />
           </div>
 
-          <div className={`text-[11px] flex items-center gap-3 ${textMuted}`}>
+          <div className={`text-[11px] flex flex-wrap items-center gap-3 ${textMuted}`}>
             <span>{isEn ? 'Credentials stay in RAM only' : 'رمز عبور فقط در حافظه موقت می‌ماند'}</span>
             <span aria-hidden="true">·</span>
             <button
@@ -2297,7 +2379,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
           {/* Target IP */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-3 min-w-0">
             <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
               {isEn ? 'Target Workstation IP / Hostname' : 'آدرس IP یا نام سیستم کاربر'}
             </label>
@@ -2307,20 +2389,20 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               value={targetIp}
               onChange={(e) => setTargetIp(e.target.value)}
               placeholder="192.168.10.45"
-              className={`w-full px-3 py-2 rounded-lg border text-xs font-mono outline-none transition ${inputCls}`}
+              className={`w-full min-w-0 px-3 py-2 rounded-lg border text-xs font-mono outline-none transition ${inputCls}`}
               required
             />
           </div>
 
           {/* Protocol */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 min-w-0">
             <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
               {isEn ? 'Protocol' : 'پروتکل اتصال'}
             </label>
             <select
               value={protocol}
               onChange={(e) => setProtocol(e.target.value as any)}
-              className={`w-full px-3 py-2 rounded-lg border text-xs outline-none transition ${inputCls}`}
+              className={`w-full min-w-0 px-3 py-2 rounded-lg border text-xs outline-none transition ${inputCls}`}
             >
               <option value="auto">{isEn ? 'Auto (5986 → 5985 → 445 → 22)' : 'خودکار (5986 → 5985 → 445 → 22)'}</option>
               <option value="winrm_https">WinRM HTTPS (5986)</option>
@@ -2331,7 +2413,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           </div>
 
           {/* Ephemeral Username */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 min-w-0">
             <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
               {isEn ? 'Session Username' : 'نام کاربری نشست'}
             </label>
@@ -2342,25 +2424,29 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="CORP\Administrator"
-              className={`w-full px-3 py-2 rounded-lg border text-xs font-mono outline-none transition ${inputCls}`}
+              className={`w-full min-w-0 px-3 py-2 rounded-lg border text-xs font-mono outline-none transition ${inputCls}`}
               required
             />
           </div>
 
           {/* Ephemeral Password */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-2 min-w-0">
             <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
               {isEn ? 'Session Password (Ephemeral)' : 'رمز عبور موقت نشست'}
             </label>
             <div className="relative">
               <input
+                ref={passwordInputRef}
                 type={showPassword ? 'text' : 'password'}
                 dir="ltr"
                 autoComplete="new-password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (reconnectBanner) setReconnectBanner(null);
+                }}
                 placeholder="••••••••••••"
-                className={`w-full px-3 py-2 rounded-lg border text-xs font-mono outline-none transition pe-9 ${inputCls}`}
+                className={`w-full min-w-0 px-3 py-2 rounded-lg border text-xs font-mono outline-none transition pe-9 ${inputCls}`}
                 required
               />
               <button
@@ -2375,20 +2461,25 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           </div>
 
           {/* Primary Action + Wipe */}
-          <div className="lg:col-span-2 flex items-center gap-2">
+          <div className="md:col-span-2 lg:col-span-3 min-w-0 flex items-center gap-2">
             <button
               type="submit"
               disabled={!canRunDiagnostics || loadingHealth}
-              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition whitespace-nowrap cursor-pointer"
+              className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition whitespace-nowrap cursor-pointer"
             >
-              {loadingHealth ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
-              <span>{isEn ? 'Connect & Inspect' : 'اتصال و پایش'}</span>
+              {loadingHealth ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+              ) : (
+                <Activity className="w-3.5 h-3.5 shrink-0" />
+              )}
+              <span className="truncate">{isEn ? 'Connect & Inspect' : 'اتصال و پایش'}</span>
             </button>
             <button
               type="button"
               onClick={handleClearSession}
               title={isEn ? 'Wipe session credentials & results from memory' : 'پاک‌سازی فوری IP، رمز و نتایج از حافظه'}
-              className={`p-2 rounded-lg border transition cursor-pointer ${
+              aria-label={isEn ? 'Wipe session' : 'پاک‌سازی نشست'}
+              className={`shrink-0 h-[34px] w-[34px] flex items-center justify-center rounded-lg border transition cursor-pointer ${
                 isLightMode
                   ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
                   : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
@@ -2398,6 +2489,32 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             </button>
           </div>
         </div>
+
+        {reconnectBanner && (
+          <div
+            className={`px-3 py-2 rounded-lg border flex flex-wrap items-center justify-between gap-2 text-xs ${
+              isLightMode
+                ? 'bg-amber-50 border-amber-200 text-amber-900'
+                : 'bg-amber-950/30 border-amber-500/30 text-amber-200'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <KeyRound className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span>
+                {isEn
+                  ? `Pre-filled ${reconnectBanner.targetIp}${reconnectBanner.username ? ` (${reconnectBanner.username})` : ''} from history. Enter the ephemeral password above and click "Connect & Inspect".`
+                  : `اطلاعات اتصال به ${reconnectBanner.targetIp}${reconnectBanner.username ? ` (${reconnectBanner.username})` : ''} از تاریخچه پر شد. رمز عبور موقت را در فیلد بالا وارد کرده و «اتصال و پایش» را بزنید.`}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReconnectBanner(null)}
+              className="opacity-70 hover:opacity-100 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {prefetchProgress?.active && (
           <div
@@ -2515,10 +2632,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'سلامت باتری و اکانت دامین',
           },
           {
-            id: 'architecture' as HelpdeskSubTab,
-            icon: Layers,
-            labelEn: 'Security & Hardening',
-            labelFa: 'امنیت و لایه‌های حفاظتی',
+            id: 'history' as HelpdeskSubTab,
+            icon: Clock,
+            labelEn: 'Connection History',
+            labelFa: 'تاریخچه اتصالات',
           },
         ].map((tab) => {
           const Icon = tab.icon;
@@ -2532,7 +2649,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'logins' && loadingLogons) ||
             (tab.id === 'updates' && (loadingSysInfo || loadingUpdateStatus)) ||
             (tab.id === 'maintenance' && (loadingTempScan || loadingGpo || loadingDiskHealth)) ||
-            (tab.id === 'hardware_domain' && loadingBattery);
+            (tab.id === 'hardware_domain' && loadingBattery) ||
+            (tab.id === 'history' && loadingHistory);
           const hasTabData =
             (tab.id === 'health' && Boolean(healthData)) ||
             (tab.id === 'network' && Boolean(networkData)) ||
@@ -2541,7 +2659,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'logins' && Boolean(logonsData)) ||
             (tab.id === 'updates' && Boolean(sysInfoData || updateStatusData)) ||
             (tab.id === 'maintenance' && Boolean(tempScanData || gpoData || diskHealthData)) ||
-            (tab.id === 'hardware_domain' && Boolean(batteryData));
+            (tab.id === 'hardware_domain' && Boolean(batteryData)) ||
+            (tab.id === 'history' && Boolean(historyStats?.totalConnections));
 
           return (
             <button
@@ -2549,6 +2668,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               type="button"
               onClick={() => {
                 setActiveSubTab(tab.id);
+                if (tab.id === 'history') {
+                  loadConnectionHistory();
+                  return;
+                }
                 if (!prefetchProgress?.active && targetIp.trim() && username.trim() && password) {
                   if (tab.id === 'network' && !networkData && !loadingNetwork) handleInspectNetwork();
                   else if (tab.id === 'printers' && !printerData && !loadingPrinters) handleInspectPrinters();
@@ -2658,11 +2781,11 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   </div>
                   <button
                     type="button"
-                    onClick={() => handleInspectHealth()}
+                    onClick={() => handleInspectHealth(undefined, undefined, true)}
                     disabled={loadingHealth}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:border-sky-500 transition cursor-pointer"
                   >
-                    <RefreshCw className="w-3.5 h-3.5 text-sky-500" />
+                    <RefreshCw className={`w-3.5 h-3.5 text-sky-500 ${loadingHealth ? 'animate-spin' : ''}`} />
                     <span>{isEn ? 'Refresh Live Data' : 'بروزرسانی زنده'}</span>
                   </button>
                 </div>
@@ -3129,9 +3252,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 </div>
               </div>
 
-              {/* VISUAL PROCESS MONITOR — Interactive Circular Donut + Dual Progress Bars */}
+              {/* VISUAL PROCESS MONITOR — Interactive Circular Donut + Paginated/Sortable Progress Table */}
               <div className={`rounded-xl border p-4 sm:p-5 space-y-5 ${surfaceBg}`}>
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
                   <div>
                     <h3 className={`text-sm font-bold ${textPrimary}`}>
                       {isEn
@@ -3140,8 +3263,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     </h3>
                     <p className={`text-xs ${textMuted}`}>
                       {isEn
-                        ? 'Visual circular resource distribution + safe End Task strictly for user apps (OS core & Antivirus/EDR are permanently locked).'
-                        : 'نمایش دایره‌ای و پراگرسی مصرف منابع + امکان بستن صرفاً برنامه‌های کاربری هنگ‌کرده (هسته سیستم‌عامل و آنتی‌ویروس کاملاً قفل هستند).'}
+                        ? `Showing ${PROCESS_PAGE_SIZE} processes per page with Highest/Lowest sorting + safe End Task strictly for user apps.`
+                        : `نمایش ${PROCESS_PAGE_SIZE} پروسس در هر صفحه با مرتب‌سازی صعودی/نزولی + امکان بستن صرفاً برنامه‌های کاربری هنگ‌کرده.`}
                     </p>
                   </div>
 
@@ -3151,9 +3274,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                       <input
                         type="text"
                         value={processSearch}
-                        onChange={(e) => setProcessSearch(e.target.value)}
+                        onChange={(e) => {
+                          setProcessSearch(e.target.value);
+                          setProcessPage(1);
+                        }}
                         placeholder={isEn ? 'Filter process or PID...' : 'جستجوی پروسس یا PID...'}
-                        className={`ps-8 pe-3 py-1.5 rounded-lg border text-xs outline-none w-48 ${inputCls}`}
+                        className={`ps-8 pe-3 py-1.5 rounded-lg border text-xs outline-none w-44 sm:w-48 ${inputCls}`}
                       />
                     </div>
 
@@ -3166,16 +3292,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                         [
                           { id: 'cpu', label: 'CPU' },
                           { id: 'memory', label: 'RAM' },
+                          { id: 'pid', label: 'PID' },
                           { id: 'name', label: isEn ? 'Name' : 'نام' },
                         ] as const
                       ).map((s) => (
                         <button
                           key={s.id}
                           type="button"
-                          onClick={() => {
-                            setProcessSort(s.id);
-                            if (s.id === 'cpu' || s.id === 'memory') setDonutMetric(s.id);
-                          }}
+                          onClick={() => handleToggleProcessColumnSort(s.id)}
                           className={`px-2.5 py-1 rounded-md font-semibold transition cursor-pointer ${
                             processSort === s.id
                               ? isLightMode
@@ -3188,6 +3312,45 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                         </button>
                       ))}
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProcessSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+                        setProcessPage(1);
+                      }}
+                      title={isEn ? 'Toggle Highest / Lowest order' : 'تغییر ترتیب بیشترین / کمترین'}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                        isLightMode
+                          ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-700'
+                          : 'bg-slate-950 hover:bg-slate-800 border-slate-700 text-slate-200'
+                      }`}
+                    >
+                      <ArrowUpDown className="w-3.5 h-3.5 text-sky-500" />
+                      <span>
+                        {processSortDir === 'desc'
+                          ? isEn
+                            ? 'Highest'
+                            : 'بیشترین'
+                          : isEn
+                          ? 'Lowest'
+                          : 'کمترین'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleInspectHealth(undefined, undefined, true)}
+                      disabled={loadingHealth}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer disabled:opacity-50 ${
+                        isLightMode
+                          ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
+                          : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-100'
+                      }`}
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 text-sky-500 ${loadingHealth ? 'animate-spin' : ''}`} />
+                      <span>{isEn ? 'Refresh' : 'بروزرسانی'}</span>
+                    </button>
                   </div>
                 </div>
 
@@ -3355,16 +3518,60 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     <table className="w-full text-xs border-collapse">
                       <thead>
                         <tr className={`border-b text-start ${isLightMode ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>
-                          <th className="py-2 px-2.5 font-semibold text-start">PID</th>
-                          <th className="py-2 px-2.5 font-semibold text-start">{isEn ? 'Process' : 'نام پروسس'}</th>
-                          <th className="py-2 px-2.5 font-semibold text-start w-40">{isEn ? 'CPU Load' : 'مصرف CPU'}</th>
-                          <th className="py-2 px-2.5 font-semibold text-start w-40">{isEn ? 'Memory (RAM)' : 'مصرف RAM'}</th>
+                          <th className="py-2 px-2.5 font-semibold text-start">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleProcessColumnSort('pid')}
+                              className="inline-flex items-center gap-1 hover:text-sky-500 cursor-pointer"
+                            >
+                              <span>PID</span>
+                              {processSort === 'pid' && (
+                                processSortDir === 'desc' ? <ChevronDown className="w-3 h-3 text-sky-500" /> : <ChevronUp className="w-3 h-3 text-sky-500" />
+                              )}
+                            </button>
+                          </th>
+                          <th className="py-2 px-2.5 font-semibold text-start">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleProcessColumnSort('name')}
+                              className="inline-flex items-center gap-1 hover:text-sky-500 cursor-pointer"
+                            >
+                              <span>{isEn ? 'Process' : 'نام پروسس'}</span>
+                              {processSort === 'name' && (
+                                processSortDir === 'desc' ? <ChevronDown className="w-3 h-3 text-sky-500" /> : <ChevronUp className="w-3 h-3 text-sky-500" />
+                              )}
+                            </button>
+                          </th>
+                          <th className="py-2 px-2.5 font-semibold text-start w-40">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleProcessColumnSort('cpu')}
+                              className="inline-flex items-center gap-1 hover:text-sky-500 cursor-pointer"
+                            >
+                              <span>{isEn ? 'CPU Load' : 'مصرف CPU'}</span>
+                              {processSort === 'cpu' && (
+                                processSortDir === 'desc' ? <ChevronDown className="w-3 h-3 text-sky-500" /> : <ChevronUp className="w-3 h-3 text-sky-500" />
+                              )}
+                            </button>
+                          </th>
+                          <th className="py-2 px-2.5 font-semibold text-start w-40">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleProcessColumnSort('memory')}
+                              className="inline-flex items-center gap-1 hover:text-sky-500 cursor-pointer"
+                            >
+                              <span>{isEn ? 'Memory (RAM)' : 'مصرف RAM'}</span>
+                              {processSort === 'memory' && (
+                                processSortDir === 'desc' ? <ChevronDown className="w-3 h-3 text-sky-500" /> : <ChevronUp className="w-3 h-3 text-sky-500" />
+                              )}
+                            </button>
+                          </th>
                           <th className="py-2 px-2.5 font-semibold text-end">{isEn ? 'State' : 'وضعیت'}</th>
                           <th className="py-2 px-2.5 font-semibold text-end">{isEn ? 'Safe Control' : 'کنترل ایمن'}</th>
                         </tr>
                       </thead>
                       <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
-                        {filteredProcesses.map((proc: any) => {
+                        {paginatedProcesses.map((proc: any) => {
                           const cpuVal = Math.max(0, Math.min(100, Number(proc.cpuPercent) || 0));
                           const memVal = Math.max(0, Math.min(100, Number(proc.memoryPercent) || 0));
                           const isHighlighted = selectedProcessPid === proc.pid;
@@ -3525,7 +3732,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                             </tr>
                           );
                         })}
-                        {filteredProcesses.length === 0 && (
+                        {paginatedProcesses.length === 0 && (
                           <tr>
                             <td colSpan={6} className={`py-6 text-center ${textMuted}`}>
                               {isEn ? 'No processes match your filter.' : 'هیچ پروسسی با این فیلتر پیدا نشد.'}
@@ -3534,6 +3741,84 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                         )}
                       </tbody>
                     </table>
+
+                    {/* Process Table Pagination Bar (20 items per page) */}
+                    {filteredProcesses.length > 0 && (
+                      <div
+                        className={`mt-3 pt-3 border-t flex flex-wrap items-center justify-between gap-2 text-xs ${
+                          isLightMode ? 'border-slate-200' : 'border-slate-800'
+                        }`}
+                      >
+                        <div className={textMuted}>
+                          {isEn
+                            ? `Showing ${(clampedProcessPage - 1) * PROCESS_PAGE_SIZE + 1}–${Math.min(
+                                clampedProcessPage * PROCESS_PAGE_SIZE,
+                                filteredProcesses.length
+                              )} of ${filteredProcesses.length} processes`
+                            : `نمایش ${(clampedProcessPage - 1) * PROCESS_PAGE_SIZE + 1} تا ${Math.min(
+                                clampedProcessPage * PROCESS_PAGE_SIZE,
+                                filteredProcesses.length
+                              )} از ${filteredProcesses.length} پروسس`}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={clampedProcessPage <= 1}
+                            onClick={() => setProcessPage(clampedProcessPage - 1)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-semibold disabled:opacity-40 cursor-pointer ${
+                              isLightMode
+                                ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                : 'bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800'
+                            }`}
+                          >
+                            {isEn ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            <span>{isEn ? 'Prev' : 'قبلی'}</span>
+                          </button>
+
+                          {Array.from({ length: processTotalPages }, (_, idx) => idx + 1)
+                            .filter(
+                              (p) =>
+                                p === 1 ||
+                                p === processTotalPages ||
+                                Math.abs(p - clampedProcessPage) <= 1
+                            )
+                            .map((p, idx, arr) => (
+                              <React.Fragment key={p}>
+                                {idx > 0 && arr[idx - 1] !== p - 1 && (
+                                  <span className={`px-1.5 ${textMuted}`}>…</span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setProcessPage(p)}
+                                  className={`min-w-[28px] h-7 px-2 rounded-md border text-[11px] font-mono font-semibold cursor-pointer transition ${
+                                    p === clampedProcessPage
+                                      ? 'bg-sky-600 border-sky-600 text-white'
+                                      : isLightMode
+                                      ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                                  }`}
+                                >
+                                  {p}
+                                </button>
+                              </React.Fragment>
+                            ))}
+
+                          <button
+                            type="button"
+                            disabled={clampedProcessPage >= processTotalPages}
+                            onClick={() => setProcessPage(clampedProcessPage + 1)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-semibold disabled:opacity-40 cursor-pointer ${
+                              isLightMode
+                                ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                : 'bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800'
+                            }`}
+                          >
+                            <span>{isEn ? 'Next' : 'بعدی'}</span>
+                            {isEn ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -5138,87 +5423,166 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   </div>
                 )}
 
-                {/* Windows Login Credential SSO Default Option */}
+                {/* VPN Authentication Mode Selector + Always-Visible Username & Password */}
                 <div
-                  className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                    vpnUseWinCred
-                      ? 'border-emerald-500/40 bg-emerald-500/10'
-                      : isLightMode
-                      ? 'bg-white border-slate-200'
-                      : 'bg-slate-900 border-slate-800'
+                  className={`p-3.5 rounded-xl border space-y-3 ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
                   }`}
                 >
-                  <label className="flex items-start gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={vpnUseWinCred}
-                      onChange={(e) => setVpnUseWinCred(e.target.checked)}
-                      className="mt-0.5 rounded border-slate-400 text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className={`text-xs font-bold ${textPrimary}`}>
+                      {isEn ? 'VPN User Credentials Mode' : 'نحوه احراز هویت یوزر و پسورد کانکشن VPN'}
+                    </span>
+                    <label className="inline-flex items-center gap-2 shrink-0 cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        checked={vpnSplitTunnel}
+                        onChange={(e) => setVpnSplitTunnel(e.target.checked)}
+                        className="rounded border-slate-400 text-sky-600 focus:ring-sky-500"
+                      />
+                      <span className={`font-medium ${textPrimary}`}>
+                        {isEn ? 'Split Tunneling (Keep Local Internet)' : 'Split Tunneling (حفظ اینترنت محلی)'}
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setVpnUseWinCred(true)}
+                      className={`p-3 rounded-xl border text-start transition cursor-pointer ${
+                        vpnUseWinCred
+                          ? 'border-emerald-500/50 bg-emerald-500/10'
+                          : isLightMode
+                          ? 'border-slate-200 hover:border-slate-300 bg-slate-50'
+                          : 'border-slate-800 hover:border-slate-700 bg-slate-950/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
                         <span className={`text-xs font-bold ${textPrimary}`}>
                           {isEn
-                            ? "Automatically use the endpoint user's Windows / Domain username & password"
-                            : 'اتصال خودکار با یوزر و پسورد ویندوز/دامین خود کاربر همین سیستم (پیش‌فرض فعال)'}
+                            ? "Use Logged-In User's Windows Credentials (SSO)"
+                            : 'استفاده از یوزر و پسورد خود کاربرِ لاگین‌شده در سیستم'}
                         </span>
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-500 border border-emerald-500/30">
-                          {isEn ? 'Windows SSO' : 'UseWinlogonCredential'}
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 border ${
+                            vpnUseWinCred
+                              ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/40'
+                              : isLightMode
+                              ? 'bg-slate-200 text-slate-600 border-slate-300'
+                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                          }`}
+                        >
+                          {isEn ? 'Default · SSO' : 'پیش‌فرض · SSO'}
                         </span>
                       </div>
-                      <p className={`text-[11px] mt-0.5 ${textMuted}`}>
+                      <p className={`text-[11px] mt-1 ${textMuted}`}>
                         {isEn
-                          ? 'When checked, Windows passes the logged-in user’s session credentials automatically during VPN connection without prompting for password.'
-                          : 'با فعال بودن این گزینه، کاربر هنگام اتصال VPN نیازی به وارد کردن مجدد نام کاربری و رمز عبور ندارد و با اکانت ویندوز خود متصل می‌شود.'}
+                          ? `Automatically authenticates with the active Windows/Domain user${
+                              healthData?.loggedInUser ? ` (${healthData.loggedInUser})` : ''
+                            }.`
+                          : `بدون نیاز به وارد کردن رمز مجدد، با اکانت خود کاربر لاگین‌شده${
+                              healthData?.loggedInUser ? ` (${healthData.loggedInUser})` : ''
+                            } متصل می‌شود.`}
                       </p>
-                    </div>
-                  </label>
+                    </button>
 
-                  <label className="inline-flex items-center gap-2 shrink-0 cursor-pointer text-xs">
-                    <input
-                      type="checkbox"
-                      checked={vpnSplitTunnel}
-                      onChange={(e) => setVpnSplitTunnel(e.target.checked)}
-                      className="rounded border-slate-400 text-sky-600 focus:ring-sky-500"
-                    />
-                    <span className={`font-medium ${textPrimary}`}>
-                      {isEn ? 'Split Tunneling (Keep Local Internet)' : 'Split Tunneling (حفظ اینترنت محلی)'}
-                    </span>
-                  </label>
-                </div>
+                    <button
+                      type="button"
+                      onClick={() => setVpnUseWinCred(false)}
+                      className={`p-3 rounded-xl border text-start transition cursor-pointer ${
+                        !vpnUseWinCred
+                          ? 'border-sky-500/50 bg-sky-500/10'
+                          : isLightMode
+                          ? 'border-slate-200 hover:border-slate-300 bg-slate-50'
+                          : 'border-slate-800 hover:border-slate-700 bg-slate-950/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`text-xs font-bold ${textPrimary}`}>
+                          {isEn
+                            ? 'Enter Custom VPN Username & Password'
+                            : 'وارد کردن یوزرنیم و پسورد دلخواه برای VPN'}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 border ${
+                            !vpnUseWinCred
+                              ? 'bg-sky-500/20 text-sky-500 border-sky-500/40'
+                              : isLightMode
+                              ? 'bg-slate-200 text-slate-600 border-slate-300'
+                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                          }`}
+                        >
+                          {isEn ? 'Custom' : 'سفارشی'}
+                        </span>
+                      </div>
+                      <p className={`text-[11px] mt-1 ${textMuted}`}>
+                        {isEn
+                          ? 'Specify dedicated VPN credentials below (or leave empty to prompt user when dialing).'
+                          : 'نام کاربری و رمز عبور اختصاصی VPN را در کادرهای زیر وارد کنید (یا برای پرسش هنگام اتصال خالی بگذارید).'}
+                      </p>
+                    </button>
+                  </div>
 
-                {/* Optional Custom Credentials when SSO is unchecked */}
-                {!vpnUseWinCred && (
+                  {/* Always-Visible VPN Username & Password Inputs */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     <div>
                       <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
-                        {isEn ? 'Custom VPN Username (Optional — leave empty to prompt user)' : 'نام کاربری سفارشی VPN (اختیاری — در صورت خالی بودن از کاربر پرسیده می‌شود)'}
+                        {isEn ? 'VPN Username' : 'نام کاربری (Username) VPN'}
                       </label>
                       <input
                         type="text"
                         dir="ltr"
-                        value={vpnCustomUser}
+                        disabled={vpnUseWinCred}
+                        value={vpnUseWinCred ? '' : vpnCustomUser}
                         onChange={(e) => setVpnCustomUser(e.target.value)}
-                        placeholder="DOMAIN\\vpnuser"
-                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                        placeholder={
+                          vpnUseWinCred
+                            ? healthData?.loggedInUser
+                              ? `${healthData.loggedInUser} (${isEn ? 'Auto Windows Login' : 'خودکار از کاربر فعلی'})`
+                              : isEn
+                              ? 'Auto: Logged-in Windows User'
+                              : 'خودکار: نام کاربری ویندوز فرد لاگین‌شده'
+                            : 'DOMAIN\\vpnuser'
+                        }
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none disabled:opacity-60 disabled:cursor-not-allowed ${inputCls}`}
                       />
                     </div>
                     <div>
                       <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
-                        {isEn ? 'Custom VPN Password (Optional — RAM only, never saved on server)' : 'رمز عبور سفارشی VPN (اختیاری — عدم ذخیره در سرور)'}
+                        {isEn ? 'VPN Password' : 'رمز عبور (Password) VPN'}
                       </label>
-                      <input
-                        type="password"
-                        dir="ltr"
-                        autoComplete="new-password"
-                        value={vpnCustomPass}
-                        onChange={(e) => setVpnCustomPass(e.target.value)}
-                        placeholder="••••••••"
-                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
-                      />
+                      <div className="relative">
+                        <input
+                          type={showVpnCustomPass && !vpnUseWinCred ? 'text' : 'password'}
+                          dir="ltr"
+                          autoComplete="new-password"
+                          disabled={vpnUseWinCred}
+                          value={vpnUseWinCred ? '' : vpnCustomPass}
+                          onChange={(e) => setVpnCustomPass(e.target.value)}
+                          placeholder={
+                            vpnUseWinCred
+                              ? isEn
+                                ? 'Auto: Active Windows Session Password'
+                                : 'خودکار: رمز عبور اکانت فعلی ویندوز'
+                              : '••••••••'
+                          }
+                          className={`w-full px-2.5 py-1.5 pe-8 rounded-lg border text-xs font-mono outline-none disabled:opacity-60 disabled:cursor-not-allowed ${inputCls}`}
+                        />
+                        {!vpnUseWinCred && (
+                          <button
+                            type="button"
+                            onClick={() => setShowVpnCustomPass((p) => !p)}
+                            className={`absolute top-1/2 -translate-y-1/2 end-2 p-0.5 ${textMuted} hover:text-sky-500 cursor-pointer`}
+                            aria-label={showVpnCustomPass ? 'Hide VPN password' : 'Show VPN password'}
+                          >
+                            {showVpnCustomPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                )}
+                </div>
 
                 <div className="flex items-center justify-end">
                   <button
@@ -9036,96 +9400,485 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       )}
 
       {/* =================================================================== */}
-      {/* TAB 7: ANTI-RANSOMWARE SECURITY ARCHITECTURE & CAPABILITIES         */}
+      {/* TAB 9: CONNECTION HISTORY (SEARCH, FILTER, PAGINATION & RECONNECT)  */}
       {/* =================================================================== */}
-      {activeSubTab === 'architecture' && (
+      {activeSubTab === 'history' && (
         <div className="space-y-6">
-          {/* Anti-Ransomware Active Controls Summary */}
-          <div className={`rounded-xl border p-5 space-y-4 ${surfaceBg}`}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Summary KPI Strip */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              {
+                label: isEn ? 'Total Recorded Sessions' : 'کل اتصالات ثبت‌شده',
+                value: historyStats?.totalConnections ?? historyTotal,
+                accent: 'text-sky-500',
+              },
+              {
+                label: isEn ? 'Unique Endpoints' : 'سیستم‌های یکتا (IP)',
+                value: historyStats?.uniqueHosts ?? 0,
+                accent: 'text-indigo-500',
+              },
+              {
+                label: isEn ? 'Successful Connections' : 'اتصالات موفق',
+                value: historyStats?.successCount ?? 0,
+                accent: 'text-emerald-500',
+              },
+              {
+                label: isEn ? 'Failed Attempts' : 'تلاش‌های ناموفق',
+                value: historyStats?.failedCount ?? 0,
+                accent: 'text-rose-500',
+              },
+            ].map((stat) => (
+              <div key={stat.label} className={`rounded-xl border p-4 ${surfaceBg}`}>
+                <div className={`text-[11px] font-medium ${textMuted}`}>{stat.label}</div>
+                <div className={`mt-1 text-2xl font-bold font-mono tabular-nums ${stat.accent}`}>
+                  {stat.value}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Search, Filters & Actions Bar */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <div>
                 <h2 className={`text-sm font-bold ${textPrimary}`}>
-                  {isEn
-                    ? 'Active Anti-Ransomware & Zero-Trust Endpoint Safeguards'
-                    : 'لایه‌های حفاظتی فعال ضدباج‌افزار در ماژول هلپ‌دسک'}
+                  {isEn ? 'HelpDesk Workstation Connection History' : 'تاریخچه اتصالات انجام‌شده در هلپ‌دسک'}
                 </h2>
                 <p className={`text-xs mt-0.5 ${textMuted}`}>
                   {isEn
-                    ? 'Engineered so the HelpDesk module cannot be abused for mass lateral movement or arbitrary script execution.'
-                    : 'طراحی‌شده به نحوی که ماژول هلپ‌دسک تحت هیچ شرایطی قابل سوءاستفاده برای پخش گروهی باج‌افزار یا اجرای دستور دلخواه نباشد.'}
+                    ? 'Shows target IP, computer name, endpoint logged-in PC user, timestamp, and 1-click reconnect (passwords are never stored).'
+                    : 'نمایش آدرس IP، نام کامپیوتر، کاربر فعالِ سیستم، زمان و تاریخ اتصال همراه با امکان اتصال مجدد فوری (هیچ رمزی ذخیره نمی‌شود).'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsJeaModalOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold transition cursor-pointer"
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => loadConnectionHistory()}
+                  disabled={loadingHistory}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer disabled:opacity-50 ${
+                    isLightMode
+                      ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
+                      : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-100'
+                  }`}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-sky-500 ${loadingHistory ? 'animate-spin' : ''}`} />
+                  <span>{isEn ? 'Refresh' : 'بروزرسانی'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportHistoryCsv}
+                  disabled={historyItems.length === 0}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer disabled:opacity-40 ${
+                    isLightMode
+                      ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
+                      : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-100'
+                  }`}
+                >
+                  <Download className="w-3.5 h-3.5 text-teal-500" />
+                  <span>{isEn ? 'Export CSV' : 'خروجی CSV'}</span>
+                </button>
+
+                {canExecuteActions &&
+                  (confirmClearHistory ? (
+                    <div className="inline-flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={busyHistoryId !== null}
+                        onClick={handleClearAllHistory}
+                        className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+                      >
+                        {busyHistoryId === 'ALL' ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : isEn ? (
+                          'Confirm Clear All'
+                        ) : (
+                          'تأیید پاک‌سازی کل تاریخچه'
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmClearHistory(false)}
+                        className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer ${
+                          isLightMode
+                            ? 'bg-white border-slate-300 text-slate-700'
+                            : 'bg-slate-800 border-slate-700 text-slate-200'
+                        }`}
+                      >
+                        {isEn ? 'Cancel' : 'انصراف'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={(historyStats?.totalConnections ?? historyTotal) === 0 || busyHistoryId !== null}
+                      onClick={() => setConfirmClearHistory(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-xs font-semibold transition cursor-pointer disabled:opacity-40"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Clear History' : 'پاک‌سازی تاریخچه'}</span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setHistoryPage(1);
+                setHistorySearch(historySearchInput.trim());
+                loadConnectionHistory({ page: 1, search: historySearchInput.trim() });
+              }}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 items-center"
+            >
+              <div className="lg:col-span-5 relative">
+                <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 start-3 ${textMuted}`} />
+                <input
+                  type="text"
+                  value={historySearchInput}
+                  onChange={(e) => setHistorySearchInput(e.target.value)}
+                  placeholder={
+                    isEn
+                      ? 'Search IP, computer name, PC user, admin or OS...'
+                      : 'جستجو بر اساس IP، اسم کامپیوتر، یوزر سیستم، ادمین یا ویندوز...'
+                  }
+                  className={`w-full ps-9 pe-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+                />
+              </div>
+
+              <div className="lg:col-span-2">
+                <select
+                  value={historyStatusFilter}
+                  onChange={(e) => {
+                    const next = e.target.value as 'all' | 'success' | 'failed';
+                    setHistoryStatusFilter(next);
+                    setHistoryPage(1);
+                    loadConnectionHistory({ page: 1, status: next });
+                  }}
+                  className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+                >
+                  <option value="all">{isEn ? 'All Statuses' : 'همه وضعیت‌ها'}</option>
+                  <option value="success">{isEn ? 'Connected (Success)' : 'موفق'}</option>
+                  <option value="failed">{isEn ? 'Failed' : 'ناموفق'}</option>
+                </select>
+              </div>
+
+              <div className="lg:col-span-2">
+                <select
+                  value={historyProtocolFilter}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setHistoryProtocolFilter(next);
+                    setHistoryPage(1);
+                    loadConnectionHistory({ page: 1, protocol: next });
+                  }}
+                  className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+                >
+                  <option value="all">{isEn ? 'All Protocols' : 'همه پروتکل‌ها'}</option>
+                  <option value="winrm_https">WinRM HTTPS (5986)</option>
+                  <option value="winrm_http">WinRM HTTP (5985)</option>
+                  <option value="smb_rpc">SMB/RPC (445)</option>
+                  <option value="ssh">OpenSSH (22)</option>
+                </select>
+              </div>
+
+              <div className="lg:col-span-2">
+                <select
+                  value={historyPageSize}
+                  onChange={(e) => {
+                    const nextSize = Number(e.target.value) || 15;
+                    setHistoryPageSize(nextSize);
+                    setHistoryPage(1);
+                    loadConnectionHistory({ page: 1, pageSize: nextSize });
+                  }}
+                  className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+                >
+                  <option value={10}>10 {isEn ? 'per page' : 'ردیف در صفحه'}</option>
+                  <option value={15}>15 {isEn ? 'per page' : 'ردیف در صفحه'}</option>
+                  <option value={25}>25 {isEn ? 'per page' : 'ردیف در صفحه'}</option>
+                  <option value={50}>50 {isEn ? 'per page' : 'ردیف در صفحه'}</option>
+                </select>
+              </div>
+
+              <div className="lg:col-span-1 flex items-center gap-1.5">
+                <button
+                  type="submit"
+                  className="w-full py-2 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold cursor-pointer transition"
+                >
+                  {isEn ? 'Search' : 'جستجو'}
+                </button>
+              </div>
+            </form>
+
+            {historyNotice && (
+              <div
+                className={`p-3 rounded-lg border text-xs flex items-center justify-between gap-2 ${
+                  historyNotice.ok
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+                    : 'border-rose-500/40 bg-rose-500/10 text-rose-500'
+                }`}
               >
-                <FileCode2 className="w-3.5 h-3.5" />
-                <span>{isEn ? 'Get Windows JEA / GPO Script' : 'دریافت اسکریپت JEA و GPO ویندوز'}</span>
-              </button>
+                <span className="font-semibold">{historyNotice.text}</span>
+                <button type="button" onClick={() => setHistoryNotice(null)} className="cursor-pointer">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {historyError && (
+              <div className="p-3 rounded-lg border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{historyError}</span>
+              </div>
+            )}
+
+            {/* Connection History Table */}
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+              <table className="w-full min-w-[860px] text-xs border-collapse">
+                <thead className={isLightMode ? 'bg-slate-50 text-slate-600' : 'bg-slate-950 text-slate-400'}>
+                  <tr className="border-b border-slate-200 dark:border-slate-800">
+                    <th className="py-2.5 px-3 text-start font-semibold">{isEn ? 'Date & Time' : 'تاریخ و زمان'}</th>
+                    <th className="py-2.5 px-3 text-start font-semibold">{isEn ? 'Target IP' : 'آدرس IP'}</th>
+                    <th className="py-2.5 px-3 text-start font-semibold">{isEn ? 'Computer Name & OS' : 'نام کامپیوتر و سیستم‌عامل'}</th>
+                    <th className="py-2.5 px-3 text-start font-semibold">{isEn ? 'Endpoint PC User' : 'یوزر فعالِ سیستم'}</th>
+                    <th className="py-2.5 px-3 text-start font-semibold">{isEn ? 'Admin Session & Protocol' : 'یوزر ادمین و پروتکل'}</th>
+                    <th className="py-2.5 px-3 text-start font-semibold">{isEn ? 'Status' : 'وضعیت'}</th>
+                    <th className="py-2.5 px-3 text-end font-semibold">{isEn ? 'Actions' : 'عملیات'}</th>
+                  </tr>
+                </thead>
+                <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
+                  {loadingHistory && historyItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className={`py-8 text-center ${textMuted}`}>
+                        <Loader2 className="w-5 h-5 mx-auto animate-spin text-sky-500 mb-2" />
+                        <span>{isEn ? 'Loading connection history...' : 'در حال بارگذاری تاریخچه اتصالات...'}</span>
+                      </td>
+                    </tr>
+                  ) : historyItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className={`py-10 text-center ${textMuted}`}>
+                        <Clock className="w-7 h-7 mx-auto opacity-50 mb-2" />
+                        <div>
+                          {isEn
+                            ? 'No HelpDesk connection history records match your filter.'
+                            : 'هیچ تاریخچه اتصالی با این فیلتر ثبت نشده است.'}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    historyItems.map((item) => {
+                      const isSuccess = item.status === 'success';
+                      return (
+                        <tr
+                          key={item.id}
+                          className={isLightMode ? 'hover:bg-slate-50/80' : 'hover:bg-slate-800/40'}
+                        >
+                          <td className={`py-2.5 px-3 font-mono tabular-nums whitespace-nowrap ${textMuted}`}>
+                            {formatLogonTimestamp(item.connectedAt)}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5">
+                              <span className={`font-mono font-bold ${textPrimary}`} dir="ltr">
+                                {item.targetIp}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(item.targetIp);
+                                    setCopiedHistoryIpId(item.id);
+                                    setTimeout(() => setCopiedHistoryIpId(null), 1500);
+                                  } catch {}
+                                }}
+                                title={isEn ? 'Copy IP' : 'کپی IP'}
+                                className={`p-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700/60 cursor-pointer ${textMuted}`}
+                              >
+                                {copiedHistoryIpId === item.id ? (
+                                  <Check className="w-3 h-3 text-emerald-500" />
+                                ) : (
+                                  <Copy className="w-3 h-3" />
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <div className={`font-semibold ${textPrimary}`}>
+                              {item.hostname || '—'}
+                            </div>
+                            <div className={`text-[10px] truncate max-w-[210px] ${textMuted}`}>
+                              {item.osName || (item.osFamily !== 'unknown' ? item.osFamily : '—')}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            {item.loggedInUser ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-indigo-500/30 bg-indigo-500/10 text-indigo-500 font-mono font-semibold text-[11px]">
+                                <User className="w-3 h-3 shrink-0" />
+                                <span>{item.loggedInUser}</span>
+                              </span>
+                            ) : (
+                              <span className={textMuted}>—</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <div className={`font-mono text-[11px] ${textPrimary}`} dir="ltr">
+                              {item.sessionUsername || '—'}
+                            </div>
+                            <div className={`text-[10px] flex items-center gap-1.5 ${textMuted}`}>
+                              <span className="font-mono uppercase">
+                                {(item.protocolUsed || item.protocolRequested || 'auto')}
+                                {item.portUsed ? `:${item.portUsed}` : ''}
+                              </span>
+                              {item.actorName && (
+                                <>
+                                  <span>·</span>
+                                  <span>{isEn ? 'By' : 'توسط'}: {item.actorName}</span>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              title={item.errorMessage || undefined}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold border whitespace-nowrap ${
+                                isSuccess
+                                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+                                  : 'border-rose-500/40 bg-rose-500/10 text-rose-500'
+                              }`}
+                            >
+                              {isSuccess ? (
+                                <CheckCircle2 className="w-3 h-3" />
+                              ) : (
+                                <AlertCircle className="w-3 h-3" />
+                              )}
+                              <span>{isSuccess ? (isEn ? 'Connected' : 'موفق') : isEn ? 'Failed' : 'ناموفق'}</span>
+                            </span>
+                            {!isSuccess && item.errorMessage && (
+                              <div className={`mt-0.5 text-[10px] truncate max-w-[160px] text-rose-400`}>
+                                {item.errorMessage}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-end whitespace-nowrap">
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                disabled={!canRunDiagnostics}
+                                onClick={() => handleReconnectFromHistory(item)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-[11px] font-semibold transition cursor-pointer"
+                              >
+                                <PlugZap className="w-3 h-3" />
+                                <span>{isEn ? 'Reconnect' : 'اتصال مجدد'}</span>
+                              </button>
+                              {canExecuteActions && (
+                                <button
+                                  type="button"
+                                  disabled={busyHistoryId !== null}
+                                  onClick={() => handleDeleteHistoryItem(item.id)}
+                                  title={isEn ? 'Remove entry' : 'حذف ردیف'}
+                                  className="p-1.5 rounded-md border border-rose-500/30 hover:bg-rose-500/10 text-rose-500 transition cursor-pointer disabled:opacity-40"
+                                >
+                                  {busyHistoryId === item.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-              {[
-                {
-                  titleEn: 'Single-Host Only (Zero Bulk)',
-                  titleFa: 'اجرای صرفاً تک‌سیستمی (بدون Bulk)',
-                  descEn: 'Every endpoint API accepts exactly one validated IP; batch/fleet push is disabled at the protocol layer.',
-                  descFa: 'هر درخواست فقط یک IP اعتبارسنجی‌شده می‌پذیرد و هیچ امکان اجرای گروهی روی کلاینت‌ها وجود ندارد.',
-                },
-                {
-                  titleEn: 'Hardcoded Allowlist + OS/AV & SSD Lock',
-                  titleFa: 'لیست سفید ثابت + قفل OS/AV و محافظت SSD',
-                  descEn: 'Zero free shell; OS core & AV/EDR processes are locked, Temp accepts zero custom paths, and chkdsk /r is blocked on SSD/NVMe.',
-                  descFa: 'بدون ترمینال آزاد؛ هسته سیستم و آنتی‌ویروس قفل هستند، پاک‌سازی Temp مسیر دلخواه نمی‌پذیرد و اسکن بدسکتور روی SSD مسدود است.',
-                },
-                {
-                  titleEn: 'Ephemeral Zero-Storage Credentials',
-                  titleFa: 'رمز عبور صرفاً در حافظه موقت',
-                  descEn: 'Session credentials are never saved in PostgreSQL, LocalStorage, or logs and are wiped on Clear Session.',
-                  descFa: 'هیچ رمز عبوری در دیتابیس، لوکال‌استوریج یا لاگ ذخیره نمی‌شود و با دکمه پاک‌سازی فوراً از RAM حذف می‌گردد.',
-                },
-                {
-                  titleEn: 'Granular RBAC + Circuit Breaker + Audit',
-                  titleFa: 'دسترسی دقیق RBAC + مدارقطع‌کن + لاگ ممیزی',
-                  descEn: '10 separate HelpDesk RBAC permissions, 6 ops / 3 hosts per 5-minute circuit breaker, and complete PostgreSQL audit trail.',
-                  descFa: '۱۰ مجوز مستقل در Access Policy، مدارقطع‌کن ۶ عملیات روی حداکثر ۳ سیستم در ۵ دقیقه و ثبت کامل در Audit Logs.',
-                },
-              ].map((card) => (
-                <div key={card.titleEn} className={`p-4 rounded-xl border space-y-1.5 ${subSurfaceBg}`}>
-                  <div className={`font-bold ${textPrimary}`}>{isEn ? card.titleEn : card.titleFa}</div>
-                  <p className={`leading-relaxed ${textMuted}`}>{isEn ? card.descEn : card.descFa}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Active HelpDesk Capabilities Overview */}
-          <div className={`rounded-xl border p-5 space-y-4 ${surfaceBg}`}>
-            <div>
-              <h3 className={`text-sm font-bold ${textPrimary}`}>
-                {isEn
-                  ? 'Available HelpDesk Capabilities'
-                  : 'قابلیت‌های فعال پشتیبانی سیستم کاربران'}
-              </h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {activeCapabilities.map((item) => (
-                <div key={item.id} className={`p-4 rounded-xl border space-y-1.5 ${subSurfaceBg}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className={`text-xs font-bold ${textPrimary}`}>
-                      {isEn ? item.titleEn : item.titleFa}
-                    </span>
-                    <span className="text-[11px] font-semibold shrink-0 text-emerald-500">
-                      {isEn ? 'Enabled' : 'فعال'}
-                    </span>
+            {/* Pagination Footer */}
+            {historyTotal > 0 && (() => {
+              const totalHistPages = Math.max(1, Math.ceil(historyTotal / historyPageSize));
+              const startIdx = (historyPage - 1) * historyPageSize + 1;
+              const endIdx = Math.min(historyPage * historyPageSize, historyTotal);
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
+                  <div className={textMuted}>
+                    {isEn
+                      ? `Showing ${startIdx}–${endIdx} of ${historyTotal} connections`
+                      : `نمایش ${startIdx} تا ${endIdx} از ${historyTotal} اتصال`}
                   </div>
-                  <p className={`text-xs leading-relaxed ${textMuted}`}>
-                    {isEn ? item.descEn : item.descFa}
-                  </p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={historyPage <= 1 || loadingHistory}
+                      onClick={() => {
+                        const p = Math.max(1, historyPage - 1);
+                        setHistoryPage(p);
+                        loadConnectionHistory({ page: p });
+                      }}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-semibold disabled:opacity-40 cursor-pointer ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                          : 'bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800'
+                      }`}
+                    >
+                      {isEn ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                      <span>{isEn ? 'Prev' : 'قبلی'}</span>
+                    </button>
+
+                    {Array.from({ length: totalHistPages }, (_, idx) => idx + 1)
+                      .filter(
+                        (p) =>
+                          p === 1 ||
+                          p === totalHistPages ||
+                          Math.abs(p - historyPage) <= 1
+                      )
+                      .map((p, idx, arr) => (
+                        <React.Fragment key={p}>
+                          {idx > 0 && arr[idx - 1] !== p - 1 && (
+                            <span className={`px-1.5 ${textMuted}`}>…</span>
+                          )}
+                          <button
+                            type="button"
+                            disabled={loadingHistory}
+                            onClick={() => {
+                              setHistoryPage(p);
+                              loadConnectionHistory({ page: p });
+                            }}
+                            className={`min-w-[28px] h-7 px-2 rounded-md border text-[11px] font-mono font-semibold cursor-pointer transition ${
+                              p === historyPage
+                                ? 'bg-sky-600 border-sky-600 text-white'
+                                : isLightMode
+                                ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        </React.Fragment>
+                      ))}
+
+                    <button
+                      type="button"
+                      disabled={historyPage >= totalHistPages || loadingHistory}
+                      onClick={() => {
+                        const p = Math.min(totalHistPages, historyPage + 1);
+                        setHistoryPage(p);
+                        loadConnectionHistory({ page: p });
+                      }}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-semibold disabled:opacity-40 cursor-pointer ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                          : 'bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800'
+                      }`}
+                    >
+                      <span>{isEn ? 'Next' : 'بعدی'}</span>
+                      {isEn ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
-              ))}
-            </div>
+              );
+            })()}
           </div>
         </div>
       )}

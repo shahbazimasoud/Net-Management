@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.466.0';
+export const APP_VERSION = '1.467.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.467.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'حفظ نشست فعال HelpDesk در حافظه موقت هنگام تغییر صفحات، رفع بیرون‌زدگی دکمه Wipe Session، جایگزینی تب تاریخچه اتصالات، صفحه‌بندی ۲۰تایی پروسس‌ها و ارتقای بخش یوزر/پسورد VPN',
+    title_en: 'HelpDesk RAM-Only Navigation Persistence, Wipe Session Overflow Fix, Connection History Tab, 20-Row Paginated/Sortable Process Table & Always-Visible VPN Credentials UI',
+    changes: [
+      'حفظ کامل اطلاعات اتصال فعلی (IP، یوزر، رمز عبور موقت در RAM، تب فعال و داده‌های واکشی‌شده تمام تب‌ها) هنگام جابه‌جایی به سایر صفحات پنل (`src/services/helpdeskRamSession.ts`)؛ اطلاعات نشست منحصراً با فشردن دکمه **Wipe Session** (`Eraser`) یا خروج از حساب کاربری پاک می‌شوند و هرگز در `localStorage` یا دیتابیس ذخیره نمی‌شوند.',
+      'رفع بیرون‌زدگی دکمه **Wipe Session** (`Eraser`) از کادر **On-Demand Target Workstation Session** با تنظیم گرید پاسخگو (`lg:col-span-3,2,2,2,3`) و محدودسازی عرض المان‌ها (`min-w-0` و `overflow-hidden`).',
+      'حذف تب `Security & Hardening` و جایگزینی آن با تب جامع **«تاریخچه اتصالات» (`Connection History`)** دارای ذخیره‌سازی غیرمحرمانه در PostgreSQL (`helpdesk_connection_history` — بدون ذخیره هیچ رمز عبوری)، نمایش IP، نام کامپیوتر و سیستم‌عامل، یوزر فعالِ سیستم، زمان و تاریخ، جستجو، فیلتر وضعیت/پروتکل، صفحه‌بندی، خروجی CSV، **اتصال مجدد یک‌کلیکی (`Reconnect`)** و پاک‌سازی تکی یا کامل تاریخچه.',
+      'ارتقای جدول **مانیتورینگ و کنترل ایمن پروسس‌ها**: محدودسازی نمایش به **۲۰ پروسس در هر صفحه** همراه با کنترل‌های صفحه‌بندی، دکمه **بیشترین / کمترین (`Highest / Lowest`)**، کلیک روی سرستون‌ها (`PID`, `Process`, `CPU`, `RAM`) برای مرتب‌سازی صعودی/نزولی و دکمه اختصاصی **Refresh**.',
+      'ارتقای فرم **ساخت کانکشن VPN** در تب شبکه: نمایش دائمی کادرهای **نام کاربری (Username)** و **رمز عبور (Password)** همراه با انتخابگر دوحالته شفاف بین «استفاده از یوزر و پسورد کاربرِ لاگین‌شده در سیستم (`Windows SSO` پیش‌فرض)» یا «وارد کردن یوزرنیم و پسورد دلخواه».'
+    ],
+    changes_en: [
+      'Preserved active HelpDesk workstation session state, volatile RAM credentials, active sub-tab, sequential pre-fetch progress, and fetched endpoint telemetry across portal page navigation via `src/services/helpdeskRamSession.ts` — cleared exclusively by **Wipe Session** (`Eraser`) or logout with zero persistence in `localStorage` or database.',
+      'Fixed **Wipe Session** (`Eraser`) button overflow in the **On-Demand Target Workstation Session** bar using balanced responsive grid spans (`lg:col-span-3,2,2,2,3`) and `min-w-0` / `overflow-hidden` containment.',
+      'Replaced the `Security & Hardening` tab with a full **Connection History** workspace persisted safely without passwords in PostgreSQL (`helpdesk_connection_history`), displaying date/time, target IP with copy button, computer name/OS, logged-in workstation user, admin session/protocol, search, filters, pagination, CSV export, 1-click **Reconnect**, and single/clear-all deletion.',
+      'Upgraded **Live Process Monitor & Safe User-App Control** to display **20 processes per page** with pagination controls, **Highest / Lowest** directional sorting across clickable column headers (`PID`, `Process`, `CPU`, `RAM`), and a dedicated **Refresh** button.',
+      'Upgraded **Endpoint VPN Connections Manager** to always display **VPN Username** and **VPN Password** inputs paired with an explicit two-option mode selector between **Logged-In User Windows Credentials (SSO, default)** and **Custom VPN Username & Password**.'
+    ],
+  },
   {
     version: '1.466.0',
     releaseDate: '2026-11-24',

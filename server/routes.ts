@@ -224,6 +224,10 @@ import {
   deleteConfigTemplate,
   saveConfigTemplatesBulk,
   ConfigTemplateRecord,
+  addHelpdeskConnectionHistoryInDb,
+  queryHelpdeskConnectionHistoryFromDb,
+  deleteHelpdeskConnectionHistoryFromDb,
+  clearHelpdeskConnectionHistoryFromDb,
 } from './db';
 import { encryptVaultSecret, decryptVaultSecret, decryptVaultSecretWithMeta } from './vaultCrypto';
 import {
@@ -8111,6 +8115,102 @@ apiRouter.get('/helpdesk/status', async (req: Request, res: Response) => {
   }
 });
 
+// GET /helpdesk/history - Paginated HelpDesk connection history (no passwords stored)
+apiRouter.get('/helpdesk/history', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+    if (!auth.ok) {
+      return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    }
+    const rawStatus = String(req.query.status || 'all').trim().toLowerCase();
+    const status = rawStatus === 'success' || rawStatus === 'failed' ? rawStatus : 'all';
+    const result = await queryHelpdeskConnectionHistoryFromDb({
+      search: String(req.query.search || ''),
+      status,
+      protocol: String(req.query.protocol || 'all'),
+      page: Number(req.query.page || 1),
+      pageSize: Number(req.query.pageSize || 15),
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to load HelpDesk connection history',
+      errorFa: 'خطا در دریافت تاریخچه اتصالات هلپ‌دسک',
+    });
+  }
+});
+
+// DELETE /helpdesk/history/:id - Remove single connection history item
+apiRouter.delete('/helpdesk/history/:id', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'actions');
+    if (!auth.ok) {
+      return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    }
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'History record ID is required' });
+    }
+    const removed = await deleteHelpdeskConnectionHistoryFromDb(id);
+    if (!removed) {
+      return res.status(404).json({ success: false, error: 'History record not found' });
+    }
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_history_delete_item',
+      title: `حذف یک ردیف از تاریخچه اتصالات هلپ‌دسک (${id})`,
+      title_en: `Deleted HelpDesk Connection History Entry (${id})`,
+      description: `کاربر ${auth.actorName} یک رکورد از تاریخچه اتصالات هلپ‌دسک را حذف کرد.`,
+      description_en: `Operator ${auth.actorName} deleted HelpDesk connection history item ${id}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: id,
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete connection history record',
+    });
+  }
+});
+
+// DELETE /helpdesk/history - Clear all connection history records
+apiRouter.delete('/helpdesk/history', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'actions');
+    if (!auth.ok) {
+      return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    }
+    const clearedCount = await clearHelpdeskConnectionHistoryFromDb();
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_history_clear_all',
+      title: `پاک‌سازی کامل تاریخچه اتصالات هلپ‌دسک (${clearedCount} رکورد)`,
+      title_en: `Cleared HelpDesk Connection History (${clearedCount} records)`,
+      description: `کاربر ${auth.actorName} کل تاریخچه اتصالات هلپ‌دسک (${clearedCount} مورد) را پاک کرد.`,
+      description_en: `Operator ${auth.actorName} cleared ${clearedCount} HelpDesk connection history records.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'warning',
+      targetName: 'helpdesk_connection_history',
+      clientIp: auth.clientIp,
+      metadata: { clearedCount },
+    }).catch(() => {});
+    return res.json({ success: true, clearedCount });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to clear HelpDesk connection history',
+    });
+  }
+});
+
 // POST /helpdesk/health - Module 1: Read-Only Endpoint System Health & Live Processes
 apiRouter.post('/helpdesk/health', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
@@ -8118,6 +8218,7 @@ apiRouter.post('/helpdesk/health', async (req: Request, res: Response) => {
     return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
   }
   const target = extractHelpdeskTargetFromBody(req.body);
+  const skipHistory = req.body?.skipHistory === true;
   try {
     const data = await collectEndpointHealth(target);
     await addPortalAuditLog({
@@ -8135,6 +8236,24 @@ apiRouter.post('/helpdesk/health', async (req: Request, res: Response) => {
       clientIp: auth.clientIp,
       metadata: { targetIp: data.targetIp, protocol: data.protocolUsed, osFamily: data.osFamily },
     }).catch(() => {});
+
+    if (!skipHistory) {
+      await addHelpdeskConnectionHistoryInDb({
+        targetIp: data.targetIp || target.targetIp,
+        hostname: data.hostname || '',
+        osName: data.osName || '',
+        osFamily: data.osFamily === 'windows' || data.osFamily === 'linux' ? data.osFamily : 'unknown',
+        loggedInUser: data.loggedInUser || '',
+        sessionUsername: target.username,
+        protocolRequested: target.protocol,
+        protocolUsed: data.protocolUsed || target.protocol,
+        portUsed: Number(data.portUsed || target.port || 0),
+        jeaConfigName: target.jeaConfigName || '',
+        status: 'success',
+        actorName: auth.actorName,
+        actorRole: auth.actorRole,
+      }).catch(() => {});
+    }
 
     return res.json({
       success: true,
@@ -8159,6 +8278,24 @@ apiRouter.post('/helpdesk/health', async (req: Request, res: Response) => {
       clientIp: auth.clientIp,
       metadata: { targetIp: target.targetIp, protocol: target.protocol },
     }).catch(() => {});
+    if (!skipHistory && target.targetIp) {
+      await addHelpdeskConnectionHistoryInDb({
+        targetIp: target.targetIp,
+        hostname: '',
+        osName: '',
+        osFamily: 'unknown',
+        loggedInUser: '',
+        sessionUsername: target.username,
+        protocolRequested: target.protocol,
+        protocolUsed: target.protocol,
+        portUsed: Number(target.port || 0),
+        jeaConfigName: target.jeaConfigName || '',
+        status: 'failed',
+        errorMessage: msg.slice(0, 300),
+        actorName: auth.actorName,
+        actorRole: auth.actorRole,
+      }).catch(() => {});
+    }
     return res.status(isInputErr ? 400 : 502).json({
       success: false,
       error: msg,

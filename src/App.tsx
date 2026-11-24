@@ -37,6 +37,7 @@ import { LicensesView } from './components/licenses/LicensesView';
 import { ContractsView } from './components/licenses/ContractsView';
 import { SslCertificatesView } from './components/licenses/SslCertificatesView';
 import { HelpDeskView } from './components/HelpDeskView';
+import { wipeHelpdeskRamOnLogout } from './services/helpdeskRamSession';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
 import { ToolsDock, StandardModalId, MinimizedStandardModal } from './components/tools/ToolsDock';
 import { NetworkToolId, ActiveToolState } from './components/tools/types';
@@ -735,6 +736,13 @@ export default function App() {
       window.removeEventListener('focus', handleFocus);
       clearInterval(pollTimer);
     };
+  }, [isAuthenticated]);
+
+  // Wipe volatile HelpDesk RAM session on logout
+  useEffect(() => {
+    if (!isAuthenticated) {
+      wipeHelpdeskRamOnLogout();
+    }
   }, [isAuthenticated]);
 
   // Session Inactivity Auto-Logout across entire panel

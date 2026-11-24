@@ -989,6 +989,43 @@ export interface HelpdeskConnectionPayload {
   username: string;
   password: string;
   jeaConfigName?: string;
+  skipHistory?: boolean;
+}
+
+export interface HelpdeskConnectionHistoryItem {
+  id: string;
+  targetIp: string;
+  hostname: string;
+  osName: string;
+  osFamily: 'windows' | 'linux' | 'unknown';
+  loggedInUser: string;
+  sessionUsername: string;
+  protocolRequested: string;
+  protocolUsed: string;
+  portUsed: number;
+  jeaConfigName?: string;
+  status: 'success' | 'failed';
+  errorMessage?: string;
+  actorName: string;
+  actorRole: string;
+  connectedAt: string;
+}
+
+export interface HelpdeskConnectionHistoryResponse {
+  success: boolean;
+  items: HelpdeskConnectionHistoryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: {
+    totalConnections: number;
+    uniqueHosts: number;
+    successCount: number;
+    failedCount: number;
+    lastConnectedAt: string | null;
+    lastTargetIp: string | null;
+    lastHostname: string | null;
+  };
 }
 
 export async function fetchHelpdeskStatus(): Promise<{
@@ -1041,6 +1078,45 @@ export async function fetchHelpdeskEndpointHealth(payload: HelpdeskConnectionPay
     body: JSON.stringify(payload),
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Failed to collect endpoint health telemetry');
+  return res.json();
+}
+
+export async function fetchHelpdeskConnectionHistory(params: {
+  search?: string;
+  status?: 'all' | 'success' | 'failed';
+  protocol?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<HelpdeskConnectionHistoryResponse> {
+  const qs = new URLSearchParams();
+  if (params.search) qs.set('search', params.search);
+  if (params.status) qs.set('status', params.status);
+  if (params.protocol) qs.set('protocol', params.protocol);
+  if (params.page) qs.set('page', String(params.page));
+  if (params.pageSize) qs.set('pageSize', String(params.pageSize));
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/history?${qs.toString()}`, {
+    method: 'GET',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to fetch HelpDesk connection history');
+  return res.json();
+}
+
+export async function deleteHelpdeskConnectionHistoryItem(id: string): Promise<{ success: boolean }> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/history/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to delete HelpDesk connection history record');
+  return res.json();
+}
+
+export async function clearHelpdeskConnectionHistory(): Promise<{ success: boolean; clearedCount: number }> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/history`, {
+    method: 'DELETE',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to clear HelpDesk connection history');
   return res.json();
 }
 

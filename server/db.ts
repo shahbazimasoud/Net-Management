@@ -314,6 +314,26 @@ export interface FallbackStore {
   remote_session_recordings?: any[];
   session_recording_markers?: any[];
   ssl_certificates?: any[];
+  helpdesk_connection_history?: HelpdeskConnectionHistoryRecord[];
+}
+
+export interface HelpdeskConnectionHistoryRecord {
+  id: string;
+  targetIp: string;
+  hostname: string;
+  osName: string;
+  osFamily: 'windows' | 'linux' | 'unknown';
+  loggedInUser: string;
+  sessionUsername: string;
+  protocolRequested: string;
+  protocolUsed: string;
+  portUsed: number;
+  jeaConfigName?: string;
+  status: 'success' | 'failed';
+  errorMessage?: string;
+  actorName: string;
+  actorRole: string;
+  connectedAt: string;
 }
 
 export interface SystemSecurityKeysRecord {
@@ -3070,6 +3090,18 @@ export async function initDatabase(): Promise<void> {
         )
       `);
       await client.query("CREATE INDEX IF NOT EXISTS idx_ssl_certificates_updated_at ON ssl_certificates(updated_at DESC)");
+
+      // 33. HelpDesk Connection History (Non-Secret Metadata Only — Zero Passwords!)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS helpdesk_connection_history (
+          id VARCHAR(128) PRIMARY KEY,
+          data JSONB NOT NULL,
+          connected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query(
+        "CREATE INDEX IF NOT EXISTS idx_helpdesk_conn_history_ts ON helpdesk_connection_history(connected_at DESC)"
+      );
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -15207,6 +15239,238 @@ export async function deleteSslCertificateFromDb(id: string): Promise<boolean> {
     }
   }
   return deletedInPg || store.ssl_certificates.length < beforeLen;
+}
+
+// ============================================================================
+// HelpDesk Connection History (PostgreSQL + Fallback Store, Zero Passwords!)
+// ============================================================================
+
+async function ensureHelpdeskConnectionHistoryTable(): Promise<void> {
+  if (!isPostgresReady || !pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS helpdesk_connection_history (
+      id VARCHAR(128) PRIMARY KEY,
+      data JSONB NOT NULL,
+      connected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_helpdesk_conn_history_ts ON helpdesk_connection_history(connected_at DESC)"
+  );
+}
+
+export async function addHelpdeskConnectionHistoryInDb(
+  entry: Omit<HelpdeskConnectionHistoryRecord, 'id' | 'connectedAt'> & {
+    id?: string;
+    connectedAt?: string;
+  }
+): Promise<HelpdeskConnectionHistoryRecord> {
+  const rec: HelpdeskConnectionHistoryRecord = {
+    id: entry.id || `hdhist_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    targetIp: String(entry.targetIp || '').trim(),
+    hostname: String(entry.hostname || '').trim(),
+    osName: String(entry.osName || '').trim(),
+    osFamily:
+      entry.osFamily === 'windows' || entry.osFamily === 'linux' ? entry.osFamily : 'unknown',
+    loggedInUser: String(entry.loggedInUser || '').trim(),
+    sessionUsername: String(entry.sessionUsername || '').trim(),
+    protocolRequested: String(entry.protocolRequested || 'auto').trim(),
+    protocolUsed: String(entry.protocolUsed || '').trim(),
+    portUsed: Number(entry.portUsed || 0),
+    jeaConfigName: entry.jeaConfigName ? String(entry.jeaConfigName).trim() : '',
+    status: entry.status === 'failed' ? 'failed' : 'success',
+    errorMessage: entry.errorMessage ? String(entry.errorMessage).slice(0, 300) : '',
+    actorName: String(entry.actorName || '').trim(),
+    actorRole: String(entry.actorRole || '').trim(),
+    connectedAt: entry.connectedAt || new Date().toISOString(),
+  };
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.helpdesk_connection_history)) {
+    store.helpdesk_connection_history = [];
+  }
+  store.helpdesk_connection_history.unshift(rec);
+  if (store.helpdesk_connection_history.length > 2000) {
+    store.helpdesk_connection_history = store.helpdesk_connection_history.slice(0, 2000);
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskConnectionHistoryTable();
+      await pool.query(
+        `INSERT INTO helpdesk_connection_history (id, data, connected_at)
+         VALUES ($1, $2::jsonb, $3::timestamptz)
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, connected_at = EXCLUDED.connected_at`,
+        [rec.id, JSON.stringify(rec), rec.connectedAt]
+      );
+    } catch (e: any) {
+      console.warn('[DB] addHelpdeskConnectionHistoryInDb error:', e?.message || e);
+    }
+  }
+  return rec;
+}
+
+export async function queryHelpdeskConnectionHistoryFromDb(params: {
+  search?: string;
+  status?: 'all' | 'success' | 'failed';
+  protocol?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<{
+  items: HelpdeskConnectionHistoryRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: {
+    totalConnections: number;
+    uniqueHosts: number;
+    successCount: number;
+    failedCount: number;
+    lastConnectedAt: string | null;
+    lastTargetIp: string | null;
+    lastHostname: string | null;
+  };
+}> {
+  let allRecords: HelpdeskConnectionHistoryRecord[] = [];
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskConnectionHistoryTable();
+      const res = await pool.query(
+        `SELECT data FROM helpdesk_connection_history ORDER BY connected_at DESC LIMIT 2000`
+      );
+      allRecords = res.rows.map((r: any) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data));
+      if (allRecords.length === 0) {
+        const fb = loadFallbackStore();
+        if (Array.isArray(fb.helpdesk_connection_history) && fb.helpdesk_connection_history.length > 0) {
+          allRecords = fb.helpdesk_connection_history;
+          for (const item of allRecords.slice(0, 500)) {
+            if (item?.id) {
+              await pool.query(
+                `INSERT INTO helpdesk_connection_history (id, data, connected_at)
+                 VALUES ($1, $2::jsonb, $3::timestamptz)
+                 ON CONFLICT (id) DO NOTHING`,
+                [String(item.id), JSON.stringify(item), item.connectedAt || new Date().toISOString()]
+              );
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[DB] queryHelpdeskConnectionHistoryFromDb fallback:', e?.message || e);
+      const fb = loadFallbackStore();
+      allRecords = Array.isArray(fb.helpdesk_connection_history) ? fb.helpdesk_connection_history : [];
+    }
+  } else {
+    const fb = loadFallbackStore();
+    allRecords = Array.isArray(fb.helpdesk_connection_history) ? fb.helpdesk_connection_history : [];
+  }
+
+  // Sort newest first deterministically
+  allRecords = [...allRecords].sort(
+    (a, b) => new Date(b.connectedAt || 0).getTime() - new Date(a.connectedAt || 0).getTime()
+  );
+
+  const uniqueSet = new Set<string>();
+  let successCount = 0;
+  let failedCount = 0;
+  for (const r of allRecords) {
+    if (r.targetIp) uniqueSet.add(String(r.targetIp).toLowerCase());
+    if (r.status === 'failed') failedCount++;
+    else successCount++;
+  }
+
+  const q = String(params.search || '').trim().toLowerCase();
+  const statusFilter = params.status || 'all';
+  const protoFilter = String(params.protocol || 'all').trim().toLowerCase();
+
+  const filtered = allRecords.filter((r) => {
+    if (statusFilter === 'success' && r.status !== 'success') return false;
+    if (statusFilter === 'failed' && r.status !== 'failed') return false;
+    if (protoFilter && protoFilter !== 'all') {
+      const used = String(r.protocolUsed || r.protocolRequested || '').toLowerCase();
+      if (used !== protoFilter) return false;
+    }
+    if (!q) return true;
+    return (
+      String(r.targetIp || '').toLowerCase().includes(q) ||
+      String(r.hostname || '').toLowerCase().includes(q) ||
+      String(r.loggedInUser || '').toLowerCase().includes(q) ||
+      String(r.sessionUsername || '').toLowerCase().includes(q) ||
+      String(r.actorName || '').toLowerCase().includes(q) ||
+      String(r.osName || '').toLowerCase().includes(q) ||
+      String(r.protocolUsed || '').toLowerCase().includes(q)
+    );
+  });
+
+  const pageSize = Math.max(5, Math.min(100, Number(params.pageSize) || 15));
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.max(1, Math.min(totalPages, Number(params.page) || 1));
+  const start = (page - 1) * pageSize;
+
+  return {
+    items: filtered.slice(start, start + pageSize),
+    total,
+    page,
+    pageSize,
+    stats: {
+      totalConnections: allRecords.length,
+      uniqueHosts: uniqueSet.size,
+      successCount,
+      failedCount,
+      lastConnectedAt: allRecords[0]?.connectedAt || null,
+      lastTargetIp: allRecords[0]?.targetIp || null,
+      lastHostname: allRecords[0]?.hostname || null,
+    },
+  };
+}
+
+export async function deleteHelpdeskConnectionHistoryFromDb(id: string): Promise<boolean> {
+  const store = loadFallbackStore();
+  const beforeLen = Array.isArray(store.helpdesk_connection_history)
+    ? store.helpdesk_connection_history.length
+    : 0;
+  store.helpdesk_connection_history = (store.helpdesk_connection_history || []).filter(
+    (h: any) => h.id !== id
+  );
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  let deletedInPg = false;
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskConnectionHistoryTable();
+      const res = await pool.query(`DELETE FROM helpdesk_connection_history WHERE id = $1`, [id]);
+      deletedInPg = (res.rowCount || 0) > 0;
+    } catch (e: any) {
+      console.warn('[DB] deleteHelpdeskConnectionHistoryFromDb error:', e?.message || e);
+    }
+  }
+  return deletedInPg || store.helpdesk_connection_history.length < beforeLen;
+}
+
+export async function clearHelpdeskConnectionHistoryFromDb(): Promise<number> {
+  const store = loadFallbackStore();
+  const count = Array.isArray(store.helpdesk_connection_history)
+    ? store.helpdesk_connection_history.length
+    : 0;
+  store.helpdesk_connection_history = [];
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskConnectionHistoryTable();
+      const res = await pool.query(`DELETE FROM helpdesk_connection_history`);
+      return Math.max(count, res.rowCount || 0);
+    } catch (e: any) {
+      console.warn('[DB] clearHelpdeskConnectionHistoryFromDb error:', e?.message || e);
+    }
+  }
+  return count;
 }
 
 
