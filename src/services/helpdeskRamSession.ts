@@ -12,11 +12,13 @@ import {
   fetchHelpdeskDiskHealth,
   fetchHelpdeskBatteryReport,
   fetchHelpdeskPrograms,
+  fetchHelpdeskHardwareInventory,
   HelpdeskConnectionPayload,
 } from './api';
 
 export type HelpdeskSubTab =
   | 'health'
+  | 'hardware'
   | 'network'
   | 'printers'
   | 'events'
@@ -83,6 +85,11 @@ export interface HelpdeskRamState {
   loadingShares: boolean;
   sharesError: string | null;
   shareActionResult: any | null;
+
+  // Tab 1B: Full Hardware Inventory
+  hardwareData: any | null;
+  loadingHardware: boolean;
+  hardwareError: string | null;
 
   // Tab 2: Network & VPN
   networkData: any | null;
@@ -184,6 +191,10 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     loadingShares: false,
     sharesError: null,
     shareActionResult: null,
+
+    hardwareData: null,
+    loadingHardware: false,
+    hardwareError: null,
 
     networkData: null,
     loadingNetwork: false,
@@ -355,6 +366,9 @@ export async function runHelpdeskSequentialConnect(options: {
     sharesError: null,
     loadingShares: false,
     shareActionResult: null,
+    hardwareData: null,
+    loadingHardware: false,
+    hardwareError: null,
     networkData: null,
     networkError: null,
     loadingNetwork: false,
@@ -460,6 +474,37 @@ export async function runHelpdeskSequentialConnect(options: {
                 (isEn
                   ? 'Failed to inspect mapped network shares.'
                   : 'خطا در دریافت لیست پوشه‌های اشتراکی مپ‌شده کاربر.'),
+            });
+          }
+        }
+        return true;
+      },
+    },
+    {
+      id: 'hardware',
+      labelEn: 'Hardware & Peripherals',
+      labelFa: 'سخت‌افزار و تجهیزات متصل',
+      run: async () => {
+        patchHelpdeskRamSnapshot({ loadingHardware: true, hardwareError: null });
+        try {
+          const hwRes = await fetchHelpdeskHardwareInventory(payload);
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              hardwareData: hwRes.data,
+              loadingHardware: false,
+              ...(hwRes.rateLimit ? { rateLimit: hwRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              hardwareData: null,
+              loadingHardware: false,
+              hardwareError:
+                err?.message ||
+                (isEn
+                  ? 'Failed to inspect hardware inventory.'
+                  : 'خطا در دریافت مشخصات کامل سخت‌افزاری سیستم کاربر.'),
             });
           }
         }

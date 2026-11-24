@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.468.0';
+export const APP_VERSION = '1.469.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.469.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'افزودن تب جدید و گرافیکی «سخت‌افزار و تجهیزات متصل (Hardware & Peripherals)» در HelpDesk با نمایش کامل رم، باس، مادربرد، پردازنده و دستگاه‌های USB',
+    title_en: 'Visual HelpDesk Hardware & Connected Peripherals Inventory Tab (CPU, Physical RAM Modules/Slots/Bus Speed, Motherboard/BIOS, GPUs, Monitors, Disks & USB)',
+    changes: [
+      'افزودن تب جدید **«سخت‌افزار و تجهیزات متصل» (`Hardware & Peripherals`)** در **Agentless Endpoint HelpDesk** همراه با واکشی خودکار هنگام اتصال و خروجی استاندارد `JSON`.',
+      'نمایش گرافیکی و دقیق **حافظه رم (RAM)**: مجموع گیگابایت واقعی و قابل استفاده، **تعداد ماژول‌های نصب‌شده** در برابر کل اسلات‌های مادربرد، اسلات‌های خالی برای ارتقا، حداکثر پشتیبانی مادربرد، **نوع رم (`DDR4`/`DDR5`/`LPDDR4`...)، سرعت باس (`MHz`)، حالت کانال (`Dual Channel`)** و کارت اختصاصی برای تک‌تک ماژول‌ها (برند، فرم‌فکتور، پارت‌نامبر و ولتاژ).',
+      'نمایش کامل **پردازنده (CPU)** (مدل دقیق، سرعت پایه و حداکثر بر حسب `GHz`، تعداد هسته و ترد، کش L2/L3، سوکت و وضعیت مجازی‌سازی)، **مادربرد و بایوس** (سازنده، مدل دقیق، چیپست، نسخه و تاریخ `BIOS`، سریال و UUID) و **نوع سیستم** (لپ‌تاپ، دسکتاپ، سرور یا ماشین مجازی).',
+      'نمایش یکپارچه و یوزرفرندلی **کارت‌های گرافیک و مانیتورهای متصل (`EDID`)**، **هاردها و `NVMe SSD`/`HDD`**، **کارت‌های شبکه (`LAN`/`Wi-Fi` همراه با کپی MAC)**، **کارت‌های صدا** و **دسته‌بندی بصری تجهیزات متصل** (کیبورد و ماوس، وب‌کم، بلوتوث، فلش USB، پرینتر و حسگر اثرانگشت) با جستجو و فیلتر دسته‌بندی.'
+    ],
+    changes_en: [
+      'Added a new visual **Hardware & Peripherals** tab to **Agentless Endpoint HelpDesk** with automatic sequential pre-fetch on connect and spec JSON export.',
+      'Detailed **Physical Memory (RAM)** map displaying total/usable GB, **installed stick count vs total motherboard slots**, free upgrade slots, board max capacity, **memory type (`DDR4`/`DDR5`), bus clock speed (`MHz`), channel mode (`Dual Channel`)**, and individual DIMM/SODIMM stick cards (brand, form factor, part number, voltage).',
+      'Full **Processor (CPU)** breakdown (model, base/max `GHz` clock speed, physical cores & threads, L2/L3 cache, socket, virtualization state) and **Motherboard & BIOS** panel (vendor, board model, revision, chipset, BIOS version/date, chassis serial & SMBIOS UUID).',
+      'User-friendly visual cards for **GPUs & EDID Connected Monitors**, **Physical Storage Drives (`NVMe`/`SSD`/`HDD`)**, **Ethernet/Wi-Fi Adapters with 1-click MAC Copy**, **Audio Hardware**, and a categorized, searchable **Connected Peripherals Explorer** (Keyboard/Mouse, Cameras, Bluetooth, USB Storage, Printers, Biometrics).'
+    ],
+  },
   {
     version: '1.468.0',
     releaseDate: '2026-11-24',

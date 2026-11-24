@@ -83,6 +83,7 @@ import {
   executeEndpointUserSessionAction,
   collectEndpointPrograms,
   uninstallEndpointProgram,
+  collectEndpointHardwareInventory,
   HelpdeskProgramRegistryHive,
   getHelpdeskRateLimitStatus,
   checkAndRecordHelpdeskWriteRateLimit,
@@ -10757,6 +10758,61 @@ apiRouter.post('/helpdesk/programs/uninstall', async (req: Request, res: Respons
       metadata: { programName, registryHive, registryKeyName },
     });
     return res.status(/invalid|required|protected|blocked|unsupported/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/hardware/inventory - Inspect Full Hardware Inventory (CPU, RAM Slots/Speed, Motherboard, GPUs, Disks, NICs & Connected Peripherals)
+apiRouter.post('/helpdesk/hardware/inventory', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointHardwareInventory(target);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_hardware_inventory',
+      title: `دریافت مشخصات کامل سخت‌افزاری از ${data.targetIp} (${data.hostname})`,
+      title_en: `HelpDesk Hardware Inventory on ${data.targetIp} (${data.hostname})`,
+      details: `سخت‌افزار سیستم ${data.hostname} (${data.cpu?.name || 'CPU'} · ${data.memory?.totalGb || 0}GB ${data.memory?.memoryType || 'RAM'} · ${data.motherboard?.product || 'Board'}) با موفقیت استعلام شد.`,
+      details_en: `Collected full hardware inventory for ${data.hostname}: ${data.cpu?.name || 'CPU'}, ${data.memory?.totalGb || 0}GB ${data.memory?.memoryType || 'RAM'} (${data.memory?.populatedSlots}/${data.memory?.totalSlots} slots), ${data.motherboard?.product || 'Motherboard'}, and ${data.connectedDevices?.length || 0} connected peripheral(s).`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      target: {
+        type: 'device',
+        name: data.hostname || data.targetIp,
+        ip: data.targetIp,
+        metadata: {
+          cpu: data.cpu?.name,
+          ramGb: data.memory?.totalGb,
+          motherboard: data.motherboard?.product,
+          peripheralsCount: data.connectedDevices?.length || 0,
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Hardware inventory collection failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_hardware_inventory_failed',
+      title: `خطا در دریافت مشخصات سخت‌افزار از ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Hardware Inventory Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,

@@ -72,6 +72,15 @@ import {
   Volume2,
   KeyRound,
   Shield,
+  CircuitBoard,
+  MemoryStick,
+  Usb,
+  Camera,
+  Bluetooth,
+  Keyboard,
+  Laptop,
+  Fingerprint,
+  Wifi,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -110,6 +119,7 @@ import {
   uninstallHelpdeskHotfix,
   fetchHelpdeskPrograms,
   uninstallHelpdeskProgram,
+  fetchHelpdeskHardwareInventory,
   fetchHelpdeskDiskHealth,
   executeHelpdeskSystemRepair,
   inspectHelpdeskDomainUser,
@@ -351,6 +361,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const setDonutMetric = setRamField('donutMetric');
   const selectedProcessPid = ram.selectedProcessPid;
   const setSelectedProcessPid = setRamField('selectedProcessPid');
+
+  // Module 1B: Hardware Inventory & Connected Peripherals state (backed by RAM store)
+  const hardwareData = ram.hardwareData;
+  const setHardwareData = setRamField('hardwareData');
+  const loadingHardware = ram.loadingHardware;
+  const setLoadingHardware = setRamField('loadingHardware');
+  const hardwareError = ram.hardwareError;
+  const setHardwareError = setRamField('hardwareError');
+  const [peripheralCategoryFilter, setPeripheralCategoryFilter] = useState<string>('all');
+  const [peripheralSearch, setPeripheralSearch] = useState('');
+  const [copiedHwMac, setCopiedHwMac] = useState<string | null>(null);
 
   // Module 2: Network Diagnostics, Manual IP/DNS, Hosts, Proxy, Routing & Safe Reset state
   const networkData = ram.networkData;
@@ -857,6 +878,39 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     } finally {
       setLoadingHealth(false);
     }
+  };
+
+  const handleInspectHardware = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingHardware(true);
+    setHardwareError(null);
+    try {
+      const res = await fetchHelpdeskHardwareInventory(payload);
+      setHardwareData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setHardwareData(null);
+      setHardwareError(
+        err?.message ||
+          (isEn
+            ? 'Failed to collect endpoint hardware inventory.'
+            : 'خطا در دریافت مشخصات کامل سخت‌افزار سیستم کاربر.')
+      );
+    } finally {
+      setLoadingHardware(false);
+    }
+  };
+
+  const handleExportHardwareJson = () => {
+    if (!hardwareData) return;
+    const blob = new Blob([JSON.stringify(hardwareData, null, 2)], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hardware_inventory_${hardwareData.hostname || targetIp || 'endpoint'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleInspectNetwork = async () => {
@@ -2778,6 +2832,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'سلامت سیستم و کنترل پروسس‌ها',
           },
           {
+            id: 'hardware' as HelpdeskSubTab,
+            icon: CircuitBoard,
+            labelEn: 'Hardware & Peripherals',
+            labelFa: 'سخت‌افزار و تجهیزات متصل',
+          },
+          {
             id: 'network' as HelpdeskSubTab,
             icon: Network,
             labelEn: 'Network & Safe Reset',
@@ -2837,6 +2897,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           const isFetchingThisTab =
             (prefetchProgress?.active && prefetchProgress.currentTab === tab.id) ||
             (tab.id === 'health' && loadingHealth) ||
+            (tab.id === 'hardware' && loadingHardware) ||
             (tab.id === 'network' && loadingNetwork) ||
             (tab.id === 'printers' && loadingPrinters) ||
             (tab.id === 'events' && loadingEvents) ||
@@ -2848,6 +2909,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'history' && loadingHistory);
           const hasTabData =
             (tab.id === 'health' && Boolean(healthData)) ||
+            (tab.id === 'hardware' && Boolean(hardwareData)) ||
             (tab.id === 'network' && Boolean(networkData)) ||
             (tab.id === 'printers' && Boolean(printerData)) ||
             (tab.id === 'events' && Boolean(eventData)) ||
@@ -2869,7 +2931,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   return;
                 }
                 if (!prefetchProgress?.active && targetIp.trim() && username.trim() && password) {
-                  if (tab.id === 'network' && !networkData && !loadingNetwork) handleInspectNetwork();
+                  if (tab.id === 'hardware' && !hardwareData && !loadingHardware) handleInspectHardware();
+                  else if (tab.id === 'network' && !networkData && !loadingNetwork) handleInspectNetwork();
                   else if (tab.id === 'printers' && !printerData && !loadingPrinters) handleInspectPrinters();
                   else if (tab.id === 'events' && canViewEventViewer && !eventData && !loadingEvents) handleInspectEvents();
                   else if (tab.id === 'logins' && !logonsData && !loadingLogons) handleInspectLogons();
@@ -4293,6 +4356,882 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 1B: VISUAL HARDWARE INVENTORY & CONNECTED PERIPHERALS           */}
+      {/* =================================================================== */}
+      {activeSubTab === 'hardware' && (
+        <div className="space-y-6">
+          {/* Header & System OEM Hero Banner */}
+          <div className={`rounded-2xl border p-5 space-y-4 ${surfaceBg}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-11 h-11 rounded-xl border flex items-center justify-center shrink-0 ${
+                    isLightMode
+                      ? 'bg-sky-50 border-sky-200 text-sky-600'
+                      : 'bg-sky-500/10 border-sky-500/30 text-sky-400'
+                  }`}
+                >
+                  {hardwareData?.system?.systemType?.toLowerCase().includes('laptop') ? (
+                    <Laptop className="w-5 h-5" />
+                  ) : (
+                    <CircuitBoard className="w-5 h-5" />
+                  )}
+                </div>
+                <div>
+                  <h2 className={`text-sm font-bold flex flex-wrap items-center gap-2 ${textPrimary}`}>
+                    <span>
+                      {isEn
+                        ? 'Complete Workstation Hardware Inventory'
+                        : 'مشخصات کامل سخت‌افزار و تجهیزات متصل سیستم'}
+                    </span>
+                    {hardwareData?.system?.systemType && (
+                      <span
+                        className={`px-2 py-0.5 rounded-md border text-[11px] font-semibold ${
+                          isLightMode
+                            ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                            : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300'
+                        }`}
+                      >
+                        {hardwareData.system.systemType}
+                      </span>
+                    )}
+                  </h2>
+                  <p className={`text-xs mt-0.5 ${textMuted}`}>
+                    {hardwareData
+                      ? `${hardwareData.system?.manufacturer || ''} ${hardwareData.system?.model || hardwareData.hostname} · S/N: ${hardwareData.system?.serialNumber || '—'}`
+                      : isEn
+                      ? 'Visual breakdown of CPU, physical RAM slots & bus speed, motherboard, GPUs, monitors, storage drives, NICs & connected USB/HID hardware.'
+                      : 'نمایش دقیق و گرافیکی پردازنده، ماژول‌ها و باس رم، مدل مادربرد و BIOS، کارت گرافیک، مانیتور، هاردها، کارت شبکه و کلیه دستگاه‌های متصل.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {hardwareData && (
+                  <button
+                    type="button"
+                    onClick={handleExportHardwareJson}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                      isLightMode
+                        ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                        : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700'
+                    }`}
+                  >
+                    <Download className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>{isEn ? 'Export Spec JSON' : 'خروجی JSON'}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleInspectHardware}
+                  disabled={loadingHardware || !targetIp.trim()}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingHardware ? 'animate-spin' : ''}`} />
+                  <span>{isEn ? 'Scan Hardware' : 'بروزرسانی سخت‌افزار'}</span>
+                </button>
+              </div>
+            </div>
+
+            {hardwareError && (
+              <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3.5 flex items-start gap-2.5 text-xs text-rose-500">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{hardwareError}</span>
+              </div>
+            )}
+
+            {!hardwareData && !loadingHardware && !hardwareError && (
+              <div className={`rounded-xl border p-8 text-center text-xs ${subSurfaceBg} ${textMuted}`}>
+                {isEn
+                  ? 'Connect to a workstation above or click "Scan Hardware" to generate a full visual hardware report.'
+                  : 'ابتدا به سیستم کاربر متصل شوید یا دکمه «بروزرسانی سخت‌افزار» را بزنید تا نمای گرافیکی قطعات نمایش داده شود.'}
+              </div>
+            )}
+          </div>
+
+          {hardwareData && (
+            <>
+              {/* Row 1: CPU & Motherboard Side-by-Side Hero Cards */}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                {/* PROCESSOR (CPU) CARD */}
+                <div className={`rounded-2xl border p-5 space-y-4 ${surfaceBg}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${
+                          isLightMode
+                            ? 'bg-sky-50 border-sky-200 text-sky-600'
+                            : 'bg-sky-500/10 border-sky-500/30 text-sky-400'
+                        }`}
+                      >
+                        <Cpu className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className={`text-[11px] font-semibold uppercase tracking-wide ${textMuted}`}>
+                          {isEn ? 'Processor (CPU)' : 'پردازنده (CPU)'}
+                        </div>
+                        <h3 className={`text-sm font-bold leading-snug ${textPrimary}`} dir="ltr">
+                          {hardwareData.cpu?.name || '—'}
+                        </h3>
+                      </div>
+                    </div>
+                    {hardwareData.cpu?.architecture && (
+                      <span
+                        dir="ltr"
+                        className={`px-2 py-0.5 rounded-md border font-mono text-[11px] font-semibold shrink-0 ${subSurfaceBg} ${textMuted}`}
+                      >
+                        {hardwareData.cpu.architecture}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Highlighted Speed & Core Metrics */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className={`rounded-xl border p-3 ${subSurfaceBg}`}>
+                      <div className={`text-[11px] ${textMuted}`}>
+                        {isEn ? 'Clock Speed' : 'فرکانس / سرعت'}
+                      </div>
+                      <div className="text-lg font-bold font-mono tabular-nums text-sky-500 mt-0.5" dir="ltr">
+                        {hardwareData.cpu?.maxClockGhz > 0
+                          ? `${hardwareData.cpu.maxClockGhz} GHz`
+                          : hardwareData.cpu?.baseClockGhz > 0
+                          ? `${hardwareData.cpu.baseClockGhz} GHz`
+                          : '—'}
+                      </div>
+                      <div className={`text-[10px] font-mono ${textMuted}`} dir="ltr">
+                        {hardwareData.cpu?.baseClockGhz > 0
+                          ? `Base: ${hardwareData.cpu.baseClockGhz} GHz`
+                          : isEn
+                          ? 'Clock N/A'
+                          : 'فرکانس پایه'}
+                      </div>
+                    </div>
+
+                    <div className={`rounded-xl border p-3 ${subSurfaceBg}`}>
+                      <div className={`text-[11px] ${textMuted}`}>
+                        {isEn ? 'Cores / Threads' : 'هسته / ترد'}
+                      </div>
+                      <div className={`text-lg font-bold font-mono tabular-nums mt-0.5 ${textPrimary}`} dir="ltr">
+                        {hardwareData.cpu?.cores || 0}C / {hardwareData.cpu?.logicalProcessors || 0}T
+                      </div>
+                      <div className={`text-[10px] ${textMuted}`}>
+                        {isEn ? 'Physical / Logical' : 'هسته فیزیکی / منطقی'}
+                      </div>
+                    </div>
+
+                    <div className={`rounded-xl border p-3 ${subSurfaceBg}`}>
+                      <div className={`text-[11px] ${textMuted}`}>
+                        {isEn ? 'L2 / L3 Cache' : 'حافظه کش'}
+                      </div>
+                      <div className={`text-lg font-bold font-mono tabular-nums mt-0.5 ${textPrimary}`} dir="ltr">
+                        {hardwareData.cpu?.l3CacheMb > 0 ? `${hardwareData.cpu.l3CacheMb} MB` : '—'}
+                      </div>
+                      <div className={`text-[10px] font-mono ${textMuted}`} dir="ltr">
+                        {hardwareData.cpu?.l2CacheMb > 0 ? `L2: ${hardwareData.cpu.l2CacheMb} MB` : 'Smart Cache'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Specs Footer */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs pt-1">
+                    <div className={`px-3 py-2 rounded-lg border ${subSurfaceBg}`}>
+                      <span className={textMuted}>{isEn ? 'Socket: ' : 'سوکت: '}</span>
+                      <span className={`font-mono font-semibold ${textPrimary}`} dir="ltr">
+                        {hardwareData.cpu?.socket || '—'}
+                      </span>
+                    </div>
+                    <div className={`px-3 py-2 rounded-lg border ${subSurfaceBg}`}>
+                      <span className={textMuted}>{isEn ? 'Vendor: ' : 'سازنده: '}</span>
+                      <span className={`font-mono font-semibold truncate ${textPrimary}`} dir="ltr">
+                        {hardwareData.cpu?.manufacturer || '—'}
+                      </span>
+                    </div>
+                    <div className={`px-3 py-2 rounded-lg border ${subSurfaceBg}`}>
+                      <span className={textMuted}>{isEn ? 'Virtualization: ' : 'مجازی‌سازی: '}</span>
+                      <span
+                        className={`font-semibold ${
+                          hardwareData.cpu?.virtualizationEnabled === true
+                            ? 'text-emerald-500'
+                            : hardwareData.cpu?.virtualizationEnabled === false
+                            ? 'text-amber-500'
+                            : textMuted
+                        }`}
+                      >
+                        {hardwareData.cpu?.virtualizationEnabled === true
+                          ? isEn
+                            ? 'Enabled'
+                            : 'فعال'
+                          : hardwareData.cpu?.virtualizationEnabled === false
+                          ? isEn
+                            ? 'Disabled'
+                            : 'غیرفعال'
+                          : '—'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* MOTHERBOARD & BIOS CARD */}
+                <div className={`rounded-2xl border p-5 space-y-4 ${surfaceBg}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${
+                          isLightMode
+                            ? 'bg-teal-50 border-teal-200 text-teal-600'
+                            : 'bg-teal-500/10 border-teal-500/30 text-teal-400'
+                        }`}
+                      >
+                        <CircuitBoard className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className={`text-[11px] font-semibold uppercase tracking-wide ${textMuted}`}>
+                          {isEn ? 'Motherboard & System Firmware (BIOS)' : 'مادربرد و بایوس (Motherboard & BIOS)'}
+                        </div>
+                        <h3 className={`text-sm font-bold leading-snug ${textPrimary}`} dir="ltr">
+                          {[hardwareData.motherboard?.manufacturer, hardwareData.motherboard?.product]
+                            .filter(Boolean)
+                            .join(' ') || '—'}
+                        </h3>
+                      </div>
+                    </div>
+                    {hardwareData.motherboard?.version && (
+                      <span
+                        dir="ltr"
+                        className={`px-2 py-0.5 rounded-md border font-mono text-[11px] font-semibold shrink-0 ${subSurfaceBg} ${textMuted}`}
+                      >
+                        Rev {hardwareData.motherboard.version}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                    <div className={`p-3 rounded-xl border ${subSurfaceBg}`}>
+                      <div className={`text-[11px] ${textMuted}`}>{isEn ? 'Board Model' : 'مدل مادربرد'}</div>
+                      <div className={`font-mono font-bold mt-0.5 break-all ${textPrimary}`} dir="ltr">
+                        {hardwareData.motherboard?.product || '—'}
+                      </div>
+                      <div className={`text-[10px] mt-0.5 ${textMuted}`} dir="ltr">
+                        S/N: {hardwareData.motherboard?.serialNumber || '—'}
+                      </div>
+                    </div>
+
+                    <div className={`p-3 rounded-xl border ${subSurfaceBg}`}>
+                      <div className={`text-[11px] ${textMuted}`}>{isEn ? 'BIOS / UEFI Version' : 'نسخه و تاریخ BIOS'}</div>
+                      <div className="font-mono font-bold mt-0.5 text-teal-500 truncate" dir="ltr">
+                        {hardwareData.motherboard?.biosVersion || '—'}
+                      </div>
+                      <div className={`text-[10px] font-mono mt-0.5 ${textMuted}`} dir="ltr">
+                        {hardwareData.motherboard?.biosVendor || 'BIOS'}{' '}
+                        {hardwareData.motherboard?.biosReleaseDate ? `(${hardwareData.motherboard.biosReleaseDate})` : ''}
+                      </div>
+                    </div>
+
+                    <div className={`p-3 rounded-xl border sm:col-span-2 ${subSurfaceBg}`}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className={`text-[11px] ${textMuted}`}>{isEn ? 'Chipset / Platform Bridge' : 'چیپست / پل اصلی مادربرد'}</div>
+                          <div className={`font-mono text-xs font-semibold mt-0.5 ${textPrimary}`} dir="ltr">
+                            {hardwareData.motherboard?.chipset ||
+                              `${hardwareData.system?.manufacturer || ''} ${hardwareData.system?.model || ''}`.trim() ||
+                              '—'}
+                          </div>
+                        </div>
+                        {hardwareData.system?.uuid && (
+                          <div className="text-end" dir="ltr">
+                            <div className={`text-[10px] ${textMuted}`}>SMBIOS UUID</div>
+                            <div className={`font-mono text-[10px] ${textMuted}`}>{hardwareData.system.uuid}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 2: PHYSICAL MEMORY (RAM) VISUAL MODULE & SLOT MAP */}
+              <div className={`rounded-2xl border p-5 space-y-4 ${surfaceBg}`}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${
+                        isLightMode
+                          ? 'bg-indigo-50 border-indigo-200 text-indigo-600'
+                          : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400'
+                      }`}
+                    >
+                      <MemoryStick className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className={`text-sm font-bold ${textPrimary}`}>
+                        {isEn ? 'Physical Memory (RAM) Modules & Slots' : 'حافظه رم (RAM) — ظرفیت، تعداد ماژول، باس و اسلات‌های مادربرد'}
+                      </h3>
+                      <p className={`text-xs mt-0.5 ${textMuted}`}>
+                        {isEn
+                          ? 'Detailed physical DIMM/SODIMM sticks, effective memory bus speed (MHz/MT/s), channel mode, and free upgrade slots.'
+                          : 'جزئیات کامل هر استیک رم، سرعت باس واقعی (MHz)، نوع DDR، پیکربندی کانال و تعداد اسلات‌های پر و خالی مادربرد.'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-mono" dir="ltr">
+                    <span className="px-2.5 py-1 rounded-lg border border-indigo-500/40 bg-indigo-500/10 text-indigo-500 font-bold">
+                      {hardwareData.memory?.totalGb || 0} GB {hardwareData.memory?.memoryType || 'RAM'}
+                    </span>
+                    {hardwareData.memory?.speedMhz > 0 && (
+                      <span className="px-2.5 py-1 rounded-lg border border-sky-500/40 bg-sky-500/10 text-sky-500 font-bold">
+                        {hardwareData.memory.speedMhz} MHz
+                      </span>
+                    )}
+                    <span className={`px-2.5 py-1 rounded-lg border ${subSurfaceBg} ${textPrimary}`}>
+                      {hardwareData.memory?.populatedSlots || 0} / {hardwareData.memory?.totalSlots || 0}{' '}
+                      {isEn ? 'Slots' : 'اسلات'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* RAM KPI Strip */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                  <div className={`p-3 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Total Physical RAM' : 'کل رم نصب‌شده'}</div>
+                    <div className="text-lg font-bold font-mono text-indigo-500 mt-0.5" dir="ltr">
+                      {hardwareData.memory?.totalGb || 0} GB
+                    </div>
+                    <div className={`text-[10px] font-mono ${textMuted}`} dir="ltr">
+                      {isEn ? 'OS Usable' : 'قابل استفاده'}: {hardwareData.memory?.usableGb || 0} GB
+                    </div>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Memory Bus Speed' : 'سرعت باس (Bus)'}</div>
+                    <div className="text-lg font-bold font-mono text-sky-500 mt-0.5" dir="ltr">
+                      {hardwareData.memory?.speedMhz > 0 ? `${hardwareData.memory.speedMhz} MHz` : '—'}
+                    </div>
+                    <div className={`text-[10px] ${textMuted}`}>
+                      {hardwareData.memory?.memoryType || 'DDR'}
+                    </div>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Installed Sticks' : 'تعداد ماژول (رم)'}</div>
+                    <div className={`text-lg font-bold font-mono mt-0.5 ${textPrimary}`} dir="ltr">
+                      {hardwareData.memory?.populatedSlots || 0} {isEn ? 'Stick(s)' : 'عدد'}
+                    </div>
+                    <div className={`text-[10px] ${textMuted}`}>
+                      {hardwareData.memory?.channelMode || '—'}
+                    </div>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Free Slots' : 'اسلات خالی'}</div>
+                    <div
+                      className={`text-lg font-bold font-mono mt-0.5 ${
+                        (hardwareData.memory?.freeSlots || 0) > 0 ? 'text-emerald-500' : 'text-amber-500'
+                      }`}
+                      dir="ltr"
+                    >
+                      {hardwareData.memory?.freeSlots ?? 0} / {hardwareData.memory?.totalSlots ?? 0}
+                    </div>
+                    <div className={`text-[10px] ${textMuted}`}>
+                      {(hardwareData.memory?.freeSlots || 0) > 0
+                        ? isEn
+                          ? 'Upgrade ready'
+                          : 'آماده ارتقا'
+                        : isEn
+                        ? 'All slots full'
+                        : 'همه اسلات‌ها پر است'}
+                    </div>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Board Max Support' : 'حداکثر پشتیبانی'}</div>
+                    <div className={`text-lg font-bold font-mono mt-0.5 ${textPrimary}`} dir="ltr">
+                      {hardwareData.memory?.maxCapacityGb > 0 ? `${hardwareData.memory.maxCapacityGb} GB` : '—'}
+                    </div>
+                    <div className={`text-[10px] ${textMuted}`}>
+                      {isEn ? 'Motherboard ceiling' : 'سقف پشتیبانی مادربرد'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Visual DIMM Slot Layout */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {(hardwareData.memory?.modules || []).map((mod: any, idx: number) => (
+                    <div
+                      key={`ram-mod-${idx}`}
+                      className={`rounded-xl border p-3.5 space-y-2 ${
+                        isLightMode
+                          ? 'border-indigo-200 bg-indigo-50/50'
+                          : 'border-indigo-500/30 bg-indigo-950/20'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-500 font-mono" dir="ltr">
+                          <MemoryStick className="w-3.5 h-3.5" />
+                          {mod.slotLabel || `Slot ${idx + 1}`}
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-indigo-600 text-white text-[11px] font-bold font-mono" dir="ltr">
+                          {mod.capacityGb} GB
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                        <div>
+                          <span className={textMuted}>{isEn ? 'Type: ' : 'نوع: '}</span>
+                          <span className={`font-mono font-semibold ${textPrimary}`} dir="ltr">
+                            {mod.memoryType} ({mod.formFactor})
+                          </span>
+                        </div>
+                        <div>
+                          <span className={textMuted}>{isEn ? 'Bus: ' : 'باس: '}</span>
+                          <span className="font-mono font-semibold text-sky-500" dir="ltr">
+                            {mod.configuredSpeedMhz || mod.speedMhz || '—'} MHz
+                          </span>
+                        </div>
+                        <div className="col-span-2 truncate">
+                          <span className={textMuted}>{isEn ? 'Brand: ' : 'برند: '}</span>
+                          <span className={`font-semibold ${textPrimary}`} dir="ltr">
+                            {mod.manufacturer || '—'}
+                          </span>
+                          {mod.voltageV > 0 && (
+                            <span className={`ms-1.5 font-mono text-[10px] ${textMuted}`} dir="ltr">
+                              ({mod.voltageV}V)
+                            </span>
+                          )}
+                        </div>
+                        {mod.partNumber && (
+                          <div className="col-span-2 truncate font-mono text-[10px] text-slate-400" dir="ltr">
+                            P/N: {mod.partNumber}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {Array.from({ length: Math.max(0, Math.min(8, Number(hardwareData.memory?.freeSlots) || 0)) }).map((_, emptyIdx) => (
+                    <div
+                      key={`ram-empty-${emptyIdx}`}
+                      className={`rounded-xl border border-dashed p-3.5 flex flex-col items-center justify-center text-center min-h-[104px] ${
+                        isLightMode ? 'border-slate-300 bg-slate-50/70' : 'border-slate-700 bg-slate-900/40'
+                      }`}
+                    >
+                      <MemoryStick className={`w-4 h-4 mb-1 opacity-40 ${textMuted}`} />
+                      <div className={`text-xs font-semibold ${textMuted}`}>
+                        {isEn ? 'Empty RAM Slot' : 'اسلات رم خالی'}
+                      </div>
+                      <div className={`text-[10px] ${textMuted}`}>
+                        {isEn ? 'Available for upgrade' : 'قابل استفاده برای ارتقا'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Row 3: GRAPHICS & DISPLAYS + PHYSICAL STORAGE DRIVES */}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                {/* GPUs & MONITORS CARD */}
+                <div className={`rounded-2xl border p-5 space-y-4 ${surfaceBg}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <Gpu className="w-4 h-4 text-purple-500" />
+                      <h3 className={`text-sm font-bold ${textPrimary}`}>
+                        {isEn ? 'Graphics Cards (GPU) & Connected Displays' : 'کارت گرافیک (GPU) و مانیتورهای متصل'}
+                      </h3>
+                    </div>
+                    <span className={`text-[11px] font-mono ${textMuted}`}>
+                      {(hardwareData.gpus || []).length} GPU · {(hardwareData.monitors || []).length}{' '}
+                      {isEn ? 'Display(s)' : 'مانیتور'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {(hardwareData.gpus || []).map((g: any, idx: number) => (
+                      <div key={`hw-gpu-${idx}`} className={`p-3.5 rounded-xl border space-y-1.5 ${subSurfaceBg}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className={`text-xs font-bold ${textPrimary}`} dir="ltr">
+                            {g.name}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-md border text-[10px] font-semibold ${
+                              g.type === 'discrete'
+                                ? 'border-purple-500/40 bg-purple-500/10 text-purple-500'
+                                : g.type === 'virtual'
+                                ? 'border-slate-500/40 bg-slate-500/10 text-slate-400'
+                                : 'border-sky-500/40 bg-sky-500/10 text-sky-500'
+                            }`}
+                          >
+                            {g.type === 'discrete'
+                              ? isEn
+                                ? 'Dedicated GPU'
+                                : 'گرافیک مجزا (Dedicated)'
+                              : g.type === 'virtual'
+                              ? isEn
+                                ? 'Virtual Display'
+                                : 'گرافیک مجازی'
+                              : isEn
+                              ? 'Onboard / Integrated'
+                              : 'آنبورد (Integrated)'}
+                          </span>
+                        </div>
+                        <div className={`flex flex-wrap items-center gap-3 text-[11px] font-mono ${textMuted}`} dir="ltr">
+                          <span>VRAM: {g.vramGb > 0 ? `${g.vramGb} GB` : 'Shared / Dynamic'}</span>
+                          {g.resolution && (
+                            <span>
+                              {g.resolution}
+                              {g.refreshRateHz > 0 ? ` @ ${g.refreshRateHz}Hz` : ''}
+                            </span>
+                          )}
+                          {g.driverVersion && <span>Driver: {g.driverVersion}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {(hardwareData.monitors || []).length > 0 && (
+                    <div className="space-y-2 pt-1">
+                      <div className={`text-xs font-semibold flex items-center gap-1.5 ${textMuted}`}>
+                        <Monitor className="w-3.5 h-3.5 text-sky-500" />
+                        <span>{isEn ? 'Detected Monitors (EDID)' : 'مانیتورهای متصل شناسایی‌شده'}</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {(hardwareData.monitors || []).map((mon: any, idx: number) => (
+                          <div key={`mon-${idx}`} className={`p-2.5 rounded-lg border text-xs ${subSurfaceBg}`} dir="ltr">
+                            <div className={`font-semibold truncate ${textPrimary}`}>{mon.name}</div>
+                            <div className={`text-[10px] font-mono ${textMuted}`}>
+                              {[mon.manufacturer, mon.serialNumber ? `S/N: ${mon.serialNumber}` : '']
+                                .filter(Boolean)
+                                .join(' · ') || 'Plug & Play Monitor'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* PHYSICAL STORAGE DRIVES CARD */}
+                <div className={`rounded-2xl border p-5 space-y-4 ${surfaceBg}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <HardDrive className="w-4 h-4 text-emerald-500" />
+                      <h3 className={`text-sm font-bold ${textPrimary}`}>
+                        {isEn ? 'Physical Storage Drives (NVMe / SSD / HDD)' : 'درایوهای ذخیره‌سازی فیزیکی (هارد و SSD)'}
+                      </h3>
+                    </div>
+                    <span className={`text-[11px] font-mono ${textMuted}`}>
+                      {(hardwareData.disks || []).length} {isEn ? 'Drive(s)' : 'درایو'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {(hardwareData.disks || []).length === 0 ? (
+                      <div className={`p-4 rounded-xl border text-center text-xs ${subSurfaceBg} ${textMuted}`}>
+                        {isEn ? 'No physical drives reported.' : 'درایو فیزیکی گزارش نشد.'}
+                      </div>
+                    ) : (
+                      (hardwareData.disks || []).map((d: any, idx: number) => {
+                        const isHealthy = /healthy|ok/i.test(String(d.healthStatus || ''));
+                        return (
+                          <div key={`hw-disk-${idx}`} className={`p-3.5 rounded-xl border space-y-1.5 ${subSurfaceBg}`}>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className={`text-xs font-bold ${textPrimary}`} dir="ltr">
+                                {d.model || `Disk #${idx}`}
+                              </span>
+                              <div className="flex items-center gap-1.5 font-mono text-[11px]" dir="ltr">
+                                <span className="px-2 py-0.5 rounded bg-emerald-600/15 text-emerald-500 font-bold">
+                                  {d.sizeGb >= 1000 ? `${(d.sizeGb / 1000).toFixed(2)} TB` : `${d.sizeGb} GB`}
+                                </span>
+                                <span className={`px-2 py-0.5 rounded border ${surfaceBg} ${textPrimary}`}>
+                                  {d.mediaType || d.busType}
+                                </span>
+                              </div>
+                            </div>
+                            <div className={`flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono ${textMuted}`} dir="ltr">
+                              <span>
+                                Bus: {d.busType || '—'}
+                                {d.firmwareVersion ? ` · FW: ${d.firmwareVersion}` : ''}
+                                {d.serialNumber ? ` · S/N: ${d.serialNumber}` : ''}
+                              </span>
+                              <span className={`font-semibold ${isHealthy ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                {d.healthStatus || 'Unknown'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 4: NETWORK ADAPTERS & AUDIO CONTROLLERS */}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                {/* NETWORK ADAPTERS */}
+                <div className={`rounded-2xl border p-5 space-y-4 ${surfaceBg}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <Network className="w-4 h-4 text-sky-500" />
+                      <h3 className={`text-sm font-bold ${textPrimary}`}>
+                        {isEn ? 'Network Adapters (Ethernet / Wi-Fi)' : 'کارت‌های شبکه (LAN / Wi-Fi)'}
+                      </h3>
+                    </div>
+                    <span className={`text-[11px] font-mono ${textMuted}`}>
+                      {(hardwareData.networkAdapters || []).length} NIC
+                    </span>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {(hardwareData.networkAdapters || []).map((nic: any, idx: number) => (
+                      <div key={`hw-nic-${idx}`} className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 ${subSurfaceBg}`}>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            {nic.adapterType === 'wifi' ? (
+                              <Wifi className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                            ) : nic.adapterType === 'bluetooth' ? (
+                              <Bluetooth className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                            ) : (
+                              <Network className="w-3.5 h-3.5 text-teal-500 shrink-0" />
+                            )}
+                            <span className={`text-xs font-bold truncate ${textPrimary}`}>{nic.name}</span>
+                            <span
+                              className={`w-2 h-2 rounded-full shrink-0 ${
+                                String(nic.status).toLowerCase() === 'up' ? 'bg-emerald-500' : 'bg-slate-400'
+                              }`}
+                            />
+                          </div>
+                          <div className={`text-[11px] truncate mt-0.5 ${textMuted}`} dir="ltr">
+                            {nic.description}
+                          </div>
+                        </div>
+
+                        <div className="text-end font-mono text-[11px] shrink-0" dir="ltr">
+                          <div className="font-semibold text-sky-500">{nic.linkSpeed || nic.status}</div>
+                          {nic.macAddress && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard?.writeText(nic.macAddress);
+                                setCopiedHwMac(nic.macAddress);
+                                setTimeout(() => setCopiedHwMac(null), 1500);
+                              }}
+                              className={`inline-flex items-center gap-1 hover:text-sky-500 cursor-pointer ${textMuted}`}
+                            >
+                              <span>{nic.macAddress}</span>
+                              {copiedHwMac === nic.macAddress ? (
+                                <Check className="w-3 h-3 text-emerald-500" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* AUDIO CONTROLLERS */}
+                <div className={`rounded-2xl border p-5 space-y-4 ${surfaceBg}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <Volume2 className="w-4 h-4 text-amber-500" />
+                      <h3 className={`text-sm font-bold ${textPrimary}`}>
+                        {isEn ? 'Sound & Audio Hardware' : 'تجهیزات و کارت‌های صدا (Audio)'}
+                      </h3>
+                    </div>
+                    <span className={`text-[11px] font-mono ${textMuted}`}>
+                      {(hardwareData.audioDevices || []).length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {(hardwareData.audioDevices || []).length === 0 ? (
+                      <div className={`p-4 rounded-xl border text-center text-xs ${subSurfaceBg} ${textMuted}`}>
+                        {isEn ? 'No audio controllers detected.' : 'کارت صدا شناسایی نشد.'}
+                      </div>
+                    ) : (
+                      (hardwareData.audioDevices || []).map((au: any, idx: number) => (
+                        <div key={`hw-au-${idx}`} className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${subSurfaceBg}`}>
+                          <div className="min-w-0">
+                            <div className={`text-xs font-bold truncate ${textPrimary}`} dir="ltr">
+                              {au.name}
+                            </div>
+                            <div className={`text-[11px] truncate ${textMuted}`} dir="ltr">
+                              {au.manufacturer || 'Standard Audio Driver'}
+                            </div>
+                          </div>
+                          <span
+                            className={`px-2 py-0.5 rounded-md border text-[10px] font-semibold shrink-0 ${
+                              au.isOnboard
+                                ? 'border-sky-500/35 bg-sky-500/10 text-sky-500'
+                                : 'border-amber-500/35 bg-amber-500/10 text-amber-500'
+                            }`}
+                          >
+                            {au.isOnboard
+                              ? isEn
+                                ? 'Onboard Audio'
+                                : 'آنبورد'
+                              : isEn
+                              ? 'External / Display Audio'
+                              : 'خارجی / HDMI'}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 5: CONNECTED PERIPHERALS EXPLORER (USB / MOUSE / KEYBOARD / CAMERA / BLUETOOTH / BIOMETRIC) */}
+              <div className={`rounded-2xl border p-5 space-y-4 ${surfaceBg}`}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <Usb className="w-4 h-4 text-indigo-500" />
+                    <div>
+                      <h3 className={`text-sm font-bold ${textPrimary}`}>
+                        {isEn
+                          ? 'Connected Peripherals & Plug-and-Play Devices'
+                          : 'سخت‌افزارها و تجهیزات جانبی متصل به سیستم (USB / کیبورد / ماوس / وب‌کم / بلوتوث)'}
+                      </h3>
+                      <p className={`text-xs mt-0.5 ${textMuted}`}>
+                        {isEn
+                          ? 'Live inventory of plugged-in user peripherals filtered cleanly from OS root enumerators.'
+                          : 'فهرست تمیز و دسته‌بندی‌شده تمامی تجهیزات متصل به پورت‌های سیستم (بدون شلوغی درایورهای سیستمی ویندوز).'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="relative w-full sm:w-64">
+                    <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 start-3 ${textMuted}`} />
+                    <input
+                      type="text"
+                      value={peripheralSearch}
+                      onChange={(e) => setPeripheralSearch(e.target.value)}
+                      placeholder={isEn ? 'Filter connected devices...' : 'جستجو در دستگاه‌های متصل...'}
+                      className={`w-full ps-8 pe-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                    />
+                  </div>
+                </div>
+
+                {/* Category Filter Tabs */}
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { id: 'all', en: 'All Connected', fa: 'همه تجهیزات' },
+                    { id: 'input', en: 'Mouse & Keyboard', fa: 'کیبورد و ماوس' },
+                    { id: 'camera', en: 'Cameras & Scanners', fa: 'دوربین و اسکنر' },
+                    { id: 'bluetooth', en: 'Bluetooth', fa: 'بلوتوث' },
+                    { id: 'usb_storage', en: 'USB & Optical Drives', fa: 'فلش و حافظه USB' },
+                    { id: 'printer_scanner', en: 'Printers', fa: 'پرینترها' },
+                    { id: 'biometric', en: 'Biometric / SmartCard', fa: 'اثرانگشت / کارت‌خوان' },
+                    { id: 'other', en: 'USB Hubs & Docks', fa: 'هاب و سایر USB' },
+                  ].map((cat) => {
+                    const list: any[] = Array.isArray(hardwareData.connectedDevices) ? hardwareData.connectedDevices : [];
+                    const count =
+                      cat.id === 'all' ? list.length : list.filter((d) => d.category === cat.id).length;
+                    if (cat.id !== 'all' && count === 0) return null;
+                    const active = peripheralCategoryFilter === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setPeripheralCategoryFilter(cat.id)}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                          active
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : isLightMode
+                            ? 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                            : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        <span>{isEn ? cat.en : cat.fa}</span>
+                        <span className="ms-1.5 opacity-80 font-mono">({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Peripherals Grid */}
+                {(() => {
+                  const list: any[] = Array.isArray(hardwareData.connectedDevices) ? hardwareData.connectedDevices : [];
+                  const q = peripheralSearch.trim().toLowerCase();
+                  const filtered = list.filter((d) => {
+                    if (peripheralCategoryFilter !== 'all' && d.category !== peripheralCategoryFilter) return false;
+                    if (!q) return true;
+                    return (
+                      String(d.name || '').toLowerCase().includes(q) ||
+                      String(d.manufacturer || '').toLowerCase().includes(q) ||
+                      String(d.pnpClass || '').toLowerCase().includes(q)
+                    );
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className={`p-6 rounded-xl border text-center text-xs ${subSurfaceBg} ${textMuted}`}>
+                        {isEn ? 'No connected peripherals match this filter.' : 'تجهیزات جانبی مطابق فیلتر فعلی یافت نشد.'}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {filtered.map((dev: any, idx: number) => {
+                        const DevIcon =
+                          dev.category === 'input'
+                            ? Keyboard
+                            : dev.category === 'camera'
+                            ? Camera
+                            : dev.category === 'bluetooth'
+                            ? Bluetooth
+                            : dev.category === 'printer_scanner'
+                            ? Printer
+                            : dev.category === 'biometric'
+                            ? Fingerprint
+                            : dev.category === 'usb_storage'
+                            ? HardDrive
+                            : Usb;
+                        return (
+                          <div
+                            key={`periph-${idx}`}
+                            className={`p-3 rounded-xl border flex items-start gap-3 ${subSurfaceBg}`}
+                          >
+                            <div
+                              className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 mt-0.5 ${
+                                isLightMode
+                                  ? 'bg-white border-slate-200 text-indigo-600'
+                                  : 'bg-slate-800 border-slate-700 text-indigo-400'
+                              }`}
+                            >
+                              <DevIcon className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className={`text-xs font-bold truncate ${textPrimary}`} dir="ltr" title={dev.name}>
+                                {dev.name}
+                              </div>
+                              <div className={`text-[11px] truncate ${textMuted}`} dir="ltr">
+                                {dev.manufacturer || dev.pnpClass}
+                              </div>
+                              <div className="flex items-center gap-2 mt-1 text-[10px] font-mono">
+                                <span
+                                  className={
+                                    String(dev.status).toLowerCase() === 'ok' ? 'text-emerald-500' : 'text-amber-500'
+                                  }
+                                >
+                                  ● {dev.status || 'OK'}
+                                </span>
+                                <span className={textMuted}>{dev.pnpClass}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            </>
+          )}
         </div>
       )}
 

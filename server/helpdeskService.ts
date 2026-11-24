@@ -11063,3 +11063,682 @@ PY`;
   };
 }
 
+// ============================================================================
+// 20. COMPLETE HARDWARE INVENTORY & CONNECTED PERIPHERALS
+// ============================================================================
+
+export interface HelpdeskHardwareMemoryModule {
+  slotLabel: string;
+  bankLabel: string;
+  capacityGb: number;
+  speedMhz: number;
+  configuredSpeedMhz: number;
+  memoryType: string;
+  formFactor: string;
+  manufacturer: string;
+  partNumber: string;
+  serialNumber: string;
+  voltageV: number;
+}
+
+export interface HelpdeskHardwareCpuInfo {
+  name: string;
+  manufacturer: string;
+  socket: string;
+  cores: number;
+  logicalProcessors: number;
+  baseClockGhz: number;
+  maxClockGhz: number;
+  l2CacheMb: number;
+  l3CacheMb: number;
+  architecture: string;
+  virtualizationEnabled: boolean | null;
+}
+
+export interface HelpdeskHardwareMotherboardInfo {
+  manufacturer: string;
+  product: string;
+  version: string;
+  serialNumber: string;
+  chipset: string;
+  biosVendor: string;
+  biosVersion: string;
+  biosReleaseDate: string;
+}
+
+export interface HelpdeskHardwareGpuItem {
+  name: string;
+  vendor: string;
+  type: 'integrated' | 'discrete' | 'virtual';
+  vramGb: number;
+  driverVersion: string;
+  driverDate: string;
+  resolution: string;
+  refreshRateHz: number;
+}
+
+export interface HelpdeskHardwareMonitorItem {
+  name: string;
+  manufacturer: string;
+  serialNumber: string;
+}
+
+export interface HelpdeskHardwareDiskItem {
+  model: string;
+  manufacturer: string;
+  sizeGb: number;
+  mediaType: string;
+  busType: string;
+  serialNumber: string;
+  firmwareVersion: string;
+  healthStatus: string;
+}
+
+export interface HelpdeskHardwareNicItem {
+  name: string;
+  description: string;
+  macAddress: string;
+  linkSpeed: string;
+  adapterType: 'ethernet' | 'wifi' | 'bluetooth' | 'virtual';
+  status: string;
+}
+
+export interface HelpdeskHardwareAudioItem {
+  name: string;
+  manufacturer: string;
+  status: string;
+  isOnboard: boolean;
+}
+
+export type HelpdeskPeripheralCategory =
+  | 'input'
+  | 'camera'
+  | 'usb_storage'
+  | 'bluetooth'
+  | 'printer_scanner'
+  | 'biometric'
+  | 'other';
+
+export interface HelpdeskConnectedPeripheral {
+  name: string;
+  manufacturer: string;
+  pnpClass: string;
+  category: HelpdeskPeripheralCategory;
+  status: string;
+  deviceId: string;
+}
+
+export interface HelpdeskHardwareInventoryResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  system: {
+    manufacturer: string;
+    model: string;
+    systemType: string;
+    serialNumber: string;
+    uuid: string;
+    isVirtual: boolean;
+  };
+  motherboard: HelpdeskHardwareMotherboardInfo;
+  cpu: HelpdeskHardwareCpuInfo;
+  memory: {
+    totalGb: number;
+    usableGb: number;
+    totalSlots: number;
+    populatedSlots: number;
+    freeSlots: number;
+    maxCapacityGb: number;
+    memoryType: string;
+    speedMhz: number;
+    channelMode: string;
+    modules: HelpdeskHardwareMemoryModule[];
+  };
+  gpus: HelpdeskHardwareGpuItem[];
+  monitors: HelpdeskHardwareMonitorItem[];
+  disks: HelpdeskHardwareDiskItem[];
+  networkAdapters: HelpdeskHardwareNicItem[];
+  audioDevices: HelpdeskHardwareAudioItem[];
+  connectedDevices: HelpdeskConnectedPeripheral[];
+  collectedAt: string;
+}
+
+export async function collectEndpointHardwareInventory(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskHardwareInventoryResult> {
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$hostName = $env:COMPUTERNAME
+
+function Decode-U16Array([uint16[]]$arr) {
+  if (-not $arr) { return '' }
+  $chars = foreach ($c in $arr) { if ($c -gt 0) { [char]$c } }
+  return ((-join $chars).Trim())
+}
+
+function Decode-MemType([int]$smbios, [int]$legacy) {
+  $code = if ($smbios -gt 0) { $smbios } else { $legacy }
+  switch ($code) {
+    20 { 'DDR' }
+    21 { 'DDR2' }
+    22 { 'DDR2 FB-DIMM' }
+    24 { 'DDR3' }
+    26 { 'DDR4' }
+    27 { 'LPDDR' }
+    28 { 'LPDDR2' }
+    29 { 'LPDDR3' }
+    30 { 'LPDDR4' }
+    34 { 'DDR5' }
+    35 { 'LPDDR5' }
+    default { if ($code -gt 0) { "RAM ($code)" } else { 'Unknown' } }
+  }
+}
+
+function Decode-FormFactor([int]$ff) {
+  switch ($ff) {
+    8  { 'DIMM' }
+    9  { 'SIP' }
+    12 { 'SODIMM' }
+    13 { 'SRIMM' }
+    15 { 'FB-DIMM' }
+    default { 'Module' }
+  }
+}
+
+$cs = Get-CimInstance -ClassName Win32_ComputerSystem | Select-Object -First 1
+$csp = Get-CimInstance -ClassName Win32_ComputerSystemProduct | Select-Object -First 1
+$bios = Get-CimInstance -ClassName Win32_BIOS | Select-Object -First 1
+$board = Get-CimInstance -ClassName Win32_BaseBoard | Select-Object -First 1
+$enclosure = Get-CimInstance -ClassName Win32_SystemEnclosure | Select-Object -First 1
+$os = Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object -First 1
+
+$chassisTypes = @($enclosure.ChassisTypes)
+$sysType = 'Desktop'
+if ($chassisTypes | Where-Object { $_ -in 8,9,10,11,12,14,18,21,30,31,32 }) { $sysType = 'Laptop / Notebook' }
+elseif ($chassisTypes | Where-Object { $_ -in 17,23,28,29 }) { $sysType = 'Server' }
+elseif ($chassisTypes | Where-Object { $_ -in 35,36 }) { $sysType = 'Mini PC / SFF' }
+
+$oemMfg = ([string]$cs.Manufacturer).Trim()
+$oemModel = ([string]$cs.Model).Trim()
+$isVirt = ("$oemMfg $oemModel $($bios.Manufacturer)" -match '(?i)vmware|virtualbox|vbox|qemu|kvm|hyper-v|virtual machine|xen|bochs|parallels')
+if ($isVirt) { $sysType = 'Virtual Machine' }
+
+$serialNo = ([string]$bios.SerialNumber).Trim()
+if (-not $serialNo -or $serialNo -match 'To Be Filled|Default string|System Serial') {
+  $altSn = ([string]$enclosure.SerialNumber).Trim()
+  if ($altSn -and $altSn -notmatch 'To Be Filled|Default string') { $serialNo = $altSn }
+}
+
+$biosDate = ''
+if ($bios.ReleaseDate) {
+  try { $biosDate = ([datetime]$bios.ReleaseDate).ToString('yyyy-MM-dd') } catch { $biosDate = [string]$bios.ReleaseDate }
+}
+
+$chipset = ''
+try {
+  $chipObj = Get-CimInstance -ClassName Win32_PnPEntity -Filter "PNPClass='System' AND Present=TRUE" | Where-Object {
+    $_.Name -match '(?i)Host Bridge|PCI Express Root Complex|Chipset|DRAM Controller|LPC Controller|PCH'
+  } | Select-Object -First 1
+  if ($chipObj) { $chipset = [string]$chipObj.Name }
+} catch {}
+
+# CPU
+$cpuArr = @(Get-CimInstance -ClassName Win32_Processor)
+$cpu1 = $cpuArr | Select-Object -First 1
+$totalCores = 0; $totalThreads = 0
+foreach ($c in $cpuArr) {
+  $totalCores += [int]$c.NumberOfCores
+  $totalThreads += [int]$c.NumberOfLogicalProcessors
+}
+$baseMhz = [int]$cpu1.CurrentClockSpeed
+$maxMhz = [int]$cpu1.MaxClockSpeed
+if ($maxMhz -le 0) { $maxMhz = $baseMhz }
+$archMap = @{ 0='x86'; 5='ARM'; 9='x64'; 12='ARM64' }
+$cpuArch = if ($archMap.ContainsKey([int]$cpu1.Architecture)) { $archMap[[int]$cpu1.Architecture] } else { [string]$env:PROCESSOR_ARCHITECTURE }
+
+# RAM Arrays & Physical Sticks
+$memArrays = @(Get-CimInstance -ClassName Win32_PhysicalMemoryArray | Where-Object { $_.Use -eq 3 -or $null -eq $_.Use })
+$totalSlots = 0; $maxCapKb = 0
+foreach ($ma in $memArrays) {
+  $totalSlots += [int]$ma.MemoryDevices
+  if ($ma.MaxCapacityEx -and [double]$ma.MaxCapacityEx -gt 0) {
+    $maxCapKb += [double]$ma.MaxCapacityEx
+  } elseif ($ma.MaxCapacity -and [double]$ma.MaxCapacity -gt 0) {
+    $maxCapKb += [double]$ma.MaxCapacity
+  }
+}
+
+$physMem = @(Get-CimInstance -ClassName Win32_PhysicalMemory)
+$modules = New-Object System.Collections.Generic.List[object]
+$totalBytes = [double]0
+$maxSpeedMhz = 0
+$domType = 'Unknown'
+
+foreach ($m in $physMem) {
+  $capBytes = [double]$m.Capacity
+  $totalBytes += $capBytes
+  $capGb = [Math]::Round($capBytes / 1GB, 2)
+  $ratedSpd = [int]$m.Speed
+  $confSpd = [int]$m.ConfiguredClockSpeed
+  $effSpd = if ($confSpd -gt 0) { $confSpd } else { $ratedSpd }
+  if ($effSpd -gt $maxSpeedMhz) { $maxSpeedMhz = $effSpd }
+  $mType = Decode-MemType ([int]$m.SMBIOSMemoryType) ([int]$m.MemoryType)
+  if ($domType -eq 'Unknown' -and $mType -ne 'Unknown') { $domType = $mType }
+  $ff = Decode-FormFactor ([int]$m.FormFactor)
+  $volt = if ($m.ConfiguredVoltage -and [double]$m.ConfiguredVoltage -gt 0) { [Math]::Round(([double]$m.ConfiguredVoltage) / 1000.0, 2) } else { 0 }
+  $modules.Add([PSCustomObject]@{
+    slotLabel = ([string]$m.DeviceLocator).Trim()
+    bankLabel = ([string]$m.BankLabel).Trim()
+    capacityGb = $capGb
+    speedMhz = $ratedSpd
+    configuredSpeedMhz = $effSpd
+    memoryType = $mType
+    formFactor = $ff
+    manufacturer = ([string]$m.Manufacturer).Trim()
+    partNumber = ([string]$m.PartNumber).Trim()
+    serialNumber = ([string]$m.SerialNumber).Trim()
+    voltageV = $volt
+  })
+}
+
+$popSlots = $modules.Count
+if ($totalSlots -lt $popSlots) { $totalSlots = $popSlots }
+$freeSlots = [Math]::Max(0, $totalSlots - $popSlots)
+$totalRamGb = if ($totalBytes -gt 0) { [Math]::Round($totalBytes / 1GB, 2) } else { [Math]::Round(([double]$cs.TotalPhysicalMemory) / 1GB, 2) }
+$usableRamGb = [Math]::Round(([double]$os.TotalVisibleMemorySize) / 1MB, 2)
+$maxCapGb = if ($maxCapKb -gt 0) { [Math]::Round($maxCapKb / 1MB, 0) } else { 0 }
+$chanMode = if ($popSlots -ge 4) { 'Multi / Quad Channel' } elseif ($popSlots -ge 2) { 'Dual Channel' } elseif ($popSlots -eq 1) { 'Single Channel' } else { 'Virtual / N/A' }
+
+# GPUs
+$gpus = New-Object System.Collections.Generic.List[object]
+foreach ($g in @(Get-CimInstance -ClassName Win32_VideoController)) {
+  $gName = ([string]$g.Name).Trim()
+  if (-not $gName) { continue }
+  $gVendor = ([string]$g.AdapterCompatibility).Trim()
+  $gType = 'integrated'
+  if ("$gName $gVendor" -match '(?i)vmware|virtualbox|hyper-v|microsoft basic display|qxl|virtio|rdpdd|citrix') { $gType = 'virtual' }
+  elseif ("$gName $gVendor" -match '(?i)nvidia|geforce|quadro|rtx|gtx|radeon rx|radeon pro|arc a\d|firepro') { $gType = 'discrete' }
+  $vramBytes = [double]$g.AdapterRAM
+  $vramGb = if ($vramBytes -gt 0) { [Math]::Round($vramBytes / 1GB, 2) } else { 0 }
+  $dDate = ''
+  if ($g.DriverDate) { try { $dDate = ([datetime]$g.DriverDate).ToString('yyyy-MM-dd') } catch {} }
+  $res = if ($g.CurrentHorizontalResolution -and $g.CurrentVerticalResolution) { "$($g.CurrentHorizontalResolution)x$($g.CurrentVerticalResolution)" } else { '' }
+  $gpus.Add([PSCustomObject]@{
+    name = $gName
+    vendor = $gVendor
+    type = $gType
+    vramGb = $vramGb
+    driverVersion = ([string]$g.DriverVersion).Trim()
+    driverDate = $dDate
+    resolution = $res
+    refreshRateHz = [int]$g.CurrentRefreshRate
+  })
+}
+
+# Connected Monitors (EDID via WmiMonitorID)
+$monitors = New-Object System.Collections.Generic.List[object]
+try {
+  $wmiMons = @(Get-CimInstance -Namespace root\\wmi -ClassName WmiMonitorID -ErrorAction SilentlyContinue)
+  foreach ($wm in $wmiMons) {
+    $mName = Decode-U16Array $wm.UserFriendlyName
+    $mMfg = Decode-U16Array $wm.ManufacturerName
+    $mSn = Decode-U16Array $wm.SerialNumberID
+    if ($mName -or $mMfg) {
+      $monitors.Add([PSCustomObject]@{
+        name = if ($mName) { $mName } else { "$mMfg Monitor" }
+        manufacturer = $mMfg
+        serialNumber = $mSn
+      })
+    }
+  }
+} catch {}
+if ($monitors.Count -eq 0) {
+  foreach ($dm in @(Get-CimInstance -ClassName Win32_DesktopMonitor | Where-Object { $_.Availability -eq 3 })) {
+    if ($dm.Name -and $dm.Name -notmatch 'Default Monitor') {
+      $monitors.Add([PSCustomObject]@{
+        name = [string]$dm.Name
+        manufacturer = [string]$dm.MonitorManufacturer
+        serialNumber = ''
+      })
+    }
+  }
+}
+
+# Physical Disks
+$disks = New-Object System.Collections.Generic.List[object]
+$physDisks = @()
+try { $physDisks = @(Get-PhysicalDisk) } catch {}
+if ($physDisks.Count -gt 0) {
+  foreach ($pd in $physDisks) {
+    $mType = [string]$pd.MediaType
+    $bus = [string]$pd.BusType
+    if ($bus -eq 'NVMe') { $mType = 'NVMe SSD' }
+    elseif ($mType -eq 'Unspecified' -and $bus -eq 'USB') { $mType = 'USB Drive' }
+    $disks.Add([PSCustomObject]@{
+      model = ([string]$pd.FriendlyName).Trim()
+      manufacturer = ([string]$pd.Manufacturer).Trim()
+      sizeGb = [Math]::Round(([double]$pd.Size) / 1GB, 1)
+      mediaType = $mType
+      busType = $bus
+      serialNumber = ([string]$pd.SerialNumber).Trim()
+      firmwareVersion = ([string]$pd.FirmwareVersion).Trim()
+      healthStatus = ([string]$pd.HealthStatus).Trim()
+    })
+  }
+} else {
+  foreach ($dd in @(Get-CimInstance -ClassName Win32_DiskDrive)) {
+    $disks.Add([PSCustomObject]@{
+      model = ([string]$dd.Model).Trim()
+      manufacturer = ([string]$dd.Manufacturer).Trim()
+      sizeGb = [Math]::Round(([double]$dd.Size) / 1GB, 1)
+      mediaType = ([string]$dd.MediaType).Trim()
+      busType = ([string]$dd.InterfaceType).Trim()
+      serialNumber = ([string]$dd.SerialNumber).Trim()
+      firmwareVersion = ([string]$dd.FirmwareRevision).Trim()
+      healthStatus = ([string]$dd.Status).Trim()
+    })
+  }
+}
+
+# Network Adapters
+$nics = New-Object System.Collections.Generic.List[object]
+try {
+  foreach ($na in @(Get-NetAdapter | Sort-Object -Property HardwareInterface -Descending)) {
+    $desc = ([string]$na.InterfaceDescription).Trim()
+    $nType = 'ethernet'
+    if (-not $na.HardwareInterface -or $desc -match '(?i)vmware|hyper-v|virtual|loopback|tap-|tun|wan miniport|vpn') { $nType = 'virtual' }
+    elseif ($desc -match '(?i)wi-fi|wifi|wireless|wlan|802\\.11|ax\d{3}|ac \d{4}') { $nType = 'wifi' }
+    elseif ($desc -match '(?i)bluetooth') { $nType = 'bluetooth' }
+    if ($nType -eq 'virtual' -and $na.Status -ne 'Up') { continue }
+    $nics.Add([PSCustomObject]@{
+      name = [string]$na.Name
+      description = $desc
+      macAddress = [string]$na.MacAddress
+      linkSpeed = [string]$na.LinkSpeed
+      adapterType = $nType
+      status = [string]$na.Status
+    })
+  }
+} catch {}
+
+# Audio Devices
+$audios = New-Object System.Collections.Generic.List[object]
+foreach ($au in @(Get-CimInstance -ClassName Win32_SoundDevice)) {
+  $aName = ([string]$au.Name).Trim()
+  if (-not $aName) { continue }
+  $aMfg = ([string]$au.Manufacturer).Trim()
+  $onboard = ("$aName $aMfg" -match '(?i)realtek|high definition audio|intel|conexant|synaptics|idt|via')
+  $audios.Add([PSCustomObject]@{
+    name = $aName
+    manufacturer = $aMfg
+    status = ([string]$au.Status).Trim()
+    isOnboard = $onboard
+  })
+}
+
+# Connected Peripherals (Input, Camera, Bluetooth, USB Storage, Printers/Scanners, Biometric)
+$periphs = New-Object System.Collections.Generic.List[object]
+$seenPnp = @{}
+$targetClasses = @('Keyboard','Mouse','HIDClass','Camera','Image','Bluetooth','Printer','WPD','SmartCardReader','Biometric','CDROM','USB')
+$pnpList = @(Get-CimInstance -ClassName Win32_PnPEntity -Filter "Present=TRUE")
+foreach ($p in $pnpList) {
+  $cls = ([string]$p.PNPClass).Trim()
+  $pName = ([string]$p.Name).Trim()
+  if (-not $pName -or -not ($targetClasses -contains $cls)) { continue }
+  if ($pName -match '^(HID-compliant (consumer|system|vendor-defined)|USB Input Device|USB Composite Device|Generic USB Hub|USB Root Hub|Microsoft Bluetooth Enumerator|Bluetooth Device \\(Personal Area Network\\)|PrintQueue|Microsoft Print to PDF|Microsoft XPS Document Writer|Fax|Root Print Queue)') { continue }
+  if ($cls -eq 'USB' -and $pName -notmatch '(?i)mass storage|flash|hub|controller|dock|dongle|receiver|camera|audio|card') { continue }
+
+  $cat = 'other'
+  if ($cls -in @('Keyboard','Mouse','HIDClass')) { $cat = 'input' }
+  elseif ($cls -in @('Camera','Image')) { $cat = 'camera' }
+  elseif ($cls -eq 'Bluetooth') { $cat = 'bluetooth' }
+  elseif ($cls -in @('WPD','CDROM') -or ($cls -eq 'USB' -and $pName -match '(?i)mass storage|flash|disk')) { $cat = 'usb_storage' }
+  elseif ($cls -eq 'Printer') { $cat = 'printer_scanner' }
+  elseif ($cls -in @('Biometric','SmartCardReader')) { $cat = 'biometric' }
+
+  $dedupe = "$cat|$($pName.ToLowerInvariant())"
+  if ($seenPnp.ContainsKey($dedupe)) { continue }
+  $seenPnp[$dedupe] = $true
+
+  $periphs.Add([PSCustomObject]@{
+    name = $pName
+    manufacturer = ([string]$p.Manufacturer).Trim()
+    pnpClass = $cls
+    category = $cat
+    status = ([string]$p.Status).Trim()
+    deviceId = ([string]$p.DeviceID).Trim()
+  })
+}
+
+[PSCustomObject]@{
+  hostname = $hostName
+  system = [PSCustomObject]@{
+    manufacturer = $oemMfg
+    model = $oemModel
+    systemType = $sysType
+    serialNumber = $serialNo
+    uuid = ([string]$csp.UUID).Trim()
+    isVirtual = $isVirt
+  }
+  motherboard = [PSCustomObject]@{
+    manufacturer = ([string]$board.Manufacturer).Trim()
+    product = ([string]$board.Product).Trim()
+    version = ([string]$board.Version).Trim()
+    serialNumber = ([string]$board.SerialNumber).Trim()
+    chipset = $chipset
+    biosVendor = ([string]$bios.Manufacturer).Trim()
+    biosVersion = ([string]$bios.SMBIOSBIOSVersion).Trim()
+    biosReleaseDate = $biosDate
+  }
+  cpu = [PSCustomObject]@{
+    name = ([string]$cpu1.Name -replace '\\s+',' ').Trim()
+    manufacturer = ([string]$cpu1.Manufacturer).Trim()
+    socket = ([string]$cpu1.SocketDesignation).Trim()
+    cores = $totalCores
+    logicalProcessors = $totalThreads
+    baseClockGhz = [Math]::Round($baseMhz / 1000.0, 2)
+    maxClockGhz = [Math]::Round($maxMhz / 1000.0, 2)
+    l2CacheMb = [Math]::Round(([double]$cpu1.L2CacheSize) / 1024.0, 1)
+    l3CacheMb = [Math]::Round(([double]$cpu1.L3CacheSize) / 1024.0, 1)
+    architecture = $cpuArch
+    virtualizationEnabled = $cpu1.VirtualizationFirmwareEnabled
+  }
+  memory = [PSCustomObject]@{
+    totalGb = $totalRamGb
+    usableGb = $usableRamGb
+    totalSlots = $totalSlots
+    populatedSlots = $popSlots
+    freeSlots = $freeSlots
+    maxCapacityGb = $maxCapGb
+    memoryType = $domType
+    speedMhz = $maxSpeedMhz
+    channelMode = $chanMode
+    modules = @($modules)
+  }
+  gpus = @($gpus)
+  monitors = @($monitors)
+  disks = @($disks)
+  networkAdapters = @($nics)
+  audioDevices = @($audios)
+  connectedDevices = @($periphs | Sort-Object -Property category, name)
+} | ConvertTo-Json -Depth 5 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import json, os, platform, re, socket, subprocess
+
+hostname = socket.gethostname()
+def run(cmd):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+def readf(p):
+    try:
+        with open(p, "r", errors="ignore") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+mfg = readf("/sys/class/dmi/id/sys_vendor")
+model = readf("/sys/class/dmi/id/product_name")
+serial = readf("/sys/class/dmi/id/product_serial")
+uuid = readf("/sys/class/dmi/id/product_uuid")
+board_mfg = readf("/sys/class/dmi/id/board_vendor")
+board_prod = readf("/sys/class/dmi/id/board_name")
+board_ver = readf("/sys/class/dmi/id/board_version")
+bios_ven = readf("/sys/class/dmi/id/bios_vendor")
+bios_ver = readf("/sys/class/dmi/id/bios_version")
+bios_date = readf("/sys/class/dmi/id/bios_date")
+is_virt = bool(re.search(r"vmware|virtualbox|qemu|kvm|hyper-v|xen|bochs", f"{mfg} {model} {bios_ven}", re.I))
+
+cpu_name = platform.processor() or ""
+cores = os.cpu_count() or 1
+lscpu_out = run(["lscpu"])
+max_mhz = 0.0
+socket_name = ""
+l3_mb = 0.0
+for ln in lscpu_out.splitlines():
+    if ":" not in ln: continue
+    k, v = [x.strip() for x in ln.split(":", 1)]
+    if k == "Model name": cpu_name = v
+    elif k == "CPU max MHz":
+        try: max_mhz = float(v)
+        except: pass
+    elif k == "L3 cache":
+        m = re.search(r"([\\d.]+)\\s*(MiB|MB|KiB|KB)", v)
+        if m:
+            val = float(m.group(1))
+            l3_mb = val / 1024.0 if "K" in m.group(2) else val
+
+meminfo = readf("/proc/meminfo")
+m_tot = re.search(r"MemTotal:\\s+(\\d+)\\s+kB", meminfo)
+total_gb = round(int(m_tot.group(1)) / (1024 * 1024), 2) if m_tot else 0
+
+disks = []
+lsblk_json = run(["lsblk", "-J", "-b", "-d", "-o", "NAME,MODEL,SIZE,ROTA,TRAN,SERIAL"])
+if lsblk_json:
+    try:
+        for bd in json.loads(lsblk_json).get("blockdevices", []):
+            name = bd.get("name", "")
+            if name.startswith("loop") or name.startswith("ram"): continue
+            sz_gb = round(float(bd.get("size") or 0) / (1024**3), 1)
+            tran = str(bd.get("tran") or "").upper()
+            mtype = "NVMe SSD" if tran == "NVME" else ("HDD" if bd.get("rota") else "SSD")
+            disks.append({
+                "model": (bd.get("model") or name).strip(),
+                "manufacturer": "",
+                "sizeGb": sz_gb,
+                "mediaType": mtype,
+                "busType": tran or "SATA",
+                "serialNumber": bd.get("serial") or "",
+                "firmwareVersion": "",
+                "healthStatus": "Healthy",
+            })
+    except Exception:
+        pass
+
+gpus = []
+audios = []
+lspci_out = run(["lspci"])
+for ln in lspci_out.splitlines():
+    if re.search(r"VGA compatible|3D controller|Display controller", ln, re.I):
+        gpus.append({"name": ln.split(":", 2)[-1].strip(), "vendor": "", "type": "virtual" if is_virt else "integrated", "vramGb": 0, "driverVersion": "", "driverDate": "", "resolution": "", "refreshRateHz": 0})
+    elif re.search(r"Audio device", ln, re.I):
+        audios.append({"name": ln.split(":", 2)[-1].strip(), "manufacturer": "", "status": "OK", "isOnboard": True})
+
+periphs = []
+lsusb_out = run(["lsusb"])
+for ln in lsusb_out.splitlines():
+    if "Linux Foundation" in ln or "root hub" in ln.lower(): continue
+    desc = re.sub(r"^Bus\\s+\\d+\\s+Device\\s+\\d+:\\s+ID\\s+[0-9a-f:]+\\s*", "", ln).strip()
+    if desc:
+        cat = "camera" if re.search(r"cam|video", desc, re.I) else ("bluetooth" if "bluetooth" in desc.lower() else ("input" if re.search(r"mouse|keyboard|hid", desc, re.I) else "other"))
+        periphs.append({"name": desc, "manufacturer": "", "pnpClass": "USB", "category": cat, "status": "OK", "deviceId": ln[:40]})
+
+print(json.dumps({
+    "hostname": hostname,
+    "system": {"manufacturer": mfg, "model": model, "systemType": "Virtual Machine" if is_virt else "Linux Host", "serialNumber": serial, "uuid": uuid, "isVirtual": is_virt},
+    "motherboard": {"manufacturer": board_mfg, "product": board_prod, "version": board_ver, "serialNumber": "", "chipset": "", "biosVendor": bios_ven, "biosVersion": bios_ver, "biosReleaseDate": bios_date},
+    "cpu": {"name": cpu_name, "manufacturer": "", "socket": socket_name, "cores": cores, "logicalProcessors": cores, "baseClockGhz": round(max_mhz/1000.0, 2) if max_mhz else 0, "maxClockGhz": round(max_mhz/1000.0, 2) if max_mhz else 0, "l2CacheMb": 0, "l3CacheMb": round(l3_mb, 1), "architecture": platform.machine(), "virtualizationEnabled": None},
+    "memory": {"totalGb": total_gb, "usableGb": total_gb, "totalSlots": 1, "populatedSlots": 1, "freeSlots": 0, "maxCapacityGb": 0, "memoryType": "RAM", "speedMhz": 0, "channelMode": "N/A", "modules": []},
+    "gpus": gpus,
+    "monitors": [],
+    "disks": disks,
+    "networkAdapters": [],
+    "audioDevices": audios,
+    "connectedDevices": periphs,
+}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(45000, input.timeoutMs || 45000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'collect hardware inventory');
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    system: parsed.system || {
+      manufacturer: '',
+      model: '',
+      systemType: '',
+      serialNumber: '',
+      uuid: '',
+      isVirtual: false,
+    },
+    motherboard: parsed.motherboard || {
+      manufacturer: '',
+      product: '',
+      version: '',
+      serialNumber: '',
+      chipset: '',
+      biosVendor: '',
+      biosVersion: '',
+      biosReleaseDate: '',
+    },
+    cpu: parsed.cpu || {
+      name: '',
+      manufacturer: '',
+      socket: '',
+      cores: 0,
+      logicalProcessors: 0,
+      baseClockGhz: 0,
+      maxClockGhz: 0,
+      l2CacheMb: 0,
+      l3CacheMb: 0,
+      architecture: '',
+      virtualizationEnabled: null,
+    },
+    memory: parsed.memory || {
+      totalGb: 0,
+      usableGb: 0,
+      totalSlots: 0,
+      populatedSlots: 0,
+      freeSlots: 0,
+      maxCapacityGb: 0,
+      memoryType: 'Unknown',
+      speedMhz: 0,
+      channelMode: 'Unknown',
+      modules: [],
+    },
+    gpus: Array.isArray(parsed.gpus) ? parsed.gpus : [],
+    monitors: Array.isArray(parsed.monitors) ? parsed.monitors : [],
+    disks: Array.isArray(parsed.disks) ? parsed.disks : [],
+    networkAdapters: Array.isArray(parsed.networkAdapters) ? parsed.networkAdapters : [],
+    audioDevices: Array.isArray(parsed.audioDevices) ? parsed.audioDevices : [],
+    connectedDevices: Array.isArray(parsed.connectedDevices) ? parsed.connectedDevices : [],
+    collectedAt: new Date().toISOString(),
+  };
+}
+
+

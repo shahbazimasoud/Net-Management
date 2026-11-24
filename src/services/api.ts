@@ -1905,6 +1905,21 @@ export async function uninstallHelpdeskProgram(
   return res.json();
 }
 
+export async function fetchHelpdeskHardwareInventory(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/hardware/inventory`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to inspect endpoint hardware inventory');
+  return res.json();
+}
+
 export async function fetchHelpdeskDiskHealth(payload: HelpdeskConnectionPayload): Promise<{
   success: boolean;
   data: any;
