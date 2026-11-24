@@ -51,6 +51,9 @@ import {
   manageEndpointHostsEntry,
   updateEndpointProxySettings,
   manageEndpointStaticRoute,
+  manageEndpointVpnConnection,
+  HelpdeskVpnOperation,
+  HelpdeskVpnTunnelType,
   collectEndpointPrinters,
   executeSafeSpoolerAction,
   setEndpointDefaultPrinter,
@@ -8598,6 +8601,99 @@ apiRouter.post('/helpdesk/network/route', async (req: Request, res: Response) =>
       errorMsg: msg,
     });
     return res.status(/invalid|required|blocked/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/network/vpn - Create, Connect, Disconnect or Delete Endpoint VPN Connection
+apiRouter.post('/helpdesk/network/vpn', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rawOp = String(req.body?.operation || '').trim().toLowerCase();
+  const op: HelpdeskVpnOperation =
+    rawOp === 'delete' || rawOp === 'connect' || rawOp === 'disconnect' ? rawOp : 'create';
+  const actionMap: Record<HelpdeskVpnOperation, HelpdeskWriteAction> = {
+    create: 'network_vpn_create',
+    delete: 'network_vpn_delete',
+    connect: 'network_vpn_connect',
+    disconnect: 'network_vpn_disconnect',
+  };
+  const rlAction: HelpdeskWriteAction = actionMap[op];
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rlAction);
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: rlAction,
+      rl,
+    });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await manageEndpointVpnConnection(target, {
+      operation: op,
+      name: String(req.body?.name || '').trim(),
+      serverAddress: req.body?.serverAddress !== undefined ? String(req.body.serverAddress).trim() : undefined,
+      tunnelType: req.body?.tunnelType as HelpdeskVpnTunnelType | undefined,
+      l2tpPsk: req.body?.l2tpPsk !== undefined ? String(req.body.l2tpPsk) : undefined,
+      useWinlogonCredential:
+        req.body?.useWinlogonCredential !== undefined ? Boolean(req.body.useWinlogonCredential) : true,
+      splitTunneling: req.body?.splitTunneling !== undefined ? Boolean(req.body.splitTunneling) : true,
+      allUserConnection: req.body?.allUserConnection !== undefined ? Boolean(req.body.allUserConnection) : true,
+      dnsSuffix: req.body?.dnsSuffix !== undefined ? String(req.body.dnsSuffix).trim() : undefined,
+      customUsername: req.body?.customUsername !== undefined ? String(req.body.customUsername).trim() : undefined,
+      customPassword: req.body?.customPassword !== undefined ? String(req.body.customPassword) : undefined,
+    });
+    const titleFaMap: Record<HelpdeskVpnOperation, string> = {
+      create: `ساخت/بروزرسانی کانکشن VPN روی ${data.targetIp}`,
+      delete: `حذف کانکشن VPN از ${data.targetIp}`,
+      connect: `اتصال VPN روی ${data.targetIp}`,
+      disconnect: `قطع اتصال VPN روی ${data.targetIp}`,
+    };
+    const titleEnMap: Record<HelpdeskVpnOperation, string> = {
+      create: `HelpDesk VPN Profile Configured on ${data.targetIp}`,
+      delete: `HelpDesk VPN Profile Deleted on ${data.targetIp}`,
+      connect: `HelpDesk VPN Connect Triggered on ${data.targetIp}`,
+      disconnect: `HelpDesk VPN Disconnected on ${data.targetIp}`,
+    };
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: `helpdesk_${rlAction}`,
+      title: titleFaMap[op],
+      title_en: titleEnMap[op],
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Endpoint VPN operation failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: `helpdesk_${rlAction}_failed`,
+      title: `خطا در مدیریت VPN روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk VPN Operation Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|blocked|active logged-in/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,

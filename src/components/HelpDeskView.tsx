@@ -68,6 +68,8 @@ import {
   Waypoints,
   Gpu,
   Volume2,
+  KeyRound,
+  Shield,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -82,6 +84,7 @@ import {
   manageHelpdeskHostsEntry,
   updateHelpdeskProxySettings,
   manageHelpdeskStaticRoute,
+  manageHelpdeskVpnConnection,
   fetchHelpdeskPrinterStatus,
   executeHelpdeskPrinterAction,
   setHelpdeskDefaultPrinter,
@@ -365,6 +368,20 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [busyRouteKey, setBusyRouteKey] = useState<string | null>(null);
   const [confirmDeleteRouteId, setConfirmDeleteRouteId] = useState<string | null>(null);
 
+  // Endpoint VPN Connection Manager state
+  const [vpnName, setVpnName] = useState('');
+  const [vpnServer, setVpnServer] = useState('');
+  const [vpnTunnelType, setVpnTunnelType] = useState<'Automatic' | 'L2tp' | 'Ikev2' | 'Sstp' | 'Pptp'>('L2tp');
+  const [vpnL2tpPsk, setVpnL2tpPsk] = useState('');
+  const [vpnUseWinCred, setVpnUseWinCred] = useState(true);
+  const [vpnSplitTunnel, setVpnSplitTunnel] = useState(true);
+  const [vpnAllUsers, setVpnAllUsers] = useState(true);
+  const [vpnDnsSuffix, setVpnDnsSuffix] = useState('');
+  const [vpnCustomUser, setVpnCustomUser] = useState('');
+  const [vpnCustomPass, setVpnCustomPass] = useState('');
+  const [busyVpnKey, setBusyVpnKey] = useState<string | null>(null);
+  const [confirmDeleteVpnName, setConfirmDeleteVpnName] = useState<string | null>(null);
+
   // Module 3: Printers & Print Spooler state
   const [printerData, setPrinterData] = useState<any | null>(null);
   const [loadingPrinters, setLoadingPrinters] = useState(false);
@@ -613,6 +630,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setRouteDest('');
     setRouteGateway('');
     setConfirmDeleteRouteId(null);
+    setVpnName('');
+    setVpnServer('');
+    setVpnTunnelType('L2tp');
+    setVpnL2tpPsk('');
+    setVpnUseWinCred(true);
+    setVpnSplitTunnel(true);
+    setVpnAllUsers(true);
+    setVpnDnsSuffix('');
+    setVpnCustomUser('');
+    setVpnCustomPass('');
+    setConfirmDeleteVpnName(null);
     setDiskHealthData(null);
     setDiskHealthError(null);
     setRepairResult(null);
@@ -938,6 +966,76 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       );
     } finally {
       setBusyRouteKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleCreateVpn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = buildPayload();
+    if (!payload) return;
+    setBusyVpnKey('create');
+    setNetworkError(null);
+    setNetActionResult(null);
+    try {
+      const res = await manageHelpdeskVpnConnection({
+        ...payload,
+        operation: 'create',
+        name: vpnName.trim(),
+        serverAddress: vpnServer.trim(),
+        tunnelType: vpnTunnelType,
+        l2tpPsk: vpnL2tpPsk || undefined,
+        useWinlogonCredential: vpnUseWinCred,
+        splitTunneling: vpnSplitTunnel,
+        allUserConnection: vpnAllUsers,
+        dnsSuffix: vpnDnsSuffix.trim() || undefined,
+        customUsername: !vpnUseWinCred && vpnCustomUser.trim() ? vpnCustomUser.trim() : undefined,
+        customPassword: !vpnUseWinCred && vpnCustomPass ? vpnCustomPass : undefined,
+      });
+      setNetActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      setVpnName('');
+      setVpnL2tpPsk('');
+      setVpnCustomPass('');
+      try {
+        const refreshed = await fetchHelpdeskNetworkSnapshot(payload);
+        setNetworkData(refreshed.data);
+      } catch {}
+    } catch (err: any) {
+      setNetworkError(
+        err?.message || (isEn ? 'Failed to configure VPN connection.' : 'ساخت یا تنظیم کانکشن VPN روی سیستم کاربر ناموفق بود.')
+      );
+    } finally {
+      setBusyVpnKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleVpnRowAction = async (operation: 'connect' | 'disconnect' | 'delete', name: string) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setBusyVpnKey(`${operation}:${name}`);
+    setConfirmDeleteVpnName(null);
+    setNetworkError(null);
+    setNetActionResult(null);
+    try {
+      const res = await manageHelpdeskVpnConnection({
+        ...payload,
+        operation,
+        name,
+      });
+      setNetActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskNetworkSnapshot(payload);
+        setNetworkData(refreshed.data);
+      } catch {}
+    } catch (err: any) {
+      setNetworkError(
+        err?.message || (isEn ? `VPN ${operation} action failed.` : `عملیات ${operation} روی کانکشن VPN ناموفق بود.`)
+      );
+    } finally {
+      setBusyVpnKey(null);
       notifyHelpdeskAuditUpdated();
     }
   };
@@ -1875,10 +1973,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     },
     {
       id: 'network',
-      titleEn: 'Advanced Network Control, Routing, Hosts, Proxy & Probes',
-      titleFa: 'مدیریت کامل شبکه (IP/DNS دستی، Hosts، Proxy، روتینگ ساده و NSLookup)',
-      descEn: 'Manual IPv4/DNS & DHCP editor, local DNS hosts file manager, OS WinINet/WinHTTP proxy control, guided static route writer, and endpoint Ping/Port/NSLookup/Tracert/HTTP/ARP probes.',
-      descFa: 'تغییر دستی IP و DNS کارت شبکه، مدیریت فایل hosts و Proxy سیستم‌عامل، نوشتن ساده روت شبکه (route add)، و تست‌های NSLookup، Tracert، HTTP و ARP از داخل سیستم کاربر.',
+      titleEn: 'Advanced Network Control, VPN, Routing, Hosts, Proxy & Probes',
+      titleFa: 'مدیریت کامل شبکه (IP/DNS دستی، VPN، Hosts، Proxy، روتینگ و NSLookup)',
+      descEn: 'Manual IPv4/DNS & DHCP editor, Endpoint VPN provisioning (with default Windows SSO user credentials), local DNS hosts file manager, OS proxy control, guided static route writer, and endpoint Ping/Port/NSLookup/Tracert/HTTP/ARP probes.',
+      descFa: 'تغییر دستی IP و DNS، ساخت و مدیریت کانکشن VPN با یوزر و پسورد ویندوز کاربر، مدیریت فایل hosts و Proxy، نوشتن ساده روت شبکه، و تست‌های NSLookup، Tracert، HTTP و ARP.',
     },
     {
       id: 'updates',
@@ -1939,7 +2037,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   ];
 
   return (
-    <div className="space-y-6 pb-8" dir={isEn ? 'ltr' : 'rtl'}>
+    <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 space-y-6 pb-10" dir={isEn ? 'ltr' : 'rtl'}>
       {/* Page Header — Clean Top Contract */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
@@ -4384,22 +4482,22 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                       : 'هیچ رکورد اختصاصی در فایل محلی hosts سیستم کاربر ثبت نشده است.'}
                   </div>
                 ) : (
-                  <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800">
-                    <table className="w-full text-xs border-collapse">
-                      <thead className={`sticky top-0 ${isLightMode ? 'bg-slate-50 text-slate-600' : 'bg-slate-900 text-slate-400'}`}>
+                  <div className="max-h-60 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                    <table className="w-full min-w-[460px] text-xs border-collapse">
+                      <thead className={`sticky top-0 z-10 ${isLightMode ? 'bg-slate-50 text-slate-600' : 'bg-slate-900 text-slate-400'}`}>
                         <tr className="border-b border-slate-200 dark:border-slate-800">
-                          <th className="py-2 px-2.5 text-start">{isEn ? 'State' : 'وضعیت'}</th>
-                          <th className="py-2 px-2.5 text-start">IP</th>
-                          <th className="py-2 px-2.5 text-start">{isEn ? 'Hostnames' : 'نام‌ها'}</th>
-                          <th className="py-2 px-2.5 text-end">{isEn ? 'Actions' : 'عملیات'}</th>
+                          <th className="py-2.5 px-3 text-start whitespace-nowrap w-24">{isEn ? 'State' : 'وضعیت'}</th>
+                          <th className="py-2.5 px-3 text-start whitespace-nowrap">IP</th>
+                          <th className="py-2.5 px-3 text-start">{isEn ? 'Hostnames' : 'نام‌ها'}</th>
+                          <th className="py-2.5 px-3 text-end whitespace-nowrap w-32">{isEn ? 'Actions' : 'عملیات'}</th>
                         </tr>
                       </thead>
                       <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
                         {filteredHostsEntries.map((he: any) => (
-                          <tr key={he.id} className={!he.enabled ? 'opacity-60' : ''}>
-                            <td className="py-2 px-2.5">
+                          <tr key={he.id} className={!he.enabled ? 'opacity-65' : ''}>
+                            <td className="py-2.5 px-3 whitespace-nowrap align-middle">
                               <span
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                                className={`inline-flex items-center whitespace-nowrap shrink-0 px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
                                   he.enabled
                                     ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
                                     : 'border-slate-500/30 bg-slate-500/10 text-slate-400'
@@ -4408,36 +4506,38 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                                 {he.enabled ? (isEn ? 'Active' : 'فعال') : isEn ? 'Disabled (#)' : 'غیرفعال (#)'}
                               </span>
                             </td>
-                            <td className={`py-2 px-2.5 font-mono ${textPrimary}`} dir="ltr">
+                            <td className={`py-2.5 px-3 font-mono whitespace-nowrap align-middle ${textPrimary}`} dir="ltr">
                               {he.ip}
                             </td>
-                            <td className={`py-2 px-2.5 font-mono ${textPrimary}`} dir="ltr">
+                            <td className={`py-2.5 px-3 font-mono align-middle break-all ${textPrimary}`} dir="ltr">
                               <div>{he.hostnames}</div>
                               {he.comment && <div className={`text-[10px] ${textMuted}`}># {he.comment}</div>}
                             </td>
-                            <td className="py-2 px-2.5 text-end whitespace-nowrap space-x-1 space-x-reverse">
-                              <button
-                                type="button"
-                                disabled={!canExecuteActions || busyHostsKey !== null}
-                                onClick={() => handleManageHosts('toggle', he.lineIndex)}
-                                title={he.enabled ? (isEn ? 'Comment out (#)' : 'غیرفعال‌سازی موقت') : isEn ? 'Enable' : 'فعال‌سازی'}
-                                className={`px-2 py-1 rounded border text-[11px] font-medium cursor-pointer disabled:opacity-40 ${
-                                  isLightMode
-                                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-                                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
-                                }`}
-                              >
-                                {he.enabled ? (isEn ? 'Disable' : 'غیرفعال') : isEn ? 'Enable' : 'فعال'}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={!canExecuteActions || busyHostsKey !== null}
-                                onClick={() => handleManageHosts('delete', he.lineIndex)}
-                                title={isEn ? 'Delete entry' : 'حذف ردیف'}
-                                className="p-1 rounded border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 cursor-pointer disabled:opacity-40"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
+                            <td className="py-2.5 px-3 text-end whitespace-nowrap align-middle">
+                              <div className="inline-flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  disabled={!canExecuteActions || busyHostsKey !== null}
+                                  onClick={() => handleManageHosts('toggle', he.lineIndex)}
+                                  title={he.enabled ? (isEn ? 'Comment out (#)' : 'غیرفعال‌سازی موقت') : isEn ? 'Enable' : 'فعال‌سازی'}
+                                  className={`h-7 px-2.5 inline-flex items-center justify-center whitespace-nowrap rounded-md border text-[11px] font-medium cursor-pointer transition disabled:opacity-40 ${
+                                    isLightMode
+                                      ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                                  }`}
+                                >
+                                  {he.enabled ? (isEn ? 'Disable' : 'غیرفعال') : isEn ? 'Enable' : 'فعال'}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={!canExecuteActions || busyHostsKey !== null}
+                                  onClick={() => handleManageHosts('delete', he.lineIndex)}
+                                  title={isEn ? 'Delete entry' : 'حذف ردیف'}
+                                  className="h-7 w-7 inline-flex items-center justify-center shrink-0 rounded-md border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 cursor-pointer transition disabled:opacity-40"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -4705,6 +4805,373 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* Endpoint VPN Connection Provisioning & Management */}
+          {networkData && (
+            <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-sky-500" />
+                    <h3 className={`text-sm font-bold ${textPrimary}`}>
+                      {isEn
+                        ? 'Endpoint VPN Connections Manager'
+                        : 'ساخت و مدیریت کانکشن‌های VPN روی سیستم کاربر'}
+                    </h3>
+                  </div>
+                  <p className={`text-xs mt-0.5 ${textMuted}`}>
+                    {isEn
+                      ? 'Provision L2TP/IPsec, IKEv2, SSTP, or PPTP VPN profiles directly on the workstation — defaulted to automatic Windows/Domain user login SSO credentials.'
+                      : 'تعریف و مدیریت پروفایل‌های VPN (از جمله L2TP/IPsec، IKEv2، SSTP و PPTP) روی ویندوز کاربر؛ در حالت پیش‌فرض کانکشن با نام کاربری و رمز خود کاربر سیستم احراز هویت می‌شود.'}
+                  </p>
+                </div>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-500 text-xs font-semibold">
+                  <Shield className="w-3.5 h-3.5" />
+                  <span>
+                    {Array.isArray(networkData.vpnConnections) ? networkData.vpnConnections.length : 0}{' '}
+                    {isEn ? 'VPN Profiles' : 'کانکشن VPN'}
+                  </span>
+                </span>
+              </div>
+
+              {/* Create New VPN Profile Form */}
+              <form
+                onSubmit={handleCreateVpn}
+                className={`p-4 rounded-xl border space-y-4 ${subSurfaceBg}`}
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
+                  <div className="lg:col-span-3">
+                    <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                      {isEn ? 'VPN Connection Name' : 'نام کانکشن VPN'}
+                    </label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={vpnName}
+                      onChange={(e) => setVpnName(e.target.value)}
+                      placeholder="Corp-VPN"
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                      required
+                    />
+                  </div>
+
+                  <div className="lg:col-span-3">
+                    <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                      {isEn ? 'VPN Server IP / Hostname' : 'آدرس IP یا هاست‌نیم سرور VPN'}
+                    </label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={vpnServer}
+                      onChange={(e) => setVpnServer(e.target.value)}
+                      placeholder="vpn.company.com"
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                      required
+                    />
+                  </div>
+
+                  <div className="lg:col-span-2">
+                    <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                      {isEn ? 'Protocol / Type' : 'پروتکل / نوع VPN'}
+                    </label>
+                    <select
+                      value={vpnTunnelType}
+                      onChange={(e) => setVpnTunnelType(e.target.value as any)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                    >
+                      <option value="L2tp">L2TP / IPsec</option>
+                      <option value="Ikev2">IKEv2</option>
+                      <option value="Sstp">SSTP (HTTPS 443)</option>
+                      <option value="Pptp">PPTP</option>
+                      <option value="Automatic">Automatic</option>
+                    </select>
+                  </div>
+
+                  <div className="lg:col-span-2">
+                    <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                      {isEn ? 'Profile Scope' : 'محدوده کاربر'}
+                    </label>
+                    <select
+                      value={vpnAllUsers ? 'all' : 'user'}
+                      onChange={(e) => setVpnAllUsers(e.target.value === 'all')}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                    >
+                      <option value="all">{isEn ? 'All Users on PC' : 'همه کاربران سیستم'}</option>
+                      <option value="user">{isEn ? 'Active Logged-In User' : 'فقط کاربر فعال فعلی'}</option>
+                    </select>
+                  </div>
+
+                  <div className="lg:col-span-2">
+                    <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                      {isEn ? 'DNS Suffix (Optional)' : 'پسوند DNS (اختیاری)'}
+                    </label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={vpnDnsSuffix}
+                      onChange={(e) => setVpnDnsSuffix(e.target.value)}
+                      placeholder="corp.local"
+                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                    />
+                  </div>
+                </div>
+
+                {(vpnTunnelType === 'L2tp' || vpnTunnelType === 'Automatic') && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+                    <div className="lg:col-span-4">
+                      <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                        {isEn ? 'L2TP Pre-Shared Key / PSK (Optional)' : 'کلید مشترک L2TP Pre-Shared Key (اختیاری)'}
+                      </label>
+                      <input
+                        type="password"
+                        dir="ltr"
+                        autoComplete="new-password"
+                        value={vpnL2tpPsk}
+                        onChange={(e) => setVpnL2tpPsk(e.target.value)}
+                        placeholder="••••••••"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Windows Login Credential SSO Default Option */}
+                <div
+                  className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    vpnUseWinCred
+                      ? 'border-emerald-500/40 bg-emerald-500/10'
+                      : isLightMode
+                      ? 'bg-white border-slate-200'
+                      : 'bg-slate-900 border-slate-800'
+                  }`}
+                >
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={vpnUseWinCred}
+                      onChange={(e) => setVpnUseWinCred(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-400 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs font-bold ${textPrimary}`}>
+                          {isEn
+                            ? "Automatically use the endpoint user's Windows / Domain username & password"
+                            : 'اتصال خودکار با یوزر و پسورد ویندوز/دامین خود کاربر همین سیستم (پیش‌فرض فعال)'}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-500 border border-emerald-500/30">
+                          {isEn ? 'Windows SSO' : 'UseWinlogonCredential'}
+                        </span>
+                      </div>
+                      <p className={`text-[11px] mt-0.5 ${textMuted}`}>
+                        {isEn
+                          ? 'When checked, Windows passes the logged-in user’s session credentials automatically during VPN connection without prompting for password.'
+                          : 'با فعال بودن این گزینه، کاربر هنگام اتصال VPN نیازی به وارد کردن مجدد نام کاربری و رمز عبور ندارد و با اکانت ویندوز خود متصل می‌شود.'}
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className="inline-flex items-center gap-2 shrink-0 cursor-pointer text-xs">
+                    <input
+                      type="checkbox"
+                      checked={vpnSplitTunnel}
+                      onChange={(e) => setVpnSplitTunnel(e.target.checked)}
+                      className="rounded border-slate-400 text-sky-600 focus:ring-sky-500"
+                    />
+                    <span className={`font-medium ${textPrimary}`}>
+                      {isEn ? 'Split Tunneling (Keep Local Internet)' : 'Split Tunneling (حفظ اینترنت محلی)'}
+                    </span>
+                  </label>
+                </div>
+
+                {/* Optional Custom Credentials when SSO is unchecked */}
+                {!vpnUseWinCred && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                        {isEn ? 'Custom VPN Username (Optional — leave empty to prompt user)' : 'نام کاربری سفارشی VPN (اختیاری — در صورت خالی بودن از کاربر پرسیده می‌شود)'}
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={vpnCustomUser}
+                        onChange={(e) => setVpnCustomUser(e.target.value)}
+                        placeholder="DOMAIN\\vpnuser"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                      />
+                    </div>
+                    <div>
+                      <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                        {isEn ? 'Custom VPN Password (Optional — RAM only, never saved on server)' : 'رمز عبور سفارشی VPN (اختیاری — عدم ذخیره در سرور)'}
+                      </label>
+                      <input
+                        type="password"
+                        dir="ltr"
+                        autoComplete="new-password"
+                        value={vpnCustomPass}
+                        onChange={(e) => setVpnCustomPass(e.target.value)}
+                        placeholder="••••••••"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end">
+                  <button
+                    type="submit"
+                    disabled={!canExecuteActions || busyVpnKey !== null}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                  >
+                    {busyVpnKey === 'create' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                    <span>{isEn ? 'Create / Update VPN Connection' : 'ساخت / بروزرسانی کانکشن VPN'}</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Existing VPN Connections Table */}
+              {!Array.isArray(networkData.vpnConnections) || networkData.vpnConnections.length === 0 ? (
+                <div className={`p-5 rounded-xl border text-center text-xs ${subSurfaceBg} ${textMuted}`}>
+                  {isEn
+                    ? 'No VPN connections configured on this workstation yet.'
+                    : 'هنوز هیچ کانکشن VPN روی این سیستم تعریف نشده است.'}
+                </div>
+              ) : (
+                <div className="max-h-72 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                  <table className="w-full min-w-[680px] text-xs border-collapse">
+                    <thead className={`sticky top-0 z-10 ${isLightMode ? 'bg-slate-50 text-slate-600' : 'bg-slate-900 text-slate-400'}`}>
+                      <tr className="border-b border-slate-200 dark:border-slate-800">
+                        <th className="py-2.5 px-3 text-start">{isEn ? 'VPN Name' : 'نام کانکشن'}</th>
+                        <th className="py-2.5 px-3 text-start">{isEn ? 'Server' : 'آدرس سرور'}</th>
+                        <th className="py-2.5 px-3 text-start">{isEn ? 'Protocol & Auth' : 'پروتکل و احراز هویت'}</th>
+                        <th className="py-2.5 px-3 text-start">{isEn ? 'Scope & Split' : 'محدوده و Split'}</th>
+                        <th className="py-2.5 px-3 text-start">{isEn ? 'Status' : 'وضعیت'}</th>
+                        <th className="py-2.5 px-3 text-end">{isEn ? 'Actions' : 'عملیات'}</th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
+                      {networkData.vpnConnections.map((vpn: any) => {
+                        const isConn = String(vpn.connectionStatus || '').toLowerCase() === 'connected';
+                        return (
+                          <tr key={vpn.id || vpn.name}>
+                            <td className={`py-2.5 px-3 font-semibold ${textPrimary}`}>{vpn.name}</td>
+                            <td className={`py-2.5 px-3 font-mono ${textPrimary}`} dir="ltr">
+                              {vpn.serverAddress || '—'}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="inline-flex items-center flex-wrap gap-1.5">
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono border border-sky-500/30 bg-sky-500/10 text-sky-500">
+                                  {vpn.tunnelType || 'Auto'}
+                                </span>
+                                {vpn.useWinlogonCredential ? (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border border-emerald-500/40 bg-emerald-500/10 text-emerald-500 whitespace-nowrap">
+                                    <UserCheck className="w-3 h-3" />
+                                    <span>{isEn ? 'Windows SSO' : 'یوزر ویندوز'}</span>
+                                  </span>
+                                ) : (
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] border ${isLightMode ? 'border-slate-300 text-slate-600' : 'border-slate-700 text-slate-400'}`}>
+                                    {vpn.authenticationMethod || (isEn ? 'Prompt/Custom' : 'یوزر سفارشی')}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="inline-flex items-center flex-wrap gap-1.5">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] border ${isLightMode ? 'border-slate-300 text-slate-600' : 'border-slate-700 text-slate-400'}`}>
+                                  {vpn.allUserConnection ? (isEn ? 'All Users' : 'همه کاربران') : isEn ? 'Active User' : 'کاربر فعال'}
+                                </span>
+                                {vpn.splitTunneling && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] border border-teal-500/30 bg-teal-500/10 text-teal-500">
+                                    Split
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center whitespace-nowrap px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+                                  isConn
+                                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+                                    : 'border-slate-500/30 bg-slate-500/10 text-slate-400'
+                                }`}
+                              >
+                                {isConn ? (isEn ? 'Connected' : 'متصل') : isEn ? 'Disconnected' : 'قطع'}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-end whitespace-nowrap">
+                              <div className="inline-flex items-center justify-end gap-2">
+                                {isConn ? (
+                                  <button
+                                    type="button"
+                                    disabled={!canExecuteActions || busyVpnKey !== null}
+                                    onClick={() => handleVpnRowAction('disconnect', vpn.name)}
+                                    className="h-7 px-2.5 inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-[11px] font-semibold cursor-pointer disabled:opacity-40"
+                                  >
+                                    {busyVpnKey === `disconnect:${vpn.name}` ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <PowerOff className="w-3 h-3" />
+                                    )}
+                                    <span>{isEn ? 'Disconnect' : 'قطع'}</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={!canExecuteActions || busyVpnKey !== null}
+                                    onClick={() => handleVpnRowAction('connect', vpn.name)}
+                                    className="h-7 px-2.5 inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 text-[11px] font-semibold cursor-pointer disabled:opacity-40"
+                                  >
+                                    {busyVpnKey === `connect:${vpn.name}` ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <PlugZap className="w-3 h-3" />
+                                    )}
+                                    <span>{isEn ? 'Connect' : 'اتصال'}</span>
+                                  </button>
+                                )}
+
+                                {confirmDeleteVpnName === vpn.name ? (
+                                  <div className="inline-flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      disabled={busyVpnKey !== null}
+                                      onClick={() => handleVpnRowAction('delete', vpn.name)}
+                                      className="h-7 px-2 rounded-md bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-semibold cursor-pointer"
+                                    >
+                                      {isEn ? 'Confirm' : 'تایید'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteVpnName(null)}
+                                      className={`h-7 px-2 rounded-md border text-[11px] cursor-pointer ${
+                                        isLightMode ? 'bg-white border-slate-300 text-slate-600' : 'bg-slate-800 border-slate-700 text-slate-300'
+                                      }`}
+                                    >
+                                      {isEn ? 'Cancel' : 'لغو'}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={!canExecuteActions || busyVpnKey !== null}
+                                    onClick={() => setConfirmDeleteVpnName(vpn.name)}
+                                    title={isEn ? 'Delete VPN connection' : 'حذف کانکشن VPN'}
+                                    className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 cursor-pointer disabled:opacity-40"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>

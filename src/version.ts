@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.464.0';
+export const APP_VERSION = '1.465.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.465.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'ساخت و مدیریت کانکشن‌های VPN روی سیستم کاربر با احراز هویت خودکار یوزر ویندوز + اصلاح فاصله اطراف صفحه HelpDesk و تراز جدول Hosts',
+    title_en: 'HelpDesk Endpoint VPN Connection Manager (Default Windows SSO Login Credentials), Page Margin Polish & Hosts File Table Alignment Fix',
+    changes: [
+      'افزودن بخش کامل **ساخت و مدیریت کانکشن‌های VPN** در تب **«شبکه، پروکسی، hosts، روتینگ و ریست ایمن»**: امکان تعریف پروفایل‌های `L2TP/IPsec` (با کلید PSK اختیاری)، `IKEv2`، `SSTP`، `PPTP` یا `Automatic`، تنظیم `Split Tunneling`، پسوند DNS، انتخاب محدوده نصب (همه کاربران سیستم یا فقط کاربر فعال فعلی)، و دکمه‌های **اتصال (`Connect`)، قطع اتصال (`Disconnect`) و حذف دو مرحله‌ای** همراه با ثبت کامل در Audit & Command Logs.',
+      'فعال‌سازی پیش‌فرض گزینه **«استفاده خودکار از یوزر و پسورد ویندوز/دامین کاربر سیستم (`UseWinlogonCredential`)»** جهت احراز هویت مستقیم VPN با حساب کاربری خود کاربر بدون نیاز به وارد کردن مجدد رمز (و پشتیبانی اختیاری از نام کاربری و رمز سفارشی در صورت غیرفعال‌سازی).',
+      'اصلاح فاصله اطراف و حاشیه کانتینر اصلی صفحه **Agentless Endpoint HelpDesk** هماهنگ با سایر صفحات پنل، و رفع هم‌افتادگی دکمه‌ها و برچسب وضعیت در جدول **Local DNS Hosts File Manager**.'
+    ],
+    changes_en: [
+      'Added full **Endpoint VPN Connection Manager** inside **Network, Proxy, Hosts, Routing & Safe Reset**: create `L2TP/IPsec` (with optional Pre-Shared Key), `IKEv2`, `SSTP`, `PPTP`, or `Automatic` VPN profiles with configurable `Split Tunneling`, optional DNS Suffix, per-machine (`All Users`) or active-user targeting, plus **Connect, Disconnect, and 2-step Delete** actions logged to Audit & Command Logs.',
+      'Enabled **Auto-use Workstation User’s Windows/Domain Login Credentials (`UseWinlogonCredential` / `UseRasCredentials=1`)** by default so users connect seamlessly using their own Windows login credentials, with optional custom credentials when toggled off.',
+      'Added responsive outer horizontal/vertical container padding to **Agentless Endpoint HelpDesk** matching sibling portal views, and fixed overlapping status badges and action buttons in the **Local DNS Hosts File Manager** table.'
+    ],
+  },
   {
     version: '1.464.0',
     releaseDate: '2026-11-24',

@@ -23,6 +23,10 @@ export type HelpdeskWriteAction =
   | 'network_proxy_config'
   | 'network_route_add'
   | 'network_route_delete'
+  | 'network_vpn_create'
+  | 'network_vpn_delete'
+  | 'network_vpn_connect'
+  | 'network_vpn_disconnect'
   | 'spooler_restart'
   | 'spooler_clear_queue'
   | 'printer_set_default'
@@ -212,6 +216,19 @@ export interface HelpdeskRouteEntry {
   isSystemReserved: boolean;
 }
 
+export interface HelpdeskVpnConnection {
+  id: string;
+  name: string;
+  serverAddress: string;
+  tunnelType: string;
+  authenticationMethod: string;
+  useWinlogonCredential: boolean;
+  splitTunneling: boolean;
+  allUserConnection: boolean;
+  connectionStatus: string;
+  rememberCredential: boolean;
+}
+
 export interface HelpdeskNetworkSnapshotResult {
   targetIp: string;
   protocolUsed: HelpdeskResolvedProtocol;
@@ -234,6 +251,7 @@ export interface HelpdeskNetworkSnapshotResult {
   hostsFilePath?: string;
   hostsEntries?: HelpdeskHostsEntry[];
   routes?: HelpdeskRouteEntry[];
+  vpnConnections?: HelpdeskVpnConnection[];
   arpSummaryCount: number;
 }
 
@@ -2283,6 +2301,120 @@ try {
 $arpCount = 0
 try { $arpCount = (Get-NetNeighbor -AddressFamily IPv4 | Where-Object { $_.State -ne 'Unreachable' }).Count } catch {}
 
+function Parse-PbkUseRas([string]$pbkPath) {
+  $map = @{}
+  if (-not $pbkPath -or -not (Test-Path $pbkPath)) { return $map }
+  $cur = ''
+  foreach ($ln in (Get-Content -Path $pbkPath -ErrorAction SilentlyContinue)) {
+    $t = ([string]$ln).Trim()
+    if ($t -match '^\\[(.+)\\]$') {
+      $cur = $Matches[1]
+      if (-not $map.ContainsKey($cur)) {
+        $map[$cur] = @{ server = ''; useRas = $false; split = $true; tunnel = 'Automatic' }
+      }
+    } elseif ($cur -and $t -match '^([^=]+)=(.*)$') {
+      $k = $Matches[1].Trim(); $v = $Matches[2].Trim()
+      if ($k -eq 'PhoneNumber') { $map[$cur].server = $v }
+      elseif ($k -eq 'UseRasCredentials') { $map[$cur].useRas = ($v -eq '1') }
+      elseif ($k -eq 'IpPrioritizeRemote') { $map[$cur].split = ($v -eq '0') }
+      elseif ($k -eq 'VpnStrategy') {
+        $map[$cur].tunnel = switch ($v) { '1' { 'Pptp' } '2' { 'Pptp' } '3' { 'L2tp' } '4' { 'L2tp' } '5' { 'Sstp' } '6' { 'Sstp' } '7' { 'Ikev2' } '8' { 'Ikev2' } default { 'Automatic' } }
+      }
+    }
+  }
+  return $map
+}
+
+$activeProfPath = ''
+if ($userSid) {
+  try {
+    $profReg = Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$userSid" -ErrorAction SilentlyContinue
+    if ($profReg -and $profReg.ProfileImagePath) { $activeProfPath = [string]$profReg.ProfileImagePath }
+  } catch {}
+}
+$globalPbk = "$env:ProgramData\\Microsoft\\Network\\Connections\\Pbk\\rasphone.pbk"
+$userPbk = if ($activeProfPath) { "$activeProfPath\\AppData\\Roaming\\Microsoft\\Network\\Connections\\Pbk\\rasphone.pbk" } else { '' }
+$globalPbkMap = Parse-PbkUseRas $globalPbk
+$userPbkMap = Parse-PbkUseRas $userPbk
+
+$vpnList = @()
+$seenVpn = @{}
+$activeRasNames = @{}
+try {
+  $rasOut = (& rasdial.exe 2>$null)
+  foreach ($rl in @($rasOut)) {
+    $rt = ([string]$rl).Trim()
+    if ($rt -and $rt -notmatch '^(Connected to|No connections|Command completed)') {
+      $activeRasNames[$rt.ToLower()] = $true
+    }
+  }
+} catch {}
+
+try {
+  foreach ($vc in @(Get-VpnConnection -AllUserConnection -ErrorAction SilentlyContinue)) {
+    $nm = [string]$vc.Name
+    if (-not $nm) { continue }
+    $k = "all|$($nm.ToLower())"
+    if ($seenVpn.ContainsKey($k)) { continue }
+    $seenVpn[$k] = $true
+    $pbkInfo = $globalPbkMap[$nm]
+    $uWin = if ($null -ne $vc.UseWinlogonCredential) { [bool]$vc.UseWinlogonCredential } elseif ($pbkInfo) { [bool]$pbkInfo.useRas } else { $false }
+    if ($pbkInfo -and $pbkInfo.useRas) { $uWin = $true }
+    $vpnList += [PSCustomObject]@{
+      name = $nm
+      serverAddress = [string]$vc.ServerAddress
+      tunnelType = [string]$vc.TunnelType
+      authenticationMethod = (($vc.AuthenticationMethod | ForEach-Object { [string]$_ }) -join ', ')
+      useWinlogonCredential = [bool]$uWin
+      splitTunneling = [bool]$vc.SplitTunneling
+      allUserConnection = $true
+      connectionStatus = if ($activeRasNames.ContainsKey($nm.ToLower())) { 'Connected' } else { [string]$vc.ConnectionStatus }
+      rememberCredential = [bool]$vc.RememberCredential
+    }
+  }
+} catch {}
+
+foreach ($uk in $userPbkMap.Keys) {
+  $k = "user|$($uk.ToLower())"
+  if ($seenVpn.ContainsKey($k)) { continue }
+  $seenVpn[$k] = $true
+  $info = $userPbkMap[$uk]
+  $vpnList += [PSCustomObject]@{
+    name = [string]$uk
+    serverAddress = [string]$info.server
+    tunnelType = [string]$info.tunnel
+    authenticationMethod = if ($info.useRas) { 'MSChapv2 (Windows SSO)' } else { 'Custom / Prompt' }
+    useWinlogonCredential = [bool]$info.useRas
+    splitTunneling = [bool]$info.split
+    allUserConnection = $false
+    connectionStatus = if ($activeRasNames.ContainsKey($uk.ToLower())) { 'Connected' } else { 'Disconnected' }
+    rememberCredential = $true
+  }
+}
+
+try {
+  foreach ($vc in @(Get-VpnConnection -ErrorAction SilentlyContinue)) {
+    $nm = [string]$vc.Name
+    if (-not $nm) { continue }
+    $k = "user|$($nm.ToLower())"
+    $kAll = "all|$($nm.ToLower())"
+    if ($seenVpn.ContainsKey($k) -or $seenVpn.ContainsKey($kAll)) { continue }
+    $seenVpn[$k] = $true
+    $uWin = if ($null -ne $vc.UseWinlogonCredential) { [bool]$vc.UseWinlogonCredential } else { $false }
+    $vpnList += [PSCustomObject]@{
+      name = $nm
+      serverAddress = [string]$vc.ServerAddress
+      tunnelType = [string]$vc.TunnelType
+      authenticationMethod = (($vc.AuthenticationMethod | ForEach-Object { [string]$_ }) -join ', ')
+      useWinlogonCredential = [bool]$uWin
+      splitTunneling = [bool]$vc.SplitTunneling
+      allUserConnection = $false
+      connectionStatus = if ($activeRasNames.ContainsKey($nm.ToLower())) { 'Connected' } else { [string]$vc.ConnectionStatus }
+      rememberCredential = [bool]$vc.RememberCredential
+    }
+  }
+} catch {}
+
 [PSCustomObject]@{
   hostname = [string]$env:COMPUTERNAME
   adapters = $adapters
@@ -2300,6 +2432,7 @@ try { $arpCount = (Get-NetNeighbor -AddressFamily IPv4 | Where-Object { $_.State
   hostsFilePath = $hostsPath
   hostsEntries = $hostsEntries
   routes = $routes
+  vpnConnections = $vpnList
   arpSummaryCount = [int]$arpCount
 } | ConvertTo-Json -Depth 6 -Compress
 `;
@@ -2387,6 +2520,23 @@ for line in run("ip -4 route show").splitlines()[:80]:
 
 proxy = os.environ.get("https_proxy") or os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY") or ""
 arp_cnt = len(run("ip neigh show").splitlines())
+vpns = []
+nm_out = run("nmcli -t -f NAME,TYPE,STATE connection show 2>/dev/null")
+for line in nm_out.splitlines():
+    parts = line.split(":")
+    if len(parts) >= 3 and parts[1].lower() in ("vpn", "wireguard", "tun"):
+        srv = run(f"nmcli -g vpn.data connection show '{parts[0]}' 2>/dev/null")
+        vpns.append({
+            "name": parts[0],
+            "serverAddress": srv[:80],
+            "tunnelType": parts[1],
+            "authenticationMethod": "System Auth",
+            "useWinlogonCredential": False,
+            "splitTunneling": True,
+            "allUserConnection": True,
+            "connectionStatus": "Connected" if "activated" in parts[2].lower() else "Disconnected",
+            "rememberCredential": True,
+        })
 print(json.dumps({
     "hostname": socket.gethostname(),
     "adapters": adapters,
@@ -2394,6 +2544,7 @@ print(json.dumps({
     "hostsFilePath": "/etc/hosts",
     "hostsEntries": hosts_entries,
     "routes": routes,
+    "vpnConnections": vpns,
     "arpSummaryCount": arp_cnt
 }))
 PY
@@ -2407,6 +2558,7 @@ export async function collectEndpointNetworkSnapshot(
   const rawAdapters = Array.isArray(parsed.adapters) ? parsed.adapters : parsed.adapters ? [parsed.adapters] : [];
   const rawHosts = Array.isArray(parsed.hostsEntries) ? parsed.hostsEntries : parsed.hostsEntries ? [parsed.hostsEntries] : [];
   const rawRoutes = Array.isArray(parsed.routes) ? parsed.routes : parsed.routes ? [parsed.routes] : [];
+  const rawVpns = Array.isArray(parsed.vpnConnections) ? parsed.vpnConnections : parsed.vpnConnections ? [parsed.vpnConnections] : [];
 
   return {
     targetIp: execRes.host,
@@ -2461,6 +2613,18 @@ export async function collectEndpointNetworkSnapshot(
       persistent: Boolean(r.persistent),
       isDefault: Boolean(r.isDefault),
       isSystemReserved: Boolean(r.isSystemReserved),
+    })),
+    vpnConnections: rawVpns.map((v: any, idx: number) => ({
+      id: `vpn-${v.allUserConnection ? 'all' : 'usr'}-${v.name || idx}`,
+      name: String(v.name || ''),
+      serverAddress: String(v.serverAddress || ''),
+      tunnelType: String(v.tunnelType || 'Automatic'),
+      authenticationMethod: String(v.authenticationMethod || ''),
+      useWinlogonCredential: Boolean(v.useWinlogonCredential),
+      splitTunneling: typeof v.splitTunneling === 'boolean' ? v.splitTunneling : true,
+      allUserConnection: typeof v.allUserConnection === 'boolean' ? v.allUserConnection : true,
+      connectionStatus: String(v.connectionStatus || 'Disconnected'),
+      rememberCredential: typeof v.rememberCredential === 'boolean' ? v.rememberCredential : true,
     })),
     arpSummaryCount: Number(parsed.arpSummaryCount) || 0,
   };
@@ -3668,6 +3832,367 @@ PY
         : `مسیر ${dest}/${prefixLen} از سیستم ${execRes.host} حذف شد.`
       : `عملیات مسیر شبکه (${op}) ناموفق بود: ${parsed.output}`,
     details: { operation: op, destination: dest, netmask: mask, prefixLength: prefixLen, gateway: gw, persistent },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export type HelpdeskVpnOperation = 'create' | 'delete' | 'connect' | 'disconnect';
+export type HelpdeskVpnTunnelType = 'Automatic' | 'L2tp' | 'Ikev2' | 'Sstp' | 'Pptp';
+
+export async function manageEndpointVpnConnection(
+  input: HelpdeskTargetInput,
+  params: {
+    operation: HelpdeskVpnOperation;
+    name: string;
+    serverAddress?: string;
+    tunnelType?: HelpdeskVpnTunnelType;
+    l2tpPsk?: string;
+    useWinlogonCredential?: boolean;
+    splitTunneling?: boolean;
+    allUserConnection?: boolean;
+    dnsSuffix?: string;
+    customUsername?: string;
+    customPassword?: string;
+  }
+): Promise<HelpdeskActionResult> {
+  const op = params.operation;
+  if (op !== 'create' && op !== 'delete' && op !== 'connect' && op !== 'disconnect') {
+    throw new Error('Invalid VPN operation.');
+  }
+  const vpnName = String(params.name || '').trim();
+  if (!/^[a-zA-Z0-9 _.-]{1,64}$/.test(vpnName)) {
+    throw new Error('VPN connection name must be 1-64 characters (letters, numbers, spaces, ., _, -).');
+  }
+
+  const serverAddress = String(params.serverAddress || '').trim();
+  if (op === 'create') {
+    if (!serverAddress || !/^[a-zA-Z0-9.:_-]{1,128}$/.test(serverAddress)) {
+      throw new Error('Valid VPN Server IP or Hostname is required.');
+    }
+  }
+
+  const allowedTunnels: HelpdeskVpnTunnelType[] = ['Automatic', 'L2tp', 'Ikev2', 'Sstp', 'Pptp'];
+  const tunnelType: HelpdeskVpnTunnelType = allowedTunnels.includes(params.tunnelType as any)
+    ? (params.tunnelType as HelpdeskVpnTunnelType)
+    : 'L2tp';
+
+  const useWinlogonCredential =
+    params.useWinlogonCredential !== undefined ? Boolean(params.useWinlogonCredential) : true;
+  const splitTunneling =
+    params.splitTunneling !== undefined ? Boolean(params.splitTunneling) : true;
+  const allUserConnection =
+    params.allUserConnection !== undefined ? Boolean(params.allUserConnection) : true;
+  const dnsSuffix = String(params.dnsSuffix || '').trim();
+  if (dnsSuffix && !/^[a-zA-Z0-9.-]{1,120}$/.test(dnsSuffix)) {
+    throw new Error('Invalid DNS Suffix format.');
+  }
+  const l2tpPsk = String(params.l2tpPsk || '');
+  const customUsername = String(params.customUsername || '').trim();
+  const customPassword = String(params.customPassword || '');
+  if (customUsername && !/^[a-zA-Z0-9._\\@-]{1,128}$/.test(customUsername)) {
+    throw new Error('Invalid custom VPN username format.');
+  }
+
+  const cfgB64 = Buffer.from(
+    JSON.stringify({
+      op,
+      name: vpnName,
+      serverAddress,
+      tunnelType,
+      l2tpPsk,
+      useWinlogonCredential,
+      splitTunneling,
+      allUserConnection,
+      dnsSuffix,
+      customUsername,
+      customPassword,
+    }),
+    'utf8'
+  ).toString('base64');
+
+  const ps = `
+$ErrorActionPreference = 'Stop'
+$cfg = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${cfgB64}')) | ConvertFrom-Json
+$vpnName = [string]$cfg.name
+
+function Get-ActiveProfileDir {
+  $u = ''
+  try { $u = [string](Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName } catch {}
+  if (-not $u) {
+    try {
+      $exp = Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($exp) {
+        $own = Invoke-CimMethod -InputObject $exp -MethodName GetOwner -ErrorAction SilentlyContinue
+        if ($own -and $own.User) { $u = if ($own.Domain) { "$($own.Domain)\\$($own.User)" } else { [string]$own.User } }
+      }
+    } catch {}
+  }
+  if (-not $u) { return @{ user = ''; sid = ''; dir = '' } }
+  try {
+    $nt = New-Object System.Security.Principal.NTAccount($u)
+    $sid = $nt.Translate([System.Security.Principal.SecurityIdentifier]).Value
+    $reg = Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$sid" -ErrorAction SilentlyContinue
+    return @{ user = $u; sid = $sid; dir = [string]$reg.ProfileImagePath }
+  } catch { return @{ user = $u; sid = ''; dir = '' } }
+}
+
+function Remove-PbkSection([string]$pbkPath, [string]$secName) {
+  if (-not $pbkPath -or -not (Test-Path $pbkPath)) { return }
+  $lines = Get-Content -Path $pbkPath -ErrorAction SilentlyContinue
+  $out = New-Object System.Collections.Generic.List[string]
+  $skip = $false
+  foreach ($l in @($lines)) {
+    $tr = ([string]$l).Trim()
+    if ($tr -match '^\\[(.+)\\]$') {
+      $skip = ($Matches[1] -ieq $secName)
+    }
+    if (-not $skip) { [void]$out.Add([string]$l) }
+  }
+  Set-Content -Path $pbkPath -Value $out -Encoding UTF8
+}
+
+function Set-PbkSectionFlags([string]$pbkPath, [string]$secName, [bool]$useWinCred, [bool]$splitTun) {
+  if (-not $pbkPath -or -not (Test-Path $pbkPath)) { return }
+  $lines = Get-Content -Path $pbkPath -ErrorAction SilentlyContinue
+  $out = New-Object System.Collections.Generic.List[string]
+  $inSec = $false; $sawRas = $false; $sawPrev = $false
+  foreach ($l in @($lines)) {
+    $tr = ([string]$l).Trim()
+    if ($tr -match '^\\[(.+)\\]$') {
+      if ($inSec) {
+        if (-not $sawRas) { [void]$out.Add("UseRasCredentials=" + $(if ($useWinCred) { "1" } else { "0" })) }
+        if (-not $sawPrev) { [void]$out.Add("PreviewUserPw=" + $(if ($useWinCred) { "0" } else { "1" })) }
+      }
+      $inSec = ($Matches[1] -ieq $secName)
+      $sawRas = $false; $sawPrev = $false
+      [void]$out.Add([string]$l)
+      continue
+    }
+    if ($inSec) {
+      if ($tr -match '^UseRasCredentials=') {
+        $sawRas = $true
+        [void]$out.Add("UseRasCredentials=" + $(if ($useWinCred) { "1" } else { "0" }))
+        continue
+      }
+      if ($tr -match '^PreviewUserPw=') {
+        $sawPrev = $true
+        [void]$out.Add("PreviewUserPw=" + $(if ($useWinCred) { "0" } else { "1" }))
+        continue
+      }
+      if ($tr -match '^IpPrioritizeRemote=') {
+        [void]$out.Add("IpPrioritizeRemote=" + $(if ($splitTun) { "0" } else { "1" }))
+        continue
+      }
+    }
+    [void]$out.Add([string]$l)
+  }
+  if ($inSec) {
+    if (-not $sawRas) { [void]$out.Add("UseRasCredentials=" + $(if ($useWinCred) { "1" } else { "0" })) }
+    if (-not $sawPrev) { [void]$out.Add("PreviewUserPw=" + $(if ($useWinCred) { "0" } else { "1" })) }
+  }
+  Set-Content -Path $pbkPath -Value $out -Encoding UTF8
+}
+
+$prof = Get-ActiveProfileDir
+$globalPbk = "$env:ProgramData\\Microsoft\\Network\\Connections\\Pbk\\rasphone.pbk"
+$userPbk = if ($prof.dir) { "$($prof.dir)\\AppData\\Roaming\\Microsoft\\Network\\Connections\\Pbk\\rasphone.pbk" } else { '' }
+
+if ($cfg.op -eq 'delete') {
+  try { & rasdial.exe $vpnName /DISCONNECT 2>$null | Out-Null } catch {}
+  try { Remove-VpnConnection -Name $vpnName -AllUserConnection -Force -ErrorAction SilentlyContinue } catch {}
+  try { Remove-VpnConnection -Name $vpnName -Force -ErrorAction SilentlyContinue } catch {}
+  Remove-PbkSection $globalPbk $vpnName
+  if ($userPbk) { Remove-PbkSection $userPbk $vpnName }
+  [PSCustomObject]@{ ok = $true; output = "VPN connection '$vpnName' removed." } | ConvertTo-Json -Compress
+  exit 0
+}
+
+if ($cfg.op -eq 'disconnect') {
+  $out = (& rasdial.exe $vpnName /DISCONNECT 2>&1 | Out-String).Trim()
+  [PSCustomObject]@{ ok = ($LASTEXITCODE -eq 0); output = $out } | ConvertTo-Json -Compress
+  exit 0
+}
+
+if ($cfg.op -eq 'connect') {
+  $pbkArg = if (Test-Path $globalPbk) { $globalPbk } elseif ($userPbk -and (Test-Path $userPbk)) { $userPbk } else { '' }
+  if ($cfg.customUsername -and $cfg.customPassword) {
+    $args = @($vpnName, [string]$cfg.customUsername, [string]$cfg.customPassword)
+    if ($pbkArg) { $args += "/PHONEBOOK:$pbkArg" }
+    $out = (& rasdial.exe @args 2>&1 | Out-String).Trim()
+    [PSCustomObject]@{ ok = ($LASTEXITCODE -eq 0); output = $out } | ConvertTo-Json -Compress
+  } else {
+    $args = @($vpnName)
+    if ($pbkArg) { $args += "/PHONEBOOK:$pbkArg" }
+    $out = (& rasdial.exe @args 2>&1 | Out-String).Trim()
+    $code = $LASTEXITCODE
+    if ($code -ne 0 -and $prof.user) {
+      # Run rasdial inside the active user's interactive desktop session so Windows SSO credentials apply
+      $tn = "NetTopo_VpnConn_" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+      $cmd = if ($pbkArg) { "rasdial.exe \`"$vpnName\`" \`"/PHONEBOOK:$pbkArg\`"" } else { "rasdial.exe \`"$vpnName\`"" }
+      & schtasks.exe /Create /TN $tn /TR $cmd /SC ONCE /ST 00:00 /RU $prof.user /IT /F 2>$null | Out-Null
+      if ($LASTEXITCODE -eq 0) {
+        & schtasks.exe /Run /TN $tn 2>$null | Out-Null
+        Start-Sleep -Seconds 2
+        & schtasks.exe /Delete /TN $tn /F 2>$null | Out-Null
+        $chk = (& rasdial.exe 2>$null | Out-String)
+        $isNowConn = ($chk -match [regex]::Escape($vpnName))
+        [PSCustomObject]@{ ok = $true; output = if ($isNowConn) { "Connected '$vpnName' as $($prof.user)" } else { "Initiated VPN connection '$vpnName' in interactive session of $($prof.user)" } } | ConvertTo-Json -Compress
+        exit 0
+      }
+    }
+    [PSCustomObject]@{ ok = ($code -eq 0); output = $out } | ConvertTo-Json -Compress
+  }
+  exit 0
+}
+
+# Create / Update VPN Connection
+try { Remove-VpnConnection -Name $vpnName -AllUserConnection -Force -ErrorAction SilentlyContinue } catch {}
+Remove-PbkSection $globalPbk $vpnName
+if ($userPbk -and -not [bool]$cfg.allUserConnection) { Remove-PbkSection $userPbk $vpnName }
+
+$addParams = @{
+  Name = $vpnName
+  ServerAddress = [string]$cfg.serverAddress
+  TunnelType = [string]$cfg.tunnelType
+  EncryptionLevel = 'Optional'
+  RememberCredential = $true
+  SplitTunneling = [bool]$cfg.splitTunneling
+  AllUserConnection = $true
+  Force = $true
+}
+if ($cfg.dnsSuffix) { $addParams['DnsSuffix'] = [string]$cfg.dnsSuffix }
+if ($cfg.tunnelType -eq 'L2tp' -and $cfg.l2tpPsk) { $addParams['L2tpPsk'] = [string]$cfg.l2tpPsk }
+
+$createdWithWinCred = $false
+if ([bool]$cfg.useWinlogonCredential) {
+  $addParams['AuthenticationMethod'] = 'MSChapv2'
+  $addParams['UseWinlogonCredential'] = $true
+  try {
+    Add-VpnConnection @addParams
+    $createdWithWinCred = $true
+  } catch {
+    $addParams.Remove('UseWinlogonCredential')
+    Add-VpnConnection @addParams
+  }
+} else {
+  $addParams['AuthenticationMethod'] = @('MSChapv2', 'Chap', 'Pap')
+  Add-VpnConnection @addParams
+}
+
+Set-PbkSectionFlags $globalPbk $vpnName ([bool]$cfg.useWinlogonCredential) ([bool]$cfg.splitTunneling)
+
+if (-not [bool]$cfg.useWinlogonCredential -and $cfg.customUsername -and $cfg.customPassword) {
+  try {
+    $rasSetArgs = @($vpnName, [string]$cfg.customUsername, [string]$cfg.customPassword, '/PHONEBOOK:' + $globalPbk)
+    & rasdial.exe @rasSetArgs 2>$null | Out-Null
+    & rasdial.exe $vpnName /DISCONNECT 2>$null | Out-Null
+  } catch {}
+}
+
+$targetNote = 'All Users (Global PBK)'
+if (-not [bool]$cfg.allUserConnection) {
+  if (-not $userPbk) {
+    throw "No active logged-in user profile found to store per-user VPN connection. Use 'All Users' scope instead."
+  }
+  $userPbkDir = Split-Path -Parent $userPbk
+  if (-not (Test-Path $userPbkDir)) { New-Item -ItemType Directory -Path $userPbkDir -Force | Out-Null }
+  # Extract generated section from globalPbk and write into userPbk
+  $gLines = Get-Content -Path $globalPbk -ErrorAction Stop
+  $secLines = New-Object System.Collections.Generic.List[string]
+  $cap = $false
+  foreach ($gl in @($gLines)) {
+    $tr = ([string]$gl).Trim()
+    if ($tr -match '^\\[(.+)\\]$') {
+      if ($cap) { break }
+      if ($Matches[1] -ieq $vpnName) { $cap = $true }
+    }
+    if ($cap) { [void]$secLines.Add([string]$gl) }
+  }
+  if ($secLines.Count -gt 0) {
+    if (-not (Test-Path $userPbk)) { New-Item -ItemType File -Path $userPbk -Force | Out-Null }
+    Add-Content -Path $userPbk -Value ("\`r\`n" + ($secLines -join "\`r\`n")) -Encoding UTF8
+    if ($prof.sid) {
+      try {
+        $acl = Get-Acl $userPbk
+        $sidObj = New-Object System.Security.Principal.SecurityIdentifier($prof.sid)
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($sidObj, 'Modify', 'Allow')
+        $acl.SetAccessRule($rule)
+        Set-Acl -Path $userPbk -AclObject $acl
+      } catch {}
+    }
+    Remove-VpnConnection -Name $vpnName -AllUserConnection -Force -ErrorAction SilentlyContinue
+    Remove-PbkSection $globalPbk $vpnName
+    $targetNote = "Active User ($($prof.user))"
+  }
+}
+
+[PSCustomObject]@{
+  ok = $true
+  output = "VPN '$vpnName' -> $($cfg.serverAddress) [$($cfg.tunnelType)] configured for $targetNote (Windows Login SSO: $([bool]$cfg.useWinlogonCredential))"
+} | ConvertTo-Json -Compress
+`;
+
+  const lx = `python3 - <<'PY'
+import base64, json, subprocess
+cfg = json.loads(base64.b64decode("${cfgB64}").decode())
+op, nm = cfg["op"], cfg["name"]
+if op == "delete":
+    p = subprocess.run(["nmcli", "connection", "delete", nm], capture_output=True, text=True)
+    print(json.dumps({"ok": p.returncode == 0, "output": (p.stdout + p.stderr).strip()}))
+elif op == "connect":
+    p = subprocess.run(["nmcli", "connection", "up", nm], capture_output=True, text=True)
+    print(json.dumps({"ok": p.returncode == 0, "output": (p.stdout + p.stderr).strip()}))
+elif op == "disconnect":
+    p = subprocess.run(["nmcli", "connection", "down", nm], capture_output=True, text=True)
+    print(json.dumps({"ok": p.returncode == 0, "output": (p.stdout + p.stderr).strip()}))
+else:
+    print(json.dumps({"ok": False, "output": "Creating Windows RAS/VpnClient profiles is supported on Windows endpoints; Linux hosts support connecting/deleting existing NetworkManager VPN profiles."}))
+PY`;
+
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 30000 }, ps, lx);
+  const parsed = parseJsonFromStdout<{ ok: boolean; output: string }>(execRes.stdout, `vpn ${op}`);
+  const ok = Boolean(parsed.ok);
+  const actionMap: Record<HelpdeskVpnOperation, HelpdeskWriteAction> = {
+    create: 'network_vpn_create',
+    delete: 'network_vpn_delete',
+    connect: 'network_vpn_connect',
+    disconnect: 'network_vpn_disconnect',
+  };
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: actionMap[op],
+    success: ok,
+    message: ok
+      ? op === 'create'
+        ? `VPN profile "${vpnName}" (${serverAddress}, ${tunnelType}) configured on ${execRes.host}${useWinlogonCredential ? ' using Windows Login SSO credentials' : ''}.`
+        : op === 'delete'
+        ? `VPN profile "${vpnName}" removed from ${execRes.host}.`
+        : op === 'connect'
+        ? `VPN "${vpnName}" connection triggered on ${execRes.host}.`
+        : `VPN "${vpnName}" disconnected on ${execRes.host}.`
+      : `VPN operation (${op}) failed on ${execRes.host}: ${parsed.output}`,
+    messageFa: ok
+      ? op === 'create'
+        ? `کانکشن VPN «${vpnName}» (${serverAddress} - ${tunnelType}) روی سیستم ${execRes.host} ایجاد شد${useWinlogonCredential ? ' (با احراز هویت خودکار یوزر و پسورد سیستم)' : ''}.`
+        : op === 'delete'
+        ? `کانکشن VPN «${vpnName}» از سیستم ${execRes.host} حذف شد.`
+        : op === 'connect'
+        ? `درخواست اتصال VPN «${vpnName}» روی سیستم ${execRes.host} اجرا شد.`
+        : `اتصال VPN «${vpnName}» روی سیستم ${execRes.host} قطع شد.`
+      : `عملیات VPN (${op}) روی ${execRes.host} ناموفق بود: ${parsed.output}`,
+    details: {
+      operation: op,
+      name: vpnName,
+      serverAddress,
+      tunnelType,
+      useWinlogonCredential,
+      splitTunneling,
+      allUserConnection,
+    },
     rawOutput: String(parsed.output || ''),
     executedAt: new Date().toISOString(),
   };
@@ -9877,6 +10402,10 @@ export function getHelpdeskJeaTemplates() {
         'Get-NetRoute',
         'New-NetRoute',
         'Remove-NetRoute',
+        'Get-VpnConnection',
+        'Add-VpnConnection',
+        'Set-VpnConnection',
+        'Remove-VpnConnection',
         'Get-Service',
         @{ Name = 'Restart-Service'; Parameters = @{ Name = 'Name'; ValidateSet = 'Spooler', 'wuauserv' } },
         @{ Name = 'Stop-Service'; Parameters = @{ Name = 'Name'; ValidateSet = 'Spooler' } },
@@ -9890,6 +10419,7 @@ export function getHelpdeskJeaTemplates() {
         'C:\\Windows\\System32\\ipconfig.exe',
         'C:\\Windows\\System32\\nslookup.exe',
         'C:\\Windows\\System32\\route.exe',
+        'C:\\Windows\\System32\\rasdial.exe',
         'C:\\Windows\\System32\\netsh.exe',
         'C:\\Windows\\System32\\wusa.exe',
         'C:\\Windows\\System32\\gpresult.exe',

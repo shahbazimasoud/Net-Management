@@ -1202,6 +1202,35 @@ export async function manageHelpdeskStaticRoute(
   return res.json();
 }
 
+export async function manageHelpdeskVpnConnection(
+  payload: HelpdeskConnectionPayload & {
+    operation: 'create' | 'delete' | 'connect' | 'disconnect';
+    name: string;
+    serverAddress?: string;
+    tunnelType?: 'Automatic' | 'L2tp' | 'Ikev2' | 'Sstp' | 'Pptp';
+    l2tpPsk?: string;
+    useWinlogonCredential?: boolean;
+    splitTunneling?: boolean;
+    allUserConnection?: boolean;
+    dnsSuffix?: string;
+    customUsername?: string;
+    customPassword?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/network/vpn`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Endpoint VPN operation failed');
+  return res.json();
+}
+
 export async function fetchHelpdeskPrinterStatus(payload: HelpdeskConnectionPayload): Promise<{
   success: boolean;
   data: any;
