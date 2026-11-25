@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.482.0';
+export const APP_VERSION = '1.483.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.483.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'همسان‌سازی ظاهر تب‌ها و فاصله‌گذاری HelpDesk کاربران با بخش Endpoint، لود ترتیبی تب به تب و پیش‌فرض خودکار mail.<domain>',
+    title_en: 'Align User HelpDesk Tabs & Layout Spacing with Endpoint HelpDesk, Add Sequential Tab-by-Tab Loading & Default mail.<domain> Exchange Host',
+    changes: [
+      'همسان‌سازی دقیق فاصله‌گذاری بیرونی و پدینگ صفحه `HelpDeskUsersView` با `Agentless Endpoint HelpDesk` (`max-w-[1440px] px-4 sm:px-6 lg:px-8 py-5 sm:py-6`).',
+      'نمایش دائمی نوار تب‌های یکپارچه (مشابه دقیق تب‌های `Agentless Endpoint HelpDesk`) حتی قبل از اتصال، همراه با نوار پیشرفت و لود خودکار و نوبتی تب‌به‌تب (پروفایل ← رمز و قفل ← گروه‌ها ← آمار میل‌باکس Exchange).',
+      'تنظیم خودکار و پیش‌فرض سرور Exchange روی ساب‌دامنه `mail.<domain>` (هم در فیلد تنظیمات Exchange و هم در درخواست استعلام لحظه‌ای میل‌باکس در بک‌اند).'
+    ],
+    changes_en: [
+      'Aligned `HelpDeskUsersView` container width and padding identically with `Agentless Endpoint HelpDesk` (`max-w-[1440px] px-4 sm:px-6 lg:px-8 py-5 sm:py-6`).',
+      'Made the segmented tab bar always visible (pre- and post-connection) matching `Agentless Endpoint HelpDesk` styling, with per-tab loading spinners, completion dots, and sequential tab-by-tab loading.',
+      'Defaulted the Exchange Server Host (`Exchange Server Host / IP`) automatically to `mail.<domain>` across both frontend and backend Exchange live mailbox queries.'
+    ]
+  },
   {
     version: '1.482.0',
     releaseDate: '2026-11-25',

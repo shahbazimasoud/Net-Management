@@ -51,6 +51,8 @@ import {
   patchHelpdeskUserRamSnapshot,
   bindHelpdeskUserRamOwner,
   wipeHelpdeskUserRamSession,
+  stopHelpdeskUserPrefetch,
+  resolveHintedExchangeHost,
   runHelpdeskUserInspect,
   runHelpdeskUserMailboxRefresh,
   runHelpdeskUserUnlock,
@@ -142,6 +144,14 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
       .catch(() => {});
   }, []);
 
+  // Auto-sync default mail.<domain> whenever domain hints change and user hasn't manually overridden it
+  const hintedExchangeHost = resolveHintedExchangeHost(ram);
+  useEffect(() => {
+    if (!ram.exchangeServerEditedManually && hintedExchangeHost && !ram.exchangeServer.trim()) {
+      patchHelpdeskUserRamSnapshot({ exchangeServer: hintedExchangeHost });
+    }
+  }, [hintedExchangeHost, ram.exchangeServerEditedManually, ram.exchangeServer]);
+
   // Reset inline confirm whenever target user changes or finishes unlocking
   useEffect(() => {
     setConfirmUnlock(false);
@@ -209,60 +219,47 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
     labelEn: string;
     labelFa: string;
     icon: React.ComponentType<{ className?: string }>;
-    badge?: string | number | null;
-    alert?: boolean;
+    hasAlert?: boolean;
   }> = [
     {
       id: 'overview',
       labelEn: 'Profile, Role & Contact Info',
       labelFa: 'پروفایل سازمانی و راه‌های ارتباطی',
       icon: UserCheck,
-      badge: null,
     },
     {
       id: 'security',
       labelEn: 'Password, Lockout & Security',
       labelFa: 'رمز عبور، قفل اکانت و امنیت',
       icon: data?.security.accountLocked ? Lock : KeyRound,
-      badge: data?.security.accountLocked
-        ? isEn
-          ? 'LOCKED'
-          : 'قفل‌شده'
-        : data?.security.passwordExpired
-        ? isEn
-          ? 'EXPIRED'
-          : 'منقضی'
-        : null,
-      alert: Boolean(data?.security.accountLocked || data?.security.passwordExpired),
-    },
-    {
-      id: 'mailbox',
-      labelEn: 'Mailbox Size & Exchange Quota',
-      labelFa: 'حجم میل‌باکس و سهمیه Exchange',
-      icon: Mail,
-      badge:
-        data?.mailbox.usedPercent !== null && data?.mailbox.usedPercent !== undefined
-          ? `${data.mailbox.usedPercent}%`
-          : null,
-      alert: Boolean(
-        data?.mailbox.usedPercent !== null &&
-          data?.mailbox.usedPercent !== undefined &&
-          data.mailbox.usedPercent >= 90
-      ),
+      hasAlert: Boolean(data?.security.accountLocked || data?.security.passwordExpired),
     },
     {
       id: 'groups',
       labelEn: 'AD Groups & OU Directory',
       labelFa: 'گروه‌های اکتیو دایرکتوری و ساختار OU',
       icon: FolderTree,
-      badge: data?.groups ? data.groups.length : null,
+    },
+    {
+      id: 'mailbox',
+      labelEn: 'Mailbox Size & Exchange Quota',
+      labelFa: 'حجم میل‌باکس و سهمیه Exchange',
+      icon: Mail,
+      hasAlert: Boolean(
+        data?.mailbox.usedPercent !== null &&
+          data?.mailbox.usedPercent !== undefined &&
+          data.mailbox.usedPercent >= 90
+      ),
     },
   ];
 
   const NavArrow = isEn ? ChevronRight : ChevronLeft;
 
   return (
-    <div className="space-y-4 pb-8 max-w-[1600px] mx-auto">
+    <div
+      className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 space-y-6 pb-10"
+      dir={isEn ? 'ltr' : 'rtl'}
+    >
       {/* Page Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
@@ -426,15 +423,15 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
           <div className="md:col-span-2 lg:col-span-2 min-w-0 flex items-center gap-2">
             <button
               type="submit"
-              disabled={!canInspectUsers || ram.loading}
-              className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-xs font-semibold transition whitespace-nowrap cursor-pointer"
+              disabled={!canInspectUsers || ram.loading || Boolean(ram.prefetchProgress?.active)}
+              className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition whitespace-nowrap cursor-pointer"
             >
-              {ram.loading ? (
+              {ram.loading || ram.prefetchProgress?.active ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
               ) : (
                 <Search className="w-3.5 h-3.5 shrink-0" />
               )}
-              <span className="truncate">{isEn ? 'Connect & Inspect' : 'اتصال و بررسی'}</span>
+              <span className="truncate">{isEn ? 'Connect & Inspect' : 'اتصال و پایش'}</span>
             </button>
             <button
               type="button"
@@ -455,6 +452,32 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
             </button>
           </div>
         </div>
+
+        {ram.prefetchProgress?.active && (
+          <div
+            className={`px-3 py-2 rounded-lg border flex flex-wrap items-center justify-between gap-2 text-xs ${
+              isLightMode
+                ? 'bg-sky-50 border-sky-200 text-sky-900'
+                : 'bg-sky-950/30 border-sky-500/30 text-sky-200'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 text-sky-500 animate-spin shrink-0" />
+              <span>
+                {isEn
+                  ? `Fetching all tabs sequentially (${ram.prefetchProgress.step}/${ram.prefetchProgress.total}): ${ram.prefetchProgress.labelEn}...`
+                  : `در حال دریافت خودکار اطلاعات تب‌ها به ترتیب (${ram.prefetchProgress.step} از ${ram.prefetchProgress.total}): ${ram.prefetchProgress.labelFa}...`}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => stopHelpdeskUserPrefetch()}
+              className="px-2 py-0.5 rounded border border-sky-500/40 hover:bg-sky-500/15 text-[11px] font-semibold cursor-pointer"
+            >
+              {isEn ? 'Stop' : 'توقف'}
+            </button>
+          </div>
+        )}
 
         {/* Collapsible DC & Exchange Server Connection Options */}
         {ram.showAdvancedConn && (
@@ -532,8 +555,13 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
                 type="text"
                 dir="ltr"
                 value={ram.exchangeServer}
-                onChange={(e) => patchHelpdeskUserRamSnapshot({ exchangeServer: e.target.value })}
-                placeholder={isEn ? 'Auto-discover from homeMDB' : 'شناسایی خودکار از homeMDB'}
+                onChange={(e) =>
+                  patchHelpdeskUserRamSnapshot({
+                    exchangeServer: e.target.value,
+                    exchangeServerEditedManually: e.target.value.trim().length > 0,
+                  })
+                }
+                placeholder={hintedExchangeHost || 'mail.corp.local'}
                 className={`w-full px-3 py-2 rounded-lg border text-xs font-mono outline-none transition ${inputCls}`}
               />
             </div>
@@ -791,107 +819,153 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
         </div>
       )}
 
-      {/* Pre-Connection Empty State */}
-      {!data && !ram.loading && !ram.error && (
-        <div className={`rounded-xl border p-8 sm:p-12 text-center space-y-4 ${surfaceBg}`}>
-          <div
-            className={`w-14 h-14 mx-auto rounded-2xl border flex items-center justify-center ${
+      {/* Segmented Workspace Navigation Tabs (Always Visible Before & After Connecting — Matching Agentless Endpoint HelpDesk) */}
+      <div
+        className={`flex flex-wrap items-center gap-1 p-1 rounded-xl border ${
+          isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-900 border-slate-800'
+        }`}
+      >
+        {subTabs.map((tab) => {
+          const Icon = tab.icon;
+          const active = ram.activeSubTab === tab.id;
+          const isFetchingThisTab =
+            (ram.prefetchProgress?.active && ram.prefetchProgress.currentTab === tab.id) ||
+            (tab.id === 'overview' && ram.loadingOverview) ||
+            (tab.id === 'security' && ram.loadingSecurity) ||
+            (tab.id === 'groups' && ram.loadingGroups) ||
+            (tab.id === 'mailbox' && ram.mailboxLoading);
+          const hasTabData =
+            (tab.id === 'overview' && Boolean(data && ram.overviewLoaded)) ||
+            (tab.id === 'security' && Boolean(data && ram.securityLoaded)) ||
+            (tab.id === 'groups' && Boolean(data && ram.groupsLoaded)) ||
+            (tab.id === 'mailbox' && Boolean(data && ram.mailboxLoaded));
+          const hasAlertDot = Boolean(tab.hasAlert && data);
+
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => {
+                patchHelpdeskUserRamSnapshot({ activeSubTab: tab.id });
+                if (
+                  tab.id === 'mailbox' &&
+                  data &&
+                  !ram.prefetchProgress?.active &&
+                  !ram.mailboxLoaded &&
+                  !ram.mailboxLoading
+                ) {
+                  runHelpdeskUserMailboxRefresh();
+                }
+              }}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition whitespace-nowrap cursor-pointer ${
+                hasAlertDot
+                  ? active
+                    ? isLightMode
+                      ? 'bg-rose-50 text-rose-700 border border-rose-300 shadow-xs'
+                      : 'bg-rose-950/60 text-rose-200 border border-rose-500/50 shadow-xs'
+                    : isLightMode
+                    ? 'bg-rose-50/70 text-rose-700 border border-rose-200 hover:bg-rose-100'
+                    : 'bg-rose-950/35 text-rose-300 border border-rose-500/35 hover:bg-rose-950/60'
+                  : active
+                  ? isLightMode
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-slate-800 text-white shadow-xs'
+                  : isLightMode
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-400 hover:text-slate-100'
+              }`}
+            >
+              {isFetchingThisTab ? (
+                <Loader2 className="w-3.5 h-3.5 text-sky-500 animate-spin" />
+              ) : (
+                <Icon
+                  className={`w-3.5 h-3.5 ${
+                    hasAlertDot ? 'text-rose-500' : active ? 'text-sky-500' : ''
+                  }`}
+                />
+              )}
+              <span>{isEn ? tab.labelEn : tab.labelFa}</span>
+              {!isFetchingThisTab && hasAlertDot ? (
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0" />
+              ) : (
+                !isFetchingThisTab &&
+                hasTabData && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+              )}
+            </button>
+          );
+        })}
+
+        {data && (
+          <button
+            type="button"
+            disabled={ram.loading || Boolean(ram.prefetchProgress?.active)}
+            onClick={() => runHelpdeskUserInspect()}
+            className={`ms-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap cursor-pointer disabled:opacity-50 ${
               isLightMode
-                ? 'bg-teal-50 border-teal-200 text-teal-600'
-                : 'bg-teal-950/40 border-teal-500/30 text-teal-400'
+                ? 'bg-white hover:bg-slate-50 text-slate-700 shadow-xs'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 shadow-xs'
             }`}
           >
-            <UserCog className="w-7 h-7" />
+            <RefreshCw className={`w-3.5 h-3.5 text-sky-500 ${ram.prefetchProgress?.active ? 'animate-spin' : ''}`} />
+            <span>{isEn ? 'Refresh All' : 'بروزرسانی'}</span>
+          </button>
+        )}
+      </div>
+
+      {/* Pre-Connection Empty Prompt inside Active Tab Workspace */}
+      {!data && !ram.loading && (
+        <div className={`rounded-xl border p-8 sm:p-10 text-center space-y-3 ${surfaceBg}`}>
+          <div
+            className={`w-12 h-12 mx-auto rounded-2xl border flex items-center justify-center ${
+              isLightMode
+                ? 'bg-sky-50 border-sky-200 text-sky-600'
+                : 'bg-sky-950/40 border-sky-500/30 text-sky-400'
+            }`}
+          >
+            <UserCog className="w-6 h-6" />
           </div>
           <div className="max-w-xl mx-auto space-y-1.5">
-            <h2 className={`text-base font-bold ${textPrimary}`}>
-              {isEn
-                ? 'Enter a Domain Username Above to Inspect Profile, Lockout & Mailbox'
-                : 'برای بررسی پروفایل، وضعیت قفل، رمز عبور و حجم میل‌باکس، نام کاربری را در بالا وارد کنید'}
+            <h2 className={`text-sm font-bold ${textPrimary}`}>
+              {ram.activeSubTab === 'overview'
+                ? isEn
+                  ? 'Enter a Target Username Above to Inspect Profile, Extensions & Mobile Numbers'
+                  : 'برای مشاهده نام کامل، سمت، دپارتمان، تلفن داخلی، موبایل‌ها و ایمیل، کاربر هدف را در بالا متصل کنید'
+                : ram.activeSubTab === 'security'
+                ? isEn
+                  ? 'Password Expiry, Lockout Status & Account Unlock'
+                  : 'بررسی تاریخ تعویض رمز، وضعیت انقضا و خارج کردن اکانت از حالت قفل (Unlock)'
+                : ram.activeSubTab === 'groups'
+                ? isEn
+                  ? 'Active Directory Group Memberships & OU Structure'
+                  : 'مشاهده عضویت گروه‌های اکتیو دایرکتوری و واحد سازمانی کاربر'
+                : isEn
+                ? 'Exchange Mailbox Capacity & Live Usage Statistics'
+                : 'مشاهده حجم کل میل‌باکس، فضای استفاده‌شده و سهمیه‌های سرور Exchange'}
             </h2>
             <p className={`text-xs leading-relaxed ${textMuted}`}>
               {isEn
-                ? 'Unlike Agentless Endpoint HelpDesk (which targets a workstation IP), this workspace inspects the user account directly in Active Directory and Exchange — displaying full name, job title, department, all extensions and mobile numbers, email aliases, password expiration, lockout release, and live mailbox storage usage.'
-                : 'در این بخش برخلاف هلپ‌دسک سیستم (که با IP به کامپیوتر وصل می‌شود)، مستقیماً کاربر را در اکتیو دایرکتوری و Exchange بررسی می‌کنید: نام کامل، سمت سازمانی، دپارتمان، تمام شماره‌های داخلی و موبایل، آدرس‌های ایمیل، تاریخ تغییر و انقضای پسورد، رفع قفل اکانت (Unlock) و حجم مصرفی میل‌باکس.'}
+                ? 'Click Connect & Inspect to load all tabs sequentially (Active Directory profile, password/lockout policy, AD groups, and Exchange mailbox usage using mail.<domain> by default).'
+                : 'پس از وارد کردن نام کاربری هدف و مشخصات دامین، با زدن «اتصال و پایش» اطلاعات هر ۴ تب به صورت نوبتی و مرحله‌به‌مرحله بارگذاری می‌شود.'}
             </p>
           </div>
         </div>
       )}
 
-      {/* Loading Skeleton Banner */}
-      {ram.loading && (
-        <div className={`rounded-xl border p-6 flex items-center justify-center gap-3 text-xs ${surfaceBg}`}>
-          <Loader2 className="w-5 h-5 animate-spin text-teal-500" />
+      {/* Initial AD Connection Loading State (before Step 1 data arrives) */}
+      {!data && ram.loading && (
+        <div className={`rounded-xl border p-8 flex items-center justify-center gap-3 text-xs ${surfaceBg}`}>
+          <Loader2 className="w-5 h-5 animate-spin text-sky-500" />
           <span className={`font-medium ${textPrimary}`}>
             {isEn
-              ? 'Querying Active Directory, password policy & Exchange mailbox statistics...'
-              : 'در حال استعلام اطلاعات کاربر از اکتیو دایرکتوری، سیاست رمز و آمار میل‌باکس Exchange...'}
+              ? 'Step 1/4: Connecting to Active Directory to inspect user profile & contacts...'
+              : 'مرحله ۱ از ۴: در حال اتصال به اکتیو دایرکتوری و دریافت مشخصات پروفایل کاربر...'}
           </span>
         </div>
       )}
 
-      {/* Sub-Tabs Navigation + Content */}
-      {data && !ram.loading && (
+      {/* Active Connected Tab Workspace */}
+      {data && (
         <>
-          <div className="flex flex-wrap gap-2">
-            {subTabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = ram.activeSubTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => patchHelpdeskUserRamSnapshot({ activeSubTab: tab.id })}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg border text-xs font-semibold transition cursor-pointer ${
-                    isActive
-                      ? 'bg-teal-600 border-teal-500 text-white shadow-sm'
-                      : isLightMode
-                      ? 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
-                      : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
-                  }`}
-                >
-                  <Icon
-                    className={`w-3.5 h-3.5 shrink-0 ${
-                      isActive
-                        ? 'text-white'
-                        : tab.alert
-                        ? 'text-rose-500'
-                        : 'text-teal-500'
-                    }`}
-                  />
-                  <span>{isEn ? tab.labelEn : tab.labelFa}</span>
-                  {tab.badge !== null && tab.badge !== undefined && (
-                    <span
-                      className={`px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums ${
-                        isActive
-                          ? 'bg-white/20 text-white'
-                          : tab.alert
-                          ? 'bg-rose-500/15 text-rose-500'
-                          : isLightMode
-                          ? 'bg-slate-100 text-slate-700'
-                          : 'bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-
-            <button
-              type="button"
-              onClick={() => runHelpdeskUserInspect()}
-              className={`ms-auto flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition cursor-pointer ${
-                isLightMode
-                  ? 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
-                  : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
-              }`}
-            >
-              <RefreshCw className="w-3.5 h-3.5 text-teal-500" />
-              <span>{isEn ? 'Refresh All' : 'بروزرسانی کامل'}</span>
-            </button>
-          </div>
 
           {/* ================================================================
               TAB 1: OVERVIEW, ORGANIZATIONAL ROLE & CONTACT NUMBERS / EMAIL
@@ -1859,8 +1933,14 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
                     type="text"
                     dir="ltr"
                     value={ram.exchangeServer}
-                    onChange={(e) => patchHelpdeskUserRamSnapshot({ exchangeServer: e.target.value })}
+                    onChange={(e) =>
+                      patchHelpdeskUserRamSnapshot({
+                        exchangeServer: e.target.value,
+                        exchangeServerEditedManually: e.target.value.trim().length > 0,
+                      })
+                    }
                     placeholder={
+                      hintedExchangeHost ||
                       data.mailbox.serverName ||
                       data.mailbox.exchangeHostUsed ||
                       'mail.corp.local'

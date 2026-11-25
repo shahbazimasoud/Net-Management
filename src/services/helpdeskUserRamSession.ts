@@ -6,12 +6,22 @@ import {
   refreshHelpdeskTargetMailbox,
   unlockHelpdeskTargetUser,
 } from './api';
+import { loadActiveDirectoryConfig } from './settingsStorage';
 
 export type HelpdeskUserSubTab =
   | 'overview'
   | 'security'
   | 'mailbox'
   | 'groups';
+
+export interface HelpdeskUserPrefetchProgress {
+  active: boolean;
+  step: number;
+  total: number;
+  currentTab: HelpdeskUserSubTab | null;
+  labelEn: string;
+  labelFa: string;
+}
 
 export interface HelpdeskUserRamState {
   ownerUserId: string | null;
@@ -21,13 +31,22 @@ export interface HelpdeskUserRamState {
   domainController: string;
   ldapProtocol: 'auto' | 'ldaps' | 'ldap';
   exchangeServer: string;
+  exchangeServerEditedManually: boolean;
   winrmProtocol: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
   showAdvancedConn: boolean;
   activeSubTab: HelpdeskUserSubTab;
+  prefetchProgress: HelpdeskUserPrefetchProgress | null;
   rateLimit: any | null;
 
   userData: HelpdeskUserInspectionData | null;
   loading: boolean;
+  loadingOverview: boolean;
+  loadingSecurity: boolean;
+  loadingGroups: boolean;
+  overviewLoaded: boolean;
+  securityLoaded: boolean;
+  groupsLoaded: boolean;
+  mailboxLoaded: boolean;
   error: string | null;
 
   mailboxLoading: boolean;
@@ -56,7 +75,44 @@ export interface HelpdeskUserRamState {
   }>;
 }
 
+export function deriveDefaultExchangeHostForDomain(domainName?: string | null): string {
+  const clean = String(domainName || '').trim().replace(/^\.+|\.+$/g, '').toLowerCase();
+  if (!clean || !clean.includes('.')) return '';
+  if (clean.startsWith('mail.')) return clean;
+  return `mail.${clean}`;
+}
+
+export function resolveHintedExchangeHost(state?: Partial<HelpdeskUserRamState>): string {
+  const s = state || ramState;
+  const extractAtDomain = (val?: string) => {
+    const str = String(val || '').trim();
+    if (!str.includes('@')) return '';
+    const dom = str.split('@').pop()?.trim() || '';
+    return dom.includes('.') ? dom : '';
+  };
+
+  const savedAdDomain = (() => {
+    try {
+      return loadActiveDirectoryConfig()?.domain || '';
+    } catch {
+      return '';
+    }
+  })();
+
+  const candidateDomain =
+    s.userData?.connectionInfo?.domainName ||
+    extractAtDomain(s.adminUsername) ||
+    extractAtDomain(s.targetUsername) ||
+    savedAdDomain;
+
+  return deriveDefaultExchangeHostForDomain(candidateDomain);
+}
+
 function createInitialHelpdeskUserRamState(): HelpdeskUserRamState {
+  const defaultExch = resolveHintedExchangeHost({
+    adminUsername: '',
+    targetUsername: '',
+  });
   return {
     ownerUserId: null,
     targetUsername: '',
@@ -64,13 +120,22 @@ function createInitialHelpdeskUserRamState(): HelpdeskUserRamState {
     adminPassword: '',
     domainController: '',
     ldapProtocol: 'auto',
-    exchangeServer: '',
+    exchangeServer: defaultExch,
+    exchangeServerEditedManually: false,
     winrmProtocol: 'auto',
     showAdvancedConn: false,
     activeSubTab: 'overview',
+    prefetchProgress: null,
     rateLimit: null,
     userData: null,
     loading: false,
+    loadingOverview: false,
+    loadingSecurity: false,
+    loadingGroups: false,
+    overviewLoaded: false,
+    securityLoaded: false,
+    groupsLoaded: false,
+    mailboxLoaded: false,
     error: null,
     mailboxLoading: false,
     mailboxError: null,
@@ -82,6 +147,7 @@ function createInitialHelpdeskUserRamState(): HelpdeskUserRamState {
 }
 
 let ramState: HelpdeskUserRamState = createInitialHelpdeskUserRamState();
+let activeRunToken = 0;
 const listeners = new Set<() => void>();
 
 function notifyListeners(): void {
@@ -109,25 +175,56 @@ export function patchHelpdeskUserRamSnapshot(
     | ((prev: HelpdeskUserRamState) => Partial<HelpdeskUserRamState>)
 ): void {
   const delta = typeof patch === 'function' ? patch(ramState) : patch;
-  ramState = { ...ramState, ...delta };
+  let next = { ...ramState, ...delta };
+
+  // Keep exchangeServer auto-synced to mail.<domain> unless user edited it manually
+  if (!next.exchangeServerEditedManually && !('exchangeServer' in delta)) {
+    const hinted = resolveHintedExchangeHost(next);
+    if (hinted) {
+      next = { ...next, exchangeServer: hinted };
+    }
+  }
+
+  ramState = next;
   notifyListeners();
 }
 
 export function bindHelpdeskUserRamOwner(userId: string | null | undefined): void {
   const normalized = userId ? String(userId) : null;
   if (ramState.ownerUserId && ramState.ownerUserId !== normalized) {
+    activeRunToken += 1;
     ramState = createInitialHelpdeskUserRamState();
     ramState.ownerUserId = normalized;
     notifyListeners();
     return;
   }
   if (!ramState.ownerUserId && normalized) {
-    ramState = { ...ramState, ownerUserId: normalized };
+    const hinted = resolveHintedExchangeHost(ramState);
+    ramState = {
+      ...ramState,
+      ownerUserId: normalized,
+      ...(!ramState.exchangeServerEditedManually && !ramState.exchangeServer && hinted
+        ? { exchangeServer: hinted }
+        : {}),
+    };
     notifyListeners();
   }
 }
 
+export function stopHelpdeskUserPrefetch(): void {
+  activeRunToken += 1;
+  patchHelpdeskUserRamSnapshot({
+    loading: false,
+    loadingOverview: false,
+    loadingSecurity: false,
+    loadingGroups: false,
+    mailboxLoading: false,
+    prefetchProgress: null,
+  });
+}
+
 export function wipeHelpdeskUserRamSession(): void {
+  activeRunToken += 1;
   const owner = ramState.ownerUserId;
   ramState = {
     ...createInitialHelpdeskUserRamState(),
@@ -137,44 +234,86 @@ export function wipeHelpdeskUserRamSession(): void {
 }
 
 export function wipeHelpdeskUserRamOnLogout(): void {
+  activeRunToken += 1;
   ramState = createInitialHelpdeskUserRamState();
   notifyListeners();
 }
 
-function buildUserRequestPayload(overrideTarget?: string): HelpdeskTargetUserRequestPayload {
+function buildUserRequestPayload(
+  overrideTarget?: string,
+  includeMailbox = false
+): HelpdeskTargetUserRequestPayload {
   const s = ramState;
+  const effectiveExchange =
+    s.exchangeServer.trim() || resolveHintedExchangeHost(s) || undefined;
   return {
     targetUsername: (overrideTarget ?? s.targetUsername).trim(),
     adminUsername: s.adminUsername.trim(),
     adminPassword: s.adminPassword,
     domainController: s.domainController.trim() || undefined,
     ldapProtocol: s.ldapProtocol,
-    exchangeServer: s.exchangeServer.trim() || undefined,
+    exchangeServer: effectiveExchange,
     winrmProtocol: s.winrmProtocol,
-    includeMailbox: true,
+    includeMailbox,
   };
 }
 
-export async function runHelpdeskUserInspect(overrideTarget?: string): Promise<HelpdeskUserInspectionData | null> {
+const sleepMs = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function runHelpdeskUserInspect(
+  overrideTarget?: string
+): Promise<HelpdeskUserInspectionData | null> {
   if (overrideTarget !== undefined) {
     patchHelpdeskUserRamSnapshot({ targetUsername: overrideTarget });
   }
-  const payload = buildUserRequestPayload(overrideTarget);
-  if (!payload.targetUsername || !payload.adminUsername || !payload.adminPassword) {
+  const initialPayload = buildUserRequestPayload(overrideTarget, false);
+  if (
+    !initialPayload.targetUsername ||
+    !initialPayload.adminUsername ||
+    !initialPayload.adminPassword
+  ) {
     return null;
   }
 
+  activeRunToken += 1;
+  const myToken = activeRunToken;
+  const isCancelled = () => myToken !== activeRunToken;
+
+  // Step 1/4: Tab 1 — Profile, Role & Contact Info (plus fast AD lookup)
   patchHelpdeskUserRamSnapshot({
     loading: true,
+    loadingOverview: true,
+    loadingSecurity: false,
+    loadingGroups: false,
+    mailboxLoading: false,
+    overviewLoaded: false,
+    securityLoaded: false,
+    groupsLoaded: false,
+    mailboxLoaded: false,
     error: null,
     mailboxError: null,
     unlockError: null,
     unlockResult: null,
+    prefetchProgress: {
+      active: true,
+      step: 1,
+      total: 4,
+      currentTab: 'overview',
+      labelEn: 'Profile, Role & Contact Info',
+      labelFa: 'پروفایل سازمانی و راه‌های ارتباطی',
+    },
   });
 
+  let data: HelpdeskUserInspectionData;
   try {
-    const res = await inspectHelpdeskTargetUser(payload);
-    const data = res.data;
+    const res = await inspectHelpdeskTargetUser(initialPayload);
+    if (isCancelled()) return null;
+    data = res.data;
+
+    const autoMailHost = deriveDefaultExchangeHostForDomain(
+      data.connectionInfo.domainName || resolveHintedExchangeHost()
+    );
+
     patchHelpdeskUserRamSnapshot((prev) => {
       const nextRecent = [
         {
@@ -188,26 +327,116 @@ export async function runHelpdeskUserInspect(overrideTarget?: string): Promise<H
         ),
       ].slice(0, 8);
 
+      const nextExchangeServer =
+        prev.exchangeServerEditedManually && prev.exchangeServer.trim()
+          ? prev.exchangeServer.trim()
+          : autoMailHost || prev.exchangeServer.trim();
+
       return {
         loading: false,
+        loadingOverview: false,
+        overviewLoaded: true,
         userData: data,
+        exchangeServer: nextExchangeServer,
         rateLimit: res.rateLimit || prev.rateLimit,
         recentUsers: nextRecent,
       };
     });
-    return data;
   } catch (err: any) {
+    if (isCancelled()) return null;
     const msg = String(err?.message || 'Failed to inspect target domain user');
     patchHelpdeskUserRamSnapshot({
       loading: false,
+      loadingOverview: false,
+      prefetchProgress: null,
       error: msg,
     });
     return null;
   }
+
+  // Step 2/4: Tab 2 — Password, Lockout & Security
+  if (isCancelled()) return data;
+  patchHelpdeskUserRamSnapshot({
+    loadingSecurity: true,
+    prefetchProgress: {
+      active: true,
+      step: 2,
+      total: 4,
+      currentTab: 'security',
+      labelEn: 'Password, Lockout & Security',
+      labelFa: 'رمز عبور، قفل اکانت و امنیت',
+    },
+  });
+  await sleepMs(160);
+  if (isCancelled()) return data;
+  patchHelpdeskUserRamSnapshot({
+    loadingSecurity: false,
+    securityLoaded: true,
+  });
+
+  // Step 3/4: Tab 3 — AD Groups & OU Directory
+  if (isCancelled()) return data;
+  patchHelpdeskUserRamSnapshot({
+    loadingGroups: true,
+    prefetchProgress: {
+      active: true,
+      step: 3,
+      total: 4,
+      currentTab: 'groups',
+      labelEn: 'AD Groups & OU Directory',
+      labelFa: 'گروه‌های اکتیو دایرکتوری و ساختار OU',
+    },
+  });
+  await sleepMs(140);
+  if (isCancelled()) return data;
+  patchHelpdeskUserRamSnapshot({
+    loadingGroups: false,
+    groupsLoaded: true,
+  });
+
+  // Step 4/4: Tab 4 — Live Exchange Mailbox Size & Quota (using mail.<domain> by default)
+  if (isCancelled()) return data;
+  patchHelpdeskUserRamSnapshot({
+    mailboxLoading: true,
+    mailboxError: null,
+    prefetchProgress: {
+      active: true,
+      step: 4,
+      total: 4,
+      currentTab: 'mailbox',
+      labelEn: 'Mailbox Size & Exchange Quota',
+      labelFa: 'حجم میل‌باکس و سهمیه Exchange',
+    },
+  });
+
+  try {
+    const mbxPayload = buildUserRequestPayload(data.profile.samAccountName, true);
+    const mbxRes = await refreshHelpdeskTargetMailbox(mbxPayload);
+    if (!isCancelled()) {
+      patchHelpdeskUserRamSnapshot((prev) => ({
+        mailboxLoading: false,
+        mailboxLoaded: true,
+        prefetchProgress: null,
+        rateLimit: mbxRes.rateLimit || prev.rateLimit,
+        userData: prev.userData ? { ...prev.userData, mailbox: mbxRes.data } : prev.userData,
+      }));
+    }
+  } catch (err: any) {
+    if (!isCancelled()) {
+      patchHelpdeskUserRamSnapshot({
+        mailboxLoading: false,
+        mailboxLoaded: true,
+        prefetchProgress: null,
+        mailboxError: String(err?.message || 'Exchange mailbox query failed'),
+      });
+    }
+  }
+
+  return data;
 }
 
 export async function runHelpdeskUserMailboxRefresh(): Promise<HelpdeskUserMailboxInfo | null> {
-  const payload = buildUserRequestPayload();
+  const payload = buildUserRequestPayload(undefined, true);
   if (!payload.targetUsername || !payload.adminUsername || !payload.adminPassword) {
     return null;
   }
@@ -221,6 +450,7 @@ export async function runHelpdeskUserMailboxRefresh(): Promise<HelpdeskUserMailb
     const res = await refreshHelpdeskTargetMailbox(payload);
     patchHelpdeskUserRamSnapshot((prev) => ({
       mailboxLoading: false,
+      mailboxLoaded: true,
       rateLimit: res.rateLimit || prev.rateLimit,
       userData: prev.userData ? { ...prev.userData, mailbox: res.data } : prev.userData,
     }));
@@ -235,7 +465,7 @@ export async function runHelpdeskUserMailboxRefresh(): Promise<HelpdeskUserMailb
 }
 
 export async function runHelpdeskUserUnlock(): Promise<void> {
-  const payload = buildUserRequestPayload();
+  const payload = buildUserRequestPayload(undefined, false);
   if (!payload.targetUsername || !payload.adminUsername || !payload.adminPassword) {
     return;
   }

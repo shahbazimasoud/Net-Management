@@ -810,6 +810,13 @@ function dedupeStrings(items: Array<string | undefined | null>): string[] {
   return out;
 }
 
+function deriveDefaultExchangeHost(domainHint: string | undefined | null): string {
+  const clean = String(domainHint || '').trim().replace(/^\.+|\.+$/g, '').toLowerCase();
+  if (!clean || !clean.includes('.')) return '';
+  if (clean.startsWith('mail.')) return clean;
+  return `mail.${clean}`;
+}
+
 function parseProxyAddresses(
   primaryMail: string,
   proxyRaw: string[]
@@ -1736,12 +1743,17 @@ export async function inspectTargetDomainUser(
           winrmProtocol: input.winrmProtocol,
         });
         if (input.includeMailbox !== false && winrmRes.mailbox.hasMailbox) {
+          const defaultMailHost = deriveDefaultExchangeHost(
+            winrmRes.connectionInfo.domainName ||
+              adConfig?.domain ||
+              domainHints.find((d) => d.includes('.'))
+          );
           winrmRes.mailbox = await enrichLiveMailboxStats({
             mailbox: winrmRes.mailbox,
             identity: winrmRes.profile.samAccountName || cleanTarget,
             adminUsername,
             adminPassword,
-            exchangeHosts: [explicitExch || '', winrmRes.mailbox.serverName || '', fallbackHost],
+            exchangeHosts: [explicitExch || '', defaultMailHost, winrmRes.mailbox.serverName || '', fallbackHost],
             winrmProtocol: input.winrmProtocol,
           });
         }
@@ -2072,14 +2084,18 @@ export async function inspectTargetDomainUser(
     const archQuotaQ = parseExchKbQuotaToBytes(getFirstAttr(attrs, 'msExchArchiveQuota'));
 
     const hasMailbox = Boolean(mbxGuid || homeMdbDn || mailNickname || explicitExch);
+    const defaultMailHost = deriveDefaultExchangeHost(
+      session.domainName || adConfig?.domain || domainHints.find((d) => d.includes('.'))
+    );
+    const effectiveExchangeTarget = explicitExch || defaultMailHost || discoveredExchHost;
 
     let mailbox: HelpdeskUserMailboxInfo = {
       hasMailbox,
       source: hasMailbox ? 'ad_only' : 'none',
       liveStatsRetrieved: false,
-      exchangeHostTried: explicitExch || discoveredExchHost || undefined,
+      exchangeHostTried: effectiveExchangeTarget || undefined,
       databaseName: dbName,
-      serverName: discoveredExchHost,
+      serverName: effectiveExchangeTarget || discoveredExchHost,
       mailNickname,
       useDatabaseQuotaDefaults,
       totalUsedBytes: null,
@@ -2104,7 +2120,7 @@ export async function inspectTargetDomainUser(
         identity: primaryEmail || upn || sam,
         adminUsername,
         adminPassword,
-        exchangeHosts: [explicitExch || '', discoveredExchHost, session.host],
+        exchangeHosts: [explicitExch || '', defaultMailHost, discoveredExchHost, session.host],
         winrmProtocol: input.winrmProtocol,
       });
     } else if (!hasMailbox) {
