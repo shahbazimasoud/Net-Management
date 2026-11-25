@@ -108,6 +108,9 @@ import {
   HelpdeskPowerAction,
   HelpdeskUserSessionAction,
   HelpdeskDiagnosticProbeType,
+  verifyHelpdeskTargetNotBlocked,
+  inspectEndpointIdentityForExceptions,
+  clearHelpdeskExceptionIdentityCache,
 } from './helpdeskService';
 import { ZipArchive } from 'archiver';
 import { runRetentionPurgeJob } from './logRetentionDaemon';
@@ -245,6 +248,11 @@ import {
   queryHelpdeskConnectionHistoryFromDb,
   deleteHelpdeskConnectionHistoryFromDb,
   clearHelpdeskConnectionHistoryFromDb,
+  HelpdeskExceptionRuleType,
+  listHelpdeskExceptionsFromDb,
+  createHelpdeskExceptionInDb,
+  updateHelpdeskExceptionInDb,
+  deleteHelpdeskExceptionInDb,
 } from './db';
 import { encryptVaultSecret, decryptVaultSecret, decryptVaultSecretWithMeta } from './vaultCrypto';
 import {
@@ -7880,6 +7888,7 @@ async function resolveHelpdeskAuth(
     | 'system_repair'
     | 'domain_user'
     | 'power_control'
+    | 'manage_exceptions'
 ) {
   const { user, effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
   if (!user) {
@@ -7914,6 +7923,7 @@ async function resolveHelpdeskAuth(
   const canSystemRepair = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canRunHelpdeskSystemRepair === true);
   const canDomainUsers = hasFullHelpdeskAccess || (canDiagnostics && effectivePolicy?.canInspectHelpdeskDomainUsers === true);
   const canPowerControl = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true);
+  const canManageExceptions = hasFullHelpdeskAccess || effectivePolicy?.canManageHelpdeskExceptions === true;
 
   const allowed =
     requiredPerm === 'view'
@@ -7934,6 +7944,8 @@ async function resolveHelpdeskAuth(
       ? canSystemRepair
       : requiredPerm === 'domain_user'
       ? canDomainUsers
+      : requiredPerm === 'manage_exceptions'
+      ? canManageExceptions
       : canPowerControl;
 
   if (!allowed) {
@@ -7994,6 +8006,10 @@ async function resolveHelpdeskAuth(
         en: 'Access denied: Your policy does not permit remote workstation shutdown or restart (canPowerControlHelpdeskEndpoints).',
         fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز خاموش کردن یا ری‌استارت از راه دور سیستم (canPowerControlHelpdeskEndpoints) است.',
       },
+      manage_exceptions: {
+        en: 'Access denied: Your policy does not permit modifying HelpDesk exception / blocklist rules (canManageHelpdeskExceptions).',
+        fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز مدیریت استثنائات و قوانین مسدودسازی هلپ‌دسک (canManageHelpdeskExceptions) است.',
+      },
     };
 
     return {
@@ -8002,6 +8018,116 @@ async function resolveHelpdeskAuth(
       error: denialMap[requiredPerm].en,
       errorFa: denialMap[requiredPerm].fa,
     };
+  }
+
+  // Enforce PostgreSQL HelpDesk connection exception rules across every endpoint-targeting POST route
+  const reqPath = String(req.path || '');
+  if (
+    req.method === 'POST' &&
+    !reqPath.startsWith('/helpdesk/exceptions') &&
+    String(req.body?.targetIp || '').trim().length > 0
+  ) {
+    const target = extractHelpdeskTargetFromBody(req.body);
+    try {
+      const excCheck = await verifyHelpdeskTargetNotBlocked(target, {
+        forceRefreshIdentity: reqPath === '/helpdesk/health' || reqPath === '/helpdesk/diagnostics/run',
+      });
+      if (excCheck.blocked) {
+        await addPortalAuditLog({
+          category: 'helpdesk',
+          action: 'helpdesk_exception_blocked',
+          title: `مسدودسازی اتصال هلپ‌دسک توسط قانون استثنائات (${target.targetIp})`,
+          title_en: `HelpDesk Connection Blocked by Exception Rule (${target.targetIp})`,
+          details: excCheck.reasonFa,
+          details_en: excCheck.reasonEn,
+          userName: actorName,
+          userRole: actorRole,
+          status: 'denied',
+          severity: 'warning',
+          target: {
+            type: 'device',
+            name: target.targetIp || 'unknown',
+            ip: target.targetIp || undefined,
+            metadata: {
+              ruleId: excCheck.rule.id,
+              ruleType: excCheck.rule.ruleType,
+              ruleTarget: excCheck.rule.targetValue,
+              matchedValue: excCheck.matchedValue,
+              phase: excCheck.phase,
+              endpointPath: reqPath,
+            },
+          },
+          clientIp,
+        }).catch(() => {});
+
+        if (reqPath === '/helpdesk/health' && req.body?.skipHistory !== true && target.targetIp) {
+          await addHelpdeskConnectionHistoryInDb({
+            targetIp: target.targetIp,
+            hostname: excCheck.snapshot?.hostname || '',
+            osName: '',
+            osFamily: 'unknown',
+            loggedInUser: excCheck.snapshot?.loggedInUsers?.[0] || '',
+            sessionUsername: target.username,
+            protocolRequested: target.protocol,
+            protocolUsed: target.protocol,
+            portUsed: Number(target.port || 0),
+            jeaConfigName: target.jeaConfigName || '',
+            status: 'failed',
+            errorMessage: excCheck.reasonEn.slice(0, 300),
+            actorName,
+            actorRole,
+          }).catch(() => {});
+        }
+
+        return {
+          ok: false as const,
+          status: 403,
+          blockedByException: true,
+          code: 'HELPDESK_TARGET_BLOCKED',
+          ruleId: excCheck.rule.id,
+          ruleType: excCheck.rule.ruleType,
+          matchedValue: excCheck.matchedValue,
+          error: excCheck.reasonEn,
+          errorFa: excCheck.reasonFa,
+        };
+      }
+    } catch (probeErr: any) {
+      const msg = String(probeErr?.message || 'Failed to verify target workstation exception policy');
+      await logHelpdeskErrorAudit({
+        actorName,
+        actorRole,
+        clientIp,
+        action: 'helpdesk_exception_probe_failed',
+        title: `خطا در بررسی استثنائات اتصال روی ${target.targetIp}`,
+        title_en: `HelpDesk Target Identity / Exception Check Failed: ${target.targetIp}`,
+        targetIp: target.targetIp,
+        errorMsg: msg,
+      });
+      if (reqPath === '/helpdesk/health' && req.body?.skipHistory !== true && target.targetIp) {
+        await addHelpdeskConnectionHistoryInDb({
+          targetIp: target.targetIp,
+          hostname: '',
+          osName: '',
+          osFamily: 'unknown',
+          loggedInUser: '',
+          sessionUsername: target.username,
+          protocolRequested: target.protocol,
+          protocolUsed: target.protocol,
+          portUsed: Number(target.port || 0),
+          jeaConfigName: target.jeaConfigName || '',
+          status: 'failed',
+          errorMessage: msg.slice(0, 300),
+          actorName,
+          actorRole,
+        }).catch(() => {});
+      }
+      return {
+        ok: false as const,
+        status: /invalid|required/i.test(msg) ? 400 : 502,
+        error: msg,
+        errorFa: msg,
+      };
+    }
   }
 
   return {
@@ -8021,8 +8147,26 @@ async function resolveHelpdeskAuth(
       canRunHelpdeskSystemRepair: canSystemRepair,
       canInspectHelpdeskDomainUsers: canDomainUsers,
       canPowerControlHelpdeskEndpoints: canPowerControl,
+      canManageHelpdeskExceptions: canManageExceptions,
     },
   };
+}
+
+function sendHelpdeskAuthFailure(res: Response, auth: any) {
+  return res.status(auth.status || 403).json({
+    success: false,
+    error: auth.error,
+    errorFa: auth.errorFa,
+    ...(auth.blockedByException
+      ? {
+          blockedByException: true,
+          code: auth.code || 'HELPDESK_TARGET_BLOCKED',
+          ruleId: auth.ruleId,
+          ruleType: auth.ruleType,
+          matchedValue: auth.matchedValue,
+        }
+      : {}),
+  });
 }
 
 function extractHelpdeskTargetFromBody(body: any): HelpdeskTargetInput {
@@ -8113,7 +8257,7 @@ apiRouter.get('/helpdesk/status', async (req: Request, res: Response) => {
   try {
     const auth = await resolveHelpdeskAuth(req, 'view');
     if (!auth.ok) {
-      return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+      return sendHelpdeskAuthFailure(res, auth);
     }
     const rateLimit = getHelpdeskRateLimitStatus(auth.actorName);
     const jeaTemplates = getHelpdeskJeaTemplates();
@@ -8132,12 +8276,250 @@ apiRouter.get('/helpdesk/status', async (req: Request, res: Response) => {
   }
 });
 
+// GET /helpdesk/exceptions - List HelpDesk blocked IP/User/AD Group rules + synced AD catalog
+apiRouter.get('/helpdesk/exceptions', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'view');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    const [rules, adConfig] = await Promise.all([
+      listHelpdeskExceptionsFromDb(),
+      getActiveDirectoryConfig().catch(() => null as any),
+    ]);
+    const syncedUsers = Array.isArray(adConfig?.syncedUsers)
+      ? adConfig.syncedUsers.slice(0, 500).map((u: any) => ({
+          samAccountName: String(u?.samAccountName || u?.name || '').trim(),
+          displayName: String(u?.displayName || u?.samAccountName || '').trim(),
+          email: String(u?.email || '').trim(),
+          department: String(u?.department || '').trim(),
+          groups: Array.isArray(u?.groups) ? u.groups : [],
+        })).filter((u: any) => u.samAccountName)
+      : [];
+    const syncedGroups = Array.isArray(adConfig?.syncedGroups)
+      ? adConfig.syncedGroups.slice(0, 500).map((g: any) => ({
+          name: String(g?.name || g?.samAccountName || g?.cn || '').trim(),
+          dn: String(g?.dn || '').trim(),
+        })).filter((g: any) => g.name)
+      : [];
+    return res.json({
+      success: true,
+      rules,
+      canManage: auth.permissions.canManageHelpdeskExceptions,
+      adCatalog: {
+        enabled: Boolean(adConfig?.enabled),
+        domain: String(adConfig?.domain || adConfig?.netbiosDomain || '').trim(),
+        syncedUsers,
+        syncedGroups,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to load HelpDesk exception rules',
+      errorFa: 'خطا در دریافت لیست قوانین استثنائات هلپ‌دسک',
+    });
+  }
+});
+
+// POST /helpdesk/exceptions - Create a HelpDesk connection blocklist rule
+apiRouter.post('/helpdesk/exceptions', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'manage_exceptions');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    const ruleTypeRaw = String(req.body?.ruleType || '').trim() as HelpdeskExceptionRuleType;
+    if (!['ip', 'local_user', 'ad_user', 'ad_group'].includes(ruleTypeRaw)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid exception ruleType. Must be ip, local_user, ad_user, or ad_group.',
+        errorFa: 'نوع قانون نامعتبر است (ip، local_user، ad_user یا ad_group).',
+      });
+    }
+    const targetValue = String(req.body?.targetValue || '').trim();
+    if (!targetValue || targetValue.length > 256) {
+      return res.status(400).json({
+        success: false,
+        error: 'Target value is required and must be at most 256 characters.',
+        errorFa: 'مقدار هدف (IP / نام کاربری / گروه دامین) الزامی است.',
+      });
+    }
+    const domainName = String(req.body?.domainName || '').trim().slice(0, 128);
+    const description = String(req.body?.description || '').trim().slice(0, 300);
+    const enabled = req.body?.enabled !== false;
+
+    const rule = await createHelpdeskExceptionInDb({
+      ruleType: ruleTypeRaw,
+      targetValue,
+      domainName,
+      description,
+      enabled,
+      createdBy: auth.actorName,
+      createdByRole: auth.actorRole,
+    });
+    clearHelpdeskExceptionIdentityCache();
+
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_exception_created',
+      title: `افزودن قانون استثنای هلپ‌دسک (${rule.ruleType}: ${rule.targetValue})`,
+      title_en: `Created HelpDesk Exception Rule (${rule.ruleType}: ${rule.targetValue})`,
+      details: `کاربر ${auth.actorName} قانون عدم دسترسی هلپ‌دسک از نوع ${rule.ruleType} برای «${rule.targetValue}»${rule.domainName ? ` (دامین: ${rule.domainName})` : ''} ثبت کرد.`,
+      details_en: `Operator ${auth.actorName} added HelpDesk exclusion rule [${rule.ruleType}] for "${rule.targetValue}"${rule.domainName ? ` (domain: ${rule.domainName})` : ''}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: rule.targetValue,
+      clientIp: auth.clientIp,
+      metadata: { rule },
+    }).catch(() => {});
+
+    return res.status(201).json({ success: true, rule });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to create HelpDesk exception rule');
+    return res.status(/already exists|invalid|required/i.test(msg) ? 400 : 500).json({
+      success: false,
+      error: msg,
+      errorFa: /already exists/i.test(msg) ? 'این قانون استثنا از قبل وجود دارد.' : msg,
+    });
+  }
+});
+
+// PATCH /helpdesk/exceptions/:id - Update / toggle a HelpDesk exception rule
+apiRouter.patch('/helpdesk/exceptions/:id', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'manage_exceptions');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Exception rule ID is required' });
+    }
+    const patch: any = {};
+    if (req.body?.ruleType !== undefined) {
+      const rt = String(req.body.ruleType).trim();
+      if (!['ip', 'local_user', 'ad_user', 'ad_group'].includes(rt)) {
+        return res.status(400).json({ success: false, error: 'Invalid ruleType' });
+      }
+      patch.ruleType = rt;
+    }
+    if (req.body?.targetValue !== undefined) {
+      const tv = String(req.body.targetValue).trim();
+      if (!tv || tv.length > 256) {
+        return res.status(400).json({ success: false, error: 'Target value is required' });
+      }
+      patch.targetValue = tv;
+    }
+    if (req.body?.domainName !== undefined) patch.domainName = String(req.body.domainName || '').trim().slice(0, 128);
+    if (req.body?.description !== undefined) patch.description = String(req.body.description || '').trim().slice(0, 300);
+    if (req.body?.enabled !== undefined) patch.enabled = Boolean(req.body.enabled);
+
+    const updated = await updateHelpdeskExceptionInDb(id, patch);
+    if (!updated) {
+      return res.status(404).json({ success: false, error: 'Exception rule not found' });
+    }
+    clearHelpdeskExceptionIdentityCache();
+
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_exception_updated',
+      title: `به‌روزرسانی قانون استثنای هلپ‌دسک (${updated.ruleType}: ${updated.targetValue})`,
+      title_en: `Updated HelpDesk Exception Rule (${updated.ruleType}: ${updated.targetValue})`,
+      details: `کاربر ${auth.actorName} قانون «${updated.targetValue}» را ویرایش کرد (وضعیت: ${updated.enabled ? 'فعال' : 'غیرفعال'}).`,
+      details_en: `Operator ${auth.actorName} updated HelpDesk exclusion "${updated.targetValue}" (enabled=${updated.enabled}).`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: updated.targetValue,
+      clientIp: auth.clientIp,
+      metadata: { rule: updated },
+    }).catch(() => {});
+
+    return res.json({ success: true, rule: updated });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to update HelpDesk exception rule');
+    return res.status(/already exists|invalid|required/i.test(msg) ? 400 : 500).json({
+      success: false,
+      error: msg,
+      errorFa: /already exists/i.test(msg) ? 'قانون مشابه دیگری با این مشخصات وجود دارد.' : msg,
+    });
+  }
+});
+
+// DELETE /helpdesk/exceptions/:id - Delete a HelpDesk exception rule
+apiRouter.delete('/helpdesk/exceptions/:id', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'manage_exceptions');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Exception rule ID is required' });
+    }
+    const existing = (await listHelpdeskExceptionsFromDb()).find((r) => r.id === id);
+    const removed = await deleteHelpdeskExceptionInDb(id);
+    if (!removed) {
+      return res.status(404).json({ success: false, error: 'Exception rule not found' });
+    }
+    clearHelpdeskExceptionIdentityCache();
+
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_exception_deleted',
+      title: `حذف قانون استثنای هلپ‌دسک (${existing?.targetValue || id})`,
+      title_en: `Deleted HelpDesk Exception Rule (${existing?.targetValue || id})`,
+      details: `کاربر ${auth.actorName} قانون استثنای هلپ‌دسک «${existing?.targetValue || id}» را حذف کرد.`,
+      details_en: `Operator ${auth.actorName} deleted HelpDesk exclusion rule "${existing?.targetValue || id}".`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'warning',
+      targetName: existing?.targetValue || id,
+      clientIp: auth.clientIp,
+      metadata: { deletedRule: existing || { id } },
+    }).catch(() => {});
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete HelpDesk exception rule',
+      errorFa: 'خطا در حذف قانون استثنای هلپ‌دسک',
+    });
+  }
+});
+
+// POST /helpdesk/exceptions/inspect-endpoint - Admin live discovery of local users, AD users & AD groups on a target endpoint
+apiRouter.post('/helpdesk/exceptions/inspect-endpoint', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'manage_exceptions');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    const target = extractHelpdeskTargetFromBody(req.body);
+    const snapshot = await inspectEndpointIdentityForExceptions(target);
+    return res.json({ success: true, snapshot });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to inspect target endpoint identities');
+    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
 // GET /helpdesk/history - Paginated HelpDesk connection history (no passwords stored)
 apiRouter.get('/helpdesk/history', async (req: Request, res: Response) => {
   try {
     const auth = await resolveHelpdeskAuth(req, 'diagnostics');
     if (!auth.ok) {
-      return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+      return sendHelpdeskAuthFailure(res, auth);
     }
     const rawStatus = String(req.query.status || 'all').trim().toLowerCase();
     const status = rawStatus === 'success' || rawStatus === 'failed' ? rawStatus : 'all';
@@ -8163,7 +8545,7 @@ apiRouter.delete('/helpdesk/history/:id', async (req: Request, res: Response) =>
   try {
     const auth = await resolveHelpdeskAuth(req, 'actions');
     if (!auth.ok) {
-      return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+      return sendHelpdeskAuthFailure(res, auth);
     }
     const id = String(req.params.id || '').trim();
     if (!id) {
@@ -8201,7 +8583,7 @@ apiRouter.delete('/helpdesk/history', async (req: Request, res: Response) => {
   try {
     const auth = await resolveHelpdeskAuth(req, 'actions');
     if (!auth.ok) {
-      return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+      return sendHelpdeskAuthFailure(res, auth);
     }
     const clearedCount = await clearHelpdeskConnectionHistoryFromDb();
     await addPortalAuditLog({
@@ -8232,7 +8614,7 @@ apiRouter.delete('/helpdesk/history', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/health', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const skipHistory = req.body?.skipHistory === true;
@@ -8325,7 +8707,7 @@ apiRouter.post('/helpdesk/health', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/network/snapshot', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   try {
@@ -8370,7 +8752,7 @@ apiRouter.post('/helpdesk/network/snapshot', async (req: Request, res: Response)
 apiRouter.post('/helpdesk/network/probe', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rawType = String(req.body?.probeType || 'ping').trim().toLowerCase();
@@ -8448,7 +8830,7 @@ apiRouter.post('/helpdesk/network/probe', async (req: Request, res: Response) =>
 apiRouter.post('/helpdesk/network/action', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rawAction = String(req.body?.action || '').trim();
@@ -8528,7 +8910,7 @@ apiRouter.post('/helpdesk/network/action', async (req: Request, res: Response) =
 apiRouter.post('/helpdesk/network/adapter', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'network_adapter_config');
@@ -8590,7 +8972,7 @@ apiRouter.post('/helpdesk/network/adapter', async (req: Request, res: Response) 
 apiRouter.post('/helpdesk/network/hosts', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'network_hosts_edit');
@@ -8647,7 +9029,7 @@ apiRouter.post('/helpdesk/network/hosts', async (req: Request, res: Response) =>
 apiRouter.post('/helpdesk/network/proxy', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'network_proxy_config');
@@ -8705,7 +9087,7 @@ apiRouter.post('/helpdesk/network/proxy', async (req: Request, res: Response) =>
 apiRouter.post('/helpdesk/network/route', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const op = req.body?.operation === 'delete' ? 'delete' : 'add';
@@ -8767,7 +9149,7 @@ apiRouter.post('/helpdesk/network/route', async (req: Request, res: Response) =>
 apiRouter.post('/helpdesk/network/vpn', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rawOp = String(req.body?.operation || '').trim().toLowerCase();
@@ -8860,7 +9242,7 @@ apiRouter.post('/helpdesk/network/vpn', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/printers/status', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   try {
@@ -8905,7 +9287,7 @@ apiRouter.post('/helpdesk/printers/status', async (req: Request, res: Response) 
 apiRouter.post('/helpdesk/printers/action', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rawAction = String(req.body?.action || '').trim();
@@ -8985,7 +9367,7 @@ apiRouter.post('/helpdesk/printers/action', async (req: Request, res: Response) 
 apiRouter.post('/helpdesk/printers/set-default', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const printerName = String(req.body?.printerName || '').trim();
@@ -9052,7 +9434,7 @@ apiRouter.post('/helpdesk/printers/set-default', async (req: Request, res: Respo
 apiRouter.post('/helpdesk/printers/delete', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const printerName = String(req.body?.printerName || '').trim();
@@ -9122,7 +9504,7 @@ apiRouter.post('/helpdesk/printers/delete', async (req: Request, res: Response) 
 apiRouter.post('/helpdesk/printers/server/list', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const printServer = String(req.body?.printServer || '').trim();
@@ -9184,7 +9566,7 @@ apiRouter.post('/helpdesk/printers/server/list', async (req: Request, res: Respo
 apiRouter.post('/helpdesk/printers/install', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const printServer = String(req.body?.printServer || '').trim();
@@ -9274,7 +9656,7 @@ apiRouter.post('/helpdesk/printers/install', async (req: Request, res: Response)
 apiRouter.post('/helpdesk/shares/status', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   try {
@@ -9319,7 +9701,7 @@ apiRouter.post('/helpdesk/shares/status', async (req: Request, res: Response) =>
 apiRouter.post('/helpdesk/shares/server/list', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const fileServer = String(req.body?.fileServer || '').trim();
@@ -9381,7 +9763,7 @@ apiRouter.post('/helpdesk/shares/server/list', async (req: Request, res: Respons
 apiRouter.post('/helpdesk/shares/map', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const remotePath = String(req.body?.remotePath || '').trim();
@@ -9477,7 +9859,7 @@ apiRouter.post('/helpdesk/shares/map', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/shares/disconnect', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const remotePath = String(req.body?.remotePath || '').trim();
@@ -9565,7 +9947,7 @@ apiRouter.post('/helpdesk/shares/disconnect', async (req: Request, res: Response
 apiRouter.post('/helpdesk/events', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'event_viewer');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rawChannel = String(req.body?.channel || 'All').trim();
@@ -9630,7 +10012,7 @@ apiRouter.post('/helpdesk/events', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/process/terminate', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'terminate_process');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const pid = Number(req.body?.pid);
@@ -9714,7 +10096,7 @@ apiRouter.post('/helpdesk/process/terminate', async (req: Request, res: Response
 apiRouter.post('/helpdesk/temp/scan', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   try {
@@ -9759,7 +10141,7 @@ apiRouter.post('/helpdesk/temp/scan', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/temp/clean', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'clean_temp');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rawScope = String(req.body?.scope || 'both').trim();
@@ -9827,7 +10209,7 @@ apiRouter.post('/helpdesk/temp/clean', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/gpo/status', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   try {
@@ -9877,7 +10259,7 @@ apiRouter.post('/helpdesk/gpo/status', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/gpo/refresh', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'gpupdate');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
 
@@ -9935,7 +10317,7 @@ apiRouter.post('/helpdesk/gpo/refresh', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/sysinfo', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   try {
@@ -9985,7 +10367,7 @@ apiRouter.post('/helpdesk/sysinfo', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/disks/status', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   try {
@@ -10033,7 +10415,7 @@ apiRouter.post('/helpdesk/disks/status', async (req: Request, res: Response) => 
 apiRouter.post('/helpdesk/repair/system', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'system_repair');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const mode = String(req.body?.mode || '').trim() as HelpdeskRepairMode;
@@ -10132,7 +10514,7 @@ apiRouter.post('/helpdesk/repair/system', async (req: Request, res: Response) =>
 apiRouter.post('/helpdesk/ad/user', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'domain_user');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const domainUsername = String(req.body?.domainUsername || '').trim();
@@ -10197,7 +10579,7 @@ apiRouter.post('/helpdesk/ad/user', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/power', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'power_control');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const powerAction = String(req.body?.powerAction || '').trim() as HelpdeskPowerAction;
@@ -10279,7 +10661,7 @@ apiRouter.post('/helpdesk/power', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/battery', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   try {
@@ -10334,7 +10716,7 @@ apiRouter.post('/helpdesk/battery', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/logons', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const hoursBack = Number(req.body?.hoursBack) || 168;
@@ -10401,7 +10783,7 @@ apiRouter.post('/helpdesk/logons', async (req: Request, res: Response) => {
 apiRouter.post('/helpdesk/logons/session-action', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const action = String(req.body?.action || '').trim() as HelpdeskUserSessionAction;
@@ -10496,7 +10878,7 @@ apiRouter.post('/helpdesk/logons/session-action', async (req: Request, res: Resp
 apiRouter.post('/helpdesk/updates/status', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rawSource = String(req.body?.sourceMode || 'auto').trim().toLowerCase();
@@ -10555,7 +10937,7 @@ apiRouter.post('/helpdesk/updates/status', async (req: Request, res: Response) =
 apiRouter.post('/helpdesk/updates/install', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'windows_update_install');
@@ -10611,7 +10993,7 @@ apiRouter.post('/helpdesk/updates/install', async (req: Request, res: Response) 
 apiRouter.post('/helpdesk/updates/uninstall', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const kbId = String(req.body?.kbId || '').trim();
@@ -10664,7 +11046,7 @@ apiRouter.post('/helpdesk/updates/uninstall', async (req: Request, res: Response
 apiRouter.post('/helpdesk/programs/list', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   try {
@@ -10714,7 +11096,7 @@ apiRouter.post('/helpdesk/programs/list', async (req: Request, res: Response) =>
 apiRouter.post('/helpdesk/programs/uninstall', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const programName = String(req.body?.programName || '').trim();
@@ -10783,7 +11165,7 @@ apiRouter.post('/helpdesk/programs/uninstall', async (req: Request, res: Respons
 apiRouter.post('/helpdesk/hardware/inventory', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   try {
@@ -10838,7 +11220,7 @@ apiRouter.post('/helpdesk/hardware/inventory', async (req: Request, res: Respons
 apiRouter.post('/helpdesk/services-startup/list', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   try {
@@ -10888,7 +11270,7 @@ apiRouter.post('/helpdesk/services-startup/list', async (req: Request, res: Resp
 apiRouter.post('/helpdesk/services/action', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const serviceName = String(req.body?.serviceName || '').trim();
@@ -10968,7 +11350,7 @@ apiRouter.post('/helpdesk/services/action', async (req: Request, res: Response) 
 apiRouter.post('/helpdesk/startup/action', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const action = String(req.body?.action || '').trim() as 'enable' | 'disable' | 'delete' | 'add';
@@ -11054,7 +11436,7 @@ apiRouter.post('/helpdesk/startup/action', async (req: Request, res: Response) =
 apiRouter.post('/helpdesk/region-fonts/list', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   try {
@@ -11104,7 +11486,7 @@ apiRouter.post('/helpdesk/region-fonts/list', async (req: Request, res: Response
 apiRouter.post('/helpdesk/region/datetime', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const operation = String(req.body?.operation || '').trim() as
@@ -11183,7 +11565,7 @@ apiRouter.post('/helpdesk/region/datetime', async (req: Request, res: Response) 
 apiRouter.post('/helpdesk/region/languages', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const operation = req.body?.operation === 'set_locale' ? 'set_locale' : 'set_languages';
@@ -11252,7 +11634,7 @@ apiRouter.post('/helpdesk/region/languages', async (req: Request, res: Response)
 apiRouter.post('/helpdesk/fonts/install', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'font_install');
@@ -11317,7 +11699,7 @@ apiRouter.post('/helpdesk/fonts/install', async (req: Request, res: Response) =>
 apiRouter.post('/helpdesk/fonts/delete', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'font_delete');
@@ -11383,7 +11765,7 @@ apiRouter.post('/helpdesk/fonts/delete', async (req: Request, res: Response) => 
 apiRouter.post('/helpdesk/diagnostics/run', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
   if (!auth.ok) {
-    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+    return sendHelpdeskAuthFailure(res, auth);
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const selectedChecks: HelpdeskDiagnosticCheckId[] | undefined = Array.isArray(req.body?.checks)

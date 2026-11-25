@@ -315,6 +315,22 @@ export interface FallbackStore {
   session_recording_markers?: any[];
   ssl_certificates?: any[];
   helpdesk_connection_history?: HelpdeskConnectionHistoryRecord[];
+  helpdesk_exceptions?: HelpdeskExceptionRecord[];
+}
+
+export type HelpdeskExceptionRuleType = 'ip' | 'local_user' | 'ad_user' | 'ad_group';
+
+export interface HelpdeskExceptionRecord {
+  id: string;
+  ruleType: HelpdeskExceptionRuleType;
+  targetValue: string;
+  domainName?: string;
+  description?: string;
+  enabled: boolean;
+  createdBy: string;
+  createdByRole?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface HelpdeskConnectionHistoryRecord {
@@ -590,6 +606,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canRunHelpdeskSystemRepair: true,
     canInspectHelpdeskDomainUsers: true,
     canPowerControlHelpdeskEndpoints: false,
+    canManageHelpdeskExceptions: false,
     // Device & Port Actions
     terminalAccess: 'none',
     canToggleAdminStatus: false,
@@ -689,6 +706,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canRunHelpdeskSystemRepair: false,
     canInspectHelpdeskDomainUsers: false,
     canPowerControlHelpdeskEndpoints: false,
+    canManageHelpdeskExceptions: false,
     // Device & Port Actions
     terminalAccess: 'view_only',
     canToggleAdminStatus: false,
@@ -788,6 +806,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canRunHelpdeskSystemRepair: true,
     canInspectHelpdeskDomainUsers: true,
     canPowerControlHelpdeskEndpoints: true,
+    canManageHelpdeskExceptions: true,
     // Device & Port Actions
     terminalAccess: 'full',
     canToggleAdminStatus: true,
@@ -1511,6 +1530,9 @@ export function loadFallbackStore(): FallbackStore {
   if (!Array.isArray(store.auth_blocklist)) {
     store.auth_blocklist = [];
   }
+  if (!Array.isArray(store.helpdesk_exceptions)) {
+    store.helpdesk_exceptions = [];
+  }
 
   if (readSucceeded && currentStat) {
     cachedFallbackStore = store;
@@ -1898,6 +1920,12 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
         pData.canRunHelpdeskSystemRepair = isSuper || isHelpdesk || Boolean(pData.canExecuteHelpdeskActions);
         pData.canInspectHelpdeskDomainUsers = isSuper || isHelpdesk || Boolean(pData.canRunHelpdeskDiagnostics);
         pData.canPowerControlHelpdeskEndpoints = isSuper;
+        pData.canManageHelpdeskExceptions = isSuper;
+        changed = true;
+      }
+      if (pData.canManageHelpdeskExceptions === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        pData.canManageHelpdeskExceptions = isSuper;
         changed = true;
       }
       if (changed) {
@@ -3101,6 +3129,19 @@ export async function initDatabase(): Promise<void> {
       `);
       await client.query(
         "CREATE INDEX IF NOT EXISTS idx_helpdesk_conn_history_ts ON helpdesk_connection_history(connected_at DESC)"
+      );
+
+      // 34. HelpDesk Connection Exceptions / Blocklist (PostgreSQL Authoritative)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS helpdesk_exceptions (
+          id VARCHAR(128) PRIMARY KEY,
+          data JSONB NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query(
+        "CREATE INDEX IF NOT EXISTS idx_helpdesk_exceptions_updated ON helpdesk_exceptions(updated_at DESC)"
       );
     } catch {}
 
@@ -5082,6 +5123,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canRunHelpdeskSystemRepair: false,
       canInspectHelpdeskDomainUsers: false,
       canPowerControlHelpdeskEndpoints: false,
+      canManageHelpdeskExceptions: false,
       canCheckUpdate: false,
       canPerformUpdate: false,
       canBulkConfigureDevices: false,
@@ -5443,6 +5485,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canRunHelpdeskSystemRepair: true,
       canInspectHelpdeskDomainUsers: true,
       canPowerControlHelpdeskEndpoints: true,
+      canManageHelpdeskExceptions: true,
       terminalAccess: 'full',
       canToggleAdminStatus: true,
       canChangeVlan: true,
@@ -5574,6 +5617,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canRunHelpdeskSystemRepair: false,
     canInspectHelpdeskDomainUsers: false,
     canPowerControlHelpdeskEndpoints: false,
+    canManageHelpdeskExceptions: false,
     terminalAccess: 'none',
     canToggleAdminStatus: false,
     canChangeVlan: false,
@@ -15472,5 +15516,221 @@ export async function clearHelpdeskConnectionHistoryFromDb(): Promise<number> {
   }
   return count;
 }
+
+// ============================================================================
+// HelpDesk Connection Exceptions / Blocklist (PostgreSQL Authoritative + Fallback)
+// ============================================================================
+
+async function ensureHelpdeskExceptionsTable(): Promise<void> {
+  if (!isPostgresReady || !pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS helpdesk_exceptions (
+      id VARCHAR(128) PRIMARY KEY,
+      data JSONB NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_helpdesk_exceptions_updated ON helpdesk_exceptions(updated_at DESC)"
+  );
+}
+
+function normalizeHelpdeskExceptionRecord(raw: any): HelpdeskExceptionRecord {
+  const validTypes: HelpdeskExceptionRuleType[] = ['ip', 'local_user', 'ad_user', 'ad_group'];
+  const ruleType: HelpdeskExceptionRuleType = validTypes.includes(raw?.ruleType) ? raw.ruleType : 'ip';
+  const nowIso = new Date().toISOString();
+  return {
+    id: String(raw?.id || `hdexc_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`),
+    ruleType,
+    targetValue: String(raw?.targetValue || '').trim(),
+    domainName: raw?.domainName ? String(raw.domainName).trim() : '',
+    description: raw?.description ? String(raw.description).trim() : '',
+    enabled: raw?.enabled !== false,
+    createdBy: String(raw?.createdBy || 'Administrator').trim(),
+    createdByRole: raw?.createdByRole ? String(raw.createdByRole).trim() : 'Administrator',
+    createdAt: raw?.createdAt || nowIso,
+    updatedAt: raw?.updatedAt || nowIso,
+  };
+}
+
+export async function listHelpdeskExceptionsFromDb(): Promise<HelpdeskExceptionRecord[]> {
+  let items: HelpdeskExceptionRecord[] = [];
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskExceptionsTable();
+      const res = await pool.query(
+        `SELECT data FROM helpdesk_exceptions ORDER BY updated_at DESC, created_at DESC LIMIT 2000`
+      );
+      items = res.rows.map((r: any) =>
+        normalizeHelpdeskExceptionRecord(typeof r.data === 'string' ? JSON.parse(r.data) : r.data)
+      );
+      if (items.length === 0) {
+        const fb = loadFallbackStore();
+        if (Array.isArray(fb.helpdesk_exceptions) && fb.helpdesk_exceptions.length > 0) {
+          items = fb.helpdesk_exceptions.map(normalizeHelpdeskExceptionRecord);
+          for (const rec of items) {
+            await pool.query(
+              `INSERT INTO helpdesk_exceptions (id, data, created_at, updated_at)
+               VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz)
+               ON CONFLICT (id) DO NOTHING`,
+              [rec.id, JSON.stringify(rec), rec.createdAt, rec.updatedAt]
+            );
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[DB] listHelpdeskExceptionsFromDb fallback:', e?.message || e);
+      const fb = loadFallbackStore();
+      items = Array.isArray(fb.helpdesk_exceptions)
+        ? fb.helpdesk_exceptions.map(normalizeHelpdeskExceptionRecord)
+        : [];
+    }
+  } else {
+    const fb = loadFallbackStore();
+    items = Array.isArray(fb.helpdesk_exceptions)
+      ? fb.helpdesk_exceptions.map(normalizeHelpdeskExceptionRecord)
+      : [];
+  }
+
+  return [...items].sort(
+    (a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime()
+  );
+}
+
+export async function createHelpdeskExceptionInDb(input: {
+  ruleType: HelpdeskExceptionRuleType;
+  targetValue: string;
+  domainName?: string;
+  description?: string;
+  enabled?: boolean;
+  createdBy: string;
+  createdByRole?: string;
+}): Promise<HelpdeskExceptionRecord> {
+  const existing = await listHelpdeskExceptionsFromDb();
+  const normTarget = String(input.targetValue || '').trim().toLowerCase();
+  const normDomain = String(input.domainName || '').trim().toLowerCase();
+  const dup = existing.find(
+    (r) =>
+      r.ruleType === input.ruleType &&
+      r.targetValue.trim().toLowerCase() === normTarget &&
+      String(r.domainName || '').trim().toLowerCase() === normDomain
+  );
+  if (dup) {
+    throw new Error('An identical HelpDesk exception rule already exists.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const rec = normalizeHelpdeskExceptionRecord({
+    id: `hdexc_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    ruleType: input.ruleType,
+    targetValue: String(input.targetValue || '').trim(),
+    domainName: input.domainName ? String(input.domainName).trim() : '',
+    description: input.description ? String(input.description).trim() : '',
+    enabled: input.enabled !== false,
+    createdBy: input.createdBy,
+    createdByRole: input.createdByRole || 'Administrator',
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  });
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.helpdesk_exceptions)) store.helpdesk_exceptions = [];
+  store.helpdesk_exceptions.unshift(rec);
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskExceptionsTable();
+      await pool.query(
+        `INSERT INTO helpdesk_exceptions (id, data, created_at, updated_at)
+         VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz)
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
+        [rec.id, JSON.stringify(rec), rec.createdAt, rec.updatedAt]
+      );
+    } catch (e: any) {
+      console.warn('[DB] createHelpdeskExceptionInDb error:', e?.message || e);
+    }
+  }
+  return rec;
+}
+
+export async function updateHelpdeskExceptionInDb(
+  id: string,
+  patch: Partial<Pick<HelpdeskExceptionRecord, 'ruleType' | 'targetValue' | 'domainName' | 'description' | 'enabled'>>
+): Promise<HelpdeskExceptionRecord | null> {
+  const existing = await listHelpdeskExceptionsFromDb();
+  const current = existing.find((r) => r.id === id);
+  if (!current) return null;
+
+  const updated = normalizeHelpdeskExceptionRecord({
+    ...current,
+    ...(patch.ruleType !== undefined ? { ruleType: patch.ruleType } : {}),
+    ...(patch.targetValue !== undefined ? { targetValue: String(patch.targetValue).trim() } : {}),
+    ...(patch.domainName !== undefined ? { domainName: String(patch.domainName || '').trim() } : {}),
+    ...(patch.description !== undefined ? { description: String(patch.description || '').trim() } : {}),
+    ...(patch.enabled !== undefined ? { enabled: Boolean(patch.enabled) } : {}),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const normTarget = updated.targetValue.toLowerCase();
+  const normDomain = String(updated.domainName || '').toLowerCase();
+  const dup = existing.find(
+    (r) =>
+      r.id !== id &&
+      r.ruleType === updated.ruleType &&
+      r.targetValue.trim().toLowerCase() === normTarget &&
+      String(r.domainName || '').trim().toLowerCase() === normDomain
+  );
+  if (dup) {
+    throw new Error('Another HelpDesk exception rule with the same type, target, and domain already exists.');
+  }
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.helpdesk_exceptions)) store.helpdesk_exceptions = [];
+  const idx = store.helpdesk_exceptions.findIndex((r: any) => r?.id === id);
+  if (idx !== -1) store.helpdesk_exceptions[idx] = updated;
+  else store.helpdesk_exceptions.unshift(updated);
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskExceptionsTable();
+      await pool.query(
+        `INSERT INTO helpdesk_exceptions (id, data, created_at, updated_at)
+         VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz)
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
+        [updated.id, JSON.stringify(updated), updated.createdAt, updated.updatedAt]
+      );
+    } catch (e: any) {
+      console.warn('[DB] updateHelpdeskExceptionInDb error:', e?.message || e);
+    }
+  }
+  return updated;
+}
+
+export async function deleteHelpdeskExceptionInDb(id: string): Promise<boolean> {
+  const store = loadFallbackStore();
+  const beforeLen = Array.isArray(store.helpdesk_exceptions) ? store.helpdesk_exceptions.length : 0;
+  store.helpdesk_exceptions = (store.helpdesk_exceptions || []).filter((r: any) => r?.id !== id);
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  let deletedInPg = false;
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskExceptionsTable();
+      const res = await pool.query(`DELETE FROM helpdesk_exceptions WHERE id = $1`, [id]);
+      deletedInPg = (res.rowCount || 0) > 0;
+    } catch (e: any) {
+      console.warn('[DB] deleteHelpdeskExceptionInDb error:', e?.message || e);
+    }
+  }
+  return deletedInPg || store.helpdesk_exceptions.length < beforeLen;
+}
+
 
 

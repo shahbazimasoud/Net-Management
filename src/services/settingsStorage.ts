@@ -229,6 +229,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canRunHelpdeskSystemRepair: true,
     canInspectHelpdeskDomainUsers: true,
     canPowerControlHelpdeskEndpoints: false,
+    canManageHelpdeskExceptions: false,
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: true,
@@ -320,6 +321,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canRunHelpdeskSystemRepair: false,
     canInspectHelpdeskDomainUsers: false,
     canPowerControlHelpdeskEndpoints: false,
+    canManageHelpdeskExceptions: false,
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: false,
@@ -415,6 +417,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canRunHelpdeskSystemRepair: true,
     canInspectHelpdeskDomainUsers: true,
     canPowerControlHelpdeskEndpoints: true,
+    canManageHelpdeskExceptions: true,
     // Communications & Approvals RBAC
     canViewCommunications: true,
     canSendCommunications: true,
@@ -1402,6 +1405,7 @@ export function getEffectiveUserPolicy(
         canRunHelpdeskSystemRepair: true,
         canInspectHelpdeskDomainUsers: true,
         canPowerControlHelpdeskEndpoints: true,
+        canManageHelpdeskExceptions: true,
       }
     );
   }
@@ -1449,6 +1453,7 @@ export function getEffectiveUserPolicy(
     canRunHelpdeskSystemRepair: false,
     canInspectHelpdeskDomainUsers: false,
     canPowerControlHelpdeskEndpoints: false,
+    canManageHelpdeskExceptions: false,
   });
 }
 

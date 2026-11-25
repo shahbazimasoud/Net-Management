@@ -187,6 +187,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   const isDeviceGroup = target.type === 'device_group';
   const isPrinter = target.type === 'printer';
   const isNetworkShare = target.type === 'network_share';
+  const isGeneric = target.type === 'generic';
   const rackTarget = isRack ? (target as DeleteRackTarget) : null;
   const rackDeviceTarget = isRackDevice ? (target as DeleteRackDeviceTarget) : null;
   const noteTarget = isNote ? (target as DeleteStickyNoteTarget) : null;
@@ -194,6 +195,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   const groupTarget = isDeviceGroup ? (target as DeleteDeviceGroupTarget) : null;
   const printerTarget = isPrinter ? (target as DeletePrinterTarget) : null;
   const shareTarget = isNetworkShare ? (target as DeleteNetworkShareTarget) : null;
+  const genericTarget = isGeneric ? (target as DeleteGenericTarget) : null;
   const deviceTarget = target.type === 'device' ? (target as DeleteDeviceTarget) : null;
   const hasMountedDevices = (rackTarget?.devices?.length || 0) > 0;
 
@@ -287,6 +289,10 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   ? isEn
                     ? `Disconnect Mapped Share (${shareTarget?.driveLetter || shareTarget?.remotePath})`
                     : `قطع اتصال پوشه اشتراکی («${shareTarget?.driveLetter || shareTarget?.remotePath}»)`
+                  : isGeneric
+                  ? isEn
+                    ? `Delete ${genericTarget?.category || 'Item'} ("${target.name}")`
+                    : `حذف ${genericTarget?.category || 'مورد'} («${target.name}»)`
                   : isEn
                   ? `Delete Device (${target.name})`
                   : `حذف تجهیز («${target.name}»)`}
@@ -324,6 +330,8 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
                   ? isEn
                     ? `${shareTarget?.host ? `Workstation ${shareTarget.host} • ` : ''}${shareTarget?.remotePath}`
                     : `${shareTarget?.host ? `سیستم ${shareTarget.host} • ` : ''}${shareTarget?.remotePath}`
+                  : isGeneric
+                  ? genericTarget?.description || (isEn ? 'Permanent Removal Confirmation' : 'تایید حذف دائمی')
                   : deviceTarget?.model || deviceTarget?.ip || (isEn ? 'Network Hardware' : 'تجهیز شبکه')}
               </p>
             </div>
@@ -806,6 +814,21 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
             >
               <FolderX className="w-4 h-4" />
               <span>{isEn ? 'Disconnect Share' : 'قطع اتصال (Disconnect)'}</span>
+            </button>
+          ) : isGeneric ? (
+            <button
+              type="button"
+              id="confirm-delete-generic-btn"
+              onClick={() => {
+                if (onConfirm) {
+                  onConfirm();
+                }
+                onClose();
+              }}
+              className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold border border-rose-500/50 shadow-lg transition active:scale-95 cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>{isEn ? 'Confirm Delete' : 'تایید حذف'}</span>
             </button>
           ) : (
             <button

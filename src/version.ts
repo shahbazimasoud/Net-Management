@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.474.1';
+export const APP_VERSION = '1.475.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.475.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'افزودن سیستم استثنائات و مسدودسازی اتصال در صفحه HelpDesk (IP، کاربر لوکال، کاربر و گروه Active Directory)',
+    title_en: 'Add HelpDesk Connection Exceptions & Blocklist for IPs, Local Accounts, AD Users, and AD Groups',
+    changes: [
+      'افزودن جدول PostgreSQL اختصاصی `helpdesk_exceptions` و کنترل دسترسی RBAC جدید (`canManageHelpdeskExceptions`) برای مدیریت قوانین مسدودسازی اتصال از صفحه هلپ‌دسک.',
+      'اجرای مسدودسازی سمت سرور روی تمامی درخواست‌های هلپ‌دسک بر اساس ۴ نوع قانون: **آدرس IP / CIDR / رنج IPv4 / Hostname**، **کاربر لوکال سیستم (`local_user`)**، **کاربر اکتیودایرکتوری (`ad_user`)** و **گروه امنیتی اکتیودایرکتوری (`ad_group`)** با ثبت خودکار لاگ حسابرسی (`helpdesk_exception_blocked`).',
+      'طراحی مودال استاندارد **استثنائات و مسدودسازی (`HelpdeskExceptionsModal`)** با قابلیت مینیمایز به داک، راهنمای سه‌گانه Info، و دو بخش کمکی انتخاب از **دایرکتوری همگام‌سازی‌شده AD** و **استعلام واقعی کاربران لوکال و گروه‌های AD از سیستم هدف**.'
+    ],
+    changes_en: [
+      'Added PostgreSQL-backed `helpdesk_exceptions` table, CRUD API routes (`/api/helpdesk/exceptions*`), and granular RBAC capability `canManageHelpdeskExceptions`.',
+      'Added server-side pre-execution enforcement across all HelpDesk endpoint endpoints matching **IP / CIDR / IPv4 range / wildcard / hostname**, **Workstation Local User**, **Active Directory User**, and **Active Directory Group Membership** (`tokenGroups` / `memberOf`), returning HTTP 403 and logging `helpdesk_exception_blocked` audit records.',
+      'Built `HelpdeskExceptionsModal` following all 5 Universal Modal guidelines with Light/Dark theming, bilingual EN/FA copy, 3-dots portal row menus, synced AD directory picker, and an admin-only live workstation inspector for discovering local accounts, domain users, and AD security groups directly from the target host.'
+    ],
+  },
   {
     version: '1.474.1',
     releaseDate: '2026-11-25',

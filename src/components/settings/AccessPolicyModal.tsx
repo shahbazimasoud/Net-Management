@@ -235,6 +235,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canPowerControlHelpdeskEndpoints:
         initialPolicy.canPowerControlHelpdeskEndpoints ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canManageHelpdeskExceptions:
+        initialPolicy.canManageHelpdeskExceptions ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
       canViewCommunications: initialPolicy.canViewCommunications ?? true,
       canSendCommunications: initialPolicy.canSendCommunications ?? true,
       canSendAnnouncements:
@@ -657,6 +660,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
         canPowerControlHelpdeskEndpoints:
           initialPolicy.canPowerControlHelpdeskEndpoints ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canManageHelpdeskExceptions:
+          initialPolicy.canManageHelpdeskExceptions ??
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
         canViewCommunications: initialPolicy.canViewCommunications ?? true,
         canSendCommunications: initialPolicy.canSendCommunications ?? true,
@@ -1693,6 +1699,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canRunHelpdeskSystemRepair: enabled,
         canInspectHelpdeskDomainUsers: enabled,
         canPowerControlHelpdeskEndpoints: enabled,
+        canManageHelpdeskExceptions: enabled,
         canBatchOperate: enabled,
         canViewSessionRecordings: enabled,
         canPlaybackSessionRecordings: enabled,
@@ -6864,6 +6871,17 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         whatFa: 'مجوز صریح اجرای خاموشی یا ری‌استارت فوری/زمان‌بندی‌شده و لغو آن روی ایستگاه کاری با ثبت کامل در لاگ ممیزی.',
                         why: 'Separated as an opt-in high-impact permission so routine HelpDesk staff cannot accidentally power off active workstations',
                         whyFa: 'به دلیل ریسک قطع ناگهانی کار کاربر به صورت مجزا و غیرفعال پیش‌فرض برای غیرمدیران طراحی شده تا فقط در صورت نیاز واگذار شود.',
+                      },
+                      {
+                        key: 'canManageHelpdeskExceptions',
+                        labelEn: 'HelpDesk: Manage Blocked IP, Local User & AD Exceptions',
+                        labelFa: 'هلپ‌دسک: مدیریت استثنائات و مسدودسازی اتصال (IP / کاربر لوکال / یوزر و گروه AD)',
+                        descEn: 'Create, enable/disable, edit, and delete HelpDesk exclusion rules that block HelpDesk connections to VIP workstations, IPs, local accounts, AD users, or AD groups',
+                        descFa: 'ایجاد، فعال/غیرفعال‌سازی، ویرایش و حذف قوانین استثنائات هلپ‌دسک برای جلوگیری از اتصال به آی‌پی‌ها، کاربران محلی، کاربران دامین و گروه‌های اکتیو دایرکتوری مشخص',
+                        what: 'Authorizes modifying PostgreSQL-enforced HelpDesk target blocklist rules across IPs, CIDRs, hostnames, local accounts, AD users, and AD security groups.',
+                        whatFa: 'مجوز مدیریت قوانین مسدودسازی و استثنائات اتصال در ماژول هلپ‌دسک (ذخیره و اعمال قطعی در سمت سرور و دیتابیس PostgreSQL).',
+                        why: 'Ensures only trusted security/infrastructure administrators can add or lift exclusions protecting sensitive executives, servers, or privileged AD groups.',
+                        whyFa: 'از حذف یا دور زدن محدودیت‌های امنیتی سیستم‌های حساس (مدیران ارشد یا گروه‌های ویژه AD) توسط اپراتورهای عادی جلوگیری می‌کند.',
                       },
                       {
                         key: 'canBatchOperate',

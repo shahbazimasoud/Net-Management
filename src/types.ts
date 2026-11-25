@@ -1074,6 +1074,7 @@ export interface AccessPolicy {
   canRunHelpdeskSystemRepair?: boolean;
   canInspectHelpdeskDomainUsers?: boolean;
   canPowerControlHelpdeskEndpoints?: boolean;
+  canManageHelpdeskExceptions?: boolean;
 
   // 9. Communications, Notifications, Profile Security & Two-Step Approvals (RBAC)
   canViewCommunications?: boolean;
@@ -9138,6 +9139,18 @@ export interface SslCertificateProbeResult {
   error?: string;
 }
 
+export type HelpdeskExceptionRuleType = 'ip' | 'local_user' | 'ad_user' | 'ad_group';
 
-
+export interface HelpdeskExceptionRule {
+  id: string;
+  ruleType: HelpdeskExceptionRuleType;
+  targetValue: string;
+  domainName?: string;
+  description?: string;
+  enabled: boolean;
+  createdBy: string;
+  createdByRole?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 

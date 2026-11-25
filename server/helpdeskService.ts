@@ -12,6 +12,7 @@ import {
   wrapSpnegoNegTokenResp,
   runDomainAdminSmbRpcPowerShell,
 } from './helpdeskSmbRpcTransport';
+import { HelpdeskExceptionRecord, listHelpdeskExceptionsFromDb } from './db';
 
 export type HelpdeskProtocol = 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
 export type HelpdeskResolvedProtocol = 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
@@ -17458,3 +17459,739 @@ PY`;
     checks: results,
   };
 }
+
+// ============================================================================
+// HelpDesk Target Exceptions / Connection Blocklist Enforcement
+// ============================================================================
+
+export interface HelpdeskEndpointIdentitySnapshot {
+  targetIp: string;
+  hostname: string;
+  fqdn: string;
+  domain: string;
+  partOfDomain: boolean;
+  primaryIps: string[];
+  loggedInUsers: string[];
+  lastLoggedOnUser: string;
+  localUsers: string[];
+  adUsers: string[];
+  adGroups: string[];
+  collectedAt: string;
+}
+
+export type HelpdeskExceptionCheckResult =
+  | { blocked: false }
+  | {
+      blocked: true;
+      phase: 'pre_connect' | 'endpoint_probe';
+      rule: HelpdeskExceptionRecord;
+      matchedValue: string;
+      reasonEn: string;
+      reasonFa: string;
+      snapshot?: HelpdeskEndpointIdentitySnapshot;
+    };
+
+const EXCEPTION_IDENTITY_CACHE_TTL_MS = 90_000;
+const exceptionIdentityCache = new Map<
+  string,
+  { expiresAt: number; snapshot: HelpdeskEndpointIdentitySnapshot }
+>();
+
+export function clearHelpdeskExceptionIdentityCache(): void {
+  exceptionIdentityCache.clear();
+}
+
+function buildIdentityCacheKey(input: HelpdeskTargetInput): string {
+  const host = String(input.targetIp || '').trim().toLowerCase();
+  const credHash = crypto
+    .createHash('sha256')
+    .update(`${String(input.username || '').trim().toLowerCase()}\0${String(input.password || '')}`)
+    .digest('hex')
+    .slice(0, 24);
+  return `${host}::${input.protocol || 'auto'}::${input.port || 0}::${credHash}`;
+}
+
+function parseIpv4ToUint32(ip: string): number | null {
+  const clean = ip.trim();
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(clean)) return null;
+  const parts = clean.split('.').map((n) => Number(n));
+  if (parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+  return (((parts[0] << 24) >>> 0) + ((parts[1] << 16) >>> 0) + ((parts[2] << 8) >>> 0) + parts[3]) >>> 0;
+}
+
+function expandIpv6ToBigInt(rawIp: string): bigint | null {
+  const clean = rawIp.trim().split('%')[0].toLowerCase();
+  if (!clean.includes(':')) return null;
+  const halves = clean.split('::');
+  if (halves.length > 2) return null;
+  const left = halves[0] ? halves[0].split(':').filter((x) => x.length > 0) : [];
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':').filter((x) => x.length > 0) : [];
+  const missing = 8 - (left.length + right.length);
+  if ((halves.length === 1 && left.length !== 8) || (halves.length === 2 && missing < 0)) return null;
+  const full = halves.length === 2 ? [...left, ...Array(missing).fill('0'), ...right] : left;
+  if (full.length !== 8) return null;
+  let val = 0n;
+  for (const part of full) {
+    if (!/^[0-9a-f]{1,4}$/.test(part)) return null;
+    val = (val << 16n) + BigInt(parseInt(part, 16));
+  }
+  return val;
+}
+
+function matchesGlobPattern(pattern: string, value: string): boolean {
+  const esc = pattern
+    .trim()
+    .toLowerCase()
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
+  return new RegExp(`^${esc}$`, 'i').test(value.trim());
+}
+
+function matchesSingleIpPattern(patternRaw: string, candidateIps: string[], candidateHostnames: string[]): boolean {
+  const pattern = patternRaw.trim();
+  if (!pattern) return false;
+  const patLower = pattern.toLowerCase();
+
+  // 1. IPv4 CIDR (a.b.c.d/prefix)
+  const v4Cidr = pattern.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+  if (v4Cidr) {
+    const netInt = parseIpv4ToUint32(v4Cidr[1]);
+    const prefix = Number(v4Cidr[2]);
+    if (netInt !== null && prefix >= 0 && prefix <= 32) {
+      const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+      for (const ip of candidateIps) {
+        const ipInt = parseIpv4ToUint32(ip);
+        if (ipInt !== null && (ipInt & mask) === (netInt & mask)) return true;
+      }
+    }
+    return false;
+  }
+
+  // 2. IPv6 CIDR
+  if (pattern.includes(':') && pattern.includes('/')) {
+    const [addr, pLenStr] = pattern.split('/');
+    const pLen = Number(pLenStr);
+    const netV6 = expandIpv6ToBigInt(addr);
+    if (netV6 !== null && Number.isInteger(pLen) && pLen >= 0 && pLen <= 128) {
+      const shift = BigInt(128 - pLen);
+      for (const ip of candidateIps) {
+        const ipV6 = expandIpv6ToBigInt(ip);
+        if (ipV6 !== null && (ipV6 >> shift) === (netV6 >> shift)) return true;
+      }
+    }
+    return false;
+  }
+
+  // 3. IPv4 Range (a.b.c.d-e.f.g.h or a.b.c.d-h)
+  const rangeMatch = pattern.match(/^(\d{1,3}(?:\.\d{1,3}){3})\s*-\s*(\d{1,3}(?:\.\d{1,3}){3}|\d{1,3})$/);
+  if (rangeMatch) {
+    const startInt = parseIpv4ToUint32(rangeMatch[1]);
+    let endStr = rangeMatch[2];
+    if (/^\d{1,3}$/.test(endStr)) {
+      const octets = rangeMatch[1].split('.');
+      endStr = `${octets[0]}.${octets[1]}.${octets[2]}.${endStr}`;
+    }
+    const endInt = parseIpv4ToUint32(endStr);
+    if (startInt !== null && endInt !== null) {
+      const minInt = Math.min(startInt, endInt);
+      const maxInt = Math.max(startInt, endInt);
+      for (const ip of candidateIps) {
+        const ipInt = parseIpv4ToUint32(ip);
+        if (ipInt !== null && ipInt >= minInt && ipInt <= maxInt) return true;
+      }
+    }
+    return false;
+  }
+
+  // 4. Exact IPv4 / IPv6
+  const exactV4 = parseIpv4ToUint32(pattern);
+  if (exactV4 !== null) {
+    return candidateIps.some((ip) => parseIpv4ToUint32(ip) === exactV4);
+  }
+  const exactV6 = expandIpv6ToBigInt(pattern);
+  if (exactV6 !== null) {
+    return candidateIps.some((ip) => expandIpv6ToBigInt(ip) === exactV6);
+  }
+
+  // 5. Wildcard glob (* / ?)
+  if (pattern.includes('*') || pattern.includes('?')) {
+    return [...candidateIps, ...candidateHostnames].some((c) => matchesGlobPattern(pattern, c));
+  }
+
+  // 6. Hostname / FQDN match (case-insensitive)
+  const patShort = patLower.split('.')[0];
+  for (const hRaw of [...candidateIps, ...candidateHostnames]) {
+    const h = String(hRaw || '').trim().toLowerCase();
+    if (!h) continue;
+    if (h === patLower) return true;
+    const hShort = h.split('.')[0];
+    if (
+      (patLower.includes('.') && !h.includes('.') && h === patShort) ||
+      (!patLower.includes('.') && h.includes('.') && hShort === patLower)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function matchIpRule(ruleTarget: string, candidateIps: string[], candidateHostnames: string[]): boolean {
+  const tokens = String(ruleTarget || '')
+    .split(/[\s,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  return tokens.some((tok) => matchesSingleIpPattern(tok, candidateIps, candidateHostnames));
+}
+
+function extractIdentityKeys(raw: string): { lower: string; sam: string; domain: string } {
+  const clean = String(raw || '').trim();
+  const lower = clean.toLowerCase();
+  if (!lower) return { lower: '', sam: '', domain: '' };
+  if (lower.includes('\\')) {
+    const idx = lower.indexOf('\\');
+    return {
+      lower,
+      domain: lower.slice(0, idx).trim(),
+      sam: lower.slice(idx + 1).trim(),
+    };
+  }
+  if (lower.includes('@')) {
+    const idx = lower.indexOf('@');
+    return {
+      lower,
+      sam: lower.slice(0, idx).trim(),
+      domain: lower.slice(idx + 1).trim(),
+    };
+  }
+  return { lower, sam: lower, domain: '' };
+}
+
+function domainNamesMatch(ruleDomainRaw: string, candidateDomainRaw: string): boolean {
+  const rd = String(ruleDomainRaw || '').trim().toLowerCase();
+  if (!rd) return true;
+  const cd = String(candidateDomainRaw || '').trim().toLowerCase();
+  if (!cd) return false;
+  if (rd === cd) return true;
+  const rdShort = rd.split('.')[0];
+  const cdShort = cd.split('.')[0];
+  return Boolean(rdShort && cdShort && rdShort === cdShort);
+}
+
+function matchesUserIdentityRule(
+  rule: HelpdeskExceptionRecord,
+  candidates: string[],
+  endpointDomain: string,
+  requireDomainForAdUser: boolean
+): string | null {
+  const ruleKeys = extractIdentityKeys(rule.targetValue);
+  if (!ruleKeys.sam) return null;
+  const effectiveRuleDomain = String(rule.domainName || '').trim() || ruleKeys.domain;
+
+  for (const cand of candidates) {
+    const cRaw = String(cand || '').trim();
+    if (!cRaw) continue;
+    const cKeys = extractIdentityKeys(cRaw);
+    if (!cKeys.sam || cKeys.sam !== ruleKeys.sam) continue;
+
+    if (requireDomainForAdUser) {
+      const cDomain = cKeys.domain || endpointDomain;
+      if (!cDomain) continue;
+      if (effectiveRuleDomain && !domainNamesMatch(effectiveRuleDomain, cDomain)) continue;
+      return cRaw;
+    }
+
+    if (effectiveRuleDomain) {
+      if (cKeys.domain && !domainNamesMatch(effectiveRuleDomain, cKeys.domain)) continue;
+    }
+    return cRaw;
+  }
+  return null;
+}
+
+function extractAdGroupKeys(raw: string): { lower: string; cn: string; domain: string } {
+  const clean = String(raw || '').trim();
+  const lower = clean.toLowerCase();
+  if (!lower) return { lower: '', cn: '', domain: '' };
+  const cnMatch = clean.match(/(?:^|,)cn=([^,]+)/i);
+  if (cnMatch?.[1]) {
+    const cn = cnMatch[1].trim().toLowerCase();
+    const dcParts = [...clean.matchAll(/,dc=([^,]+)/gi)].map((m) => m[1].trim().toLowerCase());
+    return { lower, cn, domain: dcParts.join('.') };
+  }
+  if (lower.includes('\\')) {
+    const idx = lower.indexOf('\\');
+    return {
+      lower,
+      domain: lower.slice(0, idx).trim(),
+      cn: lower.slice(idx + 1).trim(),
+    };
+  }
+  return { lower, cn: lower, domain: '' };
+}
+
+function matchesAdGroupRule(
+  rule: HelpdeskExceptionRecord,
+  endpointAdGroups: string[],
+  endpointDomain: string
+): string | null {
+  const rKeys = extractAdGroupKeys(rule.targetValue);
+  if (!rKeys.cn) return null;
+  const effectiveRuleDomain = String(rule.domainName || '').trim() || rKeys.domain;
+
+  for (const gRaw of endpointAdGroups) {
+    const gTrim = String(gRaw || '').trim();
+    if (!gTrim) continue;
+    const gKeys = extractAdGroupKeys(gTrim);
+    if (!gKeys.cn) continue;
+    if (gKeys.cn !== rKeys.cn && gKeys.lower !== rKeys.lower) continue;
+    if (effectiveRuleDomain) {
+      const gDom = gKeys.domain || endpointDomain;
+      if (!domainNamesMatch(effectiveRuleDomain, gDom)) continue;
+    }
+    return gTrim;
+  }
+  return null;
+}
+
+const PS_IDENTITY_EXCEPTION_PROBE = `
+$ErrorActionPreference = 'SilentlyContinue'
+$cs = Get-CimInstance Win32_ComputerSystem
+$hostname = [string]$env:COMPUTERNAME
+$fqdn = ''
+try { $fqdn = [string]([System.Net.Dns]::GetHostEntry('').HostName) } catch {}
+$domain = if ($cs) { [string]$cs.Domain } else { '' }
+$partOfDomain = if ($cs) { [bool]$cs.PartOfDomain } else { $false }
+
+$primaryIps = @()
+try {
+  Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "IPEnabled=True" | ForEach-Object {
+    foreach ($ip in @($_.IPAddress)) {
+      $ipStr = [string]$ip
+      if ($ipStr -and $ipStr -notmatch '^(127\\.|169\\.254\\.|::1|fe80:)') {
+        $primaryIps += $ipStr
+      }
+    }
+  }
+} catch {}
+$primaryIps = @($primaryIps | Select-Object -Unique)
+
+$loggedInSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+if ($cs -and -not [string]::IsNullOrWhiteSpace($cs.UserName)) {
+  [void]$loggedInSet.Add([string]$cs.UserName)
+}
+try {
+  Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
+    try {
+      $ow = $_.GetOwner()
+      if ($ow -and $ow.User) {
+        $full = if ($ow.Domain) { "$($ow.Domain)\\$($ow.User)" } else { [string]$ow.User }
+        [void]$loggedInSet.Add($full)
+      }
+    } catch {}
+  }
+} catch {}
+try {
+  $qu = & quser 2>$null
+  foreach ($ln in @($qu)) {
+    if ($ln -match '^\\s*>?([A-Za-z0-9._\\-\\\\@]+)\\s+(console|rdp-tcp|\\S*)\\s+\\d+\\s+(Active|Disc)') {
+      $u = $Matches[1].Trim()
+      if ($u -and $u -ne 'USERNAME') { [void]$loggedInSet.Add($u) }
+    }
+  }
+} catch {}
+try {
+  Get-CimInstance Win32_UserProfile -Filter "Special=False AND Loaded=True" | ForEach-Object {
+    try {
+      $sid = New-Object System.Security.Principal.SecurityIdentifier($_.SID)
+      $nt = $sid.Translate([System.Security.Principal.NTAccount]).Value
+      if ($nt) { [void]$loggedInSet.Add([string]$nt) }
+    } catch {}
+  }
+} catch {}
+
+$lastLoggedOn = ''
+try {
+  $reg = Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Authentication\\LogonUI'
+  if ($reg.LastLoggedOnSAMUser) { $lastLoggedOn = [string]$reg.LastLoggedOnSAMUser }
+  elseif ($reg.LastLoggedOnUser) { $lastLoggedOn = [string]$reg.LastLoggedOnUser }
+} catch {}
+
+$localUsers = @()
+try {
+  if (Get-Command Get-LocalUser -ErrorAction SilentlyContinue) {
+    $localUsers = @(Get-LocalUser | Where-Object { $_.Enabled -eq $true -and $_.Name -notin @('Guest','DefaultAccount','WDAGUtilityAccount') } | ForEach-Object { [string]$_.Name })
+  }
+} catch {}
+if ($localUsers.Count -eq 0) {
+  try {
+    $localUsers = @(Get-CimInstance Win32_UserAccount -Filter "LocalAccount=True AND Disabled=False" | Where-Object { $_.Name -notin @('Guest','DefaultAccount','WDAGUtilityAccount') } | ForEach-Object { [string]$_.Name })
+  } catch {}
+}
+
+$adUserSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+$adGroupSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+$domShort = if ($domain) { ($domain -split '\\.')[0] } else { '' }
+$compShort = $hostname.ToUpperInvariant()
+
+$candidatePrincipals = @($loggedInSet)
+if ($lastLoggedOn) { $candidatePrincipals += $lastLoggedOn }
+try {
+  $curId = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+  if ($curId -and $curId.Name) { $candidatePrincipals += [string]$curId.Name }
+} catch {}
+
+foreach ($p in @($candidatePrincipals | Select-Object -Unique)) {
+  if ([string]::IsNullOrWhiteSpace($p)) { continue }
+  $pStr = [string]$p
+  if ($pStr -match '^\\.\\\\' -or $pStr -match "^$compShort\\\\") { continue }
+  if ($partOfDomain -and ($pStr -match '\\\\' -or $pStr -match '@')) {
+    [void]$adUserSet.Add($pStr)
+  }
+}
+
+if ($partOfDomain) {
+  $samTargets = @()
+  foreach ($adu in @($adUserSet)) {
+    $sam = if ($adu.Contains('\\')) { $adu.Split('\\', 2)[1] } elseif ($adu.Contains('@')) { $adu.Split('@', 2)[0] } else { $adu }
+    if ($sam -and -not $sam.EndsWith('$')) { $samTargets += $sam }
+  }
+  $samTargets = @($samTargets | Select-Object -Unique)
+
+  foreach ($sam in $samTargets) {
+    try {
+      $searcher = [adsisearcher]"(&(objectCategory=person)(objectClass=user)(sAMAccountName=$sam))"
+      [void]$searcher.PropertiesToLoad.Add('memberOf')
+      [void]$searcher.PropertiesToLoad.Add('tokenGroups')
+      $res = $searcher.FindOne()
+      if ($res) {
+        foreach ($mo in $res.Properties['memberOf']) {
+          $dn = [string]$mo
+          if ($dn -match '^CN=([^,]+)') { [void]$adGroupSet.Add($Matches[1].Trim()) }
+          [void]$adGroupSet.Add($dn)
+        }
+        $entry = $res.GetDirectoryEntry()
+        $entry.RefreshCache(@('tokenGroups'))
+        foreach ($tg in $entry.Properties['tokenGroups']) {
+          try {
+            $sid = New-Object System.Security.Principal.SecurityIdentifier([byte[]]$tg, 0)
+            $nt = $sid.Translate([System.Security.Principal.NTAccount]).Value
+            if ($nt) {
+              [void]$adGroupSet.Add($nt)
+              if ($nt.Contains('\\')) { [void]$adGroupSet.Add($nt.Split('\\', 2)[1]) }
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+
+    # Fallback: net user <sam> /domain
+    if ($adGroupSet.Count -eq 0) {
+      try {
+        $netOut = (& net user $sam /domain 2>$null) -join "\`n"
+        $inGrp = $false
+        foreach ($line in ($netOut -split "\`r?\`n")) {
+          if ($line -match 'Group Memberships') { $inGrp = $true }
+          elseif ($inGrp -and $line -match 'The command completed') { $inGrp = $false }
+          if ($inGrp) {
+            foreach ($m in ([regex]::Matches($line, '\\*([^\\*]+)'))) {
+              $g = $m.Groups[1].Value.Trim()
+              if ($g -and $g -ne 'None') { [void]$adGroupSet.Add($g) }
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+
+  # Also include current WinRM identity token groups if it matches a domain principal
+  try {
+    $wi = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    if ($wi -and $wi.Groups) {
+      foreach ($grpSid in $wi.Groups) {
+        try {
+          $nt = $grpSid.Translate([System.Security.Principal.NTAccount]).Value
+          if ($nt -and ($domShort -and $nt.StartsWith("$domShort\\", [System.StringComparison]::OrdinalIgnoreCase))) {
+            [void]$adGroupSet.Add($nt)
+            [void]$adGroupSet.Add($nt.Split('\\', 2)[1])
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+}
+
+[PSCustomObject]@{
+  hostname = $hostname
+  fqdn = $fqdn
+  domain = $domain
+  partOfDomain = $partOfDomain
+  primaryIps = @($primaryIps)
+  loggedInUsers = @($loggedInSet)
+  lastLoggedOnUser = $lastLoggedOn
+  localUsers = @($localUsers | Select-Object -Unique)
+  adUsers = @($adUserSet)
+  adGroups = @($adGroupSet)
+} | ConvertTo-Json -Depth 4 -Compress
+`;
+
+const LINUX_IDENTITY_EXCEPTION_PROBE = `
+python3 - <<'PY'
+import json, os, pwd, socket, subprocess
+
+def run(cmd):
+    try:
+        return subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL).strip()
+    except Exception:
+        return ""
+
+hostname = socket.gethostname()
+fqdn = run("hostname -f") or hostname
+domain = run("dnsdomainname") or ""
+ips = [x for x in run("hostname -I").split() if x and not x.startswith("127.")]
+
+logged = []
+for line in run("who").splitlines():
+    u = line.split()[0] if line.split() else ""
+    if u and u not in logged:
+        logged.append(u)
+cur_user = os.environ.get("USER", "")
+if cur_user and cur_user not in logged:
+    logged.append(cur_user)
+
+local_users = []
+for p in pwd.getpwall():
+    if (p.pw_uid == 0 or p.pw_uid >= 1000) and not p.pw_shell.endswith(("nologin", "false")) and p.pw_name != "nobody":
+        local_users.append(p.pw_name)
+
+ad_users = []
+ad_groups = []
+part_of_domain = bool(run("realm list 2>/dev/null") or domain)
+for u in logged:
+    if "\\\\" in u or "@" in u or (part_of_domain and u not in local_users):
+        ad_users.append(u)
+    grps = run(f"id -Gn {u} 2>/dev/null").split()
+    for g in grps:
+        if g and g not in ad_groups:
+            ad_groups.append(g)
+
+print(json.dumps({
+    "hostname": hostname,
+    "fqdn": fqdn,
+    "domain": domain,
+    "partOfDomain": part_of_domain,
+    "primaryIps": ips,
+    "loggedInUsers": logged,
+    "lastLoggedOnUser": "",
+    "localUsers": local_users,
+    "adUsers": ad_users,
+    "adGroups": ad_groups,
+}))
+PY
+`;
+
+export async function inspectEndpointIdentityForExceptions(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskEndpointIdentitySnapshot> {
+  const execRes = await executeHardcodedScripts(
+    input,
+    PS_IDENTITY_EXCEPTION_PROBE,
+    LINUX_IDENTITY_EXCEPTION_PROBE
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint identity probe');
+  const snapshot: HelpdeskEndpointIdentitySnapshot = {
+    targetIp: execRes.host,
+    hostname: String(parsed?.hostname || execRes.host || '').trim(),
+    fqdn: String(parsed?.fqdn || '').trim(),
+    domain: String(parsed?.domain || '').trim(),
+    partOfDomain: Boolean(parsed?.partOfDomain),
+    primaryIps: Array.isArray(parsed?.primaryIps) ? parsed.primaryIps.map((x: any) => String(x).trim()).filter(Boolean) : [],
+    loggedInUsers: Array.isArray(parsed?.loggedInUsers) ? parsed.loggedInUsers.map((x: any) => String(x).trim()).filter(Boolean) : [],
+    lastLoggedOnUser: String(parsed?.lastLoggedOnUser || '').trim(),
+    localUsers: Array.isArray(parsed?.localUsers) ? parsed.localUsers.map((x: any) => String(x).trim()).filter(Boolean) : [],
+    adUsers: Array.isArray(parsed?.adUsers) ? parsed.adUsers.map((x: any) => String(x).trim()).filter(Boolean) : [],
+    adGroups: Array.isArray(parsed?.adGroups) ? parsed.adGroups.map((x: any) => String(x).trim()).filter(Boolean) : [],
+    collectedAt: new Date().toISOString(),
+  };
+
+  exceptionIdentityCache.set(buildIdentityCacheKey(input), {
+    expiresAt: Date.now() + EXCEPTION_IDENTITY_CACHE_TTL_MS,
+    snapshot,
+  });
+
+  return snapshot;
+}
+
+export async function verifyHelpdeskTargetNotBlocked(
+  input: HelpdeskTargetInput,
+  options?: { forceRefreshIdentity?: boolean }
+): Promise<HelpdeskExceptionCheckResult> {
+  const allRules = await listHelpdeskExceptionsFromDb();
+  const enabledRules = allRules.filter((r) => r && r.enabled);
+  if (enabledRules.length === 0) {
+    return { blocked: false };
+  }
+
+  const targetHost = String(input.targetIp || '').trim();
+  const sessionUsername = String(input.username || '').trim();
+  const ipRules = enabledRules.filter((r) => r.ruleType === 'ip');
+  const localUserRules = enabledRules.filter((r) => r.ruleType === 'local_user');
+  const adUserRules = enabledRules.filter((r) => r.ruleType === 'ad_user');
+  const adGroupRules = enabledRules.filter((r) => r.ruleType === 'ad_group');
+
+  // Phase 1: Immediate Pre-Network Checks (IP / CIDR / Range / Hostname & Session Credentials)
+  const targetIsIpLiteral = parseIpv4ToUint32(targetHost) !== null || expandIpv6ToBigInt(targetHost) !== null;
+  for (const rule of ipRules) {
+    if (
+      matchIpRule(
+        rule.targetValue,
+        targetIsIpLiteral ? [targetHost] : [],
+        targetIsIpLiteral ? [] : [targetHost]
+      )
+    ) {
+      return {
+        blocked: true,
+        phase: 'pre_connect',
+        rule,
+        matchedValue: targetHost,
+        reasonEn: `Connection blocked by HelpDesk exception policy: target "${targetHost}" matches excluded IP/Host rule "${rule.targetValue}".`,
+        reasonFa: `اتصال توسط قانون استثنائات هلپ‌دسک مسدود شد: آدرس «${targetHost}» مشمول قانون مسدودسازی «${rule.targetValue}» است.`,
+      };
+    }
+  }
+
+  if (sessionUsername) {
+    for (const rule of localUserRules) {
+      const m = matchesUserIdentityRule(rule, [sessionUsername], '', false);
+      if (m) {
+        return {
+          blocked: true,
+          phase: 'pre_connect',
+          rule,
+          matchedValue: m,
+          reasonEn: `Connection blocked by HelpDesk exception policy: session user "${m}" matches excluded local user rule "${rule.targetValue}".`,
+          reasonFa: `اتصال توسط قانون استثنائات هلپ‌دسک مسدود شد: نام کاربری نشست «${m}» مشمول قانون مسدودسازی کاربر لوکال «${rule.targetValue}» است.`,
+        };
+      }
+    }
+    for (const rule of adUserRules) {
+      const m = matchesUserIdentityRule(rule, [sessionUsername], '', true);
+      if (m) {
+        return {
+          blocked: true,
+          phase: 'pre_connect',
+          rule,
+          matchedValue: m,
+          reasonEn: `Connection blocked by HelpDesk exception policy: domain account "${m}" matches excluded AD user rule "${rule.targetValue}".`,
+          reasonFa: `اتصال توسط قانون استثنائات هلپ‌دسک مسدود شد: اکانت دامین «${m}» مشمول قانون مسدودسازی کاربر اکتیو دایرکتوری «${rule.targetValue}» است.`,
+        };
+      }
+    }
+  }
+
+  // Phase 2: Inspect Target Endpoint Users, Hostname/IPs, and Active Directory Groups if needed
+  const hasHostnameIpRule = ipRules.some(
+    (r) => parseIpv4ToUint32(r.targetValue) === null && expandIpv6ToBigInt(r.targetValue) === null
+  );
+  const needsProbe =
+    localUserRules.length > 0 ||
+    adUserRules.length > 0 ||
+    adGroupRules.length > 0 ||
+    hasHostnameIpRule;
+
+  if (!needsProbe || !targetHost || !sessionUsername || !input.password) {
+    return { blocked: false };
+  }
+
+  const cacheKey = buildIdentityCacheKey(input);
+  const cached = !options?.forceRefreshIdentity ? exceptionIdentityCache.get(cacheKey) : undefined;
+  const snapshot =
+    cached && cached.expiresAt > Date.now()
+      ? cached.snapshot
+      : await inspectEndpointIdentityForExceptions(input);
+
+  // Check IP / Hostname rules against endpoint's actual hostname, FQDN, and primary NIC IPs
+  for (const rule of ipRules) {
+    if (
+      matchIpRule(
+        rule.targetValue,
+        [targetHost, ...snapshot.primaryIps],
+        [snapshot.hostname, snapshot.fqdn].filter(Boolean)
+      )
+    ) {
+      return {
+        blocked: true,
+        phase: 'endpoint_probe',
+        rule,
+        matchedValue: snapshot.hostname || targetHost,
+        snapshot,
+        reasonEn: `Connection blocked by HelpDesk exception policy: endpoint "${snapshot.hostname || targetHost}" (${snapshot.primaryIps[0] || targetHost}) matches excluded IP/Host rule "${rule.targetValue}".`,
+        reasonFa: `اتصال توسط قانون استثنائات هلپ‌دسک مسدود شد: سیستم «${snapshot.hostname || targetHost}» مشمول قانون مسدودسازی آدرس «${rule.targetValue}» است.`,
+      };
+    }
+  }
+
+  // Check Local User rules against endpoint active users & enabled local accounts
+  const localCandidates = Array.from(
+    new Set([...snapshot.localUsers, ...snapshot.loggedInUsers, sessionUsername].filter(Boolean))
+  );
+  for (const rule of localUserRules) {
+    const m = matchesUserIdentityRule(rule, localCandidates, '', false);
+    if (m) {
+      return {
+        blocked: true,
+        phase: 'endpoint_probe',
+        rule,
+        matchedValue: m,
+        snapshot,
+        reasonEn: `Connection blocked by HelpDesk exception policy: endpoint "${snapshot.hostname || targetHost}" belongs to / contains excluded local user "${m}".`,
+        reasonFa: `اتصال توسط قانون استثنائات هلپ‌دسک مسدود شد: سیستم «${snapshot.hostname || targetHost}» دارای کاربر محلی مستثنی‌شده «${m}» است.`,
+      };
+    }
+  }
+
+  // Check AD User rules against active logged-in / last-logged-on domain users
+  const adUserCandidates = Array.from(
+    new Set(
+      [
+        ...snapshot.adUsers,
+        ...snapshot.loggedInUsers,
+        ...(snapshot.lastLoggedOnUser ? [snapshot.lastLoggedOnUser] : []),
+        ...(sessionUsername ? [sessionUsername] : []),
+      ].filter(Boolean)
+    )
+  );
+  for (const rule of adUserRules) {
+    const m = matchesUserIdentityRule(rule, adUserCandidates, snapshot.domain, true);
+    if (m) {
+      return {
+        blocked: true,
+        phase: 'endpoint_probe',
+        rule,
+        matchedValue: m,
+        snapshot,
+        reasonEn: `Connection blocked by HelpDesk exception policy: workstation "${snapshot.hostname || targetHost}" is associated with excluded AD user "${m}".`,
+        reasonFa: `اتصال توسط قانون استثنائات هلپ‌دسک مسدود شد: سیستم «${snapshot.hostname || targetHost}» متعلق به کاربر اکتیو دایرکتوری مستثنی‌شده «${m}» است.`,
+      };
+    }
+  }
+
+  // Check AD Group rules against AD group memberships of target workstation's user / connecting user
+  for (const rule of adGroupRules) {
+    const m = matchesAdGroupRule(rule, snapshot.adGroups, snapshot.domain);
+    if (m) {
+      return {
+        blocked: true,
+        phase: 'endpoint_probe',
+        rule,
+        matchedValue: m,
+        snapshot,
+        reasonEn: `Connection blocked by HelpDesk exception policy: workstation "${snapshot.hostname || targetHost}" user belongs to excluded Active Directory group "${m}".`,
+        reasonFa: `اتصال توسط قانون استثنائات هلپ‌دسک مسدود شد: کاربر سیستم «${snapshot.hostname || targetHost}» عضو گروه اکتیو دایرکتوری مسدودشده «${m}» است.`,
+      };
+    }
+  }
+
+  return { blocked: false };
+}
+

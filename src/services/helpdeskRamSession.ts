@@ -80,6 +80,7 @@ export interface HelpdeskRamState {
   healthData: any | null;
   loadingHealth: boolean;
   healthError: string | null;
+  healthBlockedByException: boolean;
   processSearch: string;
   processSort: 'cpu' | 'memory' | 'name' | 'pid';
   processSortDir: 'desc' | 'asc';
@@ -206,6 +207,7 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     healthData: null,
     loadingHealth: false,
     healthError: null,
+    healthBlockedByException: false,
     processSearch: '',
     processSort: 'cpu',
     processSortDir: 'desc',
@@ -490,22 +492,24 @@ export async function runHelpdeskSequentialConnect(options: {
       labelEn: 'Health, Processes & Shares',
       labelFa: 'سلامت سیستم، پروسس‌ها و شیر فولدرها',
       run: async () => {
-        patchHelpdeskRamSnapshot({ loadingHealth: true, healthError: null });
+        patchHelpdeskRamSnapshot({ loadingHealth: true, healthError: null, healthBlockedByException: false });
         try {
           const res = await fetchHelpdeskEndpointHealth(payload);
           if (isCancelled()) return false;
           patchHelpdeskRamSnapshot({
             healthData: res.data,
             loadingHealth: false,
+            healthBlockedByException: false,
             ...(res.rateLimit ? { rateLimit: res.rateLimit } : {}),
           });
         } catch (err: any) {
           if (!isCancelled()) {
+            const msg = isEn ? (err?.message || 'Failed to inspect endpoint.') : (err?.errorFa || err?.message || 'خطا در اتصال و دریافت وضعیت سیستم.');
             patchHelpdeskRamSnapshot({
               healthData: null,
               loadingHealth: false,
-              healthError:
-                err?.message || (isEn ? 'Failed to inspect endpoint.' : 'خطا در اتصال و دریافت وضعیت سیستم.'),
+              healthError: msg,
+              healthBlockedByException: Boolean(err?.blockedByException),
             });
           }
           return false;

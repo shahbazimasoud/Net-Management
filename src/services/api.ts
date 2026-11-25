@@ -16,6 +16,8 @@ import {
   SslCertificatesSummary,
   SslCertificateProbeResult,
   HelpdeskNotificationConfig,
+  HelpdeskExceptionRule,
+  HelpdeskExceptionRuleType,
   RemoteServerTagSummary,
   PostgresConnectionTestResult,
   PostgresRemediateConnectionResult,
@@ -285,6 +287,15 @@ async function parseErrorAndThrow(res: Response, fallbackMessage: string): Promi
   }
   if (errData?.code) {
     err.code = errData.code;
+  }
+  if (errData?.errorFa) {
+    err.errorFa = errData.errorFa;
+  }
+  if (errData?.blockedByException) {
+    err.blockedByException = true;
+    err.ruleId = errData.ruleId;
+    err.ruleType = errData.ruleType;
+    err.matchedValue = errData.matchedValue;
   }
   err.status = res.status;
   throw err;
@@ -1041,6 +1052,7 @@ export async function fetchHelpdeskStatus(): Promise<{
     canRunHelpdeskSystemRepair: boolean;
     canInspectHelpdeskDomainUsers: boolean;
     canPowerControlHelpdeskEndpoints: boolean;
+    canManageHelpdeskExceptions: boolean;
   };
   rateLimit: {
     windowMinutes: number;
@@ -2148,6 +2160,110 @@ export async function runHelpdeskDiagnosticsSuite(
     body: JSON.stringify(payload),
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Failed to execute HelpDesk diagnostics suite');
+  return res.json();
+}
+
+export interface HelpdeskExceptionAdCatalog {
+  enabled: boolean;
+  domain: string;
+  syncedUsers: Array<{
+    samAccountName: string;
+    displayName: string;
+    email?: string;
+    department?: string;
+    groups?: string[];
+  }>;
+  syncedGroups: Array<{
+    name: string;
+    dn?: string;
+  }>;
+}
+
+export interface HelpdeskEndpointIdentitySnapshot {
+  targetIp: string;
+  hostname: string;
+  fqdn: string;
+  domain: string;
+  partOfDomain: boolean;
+  primaryIps: string[];
+  loggedInUsers: string[];
+  lastLoggedOnUser: string;
+  localUsers: string[];
+  adUsers: string[];
+  adGroups: string[];
+  collectedAt: string;
+}
+
+export async function fetchHelpdeskExceptions(): Promise<{
+  success: boolean;
+  rules: HelpdeskExceptionRule[];
+  canManage: boolean;
+  adCatalog: HelpdeskExceptionAdCatalog;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/exceptions`, {
+    method: 'GET',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to load HelpDesk exception rules');
+  return res.json();
+}
+
+export async function createHelpdeskException(payload: {
+  ruleType: HelpdeskExceptionRuleType;
+  targetValue: string;
+  domainName?: string;
+  description?: string;
+  enabled?: boolean;
+}): Promise<{ success: boolean; rule: HelpdeskExceptionRule }> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/exceptions`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to create HelpDesk exception rule');
+  return res.json();
+}
+
+export async function updateHelpdeskException(
+  id: string,
+  patch: Partial<{
+    ruleType: HelpdeskExceptionRuleType;
+    targetValue: string;
+    domainName: string;
+    description: string;
+    enabled: boolean;
+  }>
+): Promise<{ success: boolean; rule: HelpdeskExceptionRule }> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/exceptions/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update HelpDesk exception rule');
+  return res.json();
+}
+
+export async function deleteHelpdeskException(id: string): Promise<{ success: boolean }> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/exceptions/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to delete HelpDesk exception rule');
+  return res.json();
+}
+
+export async function inspectHelpdeskEndpointForExceptions(
+  payload: HelpdeskConnectionPayload
+): Promise<{ success: boolean; snapshot: HelpdeskEndpointIdentitySnapshot }> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/exceptions/inspect-endpoint`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to inspect target workstation users and AD groups');
   return res.json();
 }
 
