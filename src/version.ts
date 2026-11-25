@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.486.0';
+export const APP_VERSION = '1.487.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.487.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'افزودن مدیریت حافظه مجازی و تخصیص فضای هارد به عنوان رم (Pagefile / Swap) در تب Disk, Drives & Shared Folders',
+    title_en: 'Add Virtual Memory & Disk-as-RAM Allocation (Pagefile / Swap) Manager Inside Disk, Drives & Shared Folders Tab',
+    changes: [
+      'افزودن بخش جامع «حافظه مجازی و تخصیص هارد به عنوان رم» در تب `Disk, Drives & Shared Folders` جهت مشاهده رم فیزیکی، Commit Memory، Pagefile فعال در ویندوز و فایل‌ها/پارتیشن‌های Swap در لینوکس.',
+      'امکان معرفی بخشی از فضای آزاد هارد/SSD روی درایو یا مانت‌پوینت دلخواه به عنوان حافظه رم مجازی (`pagefile.sys` با حالت Custom یا System-Managed در ویندوز و `swapfile` با ثبت دائمی `/etc/fstab` در لینوکس) همراه با پیش‌تنظیم‌های سریع (1x، 1.5x، 4/8/16/32 GB) و اعتبارسنجی فضای آزاد دیسک.',
+      'پشتیبانی از بازگشت به حالت خودکار ویندوز (`AutomaticManagedPagefile`)، حذف ایمن تخصیص‌های قبلی با تایید دومرحله‌ای، و تنظیم زنده `vm.swappiness` در لینوکس.'
+    ],
+    changes_en: [
+      'Added dedicated Virtual Memory & Disk-as-RAM management panel inside `Disk, Drives & Shared Folders` showing physical RAM, OS commit charge, active Windows Pagefiles, and Linux Swap devices/files.',
+      'Added safe allocation of SSD/HDD free space as Virtual RAM (`pagefile.sys` custom/system-managed on Windows; dedicated `swapfile` with optional `/etc/fstab` persistence on Linux) featuring quick size presets (`1x`, `1.5x`, `4/8/16/32 GB`) and free-space safety checks.',
+      'Added Windows automatic Pagefile management toggle, 2-step allocation removal, and live `vm.swappiness` tuning on Linux endpoints.'
+    ]
+  },
   {
     version: '1.486.0',
     releaseDate: '2026-11-25',

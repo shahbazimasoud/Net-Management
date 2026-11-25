@@ -2697,6 +2697,120 @@ export async function manageHelpdeskUserProfile(
   return res.json();
 }
 
+export type HelpdeskVirtualMemoryAction =
+  | 'enable_auto'
+  | 'set_custom'
+  | 'set_system_managed_drive'
+  | 'remove_drive'
+  | 'set_swappiness';
+
+export interface HelpdeskVirtualMemoryAllocation {
+  id: string;
+  driveOrMount: string;
+  filePath: string;
+  kind: 'pagefile' | 'swap_file' | 'swap_partition' | 'zram';
+  managementMode: 'system_managed' | 'custom_size' | 'automatic' | 'active';
+  initialSizeMb: number;
+  maximumSizeMb: number;
+  currentAllocatedMb: number;
+  currentUsedMb: number;
+  peakUsedMb: number;
+  usagePercent: number;
+  tempPageFile: boolean;
+  persistentInFstab: boolean;
+  removable: boolean;
+}
+
+export interface HelpdeskVirtualMemoryEligibleDrive {
+  driveOrMount: string;
+  label: string;
+  fileSystem: string;
+  totalGb: number;
+  freeGb: number;
+  freeMb: number;
+  hasAllocation: boolean;
+}
+
+export interface HelpdeskVirtualMemoryResult {
+  targetIp: string;
+  protocolUsed: string;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  physicalRamTotalMb: number;
+  physicalRamTotalGb: number;
+  physicalRamUsedMb: number;
+  physicalRamFreeMb: number;
+  automaticManagedPagefile: boolean;
+  commitLimitMb: number;
+  commitTotalMb: number;
+  totalVirtualAllocatedMb: number;
+  totalVirtualUsedMb: number;
+  recommendedMinMb: number;
+  recommendedMaxMb: number;
+  swappiness: number | null;
+  pendingRebootRecommended: boolean;
+  allocations: HelpdeskVirtualMemoryAllocation[];
+  eligibleDrives: HelpdeskVirtualMemoryEligibleDrive[];
+  collectedAt: string;
+}
+
+export async function fetchHelpdeskVirtualMemory(
+  payload: HelpdeskConnectionPayload
+): Promise<{
+  success: boolean;
+  data: HelpdeskVirtualMemoryResult;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/virtual-memory/status`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to inspect endpoint virtual memory settings');
+  return res.json();
+}
+
+export async function manageHelpdeskVirtualMemory(
+  payload: HelpdeskConnectionPayload & {
+    action: HelpdeskVirtualMemoryAction;
+    driveOrMount?: string;
+    filePath?: string;
+    initialSizeMb?: number;
+    maximumSizeMb?: number;
+    persistent?: boolean;
+    swappiness?: number;
+  }
+): Promise<{
+  success: boolean;
+  data: {
+    targetIp: string;
+    protocolUsed: string;
+    portUsed: number;
+    osFamily: 'windows' | 'linux';
+    action: HelpdeskVirtualMemoryAction;
+    driveOrMount?: string;
+    filePath?: string;
+    success: boolean;
+    pendingRebootRecommended: boolean;
+    message: string;
+    messageFa: string;
+    rawOutput?: string;
+    executedAt: string;
+  };
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/virtual-memory/manage`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update endpoint virtual memory configuration');
+  return res.json();
+}
+
 export async function executeHelpdeskSystemRepair(
   payload: HelpdeskConnectionPayload & {
     mode:

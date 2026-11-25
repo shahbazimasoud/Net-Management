@@ -159,6 +159,9 @@ import {
   fetchHelpdeskUserProfiles,
   manageHelpdeskUserProfile,
   HelpdeskProfileActionType,
+  fetchHelpdeskVirtualMemory,
+  manageHelpdeskVirtualMemory,
+  HelpdeskVirtualMemoryAction,
   ALL_HELPDESK_DIAGNOSTIC_CHECKS,
   HelpdeskDiagnosticCheckId,
   HelpdeskConnectionPayload,
@@ -193,6 +196,7 @@ import { DiagnosticsConfigModal } from './helpdesk/DiagnosticsConfigModal';
 import { HelpdeskExceptionsModal } from './helpdesk/HelpdeskExceptionsModal';
 import { TimeoutAntivirusHint } from './helpdesk/TimeoutAntivirusHint';
 import { UserProfilesTab } from './helpdesk/UserProfilesTab';
+import { VirtualMemorySection } from './helpdesk/VirtualMemorySection';
 
 interface HelpDeskViewProps {
   isLightMode: boolean;
@@ -576,6 +580,19 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const userProfilesActionError = ram.userProfilesActionError;
   const setUserProfilesActionError = setRamField('userProfilesActionError');
   const [userProfilesBusyKey, setUserProfilesBusyKey] = useState<string | null>(null);
+
+  // Module 2C: Virtual Memory (Disk-as-RAM / Pagefile / Swap) inside Disk, Drives & Shared Folders
+  const virtualMemoryData = ram.virtualMemoryData;
+  const setVirtualMemoryData = setRamField('virtualMemoryData');
+  const loadingVirtualMemory = ram.loadingVirtualMemory;
+  const setLoadingVirtualMemory = setRamField('loadingVirtualMemory');
+  const virtualMemoryError = ram.virtualMemoryError;
+  const setVirtualMemoryError = setRamField('virtualMemoryError');
+  const virtualMemoryActionResult = ram.virtualMemoryActionResult;
+  const setVirtualMemoryActionResult = setRamField('virtualMemoryActionResult');
+  const virtualMemoryActionError = ram.virtualMemoryActionError;
+  const setVirtualMemoryActionError = setRamField('virtualMemoryActionError');
+  const [virtualMemoryBusy, setVirtualMemoryBusy] = useState(false);
 
   // Module 4: Event Viewer (Human-Readable Diagnostics + BSOD Analyzer) state
   const [eventChannel, setEventChannel] = useState<'All' | 'System' | 'Application'>('All');
@@ -1118,6 +1135,66 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       );
     } finally {
       setUserProfilesBusyKey(null);
+    }
+  };
+
+  const handleInspectVirtualMemory = async (overridePayload?: HelpdeskConnectionPayload) => {
+    const payload = overridePayload || buildPayload();
+    if (!payload) return;
+    setLoadingVirtualMemory(true);
+    setVirtualMemoryError(null);
+    try {
+      const res = await fetchHelpdeskVirtualMemory(payload);
+      setVirtualMemoryData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setVirtualMemoryData(null);
+      setVirtualMemoryError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? 'Failed to inspect virtual memory (Pagefile / Swap) settings.'
+            : 'خطا در دریافت وضعیت حافظه مجازی (Pagefile / Swap) و درایوهای واجد شرایط.')
+      );
+    } finally {
+      setLoadingVirtualMemory(false);
+    }
+  };
+
+  const handleManageVirtualMemory = async (params: {
+    action: HelpdeskVirtualMemoryAction;
+    driveOrMount?: string;
+    filePath?: string;
+    initialSizeMb?: number;
+    maximumSizeMb?: number;
+    persistent?: boolean;
+    swappiness?: number;
+  }) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setVirtualMemoryBusy(true);
+    setVirtualMemoryActionResult(null);
+    setVirtualMemoryActionError(null);
+    try {
+      const res = await manageHelpdeskVirtualMemory({
+        ...payload,
+        ...params,
+      });
+      setVirtualMemoryActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      notifyHelpdeskAuditUpdated();
+      await Promise.allSettled([
+        handleInspectVirtualMemory(payload),
+        handleInspectHealth(undefined, payload, true),
+      ]);
+    } catch (err: any) {
+      setVirtualMemoryActionError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? 'Failed to update virtual memory allocation.'
+            : 'اجرای تغییرات حافظه مجازی (تخصیص دیسک به عنوان رم) ناموفق بود.')
+      );
+    } finally {
+      setVirtualMemoryBusy(false);
     }
   };
 
@@ -3101,6 +3178,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       logonsData ||
       diagnosticsData ||
       sharesData ||
+      virtualMemoryData ||
       userProfilesData ||
       printerData ||
       programsData ||
@@ -3119,6 +3197,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         logonsData?.hostname ||
         diagnosticsData?.hostname ||
         sharesData?.hostname ||
+        virtualMemoryData?.hostname ||
         userProfilesData?.hostname ||
         printerData?.hostname ||
         programsData?.hostname ||
@@ -3204,6 +3283,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     logonsData,
     diagnosticsData,
     sharesData,
+    virtualMemoryData,
     userProfilesData,
     printerData,
     programsData,
@@ -3363,6 +3443,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         if (!healthData && !loadingHealth) handleInspectHealth();
         if (!sharesData && !loadingShares) handleInspectShares();
         if (!tempScanData && !loadingTempScan) handleScanTemp();
+        if (!virtualMemoryData && !loadingVirtualMemory) handleInspectVirtualMemory();
       } else if (tab === 'user_profiles' && !userProfilesData && !loadingUserProfiles) {
         handleInspectUserProfiles();
       } else if (tab === 'hardware' && !hardwareData && !loadingHardware) handleInspectHardware();
@@ -5236,7 +5317,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           const isFetchingThisTab =
             (prefetchProgress?.active && prefetchProgress.currentTab === tab.id) ||
             (tab.id === 'health' && loadingHealth) ||
-            (tab.id === 'disks_shares' && (loadingShares || loadingTempScan || loadingHealth)) ||
+            (tab.id === 'disks_shares' && (loadingShares || loadingTempScan || loadingHealth || loadingVirtualMemory)) ||
             (tab.id === 'user_profiles' && loadingUserProfiles) ||
             (tab.id === 'diagnostics' && loadingDiagnostics) ||
             (tab.id === 'hardware' && loadingHardware) ||
@@ -5254,7 +5335,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'history' && loadingHistory);
           const hasTabData =
             (tab.id === 'health' && Boolean(healthData)) ||
-            (tab.id === 'disks_shares' && Boolean((healthData?.disks?.length || 0) > 0 || sharesData || tempScanData)) ||
+            (tab.id === 'disks_shares' && Boolean((healthData?.disks?.length || 0) > 0 || sharesData || tempScanData || virtualMemoryData)) ||
             (tab.id === 'user_profiles' && Boolean(userProfilesData)) ||
             (tab.id === 'diagnostics' && Boolean(diagnosticsData)) ||
             (tab.id === 'hardware' && Boolean(hardwareData)) ||
@@ -5288,6 +5369,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     if (!healthData && !loadingHealth) handleInspectHealth();
                     if (!sharesData && !loadingShares) handleInspectShares();
                     if (!tempScanData && !loadingTempScan) handleScanTemp();
+                    if (!virtualMemoryData && !loadingVirtualMemory) handleInspectVirtualMemory();
                   } else if (tab.id === 'user_profiles' && !userProfilesData && !loadingUserProfiles) {
                     handleInspectUserProfiles();
                   } else if (tab.id === 'hardware' && !hardwareData && !loadingHardware) handleInspectHardware();
@@ -6783,6 +6865,28 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               )
             )}
           </div>
+
+          {/* Section 2: Virtual Memory & Disk-as-RAM Allocation (Windows Pagefile / Linux Swap) */}
+          <VirtualMemorySection
+            isLightMode={isLightMode}
+            isEn={isEn}
+            canRunDiagnostics={canRunDiagnostics}
+            canExecuteActions={canExecuteActions}
+            data={virtualMemoryData}
+            loading={loadingVirtualMemory}
+            error={virtualMemoryError}
+            actionResult={virtualMemoryActionResult}
+            actionError={virtualMemoryActionError}
+            busy={virtualMemoryBusy}
+            highlighted={highlightedSectionId === 'hd-section-virtual-memory'}
+            onRefresh={() => handleInspectVirtualMemory()}
+            onClearActionBanner={() => {
+              setVirtualMemoryActionResult(null);
+              setVirtualMemoryActionError(null);
+            }}
+            onManage={handleManageVirtualMemory}
+            onGoToAntivirus={handleGoToSecurityAv}
+          />
 
           {/* SECTION 2: SHARED FOLDERS & MAPPED NETWORK DRIVES */}
           <div

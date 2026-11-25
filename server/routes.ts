@@ -127,6 +127,9 @@ import {
   collectEndpointUserProfiles,
   manageEndpointUserProfile,
   HelpdeskProfileActionType,
+  collectEndpointVirtualMemory,
+  manageEndpointVirtualMemory,
+  HelpdeskVirtualMemoryAction,
 } from './helpdeskService';
 import {
   inspectTargetDomainUser,
@@ -10810,6 +10813,161 @@ apiRouter.post('/helpdesk/disks/status', async (req: Request, res: Response) => 
       success: false,
       error: msg,
       errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/virtual-memory/status - Inspect Pagefile (Windows) / Swap (Linux) & Eligible Drives
+apiRouter.post('/helpdesk/virtual-memory/status', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointVirtualMemory(target);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_virtual_memory_inspect',
+      title: `بررسی حافظه مجازی (Pagefile / Swap) روی ${data.targetIp}`,
+      title_en: `HelpDesk Virtual Memory Inspection on ${data.targetIp}`,
+      description: `حافظه فیزیکی ${data.physicalRamTotalGb} GB و حافظه مجازی اختصاص‌یافته ${data.totalVirtualAllocatedMb} MB روی ${data.hostname} بررسی شد.`,
+      description_en: `Inspected virtual memory on ${data.hostname}: Physical RAM ${data.physicalRamTotalGb} GB, Virtual Allocated ${data.totalVirtualAllocatedMb} MB across ${data.allocations.length} allocation(s).`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.hostname || data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        physicalRamTotalMb: data.physicalRamTotalMb,
+        totalVirtualAllocatedMb: data.totalVirtualAllocatedMb,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to inspect endpoint virtual memory');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_virtual_memory_inspect_failed',
+      title: `خطا در بررسی حافظه مجازی روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Virtual Memory Inspection Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/virtual-memory/manage - Configure Windows Pagefile or Linux Swap Space
+apiRouter.post('/helpdesk/virtual-memory/manage', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const action = String(req.body?.action || '').trim() as HelpdeskVirtualMemoryAction;
+  const driveOrMount = req.body?.driveOrMount ? String(req.body.driveOrMount).trim() : undefined;
+  const filePath = req.body?.filePath ? String(req.body.filePath).trim() : undefined;
+  const initialSizeMb = req.body?.initialSizeMb !== undefined ? Number(req.body.initialSizeMb) : undefined;
+  const maximumSizeMb = req.body?.maximumSizeMb !== undefined ? Number(req.body.maximumSizeMb) : undefined;
+  const persistent = req.body?.persistent !== false;
+  const swappiness = req.body?.swappiness !== undefined ? Number(req.body.swappiness) : undefined;
+
+  const actionRateMap: Record<HelpdeskVirtualMemoryAction, HelpdeskWriteAction> = {
+    enable_auto: 'virtual_memory_auto',
+    set_custom: 'virtual_memory_set',
+    set_system_managed_drive: 'virtual_memory_set',
+    remove_drive: 'virtual_memory_remove',
+    set_swappiness: 'swap_swappiness_set',
+  };
+  if (!Object.prototype.hasOwnProperty.call(actionRateMap, action)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Unsupported virtual memory configuration action.',
+      errorFa: 'نوع عملیات تنظیم حافظه مجازی نامعتبر است.',
+    });
+  }
+
+  const rlAction = actionRateMap[action];
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rlAction);
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: rlAction,
+      rl,
+    });
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await manageEndpointVirtualMemory({
+      ...target,
+      action,
+      driveOrMount,
+      filePath,
+      initialSizeMb,
+      maximumSizeMb,
+      persistent,
+      swappiness,
+    });
+    await addPortalAuditLog({
+      category: 'system',
+      action: `helpdesk_virtual_memory_${action}`,
+      title: `تنظیم حافظه مجازی (Pagefile/Swap) روی ${data.targetIp}`,
+      title_en: `HelpDesk Virtual Memory Update (${action}) on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'warning',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        action,
+        driveOrMount: data.driveOrMount || driveOrMount,
+        filePath: data.filePath || filePath,
+        initialSizeMb,
+        maximumSizeMb,
+        swappiness,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to update virtual memory settings');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: `helpdesk_virtual_memory_${action}_failed`,
+      title: `خطا در تنظیم حافظه مجازی روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Virtual Memory Update Failed (${action}) on ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { action, driveOrMount, initialSizeMb, maximumSizeMb },
+    });
+    return res.status(/invalid|blocked|required|insufficient|must|refused/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
     });
   }
 });

@@ -20,6 +20,8 @@ import {
   inspectHelpdeskDomainUser,
   fetchHelpdeskUserProfiles,
   HelpdeskUserProfilesResult,
+  fetchHelpdeskVirtualMemory,
+  HelpdeskVirtualMemoryResult,
   HelpdeskConnectionPayload,
   HelpdeskDiagnosticCheckId,
   ALL_HELPDESK_DIAGNOSTIC_CHECKS,
@@ -101,6 +103,12 @@ export interface HelpdeskRamState {
   loadingShares: boolean;
   sharesError: string | null;
   shareActionResult: any | null;
+
+  virtualMemoryData: HelpdeskVirtualMemoryResult | null;
+  loadingVirtualMemory: boolean;
+  virtualMemoryError: string | null;
+  virtualMemoryActionResult: any | null;
+  virtualMemoryActionError: string | null;
 
   // Tab 2B: User Profiles Inventory & Management
   userProfilesData: HelpdeskUserProfilesResult | null;
@@ -248,6 +256,12 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     loadingShares: false,
     sharesError: null,
     shareActionResult: null,
+
+    virtualMemoryData: null,
+    loadingVirtualMemory: false,
+    virtualMemoryError: null,
+    virtualMemoryActionResult: null,
+    virtualMemoryActionError: null,
 
     userProfilesData: null,
     loadingUserProfiles: false,
@@ -458,6 +472,11 @@ export async function runHelpdeskSequentialConnect(options: {
     sharesError: null,
     loadingShares: false,
     shareActionResult: null,
+    virtualMemoryData: null,
+    loadingVirtualMemory: false,
+    virtualMemoryError: null,
+    virtualMemoryActionResult: null,
+    virtualMemoryActionError: null,
     userProfilesData: null,
     loadingUserProfiles: false,
     userProfilesError: null,
@@ -623,6 +642,30 @@ export async function runHelpdeskSequentialConnect(options: {
                 (isEn
                   ? 'Failed to scan endpoint Temp & Recycle Bin.'
                   : 'خطا در اسکن پوشه‌های Temp و سطل زباله سیستم کاربر.'),
+            });
+          }
+        }
+        if (isCancelled()) return true;
+        patchHelpdeskRamSnapshot({ loadingVirtualMemory: true, virtualMemoryError: null });
+        try {
+          const vmRes = await fetchHelpdeskVirtualMemory(payload);
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              virtualMemoryData: vmRes.data,
+              loadingVirtualMemory: false,
+              ...(vmRes.rateLimit ? { rateLimit: vmRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              virtualMemoryData: null,
+              loadingVirtualMemory: false,
+              virtualMemoryError:
+                err?.message ||
+                (isEn
+                  ? 'Failed to inspect virtual memory (Pagefile / Swap).'
+                  : 'خطا در دریافت وضعیت حافظه مجازی (Pagefile / Swap).'),
             });
           }
         }

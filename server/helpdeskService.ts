@@ -94,7 +94,11 @@ export type HelpdeskWriteAction =
   | 'profile_temp_clean'
   | 'profile_delete'
   | 'profile_bak_repair'
-  | 'profile_unload_hive';
+  | 'profile_unload_hive'
+  | 'virtual_memory_set'
+  | 'virtual_memory_remove'
+  | 'virtual_memory_auto'
+  | 'swap_swappiness_set';
 
 export type HelpdeskProcessCategory =
   | 'user_app'
@@ -22862,6 +22866,722 @@ PYEOF`;
     executedAt: new Date().toISOString(),
   };
 }
+
+// ============================================================================
+// 25. VIRTUAL MEMORY / PAGEFILE & LINUX SWAP MANAGEMENT (DISK AS RAM)
+// ============================================================================
+
+export type HelpdeskVirtualMemoryAction =
+  | 'enable_auto'
+  | 'set_custom'
+  | 'set_system_managed_drive'
+  | 'remove_drive'
+  | 'set_swappiness';
+
+export interface HelpdeskVirtualMemoryAllocation {
+  id: string;
+  driveOrMount: string;
+  filePath: string;
+  kind: 'pagefile' | 'swap_file' | 'swap_partition' | 'zram';
+  managementMode: 'system_managed' | 'custom_size' | 'automatic' | 'active';
+  initialSizeMb: number;
+  maximumSizeMb: number;
+  currentAllocatedMb: number;
+  currentUsedMb: number;
+  peakUsedMb: number;
+  usagePercent: number;
+  tempPageFile: boolean;
+  persistentInFstab: boolean;
+  removable: boolean;
+}
+
+export interface HelpdeskVirtualMemoryEligibleDrive {
+  driveOrMount: string;
+  label: string;
+  fileSystem: string;
+  totalGb: number;
+  freeGb: number;
+  freeMb: number;
+  hasAllocation: boolean;
+}
+
+export interface HelpdeskVirtualMemoryResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  physicalRamTotalMb: number;
+  physicalRamTotalGb: number;
+  physicalRamUsedMb: number;
+  physicalRamFreeMb: number;
+  automaticManagedPagefile: boolean;
+  commitLimitMb: number;
+  commitTotalMb: number;
+  totalVirtualAllocatedMb: number;
+  totalVirtualUsedMb: number;
+  recommendedMinMb: number;
+  recommendedMaxMb: number;
+  swappiness: number | null;
+  pendingRebootRecommended: boolean;
+  allocations: HelpdeskVirtualMemoryAllocation[];
+  eligibleDrives: HelpdeskVirtualMemoryEligibleDrive[];
+  collectedAt: string;
+}
+
+export interface HelpdeskVirtualMemoryActionResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  action: HelpdeskVirtualMemoryAction;
+  driveOrMount?: string;
+  filePath?: string;
+  success: boolean;
+  pendingRebootRecommended: boolean;
+  message: string;
+  messageFa: string;
+  rawOutput?: string;
+  executedAt: string;
+}
+
+function validateWindowsDriveLetterOnly(raw: unknown): string {
+  const s = String(raw || '').trim().toUpperCase().replace(/:$/, '').replace(/\\+$/, '');
+  if (!/^[C-Z]$/.test(s)) {
+    throw new Error('Windows drive letter must be between C: and Z:.');
+  }
+  return s;
+}
+
+function validateLinuxSwapMountPath(raw: unknown): string {
+  const p = String(raw || '').trim();
+  if (!p || !p.startsWith('/') || p.length > 200 || /[\r\n\0"`$|;&<>]/.test(p) || /\.\./.test(p)) {
+    throw new Error('Invalid Linux mount path.');
+  }
+  return p === '/' ? '/' : p.replace(/\/+$/, '');
+}
+
+function validateLinuxSwapFilePath(raw: unknown): string {
+  const p = String(raw || '').trim();
+  if (!p || !p.startsWith('/') || p.length > 240 || /[\r\n\0"`$|;&<>]/.test(p) || /\.\./.test(p)) {
+    throw new Error('Invalid Linux swap file path.');
+  }
+  return p;
+}
+
+export async function collectEndpointVirtualMemory(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskVirtualMemoryResult> {
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$os = Get-CimInstance Win32_OperatingSystem
+$cs = Get-CimInstance Win32_ComputerSystem
+$physTotMb = if ($os -and $os.TotalVisibleMemorySize) { [math]::Round(($os.TotalVisibleMemorySize / 1024), 0) } else { 0 }
+$physFreeMb = if ($os -and $os.FreePhysicalMemory) { [math]::Round(($os.FreePhysicalMemory / 1024), 0) } else { 0 }
+$physUsedMb = [math]::Max(0, $physTotMb - $physFreeMb)
+$autoManaged = if ($cs -and $null -ne $cs.AutomaticManagedPagefile) { [bool]$cs.AutomaticManagedPagefile } else { $true }
+
+$commitLimitMb = 0; $commitTotalMb = 0
+try {
+  $cl = (Get-Counter '\\Memory\\Commit Limit' -ErrorAction SilentlyContinue).CounterSamples[0].CookedValue
+  $cb = (Get-Counter '\\Memory\\Committed Bytes' -ErrorAction SilentlyContinue).CounterSamples[0].CookedValue
+  if ($cl) { $commitLimitMb = [math]::Round(($cl / 1MB), 0) }
+  if ($cb) { $commitTotalMb = [math]::Round(($cb / 1MB), 0) }
+} catch {}
+
+$settingsByPath = @{}
+try {
+  foreach ($s in (Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue)) {
+    $nm = ([string]$s.Name).Trim()
+    if ($nm) { $settingsByPath[$nm.ToLower()] = $s }
+  }
+} catch {}
+
+$usageByPath = @{}
+try {
+  foreach ($u in (Get-CimInstance Win32_PageFileUsage -ErrorAction SilentlyContinue)) {
+    $nm = ([string]$u.Name).Trim()
+    if ($nm) { $usageByPath[$nm.ToLower()] = $u }
+  }
+} catch {}
+
+# Inspect Registry PagingFiles for pending / unapplied settings
+$regPagingList = @()
+try {
+  $mm = Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management' -ErrorAction SilentlyContinue
+  if ($mm -and $mm.PagingFiles) {
+    foreach ($entry in @($mm.PagingFiles)) {
+      $es = [string]$entry
+      if ($es.Trim()) { $regPagingList += $es.Trim() }
+    }
+  }
+} catch {}
+
+$allPaths = @{}
+foreach ($k in $settingsByPath.Keys) { $allPaths[$k] = $true }
+foreach ($k in $usageByPath.Keys) { $allPaths[$k] = $true }
+
+$allocs = @()
+$pendingReboot = $false
+
+foreach ($pk in $allPaths.Keys) {
+  $sObj = if ($settingsByPath.ContainsKey($pk)) { $settingsByPath[$pk] } else { $null }
+  $uObj = if ($usageByPath.ContainsKey($pk)) { $usageByPath[$pk] } else { $null }
+  $fullName = if ($uObj -and $uObj.Name) { [string]$uObj.Name } elseif ($sObj -and $sObj.Name) { [string]$sObj.Name } else { $pk }
+  $drv = if ($fullName -match '^([A-Za-z]:)') { $Matches[1].ToUpper() } else { '' }
+  $initMb = if ($sObj -and $null -ne $sObj.InitialSize) { [int]$sObj.InitialSize } else { 0 }
+  $maxMb = if ($sObj -and $null -ne $sObj.MaximumSize) { [int]$sObj.MaximumSize } else { 0 }
+  $curAlloc = if ($uObj -and $null -ne $uObj.AllocatedBaseSize) { [int]$uObj.AllocatedBaseSize } else { 0 }
+  $curUsed = if ($uObj -and $null -ne $uObj.CurrentUsage) { [int]$uObj.CurrentUsage } else { 0 }
+  $peakUsed = if ($uObj -and $null -ne $uObj.PeakUsage) { [int]$uObj.PeakUsage } else { 0 }
+  $isTemp = if ($uObj -and $null -ne $uObj.TempPageFile) { [bool]$uObj.TempPageFile } else { $false }
+  $mode = if ($autoManaged) { 'automatic' } elseif ($initMb -eq 0 -and $maxMb -eq 0) { 'system_managed' } else { 'custom_size' }
+
+  if (-not $autoManaged -and $initMb -gt 0 -and $curAlloc -gt 0 -and $curAlloc -lt $initMb) {
+    $pendingReboot = $true
+  }
+
+  $allocs += [PSCustomObject]@{
+    id = $fullName
+    driveOrMount = $drv
+    filePath = $fullName
+    kind = 'pagefile'
+    managementMode = $mode
+    initialSizeMb = $initMb
+    maximumSizeMb = $maxMb
+    currentAllocatedMb = $curAlloc
+    currentUsedMb = $curUsed
+    peakUsedMb = $peakUsed
+    usagePercent = if ($curAlloc -gt 0) { [math]::Round([math]::Min(100, ($curUsed / $curAlloc) * 100), 1) } else { 0 }
+    tempPageFile = $isTemp
+    persistentInFstab = $true
+    removable = $true
+  }
+}
+
+# Check fixed NTFS drives eligible for Virtual Memory
+$drivesOut = @()
+foreach ($ld in (Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction SilentlyContinue)) {
+  $dId = ([string]$ld.DeviceID).Trim().ToUpper()
+  if (-not $dId) { continue }
+  $fs = [string]$ld.FileSystem
+  if ($fs -and $fs -notmatch 'NTFS|ReFS') { continue }
+  $totGb = [math]::Round(($ld.Size / 1GB), 2)
+  $freeGb = [math]::Round(($ld.FreeSpace / 1GB), 2)
+  $freeMb = [math]::Round(($ld.FreeSpace / 1MB), 0)
+  $hasAlloc = ($allocs | Where-Object { $_.driveOrMount -eq $dId }).Count -gt 0
+  $drivesOut += [PSCustomObject]@{
+    driveOrMount = $dId
+    label = [string]$ld.VolumeName
+    fileSystem = $fs
+    totalGb = $totGb
+    freeGb = $freeGb
+    freeMb = $freeMb
+    hasAllocation = $hasAlloc
+  }
+}
+
+[PSCustomObject]@{
+  hostname = [string]$env:COMPUTERNAME
+  physicalRamTotalMb = $physTotMb
+  physicalRamUsedMb = $physUsedMb
+  physicalRamFreeMb = $physFreeMb
+  automaticManagedPagefile = $autoManaged
+  commitLimitMb = $commitLimitMb
+  commitTotalMb = $commitTotalMb
+  pendingRebootRecommended = $pendingReboot
+  allocations = $allocs
+  eligibleDrives = $drivesOut
+} | ConvertTo-Json -Depth 6 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PYEOF'
+import json, os, re, shutil, socket, subprocess
+
+hostname = socket.gethostname()
+meminfo = {}
+try:
+    with open('/proc/meminfo') as f:
+        for line in f:
+            k, _, rest = line.partition(':')
+            val = rest.strip().split()[0]
+            if val.isdigit():
+                meminfo[k] = int(val)  # KiB
+except Exception:
+    pass
+
+phys_tot_mb = round(meminfo.get('MemTotal', 0) / 1024)
+phys_avail_mb = round(meminfo.get('MemAvailable', meminfo.get('MemFree', 0)) / 1024)
+phys_used_mb = max(0, phys_tot_mb - phys_avail_mb)
+commit_limit_mb = round(meminfo.get('CommitLimit', 0) / 1024)
+commit_total_mb = round(meminfo.get('Committed_AS', 0) / 1024)
+
+swappiness = None
+try:
+    with open('/proc/sys/vm/swappiness') as f:
+        swappiness = int(f.read().strip())
+except Exception:
+    pass
+
+fstab_swaps = set()
+try:
+    with open('/etc/fstab') as f:
+        for line in f:
+            s = line.strip()
+            if not s or s.startswith('#'):
+                continue
+            cols = s.split()
+            if len(cols) >= 3 and cols[2] == 'swap':
+                fstab_swaps.add(cols[0])
+except Exception:
+    pass
+
+allocs = []
+try:
+    out = subprocess.check_output(['swapon', '--show=NAME,TYPE,SIZE,USED', '--bytes', '--noheadings'], text=True, stderr=subprocess.DEVNULL)
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        name, stype, sz_b, used_b = parts[0], parts[1].lower(), int(parts[2]), int(parts[3])
+        sz_mb = round(sz_b / (1024 * 1024))
+        used_mb = round(used_b / (1024 * 1024))
+        kind = 'zram' if 'zram' in name else ('swap_partition' if stype == 'partition' else 'swap_file')
+        mnt = os.path.dirname(name) if stype == 'file' else name
+        allocs.append({
+            'id': name,
+            'driveOrMount': mnt or '/',
+            'filePath': name,
+            'kind': kind,
+            'managementMode': 'active',
+            'initialSizeMb': sz_mb,
+            'maximumSizeMb': sz_mb,
+            'currentAllocatedMb': sz_mb,
+            'currentUsedMb': used_mb,
+            'peakUsedMb': used_mb,
+            'usagePercent': round(min(100.0, (used_mb / sz_mb) * 100.0), 1) if sz_mb > 0 else 0,
+            'tempPageFile': False,
+            'persistentInFstab': name in fstab_swaps,
+            'removable': kind == 'swap_file',
+        })
+except Exception:
+    try:
+        with open('/proc/swaps') as f:
+            lines = f.read().splitlines()[1:]
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            name, stype, sz_k, used_k = parts[0], parts[1].lower(), int(parts[2]), int(parts[3])
+            sz_mb = round(sz_k / 1024)
+            used_mb = round(used_k / 1024)
+            kind = 'zram' if 'zram' in name else ('swap_partition' if stype == 'partition' else 'swap_file')
+            allocs.append({
+                'id': name,
+                'driveOrMount': os.path.dirname(name) if stype == 'file' else name,
+                'filePath': name,
+                'kind': kind,
+                'managementMode': 'active',
+                'initialSizeMb': sz_mb,
+                'maximumSizeMb': sz_mb,
+                'currentAllocatedMb': sz_mb,
+                'currentUsedMb': used_mb,
+                'peakUsedMb': used_mb,
+                'usagePercent': round(min(100.0, (used_mb / sz_mb) * 100.0), 1) if sz_mb > 0 else 0,
+                'tempPageFile': False,
+                'persistentInFstab': name in fstab_swaps,
+                'removable': kind == 'swap_file',
+            })
+    except Exception:
+        pass
+
+drives = []
+seen_mps = set()
+allowed_fs = {'ext4', 'ext3', 'xfs', 'btrfs', 'f2fs', 'zfs'}
+try:
+    with open('/proc/mounts') as f:
+        for line in f:
+            cols = line.split()
+            if len(cols) < 3:
+                continue
+            dev, mp, fstype = cols[0], cols[1], cols[2]
+            if fstype not in allowed_fs or mp in seen_mps:
+                continue
+            if mp.startswith('/boot') or mp.startswith('/snap') or mp.startswith('/var/lib/docker'):
+                continue
+            seen_mps.add(mp)
+            try:
+                st = shutil.disk_usage(mp)
+                has_alloc = any(a['kind'] == 'swap_file' and os.path.dirname(a['filePath']) == mp for a in allocs)
+                drives.append({
+                    'driveOrMount': mp,
+                    'label': os.path.basename(dev) or mp,
+                    'fileSystem': fstype,
+                    'totalGb': round(st.total / (1024**3), 2),
+                    'freeGb': round(st.free / (1024**3), 2),
+                    'freeMb': round(st.free / (1024**2)),
+                    'hasAllocation': has_alloc,
+                })
+            except Exception:
+                pass
+except Exception:
+    pass
+
+print(json.dumps({
+    'hostname': hostname,
+    'physicalRamTotalMb': phys_tot_mb,
+    'physicalRamUsedMb': phys_used_mb,
+    'physicalRamFreeMb': phys_avail_mb,
+    'automaticManagedPagefile': False,
+    'commitLimitMb': commit_limit_mb,
+    'commitTotalMb': commit_total_mb,
+    'pendingRebootRecommended': False,
+    'swappiness': swappiness,
+    'allocations': allocs,
+    'eligibleDrives': drives,
+}))
+PYEOF`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(25000, input.timeoutMs || 25000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'virtual memory telemetry');
+  const allocs: HelpdeskVirtualMemoryAllocation[] = Array.isArray(parsed.allocations)
+    ? parsed.allocations
+    : [];
+  const eligibleDrives: HelpdeskVirtualMemoryEligibleDrive[] = Array.isArray(parsed.eligibleDrives)
+    ? parsed.eligibleDrives
+    : [];
+
+  const physTotMb = Math.max(0, Number(parsed.physicalRamTotalMb) || 0);
+  const totalAllocMb = allocs.reduce((acc, a) => acc + (Number(a.currentAllocatedMb) || 0), 0);
+  const totalUsedMb = allocs.reduce((acc, a) => acc + (Number(a.currentUsedMb) || 0), 0);
+
+  // Standard Microsoft / Linux recommendation formula
+  const recommendedMinMb = Math.max(1024, Math.min(16384, Math.round(physTotMb * 1.0)));
+  const recommendedMaxMb = Math.max(2048, Math.min(65536, Math.round(physTotMb * 1.5)));
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    physicalRamTotalMb: physTotMb,
+    physicalRamTotalGb: Math.round((physTotMb / 1024) * 100) / 100,
+    physicalRamUsedMb: Math.max(0, Number(parsed.physicalRamUsedMb) || 0),
+    physicalRamFreeMb: Math.max(0, Number(parsed.physicalRamFreeMb) || 0),
+    automaticManagedPagefile: Boolean(parsed.automaticManagedPagefile),
+    commitLimitMb: Math.max(0, Number(parsed.commitLimitMb) || physTotMb + totalAllocMb),
+    commitTotalMb: Math.max(0, Number(parsed.commitTotalMb) || 0),
+    totalVirtualAllocatedMb: totalAllocMb,
+    totalVirtualUsedMb: totalUsedMb,
+    recommendedMinMb,
+    recommendedMaxMb,
+    swappiness:
+      parsed.swappiness !== null && parsed.swappiness !== undefined
+        ? Number(parsed.swappiness)
+        : null,
+    pendingRebootRecommended: Boolean(parsed.pendingRebootRecommended),
+    allocations: allocs,
+    eligibleDrives,
+    collectedAt: new Date().toISOString(),
+  };
+}
+
+export async function manageEndpointVirtualMemory(
+  input: HelpdeskTargetInput & {
+    action: HelpdeskVirtualMemoryAction;
+    driveOrMount?: string;
+    filePath?: string;
+    initialSizeMb?: number;
+    maximumSizeMb?: number;
+    persistent?: boolean;
+    swappiness?: number;
+  }
+): Promise<HelpdeskVirtualMemoryActionResult> {
+  const allowedActions: HelpdeskVirtualMemoryAction[] = [
+    'enable_auto',
+    'set_custom',
+    'set_system_managed_drive',
+    'remove_drive',
+    'set_swappiness',
+  ];
+  if (!allowedActions.includes(input.action)) {
+    throw new Error('Unsupported virtual memory action.');
+  }
+
+  let initMb = 0;
+  let maxMb = 0;
+  if (input.action === 'set_custom') {
+    initMb = Math.round(Number(input.initialSizeMb));
+    maxMb = Math.round(Number(input.maximumSizeMb));
+    if (!Number.isFinite(initMb) || !Number.isFinite(maxMb) || initMb < 16 || maxMb < initMb || maxMb > 1048576) {
+      throw new Error('Initial size must be >= 16 MB, <= Maximum size, and at most 1,048,576 MB (1 TB).');
+    }
+  }
+
+  let swappinessVal = 60;
+  if (input.action === 'set_swappiness') {
+    swappinessVal = Math.round(Number(input.swappiness));
+    if (!Number.isFinite(swappinessVal) || swappinessVal < 0 || swappinessVal > 100) {
+      throw new Error('Linux vm.swappiness must be between 0 and 100.');
+    }
+  }
+
+  const rawDriveOrMount = String(input.driveOrMount || '').trim();
+  const isWindowsDrive = /^[C-Z]:?\\?$/i.test(rawDriveOrMount) || input.action === 'enable_auto' || input.action === 'set_system_managed_drive';
+  if ((input.action === 'set_custom' || input.action === 'set_system_managed_drive' || input.action === 'remove_drive') && !rawDriveOrMount && !input.filePath) {
+    throw new Error('Target drive or mount point is required.');
+  }
+
+  let winDriveLetter = 'C';
+  if (rawDriveOrMount && /^[C-Z]:?\\?$/i.test(rawDriveOrMount)) {
+    winDriveLetter = validateWindowsDriveLetterOnly(rawDriveOrMount);
+  }
+  const linuxMount = rawDriveOrMount.startsWith('/') ? validateLinuxSwapMountPath(rawDriveOrMount) : '/';
+  const linuxTargetFile = input.filePath ? validateLinuxSwapFilePath(input.filePath) : '';
+
+  const actB64 = utf8Base64(input.action);
+  const winDrvB64 = utf8Base64(winDriveLetter);
+  const lxMntB64 = utf8Base64(linuxMount);
+  const lxFileB64 = utf8Base64(linuxTargetFile);
+  const persistentFlag = input.persistent !== false ? '1' : '0';
+
+  const winPs = `
+$ErrorActionPreference = 'Stop'
+$action = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${actB64}')).Trim()
+$drv = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${winDrvB64}')).Trim().ToUpper()
+$initMb = ${initMb}
+$maxMb = ${maxMb}
+
+if ($action -eq 'set_swappiness') {
+  throw 'Swappiness tuning is a Linux-only setting.'
+}
+
+if ($action -eq 'enable_auto') {
+  $cs = Get-CimInstance Win32_ComputerSystem
+  Set-CimInstance -InputObject $cs -Property @{ AutomaticManagedPagefile = $true }
+  [PSCustomObject]@{
+    success = $true
+    action = $action
+    driveOrMount = 'ALL'
+    pendingRebootRecommended = $true
+    message = 'Enabled Windows Automatic System-Managed Virtual Memory (Pagefile) across drives. Reboot to finalize kernel allocation.'
+    messageFa = 'مدیریت خودکار حافظه مجازی (System Managed Pagefile) روی کل درایوهای ویندوز فعال شد. برای اعمال نهایی در کرنل، سیستم را ریستارت کنید.'
+  } | ConvertTo-Json -Compress
+  exit 0
+}
+
+if ($drv -notmatch '^[C-Z]$') { throw 'Invalid drive letter.' }
+$pfName = "$($drv):\\pagefile.sys"
+$ld = Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='" + $drv + ":'") -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $ld -or $ld.DriveType -ne 3) {
+  throw "Drive $($drv): was not found or is not a fixed local drive."
+}
+
+if ($action -eq 'set_custom') {
+  if ([string]$ld.FileSystem -notmatch 'NTFS|ReFS') {
+    throw "Drive $($drv): uses $($ld.FileSystem); Windows Pagefile requires NTFS."
+  }
+  $curUsage = Get-CimInstance Win32_PageFileUsage -ErrorAction SilentlyContinue | Where-Object { ([string]$_.Name).ToLower() -eq $pfName.ToLower() } | Select-Object -First 1
+  $existingOnDriveMb = if ($curUsage -and $curUsage.AllocatedBaseSize) { [int]$curUsage.AllocatedBaseSize } else { 0 }
+  $freeMb = [math]::Round(($ld.FreeSpace / 1MB), 0)
+  $availWithCurrent = $freeMb + $existingOnDriveMb
+  if (($maxMb + 1024) -gt $availWithCurrent) {
+    throw "Insufficient free space on $($drv):. Available (~$availWithCurrent MB incl. existing pagefile) cannot accommodate Maximum $maxMb MB plus 1024 MB OS safety headroom."
+  }
+}
+
+# Switch off AutomaticManagedPagefile before modifying per-drive Win32_PageFileSetting
+$cs = Get-CimInstance Win32_ComputerSystem
+if ($cs.AutomaticManagedPagefile) {
+  Set-CimInstance -InputObject $cs -Property @{ AutomaticManagedPagefile = $false }
+}
+
+if ($action -eq 'remove_drive') {
+  $existing = Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue | Where-Object { ([string]$_.Name).ToLower() -eq $pfName.ToLower() } | Select-Object -First 1
+  if ($existing) {
+    Remove-CimInstance -InputObject $existing -ErrorAction Stop
+  }
+  [PSCustomObject]@{
+    success = $true
+    action = $action
+    driveOrMount = "$($drv):"
+    filePath = $pfName
+    pendingRebootRecommended = $true
+    message = "Removed Pagefile allocation on drive $($drv): ($pfName). Reboot endpoint to apply."
+    messageFa = "تخصیص حافظه مجازی (Pagefile) روی درایو $($drv): حذف شد. برای اعمال کامل، سیستم را ریستارت کنید."
+  } | ConvertTo-Json -Compress
+  exit 0
+}
+
+# set_custom or set_system_managed_drive
+$targetInit = if ($action -eq 'set_system_managed_drive') { 0 } else { $initMb }
+$targetMax = if ($action -eq 'set_system_managed_drive') { 0 } else { $maxMb }
+
+$existing = Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue | Where-Object { ([string]$_.Name).ToLower() -eq $pfName.ToLower() } | Select-Object -First 1
+if ($existing) {
+  $existing | Set-CimInstance -Property @{ InitialSize = $targetInit; MaximumSize = $targetMax } -ErrorAction Stop
+} else {
+  try {
+    New-CimInstance -ClassName Win32_PageFileSetting -Property @{ Name = $pfName; InitialSize = $targetInit; MaximumSize = $targetMax } -ErrorAction Stop | Out-Null
+  } catch {
+    $wmiCls = [wmiclass]'\\\\.\\root\\cimv2:Win32_PageFileSetting'
+    $inst = $wmiCls.CreateInstance()
+    $inst.Name = $pfName
+    $inst.InitialSize = $targetInit
+    $inst.MaximumSize = $targetMax
+    $inst.Put() | Out-Null
+  }
+}
+
+$msgEn = if ($action -eq 'set_system_managed_drive') {
+  "Set System-Managed Pagefile on drive $($drv): ($pfName). Reboot required to take effect."
+} else {
+  "Configured Virtual Memory Pagefile on $($drv): ($pfName) to Initial $targetInit MB / Max $targetMax MB. Reboot required to finalize."
+}
+$msgFa = if ($action -eq 'set_system_managed_drive') {
+  "حافظه مجازی درایو $($drv): روی حالت خودکار سیستمی تنظیم شد. برای اعمال نهایی ریستارت لازم است."
+} else {
+  "فضای $targetInit تا $targetMax مگابایت از هارد درایو $($drv): به‌عنوان رم مجازی (Pagefile) تنظیم شد. برای اعمال کامل سیستم را ریستارت کنید."
+}
+
+[PSCustomObject]@{
+  success = $true
+  action = $action
+  driveOrMount = "$($drv):"
+  filePath = $pfName
+  pendingRebootRecommended = $true
+  message = $msgEn
+  messageFa = $msgFa
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PYEOF'
+import base64, json, os, shutil, subprocess
+
+action = base64.b64decode("${actB64}").decode("utf-8").strip()
+mount_dir = base64.b64decode("${lxMntB64}").decode("utf-8").strip()
+target_file = base64.b64decode("${lxFileB64}").decode("utf-8").strip()
+init_mb = ${initMb}
+max_mb = ${maxMb}
+swappiness = ${swappinessVal}
+persistent = ("${persistentFlag}" == "1")
+
+if action in ('enable_auto', 'set_system_managed_drive'):
+    raise SystemExit(json.dumps({"error": "Windows Automatic Pagefile mode does not apply to Linux; create a swapfile or tune swappiness instead."}))
+
+if action == 'set_swappiness':
+    subprocess.check_call(['sysctl', '-w', f'vm.swappiness={swappiness}'])
+    if persistent:
+        os.makedirs('/etc/sysctl.d', exist_ok=True)
+        with open('/etc/sysctl.d/99-nettopology-swap.conf', 'w') as f:
+            f.write(f'vm.swappiness={swappiness}\\n')
+    print(json.dumps({
+        "success": True,
+        "action": action,
+        "driveOrMount": "sysctl",
+        "pendingRebootRecommended": False,
+        "message": f"Updated Linux vm.swappiness to {swappiness} (live{' & persistent' if persistent else ''}).",
+        "messageFa": f"مقدار vm.swappiness لینوکس روی {swappiness} تنظیم شد{' (دائمی در sysctl.d)' if persistent else ''}."
+    }))
+    raise SystemExit(0)
+
+if action == 'set_custom':
+    if not os.path.isdir(mount_dir):
+        raise SystemExit(json.dumps({"error": f"Mount directory {mount_dir} does not exist."}))
+    swap_path = os.path.join('/' if mount_dir == '/' else mount_dir, 'swapfile' if mount_dir == '/' else 'swapfile_nettopo')
+    st = shutil.disk_usage(mount_dir)
+    existing_sz_mb = (os.path.getsize(swap_path) / (1024**2)) if os.path.isfile(swap_path) else 0
+    avail_mb = (st.free / (1024**2)) + existing_sz_mb
+    if (init_mb + 1024) > avail_mb:
+        raise SystemExit(json.dumps({"error": f"Insufficient space on {mount_dir}: available ~{int(avail_mb)} MB cannot hold {init_mb} MB swap + 1024 MB headroom."}))
+    # Disable existing swapfile if active
+    subprocess.run(['swapoff', swap_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Allocate
+    rc = subprocess.run(['fallocate', '-l', f'{init_mb}M', swap_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+    if rc != 0:
+        subprocess.check_call(['dd', 'if=/dev/zero', f'of={swap_path}', 'bs=1M', f'count={init_mb}', 'status=none'])
+    os.chmod(swap_path, 0o600)
+    subprocess.check_call(['mkswap', swap_path], stdout=subprocess.DEVNULL)
+    subprocess.check_call(['swapon', swap_path])
+    if persistent and os.path.isfile('/etc/fstab'):
+        with open('/etc/fstab', 'r') as f:
+            lines = f.readlines()
+        new_lines = [ln for ln in lines if not (ln.strip() and not ln.strip().startswith('#') and ln.split()[0] == swap_path and len(ln.split()) >= 3 and ln.split()[2] == 'swap')]
+        new_lines.append(f"{swap_path} none swap sw 0 0\\n")
+        with open('/etc/fstab', 'w') as f:
+            f.writelines(new_lines)
+    print(json.dumps({
+        "success": True,
+        "action": action,
+        "driveOrMount": mount_dir,
+        "filePath": swap_path,
+        "pendingRebootRecommended": False,
+        "message": f"Allocated and activated {init_mb} MB Linux Swap File at {swap_path}{' (persisted in /etc/fstab)' if persistent else ''}.",
+        "messageFa": f"فایل Swap به حجم {init_mb} مگابایت در مسیر {swap_path} ساخته و بلافاصله به‌عنوان رم کمکی فعال شد."
+    }))
+    raise SystemExit(0)
+
+if action == 'remove_drive':
+    swap_path = target_file or (os.path.join('/' if mount_dir == '/' else mount_dir, 'swapfile' if mount_dir == '/' else 'swapfile_nettopo'))
+    if not os.path.isfile(swap_path) or os.path.islink(swap_path):
+        raise SystemExit(json.dumps({"error": f"Refused: Only regular swap files can be removed ({swap_path})."}))
+    base = os.path.basename(swap_path)
+    if 'swap' not in base.lower():
+        raise SystemExit(json.dumps({"error": "Refused: Target filename does not look like a swap file."}))
+    subprocess.run(['swapoff', swap_path], check=True)
+    if os.path.isfile('/etc/fstab'):
+        with open('/etc/fstab', 'r') as f:
+            lines = f.readlines()
+        new_lines = [ln for ln in lines if not (ln.strip() and not ln.strip().startswith('#') and ln.split()[0] == swap_path and len(ln.split()) >= 3 and ln.split()[2] == 'swap')]
+        with open('/etc/fstab', 'w') as f:
+            f.writelines(new_lines)
+    os.remove(swap_path)
+    print(json.dumps({
+        "success": True,
+        "action": action,
+        "driveOrMount": os.path.dirname(swap_path) or '/',
+        "filePath": swap_path,
+        "pendingRebootRecommended": False,
+        "message": f"Deactivated and removed Linux swap file {swap_path}.",
+        "messageFa": f"فایل Swap در مسیر {swap_path} غیرفعال و حذف شد و فضای دیسک آزاد گردید."
+    }))
+PYEOF`;
+
+  const probeInput = {
+    ...input,
+    // Do not force Windows if Linux swap mount is explicitly passed
+    ...(isWindowsDrive ? {} : {}),
+    timeoutMs: Math.max(45000, input.timeoutMs || 45000),
+  };
+
+  const execRes = await executeHardcodedScripts(probeInput, winPs, linuxSh);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'manage virtual memory');
+  if (parsed?.error) {
+    throw new Error(String(parsed.error));
+  }
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    action: input.action,
+    driveOrMount: parsed.driveOrMount ? String(parsed.driveOrMount) : input.driveOrMount,
+    filePath: parsed.filePath ? String(parsed.filePath) : input.filePath,
+    success: Boolean(parsed.success),
+    pendingRebootRecommended: Boolean(parsed.pendingRebootRecommended),
+    message: String(parsed.message || 'Virtual memory configuration updated.'),
+    messageFa: String(parsed.messageFa || 'تنظیمات حافظه مجازی با موفقیت اعمال شد.'),
+    rawOutput: parsed.rawOutput ? String(parsed.rawOutput) : undefined,
+    executedAt: new Date().toISOString(),
+  };
+}
+
 
 
 
