@@ -1829,7 +1829,7 @@ export async function scanHelpdeskTemp(payload: HelpdeskConnectionPayload): Prom
 
 export async function cleanHelpdeskTemp(
   payload: HelpdeskConnectionPayload & {
-    scope: 'user_temp' | 'windows_temp' | 'both';
+    scope: 'user_temp' | 'windows_temp' | 'both' | 'recycle_bin' | 'all';
   }
 ): Promise<{
   success: boolean;

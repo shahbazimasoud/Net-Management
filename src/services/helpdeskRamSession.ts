@@ -25,6 +25,7 @@ import {
 
 export type HelpdeskSubTab =
   | 'health'
+  | 'disks_shares'
   | 'diagnostics'
   | 'hardware'
   | 'network'
@@ -173,11 +174,13 @@ export interface HelpdeskRamState {
   securityAvActionError: string | null;
   securityAvDisabledInSession: string[];
 
-  // Tab 7: Temp, GPO & Disk Repair
+  // Tab 1B / Disk, Drives, Shared Folders, Temp & Recycle Bin
   tempScanData: any | null;
   loadingTempScan: boolean;
   tempError: string | null;
   tempCleanResult: any | null;
+  recycleBinCleanResult: any | null;
+  recycleBinError: string | null;
   gpoData: any | null;
   loadingGpo: boolean;
   gpoError: string | null;
@@ -305,6 +308,8 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     loadingTempScan: false,
     tempError: null,
     tempCleanResult: null,
+    recycleBinCleanResult: null,
+    recycleBinError: null,
     gpoData: null,
     loadingGpo: false,
     gpoError: null,
@@ -490,6 +495,8 @@ export async function runHelpdeskSequentialConnect(options: {
     tempError: null,
     loadingTempScan: false,
     tempCleanResult: null,
+    recycleBinCleanResult: null,
+    recycleBinError: null,
     gpoData: null,
     gpoError: null,
     loadingGpo: false,
@@ -517,8 +524,8 @@ export async function runHelpdeskSequentialConnect(options: {
   }> = [
     {
       id: 'health',
-      labelEn: 'Health, Processes & Shares',
-      labelFa: 'سلامت سیستم، پروسس‌ها و شیر فولدرها',
+      labelEn: 'Health & Safe Process Control',
+      labelFa: 'سلامت سیستم و کنترل پروسس‌ها',
       run: async () => {
         patchHelpdeskRamSnapshot({ loadingHealth: true, healthError: null, healthBlockedByException: false });
         try {
@@ -542,6 +549,14 @@ export async function runHelpdeskSequentialConnect(options: {
           }
           return false;
         }
+        return true;
+      },
+    },
+    {
+      id: 'disks_shares',
+      labelEn: 'Disk, Drives, Shared Folders & Recycle Bin',
+      labelFa: 'دیسک، درایوها، پوشه‌های اشتراکی و سطل زباله',
+      run: async () => {
         if (isCancelled()) return false;
         patchHelpdeskRamSnapshot({ loadingShares: true, sharesError: null });
         try {
@@ -563,6 +578,30 @@ export async function runHelpdeskSequentialConnect(options: {
                 (isEn
                   ? 'Failed to inspect mapped network shares.'
                   : 'خطا در دریافت لیست پوشه‌های اشتراکی مپ‌شده کاربر.'),
+            });
+          }
+        }
+        if (isCancelled()) return true;
+        patchHelpdeskRamSnapshot({ loadingTempScan: true, tempError: null });
+        try {
+          const tempRes = await scanHelpdeskTemp(payload);
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              tempScanData: tempRes.data,
+              loadingTempScan: false,
+              ...(tempRes.rateLimit ? { rateLimit: tempRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              tempScanData: null,
+              loadingTempScan: false,
+              tempError:
+                err?.message ||
+                (isEn
+                  ? 'Failed to scan endpoint Temp & Recycle Bin.'
+                  : 'خطا در اسکن پوشه‌های Temp و سطل زباله سیستم کاربر.'),
             });
           }
         }
@@ -948,32 +987,9 @@ export async function runHelpdeskSequentialConnect(options: {
     },
     {
       id: 'maintenance',
-      labelEn: 'Temp, GPO, AD Members & Disk Health',
-      labelFa: 'پاک‌سازی Temp، GPO، اعضای AD و دیسک‌ها',
+      labelEn: 'System Repair, GPO & AD Members',
+      labelFa: 'تعمیر سیستم، GPO و اعضای AD',
       run: async () => {
-        patchHelpdeskRamSnapshot({ loadingTempScan: true, tempError: null });
-        try {
-          const tempRes = await scanHelpdeskTemp(payload);
-          if (!isCancelled()) {
-            patchHelpdeskRamSnapshot({
-              tempScanData: tempRes.data,
-              loadingTempScan: false,
-              ...(tempRes.rateLimit ? { rateLimit: tempRes.rateLimit } : {}),
-            });
-          }
-        } catch (err: any) {
-          if (!isCancelled()) {
-            patchHelpdeskRamSnapshot({
-              tempScanData: null,
-              loadingTempScan: false,
-              tempError:
-                err?.message ||
-                (isEn
-                  ? 'Failed to scan endpoint Temp folders.'
-                  : 'خطا در اسکن پوشه‌های Temp سیستم کاربر.'),
-            });
-          }
-        }
         if (isCancelled()) return true;
         patchHelpdeskRamSnapshot({ loadingGpo: true, gpoError: null });
         let detectedGpoUser = '';

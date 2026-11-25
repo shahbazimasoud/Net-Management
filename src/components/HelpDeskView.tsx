@@ -601,7 +601,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const processActionNotice = ram.processActionNotice;
   const setProcessActionNotice = setRamField('processActionNotice');
 
-  // Module 6: Confined Temp Cleanup state
+  // Module 6: Confined Temp & Recycle Bin Cleanup state
   const tempScanData = ram.tempScanData;
   const setTempScanData = setRamField('tempScanData');
   const loadingTempScan = ram.loadingTempScan;
@@ -613,6 +613,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [cleaningTemp, setCleaningTemp] = useState(false);
   const tempCleanResult = ram.tempCleanResult;
   const setTempCleanResult = setRamField('tempCleanResult');
+  const [confirmEmptyRecycleBin, setConfirmEmptyRecycleBin] = useState(false);
+  const [cleaningRecycleBin, setCleaningRecycleBin] = useState(false);
+  const recycleBinCleanResult = ram.recycleBinCleanResult;
+  const setRecycleBinCleanResult = setRamField('recycleBinCleanResult');
+  const recycleBinError = ram.recycleBinError;
+  const setRecycleBinError = setRamField('recycleBinError');
 
   // Group Policy Inspection & GPUpdate state
   const gpoData = ram.gpoData;
@@ -965,6 +971,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setLogonsSearch('');
     setLogonsEventFilter('all');
     setConfirmTempClean(false);
+    setConfirmEmptyRecycleBin(false);
     setHotfixSearch('');
     setShowRawSysInfo(false);
     setConfirmInstallAllUpdates(false);
@@ -1052,8 +1059,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       setHealthData(res.data);
       if (res.rateLimit) setRateLimit(res.rateLimit);
       setLoadingHealth(false);
-      // Automatically fetch user's mapped shared folders for Tab 1 in sequence after live gauges populate
-      await handleInspectShares(payload);
       return true;
     } catch (err: any) {
       setHealthData(null);
@@ -1841,6 +1846,36 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       );
     } finally {
       setCleaningTemp(false);
+    }
+  };
+
+  const handleEmptyRecycleBin = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setCleaningRecycleBin(true);
+    setRecycleBinError(null);
+    setRecycleBinCleanResult(null);
+    setConfirmEmptyRecycleBin(false);
+    try {
+      const res = await cleanHelpdeskTemp({ ...payload, scope: 'recycle_bin' });
+      setRecycleBinCleanResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const rescanned = await scanHelpdeskTemp(payload);
+        setTempScanData(rescanned.data);
+      } catch {}
+      if (healthData) {
+        try {
+          const refreshed = await fetchHelpdeskEndpointHealth({ ...payload, skipHistory: true });
+          setHealthData(refreshed.data);
+        } catch {}
+      }
+    } catch (err: any) {
+      setRecycleBinError(
+        err?.message || (isEn ? 'Failed to empty Recycle Bin.' : 'خالی کردن سطل زباله (Recycle Bin) ناموفق بود.')
+      );
+    } finally {
+      setCleaningRecycleBin(false);
     }
   };
 
@@ -3123,7 +3158,11 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
     if (!prefetchProgress?.active && targetIp.trim() && username.trim() && password) {
       if (tab === 'health' && !healthData && !loadingHealth) handleInspectHealth();
-      else if (tab === 'hardware' && !hardwareData && !loadingHardware) handleInspectHardware();
+      else if (tab === 'disks_shares') {
+        if (!healthData && !loadingHealth) handleInspectHealth();
+        if (!sharesData && !loadingShares) handleInspectShares();
+        if (!tempScanData && !loadingTempScan) handleScanTemp();
+      } else if (tab === 'hardware' && !hardwareData && !loadingHardware) handleInspectHardware();
       else if (tab === 'network' && !networkData && !loadingNetwork) handleInspectNetwork();
       else if (tab === 'services_startup') {
         if (!servicesStartupData && !loadingServicesStartup) handleInspectServicesStartup();
@@ -3134,7 +3173,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         if (!sysInfoData && !loadingSysInfo) handleInspectSysInfo();
         if (!updateStatusData && !loadingUpdateStatus) handleInspectUpdateStatus('auto', true);
       } else if (tab === 'maintenance') {
-        if (!tempScanData && !loadingTempScan) handleScanTemp();
         if (!diskHealthData && !loadingDiskHealth) handleInspectDisks();
         if (!gpoData && !loadingGpo) handleInspectGpo();
         if (canInspectDomainUsers && detectedEndpointActiveUser && !domainUserData && !loadingDomainUser) {
@@ -4073,6 +4111,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'سلامت سیستم و کنترل پروسس‌ها',
           },
           {
+            id: 'disks_shares' as HelpdeskSubTab,
+            icon: HardDrive,
+            labelEn: 'Disk, Drives & Shared Folders',
+            labelFa: 'دیسک، درایوها و پوشه‌های اشتراکی',
+          },
+          {
             id: 'diagnostics' as HelpdeskSubTab,
             icon: Stethoscope,
             labelEn: 'Diagnostics',
@@ -4141,8 +4185,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           {
             id: 'maintenance' as HelpdeskSubTab,
             icon: Wrench,
-            labelEn: 'System Repair, Temp, GPO & AD Members',
-            labelFa: 'تعمیر سیستم، Temp، GPO و اعضای AD',
+            labelEn: 'System Repair, GPO & AD Members',
+            labelFa: 'تعمیر سیستم، GPO و اعضای AD',
           },
           {
             id: 'hardware_domain' as HelpdeskSubTab,
@@ -4162,6 +4206,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           const isFetchingThisTab =
             (prefetchProgress?.active && prefetchProgress.currentTab === tab.id) ||
             (tab.id === 'health' && loadingHealth) ||
+            (tab.id === 'disks_shares' && (loadingShares || loadingTempScan || loadingHealth)) ||
             (tab.id === 'diagnostics' && loadingDiagnostics) ||
             (tab.id === 'hardware' && loadingHardware) ||
             (tab.id === 'network' && loadingNetwork) ||
@@ -4173,11 +4218,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'services_startup' && (loadingServicesStartup || loadingMsconfigEnv)) ||
             (tab.id === 'region_fonts' && loadingRegionFonts) ||
             (tab.id === 'security_av' && loadingSecurityAv) ||
-            (tab.id === 'maintenance' && (loadingTempScan || loadingGpo || loadingDomainUser || loadingDiskHealth)) ||
+            (tab.id === 'maintenance' && (loadingGpo || loadingDomainUser || loadingDiskHealth)) ||
             (tab.id === 'hardware_domain' && loadingBattery) ||
             (tab.id === 'history' && loadingHistory);
           const hasTabData =
             (tab.id === 'health' && Boolean(healthData)) ||
+            (tab.id === 'disks_shares' && Boolean((healthData?.disks?.length || 0) > 0 || sharesData || tempScanData)) ||
             (tab.id === 'diagnostics' && Boolean(diagnosticsData)) ||
             (tab.id === 'hardware' && Boolean(hardwareData)) ||
             (tab.id === 'network' && Boolean(networkData)) ||
@@ -4189,7 +4235,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'services_startup' && Boolean(servicesStartupData || msconfigEnvData)) ||
             (tab.id === 'region_fonts' && Boolean(regionFontsData)) ||
             (tab.id === 'security_av' && Boolean(securityAvData)) ||
-            (tab.id === 'maintenance' && Boolean(tempScanData || gpoData || domainUserData || diskHealthData)) ||
+            (tab.id === 'maintenance' && Boolean(gpoData || domainUserData || diskHealthData)) ||
             (tab.id === 'hardware_domain' && Boolean(batteryData)) ||
             (tab.id === 'history' && Boolean(historyStats?.totalConnections));
           const hasSecurityDisableAlert =
@@ -4206,7 +4252,11 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   return;
                 }
                 if (!prefetchProgress?.active && targetIp.trim() && username.trim() && password) {
-                  if (tab.id === 'hardware' && !hardwareData && !loadingHardware) handleInspectHardware();
+                  if (tab.id === 'disks_shares') {
+                    if (!healthData && !loadingHealth) handleInspectHealth();
+                    if (!sharesData && !loadingShares) handleInspectShares();
+                    if (!tempScanData && !loadingTempScan) handleScanTemp();
+                  } else if (tab.id === 'hardware' && !hardwareData && !loadingHardware) handleInspectHardware();
                   else if (tab.id === 'network' && !networkData && !loadingNetwork) handleInspectNetwork();
                   else if (tab.id === 'printers' && !printerData && !loadingPrinters) handleInspectPrinters();
                   else if (tab.id === 'events' && canViewEventViewer && !eventData && !loadingEvents) handleInspectEvents();
@@ -4224,7 +4274,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   } else if (tab.id === 'security_av' && !securityAvData && !loadingSecurityAv) {
                     handleInspectSecurityAv();
                   } else if (tab.id === 'maintenance') {
-                    if (!tempScanData && !loadingTempScan) handleScanTemp();
                     if (!gpoData && !loadingGpo) handleInspectGpo();
                     if (canInspectDomainUsers && detectedEndpointActiveUser && !domainUserData && !loadingDomainUser) {
                       handleInspectDomainUser(undefined, detectedEndpointActiveUser);
@@ -4543,45 +4592,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   />
                 </div>
 
-                {/* Security Posture & Mounted Disks Split */}
-                <div className={`pt-4 border-t grid grid-cols-1 lg:grid-cols-2 gap-6 ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
-                  {/* Mounted Volumes Progress Bars */}
-                  <div className="space-y-3">
-                    <div className={`text-xs font-bold flex items-center gap-2 ${textPrimary}`}>
-                      <HardDrive className="w-4 h-4 text-sky-500" />
-                      <span>{isEn ? 'Storage Volumes Health' : 'وضعیت فضای درایوهای دیسک'}</span>
-                    </div>
-                    <div className="space-y-2.5">
-                      {(healthData.disks || []).map((d: any) => {
-                        const pct = Math.max(0, Math.min(100, Number(d.usedPercent) || 0));
-                        const barClr =
-                          pct >= 90 ? 'bg-rose-500' : pct >= 75 ? 'bg-amber-500' : 'bg-sky-500';
-                        return (
-                          <div key={d.drive} className="space-y-1">
-                            <div className="flex items-center justify-between text-xs font-mono tabular-nums">
-                              <span className={`font-semibold ${textPrimary}`}>
-                                {d.drive} {d.label ? `(${d.label})` : ''}
-                              </span>
-                              <span className={textMuted}>
-                                {d.usedGb} / {d.totalGb} GB · {isEn ? 'Free' : 'خالی'} {d.freeGb} GB ({pct}%)
-                              </span>
-                            </div>
-                            <div className={`h-2 w-full rounded-full overflow-hidden ${isLightMode ? 'bg-slate-200' : 'bg-slate-800'}`}>
-                              <div className={`h-full rounded-full transition-all ${barClr}`} style={{ width: `${pct}%` }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Endpoint Security Posture */}
+                {/* Endpoint Security Posture */}
+                <div className={`pt-4 border-t ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
                   <div className="space-y-3">
                     <div className={`text-xs font-bold flex items-center gap-2 ${textPrimary}`}>
                       <ShieldCheck className="w-4 h-4 text-emerald-500" />
                       <span>{isEn ? 'Antivirus & Firewall Posture' : 'وضعیت آنتی‌ویروس و فایروال سیستم'}</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                       <div className={`p-3 rounded-lg border ${subSurfaceBg}`}>
                         <div className={textMuted}>{healthData.security?.antivirusName || 'Antivirus'}</div>
                         <div className={`mt-1 font-bold flex items-center gap-1.5 ${
@@ -5549,9 +5567,167 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </div>
             </>
           )}
+        </div>
+      )}
 
-          {/* SHARED FOLDERS & MAPPED NETWORK DRIVES (User Profile + All-Users Control) */}
-          <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+      {/* =================================================================== */}
+      {/* TAB 1B: DISK, DRIVES, SHARED FOLDERS, TEMP & RECYCLE BIN            */}
+      {/* =================================================================== */}
+      {activeSubTab === 'disks_shares' && (
+        <div className="space-y-6">
+          {/* SECTION 1: STORAGE VOLUMES HEALTH */}
+          <div
+            id="hd-section-health-storage"
+            className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-4 transition ${surfaceBg} ${
+              highlightedSectionId === 'hd-section-health-storage'
+                ? 'ring-2 ring-sky-500 ring-offset-2'
+                : ''
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <HardDrive className="w-4 h-4 text-sky-500" />
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn ? 'Storage Volumes Health' : 'وضعیت فضای درایوهای دیسک'}
+                  </h2>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Storage Volumes Health' : 'وضعیت فضای درایوهای دیسک'}
+                    whatIsIt={
+                      isEn
+                        ? 'Displays live capacity, file system, used GB, free GB, and utilization percentage for every mounted fixed logical drive on the workstation.'
+                        : 'ظرفیت کل، فرمت فایل‌سیستم، فضای مصرف‌شده، فضای آزاد و درصد اشغال هر درایو دیسک متصل روی سیستم کاربر را به‌صورت زنده نمایش می‌دهد.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Low free space (<10% free) causes Outlook PST/OST errors, failed Windows updates, profile corruption, and application crashes.'
+                        : 'پر شدن درایوها (به‌خصوص کمتر از ۱۰٪ فضای آزاد) باعث کندی شدید، خطای Outlook، شکست آپدیت‌ها و هنگ کردن سیستم می‌شود.'
+                    }
+                    example={
+                      isEn
+                        ? 'C: (Windows) · NTFS · 142.5 / 237.9 GB · Free 95.4 GB (60%)'
+                        : 'درایو C: · فرمت NTFS · مصرف ۱۴۲.۵ از ۲۳۷.۹ گیگابایت · ۹۵.۴ گیگابایت آزاد'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Live fixed logical volume utilization, free capacity thresholds, and filesystem breakdown.'
+                    : 'پایش زنده ظرفیت اشغال‌شده و فضای خالی تمامی درایوهای فیزیکی و پارتیشن‌های سیستم کاربر.'}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleInspectHealth(undefined, undefined, true)}
+                disabled={!canRunDiagnostics || loadingHealth}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+              >
+                {loadingHealth ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                <span>{isEn ? 'Refresh Volumes' : 'بروزرسانی وضعیت درایوها'}</span>
+              </button>
+            </div>
+
+            {healthError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{healthError}</span>
+              </div>
+            )}
+
+            {healthData ? (
+              Array.isArray(healthData.disks) && healthData.disks.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {healthData.disks.map((d: any) => {
+                    const pct = Math.max(0, Math.min(100, Number(d.usedPercent) || 0));
+                    const barClr =
+                      pct >= 90 ? 'bg-rose-500' : pct >= 75 ? 'bg-amber-500' : 'bg-sky-500';
+                    const badgeCls =
+                      pct >= 90
+                        ? 'bg-rose-500/15 text-rose-500 border-rose-500/30'
+                        : pct >= 75
+                        ? 'bg-amber-500/15 text-amber-500 border-amber-500/30'
+                        : 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30';
+                    return (
+                      <div key={d.drive} className={`p-3.5 rounded-xl border space-y-2.5 ${subSurfaceBg}`}>
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded font-mono font-bold border ${
+                                isLightMode
+                                  ? 'bg-white border-slate-200 text-slate-900'
+                                  : 'bg-slate-900 border-slate-700 text-slate-100'
+                              }`}
+                            >
+                              <HardDrive className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                              <span dir="ltr">{d.drive}</span>
+                            </span>
+                            <span className={`font-semibold truncate ${textPrimary}`}>
+                              {d.label || (isEn ? 'Local Disk' : 'درایو محلی')}
+                            </span>
+                            {d.fileSystem && (
+                              <span
+                                className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                                  isLightMode ? 'bg-slate-200/70 text-slate-700' : 'bg-slate-800 text-slate-300'
+                                }`}
+                              >
+                                {d.fileSystem}
+                              </span>
+                            )}
+                          </div>
+                          <span className={`px-2 py-0.5 rounded border text-[11px] font-mono font-bold tabular-nums ${badgeCls}`}>
+                            {pct}% {isEn ? 'Used' : 'اشغال'}
+                          </span>
+                        </div>
+
+                        <div className={`h-2.5 w-full rounded-full overflow-hidden ${isLightMode ? 'bg-slate-200' : 'bg-slate-800'}`}>
+                          <div className={`h-full rounded-full transition-all ${barClr}`} style={{ width: `${pct}%` }} />
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums">
+                          <span className={textMuted}>
+                            {isEn ? 'Used' : 'مصرف‌شده'}: <strong className={textPrimary}>{d.usedGb} GB</strong> / {d.totalGb} GB
+                          </span>
+                          <span className={pct >= 90 ? 'text-rose-500 font-bold' : 'text-emerald-500 font-semibold'}>
+                            {isEn ? 'Free' : 'فضای آزاد'}: {d.freeGb} GB
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className={`p-4 rounded-xl border text-center text-xs ${subSurfaceBg} ${textMuted}`}>
+                  {isEn ? 'No fixed storage volumes reported by endpoint.' : 'هیچ درایو دیسکی از سیستم گزارش نشد.'}
+                </div>
+              )
+            ) : (
+              !loadingHealth && (
+                <div className={`p-5 rounded-xl border text-center text-xs space-y-1.5 ${subSurfaceBg}`}>
+                  <div className={`font-semibold ${textPrimary}`}>
+                    {isEn ? 'Storage Volumes Telemetry Not Loaded Yet' : 'اطلاعات درایوهای دیسک هنوز بارگذاری نشده است'}
+                  </div>
+                  <p className={textMuted}>
+                    {isEn
+                      ? 'Click "Connect & Inspect" above or "Refresh Volumes" to read live disk capacity.'
+                      : 'برای دریافت وضعیت ظرفیت درایوها، دکمه «اتصال و پایش» یا «بروزرسانی وضعیت درایوها» را بزنید.'}
+                  </p>
+                </div>
+              )
+            )}
+          </div>
+
+          {/* SECTION 2: SHARED FOLDERS & MAPPED NETWORK DRIVES */}
+          <div
+            id="hd-section-mapped-shares"
+            className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-4 transition ${surfaceBg} ${
+              highlightedSectionId === 'hd-section-mapped-shares'
+                ? 'ring-2 ring-sky-500 ring-offset-2'
+                : ''
+            }`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -5818,6 +5994,410 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     : 'با زدن «اتصال و پایش» در بالای صفحه یا دکمه «دریافت / بروزرسانی شیرفولدرها»، پوشه‌های اشتراکی این کاربر و لیست پروفایل‌های این سیستم نمایش داده می‌شود.'}
                 </p>
               </div>
+            )}
+          </div>
+
+          {/* SECTION 3: SAFE CONFINED TEMP FOLDER CLEANUP & RECYCLE BIN */}
+          <div
+            id="hd-section-temp-cleanup"
+            className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-5 transition ${surfaceBg} ${
+              highlightedSectionId === 'hd-section-temp-cleanup' || highlightedSectionId === 'hd-section-recycle-bin'
+                ? 'ring-2 ring-sky-500 ring-offset-2'
+                : ''
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-sky-500" />
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn ? 'Safe Confined Temp Folder Cleanup & Recycle Bin' : 'اسکن و پاک‌سازی ایمن پوشه‌های Temp و سطل زباله (Recycle Bin)'}
+                  </h2>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Confined Temp & Recycle Bin Cleanup' : 'پاک‌سازی محدود Temp و سطل زباله'}
+                    whatIsIt={
+                      isEn
+                        ? 'Scans reclaimable junk inside hardcoded Windows\\Temp and active user AppData\\Local\\Temp paths, plus measures live Recycle Bin usage across all fixed drives with a dedicated Empty Recycle Bin action.'
+                        : 'فایل‌های موقت انباشته‌شده در مسیرهای ثابت Windows\\Temp و AppData\\Local\\Temp کاربر را اسکن و پاک‌سازی کرده و هم‌زمان حجم و تعداد آیتم‌های داخل سطل زباله (Recycle Bin) را در تمامی درایوها نمایش داده و امکان تخلیه آن را فراهم می‌کند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Reclaims Drive C space and resolves frozen app cache issues without exposing arbitrary file-deletion risk.'
+                        : 'فضای درایوهای ویندوز (به‌ویژه درایو C) را فوراً آزاد کرده و مشکلات کش برنامه‌ها را برطرف می‌کند، بدون اینکه امکان حذف مسیر دلخواه یا فایل‌های حیاتی کاربر وجود داشته باشد.'
+                    }
+                    example={
+                      isEn
+                        ? 'Hardcoded paths only · Temp cleanup skips locked files · Recycle Bin emptied across fixed drives'
+                        : 'مسیرها کاملاً ثابت در سرور هستند · فایل‌های در حال استفاده رد می‌شوند · سطل زباله همه درایوهای ثابت خالی می‌شود'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {isEn
+                    ? 'Hard-confined strictly to Windows\\Temp, active user AppData\\Local\\Temp, and system Recycle Bin. In-use files are safely skipped.'
+                    : 'دسترسی حذف کاملاً قفل‌شده فقط روی پوشه‌های Temp ویندوز، کاربر فعال و سطل زباله (Recycle Bin). فایل‌های در حال استفاده به‌صورت ایمن رد می‌شوند.'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleScanTemp}
+                  disabled={!canRunDiagnostics || loadingTempScan}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                >
+                  {loadingTempScan ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                  <span>{isEn ? 'Scan Temp & Recycle Bin' : 'اسکن Temp و سطل زباله'}</span>
+                </button>
+
+                <select
+                  value={tempScope}
+                  onChange={(e) => setTempScope(e.target.value as any)}
+                  className={`px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+                >
+                  <option value="both">{isEn ? 'Both Temp Folders' : 'هر دو پوشه Temp'}</option>
+                  <option value="user_temp">{isEn ? 'User Temp Only' : 'فقط Temp کاربر فعال'}</option>
+                  <option value="windows_temp">{isEn ? 'Windows Temp Only' : 'فقط Windows\\Temp'}</option>
+                </select>
+
+                {!confirmTempClean ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmTempClean(true)}
+                    disabled={!canCleanTemp || cleaningTemp}
+                    title={
+                      !canCleanTemp
+                        ? isEn
+                          ? 'Requires canCleanHelpdeskTemp permission'
+                          : 'نیازمند مجوز canCleanHelpdeskTemp در Access Policy'
+                        : undefined
+                    }
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {cleaningTemp ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : !canCleanTemp ? (
+                      <Lock className="w-3.5 h-3.5" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isEn ? 'Clean Temp Safely' : 'پاک‌سازی ایمن Temp'}</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleCleanTemp}
+                      disabled={cleaningTemp}
+                      className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition cursor-pointer"
+                    >
+                      {isEn ? 'Confirm Clean' : 'تأیید پاک‌سازی'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmTempClean(false)}
+                      className={`px-2.5 py-2 rounded-lg border text-xs font-medium cursor-pointer ${
+                        isLightMode ? 'border-slate-300 text-slate-700' : 'border-slate-700 text-slate-300'
+                      }`}
+                    >
+                      {isEn ? 'Cancel' : 'انصراف'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {tempError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{tempError}</span>
+              </div>
+            )}
+
+            {recycleBinError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{recycleBinError}</span>
+              </div>
+            )}
+
+            {tempCleanResult && (
+              <div className="p-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-xs space-y-1">
+                <div className="font-bold text-emerald-500 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isEn ? tempCleanResult.message : tempCleanResult.messageFa}</span>
+                </div>
+                <div className={`font-mono tabular-nums ${textMuted}`}>
+                  {isEn
+                    ? `Deleted: ${tempCleanResult.deletedFiles} files · Freed: ${tempCleanResult.freedMb} MB · Locked & Skipped: ${tempCleanResult.skippedLockedFiles} files`
+                    : `حذف‌شده: ${tempCleanResult.deletedFiles} فایل · آزادسازی: ${tempCleanResult.freedMb} MB · فایل‌های باز ردشده: ${tempCleanResult.skippedLockedFiles}`}
+                </div>
+              </div>
+            )}
+
+            {recycleBinCleanResult && (
+              <div className="p-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-xs space-y-1">
+                <div className="font-bold text-emerald-500 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isEn ? recycleBinCleanResult.message : recycleBinCleanResult.messageFa}</span>
+                </div>
+                <div className={`font-mono tabular-nums ${textMuted}`}>
+                  {isEn
+                    ? `Removed Items: ${recycleBinCleanResult.deletedFiles} · Freed Space: ${recycleBinCleanResult.freedMb} MB${
+                        recycleBinCleanResult.skippedLockedFiles > 0
+                          ? ` · Remaining Locked: ${recycleBinCleanResult.skippedLockedFiles}`
+                          : ''
+                      }`
+                    : `موارد حذف‌شده: ${recycleBinCleanResult.deletedFiles} · فضای آزادشده: ${recycleBinCleanResult.freedMb} MB${
+                        recycleBinCleanResult.skippedLockedFiles > 0
+                          ? ` · موارد قفل‌شده باقی‌مانده: ${recycleBinCleanResult.skippedLockedFiles}`
+                          : ''
+                      }`}
+                </div>
+              </div>
+            )}
+
+            {tempScanData ? (
+              <div className="space-y-4">
+                {/* Temp Folders + Dedicated Recycle Bin Summary Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 text-xs">
+                  <div className={`p-4 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Total Reclaimable Temp' : 'حجم کل پوشه‌های Temp'}</div>
+                    <div className={`mt-1 text-2xl font-bold font-mono tabular-nums ${textPrimary}`}>
+                      {Number(tempScanData.totalReclaimableMb || 0) >= 1024
+                        ? `${(Number(tempScanData.totalReclaimableMb) / 1024).toFixed(2)} GB`
+                        : `${tempScanData.totalReclaimableMb} MB`}
+                    </div>
+                    <div className={`mt-1 font-mono tabular-nums ${textMuted}`}>
+                      {tempScanData.totalFileCount} {isEn ? 'temp files' : 'فایل موقت'} · {tempScanData.hostname}
+                    </div>
+                  </div>
+
+                  {(tempScanData.folders || []).map((f: any) => {
+                    const share =
+                      tempScanData.totalReclaimableMb > 0
+                        ? Math.min(100, (f.sizeMb / tempScanData.totalReclaimableMb) * 100)
+                        : 0;
+                    return (
+                      <div key={f.key} className={`p-4 rounded-xl border space-y-2 ${subSurfaceBg}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`font-bold ${textPrimary}`}>{isEn ? f.labelEn : f.labelFa}</span>
+                          <span className="font-mono font-bold tabular-nums text-sky-500">
+                            {Number(f.sizeMb || 0) >= 1024
+                              ? `${(Number(f.sizeMb) / 1024).toFixed(2)} GB`
+                              : `${f.sizeMb} MB`}
+                          </span>
+                        </div>
+                        <div className={`h-1.5 rounded-full overflow-hidden ${isLightMode ? 'bg-slate-200' : 'bg-slate-800'}`}>
+                          <div className="h-full rounded-full bg-sky-500" style={{ width: `${Math.max(f.sizeMb > 0 ? 4 : 0, share)}%` }} />
+                        </div>
+                        <div className={`text-[11px] font-mono truncate ${textMuted}`} dir="ltr" title={f.path}>
+                          {f.path || '-'}
+                        </div>
+                        <div className={`text-[11px] font-mono tabular-nums ${textMuted}`}>
+                          {f.fileCount} {isEn ? 'files' : 'فایل'} · {f.folderCount} {isEn ? 'folders' : 'پوشه'}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Dedicated Live Recycle Bin Card */}
+                  {(() => {
+                    const rb = tempScanData.recycleBin || { sizeMb: 0, sizeBytes: 0, itemCount: 0, perDrive: [] };
+                    const rbSizeMb = Number(rb.sizeMb) || 0;
+                    const rbSizeBytes = Number(rb.sizeBytes) || 0;
+                    const rbCount = Number(rb.itemCount) || 0;
+                    const hasItems = rbSizeBytes > 0 || rbCount > 0;
+                    const formattedRbSize =
+                      rbSizeMb >= 1024
+                        ? `${(rbSizeMb / 1024).toFixed(2)} GB`
+                        : rbSizeMb > 0
+                        ? `${rbSizeMb} MB`
+                        : rbSizeBytes > 0
+                        ? `${Math.max(1, Math.round(rbSizeBytes / 1024))} KB`
+                        : '0 MB';
+
+                    return (
+                      <div
+                        id="hd-section-recycle-bin"
+                        className={`p-4 rounded-xl border space-y-2.5 transition ${
+                          hasItems
+                            ? isLightMode
+                              ? 'bg-rose-50/60 border-rose-200'
+                              : 'bg-rose-950/20 border-rose-500/30'
+                            : subSurfaceBg
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Trash2 className={`w-4 h-4 shrink-0 ${hasItems ? 'text-rose-500' : 'text-slate-400'}`} />
+                            <span className={`font-bold truncate ${textPrimary}`}>
+                              {isEn ? 'Recycle Bin' : 'سطل زباله (Recycle Bin)'}
+                            </span>
+                            <FieldInfoTooltip
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                              fieldName={isEn ? 'Endpoint Recycle Bin' : 'سطل زباله سیستم کاربر'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Measures total deleted file volume and item count stored inside $Recycle.Bin across all fixed drives (or user Trash on Linux).'
+                                  : 'حجم واقعی فایل‌ها و تعداد موارد موجود در پوشه‌های $Recycle.Bin تمامی درایوهای سیستم (یا سطل زباله لینوکس) را نمایش می‌دهد.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Users often delete gigabytes of files without emptying the Recycle Bin, leaving OS drives full.'
+                                  : 'کاربران اغلب فایل‌های حجیم را حذف می‌کنند ولی سطل زباله را خالی نمی‌کنند و فضای دیسک همچنان اشغال باقی می‌ماند.'
+                              }
+                              example={
+                                isEn
+                                  ? 'C: 840 MB (23 items) → Empty Recycle Bin'
+                                  : 'درایو C: ۸۴۰ مگابایت (۲۳ مورد) ← تخلیه سطل زباله'
+                              }
+                            />
+                          </div>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              hasItems
+                                ? 'bg-rose-500/15 text-rose-500 border-rose-500/30'
+                                : 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30'
+                            }`}
+                          >
+                            {hasItems ? (isEn ? 'Not Empty' : 'دارای فایل') : isEn ? 'Empty' : 'خالی'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className={`text-xl font-bold font-mono tabular-nums ${hasItems ? 'text-rose-500' : textPrimary}`}>
+                            {formattedRbSize}
+                          </span>
+                          <span className={`text-[11px] font-mono tabular-nums ${textMuted}`}>
+                            {rbCount} {isEn ? 'item(s)' : 'مورد'}
+                          </span>
+                        </div>
+
+                        {Array.isArray(rb.perDrive) && rb.perDrive.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {rb.perDrive.map((drv: any) => (
+                              <span
+                                key={drv.drive}
+                                dir="ltr"
+                                className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                                  isLightMode
+                                    ? 'bg-white border-slate-200 text-slate-700'
+                                    : 'bg-slate-900 border-slate-700 text-slate-300'
+                                }`}
+                              >
+                                {drv.drive}: {drv.sizeMb} MB ({drv.itemCount})
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="pt-1">
+                          {!confirmEmptyRecycleBin ? (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmEmptyRecycleBin(true)}
+                              disabled={!canCleanTemp || cleaningRecycleBin}
+                              title={
+                                !canCleanTemp
+                                  ? isEn
+                                    ? 'Requires canCleanHelpdeskTemp permission'
+                                    : 'نیازمند مجوز canCleanHelpdeskTemp در Access Policy'
+                                  : undefined
+                              }
+                              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                            >
+                              {cleaningRecycleBin ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : !canCleanTemp ? (
+                                <Lock className="w-3.5 h-3.5" />
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
+                              <span>{isEn ? 'Empty Recycle Bin' : 'خالی کردن سطل زباله'}</span>
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={handleEmptyRecycleBin}
+                                disabled={cleaningRecycleBin}
+                                className="flex-1 px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer"
+                              >
+                                {isEn ? 'Confirm Empty' : 'تأیید تخلیه'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmEmptyRecycleBin(false)}
+                                className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer ${
+                                  isLightMode ? 'border-slate-300 text-slate-700' : 'border-slate-700 text-slate-300'
+                                }`}
+                              >
+                                {isEn ? 'Cancel' : 'انصراف'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Largest Temp Files Preview */}
+                {Array.isArray(tempScanData.largestFiles) && tempScanData.largestFiles.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className={`border-b text-start ${isLightMode ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>
+                          <th className="py-2 px-2.5 text-start">{isEn ? 'Largest Temp File' : 'حجیم‌ترین فایل‌های Temp'}</th>
+                          <th className="py-2 px-2.5 text-start">{isEn ? 'Location' : 'مسیر'}</th>
+                          <th className="py-2 px-2.5 text-end">{isEn ? 'Size' : 'حجم'}</th>
+                          <th className="py-2 px-2.5 text-end">{isEn ? 'Modified' : 'آخرین تغییر'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
+                        {tempScanData.largestFiles.map((lf: any, idx: number) => (
+                          <tr key={`${lf.name}-${idx}`}>
+                            <td className={`py-2 px-2.5 font-mono ${textPrimary}`}>{lf.name}</td>
+                            <td className={`py-2 px-2.5 ${textMuted}`}>
+                              {lf.folderKey === 'windows_temp'
+                                ? isEn
+                                  ? 'Windows Temp'
+                                  : 'Temp ویندوز'
+                                : isEn
+                                ? 'User Temp'
+                                : 'Temp کاربر'}
+                            </td>
+                            <td className={`py-2 px-2.5 text-end font-mono tabular-nums font-semibold ${textPrimary}`}>
+                              {lf.sizeMb} MB
+                            </td>
+                            <td className={`py-2 px-2.5 text-end font-mono tabular-nums ${textMuted}`}>
+                              {lf.lastModified || '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : (
+              !loadingTempScan &&
+              !tempError && (
+                <div className={`p-5 rounded-xl border text-center text-xs space-y-1.5 ${subSurfaceBg}`}>
+                  <div className={`font-semibold ${textPrimary}`}>
+                    {isEn ? 'Temp Folders & Recycle Bin Usage Not Scanned Yet' : 'اسکن Temp و سطل زباله هنوز انجام نشده است'}
+                  </div>
+                  <p className={textMuted}>
+                    {isEn
+                      ? 'Click "Scan Temp & Recycle Bin" above to inspect reclaimable space and Recycle Bin items on this endpoint.'
+                      : 'برای مشاهده حجم پوشه‌های Temp و سطل زباله (Recycle Bin)، روی دکمه «اسکن Temp و سطل زباله» در بالا کلیک کنید.'}
+                  </p>
+                </div>
+              )
             )}
           </div>
         </div>
@@ -9540,223 +10120,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       )}
 
       {/* =================================================================== */}
-      {/* TAB 5: CONFINED TEMP CLEANUP (ITEM 6) & GPUPDATE /FORCE (ITEM 7)    */}
+      {/* TAB 5: SYSTEM REPAIR (SFC/DISM), GPUPDATE /FORCE & AD MEMBERS       */}
       {/* =================================================================== */}
       {activeSubTab === 'maintenance' && (
         <div className="space-y-6">
-          {/* MODULE 6: SAFE CONFINED TEMP FOLDER CLEANUP */}
-          <div
-            id="hd-section-temp-cleanup"
-            className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-5 transition ${surfaceBg} ${
-              highlightedSectionId === 'hd-section-temp-cleanup'
-                ? 'ring-2 ring-sky-500 ring-offset-2'
-                : ''
-            }`}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <FolderOpen className="w-4 h-4 text-sky-500" />
-                  <h2 className={`text-sm font-bold ${textPrimary}`}>
-                    {isEn ? 'Safe Confined Temp Folder Cleanup' : 'اسکن و پاک‌سازی ایمن پوشه‌های Temp سیستم کاربر'}
-                  </h2>
-                  <FieldInfoTooltip
-                    isEn={isEn}
-                    isLightMode={isLightMode}
-                    fieldName={isEn ? 'Confined Temp Folder Cleanup' : 'پاک‌سازی محدود پوشه Temp'}
-                    whatIsIt={
-                      isEn
-                        ? 'Scans and removes temporary junk files strictly inside hardcoded Windows\\Temp and active user AppData\\Local\\Temp directories.'
-                        : 'فایل‌های موقت انباشته‌شده را صرفاً داخل دو مسیر ثابت Windows\\Temp و AppData\\Local\\Temp کاربر فعال اسکن و پاک‌سازی می‌کند.'
-                    }
-                    whyNeeded={
-                      isEn
-                        ? 'Reclaims Drive C space and resolves frozen app cache issues without exposing arbitrary file-deletion risk.'
-                        : 'فضای درایو C را آزاد کرده و مشکلات کش برنامه‌ها را حل می‌کند بدون اینکه امکان حذف مسیر دلخواه یا فایل‌های کاربر وجود داشته باشد.'
-                    }
-                    example={
-                      isEn
-                        ? 'Hardcoded paths only · In-use locked files are safely skipped · Zero custom path input'
-                        : 'مسیرها کاملاً ثابت در سرور هستند · فایل‌های در حال استفاده ایمن رد می‌شوند · بدون ورودی مسیر دلخواه'
-                    }
-                  />
-                </div>
-                <p className={`text-xs mt-0.5 ${textMuted}`}>
-                  {isEn
-                    ? 'Hard-confined strictly to Windows\\Temp and active user AppData\\Local\\Temp. In-use files are automatically skipped.'
-                    : 'دسترسی حذف کاملاً قفل‌شده فقط روی پوشه‌های Temp ویندوز و کاربر فعال (هیچ مسیر دیگری قابل حذف نیست و فایل‌های باز رد می‌شوند).'}
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleScanTemp}
-                  disabled={!canRunDiagnostics || loadingTempScan}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
-                >
-                  {loadingTempScan ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                  <span>{isEn ? 'Scan Temp Folders' : 'اسکن پوشه‌های Temp'}</span>
-                </button>
-
-                <select
-                  value={tempScope}
-                  onChange={(e) => setTempScope(e.target.value as any)}
-                  className={`px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
-                >
-                  <option value="both">{isEn ? 'Both Temp Folders' : 'هر دو پوشه Temp'}</option>
-                  <option value="user_temp">{isEn ? 'User Temp Only' : 'فقط Temp کاربر فعال'}</option>
-                  <option value="windows_temp">{isEn ? 'Windows Temp Only' : 'فقط Windows\\Temp'}</option>
-                </select>
-
-                {!confirmTempClean ? (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmTempClean(true)}
-                    disabled={!canCleanTemp || cleaningTemp}
-                    title={
-                      !canCleanTemp
-                        ? isEn
-                          ? 'Requires canCleanHelpdeskTemp permission'
-                          : 'نیازمند مجوز canCleanHelpdeskTemp در Access Policy'
-                        : undefined
-                    }
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
-                  >
-                    {cleaningTemp ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : !canCleanTemp ? (
-                      <Lock className="w-3.5 h-3.5" />
-                    ) : (
-                      <Trash2 className="w-3.5 h-3.5" />
-                    )}
-                    <span>{isEn ? 'Clean Temp Safely' : 'پاک‌سازی ایمن Temp'}</span>
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handleCleanTemp}
-                      disabled={cleaningTemp}
-                      className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition cursor-pointer"
-                    >
-                      {isEn ? 'Confirm Clean' : 'تأیید پاک‌سازی'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmTempClean(false)}
-                      className={`px-2.5 py-2 rounded-lg border text-xs font-medium cursor-pointer ${
-                        isLightMode ? 'border-slate-300 text-slate-700' : 'border-slate-700 text-slate-300'
-                      }`}
-                    >
-                      {isEn ? 'Cancel' : 'انصراف'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {tempError && (
-              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{tempError}</span>
-              </div>
-            )}
-
-            {tempCleanResult && (
-              <div className="p-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-xs space-y-1">
-                <div className="font-bold text-emerald-500 flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{isEn ? tempCleanResult.message : tempCleanResult.messageFa}</span>
-                </div>
-                <div className={`font-mono tabular-nums ${textMuted}`}>
-                  {isEn
-                    ? `Deleted: ${tempCleanResult.deletedFiles} files · Freed: ${tempCleanResult.freedMb} MB · Locked & Skipped: ${tempCleanResult.skippedLockedFiles} files`
-                    : `حذف‌شده: ${tempCleanResult.deletedFiles} فایل · آزادسازی: ${tempCleanResult.freedMb} MB · فایل‌های باز ردشده: ${tempCleanResult.skippedLockedFiles}`}
-                </div>
-              </div>
-            )}
-
-            {tempScanData && (
-              <div className="space-y-4">
-                {/* Temp Folders Breakdown */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                  <div className={`p-4 rounded-xl border ${subSurfaceBg}`}>
-                    <div className={textMuted}>{isEn ? 'Total Reclaimable Temp' : 'حجم کل قابل آزادسازی'}</div>
-                    <div className={`mt-1 text-2xl font-bold font-mono tabular-nums ${textPrimary}`}>
-                      {tempScanData.totalReclaimableMb} MB
-                    </div>
-                    <div className={`mt-1 font-mono tabular-nums ${textMuted}`}>
-                      {tempScanData.totalFileCount} {isEn ? 'temp files' : 'فایل موقت'} · {tempScanData.hostname}
-                    </div>
-                  </div>
-
-                  {(tempScanData.folders || []).map((f: any) => {
-                    const share =
-                      tempScanData.totalReclaimableMb > 0
-                        ? Math.min(100, (f.sizeMb / tempScanData.totalReclaimableMb) * 100)
-                        : 0;
-                    return (
-                      <div key={f.key} className={`p-4 rounded-xl border space-y-2 ${subSurfaceBg}`}>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={`font-bold ${textPrimary}`}>{isEn ? f.labelEn : f.labelFa}</span>
-                          <span className="font-mono font-bold tabular-nums text-sky-500">{f.sizeMb} MB</span>
-                        </div>
-                        <div className={`h-1.5 rounded-full overflow-hidden ${isLightMode ? 'bg-slate-200' : 'bg-slate-800'}`}>
-                          <div className="h-full rounded-full bg-sky-500" style={{ width: `${Math.max(f.sizeMb > 0 ? 4 : 0, share)}%` }} />
-                        </div>
-                        <div className={`text-[11px] font-mono truncate ${textMuted}`} dir="ltr" title={f.path}>
-                          {f.path || '-'}
-                        </div>
-                        <div className={`text-[11px] font-mono tabular-nums ${textMuted}`}>
-                          {f.fileCount} {isEn ? 'files' : 'فایل'} · {f.folderCount} {isEn ? 'folders' : 'پوشه'}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Largest Temp Files Preview */}
-                {Array.isArray(tempScanData.largestFiles) && tempScanData.largestFiles.length > 0 && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs border-collapse">
-                      <thead>
-                        <tr className={`border-b text-start ${isLightMode ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>
-                          <th className="py-2 px-2.5 text-start">{isEn ? 'Largest Temp File' : 'حجیم‌ترین فایل‌های Temp'}</th>
-                          <th className="py-2 px-2.5 text-start">{isEn ? 'Location' : 'مسیر'}</th>
-                          <th className="py-2 px-2.5 text-end">{isEn ? 'Size' : 'حجم'}</th>
-                          <th className="py-2 px-2.5 text-end">{isEn ? 'Modified' : 'آخرین تغییر'}</th>
-                        </tr>
-                      </thead>
-                      <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/70'}`}>
-                        {tempScanData.largestFiles.map((lf: any, idx: number) => (
-                          <tr key={`${lf.name}-${idx}`}>
-                            <td className={`py-2 px-2.5 font-mono ${textPrimary}`}>{lf.name}</td>
-                            <td className={`py-2 px-2.5 ${textMuted}`}>
-                              {lf.folderKey === 'windows_temp'
-                                ? isEn
-                                  ? 'Windows Temp'
-                                  : 'Temp ویندوز'
-                                : isEn
-                                ? 'User Temp'
-                                : 'Temp کاربر'}
-                            </td>
-                            <td className={`py-2 px-2.5 text-end font-mono tabular-nums font-semibold ${textPrimary}`}>
-                              {lf.sizeMb} MB
-                            </td>
-                            <td className={`py-2 px-2.5 text-end font-mono tabular-nums ${textMuted}`}>
-                              {lf.lastModified || '-'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
           {/* MODULE 7: GROUP POLICY INSPECTION & SAFE GPUPDATE /FORCE */}
           <div
             id="hd-section-gpo-policy"

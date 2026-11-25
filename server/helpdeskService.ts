@@ -549,6 +549,20 @@ export interface HelpdeskTempLargeFile {
   lastModified: string;
 }
 
+export interface HelpdeskRecycleBinDriveSummary {
+  drive: string;
+  sizeMb: number;
+  sizeBytes: number;
+  itemCount: number;
+}
+
+export interface HelpdeskRecycleBinSummary {
+  sizeMb: number;
+  sizeBytes: number;
+  itemCount: number;
+  perDrive: HelpdeskRecycleBinDriveSummary[];
+}
+
 export interface HelpdeskTempScanResult {
   targetIp: string;
   protocolUsed: HelpdeskResolvedProtocol;
@@ -560,14 +574,17 @@ export interface HelpdeskTempScanResult {
   totalFileCount: number;
   folders: HelpdeskTempFolderSummary[];
   largestFiles: HelpdeskTempLargeFile[];
+  recycleBin: HelpdeskRecycleBinSummary;
 }
+
+export type HelpdeskTempCleanScope = 'user_temp' | 'windows_temp' | 'both' | 'recycle_bin' | 'all';
 
 export interface HelpdeskTempCleanResult {
   targetIp: string;
   protocolUsed: HelpdeskResolvedProtocol;
   osFamily: 'windows' | 'linux';
   hostname: string;
-  scope: 'user_temp' | 'windows_temp' | 'both';
+  scope: HelpdeskTempCleanScope;
   success: boolean;
   deletedFiles: number;
   skippedLockedFiles: number;
@@ -6392,10 +6409,55 @@ $w = Inspect-TempDir 'windows_temp' $winTemp
 $u = Inspect-TempDir 'user_temp' $userTemp
 $largest = @($w.files + $u.files | Sort-Object sizeMb -Descending | Select-Object -First 12)
 
+$rbTotalBytes = [int64]0
+$rbTotalItems = 0
+$rbPerDrive = @()
+$fixedDrives = @()
+try {
+  $fixedDrives = @(Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty DeviceID)
+} catch {}
+if ($fixedDrives.Count -eq 0) {
+  try {
+    $fixedDrives = @([System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' } | ForEach-Object { $_.Name.TrimEnd('\\') })
+  } catch {}
+}
+foreach ($drv in ($fixedDrives | Where-Object { $_ } | Select-Object -Unique)) {
+  $rbRoot = Join-Path ($drv + '\\') '$Recycle.Bin'
+  if (-not (Test-Path -LiteralPath $rbRoot)) { continue }
+  $dBytes = [int64]0
+  $dItems = 0
+  try {
+    $sidDirs = @(Get-ChildItem -LiteralPath $rbRoot -Directory -Force -ErrorAction SilentlyContinue)
+    foreach ($sd in $sidDirs) {
+      $topEntries = @(Get-ChildItem -LiteralPath $sd.FullName -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '$I*' -and $_.Name -ne 'desktop.ini' })
+      $dItems += $topEntries.Count
+    }
+    $rbFiles = @(Get-ChildItem -LiteralPath $rbRoot -File -Force -Recurse -ErrorAction SilentlyContinue)
+    foreach ($rf in $rbFiles) {
+      if ($rf.Name -like '$I*' -or $rf.Name -eq 'desktop.ini') { continue }
+      $dBytes += [int64]$rf.Length
+    }
+  } catch {}
+  $rbTotalBytes += $dBytes
+  $rbTotalItems += $dItems
+  $rbPerDrive += [PSCustomObject]@{
+    drive = [string]$drv
+    sizeBytes = $dBytes
+    sizeMb = [math]::Round(($dBytes / 1MB), 2)
+    itemCount = [int]$dItems
+  }
+}
+
 [PSCustomObject]@{
   hostname = [string]$env:COMPUTERNAME
   folders = @($u.summary, $w.summary)
   largestFiles = $largest
+  recycleBin = [PSCustomObject]@{
+    sizeBytes = $rbTotalBytes
+    sizeMb = [math]::Round(($rbTotalBytes / 1MB), 2)
+    itemCount = [int]$rbTotalItems
+    perDrive = @($rbPerDrive)
+  }
 } | ConvertTo-Json -Depth 6 -Compress
 `;
 
@@ -6430,10 +6492,36 @@ def inspect(key, path):
     } for sz, fn, mt in files[:8]]
     return {"key": key, "path": path, "exists": True, "fileCount": fc, "folderCount": dc, "sizeMb": round(total / 1048576.0, 2)}, top
 
+def inspect_trash():
+    trash_files = os.path.expanduser("~/.local/share/Trash/files")
+    if not os.path.isdir(trash_files):
+        return {"sizeBytes": 0, "sizeMb": 0.0, "itemCount": 0, "perDrive": []}
+    total_b = 0
+    top_entries = 0
+    try:
+        top_entries = len(os.listdir(trash_files))
+    except Exception:
+        top_entries = 0
+    for root, _, fnames in os.walk(trash_files, followlinks=False):
+        for fn in fnames:
+            fp = os.path.join(root, fn)
+            try:
+                if not os.path.islink(fp):
+                    total_b += os.path.getsize(fp)
+            except Exception:
+                pass
+    mb = round(total_b / 1048576.0, 2)
+    return {
+        "sizeBytes": total_b,
+        "sizeMb": mb,
+        "itemCount": top_entries,
+        "perDrive": [{"drive": "~/.local/share/Trash", "sizeBytes": total_b, "sizeMb": mb, "itemCount": top_entries}]
+    }
+
 u_sum, u_top = inspect("user_temp", os.path.expanduser("~/.cache"))
 w_sum, w_top = inspect("windows_temp", "/tmp")
 largest = sorted(u_top + w_top, key=lambda x: x["sizeMb"], reverse=True)[:12]
-print(json.dumps({"hostname": socket.gethostname(), "folders": [u_sum, w_sum], "largestFiles": largest}))
+print(json.dumps({"hostname": socket.gethostname(), "folders": [u_sum, w_sum], "largestFiles": largest, "recycleBin": inspect_trash()}))
 PY
 `;
 
@@ -6442,6 +6530,7 @@ export async function scanEndpointTempFolders(input: HelpdeskTargetInput): Promi
   const parsed = parseJsonFromStdout<any>(execRes.stdout, 'temp folder scan');
   const rawFolders: any[] = Array.isArray(parsed.folders) ? parsed.folders : [];
   const rawFiles: any[] = Array.isArray(parsed.largestFiles) ? parsed.largestFiles : [];
+  const rawRb = parsed.recycleBin || {};
 
   const folders: HelpdeskTempFolderSummary[] = rawFolders.map((f: any) => {
     const key: 'windows_temp' | 'user_temp' = f.key === 'windows_temp' ? 'windows_temp' : 'user_temp';
@@ -6474,6 +6563,22 @@ export async function scanEndpointTempFolders(input: HelpdeskTargetInput): Promi
   const totalReclaimableMb = Number(folders.reduce((s, f) => s + f.sizeMb, 0).toFixed(2));
   const totalFileCount = folders.reduce((s, f) => s + f.fileCount, 0);
 
+  const recycleBinPerDrive: HelpdeskRecycleBinDriveSummary[] = (
+    Array.isArray(rawRb.perDrive) ? rawRb.perDrive : []
+  ).map((d: any) => ({
+    drive: String(d.drive || '-'),
+    sizeBytes: Number(d.sizeBytes) || 0,
+    sizeMb: Number(d.sizeMb) || 0,
+    itemCount: Number(d.itemCount) || 0,
+  }));
+
+  const recycleBin: HelpdeskRecycleBinSummary = {
+    sizeBytes: Number(rawRb.sizeBytes) || 0,
+    sizeMb: Number(rawRb.sizeMb) || 0,
+    itemCount: Number(rawRb.itemCount) || 0,
+    perDrive: recycleBinPerDrive,
+  };
+
   return {
     targetIp: execRes.host,
     protocolUsed: execRes.protocolUsed,
@@ -6490,15 +6595,21 @@ export async function scanEndpointTempFolders(input: HelpdeskTargetInput): Promi
       sizeMb: Number(lf.sizeMb) || 0,
       lastModified: String(lf.lastModified || ''),
     })),
+    recycleBin,
   };
 }
 
 export async function cleanEndpointTempFolders(
   input: HelpdeskTargetInput,
-  scope: 'user_temp' | 'windows_temp' | 'both'
+  scope: HelpdeskTempCleanScope
 ): Promise<HelpdeskTempCleanResult> {
-  const safeScope: 'user_temp' | 'windows_temp' | 'both' =
-    scope === 'user_temp' || scope === 'windows_temp' ? scope : 'both';
+  const safeScope: HelpdeskTempCleanScope =
+    scope === 'user_temp' ||
+    scope === 'windows_temp' ||
+    scope === 'recycle_bin' ||
+    scope === 'all'
+      ? scope
+      : 'both';
 
   // Hardcoded paths ONLY — client can NEVER specify arbitrary paths!
   const psClean = `
@@ -6516,14 +6627,14 @@ try {
   }
 } catch {}
 
-if (($scope -eq 'user_temp' -or $scope -eq 'both') -and $userTemp -and (Test-Path $userTemp)) { $targets += $userTemp }
-if (($scope -eq 'windows_temp' -or $scope -eq 'both') -and $winTemp -and (Test-Path $winTemp)) { $targets += $winTemp }
+if (($scope -eq 'user_temp' -or $scope -eq 'both' -or $scope -eq 'all') -and $userTemp -and (Test-Path $userTemp)) { $targets += $userTemp }
+if (($scope -eq 'windows_temp' -or $scope -eq 'both' -or $scope -eq 'all') -and $winTemp -and (Test-Path $winTemp)) { $targets += $winTemp }
 
-$deleted = 0; $skipped = 0; $freedBytes = 0; $remBytes = 0
+$deleted = 0; $skipped = 0; $freedBytes = [int64]0; $remBytes = [int64]0
 foreach ($dir in ($targets | Select-Object -Unique)) {
   $items = @(Get-ChildItem -Path $dir -Recurse -File -Force -ErrorAction SilentlyContinue)
   foreach ($f in $items) {
-    $sz = $f.Length
+    $sz = [int64]$f.Length
     try {
       Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop
       $deleted++
@@ -6545,6 +6656,73 @@ foreach ($dir in ($targets | Select-Object -Unique)) {
     }
 }
 
+if ($scope -eq 'recycle_bin' -or $scope -eq 'all') {
+  $fixedDrives = @()
+  try {
+    $fixedDrives = @(Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty DeviceID)
+  } catch {}
+  if ($fixedDrives.Count -eq 0) {
+    try {
+      $fixedDrives = @([System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' } | ForEach-Object { $_.Name.TrimEnd('\\') })
+    } catch {}
+  }
+
+  $preRbBytes = [int64]0
+  $preRbItems = 0
+  foreach ($drv in ($fixedDrives | Where-Object { $_ } | Select-Object -Unique)) {
+    $rbRoot = Join-Path ($drv + '\\') '$Recycle.Bin'
+    if (-not (Test-Path -LiteralPath $rbRoot)) { continue }
+    $sidDirs = @(Get-ChildItem -LiteralPath $rbRoot -Directory -Force -ErrorAction SilentlyContinue)
+    foreach ($sd in $sidDirs) {
+      $preRbItems += @(Get-ChildItem -LiteralPath $sd.FullName -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '$I*' -and $_.Name -ne 'desktop.ini' }).Count
+    }
+    foreach ($rf in @(Get-ChildItem -LiteralPath $rbRoot -File -Force -Recurse -ErrorAction SilentlyContinue)) {
+      if ($rf.Name -like '$I*' -or $rf.Name -eq 'desktop.ini') { continue }
+      $preRbBytes += [int64]$rf.Length
+    }
+  }
+
+  try {
+    if (Get-Command Clear-RecycleBin -ErrorAction SilentlyContinue) {
+      Clear-RecycleBin -Force -ErrorAction SilentlyContinue | Out-Null
+    }
+  } catch {}
+
+  foreach ($drv in ($fixedDrives | Where-Object { $_ } | Select-Object -Unique)) {
+    $rbRoot = Join-Path ($drv + '\\') '$Recycle.Bin'
+    if (-not (Test-Path -LiteralPath $rbRoot)) { continue }
+    $sidDirs = @(Get-ChildItem -LiteralPath $rbRoot -Directory -Force -ErrorAction SilentlyContinue)
+    foreach ($sd in $sidDirs) {
+      $entries = @(Get-ChildItem -LiteralPath $sd.FullName -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'desktop.ini' })
+      foreach ($ent in $entries) {
+        try {
+          Remove-Item -LiteralPath $ent.FullName -Recurse -Force -ErrorAction Stop
+        } catch {}
+      }
+    }
+  }
+
+  $postRbBytes = [int64]0
+  $postRbItems = 0
+  foreach ($drv in ($fixedDrives | Where-Object { $_ } | Select-Object -Unique)) {
+    $rbRoot = Join-Path ($drv + '\\') '$Recycle.Bin'
+    if (-not (Test-Path -LiteralPath $rbRoot)) { continue }
+    $sidDirs = @(Get-ChildItem -LiteralPath $rbRoot -Directory -Force -ErrorAction SilentlyContinue)
+    foreach ($sd in $sidDirs) {
+      $postRbItems += @(Get-ChildItem -LiteralPath $sd.FullName -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '$I*' -and $_.Name -ne 'desktop.ini' }).Count
+    }
+    foreach ($rf in @(Get-ChildItem -LiteralPath $rbRoot -File -Force -Recurse -ErrorAction SilentlyContinue)) {
+      if ($rf.Name -like '$I*' -or $rf.Name -eq 'desktop.ini') { continue }
+      $postRbBytes += [int64]$rf.Length
+    }
+  }
+
+  $deleted += [math]::Max(0, ($preRbItems - $postRbItems))
+  $freedBytes += [math]::Max([int64]0, ($preRbBytes - $postRbBytes))
+  $skipped += $postRbItems
+  $remBytes += $postRbBytes
+}
+
 [PSCustomObject]@{
   ok = $true
   hostname = [string]$env:COMPUTERNAME
@@ -6557,11 +6735,11 @@ foreach ($dir in ($targets | Select-Object -Unique)) {
 
   const lxClean = `
 python3 - <<'PY'
-import json, os, socket
+import json, os, shutil, socket
 scope = "${safeScope}"
 dirs = []
-if scope in ("user_temp", "both"): dirs.append(os.path.expanduser("~/.cache"))
-if scope in ("windows_temp", "both"): dirs.append("/tmp")
+if scope in ("user_temp", "both", "all"): dirs.append(os.path.expanduser("~/.cache"))
+if scope in ("windows_temp", "both", "all"): dirs.append("/tmp")
 deleted, skipped, freed, rem = 0, 0, 0, 0
 for d in dirs:
     if not os.path.isdir(d): continue
@@ -6578,6 +6756,38 @@ for d in dirs:
                 skipped += 1
                 try: rem += os.path.getsize(fp)
                 except Exception: pass
+if scope in ("recycle_bin", "all"):
+    trash_files = os.path.expanduser("~/.local/share/Trash/files")
+    trash_info = os.path.expanduser("~/.local/share/Trash/info")
+    if os.path.isdir(trash_files):
+        for entry in os.listdir(trash_files):
+            ep = os.path.join(trash_files, entry)
+            esize = 0
+            try:
+                if os.path.islink(ep) or os.path.isfile(ep):
+                    esize = os.path.getsize(ep) if not os.path.islink(ep) else 0
+                    os.unlink(ep)
+                elif os.path.isdir(ep):
+                    for r2, _, f2s in os.walk(ep, followlinks=False):
+                        for f2 in f2s:
+                            try:
+                                esize += os.path.getsize(os.path.join(r2, f2))
+                            except Exception:
+                                pass
+                    shutil.rmtree(ep)
+                deleted += 1
+                freed += esize
+            except Exception:
+                skipped += 1
+                rem += esize
+    if os.path.isdir(trash_info):
+        for entry in os.listdir(trash_info):
+            ip = os.path.join(trash_info, entry)
+            try:
+                if os.path.isfile(ip) or os.path.islink(ip):
+                    os.unlink(ip)
+            except Exception:
+                pass
 print(json.dumps({
     "ok": True,
     "hostname": socket.gethostname(),
@@ -6590,11 +6800,29 @@ PY
 `;
 
   const execRes = await executeHardcodedScripts(input, psClean, lxClean);
-  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'temp folder cleanup');
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'temp/recycle-bin cleanup');
   const deletedFiles = Number(parsed.deletedFiles) || 0;
   const skippedLockedFiles = Number(parsed.skippedLockedFiles) || 0;
   const freedMb = Number(parsed.freedMb) || 0;
   const remainingMb = Number(parsed.remainingMb) || 0;
+
+  const message =
+    safeScope === 'recycle_bin'
+      ? `Emptied Recycle Bin: permanently removed ${deletedFiles} item(s) and freed ${freedMb} MB on ${execRes.host}${
+          skippedLockedFiles > 0 ? ` (${skippedLockedFiles} locked item(s) skipped)` : ''
+        }.`
+      : safeScope === 'all'
+      ? `Cleaned Temp folders and emptied Recycle Bin: removed ${deletedFiles} item(s) and freed ${freedMb} MB on ${execRes.host} (${skippedLockedFiles} locked item(s) skipped).`
+      : `Safely cleaned ${deletedFiles} temp file(s) and freed ${freedMb} MB on ${execRes.host} (${skippedLockedFiles} in-use locked file(s) safely skipped).`;
+
+  const messageFa =
+    safeScope === 'recycle_bin'
+      ? `سطل زباله (Recycle Bin) با موفقیت خالی شد: ${deletedFiles} مورد حذف و ${freedMb} مگابایت فضا روی سیستم ${execRes.host} آزاد شد${
+          skippedLockedFiles > 0 ? ` (${skippedLockedFiles} مورد در حال استفاده رد شد)` : ''
+        }.`
+      : safeScope === 'all'
+      ? `پوشه‌های Temp و سطل زباله با موفقیت پاک‌سازی شدند: ${deletedFiles} مورد حذف و ${freedMb} مگابایت فضا روی سیستم ${execRes.host} آزاد شد (${skippedLockedFiles} مورد قفل‌شده رد شد).`
+      : `${deletedFiles} فایل موقت با موفقیت پاک و ${freedMb} مگابایت فضا روی سیستم ${execRes.host} آزاد شد (${skippedLockedFiles} فایل در حال استفاده به‌صورت ایمن رد شد).`;
 
   return {
     targetIp: execRes.host,
@@ -6607,8 +6835,8 @@ PY
     skippedLockedFiles,
     freedMb,
     remainingMb,
-    message: `Safely cleaned ${deletedFiles} temp file(s) and freed ${freedMb} MB on ${execRes.host} (${skippedLockedFiles} in-use locked file(s) safely skipped).`,
-    messageFa: `${deletedFiles} فایل موقت با موفقیت پاک و ${freedMb} مگابایت فضا روی سیستم ${execRes.host} آزاد شد (${skippedLockedFiles} فایل در حال استفاده به‌صورت ایمن رد شد).`,
+    message,
+    messageFa,
     executedAt: new Date().toISOString(),
   };
 }
@@ -15485,7 +15713,7 @@ export interface HelpdeskDiagnosticTagSection {
 }
 
 export interface HelpdeskDiagnosticJumpTarget {
-  tab: 'health' | 'hardware' | 'network' | 'maintenance' | 'updates' | 'hardware_domain';
+  tab: 'health' | 'disks_shares' | 'hardware' | 'network' | 'maintenance' | 'updates' | 'hardware_domain';
   sectionId: string;
   labelEn: string;
   labelFa: string;
@@ -15578,10 +15806,10 @@ const DIAGNOSTIC_JUMP_TARGETS: Record<HelpdeskDiagnosticCheckId, HelpdeskDiagnos
     labelFa: 'مدیریت VPN در تب شبکه',
   },
   os_drive_cleanup: {
-    tab: 'maintenance',
+    tab: 'disks_shares',
     sectionId: 'hd-section-temp-cleanup',
-    labelEn: 'Clean Temp & Storage',
-    labelFa: 'پاک‌سازی فضا در تب تعمیر سیستم',
+    labelEn: 'Clean Temp, Drives & Recycle Bin',
+    labelFa: 'پاک‌سازی Temp و سطل زباله در تب دیسک‌ها',
   },
   windows_integrity: {
     tab: 'maintenance',
@@ -17416,12 +17644,12 @@ PY`;
         summaryFa: `درایو ${raw.drive || 'C:'}: ${formatBytesHuman(freeB)} آزاد از ${formatBytesHuman(totalB)} (${freePct}% آزاد). پوشه‌های Temp: ${formatBytesHuman(winTempB + userTempB)} · کش آپدیت: ${formatBytesHuman(wuB)} · سطل زباله (Recycle Bin): ${formatBytesHuman(rbB)} (${rbCnt} فایل).`,
         recommendationEn:
           status === 'pass'
-            ? 'OS drive capacity is healthy. You can reclaim Temp files anytime in Maintenance.'
-            : 'Run safe Temp cleanup in Maintenance tab and empty Recycle Bin on the workstation.',
+            ? 'OS drive capacity is healthy. You can reclaim Temp files or empty Recycle Bin anytime in Disk, Drives & Shared Folders.'
+            : 'Run safe Temp cleanup and empty Recycle Bin in the Disk, Drives & Shared Folders tab.',
         recommendationFa:
           status === 'pass'
-            ? 'ظرفیت درایو ویندوز مناسب است. در صورت نیاز از تب تعمیر سیستم پوشه Temp را پاک‌سازی کنید.'
-            : 'پیشنهاد می‌شود فوراً از تب تعمیر سیستم پوشه‌های Temp را پاک‌سازی و سطل زباله کاربر را تخلیه کنید.',
+            ? 'ظرفیت درایو ویندوز مناسب است. در صورت نیاز از تب دیسک، درایوها و پوشه‌های اشتراکی، پوشه Temp یا سطل زباله را پاک‌سازی کنید.'
+            : 'پیشنهاد می‌شود فوراً از تب دیسک، درایوها و پوشه‌های اشتراکی، پوشه‌های Temp را پاک‌سازی و سطل زباله کاربر را تخلیه کنید.',
         metrics: [
           { labelEn: 'Free Space', labelFa: 'فضای آزاد', value: `${formatBytesHuman(freeB)} (${freePct}%)`, tone: status === 'fail' ? 'fail' : status === 'warn' ? 'warn' : 'ok' },
           { labelEn: 'Temp Folders', labelFa: 'پوشه‌های Temp', value: formatBytesHuman(winTempB + userTempB), tone: winTempB + userTempB > 1024 * 1024 * 1024 ? 'warn' : 'info' },

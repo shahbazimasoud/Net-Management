@@ -10325,15 +10325,21 @@ apiRouter.post('/helpdesk/temp/scan', async (req: Request, res: Response) => {
       action: 'helpdesk_temp_scan',
       title: `اسکن پوشه‌های Temp سیستم کاربر: ${data.targetIp}`,
       title_en: `HelpDesk Temp Folder Scan: ${data.targetIp}`,
-      description: `شناسایی ${data.totalFileCount} فایل موقت با حجم قابل آزادسازی ${data.totalReclaimableMb} MB روی ${data.hostname} (${data.targetIp}).`,
-      description_en: `Found ${data.totalFileCount} temp file(s) (${data.totalReclaimableMb} MB reclaimable) on ${data.hostname} (${data.targetIp}).`,
+      description: `شناسایی ${data.totalFileCount} فایل موقت (${data.totalReclaimableMb} MB) و ${data.recycleBin?.itemCount || 0} مورد در سطل زباله (${data.recycleBin?.sizeMb || 0} MB) روی ${data.hostname} (${data.targetIp}).`,
+      description_en: `Found ${data.totalFileCount} temp file(s) (${data.totalReclaimableMb} MB) and ${data.recycleBin?.itemCount || 0} Recycle Bin item(s) (${data.recycleBin?.sizeMb || 0} MB) on ${data.hostname} (${data.targetIp}).`,
       userName: auth.actorName,
       userRole: auth.actorRole,
       status: 'success',
       severity: 'info',
       targetName: data.hostname || data.targetIp,
       clientIp: auth.clientIp,
-      metadata: { targetIp: data.targetIp, totalFileCount: data.totalFileCount, totalReclaimableMb: data.totalReclaimableMb },
+      metadata: {
+        targetIp: data.targetIp,
+        totalFileCount: data.totalFileCount,
+        totalReclaimableMb: data.totalReclaimableMb,
+        recycleBinMb: data.recycleBin?.sizeMb || 0,
+        recycleBinItems: data.recycleBin?.itemCount || 0,
+      },
     }).catch(() => {});
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
@@ -10356,7 +10362,7 @@ apiRouter.post('/helpdesk/temp/scan', async (req: Request, res: Response) => {
   }
 });
 
-// POST /helpdesk/temp/clean - Module 6: Strictly Confined Temp Folder Cleanup (Zero Custom Paths)
+// POST /helpdesk/temp/clean - Module 6: Strictly Confined Temp & Recycle Bin Cleanup (Zero Custom Paths)
 apiRouter.post('/helpdesk/temp/clean', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'clean_temp');
   if (!auth.ok) {
@@ -10364,8 +10370,13 @@ apiRouter.post('/helpdesk/temp/clean', async (req: Request, res: Response) => {
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const rawScope = String(req.body?.scope || 'both').trim();
-  const scope: 'user_temp' | 'windows_temp' | 'both' =
-    rawScope === 'user_temp' || rawScope === 'windows_temp' ? rawScope : 'both';
+  const scope: 'user_temp' | 'windows_temp' | 'both' | 'recycle_bin' | 'all' =
+    rawScope === 'user_temp' ||
+    rawScope === 'windows_temp' ||
+    rawScope === 'recycle_bin' ||
+    rawScope === 'all'
+      ? rawScope
+      : 'both';
 
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'temp_clean');
   if (!rl.allowed) {
@@ -10382,9 +10393,15 @@ apiRouter.post('/helpdesk/temp/clean', async (req: Request, res: Response) => {
     const data = await cleanEndpointTempFolders(target, scope);
     await addPortalAuditLog({
       category: 'system',
-      action: 'helpdesk_temp_clean',
-      title: `پاک‌سازی ایمن Temp روی ${data.targetIp} (${data.freedMb} MB آزاد شد)`,
-      title_en: `HelpDesk Confined Temp Cleanup on ${data.targetIp} (${data.freedMb} MB freed)`,
+      action: scope === 'recycle_bin' ? 'helpdesk_recycle_bin_empty' : 'helpdesk_temp_clean',
+      title:
+        scope === 'recycle_bin'
+          ? `تخلیه سطل زباله (Recycle Bin) روی ${data.targetIp} (${data.freedMb} MB آزاد شد)`
+          : `پاک‌سازی ایمن Temp روی ${data.targetIp} (${data.freedMb} MB آزاد شد)`,
+      title_en:
+        scope === 'recycle_bin'
+          ? `HelpDesk Empty Recycle Bin on ${data.targetIp} (${data.freedMb} MB freed)`
+          : `HelpDesk Confined Temp Cleanup on ${data.targetIp} (${data.freedMb} MB freed)`,
       description: data.messageFa,
       description_en: data.message,
       userName: auth.actorName,

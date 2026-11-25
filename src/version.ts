@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.478.0';
+export const APP_VERSION = '1.479.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.479.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'ایجاد تب جدید «دیسک، درایوها و پوشه‌های اشتراکی» در HelpDesk و افزودن پایش حجم و تخلیه سطل زباله (Recycle Bin)',
+    title_en: 'Add HelpDesk "Disk, Drives & Shared Folders" Tab with Reorganized Storage/Shares/Temp Panels and Live Recycle Bin Inspection & Empty',
+    changes: [
+      'ایجاد تب جدید **`دیسک، درایوها و پوشه‌های اشتراکی`** (`disks_shares`) بلافاصله بعد از تب `سلامت سیستم و کنترل پروسس‌ها` جهت یکپارچه‌سازی و نظم‌دهی مدیریت فضای ذخیره‌سازی و اشتراک‌های کاربر.',
+      'انتقال بخش **`وضعیت فضای درایوهای دیسک` (`Storage Volumes Health`)** و بخش **`پوشه‌های اشتراکی و درایوهای شبکه` (`Mapped Network Drives & Shared Folders`)** از تب `سلامت سیستم و کنترل پروسس‌ها` به تب جدید `دیسک، درایوها و پوشه‌های اشتراکی`.',
+      'انتقال بخش **`اسکن و پاک‌سازی ایمن پوشه‌های Temp` (`Safe Confined Temp Folder Cleanup`)** از تب `تعمیر سیستم، GPO و اعضای AD` به تب جدید و به‌روزرسانی عنوان و لینک پرش دیاگنوستیک `os_drive_cleanup`.',
+      'افزودن کارت زنده **`سطل زباله` (`Recycle Bin`)** با نمایش حجم کل، تعداد آیتم‌های حذف‌شده، تفکیک درایوها (`$Recycle.Bin` در ویندوز و `~/.local/share/Trash` در لینوکس) و دکمه **`خالی کردن سطل زباله`** همراه با تأیید دو مرحله‌ای، کنترل مجوز `canCleanHelpdeskTemp` و ثبت در لاگ ممیزی.'
+    ],
+    changes_en: [
+      'Created dedicated **`Disk, Drives & Shared Folders`** sub-tab (`disks_shares`) right after `Health & Safe Process Control` to organize endpoint storage, mapped shares, and cleanup controls.',
+      'Moved **`Storage Volumes Health`** and **`Mapped Network Drives & Shared Folders`** cleanly from `Health & Safe Process Control` into the new `Disk, Drives & Shared Folders` tab.',
+      'Moved **`Safe Confined Temp Folder Cleanup`** out of `System Repair, GPO & AD Members` into `Disk, Drives & Shared Folders`, and updated sequential prefetch and `os_drive_cleanup` diagnostics jump target accordingly.',
+      'Added live **`Recycle Bin`** size and item-count telemetry per fixed drive (`$Recycle.Bin` on Windows, `~/.local/share/Trash` on Linux) inside the cleanup module along with a gated **`Empty Recycle Bin`** action (`canCleanHelpdeskTemp` RBAC check, inline confirmation, audit logging, and automatic rescan).'
+    ]
+  },
   {
     version: '1.478.0',
     releaseDate: '2026-11-25',
