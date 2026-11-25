@@ -407,6 +407,8 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       canInspectHelpdeskDomainUsers: false,
       canPowerControlHelpdeskEndpoints: false,
       canManageHelpdeskExceptions: false,
+      canSendHelpdeskMessage: false,
+      canViewAllHelpdeskHistory: false,
       perServerPermissions: {},
       defaultServerApprovalRules: {},
       perServerApprovalRules: {},

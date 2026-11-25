@@ -101,6 +101,32 @@ const WINDOWS_EVENT_CATALOG: CatalogRule[] = [
     recommendedActionEn: 'Note the Stop Code in the raw message (e.g. MEMORY_MANAGEMENT, DRIVER_IRQL), update drivers, and run Windows Memory Diagnostic if recurring.',
     recommendedActionFa: 'کد خطای داخل متن لاگ خام (مانند MEMORY_MANAGEMENT یا IRQL) را بررسی کرده، درایورها را آپدیت کنید و در صورت تکرار تست سلامت RAM بگیرید.',
   },
+  {
+    eventIds: [46, 49, 161, 162],
+    sourcePattern: /volmgr/i,
+    category: 'power_crash',
+    humanTitleEn: 'Crash Dump Initialization / Writing Failed During BSOD (volmgr)',
+    humanTitleFa: 'خطا در ایجاد یا ذخیره فایل Dump هنگام وقوع صفحه آبی (volmgr)',
+    humanReasonEn: 'Windows attempted to save a memory crash dump during a Blue Screen (BSOD), but the volume manager (volmgr) failed to initialize or write the dump file.',
+    humanReasonFa: 'هنگام وقوع صفحه آبی (BSOD)، ویندوز قصد ذخیره فایل حافظه (Crash Dump) را داشت اما سرویس volmgr نتوانست فایل را بنویسد؛ این خطا معمولاً نشان‌دهنده قطعی ناگهانی دیسک بوت (NVMe/SATA) یا پر بودن درایو C حین کرش است.',
+    likelyCauseEn: 'NVMe/SSD controller dropout during crash, disabled/missing Pagefile on OS drive, full C: drive, or unstable storage driver.',
+    likelyCauseFa: 'قطع ارتباط ناگهانی SSD/NVMe هنگام کرش، غیرفعال یا کم بودن Pagefile روی درایو C، پر بودن فضای درایو ویندوز یا باگ درایور کنترلر دیسک.',
+    recommendedActionEn: 'Check C: drive free space, verify NVMe/SATA SSD health & firmware, and ensure System Managed Pagefile is enabled on C: so future minidumps are captured.',
+    recommendedActionFa: 'فضای خالی درایو C و سلامت SSD/NVMe را بررسی کنید و مطمئن شوید Pagefile روی درایو C فعال است تا فایل‌های Minidump در کرش‌های بعدی ذخیره شوند.',
+  },
+  {
+    eventIds: [1074],
+    sourcePattern: /user32/i,
+    category: 'power_crash',
+    humanTitleEn: 'Planned System Shutdown or Restart Initiated (USER32 1074)',
+    humanTitleFa: 'ثبت درخواست خاموشی یا ری‌استارت عادی سیستم (USER32 1074)',
+    humanReasonEn: 'A user or OS service (such as Windows Update or an admin command) requested a planned restart or shutdown. Useful to distinguish intentional reboots from unexpected BSODs.',
+    humanReasonFa: 'یک کاربر، سرویس سیستم (مثل Windows Update) یا دستور مدیریت، درخواست خاموشی یا ری‌استارت عادی را ثبت کرده است (برای تفکیک ری‌استارت عادی از کرش ناگهانی کاربردی است).',
+    likelyCauseEn: 'User reboot, Windows Update restart schedule, or IT remote restart action.',
+    likelyCauseFa: 'ری‌استارت توسط کاربر، نصب آپدیت ویندوز یا دستور ری‌استارت از راه دور.',
+    recommendedActionEn: 'Compare this timestamp against Kernel-Power 41 / BugCheck 1001 events to confirm whether a reboot was clean or caused by a crash.',
+    recommendedActionFa: 'زمان این رویداد را با رویدادهای Kernel-Power 41 و BugCheck 1001 مقایسه کنید تا مشخص شود ری‌استارت سیستم عادی بوده یا ناشی از صفحه آبی.',
+  },
 
   // ---- Disk, Storage & Hardware ----
   {
@@ -631,3 +657,509 @@ export function explainEventCodeHuman(input: {
     'بخش «متن خام لاگ» را باز کنید تا جزئیات دقیق را ببینید و بررسی کنید آیا این کد خطا به‌صورت مکرر تکرار می‌شود یا موردی بوده است.'
   );
 }
+
+// ============================================================================
+// BSOD MULTI-CAUSE DIAGNOSTICS & STOP CODE DECODER
+// ============================================================================
+
+export type BsodReasonCategory =
+  | 'bugcheck'
+  | 'kernel_power'
+  | 'hardware_whea'
+  | 'driver_gpu'
+  | 'storage_dump'
+  | 'memory_os';
+
+export interface BsodStopCodeInfo {
+  codeHex: string;
+  symbolicName: string;
+  category: BsodReasonCategory;
+  summaryEn: string;
+  summaryFa: string;
+  actionEn: string;
+  actionFa: string;
+}
+
+export interface BsodDumpFileInfo {
+  name: string;
+  path: string;
+  sizeKb: number;
+  createdAt: string;
+}
+
+export interface BsodCrashControlInfo {
+  crashDumpEnabled: number | null;
+  crashDumpModeLabel: string;
+  autoReboot: boolean | null;
+  dumpFile: string;
+  minidumpDir: string;
+}
+
+export interface BsodReasonBucket {
+  reason: BsodReasonCategory;
+  titleEn: string;
+  titleFa: string;
+  descriptionEn: string;
+  descriptionFa: string;
+  severity: 'critical' | 'high' | 'medium' | 'info';
+  count: number;
+  sampleEventIds: number[];
+}
+
+export interface BsodAnalysisResult {
+  focusEnabled: boolean;
+  bsodDetected: boolean;
+  totalClueEvents: number;
+  verdictTitleEn: string;
+  verdictTitleFa: string;
+  verdictSummaryEn: string;
+  verdictSummaryFa: string;
+  stopCodes: BsodStopCodeInfo[];
+  suspectedDrivers: string[];
+  reasonBuckets: BsodReasonBucket[];
+  dumpFiles: BsodDumpFileInfo[];
+  crashControl: BsodCrashControlInfo | null;
+}
+
+const BSOD_STOP_CODE_CATALOG: Record<string, BsodStopCodeInfo> = {
+  '0x0000000A': {
+    codeHex: '0x0000000A',
+    symbolicName: 'IRQL_NOT_LESS_OR_EQUAL',
+    category: 'driver_gpu',
+    summaryEn: 'Kernel-mode driver or OS routine touched invalid/paged memory at too high an IRQL.',
+    summaryFa: 'یک درایور سخت‌افزاری (شبکه، وای‌فای، گرافیک یا آنتی‌ویروس) یا هسته سیستم به آدرس نامعتبری از حافظه دسترسی پیدا کرده است.',
+    actionEn: 'Update NIC/Wi-Fi, chipset, and GPU drivers; run Windows Memory Diagnostic if persistent.',
+    actionFa: 'درایور کارت شبکه/وای‌فای، چیپ‌ست و گرافیک را بروزرسانی کنید و در صورت تکرار سلامت RAM را تست بگیرید.',
+  },
+  '0x0000001A': {
+    codeHex: '0x0000001A',
+    symbolicName: 'MEMORY_MANAGEMENT',
+    category: 'memory_os',
+    summaryEn: 'Severe memory management fault caused by failing RAM module, corrupted pagefile, or driver leak.',
+    summaryFa: 'خطای جدی مدیریت حافظه؛ معمولاً ناشی از خرابی ماژول RAM، خرابی Pagefile یا نشت حافظه یک درایور.',
+    actionEn: 'Run Windows Memory Diagnostic (mdsched) / MemTest86 and verify disk health on C:.',
+    actionFa: 'تست سلامت RAM (mdsched یا MemTest86) و سلامت درایو ویندوز را انجام دهید و ماژول رم معیوب را بررسی کنید.',
+  },
+  '0x0000001E': {
+    codeHex: '0x0000001E',
+    symbolicName: 'KMODE_EXCEPTION_NOT_HANDLED',
+    category: 'driver_gpu',
+    summaryEn: 'A kernel-mode program or third-party driver generated an unhandled exception.',
+    summaryFa: 'یک درایور سیستمی یا سرویس کرنل با خطای استثنای مدیریت‌نشده (Unhandled Exception) کرش کرده است.',
+    actionEn: 'Inspect suspected .sys driver files, roll back recent drivers/updates, and run SFC / DISM.',
+    actionFa: 'نام فایل درایور (.sys) داخل لاگ یا دامپ را بررسی کنید، درایور یا آپدیت اخیر را برگردانید و SFC / DISM اجرا کنید.',
+  },
+  '0x00000024': {
+    codeHex: '0x00000024',
+    symbolicName: 'NTFS_FILE_SYSTEM',
+    category: 'storage_dump',
+    summaryEn: 'Fatal fault inside ntfs.sys caused by file-system corruption or failing storage drive.',
+    summaryFa: 'خطای بحرانی در فایل‌سیستم NTFS به دلیل خرابی ساختار دیسک یا نقص فیزیکی هارد/SSD.',
+    actionEn: 'Back up user files and run chkdsk /f and SMART disk diagnostics.',
+    actionFa: 'فوراً بکاپ بگیرید و سلامت دیسک و دستورات ترمیم فایل‌سیستم (chkdsk) را اجرا کنید.',
+  },
+  '0x0000003B': {
+    codeHex: '0x0000003B',
+    symbolicName: 'SYSTEM_SERVICE_EXCEPTION',
+    category: 'driver_gpu',
+    summaryEn: 'Exception occurred while transitioning from non-privileged code to privileged kernel/graphics code.',
+    summaryFa: 'خطای سیستمی حین اجرای سرویس کرنل؛ بسیار رایج در درایور کارت گرافیک، آنتی‌ویروس یا نرم‌افزارهای مانیتورینگ.',
+    actionEn: 'Update GPU and antivirus/EDR drivers and run SFC /scannow.',
+    actionFa: 'درایور کارت گرافیک و نسخه آنتی‌ویروس را آپدیت کرده و SFC /scannow اجرا کنید.',
+  },
+  '0x00000050': {
+    codeHex: '0x00000050',
+    symbolicName: 'PAGE_FAULT_IN_NONPAGED_AREA',
+    category: 'memory_os',
+    summaryEn: 'Invalid system memory referenced — linked to faulty RAM, antivirus filter driver, or NTFS errors.',
+    summaryFa: 'ارجاع به حافظه نامعتبر سیستمی؛ معمولاً ناشی از خرابی RAM، درایور فیلتر آنتی‌ویروس یا خرابی دیسک.',
+    actionEn: 'Test RAM sticks, verify C: NTFS integrity, and check recently installed security agents or drivers.',
+    actionFa: 'سلامت ماژول‌های RAM، فایل‌سیستم NTFS و درایورهای آنتی‌ویروس یا سخت‌افزاری جدید را بررسی کنید.',
+  },
+  '0x0000007B': {
+    codeHex: '0x0000007B',
+    symbolicName: 'INACCESSIBLE_BOOT_DEVICE',
+    category: 'storage_dump',
+    summaryEn: 'Windows lost access to the system boot partition (SATA/AHCI/RAID/NVMe mode mismatch or failing SSD).',
+    summaryFa: 'ویندوز دسترسی خود به درایو بوت را از دست داده است (تغییر حالت AHCI/RAID در BIOS یا خرابی کنترلر SSD/NVMe).',
+    actionEn: 'Verify BIOS SATA/NVMe controller mode (AHCI vs RAID/VMD) and check SSD firmware/cables.',
+    actionFa: 'تنظیمات کنترلر دیسک (AHCI / RAID / VMD) در BIOS و سلامت فیزیکی کابل و SSD را بررسی کنید.',
+  },
+  '0x0000007E': {
+    codeHex: '0x0000007E',
+    symbolicName: 'SYSTEM_THREAD_EXCEPTION_NOT_HANDLED',
+    category: 'driver_gpu',
+    summaryEn: 'A system kernel thread threw an exception not caught by any error handler (common after driver/BIOS updates).',
+    summaryFa: 'یک ترد هسته سیستم خطای بحرانی داد (اغلب بعد از نصب درایور یا آپدیت بایوس/ویندوز).',
+    actionEn: 'Update or roll back GPU, Wi-Fi, and chipset drivers and review recent Windows Updates.',
+    actionFa: 'درایور گرافیک، شبکه بی‌سیم و چیپ‌ست را بروزرسانی یا به نسخه قبل بازگردانی کنید.',
+  },
+  '0x1000007E': {
+    codeHex: '0x1000007E',
+    symbolicName: 'SYSTEM_THREAD_EXCEPTION_NOT_HANDLED_M',
+    category: 'driver_gpu',
+    summaryEn: 'Kernel thread exception (64-bit bugcheck variant), typically triggered by a graphics/audio/network driver.',
+    summaryFa: 'خطای ترد هسته ویندوز (نسخه ۶۴ بیتی)، غالباً ناشی از باگ درایور گرافیک، صدا یا کارت شبکه.',
+    actionEn: 'Update display and network drivers and check minidump for the named .sys file.',
+    actionFa: 'درایور گرافیک و شبکه را آپدیت کنید و فایل .sys گزارش‌شده در دامپ را بررسی نمایید.',
+  },
+  '0x0000009F': {
+    codeHex: '0x0000009F',
+    symbolicName: 'DRIVER_POWER_STATE_FAILURE',
+    category: 'driver_gpu',
+    summaryEn: 'A device driver failed to transition cleanly during Sleep, Hibernate, or Shutdown power state changes.',
+    summaryFa: 'یک درایور سخت‌افزاری هنگام رفتن سیستم به Sleep / Hibernate یا خاموشی پاسخ نداده و گیر کرده است.',
+    actionEn: 'Update chipset, GPU, docking-station, and USB/PCIe drivers; disable Fast Startup if persistent.',
+    actionFa: 'درایورهای چیپ‌ست، گرافیک، داک یا USB را آپدیت کنید و در صورت تداوم Fast Startup را غیرفعال نمایید.',
+  },
+  '0x000000D1': {
+    codeHex: '0x000000D1',
+    symbolicName: 'DRIVER_IRQL_NOT_LESS_OR_EQUAL',
+    category: 'driver_gpu',
+    summaryEn: 'Classic third-party driver bugcheck where a kernel driver accessed pageable memory at raised IRQL.',
+    summaryFa: 'خطای کلاسیک درایورهای ویندوز؛ یک درایور (معمولاً کارت شبکه، VPN، آنتی‌ویروس یا گرافیک) به حافظه غیرمجاز دسترسی داشته است.',
+    actionEn: 'Check suspected .sys driver name (e.g., ndis, tcpip, nvlddmkm, e1d) and update/reinstall that driver.',
+    actionFa: 'فایل .sys مرتبط (مثل درایور شبکه، VPN یا گرافیک) را از لاگ بررسی کرده و درایور را بروزرسانی کنید.',
+  },
+  '0x000000ED': {
+    codeHex: '0x000000ED',
+    symbolicName: 'UNMOUNTABLE_BOOT_VOLUME',
+    category: 'storage_dump',
+    summaryEn: 'OS could not mount the boot volume due to severe file system damage or failing HDD/SSD.',
+    summaryFa: 'سیستم نتوانست درایو ویندوز را Mount کند؛ ناشی از خرابی شدید فایل‌سیستم یا خرابی فیزیکی هارد/SSD.',
+    actionEn: 'Inspect SMART disk health immediately, back up data, and run chkdsk /f.',
+    actionFa: 'سریعاً وضعیت SMART دیسک را بررسی کنید، بکاپ بگیرید و تعمیر دیسک را انجام دهید.',
+  },
+  '0x000000EF': {
+    codeHex: '0x000000EF',
+    symbolicName: 'CRITICAL_PROCESS_DIED',
+    category: 'memory_os',
+    summaryEn: 'A critical Windows subsystem process (csrss, wininit, lsass, services) terminated unexpectedly.',
+    summaryFa: 'یکی از پروسس‌های حیاتی ویندوز (مثل lsass، csrss یا services) ناگهان بسته شده و باعث صفحه آبی شده است.',
+    actionEn: 'Run SFC /scannow + DISM RestoreHealth, verify SSD stability, and check recent software/AV updates.',
+    actionFa: 'دستورات SFC /scannow و DISM RestoreHealth را از تب «سلامت دیسک و تعمیر ویندوز» اجرا کنید و ثبات SSD را چک نمایید.',
+  },
+  '0x000000F4': {
+    codeHex: '0x000000F4',
+    symbolicName: 'CRITICAL_OBJECT_TERMINATION',
+    category: 'storage_dump',
+    summaryEn: 'Critical OS process/thread ended abnormally — frequently caused by sudden SSD/NVMe drop.',
+    summaryFa: 'توقف ناگهانی آبجکت حیاتی سیستم — اغلب در پی قطع ارتباط ناگهانی SSD یا کابل هارد رخ می‌دهد.',
+    actionEn: 'Check SATA/NVMe connection, SSD firmware, and volmgr / disk errors in Event Viewer.',
+    actionFa: 'اتصال و سلامت فیزیکی SSD/NVMe و خطاهای volmgr / disk را بررسی کنید.',
+  },
+  '0x00000116': {
+    codeHex: '0x00000116',
+    symbolicName: 'VIDEO_TDR_FAILURE',
+    category: 'driver_gpu',
+    summaryEn: 'Display driver failed to reset the graphics card cleanly within Windows Timeout Detection & Recovery (TDR).',
+    summaryFa: 'درایور کارت گرافیک هنگ کرده و ریست سخت‌افزاری GPU (TDR) با شکست مواجه شده است.',
+    actionEn: 'Clean-reinstall GPU driver, inspect GPU temperatures/fan, and check PSU power stability.',
+    actionFa: 'درایور گرافیک را به نسخه استاندارد بروزرسانی یا نصب مجدد کنید و دما/برق کارت گرافیک را بررسی نمایید.',
+  },
+  '0x00000124': {
+    codeHex: '0x00000124',
+    symbolicName: 'WHEA_UNCORRECTABLE_ERROR',
+    category: 'hardware_whea',
+    summaryEn: 'Fatal hardware error reported by CPU, L2/L3 cache, RAM ECC, VRM voltage, or PCIe bus.',
+    summaryFa: 'خطای سخت‌افزاری غیرقابل جبران (WHEA) از سمت پردازنده، کش CPU، ولتاژ تغذیه، رم یا اسلات PCIe.',
+    actionEn: 'Check CPU/VRM temperatures, remove any overclock/XMP instability, update BIOS, and test hardware.',
+    actionFa: 'دمای CPU، وضعیت پاور/باتری، بایوس مادربرد و سلامت فیزیکی RAM/CPU را فوراً بررسی کنید.',
+  },
+  '0x00000133': {
+    codeHex: '0x00000133',
+    symbolicName: 'DPC_WATCHDOG_VIOLATION',
+    category: 'driver_gpu',
+    summaryEn: 'A DPC/ISR driver routine held the CPU too long without yielding (often SSD/NVMe, Wi-Fi, or GPU driver).',
+    summaryFa: 'یک درایور بیش از حد مجاز پردازنده را قفل نگه داشته است (معمولاً درایور NVMe/SSD، وای‌فای یا گرافیک).',
+    actionEn: 'Update SSD firmware, storage controller (stornvme/iaStor), network, and GPU drivers.',
+    actionFa: 'فیرم‌ور SSD و درایور کنترلر دیسک، وای‌فای و کارت گرافیک را بروزرسانی کنید.',
+  },
+  '0x00000139': {
+    codeHex: '0x00000139',
+    symbolicName: 'KERNEL_SECURITY_CHECK_FAILURE',
+    category: 'memory_os',
+    summaryEn: 'Windows kernel detected critical data-structure corruption (corrupt driver, bad RAM, or system files).',
+    summaryFa: 'کرنل ویندوز دستکاری یا خرابی ساختار امنیتی حافظه را تشخیص داده (درایور معیوب، خرابی رم یا فایل‌های سیستمی).',
+    actionEn: 'Run SFC / DISM integrity check, test RAM modules, and inspect recently updated drivers.',
+    actionFa: 'اسکن SFC / DISM و تست RAM را اجرا کنید و درایورهای اخیر را بررسی نمایید.',
+  },
+};
+
+export function decodeBsodStopCode(rawInput: string | number): BsodStopCodeInfo | null {
+  if (rawInput === null || rawInput === undefined) return null;
+  const text = String(rawInput).trim();
+  if (!text) return null;
+
+  let hexKey = '';
+  const hexMatch = text.match(/\b0x([0-9a-fA-F]{1,8})\b/);
+  if (hexMatch) {
+    hexKey = `0x${hexMatch[1].toUpperCase().padStart(8, '0')}`;
+  } else {
+    const bugParamMatch = text.match(/BugcheckCode\s*[:=]\s*(\d+)/i) || (/^\d+$/.test(text) ? [text, text] : null);
+    if (bugParamMatch) {
+      const dec = Number(bugParamMatch[1]);
+      if (Number.isFinite(dec) && dec > 0) {
+        hexKey = `0x${(dec >>> 0).toString(16).toUpperCase().padStart(8, '0')}`;
+      }
+    }
+  }
+
+  if (!hexKey || hexKey === '0x00000000') {
+    for (const info of Object.values(BSOD_STOP_CODE_CATALOG)) {
+      if (text.toUpperCase().includes(info.symbolicName)) {
+        return info;
+      }
+    }
+    return null;
+  }
+
+  if (BSOD_STOP_CODE_CATALOG[hexKey]) {
+    return BSOD_STOP_CODE_CATALOG[hexKey];
+  }
+
+  return {
+    codeHex: hexKey,
+    symbolicName: `STOP_${hexKey}`,
+    category: 'bugcheck',
+    summaryEn: `Kernel BugCheck Stop Code ${hexKey} recorded before forced restart.`,
+    summaryFa: `کد توقف کرنل ${hexKey} هنگام کرش صفحه آبی و پیش از ری‌استارت ثبت شده است.`,
+    actionEn: 'Inspect the matching Minidump (.dmp) file and recently installed drivers/Windows updates around this timestamp.',
+    actionFa: 'فایل Minidump متناظر و درایورها یا آپدیت‌های نصب‌شده حوالی این زمان را بررسی کنید.',
+  };
+}
+
+export function classifyBsodEventReason(ev: {
+  eventId: number;
+  source: string;
+  level: string;
+  message: string;
+}): BsodReasonCategory | null {
+  const id = Number(ev.eventId) || 0;
+  const src = String(ev.source || '').toLowerCase();
+  const msg = String(ev.message || '').toLowerCase();
+  const combined = `${src} ${msg}`;
+
+  if (
+    (id === 1001 && /bugcheck|wer-systemerrorreporting|rebooted from a bugcheck|memory\.dmp|minidump/i.test(combined)) ||
+    /bugcheck|stop\s*code|blue\s*screen|bsod|kernel\s*panic|memory\.dmp|minidump/i.test(combined)
+  ) {
+    return 'bugcheck';
+  }
+  if (/whea-logger|whea_uncorrectable|machine check|mce|hardware error/i.test(combined)) {
+    return 'hardware_whea';
+  }
+  if (
+    (src.includes('kernel-power') && id === 41) ||
+    (src.includes('eventlog') && id === 6008) ||
+    (src.includes('user32') && id === 1074)
+  ) {
+    return 'kernel_power';
+  }
+  if (
+    /volmgr/i.test(src) ||
+    ((/disk|stornvme|storahci|iastor|nvme|ntfs|atapi|ext4|xfs/i.test(combined)) &&
+      ([7, 9, 11, 46, 49, 50, 51, 55, 129, 137, 153, 157, 161, 162].includes(id) ||
+        /bad\s*block|i\/o\s*error|reset to device|did not respond|dump\s*file|ntfs/i.test(combined)))
+  ) {
+    return 'storage_dump';
+  }
+  if (
+    /display|nvlddmkm|amdkmdag|igfx|atikmdag|tdr|drm|gpu/i.test(combined) ||
+    /\b[a-z0-9_-]{2,32}\.sys\b/i.test(combined) ||
+    /driver_irql|kmode_exception|system_service_exception|system_thread_exception|watchdog/i.test(combined)
+  ) {
+    return 'driver_gpu';
+  }
+  if (
+    /resource-exhaustion|out of memory|oom|pagefile|virtual memory|memory_management|critical_process_died|service control manager/i.test(combined) ||
+    [2004, 7000, 7001, 7009, 7023, 7024, 7031, 7034].includes(id)
+  ) {
+    return 'memory_os';
+  }
+  return null;
+}
+
+const REASON_META: Record<
+  BsodReasonCategory,
+  { titleEn: string; titleFa: string; descEn: string; descFa: string; severity: 'critical' | 'high' | 'medium' | 'info' }
+> = {
+  bugcheck: {
+    titleEn: 'Kernel BugCheck / Stop Code (Direct BSOD Record)',
+    titleFa: 'ثبت مستقیم خطای صفحه آبی (BugCheck / Stop Code)',
+    descEn: 'Confirmed Windows BugCheck crash records containing Stop Codes or dump paths.',
+    descFa: 'رویداد قطعی وقوع BSOD که کد Stop Code یا مسیر ذخیره Dump را مشخص می‌کند.',
+    severity: 'critical',
+  },
+  hardware_whea: {
+    titleEn: 'WHEA Hardware Faults (CPU / RAM / PCIe / Thermal)',
+    titleFa: 'خطاهای سخت‌افزاری WHEA (پردازنده، رم، ولتاژ یا مادربرد)',
+    descEn: 'Hardware-level machine check exceptions reported directly by CPU, cache, RAM, or PCIe.',
+    descFa: 'گزارش خطای سخت‌افزاری مستقیم از پردازنده، حافظه رم یا گذرگاه PCIe پیش یا حین کرش.',
+    severity: 'critical',
+  },
+  driver_gpu: {
+    titleEn: 'Graphics & Kernel Driver Faults (.sys / GPU TDR)',
+    titleFa: 'خطای درایورهای کرنل یا کارت گرافیک (.sys / GPU Reset)',
+    descEn: 'Unresponsive display drivers or faulty kernel .sys drivers that trigger BSODs.',
+    descFa: 'توقف یا باگ درایور کارت گرافیک، شبکه، وای‌فای یا فایل‌های .sys که عامل رایج صفحه آبی هستند.',
+    severity: 'high',
+  },
+  storage_dump: {
+    titleEn: 'Boot Disk, NVMe & Crash Dump Write Failures (volmgr / Disk)',
+    titleFa: 'اختلال هارد/SSD و شکست ذخیره Dump (volmgr / Disk / NTFS)',
+    descEn: 'Disk I/O timeouts, controller resets, NTFS damage, or volmgr dump creation failures.',
+    descFa: 'تأخیر یا قطع ارتباط SSD/NVMe، خرابی NTFS یا شکست volmgr در ذخیره فایل Minidump.',
+    severity: 'high',
+  },
+  kernel_power: {
+    titleEn: 'Unexpected Power Loss / Unclean Reboots (Kernel-Power 41 / 6008)',
+    titleFa: 'ری‌استارت ناگهانی و خاموشی غیراستاندارد (Kernel-Power 41 / 6008)',
+    descEn: 'Tracks unclean power/reboot transitions and whether Kernel-Power 41 carried a BugcheckCode.',
+    descFa: 'بررسی خاموشی‌های ناگهانی و مقدار BugcheckCode ثبت‌شده در رویداد Kernel-Power 41.',
+    severity: 'high',
+  },
+  memory_os: {
+    titleEn: 'RAM Exhaustion, OS Core Services & Critical Processes',
+    titleFa: 'کمبود رم، فشار حافظه مجازی و کرش سرویس‌های حیاتی سیستم',
+    descEn: 'Virtual memory exhaustion (ID 2004) or unexpected service/process termination (SCM).',
+    descFa: 'پر شدن کامل RAM/Pagefile (کد 2004) یا توقف غیرمنتظره سرویس‌های اصلی ویندوز.',
+    severity: 'medium',
+  },
+};
+
+export function buildBsodAnalysis(params: {
+  focusEnabled: boolean;
+  events: Array<{
+    eventId: number;
+    source: string;
+    level: string;
+    rawMessage: string;
+    bsodReason?: BsodReasonCategory | null;
+    bugcheckCodeRaw?: string | number;
+  }>;
+  dumpFiles?: BsodDumpFileInfo[];
+  crashControl?: BsodCrashControlInfo | null;
+}): BsodAnalysisResult {
+  const bucketMap = new Map<BsodReasonCategory, BsodReasonBucket>();
+  const stopCodeMap = new Map<string, BsodStopCodeInfo>();
+  const driverSet = new Set<string>();
+
+  for (const ev of params.events) {
+    const reason = ev.bsodReason || classifyBsodEventReason({
+      eventId: ev.eventId,
+      source: ev.source,
+      level: ev.level,
+      message: ev.rawMessage,
+    });
+    if (reason) {
+      const meta = REASON_META[reason];
+      const existing = bucketMap.get(reason);
+      if (existing) {
+        existing.count += 1;
+        if (!existing.sampleEventIds.includes(ev.eventId) && existing.sampleEventIds.length < 6) {
+          existing.sampleEventIds.push(ev.eventId);
+        }
+      } else {
+        bucketMap.set(reason, {
+          reason,
+          titleEn: meta.titleEn,
+          titleFa: meta.titleFa,
+          descriptionEn: meta.descEn,
+          descriptionFa: meta.descFa,
+          severity: meta.severity,
+          count: 1,
+          sampleEventIds: [ev.eventId],
+        });
+      }
+    }
+
+    const decodedFromRaw = ev.bugcheckCodeRaw ? decodeBsodStopCode(ev.bugcheckCodeRaw) : null;
+    const decodedFromMsg = decodeBsodStopCode(ev.rawMessage);
+    for (const sc of [decodedFromRaw, decodedFromMsg]) {
+      if (sc && !stopCodeMap.has(sc.codeHex)) {
+        stopCodeMap.set(sc.codeHex, sc);
+      }
+    }
+
+    const sysMatches = String(ev.rawMessage || '').match(/\b[a-zA-Z0-9_-]{2,40}\.sys\b/gi) || [];
+    for (const drv of sysMatches) {
+      driverSet.add(drv);
+      if (driverSet.size >= 12) break;
+    }
+  }
+
+  const order: BsodReasonCategory[] = ['bugcheck', 'hardware_whea', 'driver_gpu', 'storage_dump', 'kernel_power', 'memory_os'];
+  const reasonBuckets = order
+    .map((r) => bucketMap.get(r))
+    .filter((b): b is BsodReasonBucket => Boolean(b));
+
+  const stopCodes = Array.from(stopCodeMap.values());
+  const suspectedDrivers = Array.from(driverSet);
+  const dumpFiles = Array.isArray(params.dumpFiles) ? params.dumpFiles : [];
+  const totalClueEvents = reasonBuckets.reduce((acc, b) => acc + b.count, 0);
+  const bsodDetected = Boolean(
+    bucketMap.has('bugcheck') ||
+    stopCodes.length > 0 ||
+    dumpFiles.length > 0 ||
+    bucketMap.has('hardware_whea') ||
+    (bucketMap.has('kernel_power') && (bucketMap.get('kernel_power')!.count > 0))
+  );
+
+  let verdictTitleEn = 'No Blue Screen (BSOD) Indicators Detected';
+  let verdictTitleFa = 'هیچ نشانه قطعی از صفحه آبی (BSOD) در بازه انتخابی یافت نشد';
+  let verdictSummaryEn =
+    'No BugCheck (1001), WHEA hardware faults, crash minidumps, or sudden power/storage failure clues appeared in the scanned window.';
+  let verdictSummaryFa =
+    'در بازه زمانی اسکن‌شده، رویداد BugCheck (1001)، خطای سخت‌افزاری WHEA، فایل Minidump یا کرش ناگهانی یافت نشد.';
+
+  if (stopCodes.length > 0) {
+    const primary = stopCodes[0];
+    verdictTitleEn = `Stop Code Identified: ${primary.symbolicName} (${primary.codeHex})`;
+    verdictTitleFa = `کد خطای صفحه آبی شناسایی شد: ${primary.symbolicName} (${primary.codeHex})`;
+    verdictSummaryEn = `${primary.summaryEn} Recommended: ${primary.actionEn}`;
+    verdictSummaryFa = `${primary.summaryFa} اقدام پیشنهادی: ${primary.actionFa}`;
+  } else if (bucketMap.has('hardware_whea')) {
+    verdictTitleEn = 'Likely Hardware Fault Triggering Crash / BSOD (WHEA-Logger)';
+    verdictTitleFa = 'احتمال بالای نقص سخت‌افزاری (WHEA: پردازنده / رم / تغذیه یا دما)';
+    verdictSummaryEn = 'WHEA-Logger reported hardware-level errors around the crash window. Check cooling, RAM health, BIOS, and power stability.';
+    verdictSummaryFa = 'خطاهای سخت‌افزاری WHEA در سیستم ثبت شده‌اند؛ دما، سلامت RAM، بایوس و پایداری تغذیه سیستم باید بررسی شود.';
+  } else if (bucketMap.has('storage_dump')) {
+    verdictTitleEn = 'Storage Controller / Dump Creation Failure Around Crash (volmgr / Disk)';
+    verdictTitleFa = 'احتمال قطعی/کندی SSD یا هارد و شکست ذخیره Dump هنگام کرش';
+    verdictSummaryEn = 'Storage/volmgr events show disk timeouts or failure to write crash dumps (often causing sudden freezes or 0xF4/0x7B BSODs).';
+    verdictSummaryFa = 'خطاهای volmgr یا کنترلر دیسک نشان می‌دهد هنگام کرش ارتباط با SSD/HDD دچار اختلال شده یا فضای درایو C کافی نبوده است.';
+  } else if (bucketMap.has('driver_gpu')) {
+    verdictTitleEn = 'Display / Kernel Driver Reset or Hang Clues Found';
+    verdictTitleFa = 'شواهد کرش یا ریست درایور گرافیک / درایورهای کرنل یافت شد';
+    verdictSummaryEn = 'Graphics or .sys driver resets/faults appeared in the log window — update GPU, chipset, and network drivers.';
+    verdictSummaryFa = 'خطا یا ریست درایور گرافیک یا فایل‌های .sys در لاگ ثبت شده است — بروزرسانی درایورهای گرافیک و چیپ‌ست توصیه می‌شود.';
+  } else if (bucketMap.has('kernel_power')) {
+    verdictTitleEn = 'Unclean Shutdown / Reboot Recorded (Kernel-Power 41 / 6008)';
+    verdictTitleFa = 'خاموشی یا ری‌استارت ناگهانی سیستم ثبت شده است (Kernel-Power 41 / 6008)';
+    verdictSummaryEn =
+      dumpFiles.length > 0
+        ? `Kernel-Power events paired with ${dumpFiles.length} Minidump file(s) confirm an abrupt crash/reboot.`
+        : 'System rebooted without clean shutdown and no BugcheckCode was written — check power supply/UPS/battery, thermal shutdown, or forced power-button reset.';
+    verdictSummaryFa =
+      dumpFiles.length > 0
+        ? `رویداد Kernel-Power همراه با ${dumpFiles.length} فایل Minidump کرش ناگهانی را تایید می‌کند.`
+        : 'سیستم بدون Shutdown استاندارد خاموش شده و BugcheckCode ثبت نشده است (معمولاً قطع ناگهانی برق، خرابی باتری/پاور یا خاموش کردن دستی با دکمه پاور).';
+  }
+
+  return {
+    focusEnabled: params.focusEnabled,
+    bsodDetected,
+    totalClueEvents,
+    verdictTitleEn,
+    verdictTitleFa,
+    verdictSummaryEn,
+    verdictSummaryFa,
+    stopCodes,
+    suspectedDrivers,
+    reasonBuckets,
+    dumpFiles,
+    crashControl: params.crashControl ?? null,
+  };
+}
+

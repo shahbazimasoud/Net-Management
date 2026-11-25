@@ -10,9 +10,55 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.476.0';
+export const APP_VERSION = '1.478.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.478.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'افزودن MSConfig و متغیرهای محیطی، تغییر نام کامپیوتر، انتقال و استعلام خودکار اکانت دامین در تب GPO، فیلتر حروف درایو آزاد، تست پرینت و اکسپورت فونت‌ها',
+    title_en: 'HelpDesk MSConfig & Environment Variables, Inline Computer Rename, Auto AD Inspector in Repair/GPO & AD Members Tab, Free Drive-Letter Filter, Printer Test Page, and Font Export',
+    changes: [
+      'افزودن بخش‌های **MSConfig / Boot Options (`bcdedit`)** و **متغیرهای محیطی سیستم و کاربر (`Environment Variables`)** در کنار سرویس‌ها و استارت‌آپ در تب `Services & Startup` (مشاهده/ویرایش Timeout و Safe Boot و Flagهای بوت، اجرای `msconfig.exe` روی دسکتاپ کاربر، بررسی/افزودن/ویرایش/حذف متغیرهای `HKLM` و `HKU` به همراه تحلیلگر مسیرهای `PATH`).',
+      'افزودن قابلیت **تغییر نام کامپیوتر (Computer Rename)** در هدر مشخصات سیستم تب `Health & Safe Process Control` با پشتیبانی از `Rename-Computer` در ویندوز دامین (همراه با گزینه ری‌استارت ۱۰ ثانیه‌ای) و `hostnamectl` در لینوکس.',
+      'انتقال بخش **بررسی اکانت دامین و گروه‌های اکتیو دایرکتوری (`net user /domain`)** به تب **`تعمیر سیستم، Temp، GPO و اعضای AD`** بلافاصله پس از بخش Group Policy همراه با **تشخیص و استعلام خودکار کاربر متصل فعلی سیستم** بدون نیاز به وارد کردن دستی نام کاربری.',
+      'فیلتر کردن لیست **Drive Letter** در مودال `Map & Manage Shared Folder` به‌گونه‌ای که تنها حروف درایو آزاد و استفاده‌نشده (با حذف درایوهای ویندوز و شیرفولدرهای متصل فعلی) نمایش داده شوند.',
+      'افزودن گزینه **ارسال صفحه تست چاپ (`Send Test Print Page`)** به منوی سه‌نقطه پرینترهای نصب‌شده برای تست مستقیم چاپ از پنل.',
+      'افزودن قابلیت **اکسپورت فونت‌ها** در تب `Region & Fonts`: دانلود تک‌فایل هر فونت (`.ttf` / `.otf` / `.ttc`) و دانلود گروهی به‌صورت فایل **ZIP** (برای فونت‌های انتخاب‌شده یا فیلترشده).'
+    ],
+    changes_en: [
+      'Added **MSConfig & Boot Configuration (`bcdedit`)** and **System & User Environment Variables** sub-sections inside `Services & Startup Programs Management` (edit Safe Boot modes, boot timeout, `quietboot`/`bootlog`/`vga`/`sos` flags, launch `msconfig.exe` interactively, split `PATH` inspector, and add/edit/delete `HKLM`/`HKU` env vars with `WM_SETTINGCHANGE` broadcast).',
+      'Added inline **Computer Rename** control (`Rename PC`) directly beside the computer hostname in `Health & Safe Process Control` (`Rename-Computer` with Domain Admin credentials and optional 10s restart on Windows, `hostnamectl` on Linux).',
+      'Moved **Active Directory Domain Account Inspector (`net user /domain`)** immediately after `Group Policy Inspection & gpupdate /force` inside the renamed **`System Repair, Temp, GPO & AD Members`** tab, with **automatic domain user inspection** (title, department, email, DN, Global/Local AD groups, lockout, and password status) for the connected endpoint user.',
+      'Filtered **Drive Letter** selection in `Map & Manage Shared Folder (Network Drive)` strictly to unused drive letters (excluding active Windows local/logical drives and existing mapped network shares).',
+      'Added **Send Test Print Page** action inside the 3-dots menu of `Installed Printers`.',
+      'Added **Font Export** in `Fonts Management & Remote Font Installer`: single-font file download and bulk ZIP archive export (selected or filtered fonts, up to 250 per archive).'
+    ],
+  },
+  {
+    version: '1.477.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'ویرایش پروفایل‌های VPN، تاریخچه اتصال اختصاصی هر کاربر، RBAC ارسال پیام، عیب‌یابی چندعلتی BSOD و رفع خطای پرینتر و لاک/لاگ‌آف',
+    title_en: 'HelpDesk VPN Edit, Per-User Scoped History, RBAC Screen/Terminal Messaging, Multi-Cause BSOD Diagnostics, Printer Timeout & Session Auth Fixes',
+    changes: [
+      'افزودن قابلیت **ویرایش کامل پروفایل‌های VPN موجود** در بخش Endpoint VPN Connections Manager (تغییر نام پروفایل، آدرس سرور، پروتکل/تونل، DNS Suffix، Split Tunneling، حالت All-User و نوع احراز هویت با حذف ایمن پروفایل قبلی در صورت تغییر نام).',
+      'ایزوله‌سازی **تاریخچه اتصالات هلپ‌دسک (`Connection History`)** به تفکیک هر کاربر؛ اپراتورهای عادی تنها رکوردها و آمار اتصالات خود را مشاهده و مدیریت می‌کنند و مشاهده/مدیریت رکوردهای همه اپراتورها تنها برای سوپر ادمین، دامین ادمین یا پالیسی دارای مجوز صریح `canViewAllHelpdeskHistory` فعال می‌شود.',
+      'افزودن مجوز جدید **`canSendHelpdeskMessage`** در RBAC و اعمال کنترل سخت‌گیرانه سمت سرور و کلاینت (تنها سوپر ادمین یا نقش‌های دارای مجوز صریح) روی ارسال پیام تعاملی صفحه HelpDesk و ارسال پیام ترمینال در سرورهای لینوکس (`LinuxUsersTab`).',
+      'رفع تایم‌اوت ۱۸ ثانیه‌ای هنگام **تنظیم پرینتر پیش‌فرض (Set Default Printer)** با اولویت‌دهی به جستجوی سریع `HKU\\<SID>\\Devices` پیش از WMI، اجرای غیرمسدودکننده به‌روزرسانی رجیستری و افزایش مهلت اجرا به ۳۵ ثانیه.',
+      'تجهیز بخش **Event Viewer** به حالت تخصصی **تحلیل چندعلتی صفحه آبی مرگ (BSOD Multi-Cause Investigation)** شامل دسته‌بندی خودکار BugCheck (`Kernel-Power 41` XML, `WHEA-Logger`, `nvlddmkm`/`amdkmdag` GPU TDR, خطاهای `volmgr`/CrashDump، تحلیل فایل‌های `Minidump` و `CrashControl`) به همراه فیلترهای علت ریشه‌ای.',
+      'رفع ریشه‌ای خطای **`0xC000006D STATUS_LOGON_FAILURE`** در عملیات **Lock Screen** و **Sign Out** در تب User Logins, Sessions & Power ناشی از تداخل فیلد `username` کاربر مقصد با نام کاربری Domain Admin در بدنه درخواست و افزودن فالبک Scheduled Task تعاملی برای LockWorkStation.'
+    ],
+    changes_en: [
+      'Added full **Edit Existing VPN Profile** workflow in Endpoint VPN Connections Manager (`Pencil` action per profile, `originalName` rename/recreate across Windows PBK stores & Linux NetworkManager, DNS suffix, tunnel type, split tunneling, All-User scope, and credential/PSK updates).',
+      'Enforced **Per-User Connection History Scoping** (`canViewAllHelpdeskHistory`) in PostgreSQL and API routes so standard operators only inspect, count, delete, and clear their own HelpDesk connection records while full-access roles (`Super Admin`, `Domain Admin`, or explicit policy grant) see all operators.',
+      'Added **`canSendHelpdeskMessage`** RBAC permission strictly enforced for both **HelpDesk Endpoint Screen Messaging** (`POST /api/helpdesk/message`) and **Linux Terminal User Messaging** (`POST /api/remote-servers/:id/send-message` + `LinuxUsersTab.tsx`), requiring Super Admin or explicit policy authorization.',
+      'Fixed **Set Default Printer 18s SMB/RPC timeout** by querying `HKU\\<SID>\\Devices` first (avoiding slow network-printer WMI enumeration), broadcasting `WM_SETTINGCHANGE` via `SendMessageTimeout`, dispatching non-blocking `rundll32` fallback, and extending the command timeout window to 35s.',
+      'Upgraded **Event Viewer** with a dedicated **BSOD / Blue Screen Multi-Cause Diagnostic** mode (`Investigate BSOD Causes`, up to 30 days, multi-cause category filters across BugCheck stops, Kernel-Power 41 XML `BugcheckCode`, WHEA hardware errors, GPU TDR timeouts, `volmgr`/CrashDump I/O failures, Windows `%SystemRoot%\\Minidump` / `CrashControl` inspection, and Linux kernel panic fallback).',
+      'Fixed root cause of **`0xC000006D STATUS_LOGON_FAILURE`** during **Lock Workstation** and **Sign Out** actions (`targetUsername` separation from Domain Admin SMB/RPC `username` credential field) plus interactive `Register-ScheduledTask` `LockWorkStation` fallback.'
+    ],
+  },
   {
     version: '1.476.0',
     releaseDate: '2026-11-25',

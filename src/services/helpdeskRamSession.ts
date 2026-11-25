@@ -14,8 +14,10 @@ import {
   fetchHelpdeskPrograms,
   fetchHelpdeskHardwareInventory,
   fetchHelpdeskServicesAndStartup,
+  fetchHelpdeskMsconfigAndEnv,
   fetchHelpdeskRegionAndFonts,
   fetchHelpdeskSecurityAndAv,
+  inspectHelpdeskDomainUser,
   HelpdeskConnectionPayload,
   HelpdeskDiagnosticCheckId,
   ALL_HELPDESK_DIAGNOSTIC_CHECKS,
@@ -146,12 +148,15 @@ export interface HelpdeskRamState {
   programActionResult: any | null;
   programActionError: string | null;
 
-  // Tab 6C: Services & Startup
+  // Tab 6C: Services, Startup, MSConfig & Environment Variables
   servicesStartupData: any | null;
   loadingServicesStartup: boolean;
   servicesStartupError: string | null;
   serviceStartupActionResult: any | null;
   serviceStartupActionError: string | null;
+  msconfigEnvData: any | null;
+  loadingMsconfigEnv: boolean;
+  msconfigEnvError: string | null;
 
   // Tab 6D: Region, Time, Languages & Fonts
   regionFontsData: any | null;
@@ -279,6 +284,9 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     servicesStartupError: null,
     serviceStartupActionResult: null,
     serviceStartupActionError: null,
+    msconfigEnvData: null,
+    loadingMsconfigEnv: false,
+    msconfigEnvError: null,
 
     regionFontsData: null,
     loadingRegionFonts: false,
@@ -470,6 +478,9 @@ export async function runHelpdeskSequentialConnect(options: {
     servicesStartupError: null,
     serviceStartupActionResult: null,
     serviceStartupActionError: null,
+    msconfigEnvData: null,
+    loadingMsconfigEnv: false,
+    msconfigEnvError: null,
     regionFontsData: null,
     loadingRegionFonts: false,
     regionFontsError: null,
@@ -816,10 +827,15 @@ export async function runHelpdeskSequentialConnect(options: {
     },
     {
       id: 'services_startup',
-      labelEn: 'Services & Startup',
-      labelFa: 'سرویس‌ها و استارت‌آپ',
+      labelEn: 'Services, Startup, MSConfig & Env Vars',
+      labelFa: 'سرویس‌ها، استارت‌آپ، MSConfig و متغیرهای محیطی',
       run: async () => {
-        patchHelpdeskRamSnapshot({ loadingServicesStartup: true, servicesStartupError: null });
+        patchHelpdeskRamSnapshot({
+          loadingServicesStartup: true,
+          servicesStartupError: null,
+          loadingMsconfigEnv: true,
+          msconfigEnvError: null,
+        });
         try {
           const svcRes = await fetchHelpdeskServicesAndStartup(payload);
           if (!isCancelled()) {
@@ -839,6 +855,29 @@ export async function runHelpdeskSequentialConnect(options: {
                 (isEn
                   ? 'Failed to inspect Windows services and startup programs.'
                   : 'خطا در دریافت لیست سرویس‌ها و برنامه‌های استارت‌آپ سیستم کاربر.'),
+            });
+          }
+        }
+        if (isCancelled()) return true;
+        try {
+          const msRes = await fetchHelpdeskMsconfigAndEnv(payload);
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              msconfigEnvData: msRes.data,
+              loadingMsconfigEnv: false,
+              ...(msRes.rateLimit ? { rateLimit: msRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              msconfigEnvData: null,
+              loadingMsconfigEnv: false,
+              msconfigEnvError:
+                (isEn ? err?.message : err?.errorFa || err?.message) ||
+                (isEn
+                  ? 'Failed to inspect MSConfig boot options and environment variables.'
+                  : 'خطا در دریافت تنظیمات MSConfig و متغیرهای محیطی سیستم کاربر.'),
             });
           }
         }
@@ -909,8 +948,8 @@ export async function runHelpdeskSequentialConnect(options: {
     },
     {
       id: 'maintenance',
-      labelEn: 'Temp, GPO & Disk Health',
-      labelFa: 'پاک‌سازی Temp، GPO و دیسک‌ها',
+      labelEn: 'Temp, GPO, AD Members & Disk Health',
+      labelFa: 'پاک‌سازی Temp، GPO، اعضای AD و دیسک‌ها',
       run: async () => {
         patchHelpdeskRamSnapshot({ loadingTempScan: true, tempError: null });
         try {
@@ -937,9 +976,11 @@ export async function runHelpdeskSequentialConnect(options: {
         }
         if (isCancelled()) return true;
         patchHelpdeskRamSnapshot({ loadingGpo: true, gpoError: null });
+        let detectedGpoUser = '';
         try {
           const gpoRes = await fetchHelpdeskGpoStatus(payload);
           if (!isCancelled()) {
+            detectedGpoUser = String(gpoRes.data?.loggedInUser || '').trim();
             patchHelpdeskRamSnapshot({
               gpoData: gpoRes.data,
               loadingGpo: false,
@@ -957,6 +998,45 @@ export async function runHelpdeskSequentialConnect(options: {
                   ? 'Failed to inspect Group Policy status.'
                   : 'خطا در دریافت وضعیت Group Policy سیستم کاربر.'),
             });
+          }
+        }
+        if (isCancelled()) return true;
+        const rawActiveUser = String(
+          detectedGpoUser ||
+            ramState.healthData?.loggedInUser ||
+            ramState.logonsData?.loggedInUser ||
+            ramState.diagnosticsData?.loggedInUser ||
+            ''
+        ).trim();
+        const shortAdUser = rawActiveUser
+          .replace(/^.*\\/, '')
+          .split('@')[0]
+          .trim();
+        if (shortAdUser) {
+          patchHelpdeskRamSnapshot({
+            domainQueryUser: shortAdUser,
+            loadingDomainUser: true,
+            domainUserError: null,
+          });
+          try {
+            const adRes = await inspectHelpdeskDomainUser({ ...payload, domainUsername: shortAdUser });
+            if (!isCancelled()) {
+              patchHelpdeskRamSnapshot({
+                domainUserData: adRes.data,
+                loadingDomainUser: false,
+                ...(adRes.rateLimit ? { rateLimit: adRes.rateLimit } : {}),
+              });
+            }
+          } catch (err: any) {
+            if (!isCancelled()) {
+              patchHelpdeskRamSnapshot({
+                domainUserData: null,
+                loadingDomainUser: false,
+                domainUserError:
+                  (isEn ? err?.message : err?.errorFa || err?.message) ||
+                  (isEn ? 'Domain user lookup failed.' : 'استعلام وضعیت اکانت دامین با خطا مواجه شد.'),
+              });
+            }
           }
         }
         if (isCancelled()) return true;

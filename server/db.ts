@@ -607,6 +607,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canInspectHelpdeskDomainUsers: true,
     canPowerControlHelpdeskEndpoints: false,
     canManageHelpdeskExceptions: false,
+    canSendHelpdeskMessage: false,
+    canViewAllHelpdeskHistory: false,
     // Device & Port Actions
     terminalAccess: 'none',
     canToggleAdminStatus: false,
@@ -707,6 +709,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canInspectHelpdeskDomainUsers: false,
     canPowerControlHelpdeskEndpoints: false,
     canManageHelpdeskExceptions: false,
+    canSendHelpdeskMessage: false,
+    canViewAllHelpdeskHistory: false,
     // Device & Port Actions
     terminalAccess: 'view_only',
     canToggleAdminStatus: false,
@@ -807,6 +811,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canInspectHelpdeskDomainUsers: true,
     canPowerControlHelpdeskEndpoints: true,
     canManageHelpdeskExceptions: true,
+    canSendHelpdeskMessage: true,
+    canViewAllHelpdeskHistory: true,
     // Device & Port Actions
     terminalAccess: 'full',
     canToggleAdminStatus: true,
@@ -1926,6 +1932,16 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
       if (pData.canManageHelpdeskExceptions === undefined) {
         const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
         pData.canManageHelpdeskExceptions = isSuper;
+        changed = true;
+      }
+      if (pData.canSendHelpdeskMessage === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        pData.canSendHelpdeskMessage = isSuper;
+        changed = true;
+      }
+      if (pData.canViewAllHelpdeskHistory === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        pData.canViewAllHelpdeskHistory = isSuper;
         changed = true;
       }
       if (changed) {
@@ -5124,6 +5140,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canInspectHelpdeskDomainUsers: false,
       canPowerControlHelpdeskEndpoints: false,
       canManageHelpdeskExceptions: false,
+      canSendHelpdeskMessage: false,
+      canViewAllHelpdeskHistory: false,
       canCheckUpdate: false,
       canPerformUpdate: false,
       canBulkConfigureDevices: false,
@@ -5486,6 +5504,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canInspectHelpdeskDomainUsers: true,
       canPowerControlHelpdeskEndpoints: true,
       canManageHelpdeskExceptions: true,
+      canSendHelpdeskMessage: true,
+      canViewAllHelpdeskHistory: true,
       terminalAccess: 'full',
       canToggleAdminStatus: true,
       canChangeVlan: true,
@@ -5618,6 +5638,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canInspectHelpdeskDomainUsers: false,
     canPowerControlHelpdeskEndpoints: false,
     canManageHelpdeskExceptions: false,
+    canSendHelpdeskMessage: false,
+    canViewAllHelpdeskHistory: false,
     terminalAccess: 'none',
     canToggleAdminStatus: false,
     canChangeVlan: false,
@@ -15356,12 +15378,23 @@ export async function addHelpdeskConnectionHistoryInDb(
   return rec;
 }
 
+function normalizeActorMatchSet(actorAliases?: string[]): Set<string> | null {
+  if (!Array.isArray(actorAliases) || actorAliases.length === 0) return null;
+  const set = new Set<string>();
+  for (const raw of actorAliases) {
+    const clean = String(raw || '').trim().toLowerCase();
+    if (clean) set.add(clean);
+  }
+  return set.size > 0 ? set : null;
+}
+
 export async function queryHelpdeskConnectionHistoryFromDb(params: {
   search?: string;
   status?: 'all' | 'success' | 'failed';
   protocol?: string;
   page?: number;
   pageSize?: number;
+  actorAliases?: string[];
 }): Promise<{
   items: HelpdeskConnectionHistoryRecord[];
   total: number;
@@ -15416,6 +15449,12 @@ export async function queryHelpdeskConnectionHistoryFromDb(params: {
   allRecords = [...allRecords].sort(
     (a, b) => new Date(b.connectedAt || 0).getTime() - new Date(a.connectedAt || 0).getTime()
   );
+
+  // Enforce per-user scoping unless operator has full HelpDesk access
+  const actorSet = normalizeActorMatchSet(params.actorAliases);
+  if (actorSet) {
+    allRecords = allRecords.filter((r) => actorSet.has(String(r.actorName || '').trim().toLowerCase()));
+  }
 
   const uniqueSet = new Set<string>();
   let successCount = 0;
@@ -15472,17 +15511,38 @@ export async function queryHelpdeskConnectionHistoryFromDb(params: {
   };
 }
 
-export async function deleteHelpdeskConnectionHistoryFromDb(id: string): Promise<boolean> {
-  const store = loadFallbackStore();
-  const beforeLen = Array.isArray(store.helpdesk_connection_history)
-    ? store.helpdesk_connection_history.length
-    : 0;
-  store.helpdesk_connection_history = (store.helpdesk_connection_history || []).filter(
-    (h: any) => h.id !== id
-  );
-  saveFallbackStore(store);
+export async function deleteHelpdeskConnectionHistoryFromDb(
+  id: string,
+  actorAliases?: string[]
+): Promise<{ deleted: boolean; forbidden?: boolean }> {
+  const actorSet = normalizeActorMatchSet(actorAliases);
 
   await ensurePostgresConnection();
+  if (isPostgresReady && pool && actorSet) {
+    try {
+      await ensureHelpdeskConnectionHistoryTable();
+      const chk = await pool.query(`SELECT data FROM helpdesk_connection_history WHERE id = $1`, [id]);
+      if (chk.rows.length > 0) {
+        const rec = typeof chk.rows[0].data === 'string' ? JSON.parse(chk.rows[0].data) : chk.rows[0].data;
+        const owner = String(rec?.actorName || '').trim().toLowerCase();
+        if (!actorSet.has(owner)) {
+          return { deleted: false, forbidden: true };
+        }
+      }
+    } catch {}
+  }
+
+  const store = loadFallbackStore();
+  const list: any[] = Array.isArray(store.helpdesk_connection_history) ? store.helpdesk_connection_history : [];
+  const fbMatch = list.find((h: any) => h.id === id);
+  if (fbMatch && actorSet && !actorSet.has(String(fbMatch.actorName || '').trim().toLowerCase())) {
+    return { deleted: false, forbidden: true };
+  }
+
+  const beforeLen = list.length;
+  store.helpdesk_connection_history = list.filter((h: any) => h.id !== id);
+  saveFallbackStore(store);
+
   let deletedInPg = false;
   if (isPostgresReady && pool) {
     try {
@@ -15493,28 +15553,46 @@ export async function deleteHelpdeskConnectionHistoryFromDb(id: string): Promise
       console.warn('[DB] deleteHelpdeskConnectionHistoryFromDb error:', e?.message || e);
     }
   }
-  return deletedInPg || store.helpdesk_connection_history.length < beforeLen;
+  return { deleted: deletedInPg || store.helpdesk_connection_history.length < beforeLen };
 }
 
-export async function clearHelpdeskConnectionHistoryFromDb(): Promise<number> {
+export async function clearHelpdeskConnectionHistoryFromDb(actorAliases?: string[]): Promise<number> {
+  const actorSet = normalizeActorMatchSet(actorAliases);
   const store = loadFallbackStore();
-  const count = Array.isArray(store.helpdesk_connection_history)
-    ? store.helpdesk_connection_history.length
-    : 0;
-  store.helpdesk_connection_history = [];
+  const list: any[] = Array.isArray(store.helpdesk_connection_history) ? store.helpdesk_connection_history : [];
+  let fbRemoved = 0;
+
+  if (actorSet) {
+    store.helpdesk_connection_history = list.filter((h: any) => {
+      const owned = actorSet.has(String(h?.actorName || '').trim().toLowerCase());
+      if (owned) fbRemoved++;
+      return !owned;
+    });
+  } else {
+    fbRemoved = list.length;
+    store.helpdesk_connection_history = [];
+  }
   saveFallbackStore(store);
 
   await ensurePostgresConnection();
   if (isPostgresReady && pool) {
     try {
       await ensureHelpdeskConnectionHistoryTable();
-      const res = await pool.query(`DELETE FROM helpdesk_connection_history`);
-      return Math.max(count, res.rowCount || 0);
+      if (actorSet) {
+        const res = await pool.query(
+          `DELETE FROM helpdesk_connection_history WHERE LOWER(COALESCE(data->>'actorName', '')) = ANY($1::text[])`,
+          [Array.from(actorSet)]
+        );
+        return Math.max(fbRemoved, res.rowCount || 0);
+      } else {
+        const res = await pool.query(`DELETE FROM helpdesk_connection_history`);
+        return Math.max(fbRemoved, res.rowCount || 0);
+      }
     } catch (e: any) {
       console.warn('[DB] clearHelpdeskConnectionHistoryFromDb error:', e?.message || e);
     }
   }
-  return count;
+  return fbRemoved;
 }
 
 // ============================================================================

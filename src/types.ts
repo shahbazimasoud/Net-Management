@@ -1075,6 +1075,8 @@ export interface AccessPolicy {
   canInspectHelpdeskDomainUsers?: boolean;
   canPowerControlHelpdeskEndpoints?: boolean;
   canManageHelpdeskExceptions?: boolean;
+  canSendHelpdeskMessage?: boolean;
+  canViewAllHelpdeskHistory?: boolean;
 
   // 9. Communications, Notifications, Profile Security & Two-Step Approvals (RBAC)
   canViewCommunications?: boolean;

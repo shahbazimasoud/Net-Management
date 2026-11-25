@@ -3,7 +3,14 @@ import http from 'http';
 import https from 'https';
 import net from 'net';
 import { Client, ConnectConfig } from 'ssh2';
-import { explainEventCodeHuman, HumanEventExplanation } from './helpdeskEventCatalog';
+import {
+  explainEventCodeHuman,
+  HumanEventExplanation,
+  BsodReasonCategory,
+  BsodAnalysisResult,
+  classifyBsodEventReason,
+  buildBsodAnalysis,
+} from './helpdeskEventCatalog';
 import {
   createNtlmType1Buffer,
   createNtlmType3Result,
@@ -76,7 +83,13 @@ export type HelpdeskWriteAction =
   | 'firewall_rule_toggle'
   | 'firewall_rule_action'
   | 'firewall_rule_delete'
-  | 'antivirus_control';
+  | 'antivirus_control'
+  | 'endpoint_send_message'
+  | 'printer_test_page'
+  | 'computer_rename'
+  | 'msconfig_update'
+  | 'env_var_set'
+  | 'env_var_delete';
 
 export type HelpdeskProcessCategory =
   | 'user_app'
@@ -253,6 +266,7 @@ export interface HelpdeskVpnConnection {
   allUserConnection: boolean;
   connectionStatus: string;
   rememberCredential: boolean;
+  dnsSuffix?: string;
 }
 
 export interface HelpdeskNetworkSnapshotResult {
@@ -430,6 +444,7 @@ export interface HelpdeskSharesResult {
   collectedAt: string;
   userProfiles: HelpdeskUserProfileItem[];
   shares: HelpdeskMappedShareItem[];
+  usedDriveLetters: string[];
 }
 
 export interface HelpdeskFileServerShareItem {
@@ -484,6 +499,8 @@ export interface HelpdeskEventLogItem {
   timeCreated: string;
   rawMessage: string;
   explanation: HumanEventExplanation;
+  bsodReason?: BsodReasonCategory | null;
+  bugcheckCodeRaw?: string;
 }
 
 export interface HelpdeskEventViewerResult {
@@ -494,6 +511,7 @@ export interface HelpdeskEventViewerResult {
   hostname: string;
   collectedAt: string;
   channelRequested: 'All' | 'System' | 'Application';
+  diagnosticFocus?: 'all' | 'bsod';
   hoursBack: number;
   summary: {
     total: number;
@@ -509,6 +527,7 @@ export interface HelpdeskEventViewerResult {
       humanTitleFa: string;
     } | null;
   };
+  bsodAnalysis?: BsodAnalysisResult;
   events: HelpdeskEventLogItem[];
 }
 
@@ -2336,13 +2355,14 @@ function Parse-PbkUseRas([string]$pbkPath) {
     if ($t -match '^\\[(.+)\\]$') {
       $cur = $Matches[1]
       if (-not $map.ContainsKey($cur)) {
-        $map[$cur] = @{ server = ''; useRas = $false; split = $true; tunnel = 'Automatic' }
+        $map[$cur] = @{ server = ''; useRas = $false; split = $true; tunnel = 'Automatic'; dnsSuffix = '' }
       }
     } elseif ($cur -and $t -match '^([^=]+)=(.*)$') {
       $k = $Matches[1].Trim(); $v = $Matches[2].Trim()
       if ($k -eq 'PhoneNumber') { $map[$cur].server = $v }
       elseif ($k -eq 'UseRasCredentials') { $map[$cur].useRas = ($v -eq '1') }
       elseif ($k -eq 'IpPrioritizeRemote') { $map[$cur].split = ($v -eq '0') }
+      elseif ($k -eq 'DnsSuffix') { $map[$cur].dnsSuffix = $v }
       elseif ($k -eq 'VpnStrategy') {
         $map[$cur].tunnel = switch ($v) { '1' { 'Pptp' } '2' { 'Pptp' } '3' { 'L2tp' } '4' { 'L2tp' } '5' { 'Sstp' } '6' { 'Sstp' } '7' { 'Ikev2' } '8' { 'Ikev2' } default { 'Automatic' } }
       }
@@ -2396,6 +2416,7 @@ try {
       allUserConnection = $true
       connectionStatus = if ($activeRasNames.ContainsKey($nm.ToLower())) { 'Connected' } else { [string]$vc.ConnectionStatus }
       rememberCredential = [bool]$vc.RememberCredential
+      dnsSuffix = if ($vc.PSObject.Properties['DnsSuffix'] -and $vc.DnsSuffix) { [string]$vc.DnsSuffix } elseif ($pbkInfo -and $pbkInfo.dnsSuffix) { [string]$pbkInfo.dnsSuffix } else { '' }
     }
   }
 } catch {}
@@ -2415,6 +2436,7 @@ foreach ($uk in $userPbkMap.Keys) {
     allUserConnection = $false
     connectionStatus = if ($activeRasNames.ContainsKey($uk.ToLower())) { 'Connected' } else { 'Disconnected' }
     rememberCredential = $true
+    dnsSuffix = [string]$info.dnsSuffix
   }
 }
 
@@ -2437,6 +2459,7 @@ try {
       allUserConnection = $false
       connectionStatus = if ($activeRasNames.ContainsKey($nm.ToLower())) { 'Connected' } else { [string]$vc.ConnectionStatus }
       rememberCredential = [bool]$vc.RememberCredential
+      dnsSuffix = if ($vc.PSObject.Properties['DnsSuffix'] -and $vc.DnsSuffix) { [string]$vc.DnsSuffix } else { '' }
     }
   }
 } catch {}
@@ -3871,6 +3894,7 @@ export async function manageEndpointVpnConnection(
   params: {
     operation: HelpdeskVpnOperation;
     name: string;
+    originalName?: string;
     serverAddress?: string;
     tunnelType?: HelpdeskVpnTunnelType;
     l2tpPsk?: string;
@@ -3889,6 +3913,10 @@ export async function manageEndpointVpnConnection(
   const vpnName = String(params.name || '').trim();
   if (!/^[a-zA-Z0-9 _.-]{1,64}$/.test(vpnName)) {
     throw new Error('VPN connection name must be 1-64 characters (letters, numbers, spaces, ., _, -).');
+  }
+  const originalName = params.originalName ? String(params.originalName).trim() : '';
+  if (originalName && !/^[a-zA-Z0-9 _.-]{1,64}$/.test(originalName)) {
+    throw new Error('Original VPN connection name must be 1-64 characters (letters, numbers, spaces, ., _, -).');
   }
 
   const serverAddress = String(params.serverAddress || '').trim();
@@ -3924,6 +3952,7 @@ export async function manageEndpointVpnConnection(
     JSON.stringify({
       op,
       name: vpnName,
+      originalName,
       serverAddress,
       tunnelType,
       l2tpPsk,
@@ -4073,9 +4102,19 @@ if ($cfg.op -eq 'connect') {
 }
 
 # Create / Update VPN Connection
+$origName = [string]$cfg.originalName
+if ($origName -and ($origName -ine $vpnName)) {
+  try { & rasdial.exe $origName /DISCONNECT 2>$null | Out-Null } catch {}
+  try { Remove-VpnConnection -Name $origName -AllUserConnection -Force -ErrorAction SilentlyContinue } catch {}
+  try { Remove-VpnConnection -Name $origName -Force -ErrorAction SilentlyContinue } catch {}
+  Remove-PbkSection $globalPbk $origName
+  if ($userPbk) { Remove-PbkSection $userPbk $origName }
+}
+try { & rasdial.exe $vpnName /DISCONNECT 2>$null | Out-Null } catch {}
 try { Remove-VpnConnection -Name $vpnName -AllUserConnection -Force -ErrorAction SilentlyContinue } catch {}
+try { Remove-VpnConnection -Name $vpnName -Force -ErrorAction SilentlyContinue } catch {}
 Remove-PbkSection $globalPbk $vpnName
-if ($userPbk -and -not [bool]$cfg.allUserConnection) { Remove-PbkSection $userPbk $vpnName }
+if ($userPbk) { Remove-PbkSection $userPbk $vpnName }
 
 $addParams = @{
   Name = $vpnName
@@ -4186,6 +4225,7 @@ PY`;
     disconnect: 'network_vpn_disconnect',
   };
 
+  const isEditOp = op === 'create' && Boolean(originalName);
   return {
     targetIp: execRes.host,
     protocolUsed: execRes.protocolUsed,
@@ -4193,7 +4233,9 @@ PY`;
     action: actionMap[op],
     success: ok,
     message: ok
-      ? op === 'create'
+      ? isEditOp
+        ? `VPN profile "${originalName && originalName !== vpnName ? `${originalName} → ${vpnName}` : vpnName}" (${serverAddress}, ${tunnelType}) updated on ${execRes.host}${useWinlogonCredential ? ' using Windows Login SSO credentials' : ''}.`
+        : op === 'create'
         ? `VPN profile "${vpnName}" (${serverAddress}, ${tunnelType}) configured on ${execRes.host}${useWinlogonCredential ? ' using Windows Login SSO credentials' : ''}.`
         : op === 'delete'
         ? `VPN profile "${vpnName}" removed from ${execRes.host}.`
@@ -4202,7 +4244,9 @@ PY`;
         : `VPN "${vpnName}" disconnected on ${execRes.host}.`
       : `VPN operation (${op}) failed on ${execRes.host}: ${parsed.output}`,
     messageFa: ok
-      ? op === 'create'
+      ? isEditOp
+        ? `کانکشن VPN «${originalName && originalName !== vpnName ? `${originalName} ← ${vpnName}` : vpnName}» (${serverAddress} - ${tunnelType}) روی سیستم ${execRes.host} ویرایش شد${useWinlogonCredential ? ' (با احراز هویت خودکار یوزر و پسورد سیستم)' : ''}.`
+        : op === 'create'
         ? `کانکشن VPN «${vpnName}» (${serverAddress} - ${tunnelType}) روی سیستم ${execRes.host} ایجاد شد${useWinlogonCredential ? ' (با احراز هویت خودکار یوزر و پسورد سیستم)' : ''}.`
         : op === 'delete'
         ? `کانکشن VPN «${vpnName}» از سیستم ${execRes.host} حذف شد.`
@@ -4213,11 +4257,13 @@ PY`;
     details: {
       operation: op,
       name: vpnName,
+      originalName: originalName || null,
       serverAddress,
       tunnelType,
       useWinlogonCredential,
       splitTunneling,
       allUserConnection,
+      dnsSuffix: dnsSuffix || null,
     },
     rawOutput: String(parsed.output || ''),
     executedAt: new Date().toISOString(),
@@ -4658,17 +4704,7 @@ $appliedUser = $false
 $appliedSession = $false
 $notes = @()
 
-# 1. Apply in current Admin/WMI context if printer is visible in Win32_Printer
-try {
-  $wmiMatch = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq $targetPrinter } | Select-Object -First 1
-  if ($wmiMatch) {
-    (New-Object -ComObject WScript.Network).SetDefaultPrinter($wmiMatch.Name)
-    $appliedSession = $true
-    $notes += "Session default set"
-  }
-} catch {}
-
-# 2. Apply directly to Active Logged-In User profile (HKU\\<SID> + interactive session notification)
+# 1. Fast path: Update Active Logged-In User profile directly (HKU\\<SID>\\Windows\\Device) using cached Devices registry
 if ($userSid) {
   $winKey = "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows"
   $devKey = "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices"
@@ -4700,27 +4736,51 @@ if ($userSid) {
   }
 }
 
-# 3. Notify active interactive desktop session via one-shot Limited Scheduled Task (so apps update immediately)
+# 2. Only fallback to WMI SetDefaultPrinter in Admin context if active user registry path wasn't available
+if (-not $appliedUser) {
+  try {
+    $wmiMatch = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq $targetPrinter } | Select-Object -First 1
+    if ($wmiMatch) {
+      (New-Object -ComObject WScript.Network).SetDefaultPrinter($wmiMatch.Name)
+      $appliedSession = $true
+      $notes += "Session default set"
+    }
+  } catch {}
+}
+
+# 3. Fast non-blocking notification in active desktop session (avoid rundll32 -Wait blocking >18s on network printers)
 if ($loggedUser) {
   $taskName = "NetTopo_SetDefPrn_" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
   try {
     $innerB64 = '${encodePowerShellBase64(`
 $n = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${nameB64}'))
 try { (New-Object -ComObject WScript.Network).SetDefaultPrinter($n) } catch {}
-try { Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry','/y','/n',$n) -Wait -NoNewWindow } catch {}
+try {
+  Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class NetTopoWinNotify {
+  [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Auto)]
+  public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+}
+"@ -ErrorAction SilentlyContinue
+  $res = [UIntPtr]::Zero
+  [void][NetTopoWinNotify]::SendMessageTimeout([IntPtr]0xffff, 0x001A, [UIntPtr]::Zero, 'Windows', 2, 1000, [ref]$res)
+} catch {}
+try { Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry','/y','/n',$n) -NoNewWindow -ErrorAction SilentlyContinue } catch {}
 `)}'
     $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $innerB64"
     $pri = New-ScheduledTaskPrincipal -UserId $loggedUser -LogonType Interactive -RunLevel Limited
-    $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 20)
+    $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 10)
     Register-ScheduledTask -TaskName $taskName -Action $act -Principal $pri -Settings $st -Force | Out-Null
     Start-ScheduledTask -TaskName $taskName
-    for ($i = 0; $i -lt 20; $i++) {
-      Start-Sleep -Milliseconds 300
+    for ($i = 0; $i -lt 8; $i++) {
+      Start-Sleep -Milliseconds 250
       $tInfo = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
       if (-not $tInfo -or $tInfo.State -ne 'Running') { break }
     }
     $appliedUser = $true
-    $notes += "Interactive session updated for $loggedUser"
+    $notes += "Interactive session notified for $loggedUser"
   } catch {
     $notes += "Interactive task notice: $($_.Exception.Message)"
   } finally {
@@ -4754,7 +4814,7 @@ print(json.dumps({
 PY
 `;
 
-  const execRes = await executeHardcodedScripts(input, ps, lx);
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 35000 }, ps, lx);
   const parsed = parseJsonFromStdout<any>(execRes.stdout, 'set default printer');
   const ok = Boolean(parsed.ok);
   const loggedInUser = String(parsed.loggedInUser || '');
@@ -5694,12 +5754,24 @@ export async function collectEndpointEventLogs(
     hoursBack?: number;
     maxEvents?: number;
     severity?: 'all' | 'critical_error';
+    diagnosticFocus?: 'all' | 'bsod';
   }
 ): Promise<HelpdeskEventViewerResult> {
+  const diagnosticFocus: 'all' | 'bsod' = options?.diagnosticFocus === 'bsod' ? 'bsod' : 'all';
   const channel: 'All' | 'System' | 'Application' =
-    options?.channel === 'System' || options?.channel === 'Application' ? options.channel : 'All';
-  const hoursBack = Math.max(1, Math.min(168, Math.floor(Number(options?.hoursBack) || 48)));
-  const maxEvents = Math.max(10, Math.min(100, Math.floor(Number(options?.maxEvents) || 45)));
+    diagnosticFocus === 'bsod'
+      ? 'System'
+      : options?.channel === 'System' || options?.channel === 'Application'
+      ? options.channel
+      : 'All';
+  const hoursBack = Math.max(
+    1,
+    Math.min(720, Math.floor(Number(options?.hoursBack) || (diagnosticFocus === 'bsod' ? 336 : 48)))
+  );
+  const maxEvents = Math.max(
+    10,
+    Math.min(120, Math.floor(Number(options?.maxEvents) || (diagnosticFocus === 'bsod' ? 75 : 45)))
+  );
   const severity: 'all' | 'critical_error' =
     options?.severity === 'critical_error' ? 'critical_error' : 'all';
 
@@ -5711,7 +5783,141 @@ export async function collectEndpointEventLogs(
       : "@('System','Application')";
   const levelsPs = severity === 'critical_error' ? '@(1,2)' : '@(1,2,3)';
 
-  const psEventScript = `
+  const psEventScript =
+    diagnosticFocus === 'bsod'
+      ? `
+$ErrorActionPreference = 'SilentlyContinue'
+$startTime = (Get-Date).AddHours(-${hoursBack})
+$bsodProviders = @(
+  'Microsoft-Windows-WER-SystemErrorReporting',
+  'BugCheck',
+  'Microsoft-Windows-Kernel-Power',
+  'EventLog',
+  'USER32',
+  'Microsoft-Windows-WHEA-Logger',
+  'volmgr',
+  'Disk',
+  'disk',
+  'stornvme',
+  'storahci',
+  'Ntfs',
+  'Microsoft-Windows-Ntfs',
+  'Display',
+  'nvlddmkm',
+  'amdkmdag',
+  'igfx',
+  'Microsoft-Windows-Resource-Exhaustion-Detector',
+  'Service Control Manager'
+)
+
+$rawEvents = @()
+try {
+  $rawEvents = @(Get-WinEvent -FilterHashtable @{
+    LogName = 'System'
+    ProviderName = $bsodProviders
+    StartTime = $startTime
+  } -MaxEvents ${Math.max(maxEvents, 80)} -ErrorAction SilentlyContinue)
+} catch {}
+
+if ($rawEvents.Count -eq 0) {
+  $rawEvents = @(Get-WinEvent -FilterHashtable @{
+    LogName = 'System'
+    Level = @(1,2,3,4)
+    StartTime = $startTime
+  } -MaxEvents 120 -ErrorAction SilentlyContinue | Where-Object {
+    ($bsodProviders -contains $_.ProviderName) -or ($_.Id -in @(41, 1001, 1074, 6008, 46, 49, 161, 162, 2004, 4101, 7031, 7034, 7023))
+  } | Select-Object -First ${maxEvents})
+}
+
+# Filter noisy normal shutdown 1074 / informational 7036 out in BSOD mode
+$filteredEvents = @()
+foreach ($ev in $rawEvents) {
+  $pn = [string]$ev.ProviderName
+  $id = [int]$ev.Id
+  $lvlNum = [int]$ev.Level
+  if ($pn -eq 'Service Control Manager' -and $id -notin @(7000, 7001, 7023, 7024, 7031, 7034)) { continue }
+  if ($pn -eq 'EventLog' -and $id -notin @(6008, 6005, 6009, 6013)) { continue }
+  if ($pn -eq 'Microsoft-Windows-Kernel-Power' -and $id -ne 41) { continue }
+  if ($pn -eq 'USER32' -and $id -ne 1074) { continue }
+  if ($lvlNum -ge 4 -and $id -notin @(1001, 1074, 41, 6008)) { continue }
+  $filteredEvents += $ev
+}
+
+$items = @()
+foreach ($ev in ($filteredEvents | Select-Object -First ${maxEvents})) {
+  $lvl = switch ([int]$ev.Level) {
+    1 { 'critical' }
+    2 { 'error' }
+    3 { 'warning' }
+    default { 'info' }
+  }
+  $msg = if ($ev.Message) { [string]$ev.Message } else { '' }
+  if ($msg.Length -gt 850) { $msg = $msg.Substring(0, 850) + '...' }
+
+  $bugRaw = ''
+  if (([string]$ev.ProviderName -eq 'Microsoft-Windows-Kernel-Power' -and [int]$ev.Id -eq 41) -or [int]$ev.Id -eq 1001) {
+    try {
+      [xml]$evXml = $ev.ToXml()
+      $bcNode = $evXml.Event.EventData.Data | Where-Object { $_.Name -eq 'BugcheckCode' -or $_.Name -eq 'param1' } | Select-Object -First 1
+      if ($bcNode -and $bcNode.'#text') {
+        $txtVal = ([string]$bcNode.'#text').Trim()
+        if ($txtVal -and $txtVal -ne '0') { $bugRaw = $txtVal }
+      }
+      if (-not $msg -and $evXml.Event.EventData.Data) {
+        $pairs = @($evXml.Event.EventData.Data | ForEach-Object { "$($_.Name)=$($_.'#text')" })
+        if ($pairs.Count -gt 0) { $msg = ($pairs -join '; ') }
+      }
+    } catch {}
+  }
+
+  $items += [PSCustomObject]@{
+    recordId = [long]$ev.RecordId
+    eventId = [int]$ev.Id
+    channel = [string]$ev.LogName
+    level = $lvl
+    source = [string]$ev.ProviderName
+    timeCreated = if ($ev.TimeCreated) { $ev.TimeCreated.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { '' }
+    rawMessage = $msg
+    bugcheckCodeRaw = $bugRaw
+  }
+}
+
+$dumps = @()
+$minidumpDir = Join-Path $env:SystemRoot 'Minidump'
+if (Test-Path $minidumpDir) {
+  try {
+    foreach ($df in (Get-ChildItem -Path $minidumpDir -Filter '*.dmp' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 10)) {
+      $dumps += [PSCustomObject]@{
+        fileName = [string]$df.Name
+        fullPath = [string]$df.FullName
+        sizeKb = [Math]::Round($df.Length / 1024, 1)
+        modifiedAt = $df.LastWriteTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+      }
+    }
+  } catch {}
+}
+
+$cc = $null
+try {
+  $ccReg = Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CrashControl' -ErrorAction SilentlyContinue
+  if ($ccReg) {
+    $cc = [PSCustomObject]@{
+      crashDumpEnabled = [int]$ccReg.CrashDumpEnabled
+      autoReboot = ([int]$ccReg.AutoReboot -eq 1)
+      dumpFile = [string]$ccReg.DumpFile
+      minidumpDir = [string]$ccReg.MinidumpDir
+    }
+  }
+} catch {}
+
+[PSCustomObject]@{
+  hostname = [string]$env:COMPUTERNAME
+  events = $items
+  minidumps = $dumps
+  crashControl = $cc
+} | ConvertTo-Json -Depth 6 -Compress
+`
+      : `
 $ErrorActionPreference = 'SilentlyContinue'
 $startTime = (Get-Date).AddHours(-${hoursBack})
 $filter = @{
@@ -5738,6 +5944,7 @@ foreach ($ev in $rawEvents) {
     source = [string]$ev.ProviderName
     timeCreated = if ($ev.TimeCreated) { $ev.TimeCreated.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { '' }
     rawMessage = $msg
+    bugcheckCodeRaw = ''
   }
 }
 [PSCustomObject]@{
@@ -5746,8 +5953,64 @@ foreach ($ev in $rawEvents) {
 } | ConvertTo-Json -Depth 6 -Compress
 `;
 
-  const journalPriority = severity === 'critical_error' ? '3' : '4';
-  const linuxEventScript = `
+  const journalPriority = diagnosticFocus === 'bsod' ? '4' : severity === 'critical_error' ? '3' : '4';
+  const linuxEventScript =
+    diagnosticFocus === 'bsod'
+      ? `
+python3 - <<'PY'
+import glob, json, os, re, socket, subprocess
+from datetime import datetime, timezone
+
+items = []
+dumps = []
+try:
+    cmd = ["journalctl", "--since", "${hoursBack} hours ago", "-k", "-p", "0..4", "-n", "${Math.max(maxEvents, 80)}", "--no-pager", "-o", "json"]
+    out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+    crash_re = re.compile(r"(panic|oops|bug:|oom-killer|out of memory|mce|hardware error|nvme|i/o error|gpu hang|amdgpu|nouveau|nvidia|xid|segfault)", re.I)
+    for idx, line in enumerate(out.splitlines(), 1):
+        line = line.strip()
+        if not line: continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        msg = str(obj.get("MESSAGE") or "")[:850]
+        if not crash_re.search(msg): continue
+        prio = int(obj.get("PRIORITY", 4))
+        lvl = "critical" if prio <= 2 else ("error" if prio == 3 else "warning")
+        ts_us = int(obj.get("__REALTIME_TIMESTAMP", 0) or 0)
+        ts_iso = datetime.fromtimestamp(ts_us / 1e6, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if ts_us else ""
+        src = str(obj.get("SYSLOG_IDENTIFIER") or obj.get("_SYSTEMD_UNIT") or "kernel")
+        items.append({
+            "recordId": idx,
+            "eventId": prio,
+            "channel": "journald-kernel",
+            "level": lvl,
+            "source": src,
+            "timeCreated": ts_iso,
+            "rawMessage": msg,
+            "bugcheckCodeRaw": ""
+        })
+except Exception:
+    pass
+
+for path in sorted(glob.glob("/var/crash/*") + glob.glob("/var/spool/abrt/*"), reverse=True)[:10]:
+    try:
+        st = os.stat(path)
+        dumps.append({
+            "fileName": os.path.basename(path),
+            "fullPath": path,
+            "sizeKb": round(st.st_size / 1024, 1),
+            "modifiedAt": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        })
+    except Exception:
+        pass
+
+items.reverse()
+print(json.dumps({"hostname": socket.gethostname(), "events": items[:${maxEvents}], "minidumps": dumps, "crashControl": None}))
+PY
+`
+      : `
 python3 - <<'PY'
 import json, socket, subprocess
 from datetime import datetime, timezone
@@ -5776,7 +6039,8 @@ try:
             "level": lvl,
             "source": src,
             "timeCreated": ts_iso,
-            "rawMessage": msg
+            "rawMessage": msg,
+            "bugcheckCodeRaw": ""
         })
 except Exception:
     pass
@@ -5786,7 +6050,11 @@ print(json.dumps({"hostname": socket.gethostname(), "events": items}))
 PY
 `;
 
-  const execRes = await executeHardcodedScripts(input, psEventScript, linuxEventScript);
+  const execRes = await executeHardcodedScripts(
+    diagnosticFocus === 'bsod' ? { ...input, timeoutMs: Math.max(25000, input.timeoutMs || 25000) } : input,
+    psEventScript,
+    linuxEventScript
+  );
   const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint event viewer');
   const rawList: any[] = Array.isArray(parsed.events) ? parsed.events : parsed.events ? [parsed.events] : [];
 
@@ -5819,6 +6087,7 @@ PY
     const source = String(ev.source || 'System');
     const evChannel = String(ev.channel || (execRes.osFamily === 'linux' ? 'journald' : 'System'));
     const rawMessage = String(ev.rawMessage || '').trim();
+    const bugcheckCodeRaw = String(ev.bugcheckCodeRaw || '').trim();
 
     const explanation = explainEventCodeHuman({
       eventId,
@@ -5829,6 +6098,13 @@ PY
       osFamily: execRes.osFamily,
     });
     if (explanation.isKnownCode) knownDecodedCount++;
+
+    const bsodReason = classifyBsodEventReason({
+      eventId,
+      source,
+      level,
+      message: bugcheckCodeRaw ? `${rawMessage} BugcheckCode=${bugcheckCodeRaw}` : rawMessage,
+    });
 
     const key = `${eventId}|${source.toLowerCase()}`;
     const existing = issueCounter.get(key);
@@ -5857,6 +6133,8 @@ PY
       timeCreated: String(ev.timeCreated || ''),
       rawMessage,
       explanation,
+      bsodReason,
+      ...(bugcheckCodeRaw ? { bugcheckCodeRaw } : {}),
     };
   });
 
@@ -5867,6 +6145,67 @@ PY
     }
   }
 
+  let bsodAnalysis: BsodAnalysisResult | undefined;
+  if (diagnosticFocus === 'bsod') {
+    const rawDumps: any[] = Array.isArray(parsed.minidumps)
+      ? parsed.minidumps
+      : parsed.minidumps
+      ? [parsed.minidumps]
+      : [];
+    const dumpFiles = rawDumps
+      .map((d) => ({
+        name: String(d?.fileName || d?.name || ''),
+        path: String(d?.fullPath || d?.path || ''),
+        sizeKb: Number(d?.sizeKb) || 0,
+        createdAt: String(d?.modifiedAt || d?.createdAt || ''),
+      }))
+      .filter((d) => d.name);
+
+    const crashDumpCode =
+      parsed.crashControl?.crashDumpEnabled !== undefined && parsed.crashControl?.crashDumpEnabled !== null
+        ? Number(parsed.crashControl.crashDumpEnabled)
+        : null;
+    const crashDumpModeLabel =
+      crashDumpCode === 0
+        ? 'Disabled (None)'
+        : crashDumpCode === 1
+        ? 'Complete Memory Dump'
+        : crashDumpCode === 2
+        ? 'Kernel Memory Dump'
+        : crashDumpCode === 3
+        ? 'Small Memory Dump (Minidump)'
+        : crashDumpCode === 7
+        ? 'Automatic Memory Dump'
+        : crashDumpCode !== null && Number.isFinite(crashDumpCode)
+        ? `Mode ${crashDumpCode}`
+        : 'Unknown';
+
+    const crashControl = parsed.crashControl
+      ? {
+          crashDumpEnabled: crashDumpCode,
+          crashDumpModeLabel,
+          autoReboot:
+            typeof parsed.crashControl.autoReboot === 'boolean' ? parsed.crashControl.autoReboot : null,
+          dumpFile: parsed.crashControl.dumpFile ? String(parsed.crashControl.dumpFile) : '',
+          minidumpDir: parsed.crashControl.minidumpDir ? String(parsed.crashControl.minidumpDir) : '',
+        }
+      : null;
+
+    bsodAnalysis = buildBsodAnalysis({
+      focusEnabled: true,
+      events: events.map((e) => ({
+        eventId: e.eventId,
+        source: e.source,
+        level: e.level,
+        rawMessage: e.rawMessage,
+        bsodReason: e.bsodReason,
+        bugcheckCodeRaw: e.bugcheckCodeRaw,
+      })),
+      dumpFiles,
+      crashControl,
+    });
+  }
+
   return {
     targetIp: execRes.host,
     protocolUsed: execRes.protocolUsed,
@@ -5875,6 +6214,7 @@ PY
     hostname: String(parsed.hostname || execRes.host),
     collectedAt: new Date().toISOString(),
     channelRequested: channel,
+    diagnosticFocus,
     hoursBack,
     summary: {
       total: events.length,
@@ -5884,6 +6224,7 @@ PY
       knownDecodedCount,
       topIssue,
     },
+    ...(bsodAnalysis ? { bsodAnalysis } : {}),
     events,
   };
 }
@@ -7545,6 +7886,11 @@ export interface HelpdeskDomainUserResult {
   passwordStatus: 'active' | 'expired' | 'never_expires' | 'must_change' | 'unknown';
   localGroups: string[];
   globalGroups: string[];
+  adsiMemberOf?: string[];
+  title?: string;
+  department?: string;
+  email?: string;
+  distinguishedName?: string;
   rawOutput: string;
   collectedAt: string;
 }
@@ -7553,7 +7899,13 @@ export async function inspectDomainAccount(
   input: HelpdeskTargetInput,
   rawDomainUsername: string
 ): Promise<HelpdeskDomainUserResult> {
-  const cleanUser = String(rawDomainUsername || '').trim();
+  let cleanUser = String(rawDomainUsername || '').trim();
+  if (cleanUser.includes('\\')) {
+    cleanUser = cleanUser.split('\\').pop()?.trim() || cleanUser;
+  }
+  if (cleanUser.includes('@')) {
+    cleanUser = cleanUser.split('@')[0]?.trim() || cleanUser;
+  }
   // Strict sAMAccountName allowlist: prevents any command or LDAP injection
   if (!/^[a-zA-Z0-9._-]{1,64}$/.test(cleanUser)) {
     throw new Error(
@@ -7568,18 +7920,37 @@ $netOut = (& net.exe user $u /domain 2>&1 | Out-String)
 $netExit = $LASTEXITCODE
 
 $adsiLocked = $null
-$adsiPwdExpired = $null
+$adsiMemberOf = @()
+$adsiTitle = ''
+$adsiDept = ''
+$adsiMail = ''
+$adsiDn = ''
 try {
   $searcher = [adsisearcher]"(&(objectCategory=person)(objectClass=user)(sAMAccountName=$u))"
   $res = $searcher.FindOne()
   if ($res) {
-    $entry = $res.GetDirectoryEntry()
     $lockTime = 0
     try {
       $ltProp = $res.Properties['lockouttime']
       if ($ltProp -and $ltProp.Count -gt 0) { $lockTime = [int64]$ltProp[0] }
     } catch {}
     $adsiLocked = ($lockTime -gt 0)
+    try {
+      if ($res.Properties['title'] -and $res.Properties['title'].Count -gt 0) { $adsiTitle = [string]$res.Properties['title'][0] }
+      if ($res.Properties['department'] -and $res.Properties['department'].Count -gt 0) { $adsiDept = [string]$res.Properties['department'][0] }
+      if ($res.Properties['mail'] -and $res.Properties['mail'].Count -gt 0) { $adsiMail = [string]$res.Properties['mail'][0] }
+      if ($res.Properties['distinguishedname'] -and $res.Properties['distinguishedname'].Count -gt 0) { $adsiDn = [string]$res.Properties['distinguishedname'][0] }
+      if ($res.Properties['memberof']) {
+        foreach ($dn in $res.Properties['memberof']) {
+          $sDn = [string]$dn
+          if ($sDn -match '^CN=([^,]+)') {
+            $adsiMemberOf += $matches[1].Replace('\\,', ',')
+          } else {
+            $adsiMemberOf += $sDn
+          }
+        }
+      }
+    } catch {}
   }
 } catch {}
 
@@ -7587,10 +7958,15 @@ try {
   exitCode = $netExit
   rawOutput = $netOut.Trim()
   adsiLocked = $adsiLocked
+  adsiMemberOf = @($adsiMemberOf | Select-Object -Unique)
+  adsiTitle = $adsiTitle
+  adsiDept = $adsiDept
+  adsiMail = $adsiMail
+  adsiDn = $adsiDn
 } | ConvertTo-Json -Compress
 `;
 
-  const linuxSh = `echo '{"exitCode":1,"rawOutput":"Domain user lookup via net user /domain requires a Windows domain-joined workstation.","adsiLocked":null}'`;
+  const linuxSh = `echo '{"exitCode":1,"rawOutput":"Domain user lookup via net user /domain requires a Windows domain-joined workstation.","adsiLocked":null,"adsiMemberOf":[]}'`;
 
   const execRes = await executeHardcodedScripts(
     { ...input, timeoutMs: Math.max(25000, input.timeoutMs || 25000) },
@@ -7601,10 +7977,15 @@ try {
     exitCode: number;
     rawOutput: string;
     adsiLocked: boolean | null;
+    adsiMemberOf?: string[];
+    adsiTitle?: string;
+    adsiDept?: string;
+    adsiMail?: string;
+    adsiDn?: string;
   }>(execRes.stdout, 'domain user lookup');
 
   const raw = String(parsed.rawOutput || '');
-  const found = parsed.exitCode === 0 && /User name/i.test(raw);
+  const found = (parsed.exitCode === 0 && /User name/i.test(raw)) || Boolean(parsed.adsiDn);
 
   const extractField = (label: string): string => {
     const regex = new RegExp(`^${label}\\s+(.+)$`, 'im');
@@ -7674,6 +8055,22 @@ try {
     accountLocked = true;
   }
 
+  const adsiMemberOf = Array.isArray(parsed.adsiMemberOf)
+    ? parsed.adsiMemberOf.map((g) => String(g || '').trim()).filter(Boolean)
+    : [];
+  // Merge untruncated ADSI memberOf group CNs alongside net user /domain output (avoid truncated 20-char duplicates)
+  const mergedGlobalSet = new Set<string>(adsiMemberOf);
+  for (const gg of globalGroups) {
+    const cleanGg = gg.trim();
+    if (!cleanGg) continue;
+    const matchedFull = adsiMemberOf.some(
+      (full) => full.toLowerCase() === cleanGg.toLowerCase() || full.toLowerCase().startsWith(cleanGg.toLowerCase())
+    );
+    if (!matchedFull) {
+      mergedGlobalSet.add(cleanGg);
+    }
+  }
+
   return {
     targetIp: execRes.host,
     protocolUsed: execRes.protocolUsed,
@@ -7693,7 +8090,12 @@ try {
     lastLogon,
     passwordStatus,
     localGroups,
-    globalGroups,
+    globalGroups: Array.from(mergedGlobalSet),
+    adsiMemberOf,
+    ...(parsed.adsiTitle ? { title: String(parsed.adsiTitle) } : {}),
+    ...(parsed.adsiDept ? { department: String(parsed.adsiDept) } : {}),
+    ...(parsed.adsiMail ? { email: String(parsed.adsiMail) } : {}),
+    ...(parsed.adsiDn ? { distinguishedName: String(parsed.adsiDn) } : {}),
     rawOutput: raw,
     collectedAt: new Date().toISOString(),
   };
@@ -8416,12 +8818,35 @@ if (Get-Command Get-SmbMapping -ErrorAction SilentlyContinue) {
   } catch {}
 }
 
+$usedSet = New-Object 'System.Collections.Generic.HashSet[string]'
+try {
+  foreach ($ld in (Get-CimInstance Win32_LogicalDisk -ErrorAction SilentlyContinue)) {
+    $dId = ([string]$ld.DeviceID).Trim().ToUpper()
+    if ($dId -match '^[A-Z]:$') { [void]$usedSet.Add($dId) }
+  }
+} catch {}
+try {
+  foreach ($psd in (Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue)) {
+    $rt = ([string]$psd.Root).Trim().ToUpper().TrimEnd('\\')
+    if ($rt -match '^[A-Z]:$') { [void]$usedSet.Add($rt) }
+  }
+} catch {}
+foreach ($k in $liveMapByLocal.Keys) {
+  $u = ([string]$k).Trim().ToUpper()
+  if ($u -match '^[A-Z]:$') { [void]$usedSet.Add($u) }
+}
+foreach ($sh in $shares) {
+  $u = ([string]$sh.driveLetter).Trim().ToUpper()
+  if ($u -match '^[A-Z]:$') { [void]$usedSet.Add($u) }
+}
+
 [PSCustomObject]@{
   hostname = $env:COMPUTERNAME
   loggedInUser = $loggedUser
   loggedInUserSid = $userSid
   userProfiles = @($profiles | Sort-Object -Property @{Expression='isActiveLoggedIn';Descending=$true}, @{Expression='username';Descending=$false})
   shares = $shares
+  usedDriveLetters = @($usedSet | Sort-Object)
 } | ConvertTo-Json -Depth 6 -Compress
 `;
 
@@ -8457,7 +8882,8 @@ print(json.dumps({
     "loggedInUser": os.environ.get("USER", ""),
     "loggedInUserSid": "",
     "userProfiles": [],
-    "shares": shares
+    "shares": shares,
+    "usedDriveLetters": []
 }))
 PY
 `;
@@ -8473,6 +8899,11 @@ PY
     ? parsed.shares
     : parsed.shares
     ? [parsed.shares]
+    : [];
+  const rawUsedLetters = Array.isArray(parsed.usedDriveLetters)
+    ? parsed.usedDriveLetters
+    : parsed.usedDriveLetters
+    ? [parsed.usedDriveLetters]
     : [];
 
   return {
@@ -8505,6 +8936,13 @@ PY
       provider: String(s.provider || 'Microsoft Windows Network'),
       managedRuleName: s.managedRuleName ? String(s.managedRuleName) : undefined,
     })),
+    usedDriveLetters: Array.from(
+      new Set<string>(
+        rawUsedLetters
+          .map((d: any) => String(d || '').trim().toUpperCase())
+          .filter((d: string) => /^[A-Z]:$/.test(d))
+      )
+    ).sort(),
   };
 }
 
@@ -10251,6 +10689,20 @@ if ($action -eq 'logoff') {
       & schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
     } else {
       $outMsg = $cOut.Trim()
+      try {
+        $actLock = New-ScheduledTaskAction -Execute 'rundll32.exe' -Argument 'user32.dll,LockWorkStation'
+        $priLock = New-ScheduledTaskPrincipal -UserId $lockUser -LogonType Interactive -RunLevel Limited
+        $stLock = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 15)
+        Register-ScheduledTask -TaskName $taskName -Action $actLock -Principal $priLock -Settings $stLock -Force | Out-Null
+        Start-ScheduledTask -TaskName $taskName
+        Start-Sleep -Milliseconds 650
+        $lockedViaTask = $true
+        $outMsg = "Screen locked via interactive ScheduledTask for $lockUser."
+      } catch {
+        $outMsg = "$outMsg | Register-ScheduledTask: $($_.Exception.Message)"
+      } finally {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+      }
     }
   }
 
@@ -17420,7 +17872,7 @@ PY`;
         durationMs,
         jumpTarget,
         secondaryJumpTarget: {
-          tab: 'hardware_domain',
+          tab: 'maintenance',
           sectionId: 'hd-section-domain-account',
           labelEn: 'AD User & Groups',
           labelFa: 'اکانت و گروه‌های دامین',
@@ -19605,5 +20057,1412 @@ PY`;
     executedAt: new Date().toISOString(),
   };
 }
+
+// ============================================================================
+// 26. ENDPOINT INTERACTIVE SCREEN MESSAGING (RBAC-PROTECTED)
+// ============================================================================
+
+export async function sendEndpointUserMessage(
+  input: HelpdeskTargetInput,
+  options: {
+    message: string;
+    title?: string;
+    recipient?: string;
+    displaySeconds?: number;
+  }
+): Promise<HelpdeskActionResult> {
+  const message = String(options.message || '').trim();
+  if (!message || message.length > 500) {
+    throw new Error('Message text must be between 1 and 500 characters.');
+  }
+  const title = String(options.title || 'IT HelpDesk Message').trim().slice(0, 80) || 'IT HelpDesk Message';
+  const recipient = String(options.recipient || '*').trim() || '*';
+  if (!/^(\*|[a-zA-Z0-9._\\@-]{1,128})$/.test(recipient)) {
+    throw new Error('Invalid recipient session/username format.');
+  }
+  const displaySeconds = Math.max(10, Math.min(120, Math.floor(Number(options.displaySeconds) || 45)));
+
+  const payloadB64 = utf8Base64(
+    JSON.stringify({
+      title,
+      message,
+      recipient,
+      displaySeconds,
+    })
+  );
+
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+$cfg = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payloadB64}')) | ConvertFrom-Json
+$msgTitle = [string]$cfg.title
+$msgBody = [string]$cfg.message
+$rcpt = [string]$cfg.recipient
+$secs = [int]$cfg.displaySeconds
+if ($secs -lt 10) { $secs = 45 }
+
+function Get-ActiveSessionsMsg {
+  $list = @()
+  $lines = @(& quser.exe 2>$null)
+  if ($lines.Count -lt 2) { return $list }
+  foreach ($l in $lines | Select-Object -Skip 1) {
+    if ([string]::IsNullOrWhiteSpace($l)) { continue }
+    $clean = $l.TrimStart('>', ' ')
+    if ($clean -match '^(\\S+)\\s+(?:(\\S+)\\s+)?(\\d+)\\s+(Active|Disc|Conn|Listen|Idle)\\s+(.*)$') {
+      $list += [PSCustomObject]@{ user = $matches[1]; sessionName = $matches[2]; id = $matches[3]; state = $matches[4] }
+    }
+  }
+  return $list
+}
+
+$delivered = $false
+$method = ''
+$notes = @()
+
+# 1. Primary path: Native Windows msg.exe
+$msgExe = "$env:SystemRoot\\System32\\msg.exe"
+if (-not (Test-Path $msgExe)) { $msgExe = 'msg.exe' }
+try {
+  $fullText = "[$msgTitle] \`r\`n$msgBody"
+  $targetArg = if ($rcpt -and $rcpt -ne '*') { $rcpt } else { '*' }
+  if ($rcpt -and $rcpt -ne '*' -and $rcpt.Contains('\\')) {
+    $targetArg = $rcpt.Split('\\')[-1]
+  }
+  $msgOut = (& $msgExe $targetArg "/TIME:$secs" $fullText 2>&1 | Out-String).Trim()
+  if ($LASTEXITCODE -eq 0) {
+    $delivered = $true
+    $method = 'msg.exe'
+    $notes += if ($msgOut) { $msgOut } else { "msg.exe delivered to $targetArg" }
+  } else {
+    $notes += "msg.exe notice: $msgOut"
+  }
+} catch {
+  $notes += "msg.exe unavailable: $($_.Exception.Message)"
+}
+
+# 2. Fallback path: Ephemeral Interactive Scheduled Task GUI dialog for active logged-in desktop user
+if (-not $delivered) {
+  $sessions = @(Get-ActiveSessionsMsg | Where-Object { $_.state -eq 'Active' -and $_.id -ne '0' })
+  $targetUsers = @()
+  if ($rcpt -and $rcpt -ne '*') {
+    $bare = if ($rcpt.Contains('\\')) { $rcpt.Split('\\')[-1] } else { $rcpt }
+    $matchS = @($sessions | Where-Object { $_.id -eq $rcpt -or $_.user -ieq $bare -or $_.user -ieq $rcpt })
+    foreach ($s in $matchS) { if ($s.user) { $targetUsers += [string]$s.user } }
+    if ($targetUsers.Count -eq 0 -and ($rcpt -notmatch '^\\d+$')) { $targetUsers += $rcpt }
+  } else {
+    foreach ($s in $sessions) { if ($s.user) { $targetUsers += [string]$s.user } }
+  }
+
+  $csUser = ''
+  try { $csUser = [string](Get-CimInstance Win32_ComputerSystem).UserName } catch {}
+  if ($targetUsers.Count -eq 0 -and $csUser) { $targetUsers += $csUser }
+  $targetUsers = @($targetUsers | Select-Object -Unique)
+
+  foreach ($tu in $targetUsers) {
+    $runUser = if ($csUser -and ($csUser -like "*\\$tu" -or $csUser -ieq $tu)) { $csUser } else { $tu }
+    $taskName = "NetTopo_Msg_" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+    $innerScript = @"
+\$d = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payloadB64}')) | ConvertFrom-Json
+try {
+  Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+  [System.Windows.Forms.MessageBox]::Show([string]\$d.message, [string]\$d.title, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information, [System.Windows.Forms.MessageBoxDefaultButton]::Button1, [System.Windows.Forms.MessageBoxOptions]::DefaultDesktopOnly) | Out-Null
+} catch {
+  try {
+    \$ws = New-Object -ComObject WScript.Shell
+    [void]\$ws.Popup([string]\$d.message, [int]\$d.displaySeconds, [string]\$d.title, 4096 + 64)
+  } catch {}
+}
+"@
+    $innerB64 = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($innerScript))
+    try {
+      $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $innerB64"
+      $pri = New-ScheduledTaskPrincipal -UserId $runUser -LogonType Interactive -RunLevel Limited
+      $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 3)
+      Register-ScheduledTask -TaskName $taskName -Action $act -Principal $pri -Settings $st -Force | Out-Null
+      Start-ScheduledTask -TaskName $taskName
+      Start-Sleep -Milliseconds 350
+      $delivered = $true
+      $method = 'Interactive-Popup'
+      $notes += "Popup displayed for $runUser"
+    } catch {
+      $notes += "Interactive popup failed for $runUser: $($_.Exception.Message)"
+    } finally {
+      Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    }
+  }
+}
+
+[PSCustomObject]@{
+  ok = [bool]$delivered
+  method = $method
+  recipient = $rcpt
+  output = ($notes -join ' | ')
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import base64, json, shutil, subprocess
+cfg = json.loads(base64.b64decode("${payloadB64}").decode("utf-8"))
+title = cfg["title"]
+msg = cfg["message"]
+rcpt = cfg["recipient"]
+delivered = False
+methods = []
+notes = []
+
+# 1. Try desktop notify-send for logged-in X11/Wayland sessions
+try:
+    out = subprocess.check_output(["loginctl", "list-sessions", "--no-legend"], text=True, stderr=subprocess.DEVNULL)
+    seen = set()
+    for line in out.splitlines():
+        cols = line.split()
+        if len(cols) < 3: continue
+        sid, uid, user = cols[0], cols[1], cols[2]
+        if rcpt != "*" and rcpt not in (sid, user): continue
+        if user in seen or user == "root": continue
+        seen.add(user)
+        if shutil.which("notify-send"):
+            cmd = f"DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus notify-send -u critical {json.dumps(title)} {json.dumps(msg)}"
+            p = subprocess.run(["su", "-", user, "-c", cmd], capture_output=True, text=True)
+            if p.returncode == 0:
+                delivered = True
+                methods.append(f"notify-send:{user}")
+except Exception as e:
+    notes.append(str(e))
+
+# 2. TTY broadcast/write fallback
+try:
+    formatted = f"[{title}] {msg}"
+    if rcpt == "*":
+        p = subprocess.run(["wall"], input=formatted, text=True, capture_output=True)
+        if p.returncode == 0:
+            delivered = True
+            methods.append("wall")
+        else:
+            notes.append((p.stderr or p.stdout).strip())
+    else:
+        p = subprocess.run(["write", rcpt], input=formatted, text=True, capture_output=True)
+        if p.returncode == 0:
+            delivered = True
+            methods.append(f"write:{rcpt}")
+        else:
+            notes.append((p.stderr or p.stdout).strip())
+except Exception as e:
+    notes.append(str(e))
+
+print(json.dumps({
+    "ok": delivered,
+    "method": ", ".join(methods) or "none",
+    "recipient": rcpt,
+    "output": "; ".join([n for n in notes if n]) or ("Delivered via " + ", ".join(methods) if delivered else "No active interactive or TTY session received the message.")
+}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(25000, input.timeoutMs || 25000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<{ ok: boolean; method?: string; recipient?: string; output?: string }>(
+    execRes.stdout,
+    'endpoint send user message'
+  );
+  const ok = Boolean(parsed.ok);
+  const out = String(parsed.output || '');
+  const rcptLabel = recipient === '*' ? 'all active sessions' : recipient;
+  const rcptLabelFa = recipient === '*' ? 'تمامی نشست‌های فعال' : recipient;
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'endpoint_send_message',
+    success: ok,
+    message: ok
+      ? `Message sent to ${rcptLabel} on ${execRes.host}${parsed.method ? ` (${parsed.method})` : ''}.`
+      : `Failed to deliver message to ${rcptLabel} on ${execRes.host}: ${out || 'No active user session found'}`,
+    messageFa: ok
+      ? `پیام روی صفحه ${rcptLabelFa} در سیستم ${execRes.host} ارسال و نمایش داده شد${parsed.method ? ` (${parsed.method})` : ''}.`
+      : `ارسال پیام به ${rcptLabelFa} روی سیستم ${execRes.host} ناموفق بود: ${out || 'نشست کاربری فعالی یافت نشد'}`,
+    details: {
+      recipient,
+      title,
+      displaySeconds,
+      method: String(parsed.method || ''),
+    },
+    rawOutput: out,
+    executedAt: new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// 26. PRINTER TEST PAGE, COMPUTER RENAME, MSCONFIG & ENV VARS, FONT EXPORT
+// ============================================================================
+
+export async function sendEndpointTestPrintPage(
+  input: HelpdeskTargetInput,
+  rawPrinterName: string
+): Promise<HelpdeskActionResult> {
+  const printerName = validatePrinterNameInput(rawPrinterName);
+  const nameB64 = utf8Base64(printerName);
+
+  const ps = `
+$ErrorActionPreference = 'Stop'
+$targetPrinter = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${nameB64}'))
+$wmiMatch = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq $targetPrinter } | Select-Object -First 1
+if (-not $wmiMatch) {
+  throw "Printer '$targetPrinter' was not found on this workstation."
+}
+
+$methodUsed = ''
+$retVal = -1
+try {
+  $res = Invoke-CimMethod -InputObject $wmiMatch -MethodName PrintTestPage -ErrorAction Stop
+  $retVal = [int]$res.ReturnValue
+  $methodUsed = "WMI PrintTestPage (ReturnValue=$retVal)"
+} catch {
+  $methodUsed = "WMI failed: $($_.Exception.Message)"
+}
+
+if ($retVal -ne 0) {
+  Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry', '/k', '/n', $targetPrinter) -NoNewWindow -ErrorAction SilentlyContinue
+  $methodUsed = "$methodUsed | Fallback rundll32 PrintUIEntry /k dispatched"
+}
+
+Start-Sleep -Milliseconds 350
+$jobsCount = 0
+try {
+  $jobsCount = @(Get-PrintJob -PrinterName $targetPrinter -ErrorAction SilentlyContinue).Count
+} catch {}
+
+[PSCustomObject]@{
+  ok = $true
+  printerName = $wmiMatch.Name
+  portName = [string]$wmiMatch.PortName
+  driverName = [string]$wmiMatch.DriverName
+  jobsInQueue = $jobsCount
+  output = "$methodUsed | Queue jobs: $jobsCount"
+} | ConvertTo-Json -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import base64, json, subprocess
+pname = base64.b64decode("${nameB64}").decode("utf-8")
+test_file = "/usr/share/cups/data/testprint"
+import os
+if os.path.isfile(test_file):
+    p = subprocess.run(["lp", "-d", pname, test_file], capture_output=True, text=True, timeout=15)
+else:
+    txt = f"NetTopology HelpDesk Test Print Page\\nPrinter: {pname}\\n"
+    p = subprocess.run(["lp", "-d", pname, "-t", "HelpDesk Test Page"], input=txt, capture_output=True, text=True, timeout=15)
+print(json.dumps({
+    "ok": p.returncode == 0,
+    "printerName": pname,
+    "output": (p.stdout + " " + p.stderr).strip() or f"Test print queued on {pname}"
+}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 25000 }, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'send printer test page');
+  const ok = Boolean(parsed.ok);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'printer_test_page',
+    success: ok,
+    message: ok
+      ? `Test page sent to printer "${printerName}" on ${execRes.host}.`
+      : `Failed to send test page to "${printerName}" on ${execRes.host}: ${parsed.output}`,
+    messageFa: ok
+      ? `صفحه تست پرینت (Test Page) با موفقیت برای پرینتر «${printerName}» در سیستم ${execRes.host} ارسال شد.`
+      : `ارسال صفحه تست پرینت به «${printerName}» روی سیستم ${execRes.host} ناموفق بود: ${parsed.output}`,
+    details: {
+      printerName: String(parsed.printerName || printerName),
+      portName: parsed.portName,
+      driverName: parsed.driverName,
+      jobsInQueue: parsed.jobsInQueue,
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function renameEndpointComputer(
+  input: HelpdeskTargetInput,
+  options: { newHostname: string; restartAfter?: boolean }
+): Promise<HelpdeskActionResult> {
+  const cleanName = String(options.newHostname || '').trim();
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$/.test(cleanName) || /^[0-9]+$/.test(cleanName)) {
+    throw new Error(
+      'Invalid computer name. Use letters, numbers, and hyphens only (cannot be all digits or start with a hyphen).'
+    );
+  }
+  const restartAfter = Boolean(options.restartAfter);
+  const newNameB64 = utf8Base64(cleanName);
+  const credUserB64 = utf8Base64(input.username || '');
+  const credPassB64 = utf8Base64(input.password || '');
+
+  const ps = `
+$ErrorActionPreference = 'Stop'
+$newName = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${newNameB64}'))
+if ($newName.Length -gt 15) {
+  throw "Windows NetBIOS computer name cannot exceed 15 characters (got $($newName.Length))."
+}
+$oldName = [string]$env:COMPUTERNAME
+if ($oldName -ieq $newName) {
+  throw "Computer name is already '$oldName'."
+}
+$restartNow = ${restartAfter ? '$true' : '$false'}
+
+$cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+$isDomain = [bool]($cs -and $cs.PartOfDomain)
+$domainName = if ($cs) { [string]$cs.Domain } else { '' }
+
+$u = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${credUserB64}'))
+$p = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${credPassB64}'))
+$sec = ConvertTo-SecureString -String $p -AsPlainText -Force
+$cred = New-Object System.Management.Automation.PSCredential($u, $sec)
+
+$note = ''
+if ($isDomain) {
+  Rename-Computer -NewName $newName -DomainCredential $cred -Force -ErrorAction Stop | Out-Null
+  $note = "Renamed domain-joined computer from '$oldName' to '$newName' (Domain: $domainName)."
+} else {
+  Rename-Computer -NewName $newName -Force -ErrorAction Stop | Out-Null
+  $note = "Renamed workgroup computer from '$oldName' to '$newName'."
+}
+
+if ($restartNow) {
+  Start-Process -FilePath 'shutdown.exe' -ArgumentList @('/r', '/t', '10', '/f', '/c', "Computer renamed from $oldName to $newName via HelpDesk") -NoNewWindow -ErrorAction SilentlyContinue
+  $note = "$note Scheduled restart in 10 seconds to finalize name change."
+} else {
+  $note = "$note A workstation restart is required for the new computer name to take effect."
+}
+
+[PSCustomObject]@{
+  ok = $true
+  oldHostname = $oldName
+  newHostname = $newName
+  domainJoined = $isDomain
+  restartScheduled = $restartNow
+  output = $note
+} | ConvertTo-Json -Compress
+`;
+
+  const lx = `
+python3 - <<'PY'
+import base64, json, os, socket, subprocess
+new_name = base64.b64decode("${newNameB64}").decode("utf-8").strip()
+old_name = socket.gethostname()
+restart_now = ${restartAfter ? 'True' : 'False'}
+p = subprocess.run(["hostnamectl", "set-hostname", new_name], capture_output=True, text=True, timeout=15)
+if p.returncode != 0:
+    print(json.dumps({"ok": False, "oldHostname": old_name, "newHostname": new_name, "output": (p.stderr or p.stdout).strip()}))
+else:
+    note = f"Hostname changed from {old_name} to {new_name}"
+    if restart_now:
+        subprocess.Popen(["sh", "-c", "sleep 5 && reboot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        note += " (reboot scheduled in 5s)"
+    print(json.dumps({"ok": True, "oldHostname": old_name, "newHostname": new_name, "restartScheduled": restart_now, "output": note}))
+PY
+`;
+
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 35000 }, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'rename computer');
+  const ok = Boolean(parsed.ok);
+  const oldHost = String(parsed.oldHostname || '');
+  const newHost = String(parsed.newHostname || cleanName);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'computer_rename',
+    success: ok,
+    message: ok
+      ? `Computer on ${execRes.host} renamed from "${oldHost}" to "${newHost}"${restartAfter ? ' (reboot scheduled in 10s)' : ' (restart required to take effect)'}.`
+      : `Failed to rename computer on ${execRes.host}: ${parsed.output}`,
+    messageFa: ok
+      ? `نام کامپیوتر روی ${execRes.host} از «${oldHost}» به «${newHost}» تغییر یافت${restartAfter ? ' (ری‌استارت خودکار در ۱۰ ثانیه زمان‌بندی شد)' : ' (برای اعمال کامل نیاز به ری‌استارت دارد)'}.`
+      : `تغییر نام کامپیوتر روی ${execRes.host} ناموفق بود: ${parsed.output}`,
+    details: {
+      oldHostname: oldHost,
+      newHostname: newHost,
+      domainJoined: Boolean(parsed.domainJoined),
+      restartScheduled: Boolean(parsed.restartScheduled),
+    },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export interface HelpdeskMsconfigBootEntry {
+  identifier: string;
+  description: string;
+  device: string;
+  path: string;
+  isDefault: boolean;
+  isCurrent: boolean;
+}
+
+export interface HelpdeskEnvVarItem {
+  id: string;
+  name: string;
+  value: string;
+  scope: 'system' | 'user';
+  regType: 'REG_SZ' | 'REG_EXPAND_SZ';
+  ownerSid?: string;
+  ownerUser?: string;
+  isProtected: boolean;
+}
+
+export interface HelpdeskMsconfigEnvResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  activeUser: string;
+  activeUserSid: string;
+  msconfig: {
+    bootTimeoutSeconds: number | null;
+    defaultIdentifier: string;
+    currentIdentifier: string;
+    safeBootMode: 'none' | 'minimal' | 'network' | 'dsrepair' | 'alternateshell';
+    noGuiBoot: boolean;
+    bootLog: boolean;
+    baseVideo: boolean;
+    osBootInfo: boolean;
+    numProc: number | null;
+    maxMemMb: number | null;
+    defaultTarget?: string;
+    bootEntries: HelpdeskMsconfigBootEntry[];
+    rawBcdedit: string;
+  };
+  envVars: HelpdeskEnvVarItem[];
+  pathSystemEntries: string[];
+  pathUserEntries: string[];
+  summary: {
+    systemEnvCount: number;
+    userEnvCount: number;
+    totalEnvCount: number;
+    bootEntriesCount: number;
+  };
+  collectedAt: string;
+}
+
+const PROTECTED_ENV_NAMES = new Set([
+  'systemroot',
+  'windir',
+  'comspec',
+  'os',
+  'pathext',
+  'processor_architecture',
+  'processor_identifier',
+  'processor_level',
+  'processor_revision',
+  'number_of_processors',
+  'programfiles',
+  'programfiles(x86)',
+  'programw6432',
+  'commonprogramfiles',
+  'systemdrive',
+  'path',
+  'temp',
+  'tmp',
+]);
+
+export async function collectEndpointMsconfigAndEnv(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskMsconfigEnvResult> {
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+$bcdRaw = (& bcdedit.exe /enum 2>&1 | Out-String)
+$timeoutSec = $null
+$defaultId = ''
+$currentId = ''
+$safeBoot = 'none'
+$noGuiBoot = $false
+$bootLog = $false
+$baseVideo = $false
+$osBootInfo = $false
+$numProc = $null
+$maxMem = $null
+$entries = @()
+
+$blocks = ($bcdRaw -split "(\r?\n){2,}") | Where-Object { $_ -and $_.Trim() }
+$curIsBootMgr = $false
+$parsedBlocks = @()
+
+foreach ($blk in $blocks) {
+  $lines = $blk -split "\r?\n"
+  $map = @{}
+  $lastKey = ''
+  foreach ($ln in $lines) {
+    if ($ln -match '^-+$') { continue }
+    if ($ln -match '^([^\s]{2,})\s+(.+)$') {
+      $k = $matches[1].Trim().ToLowerInvariant()
+      $v = $matches[2].Trim()
+      $map[$k] = $v
+      $lastKey = $k
+    } elseif ($lastKey -and $ln -match '^\s{10,}(.+)$') {
+      $map[$lastKey] = "$($map[$lastKey]) | $($matches[1].Trim())"
+    }
+  }
+  if ($map.Count -gt 0) { $parsedBlocks += ,$map }
+}
+
+foreach ($m in $parsedBlocks) {
+  $idVal = if ($m.ContainsKey('identifier')) { [string]$m['identifier'] } else { '' }
+  if ($idVal -ieq '{bootmgr}') {
+    if ($m.ContainsKey('default')) { $defaultId = [string]$m['default'] }
+    if ($m.ContainsKey('timeout') -and ($m['timeout'] -match '^\d+$')) {
+      $timeoutSec = [int]$m['timeout']
+    }
+  } elseif ($m.ContainsKey('osdevice') -or $m.ContainsKey('systemroot')) {
+    $isCur = ($idVal -ieq '{current}')
+    if ($isCur) { $currentId = $idVal }
+    $entries += [PSCustomObject]@{
+      identifier = $idVal
+      description = if ($m.ContainsKey('description')) { [string]$m['description'] } else { $idVal }
+      device = if ($m.ContainsKey('device')) { [string]$m['device'] } else { '' }
+      path = if ($m.ContainsKey('path')) { [string]$m['path'] } else { '' }
+      isDefault = ($idVal -eq $defaultId -or ($defaultId -eq '{current}' -and $isCur))
+      isCurrent = $isCur
+    }
+    if ($isCur -or (-not $currentId -and $idVal -eq $defaultId)) {
+      if ($m.ContainsKey('safeboot')) {
+        $sb = ([string]$m['safeboot']).Trim().ToLowerInvariant()
+        if ($sb -in @('minimal','network','dsrepair','alternateshell')) { $safeBoot = $sb }
+      }
+      if ($m.ContainsKey('quietboot') -and ([string]$m['quietboot']) -match 'yes|true|1') { $noGuiBoot = $true }
+      if ($m.ContainsKey('bootlog') -and ([string]$m['bootlog']) -match 'yes|true|1') { $bootLog = $true }
+      if ($m.ContainsKey('vga') -and ([string]$m['vga']) -match 'yes|true|1') { $baseVideo = $true }
+      if ($m.ContainsKey('sos') -and ([string]$m['sos']) -match 'yes|true|1') { $osBootInfo = $true }
+      if ($m.ContainsKey('numproc') -and ($m['numproc'] -match '^\d+$')) { $numProc = [int]$m['numproc'] }
+      if ($m.ContainsKey('truncatememory') -and ($m['truncatememory'] -match '^\d+$')) {
+        $maxMem = [math]::Round(([double]$m['truncatememory']) / 1MB)
+      }
+    }
+  }
+}
+
+$envItems = @()
+$sysRegPath = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'
+try {
+  $regKey = Get-Item -LiteralPath $sysRegPath -ErrorAction Stop
+  foreach ($vn in ($regKey.GetValueNames() | Sort-Object)) {
+    if (-not $vn) { continue }
+    $kind = $regKey.GetValueKind($vn)
+    $val = [string]$regKey.GetValue($vn, '', 'DoNotExpandEnvironmentNames')
+    $envItems += [PSCustomObject]@{
+      id = "system:$vn"
+      name = [string]$vn
+      value = $val
+      scope = 'system'
+      regType = if ($kind -eq [Microsoft.Win32.RegistryValueKind]::ExpandString) { 'REG_EXPAND_SZ' } else { 'REG_SZ' }
+      ownerSid = ''
+      ownerUser = 'Machine (HKLM)'
+    }
+  }
+} catch {}
+
+$userEnvPath = if ($userSid) { "Registry::HKEY_USERS\\$userSid\\Environment" } else { 'HKCU:\\Environment' }
+if (Test-Path -LiteralPath $userEnvPath) {
+  try {
+    $uKey = Get-Item -LiteralPath $userEnvPath -ErrorAction Stop
+    foreach ($vn in ($uKey.GetValueNames() | Sort-Object)) {
+      if (-not $vn) { continue }
+      $kind = $uKey.GetValueKind($vn)
+      $val = [string]$uKey.GetValue($vn, '', 'DoNotExpandEnvironmentNames')
+      $envItems += [PSCustomObject]@{
+        id = "user:$vn"
+        name = [string]$vn
+        value = $val
+        scope = 'user'
+        regType = if ($kind -eq [Microsoft.Win32.RegistryValueKind]::ExpandString) { 'REG_EXPAND_SZ' } else { 'REG_SZ' }
+        ownerSid = $userSid
+        ownerUser = if ($loggedUser) { $loggedUser } else { 'Current Session' }
+      }
+    }
+  } catch {}
+}
+
+[PSCustomObject]@{
+  hostname = $env:COMPUTERNAME
+  activeUser = $loggedUser
+  activeUserSid = $userSid
+  msconfig = [PSCustomObject]@{
+    bootTimeoutSeconds = $timeoutSec
+    defaultIdentifier = $defaultId
+    currentIdentifier = $currentId
+    safeBootMode = $safeBoot
+    noGuiBoot = $noGuiBoot
+    bootLog = $bootLog
+    baseVideo = $baseVideo
+    osBootInfo = $osBootInfo
+    numProc = $numProc
+    maxMemMb = $maxMem
+    bootEntries = $entries
+    rawBcdedit = $bcdRaw.Trim()
+  }
+  envVars = $envItems
+} | ConvertTo-Json -Depth 6 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import json, os, re, socket, subprocess
+
+hostname = socket.gethostname()
+active_user = os.environ.get("USER", "")
+default_target = ""
+try:
+    p = subprocess.run(["systemctl", "get-default"], capture_output=True, text=True, timeout=5)
+    default_target = (p.stdout or "").strip()
+except Exception:
+    pass
+
+timeout_sec = None
+grub_raw = ""
+if os.path.isfile("/etc/default/grub"):
+    try:
+        with open("/etc/default/grub", "r", encoding="utf-8", errors="ignore") as f:
+            grub_raw = f.read()
+        m = re.search(r'^GRUB_TIMEOUT=(\\d+)', grub_raw, re.M)
+        if m:
+            timeout_sec = int(m.group(1))
+    except Exception:
+        pass
+
+env_items = []
+if os.path.isfile("/etc/environment"):
+    try:
+        with open("/etc/environment", "r", encoding="utf-8", errors="ignore") as f:
+            for ln in f:
+                ln = ln.strip()
+                if not ln or ln.startswith("#") or "=" not in ln:
+                    continue
+                k, v = ln.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                env_items.append({
+                    "id": f"system:{k}",
+                    "name": k,
+                    "value": v,
+                    "scope": "system",
+                    "regType": "REG_SZ",
+                    "ownerSid": "",
+                    "ownerUser": "/etc/environment",
+                })
+    except Exception:
+        pass
+
+seen_sys = {e["name"] for e in env_items}
+for k in sorted(os.environ.keys()):
+    if k not in seen_sys:
+        env_items.append({
+            "id": f"user:{k}",
+            "name": k,
+            "value": os.environ.get(k, ""),
+            "scope": "user",
+            "regType": "REG_SZ",
+            "ownerSid": "",
+            "ownerUser": active_user,
+        })
+
+print(json.dumps({
+    "hostname": hostname,
+    "activeUser": active_user,
+    "activeUserSid": "",
+    "msconfig": {
+        "bootTimeoutSeconds": timeout_sec,
+        "defaultIdentifier": default_target or "multi-user.target",
+        "currentIdentifier": default_target or "",
+        "safeBootMode": "alternateshell" if default_target == "rescue.target" else "none",
+        "noGuiBoot": False,
+        "bootLog": False,
+        "baseVideo": False,
+        "osBootInfo": False,
+        "numProc": None,
+        "maxMemMb": None,
+        "defaultTarget": default_target,
+        "bootEntries": [],
+        "rawBcdedit": (f"systemctl get-default: {default_target}\\n\\n" + grub_raw).strip(),
+    },
+    "envVars": env_items,
+}))
+PY`;
+
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 35000 }, winPs, linuxSh);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'msconfig and environment variables');
+
+  const rawEnvVars: any[] = Array.isArray(parsed.envVars) ? parsed.envVars : [];
+  const envVars: HelpdeskEnvVarItem[] = rawEnvVars.map((e, idx) => {
+    const name = String(e.name || '').trim();
+    const scope = e.scope === 'user' ? 'user' : 'system';
+    const isProtected = scope === 'system' && PROTECTED_ENV_NAMES.has(name.toLowerCase());
+    return {
+      id: String(e.id || `${scope}:${name}:${idx}`),
+      name,
+      value: String(e.value ?? ''),
+      scope,
+      regType: e.regType === 'REG_EXPAND_SZ' ? 'REG_EXPAND_SZ' : 'REG_SZ',
+      ownerSid: e.ownerSid ? String(e.ownerSid) : undefined,
+      ownerUser: e.ownerUser ? String(e.ownerUser) : undefined,
+      isProtected,
+    };
+  });
+
+  const sysPathObj = envVars.find((v) => v.scope === 'system' && v.name.toLowerCase() === 'path');
+  const usrPathObj = envVars.find((v) => v.scope === 'user' && v.name.toLowerCase() === 'path');
+  const splitSep = execRes.osFamily === 'linux' ? ':' : ';';
+  const pathSystemEntries = sysPathObj ? sysPathObj.value.split(splitSep).map((s) => s.trim()).filter(Boolean) : [];
+  const pathUserEntries = usrPathObj ? usrPathObj.value.split(splitSep).map((s) => s.trim()).filter(Boolean) : [];
+
+  const ms = parsed.msconfig || {};
+  const rawEntries: any[] = Array.isArray(ms.bootEntries) ? ms.bootEntries : [];
+  const bootEntries: HelpdeskMsconfigBootEntry[] = rawEntries.map((b) => ({
+    identifier: String(b.identifier || ''),
+    description: String(b.description || ''),
+    device: String(b.device || ''),
+    path: String(b.path || ''),
+    isDefault: Boolean(b.isDefault),
+    isCurrent: Boolean(b.isCurrent),
+  }));
+
+  const safeModeRaw = String(ms.safeBootMode || 'none').toLowerCase();
+  const safeBootMode: HelpdeskMsconfigEnvResult['msconfig']['safeBootMode'] =
+    safeModeRaw === 'minimal' ||
+    safeModeRaw === 'network' ||
+    safeModeRaw === 'dsrepair' ||
+    safeModeRaw === 'alternateshell'
+      ? safeModeRaw
+      : 'none';
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    activeUser: String(parsed.activeUser || ''),
+    activeUserSid: String(parsed.activeUserSid || ''),
+    msconfig: {
+      bootTimeoutSeconds: typeof ms.bootTimeoutSeconds === 'number' ? ms.bootTimeoutSeconds : null,
+      defaultIdentifier: String(ms.defaultIdentifier || ''),
+      currentIdentifier: String(ms.currentIdentifier || ''),
+      safeBootMode,
+      noGuiBoot: Boolean(ms.noGuiBoot),
+      bootLog: Boolean(ms.bootLog),
+      baseVideo: Boolean(ms.baseVideo),
+      osBootInfo: Boolean(ms.osBootInfo),
+      numProc: typeof ms.numProc === 'number' ? ms.numProc : null,
+      maxMemMb: typeof ms.maxMemMb === 'number' ? ms.maxMemMb : null,
+      ...(ms.defaultTarget ? { defaultTarget: String(ms.defaultTarget) } : {}),
+      bootEntries,
+      rawBcdedit: String(ms.rawBcdedit || ''),
+    },
+    envVars,
+    pathSystemEntries,
+    pathUserEntries,
+    summary: {
+      systemEnvCount: envVars.filter((v) => v.scope === 'system').length,
+      userEnvCount: envVars.filter((v) => v.scope === 'user').length,
+      totalEnvCount: envVars.length,
+      bootEntriesCount: bootEntries.length,
+    },
+    collectedAt: new Date().toISOString(),
+  };
+}
+
+export async function manageEndpointMsconfig(
+  input: HelpdeskTargetInput,
+  options: {
+    operation: 'set_boot_options' | 'launch_msconfig_tool';
+    timeoutSeconds?: number;
+    safeBootMode?: 'none' | 'minimal' | 'network' | 'dsrepair' | 'alternateshell';
+    noGuiBoot?: boolean;
+    bootLog?: boolean;
+    baseVideo?: boolean;
+    osBootInfo?: boolean;
+  }
+): Promise<HelpdeskActionResult> {
+  const op = options.operation === 'launch_msconfig_tool' ? 'launch_msconfig_tool' : 'set_boot_options';
+  const safeMode = String(options.safeBootMode || 'none').toLowerCase();
+  if (!['none', 'minimal', 'network', 'dsrepair', 'alternateshell'].includes(safeMode)) {
+    throw new Error('Invalid Safe Boot mode.');
+  }
+  let timeoutSec: number | null = null;
+  if (options.timeoutSeconds !== undefined && options.timeoutSeconds !== null) {
+    const n = Number(options.timeoutSeconds);
+    if (!Number.isInteger(n) || n < 3 || n > 999) {
+      throw new Error('Boot timeout must be between 3 and 999 seconds.');
+    }
+    timeoutSec = n;
+  }
+
+  const noGui = Boolean(options.noGuiBoot);
+  const bootLog = Boolean(options.bootLog);
+  const baseVideo = Boolean(options.baseVideo);
+  const sos = Boolean(options.osBootInfo);
+
+  const ps = `
+$ErrorActionPreference = 'Stop'
+$op = '${op}'
+$notes = @()
+
+if ($op -eq 'launch_msconfig_tool') {
+  ${PS_HELPDESK_DETECT_LOGGED_USER}
+  if (-not $loggedUser) {
+    throw 'No active interactive desktop user logged in to launch msconfig.exe UI.'
+  }
+  $taskName = "NetTopo_Msconfig_" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+  try {
+    $act = New-ScheduledTaskAction -Execute 'msconfig.exe'
+    $pri = New-ScheduledTaskPrincipal -UserId $loggedUser -LogonType Interactive -RunLevel Highest
+    $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    Register-ScheduledTask -TaskName $taskName -Action $act -Principal $pri -Settings $st -Force | Out-Null
+    Start-ScheduledTask -TaskName $taskName
+    Start-Sleep -Milliseconds 300
+    $notes += "Launched msconfig.exe on active session of $loggedUser"
+  } finally {
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+  }
+} else {
+  $safeMode = '${safeMode}'
+  ${
+    timeoutSec !== null
+      ? `(& bcdedit.exe /timeout ${timeoutSec} 2>&1 | Out-String) | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'bcdedit /timeout failed (ensure elevated privileges / WinRE / BitLocker status).' }
+  $notes += "Boot timeout = ${timeoutSec}s"`
+      : ''
+  }
+
+  if ($safeMode -eq 'none') {
+    & bcdedit.exe /deletevalue '{current}' safeboot 2>&1 | Out-Null
+    $notes += 'Safe Boot = Off (Normal)'
+  } else {
+    $sbOut = (& bcdedit.exe /set '{current}' safeboot $safeMode 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0) { throw "bcdedit safeboot failed: $sbOut" }
+    $notes += "Safe Boot = $safeMode"
+  }
+
+  function Set-BcdFlag($flagName, [bool]$enabled) {
+    if ($enabled) {
+      & bcdedit.exe /set '{current}' $flagName yes 2>&1 | Out-Null
+    } else {
+      & bcdedit.exe /deletevalue '{current}' $flagName 2>&1 | Out-Null
+    }
+  }
+
+  Set-BcdFlag 'quietboot' ${noGui ? '$true' : '$false'}
+  Set-BcdFlag 'bootlog' ${bootLog ? '$true' : '$false'}
+  Set-BcdFlag 'vga' ${baseVideo ? '$true' : '$false'}
+  Set-BcdFlag 'sos' ${sos ? '$true' : '$false'}
+  $notes += "Flags: quietboot=${noGui}, bootlog=${bootLog}, vga=${baseVideo}, sos=${sos}"
+}
+
+[PSCustomObject]@{
+  ok = $true
+  output = ($notes -join ' | ')
+} | ConvertTo-Json -Compress
+`;
+
+  const lx = `python3 - <<'PY'
+import json, subprocess
+op = "${op}"
+if op == "launch_msconfig_tool":
+    print(json.dumps({"ok": False, "output": "msconfig.exe GUI is Windows-only. Use systemd/GRUB controls below on Linux."}))
+else:
+    target = "rescue.target" if "${safeMode}" != "none" else "graphical.target"
+    r = subprocess.run(["systemctl", "set-default", target], capture_output=True, text=True, timeout=15)
+    print(json.dumps({"ok": r.returncode == 0, "output": (r.stdout + " " + r.stderr).strip() or f"Default target set to {target}"}))
+PY`;
+
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 30000 }, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'msconfig update');
+  const ok = Boolean(parsed.ok);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'msconfig_update',
+    success: ok,
+    message: ok
+      ? op === 'launch_msconfig_tool'
+        ? `System Configuration (msconfig.exe) launched on interactive session of ${execRes.host}.`
+        : `MSConfig / Boot configuration updated on ${execRes.host} (${parsed.output}).`
+      : `MSConfig update failed on ${execRes.host}: ${parsed.output}`,
+    messageFa: ok
+      ? op === 'launch_msconfig_tool'
+        ? `پنجره System Configuration (msconfig.exe) روی صفحه کاربر فعال در ${execRes.host} باز شد.`
+        : `تنظیمات بوت و MSConfig روی سیستم ${execRes.host} با موفقیت اعمال شد.`
+      : `تغییر تنظیمات بوت و MSConfig ناموفق بود: ${parsed.output}`,
+    details: { op, timeoutSeconds: timeoutSec, safeBootMode: safeMode, noGuiBoot: noGui, bootLog, baseVideo, osBootInfo: sos },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function manageEndpointEnvVar(
+  input: HelpdeskTargetInput,
+  options: {
+    action: 'set' | 'delete';
+    scope: 'system' | 'user';
+    name: string;
+    value?: string;
+    expandSz?: boolean;
+    ownerSid?: string;
+  }
+): Promise<HelpdeskActionResult> {
+  const action = options.action === 'delete' ? 'delete' : 'set';
+  const scope = options.scope === 'user' ? 'user' : 'system';
+  const varName = String(options.name || '').trim();
+  if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/.test(varName)) {
+    throw new Error('Invalid environment variable name.');
+  }
+  if (action === 'delete' && scope === 'system' && PROTECTED_ENV_NAMES.has(varName.toLowerCase())) {
+    throw new Error(`Protected critical system variable "${varName}" cannot be deleted.`);
+  }
+  const varVal = String(options.value ?? '');
+  if (action === 'set' && (/[\x00-\x1F\x7F]/.test(varVal) || varVal.length > 8192)) {
+    throw new Error('Environment variable value contains invalid control characters or exceeds 8192 characters.');
+  }
+  const ownerSid = String(options.ownerSid || '').trim();
+  if (ownerSid && !/^S-1-5-21-[0-9-]+$/.test(ownerSid)) {
+    throw new Error('Invalid user SID format.');
+  }
+
+  const nameB64 = utf8Base64(varName);
+  const valB64 = utf8Base64(varVal);
+  const sidB64 = utf8Base64(ownerSid);
+  const useExpand = Boolean(options.expandSz || /%[A-Za-z0-9_]+%/.test(varVal));
+
+  const ps = `
+$ErrorActionPreference = 'Stop'
+$action = '${action}'
+$scope = '${scope}'
+$vName = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${nameB64}'))
+$vVal = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${valB64}'))
+$sid = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sidB64}'))
+
+if ($scope -eq 'system') {
+  $regPath = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'
+} else {
+  if (-not $sid) {
+    ${PS_HELPDESK_DETECT_LOGGED_USER}
+    $sid = $userSid
+  }
+  $regPath = if ($sid) { "Registry::HKEY_USERS\\$sid\\Environment" } else { 'HKCU:\\Environment' }
+}
+
+if (-not (Test-Path -LiteralPath $regPath)) {
+  if ($action -eq 'delete') { throw "Environment registry hive not found ($regPath)." }
+  New-Item -Path $regPath -Force | Out-Null
+}
+
+if ($action -eq 'delete') {
+  Remove-ItemProperty -LiteralPath $regPath -Name $vName -ErrorAction Stop
+  $msg = "Deleted $scope variable '$vName'"
+} else {
+  $kind = ${useExpand ? "'ExpandString'" : "'String'"}
+  Set-ItemProperty -LiteralPath $regPath -Name $vName -Value $vVal -Type $kind -Force
+  $msg = "Set $scope variable '$vName' ($kind)"
+}
+
+try {
+  $code = @"
+using System;
+using System.Runtime.InteropServices;
+public class HdEnvBroadcast {
+  [DllImport("user32.dll", CharSet=CharSet.Auto, SetLastError=true)]
+  public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+}
+"@
+  if (-not ([System.Management.Automation.PSTypeName]'HdEnvBroadcast').Type) {
+    Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue
+  }
+  $rPtr = [UIntPtr]::Zero
+  [HdEnvBroadcast]::SendMessageTimeout([IntPtr]0xFFFF, 0x001A, [UIntPtr]::Zero, 'Environment', 2, 1500, [ref]$rPtr) | Out-Null
+} catch {}
+
+[PSCustomObject]@{
+  ok = $true
+  output = $msg
+} | ConvertTo-Json -Compress
+`;
+
+  const lx = `python3 - <<'PY'
+import base64, json, os
+action = "${action}"
+scope = "${scope}"
+name = base64.b64decode("${nameB64}").decode("utf-8").strip()
+val = base64.b64decode("${valB64}").decode("utf-8")
+target_file = "/etc/environment" if scope == "system" else os.path.expanduser("~/.profile")
+lines = []
+if os.path.isfile(target_file):
+    with open(target_file, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.readlines()
+prefix = "" if scope == "system" else "export "
+new_lines = [ln for ln in lines if not ln.lstrip().startswith(f"{prefix}{name}=") and not ln.lstrip().startswith(f"{name}=")]
+if action == "set":
+    safe_val = val.replace('"', '\\\\"')
+    new_lines.append(f'{prefix}{name}="{safe_val}"\\n')
+with open(target_file, "w", encoding="utf-8") as f:
+    f.writelines(new_lines)
+print(json.dumps({"ok": True, "output": f"{action} {scope} var {name} in {target_file}"}))
+PY`;
+
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 30000 }, ps, lx);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'manage environment variable');
+  const ok = Boolean(parsed.ok);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: action === 'delete' ? 'env_var_delete' : 'env_var_set',
+    success: ok,
+    message: ok
+      ? `Environment variable "${varName}" (${scope}) ${action === 'delete' ? 'deleted' : 'saved'} on ${execRes.host}.`
+      : `Failed to ${action} environment variable "${varName}": ${parsed.output}`,
+    messageFa: ok
+      ? `متغیر محیطی «${varName}» (${scope === 'system' ? 'سیستم' : 'کاربر'}) روی ${execRes.host} ${action === 'delete' ? 'حذف شد' : 'ذخیره و اعمال شد'}.`
+      : `تغییر متغیر محیطی «${varName}» ناموفق بود: ${parsed.output}`,
+    details: { action, scope, name: varName },
+    rawOutput: String(parsed.output || ''),
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function exportEndpointFont(
+  input: HelpdeskTargetInput,
+  options: {
+    fileName: string;
+    scope?: 'system' | 'user';
+    ownerSid?: string;
+    filePath?: string;
+  }
+): Promise<{
+  fileName: string;
+  mimeType: string;
+  fileBase64: string;
+  sizeBytes: number;
+}> {
+  const safeFile = sanitizeFontFileName(options.fileName);
+  const scope = options.scope === 'user' ? 'user' : 'system';
+  const ownerSid = String(options.ownerSid || '').trim();
+  if (ownerSid && !/^S-1-5-21-[0-9-]+$/.test(ownerSid)) {
+    throw new Error('Invalid owner SID format.');
+  }
+  const rawPath = String(options.filePath || '').trim();
+  const fnB64 = utf8Base64(safeFile);
+  const sidB64 = utf8Base64(ownerSid);
+  const pathB64 = utf8Base64(rawPath);
+
+  const initPs = `
+$ErrorActionPreference = 'Stop'
+$fn = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${fnB64}'))
+$sid = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sidB64}'))
+$hint = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${pathB64}'))
+$cands = @()
+if ($hint -and (Test-Path -LiteralPath $hint)) { $cands += $hint }
+if ('${scope}' -eq 'user' -and $sid) {
+  $pl = Get-ItemProperty -LiteralPath "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$sid" -ErrorAction SilentlyContinue
+  if ($pl -and $pl.ProfileImagePath) {
+    $cands += (Join-Path ([string]$pl.ProfileImagePath) ("AppData\\Local\\Microsoft\\Windows\\Fonts\\" + $fn))
+  }
+}
+$cands += (Join-Path $env:LOCALAPPDATA ("Microsoft\\Windows\\Fonts\\" + $fn))
+$cands += (Join-Path (Join-Path $env:SystemRoot 'Fonts') $fn)
+
+$resolved = $null
+foreach ($c in $cands) {
+  if ($c -and (Test-Path -LiteralPath $c -PathType Leaf)) {
+    $resolved = (Get-Item -LiteralPath $c).FullName
+    break
+  }
+}
+if (-not $resolved) {
+  throw "Font file '$fn' could not be located on endpoint."
+}
+$len = (Get-Item -LiteralPath $resolved).Length
+if ($len -gt 25MB) {
+  throw "Font file '$fn' exceeds the 25 MB export limit."
+}
+[PSCustomObject]@{
+  path = $resolved
+  sizeBytes = [int64]$len
+} | ConvertTo-Json -Compress
+`;
+
+  const initLx = `python3 - <<'PY'
+import base64, json, os
+fn = base64.b64decode("${fnB64}").decode("utf-8").strip()
+hint = base64.b64decode("${pathB64}").decode("utf-8").strip()
+resolved = None
+if hint and os.path.isfile(hint) and os.path.basename(hint) == fn:
+    resolved = hint
+else:
+    for root_dir in ["/usr/share/fonts", "/usr/local/share/fonts", os.path.expanduser("~/.local/share/fonts")]:
+        if not os.path.isdir(root_dir):
+            continue
+        for dp, _, files in os.walk(root_dir):
+            if fn in files:
+                resolved = os.path.join(dp, fn)
+                break
+        if resolved:
+            break
+if not resolved:
+    raise FileNotFoundError(f"Font file {fn} not found")
+sz = os.path.getsize(resolved)
+print(json.dumps({"path": resolved, "sizeBytes": sz}))
+PY`;
+
+  const metaRes = await executeHardcodedScripts({ ...input, timeoutMs: 25000 }, initPs, initLx);
+  const meta = parseJsonFromStdout<{ path: string; sizeBytes: number }>(metaRes.stdout, `locate font ${safeFile}`);
+  const remotePathB64 = utf8Base64(meta.path);
+  const totalBytes = Number(meta.sizeBytes || 0);
+  const CHUNK_BYTES = 180000;
+  const parts: Buffer[] = [];
+
+  for (let offset = 0; offset < totalBytes; offset += CHUNK_BYTES) {
+    const count = Math.min(CHUNK_BYTES, totalBytes - offset);
+    const readPs = `
+$p = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${remotePathB64}'))
+$fs = [System.IO.File]::OpenRead($p)
+try {
+  $fs.Seek(${offset}, [System.IO.SeekOrigin]::Begin) | Out-Null
+  $buf = New-Object byte[] ${count}
+  $read = $fs.Read($buf, 0, ${count})
+  [PSCustomObject]@{ b64 = [Convert]::ToBase64String($buf, 0, $read) } | ConvertTo-Json -Compress
+} finally {
+  $fs.Dispose()
+}
+`;
+    const readLx = `python3 - <<'PY'
+import base64, json
+p = base64.b64decode("${remotePathB64}").decode("utf-8")
+with open(p, "rb") as f:
+    f.seek(${offset})
+    data = f.read(${count})
+print(json.dumps({"b64": base64.b64encode(data).decode("ascii")}))
+PY`;
+    const chunkRes = await executeHardcodedScripts({ ...input, timeoutMs: 30000 }, readPs, readLx);
+    const chunkParsed = parseJsonFromStdout<{ b64: string }>(chunkRes.stdout, `read font chunk ${safeFile}`);
+    parts.push(Buffer.from(chunkParsed.b64 || '', 'base64'));
+  }
+
+  const fullBuf = Buffer.concat(parts);
+  const lower = safeFile.toLowerCase();
+  const mimeType = lower.endsWith('.otf')
+    ? 'font/otf'
+    : lower.endsWith('.ttf')
+    ? 'font/ttf'
+    : lower.endsWith('.ttc')
+    ? 'font/collection'
+    : 'application/octet-stream';
+
+  return {
+    fileName: safeFile,
+    mimeType,
+    fileBase64: fullBuf.toString('base64'),
+    sizeBytes: fullBuf.length,
+  };
+}
+
+export async function exportEndpointFontsArchive(
+  input: HelpdeskTargetInput,
+  items: Array<{
+    fileName: string;
+    scope?: 'system' | 'user';
+    ownerSid?: string;
+    filePath?: string;
+  }>
+): Promise<{
+  archiveFileName: string;
+  zipBuffer: Buffer;
+  exportedCount: number;
+  skippedCount: number;
+}> {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('At least one font item must be selected for archive export.');
+  }
+  const cappedItems = items.slice(0, 250).map((it) => ({
+    fileName: sanitizeFontFileName(it.fileName),
+    scope: it.scope === 'user' ? 'user' : 'system',
+    ownerSid: String(it.ownerSid || '').trim(),
+    filePath: String(it.filePath || '').trim(),
+  }));
+
+  const payloadB64 = utf8Base64(JSON.stringify(cappedItems));
+  const archiveId = crypto.randomBytes(6).toString('hex');
+
+  const packPs = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$items = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payloadB64}')) | ConvertFrom-Json
+$zipPath = Join-Path $env:TEMP 'hd_fonts_export_${archiveId}.zip'
+if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+$sysFonts = Join-Path $env:SystemRoot 'Fonts'
+$added = 0
+$skipped = 0
+$usedNames = New-Object 'System.Collections.Generic.HashSet[string]'
+$zip = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+  foreach ($it in $items) {
+    $fn = [string]$it.fileName
+    $resolved = $null
+    $cands = @()
+    if ($it.filePath) { $cands += [string]$it.filePath }
+    if ($it.scope -eq 'user' -and $it.ownerSid) {
+      $pl = Get-ItemProperty -LiteralPath "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$($it.ownerSid)" -ErrorAction SilentlyContinue
+      if ($pl -and $pl.ProfileImagePath) {
+        $cands += (Join-Path ([string]$pl.ProfileImagePath) ("AppData\\Local\\Microsoft\\Windows\\Fonts\\" + $fn))
+      }
+    }
+    $cands += (Join-Path $env:LOCALAPPDATA ("Microsoft\\Windows\\Fonts\\" + $fn))
+    $cands += (Join-Path $sysFonts $fn)
+    foreach ($c in $cands) {
+      if ($c -and (Test-Path -LiteralPath $c -PathType Leaf)) { $resolved = $c; break }
+    }
+    if ($resolved) {
+      $entryName = $fn
+      if (-not $usedNames.Add($entryName.ToLowerInvariant())) {
+        $entryName = "$($added)_$fn"
+        [void]$usedNames.Add($entryName.ToLowerInvariant())
+      }
+      try {
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $resolved, $entryName, [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        $added++
+      } catch {
+        $skipped++
+      }
+    } else {
+      $skipped++
+    }
+  }
+} finally {
+  $zip.Dispose()
+}
+$zipLen = if (Test-Path -LiteralPath $zipPath) { (Get-Item -LiteralPath $zipPath).Length } else { 0 }
+[PSCustomObject]@{
+  zipPath = $zipPath
+  sizeBytes = [int64]$zipLen
+  exportedCount = $added
+  skippedCount = $skipped
+  hostname = $env:COMPUTERNAME
+} | ConvertTo-Json -Compress
+`;
+
+  const packLx = `python3 - <<'PY'
+import base64, json, os, socket, zipfile
+items = json.loads(base64.b64decode("${payloadB64}").decode("utf-8"))
+zip_path = "/tmp/hd_fonts_export_${archiveId}.zip"
+added = 0
+skipped = 0
+used = set()
+with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+    for it in items:
+        fn = it["fileName"]
+        hint = it.get("filePath") or ""
+        resolved = hint if hint and os.path.isfile(hint) and os.path.basename(hint) == fn else None
+        if not resolved:
+            for root_dir in ["/usr/share/fonts", "/usr/local/share/fonts", os.path.expanduser("~/.local/share/fonts")]:
+                if not os.path.isdir(root_dir):
+                    continue
+                for dp, _, files in os.walk(root_dir):
+                    if fn in files:
+                        resolved = os.path.join(dp, fn)
+                        break
+                if resolved:
+                    break
+        if resolved:
+            ename = fn if fn.lower() not in used else f"{added}_{fn}"
+            used.add(ename.lower())
+            zf.write(resolved, arcname=ename)
+            added += 1
+        else:
+            skipped += 1
+print(json.dumps({
+    "zipPath": zip_path,
+    "sizeBytes": os.path.getsize(zip_path) if os.path.isfile(zip_path) else 0,
+    "exportedCount": added,
+    "skippedCount": skipped,
+    "hostname": socket.gethostname(),
+}))
+PY`;
+
+  const packRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(60000, input.timeoutMs || 60000) },
+    packPs,
+    packLx
+  );
+  const meta = parseJsonFromStdout<{
+    zipPath: string;
+    sizeBytes: number;
+    exportedCount: number;
+    skippedCount: number;
+    hostname?: string;
+  }>(packRes.stdout, 'pack font archive');
+
+  const zipPathB64 = utf8Base64(meta.zipPath);
+  const totalBytes = Number(meta.sizeBytes || 0);
+  const parts: Buffer[] = [];
+  const CHUNK_BYTES = 180000;
+
+  try {
+    if (totalBytes > 60 * 1024 * 1024) {
+      throw new Error('Selected font archive exceeds the 60 MB export cap. Narrow down your filter selection.');
+    }
+    for (let offset = 0; offset < totalBytes; offset += CHUNK_BYTES) {
+      const count = Math.min(CHUNK_BYTES, totalBytes - offset);
+      const readPs = `
+$p = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${zipPathB64}'))
+$fs = [System.IO.File]::OpenRead($p)
+try {
+  $fs.Seek(${offset}, [System.IO.SeekOrigin]::Begin) | Out-Null
+  $buf = New-Object byte[] ${count}
+  $read = $fs.Read($buf, 0, ${count})
+  [PSCustomObject]@{ b64 = [Convert]::ToBase64String($buf, 0, $read) } | ConvertTo-Json -Compress
+} finally {
+  $fs.Dispose()
+}
+`;
+      const readLx = `python3 - <<'PY'
+import base64, json
+p = base64.b64decode("${zipPathB64}").decode("utf-8")
+with open(p, "rb") as f:
+    f.seek(${offset})
+    data = f.read(${count})
+print(json.dumps({"b64": base64.b64encode(data).decode("ascii")}))
+PY`;
+      const chunkRes = await executeHardcodedScripts({ ...input, timeoutMs: 30000 }, readPs, readLx);
+      const chunkParsed = parseJsonFromStdout<{ b64: string }>(chunkRes.stdout, 'read font archive chunk');
+      parts.push(Buffer.from(chunkParsed.b64 || '', 'base64'));
+    }
+  } finally {
+    const cleanPs = `$p = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${zipPathB64}')); if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }; '{}'`;
+    const cleanLx = `python3 -c "import base64, os; p=base64.b64decode('${zipPathB64}').decode(); os.path.exists(p) and os.remove(p); print('{}')"`;
+    await executeHardcodedScripts({ ...input, timeoutMs: 15000 }, cleanPs, cleanLx).catch(() => {});
+  }
+
+  const safeHost = String(meta.hostname || packRes.host || 'endpoint').replace(/[^a-zA-Z0-9._-]/g, '_');
+  return {
+    archiveFileName: `fonts_${safeHost}.zip`,
+    zipBuffer: Buffer.concat(parts),
+    exportedCount: Number(meta.exportedCount || 0),
+    skippedCount: Number(meta.skippedCount || 0),
+  };
+}
+
+
 
 

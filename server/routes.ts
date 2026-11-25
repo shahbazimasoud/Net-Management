@@ -97,6 +97,14 @@ import {
   toggleEndpointFirewallProfile,
   createEndpointFirewallRule,
   manageEndpointFirewallRule,
+  sendEndpointUserMessage,
+  sendEndpointTestPrintPage,
+  renameEndpointComputer,
+  collectEndpointMsconfigAndEnv,
+  manageEndpointMsconfig,
+  manageEndpointEnvVar,
+  exportEndpointFont,
+  exportEndpointFontsArchive,
   runEndpointDiagnostics,
   HelpdeskDiagnosticCheckId,
   HelpdeskProgramRegistryHive,
@@ -7894,6 +7902,7 @@ async function resolveHelpdeskAuth(
     | 'domain_user'
     | 'power_control'
     | 'manage_exceptions'
+    | 'send_message'
 ) {
   const { user, effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
   if (!user) {
@@ -7929,6 +7938,9 @@ async function resolveHelpdeskAuth(
   const canDomainUsers = hasFullHelpdeskAccess || (canDiagnostics && effectivePolicy?.canInspectHelpdeskDomainUsers === true);
   const canPowerControl = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true);
   const canManageExceptions = hasFullHelpdeskAccess || effectivePolicy?.canManageHelpdeskExceptions === true;
+  const canViewAllHistory = hasFullHelpdeskAccess || (canDiagnostics && effectivePolicy?.canViewAllHelpdeskHistory === true);
+  // Strict: Interactive screen messaging strictly requires explicit RBAC grant or Super Admin
+  const canSendMessage = isSuperAdmin || (canView && effectivePolicy?.canSendHelpdeskMessage === true);
 
   const allowed =
     requiredPerm === 'view'
@@ -7951,6 +7963,8 @@ async function resolveHelpdeskAuth(
       ? canDomainUsers
       : requiredPerm === 'manage_exceptions'
       ? canManageExceptions
+      : requiredPerm === 'send_message'
+      ? canSendMessage
       : canPowerControl;
 
   if (!allowed) {
@@ -8014,6 +8028,10 @@ async function resolveHelpdeskAuth(
       manage_exceptions: {
         en: 'Access denied: Your policy does not permit modifying HelpDesk exception / blocklist rules (canManageHelpdeskExceptions).',
         fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز مدیریت استثنائات و قوانین مسدودسازی هلپ‌دسک (canManageHelpdeskExceptions) است.',
+      },
+      send_message: {
+        en: 'Access denied: Sending interactive screen messages requires explicit RBAC permission (canSendHelpdeskMessage) or Super Admin role.',
+        fa: 'عدم دسترسی: ارسال پیام روی سیستم کاربران نیازمند مجوز صریح RBAC (canSendHelpdeskMessage) یا نقش سوپرادمین است.',
       },
     };
 
@@ -8141,6 +8159,7 @@ async function resolveHelpdeskAuth(
     actorName,
     actorRole,
     clientIp,
+    hasFullHelpdeskAccess,
     permissions: {
       canViewHelpdesk: canView,
       canRunHelpdeskDiagnostics: canDiagnostics,
@@ -8153,6 +8172,8 @@ async function resolveHelpdeskAuth(
       canInspectHelpdeskDomainUsers: canDomainUsers,
       canPowerControlHelpdeskEndpoints: canPowerControl,
       canManageHelpdeskExceptions: canManageExceptions,
+      canSendHelpdeskMessage: canSendMessage,
+      canViewAllHelpdeskHistory: canViewAllHistory,
     },
   };
 }
@@ -8519,13 +8540,23 @@ apiRouter.post('/helpdesk/exceptions/inspect-endpoint', async (req: Request, res
   }
 });
 
-// GET /helpdesk/history - Paginated HelpDesk connection history (no passwords stored)
+// GET /helpdesk/history - Paginated HelpDesk connection history (scoped per operator unless full access)
 apiRouter.get('/helpdesk/history', async (req: Request, res: Response) => {
   try {
     const auth = await resolveHelpdeskAuth(req, 'diagnostics');
     if (!auth.ok) {
       return sendHelpdeskAuthFailure(res, auth);
     }
+    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const actorAliases = canViewAll
+      ? undefined
+      : Array.from(
+          new Set(
+            [auth.actorName, auth.user?.username, auth.user?.fullName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )
+        );
     const rawStatus = String(req.query.status || 'all').trim().toLowerCase();
     const status = rawStatus === 'success' || rawStatus === 'failed' ? rawStatus : 'all';
     const result = await queryHelpdeskConnectionHistoryFromDb({
@@ -8534,8 +8565,9 @@ apiRouter.get('/helpdesk/history', async (req: Request, res: Response) => {
       protocol: String(req.query.protocol || 'all'),
       page: Number(req.query.page || 1),
       pageSize: Number(req.query.pageSize || 15),
+      actorAliases,
     });
-    return res.json({ success: true, ...result });
+    return res.json({ success: true, scope: canViewAll ? 'all' : 'own', ...result });
   } catch (err: any) {
     return res.status(500).json({
       success: false,
@@ -8545,7 +8577,7 @@ apiRouter.get('/helpdesk/history', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /helpdesk/history/:id - Remove single connection history item
+// DELETE /helpdesk/history/:id - Remove single connection history item (owner or full access)
 apiRouter.delete('/helpdesk/history/:id', async (req: Request, res: Response) => {
   try {
     const auth = await resolveHelpdeskAuth(req, 'actions');
@@ -8556,8 +8588,25 @@ apiRouter.delete('/helpdesk/history/:id', async (req: Request, res: Response) =>
     if (!id) {
       return res.status(400).json({ success: false, error: 'History record ID is required' });
     }
-    const removed = await deleteHelpdeskConnectionHistoryFromDb(id);
-    if (!removed) {
+    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const actorAliases = canViewAll
+      ? undefined
+      : Array.from(
+          new Set(
+            [auth.actorName, auth.user?.username, auth.user?.fullName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )
+        );
+    const removed = await deleteHelpdeskConnectionHistoryFromDb(id, actorAliases);
+    if (removed.forbidden) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: You can only delete your own HelpDesk connection history records.',
+        errorFa: 'عدم دسترسی: شما فقط مجاز به حذف تاریخچه اتصالات مربوط به خودتان هستید.',
+      });
+    }
+    if (!removed.deleted) {
       return res.status(404).json({ success: false, error: 'History record not found' });
     }
     await addPortalAuditLog({
@@ -8583,30 +8632,44 @@ apiRouter.delete('/helpdesk/history/:id', async (req: Request, res: Response) =>
   }
 });
 
-// DELETE /helpdesk/history - Clear all connection history records
+// DELETE /helpdesk/history - Clear connection history records (own records unless full access)
 apiRouter.delete('/helpdesk/history', async (req: Request, res: Response) => {
   try {
     const auth = await resolveHelpdeskAuth(req, 'actions');
     if (!auth.ok) {
       return sendHelpdeskAuthFailure(res, auth);
     }
-    const clearedCount = await clearHelpdeskConnectionHistoryFromDb();
+    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const actorAliases = canViewAll
+      ? undefined
+      : Array.from(
+          new Set(
+            [auth.actorName, auth.user?.username, auth.user?.fullName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )
+        );
+    const clearedCount = await clearHelpdeskConnectionHistoryFromDb(actorAliases);
     await addPortalAuditLog({
       category: 'helpdesk',
       action: 'helpdesk_history_clear_all',
-      title: `پاک‌سازی کامل تاریخچه اتصالات هلپ‌دسک (${clearedCount} رکورد)`,
-      title_en: `Cleared HelpDesk Connection History (${clearedCount} records)`,
-      description: `کاربر ${auth.actorName} کل تاریخچه اتصالات هلپ‌دسک (${clearedCount} مورد) را پاک کرد.`,
-      description_en: `Operator ${auth.actorName} cleared ${clearedCount} HelpDesk connection history records.`,
+      title: canViewAll
+        ? `پاک‌سازی کامل تاریخچه اتصالات هلپ‌دسک (${clearedCount} رکورد)`
+        : `پاک‌سازی تاریخچه اتصالات شخصی هلپ‌دسک (${clearedCount} رکورد)`,
+      title_en: canViewAll
+        ? `Cleared All HelpDesk Connection History (${clearedCount} records)`
+        : `Cleared Own HelpDesk Connection History (${clearedCount} records)`,
+      description: `کاربر ${auth.actorName} ${canViewAll ? 'کل' : 'سوابق شخصی'} تاریخچه اتصالات هلپ‌دسک (${clearedCount} مورد) را پاک کرد.`,
+      description_en: `Operator ${auth.actorName} cleared ${clearedCount} ${canViewAll ? '' : 'own '}HelpDesk connection history records.`,
       userName: auth.actorName,
       userRole: auth.actorRole,
       status: 'success',
       severity: 'warning',
       targetName: 'helpdesk_connection_history',
       clientIp: auth.clientIp,
-      metadata: { clearedCount },
+      metadata: { clearedCount, scope: canViewAll ? 'all' : 'own' },
     }).catch(() => {});
-    return res.json({ success: true, clearedCount });
+    return res.json({ success: true, clearedCount, scope: canViewAll ? 'all' : 'own' });
   } catch (err: any) {
     return res.status(500).json({
       success: false,
@@ -8704,6 +8767,81 @@ apiRouter.post('/helpdesk/health', async (req: Request, res: Response) => {
       success: false,
       error: msg,
       errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/computer/rename - Rename Endpoint Hostname (Windows Rename-Computer / Linux hostnamectl)
+apiRouter.post('/helpdesk/computer/rename', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const newHostname = String(req.body?.newHostname || '').trim();
+  const restartAfter = Boolean(req.body?.restartAfter);
+  if (!newHostname) {
+    return res.status(400).json({
+      success: false,
+      error: 'New computer name is required.',
+      errorFa: 'نام جدید کامپیوتر الزامی است.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'computer_rename');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: 'computer_rename',
+      rl,
+    });
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await renameEndpointComputer(target, { newHostname, restartAfter });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_computer_rename',
+      title: `تغییر نام کامپیوتر ${data.targetIp} به «${newHostname}»`,
+      title_en: `HelpDesk Computer Renamed on ${data.targetIp} -> ${newHostname}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'warning',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, newHostname, restartAfter, ...data.details },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to rename computer');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_computer_rename_failed',
+      title: `خطا در تغییر نام کامپیوتر ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Computer Rename Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { newHostname },
+    });
+    return res.status(/invalid|required|exceed|already/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
     });
   }
 });
@@ -9184,6 +9322,7 @@ apiRouter.post('/helpdesk/network/vpn', async (req: Request, res: Response) => {
     const data = await manageEndpointVpnConnection(target, {
       operation: op,
       name: String(req.body?.name || '').trim(),
+      originalName: req.body?.originalName ? String(req.body.originalName).trim() : undefined,
       serverAddress: req.body?.serverAddress !== undefined ? String(req.body.serverAddress).trim() : undefined,
       tunnelType: req.body?.tunnelType as HelpdeskVpnTunnelType | undefined,
       l2tpPsk: req.body?.l2tpPsk !== undefined ? String(req.body.l2tpPsk) : undefined,
@@ -9427,6 +9566,73 @@ apiRouter.post('/helpdesk/printers/set-default', async (req: Request, res: Respo
       metadata: { printerName },
     });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/printers/test-print - Send Test Page to Installed Printer
+apiRouter.post('/helpdesk/printers/test-print', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const printerName = String(req.body?.printerName || '').trim();
+  if (!printerName) {
+    return res.status(400).json({
+      success: false,
+      error: 'Printer name is required.',
+      errorFa: 'نام پرینتر الزامی است.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'printer_test_page');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'printer_test_page', rl });
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await sendEndpointTestPrintPage(target, printerName);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_printer_test_page',
+      title: `ارسال تست پرینت به «${printerName}» روی ${data.targetIp}`,
+      title_en: `HelpDesk Test Print Sent to "${printerName}" on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: { targetIp: data.targetIp, printerName, protocol: data.protocolUsed, ...data.details },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to send test print page');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_printer_test_page_failed',
+      title: `خطا در ارسال تست پرینت به «${printerName}» روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Test Print Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { printerName },
+    });
+    return res.status(/invalid|blocked|required|not found/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,
@@ -9962,9 +10168,17 @@ apiRouter.post('/helpdesk/events', async (req: Request, res: Response) => {
   const maxEvents = Number(req.body?.maxEvents) || 45;
   const severity: 'all' | 'critical_error' =
     String(req.body?.severity || 'all') === 'critical_error' ? 'critical_error' : 'all';
+  const diagnosticFocus: 'all' | 'bsod' =
+    String(req.body?.diagnosticFocus || 'all') === 'bsod' ? 'bsod' : 'all';
 
   try {
-    const data = await collectEndpointEventLogs(target, { channel, hoursBack, maxEvents, severity });
+    const data = await collectEndpointEventLogs(target, {
+      channel,
+      hoursBack,
+      maxEvents,
+      severity,
+      diagnosticFocus,
+    });
     await addPortalAuditLog({
       category: 'system',
       action: 'helpdesk_events_inspect',
@@ -10793,7 +11007,8 @@ apiRouter.post('/helpdesk/logons/session-action', async (req: Request, res: Resp
   const target = extractHelpdeskTargetFromBody(req.body);
   const action = String(req.body?.action || '').trim() as HelpdeskUserSessionAction;
   const sessionId = req.body?.sessionId !== undefined ? String(req.body.sessionId).trim() : undefined;
-  const username = req.body?.username !== undefined ? String(req.body.username).trim() : undefined;
+  const rawTargetUser = req.body?.targetUsername ?? req.body?.sessionUsername;
+  const username = rawTargetUser !== undefined ? String(rawTargetUser).trim() : undefined;
 
   if (action !== 'lock' && action !== 'logoff') {
     return res.status(400).json({
@@ -10871,6 +11086,100 @@ apiRouter.post('/helpdesk/logons/session-action', async (req: Request, res: Resp
       metadata: { action, sessionId, username },
     });
     return res.status(/invalid|blocked|required|unsupported/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/message - Send interactive screen message to endpoint workstation (strict RBAC: canSendHelpdeskMessage or Super Admin)
+apiRouter.post('/helpdesk/message', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'send_message');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const message = String(req.body?.message || '').trim();
+  const title = req.body?.title !== undefined ? String(req.body.title).trim() : undefined;
+  const recipient = req.body?.recipient !== undefined ? String(req.body.recipient).trim() : '*';
+  const displaySeconds =
+    req.body?.displaySeconds !== undefined ? Number(req.body.displaySeconds) : 45;
+
+  if (!message) {
+    return res.status(400).json({
+      success: false,
+      error: 'Message text is required.',
+      errorFa: 'متن پیام الزامی است.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'endpoint_send_message');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: 'endpoint_send_message',
+      rl,
+    });
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await sendEndpointUserMessage(target, {
+      message,
+      title,
+      recipient,
+      displaySeconds,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_endpoint_send_message',
+      title: `ارسال پیام روی صفحه سیستم ${data.targetIp}`,
+      title_en: `HelpDesk Interactive Message Sent to ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      target: {
+        type: 'device',
+        name: data.targetIp,
+        ip: data.targetIp,
+        metadata: {
+          targetIp: data.targetIp,
+          protocol: data.protocolUsed,
+          recipient,
+          title: title || 'IT HelpDesk Message',
+          method: data.details?.method || '',
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to deliver endpoint message');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_endpoint_send_message_failed',
+      title: `خطا در ارسال پیام روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Interactive Message Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { recipient },
+    });
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,
@@ -11437,6 +11746,171 @@ apiRouter.post('/helpdesk/startup/action', async (req: Request, res: Response) =
   }
 });
 
+// POST /helpdesk/msconfig-env/list - Inspect MSConfig Boot Options (bcdedit) & Environment Variables
+apiRouter.post('/helpdesk/msconfig-env/list', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointMsconfigAndEnv(target);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_msconfig_env_list',
+      title: `دریافت تنظیمات MSConfig و متغیرهای محیطی ${data.targetIp} (${data.summary.totalEnvCount} متغیر)`,
+      title_en: `HelpDesk MSConfig & Env Vars Scan on ${data.targetIp} (${data.summary.totalEnvCount} variables)`,
+      details: `${data.summary.systemEnvCount} متغیر سیستم، ${data.summary.userEnvCount} متغیر کاربر و ${data.summary.bootEntriesCount} ورودی بوت از ${data.hostname} دریافت شد.`,
+      details_en: `Collected ${data.summary.systemEnvCount} system and ${data.summary.userEnvCount} user environment variables + ${data.summary.bootEntriesCount} boot entries from ${data.hostname}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      target: { type: 'device', name: data.hostname || data.targetIp, ip: data.targetIp, metadata: data.summary },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to inspect MSConfig and Environment Variables');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_msconfig_env_list_failed',
+      title: `خطا در خواندن MSConfig و متغیرهای محیطی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk MSConfig & Env Scan Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/msconfig/action - Update MSConfig Boot Configuration or Launch msconfig.exe
+apiRouter.post('/helpdesk/msconfig/action', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'msconfig_update');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: 'msconfig_update', rl });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await manageEndpointMsconfig(target, {
+      operation: req.body?.operation === 'launch_msconfig_tool' ? 'launch_msconfig_tool' : 'set_boot_options',
+      timeoutSeconds: req.body?.timeoutSeconds !== undefined && req.body?.timeoutSeconds !== '' ? Number(req.body.timeoutSeconds) : undefined,
+      safeBootMode: req.body?.safeBootMode,
+      noGuiBoot: Boolean(req.body?.noGuiBoot),
+      bootLog: Boolean(req.body?.bootLog),
+      baseVideo: Boolean(req.body?.baseVideo),
+      osBootInfo: Boolean(req.body?.osBootInfo),
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_msconfig_update',
+      title: `تغییر تنظیمات بوت / MSConfig روی ${data.targetIp}`,
+      title_en: `HelpDesk MSConfig Boot Options Updated on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'warning',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'MSConfig update failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_msconfig_update_failed',
+      title: `خطا در تغییر تنظیمات MSConfig روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk MSConfig Update Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|between|no active/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/env-vars/action - Create, Update or Delete System/User Environment Variable
+apiRouter.post('/helpdesk/env-vars/action', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const action = req.body?.action === 'delete' ? 'delete' : 'set';
+  const rateAction: HelpdeskWriteAction = action === 'delete' ? 'env_var_delete' : 'env_var_set';
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rateAction);
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({ actorName: auth.actorName, actorRole: auth.actorRole, clientIp: auth.clientIp, targetIp: target.targetIp, actionName: rateAction, rl });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  const varName = String(req.body?.name || '').trim();
+  try {
+    const data = await manageEndpointEnvVar(target, {
+      action,
+      scope: req.body?.scope === 'user' ? 'user' : 'system',
+      name: varName,
+      value: req.body?.value !== undefined ? String(req.body.value) : '',
+      expandSz: Boolean(req.body?.expandSz),
+      ownerSid: req.body?.ownerSid,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: `helpdesk_${rateAction}`,
+      title: `مدیریت متغیر محیطی «${varName}» (${action}) روی ${data.targetIp}`,
+      title_en: `HelpDesk Env Var "${varName}" (${action}) on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: action === 'delete' ? 'warning' : 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Environment variable action failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_env_var_failed',
+      title: `خطا در تغییر متغیر محیطی «${varName || 'Env'}» روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Env Var Action Failed (${varName}): ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|protected|cannot be deleted/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
 // POST /helpdesk/region-fonts/list - Inspect Time, TimeZone, Languages, Region & Installed Fonts
 apiRouter.post('/helpdesk/region-fonts/list', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'diagnostics');
@@ -11758,6 +12232,113 @@ apiRouter.post('/helpdesk/fonts/delete', async (req: Request, res: Response) => 
       errorMsg: msg,
     });
     return res.status(/invalid|required|protected|cannot be removed|blocked/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/fonts/export - Export Single Font Binary (.ttf/.otf/.ttc/.fon) from Endpoint
+apiRouter.post('/helpdesk/fonts/export', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const fileName = String(req.body?.fileName || '').trim();
+  try {
+    const data = await exportEndpointFont(target, {
+      fileName,
+      scope: req.body?.scope === 'user' ? 'user' : 'system',
+      ownerSid: req.body?.ownerSid,
+      filePath: req.body?.filePath,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_font_export',
+      title: `خروجی گرفتن فونت «${data.fileName}» از ${target.targetIp}`,
+      title_en: `HelpDesk Font Exported "${data.fileName}" from ${target.targetIp}`,
+      details: `فایل فونت ${data.fileName} (${data.sizeBytes} بایت) از سیستم کاربر دریافت شد.`,
+      details_en: `Exported font ${data.fileName} (${data.sizeBytes} bytes) from ${target.targetIp}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      target: { type: 'device', name: target.targetIp, ip: target.targetIp },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Font export failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_font_export_failed',
+      title: `خطا در خروجی گرفتن فونت «${fileName || 'Font'}» از ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Font Export Failed (${fileName}): ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|not found|limit/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/fonts/export-archive - Export Filtered or Selected Fonts as .zip Archive
+apiRouter.post('/helpdesk/fonts/export-archive', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  try {
+    const result = await exportEndpointFontsArchive(target, items);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_font_archive_export',
+      title: `خروجی ZIP فونت‌ها (${result.exportedCount} فونت) از ${target.targetIp}`,
+      title_en: `HelpDesk Fonts Archive Exported (${result.exportedCount} fonts) from ${target.targetIp}`,
+      details: `${result.exportedCount} فونت در آرشیو ${result.archiveFileName} استخراج شد (${result.skippedCount} مورد یافت نشد).`,
+      details_en: `Exported ${result.exportedCount} fonts in archive ${result.archiveFileName} (${result.skippedCount} skipped).`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      target: { type: 'device', name: target.targetIp, ip: target.targetIp },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({
+      success: true,
+      data: {
+        archiveFileName: result.archiveFileName,
+        zipBase64: result.zipBuffer.toString('base64'),
+        sizeBytes: result.zipBuffer.length,
+        exportedCount: result.exportedCount,
+        skippedCount: result.skippedCount,
+      },
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Font archive export failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_font_archive_export_failed',
+      title: `خطا در خروجی ZIP فونت‌های ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Fonts Archive Export Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|exceeds|selected/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,
@@ -22130,9 +22711,34 @@ apiRouter.post('/remote-servers/:id/logs/truncate', async (req: Request, res: Re
   }
 });
 
-// POST /api/remote-servers/:id/send-message - Send message to logged-in user or broadcast
+// POST /api/remote-servers/:id/send-message - Send message to logged-in user or broadcast (strict RBAC: canSendHelpdeskMessage or Super Admin)
 apiRouter.post('/remote-servers/:id/send-message', async (req: Request, res: Response) => {
   try {
+    const { user: authUser, effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
+    const canSendUserMessage = Boolean(isSuperAdmin || effectivePolicy?.canSendHelpdeskMessage === true);
+    if (!canSendUserMessage) {
+      const actor = authUser?.username || getReqOperator(req).username || 'unknown';
+      await addPortalAuditLog({
+        category: 'system',
+        action: 'linux_send_message_denied',
+        title: 'تلاش غیرمجاز برای ارسال پیام روی سیستم لینوکس',
+        title_en: 'Unauthorized Terminal Message Attempt',
+        description: `کاربر ${actor} فاقد مجوز صریح RBAC برای ارسال پیام روی سیستم کاربران (canSendHelpdeskMessage) است.`,
+        description_en: `User ${actor} lacks RBAC permission canSendHelpdeskMessage (or Super Admin role) to send terminal/desktop messages.`,
+        userName: actor,
+        userRole: authUser?.role || effectivePolicy?.name || 'User',
+        status: 'denied',
+        severity: 'warning',
+        targetName: String(req.params.id || 'remote-server'),
+        clientIp: getClientIp(req),
+      }).catch(() => {});
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Sending interactive screen/terminal messages requires explicit RBAC permission (canSendHelpdeskMessage) or Super Admin role.',
+        errorFa: 'عدم دسترسی: ارسال پیام روی سیستم کاربران نیازمند مجوز صریح RBAC (canSendHelpdeskMessage) یا نقش سوپرادمین است.',
+      });
+    }
+
     const { id } = req.params;
     const { target, message, password } = req.body;
 

@@ -55,6 +55,9 @@ interface NetworkShareMapModalProps {
   workstationIp: string;
   detectedLoggedInUser?: string;
   userProfiles: EndpointUserProfileItem[];
+  usedDriveLetters?: string[];
+  disks?: Array<{ drive?: string; driveLetter?: string }>;
+  existingShares?: Array<{ driveLetter?: string }>;
   initialRemotePath?: string;
   initialDriveLetter?: string;
   initialScope?: 'active_user' | 'specific_user' | 'all_users';
@@ -67,6 +70,12 @@ const DRIVE_LETTERS = [
   'O:', 'N:', 'M:', 'L:', 'K:', 'J:', 'I:', 'H:', 'G:', 'F:', 'E:', 'D:',
 ];
 
+function normalizeDriveLetterToken(raw: unknown): string | null {
+  const s = String(raw || '').trim().toUpperCase();
+  const m = /^([A-Z])(?::|\\)?$/.exec(s) || /^([A-Z]):/.exec(s);
+  return m ? `${m[1]}:` : null;
+}
+
 export const NetworkShareMapModal: React.FC<NetworkShareMapModalProps> = ({
   isOpen,
   onClose,
@@ -78,6 +87,9 @@ export const NetworkShareMapModal: React.FC<NetworkShareMapModalProps> = ({
   workstationIp,
   detectedLoggedInUser = '',
   userProfiles,
+  usedDriveLetters = [],
+  disks = [],
+  existingShares = [],
   initialRemotePath = '',
   initialDriveLetter = 'AUTO',
   initialScope,
@@ -120,10 +132,44 @@ export const NetworkShareMapModal: React.FC<NetworkShareMapModalProps> = ({
     rawOutput?: string;
   } | null>(null);
 
+  const occupiedDriveLetters = useMemo(() => {
+    const set = new Set<string>();
+    for (const raw of usedDriveLetters) {
+      const dl = normalizeDriveLetterToken(raw);
+      if (dl) set.add(dl);
+    }
+    for (const d of disks) {
+      const dl = normalizeDriveLetterToken(d?.driveLetter || d?.drive);
+      if (dl) set.add(dl);
+    }
+    for (const sh of existingShares) {
+      const dl = normalizeDriveLetterToken(sh?.driveLetter);
+      if (dl) set.add(dl);
+    }
+    return Array.from(set).sort();
+  }, [usedDriveLetters, disks, existingShares]);
+
+  const occupiedDriveLetterSet = useMemo(
+    () => new Set(occupiedDriveLetters),
+    [occupiedDriveLetters]
+  );
+
+  const availableDriveLetters = useMemo(
+    () => DRIVE_LETTERS.filter((dl) => !occupiedDriveLetterSet.has(dl)),
+    [occupiedDriveLetterSet]
+  );
+
   useEffect(() => {
     if (!isOpen) return;
     if (initialRemotePath) setRemotePath(initialRemotePath);
-    if (initialDriveLetter) setDriveLetter(initialDriveLetter);
+    const normalizedInit = normalizeDriveLetterToken(initialDriveLetter);
+    if (initialDriveLetter === 'NONE') {
+      setDriveLetter('NONE');
+    } else if (normalizedInit && !occupiedDriveLetterSet.has(normalizedInit)) {
+      setDriveLetter(normalizedInit);
+    } else {
+      setDriveLetter(availableDriveLetters.length > 0 ? 'AUTO' : 'NONE');
+    }
     if (initialScope) {
       setScope(initialScope);
     } else if (detectedLoggedInUser) {
@@ -135,7 +181,16 @@ export const NetworkShareMapModal: React.FC<NetworkShareMapModalProps> = ({
     }
     setMapResult(null);
     setBrowseError(null);
-  }, [isOpen, initialRemotePath, initialDriveLetter, initialScope, detectedLoggedInUser, userProfiles.length]);
+  }, [
+    isOpen,
+    initialRemotePath,
+    initialDriveLetter,
+    initialScope,
+    detectedLoggedInUser,
+    userProfiles.length,
+    occupiedDriveLetterSet,
+    availableDriveLetters.length,
+  ]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -520,25 +575,56 @@ export const NetworkShareMapModal: React.FC<NetworkShareMapModalProps> = ({
                 />
               </div>
 
-              {/* Drive Letter */}
+              {/* Drive Letter (Filtered Strictly to Unused Letters) */}
               <div className="sm:col-span-3 space-y-1.5">
                 <label className={`flex items-center gap-1 text-xs font-semibold ${textPrimary}`}>
                   <HardDrive className="w-3.5 h-3.5 text-sky-500" />
-                  <span>{isEn ? 'Drive Letter' : 'حرف درایو'}</span>
+                  <span>{isEn ? 'Drive Letter (Unused Only)' : 'حرف درایو (فقط حروف آزاد)'}</span>
+                  <FieldInfoTooltip
+                    isLightMode={isLightMode}
+                    isEn={isEn}
+                    title={isEn ? 'Available Drive Letter' : 'انتخاب حرف درایو آزاد'}
+                    whatIsIt={
+                      isEn
+                        ? 'Lists only drive letters that are NOT currently used by Windows local volumes, USB/optical drives, or existing mapped network folders.'
+                        : 'فقط حروفی را نمایش می‌دهد که در حال حاضر نه برای درایوهای لوکال ویندوز (مثل C: یا D:) و نه برای شیرفولدرهای فعلی استفاده نشده‌اند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Prevents overwriting or colliding with active disks and existing user mapped shares.'
+                        : 'از تداخل با درایوهای ویندوزی و قطع شدن اشتراک‌های شبکه‌ای فعلی کاربر جلوگیری می‌کند.'
+                    }
+                    example={
+                      isEn
+                        ? 'Auto-Pick selects the highest unused letter (e.g. Z:, Y:) automatically.'
+                        : 'گزینه انتخاب خودکار بالاترین حرف آزاد (مثلاً Z: یا Y:) را برمی‌گزیند.'
+                    }
+                  />
                 </label>
                 <select
                   value={driveLetter}
                   onChange={(e) => setDriveLetter(e.target.value)}
                   className={`w-full px-2.5 py-2 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
                 >
-                  <option value="AUTO">{isEn ? 'Auto-Pick (Z: → D:)' : 'انتخاب خودکار (Z: تا D:)'}</option>
-                  {DRIVE_LETTERS.map((dl) => (
+                  {availableDriveLetters.length > 0 && (
+                    <option value="AUTO">
+                      {isEn
+                        ? `Auto-Pick Unused (${availableDriveLetters[0]} → ${availableDriveLetters[availableDriveLetters.length - 1]})`
+                        : `انتخاب خودکار آزاد (${availableDriveLetters[0]} تا ${availableDriveLetters[availableDriveLetters.length - 1]})`}
+                    </option>
+                  )}
+                  {availableDriveLetters.map((dl) => (
                     <option key={dl} value={dl}>
                       {dl}
                     </option>
                   ))}
                   <option value="NONE">{isEn ? 'UNC Only (No Drive Letter)' : 'فقط اتصال UNC (بدون حرف درایو)'}</option>
                 </select>
+                {occupiedDriveLetters.length > 0 && (
+                  <div className={`text-[10px] font-mono leading-relaxed ${textMuted}`} dir="ltr">
+                    {isEn ? 'Excluded (in use):' : 'حذف‌شده (در حال استفاده):'} {occupiedDriveLetters.join(', ')}
+                  </div>
+                )}
               </div>
 
               {/* Optional Drive Label */}

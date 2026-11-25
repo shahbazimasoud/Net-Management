@@ -1024,6 +1024,7 @@ export interface HelpdeskConnectionHistoryItem {
 
 export interface HelpdeskConnectionHistoryResponse {
   success: boolean;
+  scope?: 'all' | 'own';
   items: HelpdeskConnectionHistoryItem[];
   total: number;
   page: number;
@@ -1053,6 +1054,8 @@ export async function fetchHelpdeskStatus(): Promise<{
     canInspectHelpdeskDomainUsers: boolean;
     canPowerControlHelpdeskEndpoints: boolean;
     canManageHelpdeskExceptions: boolean;
+    canSendHelpdeskMessage: boolean;
+    canViewAllHelpdeskHistory: boolean;
   };
   rateLimit: {
     windowMinutes: number;
@@ -1123,7 +1126,11 @@ export async function deleteHelpdeskConnectionHistoryItem(id: string): Promise<{
   return res.json();
 }
 
-export async function clearHelpdeskConnectionHistory(): Promise<{ success: boolean; clearedCount: number }> {
+export async function clearHelpdeskConnectionHistory(): Promise<{
+  success: boolean;
+  clearedCount: number;
+  scope?: 'all' | 'own';
+}> {
   const res = await fetchWithRetry(`${API_BASE}/helpdesk/history`, {
     method: 'DELETE',
     cache: 'no-store',
@@ -1294,6 +1301,7 @@ export async function manageHelpdeskVpnConnection(
   payload: HelpdeskConnectionPayload & {
     operation: 'create' | 'delete' | 'connect' | 'disconnect';
     name: string;
+    originalName?: string;
     serverAddress?: string;
     tunnelType?: 'Automatic' | 'L2tp' | 'Ikev2' | 'Sstp' | 'Pptp';
     l2tpPsk?: string;
@@ -1369,6 +1377,45 @@ export async function setHelpdeskDefaultPrinter(
     body: JSON.stringify(payload),
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Failed to set default printer');
+  return res.json();
+}
+
+export async function sendHelpdeskPrinterTestPage(
+  payload: HelpdeskConnectionPayload & {
+    printerName: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/printers/test-print`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to send test print page');
+  return res.json();
+}
+
+export async function renameHelpdeskComputer(
+  payload: HelpdeskConnectionPayload & {
+    newHostname: string;
+    restartAfter?: boolean;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/computer/rename`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to rename computer');
   return res.json();
 }
 
@@ -1683,7 +1730,7 @@ export async function executeHelpdeskUserSessionAction(
   payload: HelpdeskConnectionPayload & {
     action: 'lock' | 'logoff';
     sessionId?: string;
-    username?: string;
+    targetUsername?: string;
   }
 ): Promise<{
   success: boolean;
@@ -1700,12 +1747,35 @@ export async function executeHelpdeskUserSessionAction(
   return res.json();
 }
 
+export async function sendHelpdeskEndpointMessage(
+  payload: HelpdeskConnectionPayload & {
+    message: string;
+    title?: string;
+    recipient?: string;
+    displaySeconds?: number;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/message`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to deliver interactive endpoint message');
+  return res.json();
+}
+
 export async function fetchHelpdeskEventLogs(
   payload: HelpdeskConnectionPayload & {
     channel?: 'All' | 'System' | 'Application';
     hoursBack?: number;
     maxEvents?: number;
     severity?: 'all' | 'critical_error';
+    diagnosticFocus?: 'all' | 'bsod';
   }
 ): Promise<{
   success: boolean;
@@ -2004,6 +2074,70 @@ export async function executeHelpdeskStartupAction(
   return res.json();
 }
 
+export async function fetchHelpdeskMsconfigAndEnv(payload: HelpdeskConnectionPayload): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/msconfig-env/list`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to load MSConfig boot options and environment variables');
+  return res.json();
+}
+
+export async function updateHelpdeskMsconfig(
+  payload: HelpdeskConnectionPayload & {
+    operation: 'set_boot_options' | 'launch_msconfig_tool';
+    timeoutSeconds?: number;
+    safeBootMode?: 'none' | 'minimal' | 'network' | 'dsrepair' | 'alternateshell';
+    noGuiBoot?: boolean;
+    bootLog?: boolean;
+    baseVideo?: boolean;
+    osBootInfo?: boolean;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/msconfig/action`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update MSConfig boot configuration');
+  return res.json();
+}
+
+export async function manageHelpdeskEnvVar(
+  payload: HelpdeskConnectionPayload & {
+    action: 'set' | 'delete';
+    scope: 'system' | 'user';
+    name: string;
+    value?: string;
+    expandSz?: boolean;
+    ownerSid?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/env-vars/action`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update environment variable');
+  return res.json();
+}
+
 export async function fetchHelpdeskRegionAndFonts(payload: HelpdeskConnectionPayload): Promise<{
   success: boolean;
   data: any;
@@ -2110,6 +2244,63 @@ export async function deleteHelpdeskFont(
     body: JSON.stringify(payload),
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Failed to delete font from endpoint');
+  return res.json();
+}
+
+export async function exportHelpdeskFont(
+  payload: HelpdeskConnectionPayload & {
+    fileName: string;
+    scope?: 'system' | 'user';
+    ownerSid?: string;
+    filePath?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: {
+    fileName: string;
+    mimeType: string;
+    fileBase64: string;
+    sizeBytes: number;
+  };
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/fonts/export`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to export font from endpoint');
+  return res.json();
+}
+
+export async function exportHelpdeskFontsArchive(
+  payload: HelpdeskConnectionPayload & {
+    items: Array<{
+      fileName: string;
+      scope?: 'system' | 'user';
+      ownerSid?: string;
+      filePath?: string;
+    }>;
+  }
+): Promise<{
+  success: boolean;
+  data: {
+    archiveFileName: string;
+    zipBase64: string;
+    sizeBytes: number;
+    exportedCount: number;
+    skippedCount: number;
+  };
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/fonts/export-archive`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to export fonts archive from endpoint');
   return res.json();
 }
 
@@ -7205,8 +7396,9 @@ export async function sendLinuxServerUserMessage(
   success: boolean;
   message: string;
   error?: string;
+  errorFa?: string;
 }> {
-  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/send-message`, {
+  const res = await fetchWithRetry(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/send-message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ target, message, password: ephemeralPassword }),

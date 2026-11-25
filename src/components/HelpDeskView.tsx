@@ -84,6 +84,10 @@ import {
   Cog,
   Stethoscope,
   ShieldBan,
+  Pencil,
+  MessageSquare,
+  Send,
+  Bug,
 } from 'lucide-react';
 import { AccessPolicy, HelpdeskExceptionRule } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -105,11 +109,13 @@ import {
   fetchHelpdeskPrinterStatus,
   executeHelpdeskPrinterAction,
   setHelpdeskDefaultPrinter,
+  sendHelpdeskPrinterTestPage,
   deleteHelpdeskPrinter,
   fetchHelpdeskEndpointShares,
   disconnectHelpdeskEndpointShare,
   fetchHelpdeskEndpointLogons,
   executeHelpdeskUserSessionAction,
+  sendHelpdeskEndpointMessage,
   fetchHelpdeskEventLogs,
   terminateHelpdeskProcess,
   scanHelpdeskTemp,
@@ -126,11 +132,16 @@ import {
   fetchHelpdeskServicesAndStartup,
   executeHelpdeskServiceAction,
   executeHelpdeskStartupAction,
+  fetchHelpdeskMsconfigAndEnv,
+  updateHelpdeskMsconfig,
+  manageHelpdeskEnvVar,
   fetchHelpdeskRegionAndFonts,
   updateHelpdeskDateTime,
   updateHelpdeskLanguagesAndLocale,
   installHelpdeskFont,
   deleteHelpdeskFont,
+  exportHelpdeskFont,
+  exportHelpdeskFontsArchive,
   fetchHelpdeskSecurityAndAv,
   controlHelpdeskAntivirus,
   toggleHelpdeskFirewallProfile,
@@ -141,6 +152,7 @@ import {
   inspectHelpdeskDomainUser,
   executeHelpdeskPowerControl,
   fetchHelpdeskBatteryReport,
+  renameHelpdeskComputer,
   runHelpdeskDiagnosticsSuite,
   fetchHelpdeskExceptions,
   ALL_HELPDESK_DIAGNOSTIC_CHECKS,
@@ -324,6 +336,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           hasElevatedHelpdesk ||
             (effectivePolicy?.canViewHelpdesk !== false && effectivePolicy?.canManageHelpdeskExceptions === true)
         );
+  const [serverCanSendEndpointMessage, setServerCanSendEndpointMessage] = useState<boolean | null>(null);
+  const canSendEndpointMessage =
+    serverCanSendEndpointMessage !== null
+      ? serverCanSendEndpointMessage
+      : Boolean(
+          isSuper ||
+            (effectivePolicy?.canViewHelpdesk !== false && effectivePolicy?.canSendHelpdeskMessage === true)
+        );
 
   // Volatile JS RAM-Only Session State (preserved across sidebar page navigation, NEVER stored in localStorage or DB!)
   const ram = useSyncExternalStore(subscribeHelpdeskRam, getHelpdeskRamSnapshot);
@@ -399,6 +419,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const setDonutMetric = setRamField('donutMetric');
   const selectedProcessPid = ram.selectedProcessPid;
   const setSelectedProcessPid = setRamField('selectedProcessPid');
+  const [isRenamingComputer, setIsRenamingComputer] = useState(false);
+  const [renameInputValue, setRenameInputValue] = useState('');
+  const [renameRestartAfter, setRenameRestartAfter] = useState(false);
+  const [renamingComputer, setRenamingComputer] = useState(false);
+  const [renameResult, setRenameResult] = useState<any | null>(null);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   // Module 1B: Hardware Inventory & Connected Peripherals state (backed by RAM store)
   const hardwareData = ram.hardwareData;
@@ -485,6 +511,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [showVpnCustomPass, setShowVpnCustomPass] = useState(false);
   const [busyVpnKey, setBusyVpnKey] = useState<string | null>(null);
   const [confirmDeleteVpnName, setConfirmDeleteVpnName] = useState<string | null>(null);
+  const [editingVpnOriginalName, setEditingVpnOriginalName] = useState<string | null>(null);
 
   // Module 3: Printers & Print Spooler state
   const printerData = ram.printerData;
@@ -531,12 +558,22 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     scope?: 'active_user' | 'specific_user' | 'all_users';
   }>({});
 
-  // Module 4: Event Viewer (Human-Readable Diagnostics) state
+  // Module 4: Event Viewer (Human-Readable Diagnostics + BSOD Analyzer) state
   const [eventChannel, setEventChannel] = useState<'All' | 'System' | 'Application'>('All');
+  const [eventDiagnosticFocus, setEventDiagnosticFocus] = useState<'all' | 'bsod'>('all');
   const [eventHoursBack, setEventHoursBack] = useState<number>(48);
   const [eventSeverityMode, setEventSeverityMode] = useState<'all' | 'critical_error'>('all');
   const [eventSearch, setEventSearch] = useState('');
   const [eventLevelFilter, setEventLevelFilter] = useState<'all' | 'critical' | 'error' | 'warning'>('all');
+  const [bsodReasonFilter, setBsodReasonFilter] = useState<
+    | 'all'
+    | 'bugcheck_stop'
+    | 'unexpected_power'
+    | 'hardware_whea'
+    | 'gpu_driver'
+    | 'storage_crashdump'
+    | 'memory_services'
+  >('all');
   const eventData = ram.eventData;
   const setEventData = setRamField('eventData');
   const loadingEvents = ram.loadingEvents;
@@ -648,6 +685,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const serviceStartupActionError = ram.serviceStartupActionError;
   const setServiceStartupActionError = setRamField('serviceStartupActionError');
   const [serviceStartupBusyKey, setServiceStartupBusyKey] = useState<string | null>(null);
+  const msconfigEnvData = ram.msconfigEnvData;
+  const setMsconfigEnvData = setRamField('msconfigEnvData');
+  const loadingMsconfigEnv = ram.loadingMsconfigEnv;
+  const setLoadingMsconfigEnv = setRamField('loadingMsconfigEnv');
+  const msconfigEnvError = ram.msconfigEnvError;
+  const setMsconfigEnvError = setRamField('msconfigEnvError');
 
   // Region, Time/Timezone, Languages & Fonts
   const regionFontsData = ram.regionFontsData;
@@ -724,6 +767,15 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const sessionActionError = ram.sessionActionError;
   const setSessionActionError = setRamField('sessionActionError');
 
+  // Interactive Screen Messaging to Endpoint (RBAC: canSendHelpdeskMessage or Super Admin)
+  const [endpointMsgRecipient, setEndpointMsgRecipient] = useState<string>('*');
+  const [endpointMsgTitle, setEndpointMsgTitle] = useState<string>('IT HelpDesk Notice');
+  const [endpointMsgBody, setEndpointMsgBody] = useState<string>('');
+  const [endpointMsgSeconds, setEndpointMsgSeconds] = useState<number>(45);
+  const [sendingEndpointMsg, setSendingEndpointMsg] = useState<boolean>(false);
+  const [endpointMsgResult, setEndpointMsgResult] = useState<any | null>(null);
+  const [endpointMsgError, setEndpointMsgError] = useState<string | null>(null);
+
   // Laptop Battery Health & Cycle Count Report
   const batteryData = ram.batteryData;
   const setBatteryData = setRamField('batteryData');
@@ -743,6 +795,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const setDomainUserError = setRamField('domainUserError');
   const [domainGroupFilter, setDomainGroupFilter] = useState('');
   const [showRawDomainUser, setShowRawDomainUser] = useState(false);
+  const lastAutoAdUserRef = useRef<string>('');
 
   // Connection History Tab State (persisted non-secret metadata in DB, paginated & searchable)
   const [historyItems, setHistoryItems] = useState<HelpdeskConnectionHistoryItem[]>([]);
@@ -760,6 +813,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [confirmClearHistory, setConfirmClearHistory] = useState(false);
   const [copiedHistoryIpId, setCopiedHistoryIpId] = useState<string | null>(null);
   const [historyNotice, setHistoryNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const [historyScope, setHistoryScope] = useState<'all' | 'own'>(hasElevatedHelpdesk ? 'all' : 'own');
 
   useEffect(() => {
     bindHelpdeskRamOwner(currentUser?.id || currentUser?.username || null);
@@ -774,6 +828,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         if (res.jeaTemplates) setJeaTemplates(res.jeaTemplates);
         if (typeof res.permissions?.canManageHelpdeskExceptions === 'boolean') {
           setServerCanManageExceptions(res.permissions.canManageHelpdeskExceptions);
+        }
+        if (typeof res.permissions?.canSendHelpdeskMessage === 'boolean') {
+          setServerCanSendEndpointMessage(res.permissions.canSendHelpdeskMessage);
+        }
+        if (typeof res.permissions?.canViewAllHelpdeskHistory === 'boolean') {
+          setHistoryScope(res.permissions.canViewAllHelpdeskHistory ? 'all' : 'own');
         }
       })
       .catch(() => {});
@@ -838,6 +898,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         setHistoryTotal(Number(res.total || 0));
         setHistoryPage(Number(res.page || 1));
         setHistoryStats(res.stats || null);
+        if (res.scope === 'all' || res.scope === 'own') {
+          setHistoryScope(res.scope);
+        }
       } catch (err: any) {
         setHistoryError(
           err?.message ||
@@ -918,6 +981,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setRouteDest('');
     setRouteGateway('');
     setConfirmDeleteRouteId(null);
+    setEditingVpnOriginalName(null);
     setVpnName('');
     setVpnServer('');
     setVpnTunnelType('L2tp');
@@ -928,6 +992,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setVpnDnsSuffix('');
     setVpnCustomUser('');
     setVpnCustomPass('');
+    setEndpointMsgRecipient('*');
+    setEndpointMsgBody('');
+    setEndpointMsgResult(null);
+    setEndpointMsgError(null);
+    setEventDiagnosticFocus('all');
+    setBsodReasonFilter('all');
     setShowVpnCustomPass(false);
     setConfirmDeleteVpnName(null);
     setConfirmRepairKey(null);
@@ -935,6 +1005,13 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setSessionActionBusy(null);
     setConfirmLogoffKey(null);
     setSecurityAvBusyKey(null);
+    setIsRenamingComputer(false);
+    setRenameInputValue('');
+    setRenameRestartAfter(false);
+    setRenamingComputer(false);
+    setRenameResult(null);
+    setRenameError(null);
+    lastAutoAdUserRef.current = '';
   };
 
   const handleInspectShares = async (overridePayload?: HelpdeskConnectionPayload) => {
@@ -1292,6 +1369,57 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
+  const handleStartEditVpn = (vpn: any) => {
+    if (!vpn) return;
+    const orig = String(vpn.name || '').trim();
+    const rawTunnel = String(vpn.tunnelType || 'L2tp');
+    const normalizedTunnel: 'Automatic' | 'L2tp' | 'Ikev2' | 'Sstp' | 'Pptp' =
+      rawTunnel === 'Automatic' ||
+      rawTunnel === 'L2tp' ||
+      rawTunnel === 'Ikev2' ||
+      rawTunnel === 'Sstp' ||
+      rawTunnel === 'Pptp'
+        ? rawTunnel
+        : rawTunnel.toLowerCase().includes('l2tp')
+        ? 'L2tp'
+        : rawTunnel.toLowerCase().includes('ikev2')
+        ? 'Ikev2'
+        : rawTunnel.toLowerCase().includes('sstp')
+        ? 'Sstp'
+        : rawTunnel.toLowerCase().includes('pptp')
+        ? 'Pptp'
+        : 'Automatic';
+
+    setEditingVpnOriginalName(orig);
+    setVpnName(orig);
+    setVpnServer(String(vpn.serverAddress || ''));
+    setVpnTunnelType(normalizedTunnel);
+    setVpnUseWinCred(Boolean(vpn.useWinlogonCredential));
+    setVpnSplitTunnel(vpn.splitTunneling !== undefined ? Boolean(vpn.splitTunneling) : true);
+    setVpnAllUsers(vpn.allUserConnection !== undefined ? Boolean(vpn.allUserConnection) : true);
+    setVpnDnsSuffix(String(vpn.dnsSuffix || ''));
+    setVpnL2tpPsk('');
+    setVpnCustomUser('');
+    setVpnCustomPass('');
+    setNetworkError(null);
+    const el = document.getElementById('hd-section-network-vpn-form');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const handleCancelEditVpn = () => {
+    setEditingVpnOriginalName(null);
+    setVpnName('');
+    setVpnServer('');
+    setVpnTunnelType('L2tp');
+    setVpnL2tpPsk('');
+    setVpnUseWinCred(true);
+    setVpnSplitTunnel(true);
+    setVpnAllUsers(true);
+    setVpnDnsSuffix('');
+    setVpnCustomUser('');
+    setVpnCustomPass('');
+  };
+
   const handleCreateVpn = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload = buildPayload();
@@ -1304,6 +1432,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         ...payload,
         operation: 'create',
         name: vpnName.trim(),
+        originalName: editingVpnOriginalName || undefined,
         serverAddress: vpnServer.trim(),
         tunnelType: vpnTunnelType,
         l2tpPsk: vpnL2tpPsk || undefined,
@@ -1316,8 +1445,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       });
       setNetActionResult(res.data);
       if (res.rateLimit) setRateLimit(res.rateLimit);
+      setEditingVpnOriginalName(null);
       setVpnName('');
+      setVpnServer('');
+      setVpnDnsSuffix('');
       setVpnL2tpPsk('');
+      setVpnCustomUser('');
       setVpnCustomPass('');
       try {
         const refreshed = await fetchHelpdeskNetworkSnapshot(payload);
@@ -1325,7 +1458,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       } catch {}
     } catch (err: any) {
       setNetworkError(
-        err?.message || (isEn ? 'Failed to configure VPN connection.' : 'ساخت یا تنظیم کانکشن VPN روی سیستم کاربر ناموفق بود.')
+        err?.message || (isEn ? 'Failed to configure VPN connection.' : 'ساخت یا ویرایش کانکشن VPN روی سیستم کاربر ناموفق بود.')
       );
     } finally {
       setBusyVpnKey(null);
@@ -1446,6 +1579,36 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       );
     } finally {
       setPrinterRowActionBusy(null);
+    }
+  };
+
+  const handleSendTestPrintPage = async (printerName: string) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setPrinterMenuAnchor(null);
+    setPrinterRowActionBusy(printerName);
+    setPrinterError(null);
+    setSpoolerActionResult(null);
+    try {
+      const res = await sendHelpdeskPrinterTestPage({ ...payload, printerName });
+      setSpoolerActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      window.setTimeout(async () => {
+        try {
+          const refreshed = await fetchHelpdeskPrinterStatus(payload);
+          setPrinterData(refreshed.data);
+        } catch {}
+      }, 700);
+    } catch (err: any) {
+      setPrinterError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? `Failed to send test print page to "${printerName}".`
+            : `ارسال صفحه تست پرینت به «${printerName}» با خطا مواجه شد.`)
+      );
+    } finally {
+      setPrinterRowActionBusy(null);
+      notifyHelpdeskAuditUpdated();
     }
   };
 
@@ -1571,18 +1734,29 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setIsShareMapModalOpen(false);
   };
 
-  const handleInspectEvents = async () => {
+  const handleInspectEvents = async (override?: {
+    focus?: 'all' | 'bsod';
+    hours?: number;
+    channel?: 'All' | 'System' | 'Application';
+    severity?: 'all' | 'critical_error';
+  }) => {
     const payload = buildPayload();
     if (!payload) return;
+    const nextFocus = override?.focus ?? eventDiagnosticFocus;
+    const nextChannel = override?.channel ?? (nextFocus === 'bsod' ? 'System' : eventChannel);
+    const nextHours = override?.hours ?? eventHoursBack;
+    const nextSeverity = override?.severity ?? eventSeverityMode;
     setLoadingEvents(true);
     setEventError(null);
+    setBsodReasonFilter('all');
     try {
       const res = await fetchHelpdeskEventLogs({
         ...payload,
-        channel: eventChannel,
-        hoursBack: eventHoursBack,
-        maxEvents: 50,
-        severity: eventSeverityMode,
+        channel: nextChannel,
+        hoursBack: nextHours,
+        maxEvents: nextFocus === 'bsod' ? 80 : 50,
+        severity: nextSeverity,
+        diagnosticFocus: nextFocus,
       });
       setEventData(res.data);
       setExpandedEventIds({});
@@ -2062,6 +2236,99 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
+  const handleInspectMsconfigEnv = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingMsconfigEnv(true);
+    setMsconfigEnvError(null);
+    try {
+      const res = await fetchHelpdeskMsconfigAndEnv(payload);
+      setMsconfigEnvData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setMsconfigEnvData(null);
+      setMsconfigEnvError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? 'Failed to inspect MSConfig boot configuration and Environment Variables.'
+            : 'خطا در دریافت تنظیمات بوت (MSConfig) و متغیرهای محیطی سیستم کاربر.')
+      );
+    } finally {
+      setLoadingMsconfigEnv(false);
+    }
+  };
+
+  const handleMsconfigAction = async (params: {
+    operation: 'set_boot_options' | 'launch_msconfig_tool';
+    timeoutSeconds?: number;
+    safeBootMode?: 'none' | 'minimal' | 'network' | 'dsrepair' | 'alternateshell';
+    noGuiBoot?: boolean;
+    bootLog?: boolean;
+    baseVideo?: boolean;
+    osBootInfo?: boolean;
+  }) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setServiceStartupBusyKey(`msconfig:${params.operation}`);
+    setServiceStartupActionError(null);
+    setServiceStartupActionResult(null);
+    try {
+      const res = await updateHelpdeskMsconfig({ ...payload, ...params });
+      setServiceStartupActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskMsconfigAndEnv(payload);
+        setMsconfigEnvData(refreshed.data);
+        if (refreshed.rateLimit) setRateLimit(refreshed.rateLimit);
+      } catch {}
+    } catch (err: any) {
+      setServiceStartupActionError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? 'Failed to apply MSConfig boot configuration.'
+            : 'اعمال تنظیمات MSConfig با خطا مواجه شد.')
+      );
+    } finally {
+      setServiceStartupBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleEnvVarAction = async (params: {
+    action: 'set' | 'delete';
+    scope: 'system' | 'user';
+    name: string;
+    value?: string;
+    expandSz?: boolean;
+    ownerSid?: string;
+  }) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setServiceStartupBusyKey(`env:${params.scope}:${params.name}`);
+    setServiceStartupActionError(null);
+    setServiceStartupActionResult(null);
+    try {
+      const res = await manageHelpdeskEnvVar({ ...payload, ...params });
+      setServiceStartupActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskMsconfigAndEnv(payload);
+        setMsconfigEnvData(refreshed.data);
+        if (refreshed.rateLimit) setRateLimit(refreshed.rateLimit);
+      } catch {}
+    } catch (err: any) {
+      setServiceStartupActionError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? `Failed to update environment variable "${params.name}".`
+            : `تغییر متغیر محیطی «${params.name}» با خطا مواجه شد.`)
+      );
+    } finally {
+      setServiceStartupBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
   const handleInspectRegionFonts = async () => {
     const payload = buildPayload();
     if (!payload) return;
@@ -2217,6 +2484,107 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           (isEn
             ? `Failed to uninstall font "${font.displayName || font.fileName}".`
             : `حذف فونت «${font.displayName || font.fileName}» با خطا مواجه شد.`)
+      );
+    } finally {
+      setRegionFontsBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const triggerBase64FileDownload = (fileName: string, mimeType: string, base64Data: string) => {
+    const bin = atob(base64Data);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) {
+      bytes[i] = bin.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportEndpointFont = async (font: any) => {
+    const payload = buildPayload();
+    if (!payload || !font?.fileName) return;
+    setRegionFontsBusyKey(`font:export:${font.id}`);
+    setRegionFontsActionError(null);
+    setRegionFontsActionResult(null);
+    try {
+      const res = await exportHelpdeskFont({
+        ...payload,
+        fileName: font.fileName,
+        scope: font.scope === 'user' ? 'user' : 'system',
+        ownerSid: font.ownerSid,
+        filePath: font.filePath,
+      });
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      if (res.data?.fileBase64) {
+        triggerBase64FileDownload(
+          res.data.fileName || font.fileName,
+          res.data.mimeType || 'application/octet-stream',
+          res.data.fileBase64
+        );
+        setRegionFontsActionResult({
+          success: true,
+          message: `Downloaded font file "${res.data.fileName}" (${(res.data.sizeBytes / 1024).toFixed(1)} KB).`,
+          messageFa: `فایل فونت «${res.data.fileName}» (${(res.data.sizeBytes / 1024).toFixed(1)} کیلوبایت) با موفقیت دانلود شد.`,
+        });
+      }
+    } catch (err: any) {
+      setRegionFontsActionError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? `Failed to export font "${font.displayName || font.fileName}".`
+            : `اکسپورت فونت «${font.displayName || font.fileName}» با خطا مواجه شد.`)
+      );
+    } finally {
+      setRegionFontsBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleExportEndpointFontsArchive = async (fonts: any[]) => {
+    const payload = buildPayload();
+    if (!payload || !Array.isArray(fonts) || fonts.length === 0) return;
+    setRegionFontsBusyKey('font:export_zip');
+    setRegionFontsActionError(null);
+    setRegionFontsActionResult(null);
+    try {
+      const res = await exportHelpdeskFontsArchive({
+        ...payload,
+        items: fonts.slice(0, 250).map((f) => ({
+          fileName: f.fileName,
+          scope: f.scope === 'user' ? 'user' : 'system',
+          ownerSid: f.ownerSid,
+          filePath: f.filePath,
+        })),
+      });
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      if (res.data?.zipBase64) {
+        triggerBase64FileDownload(
+          res.data.archiveFileName || 'fonts_export.zip',
+          'application/zip',
+          res.data.zipBase64
+        );
+        setRegionFontsActionResult({
+          success: true,
+          message: `Exported ${res.data.exportedCount} font(s) to "${res.data.archiveFileName}"${
+            res.data.skippedCount ? ` (${res.data.skippedCount} skipped)` : ''
+          }.`,
+          messageFa: `تعداد ${res.data.exportedCount} فونت در فایل ZIP «${res.data.archiveFileName}» ذخیره و دانلود شد${
+            res.data.skippedCount ? ` (${res.data.skippedCount} مورد رد شد)` : ''
+          }.`,
+        });
+      }
+    } catch (err: any) {
+      setRegionFontsActionError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn ? 'Failed to export fonts archive.' : 'خروجی گرفتن فایل ZIP فونت‌ها با خطا مواجه شد.')
       );
     } finally {
       setRegionFontsBusyKey(null);
@@ -2501,7 +2869,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         ...payload,
         action,
         sessionId: sessionId || undefined,
-        username: targetUser || undefined,
+        targetUsername: targetUser || undefined,
       });
       setSessionActionResult(res.data);
       if (res.rateLimit) setRateLimit(res.rateLimit);
@@ -2520,6 +2888,50 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       );
     } finally {
       setSessionActionBusy(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleSendEndpointMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSendEndpointMessage) {
+      setEndpointMsgError(
+        isEn
+          ? 'Access denied: Sending interactive screen messages requires explicit RBAC permission (canSendHelpdeskMessage) or Super Admin role.'
+          : 'عدم دسترسی: ارسال پیام روی سیستم کاربر نیازمند مجوز صریح RBAC (ارسال پیام روی سیستم کاربر) یا نقش سوپرادمین است.'
+      );
+      return;
+    }
+    const payload = buildPayload();
+    if (!payload) return;
+    const cleanBody = endpointMsgBody.trim();
+    if (!cleanBody) {
+      setEndpointMsgError(isEn ? 'Enter a message to display on the endpoint screen.' : 'متن پیام برای نمایش روی صفحه کاربر را وارد کنید.');
+      return;
+    }
+    setSendingEndpointMsg(true);
+    setEndpointMsgError(null);
+    setEndpointMsgResult(null);
+    try {
+      const res = await sendHelpdeskEndpointMessage({
+        ...payload,
+        message: cleanBody,
+        title: endpointMsgTitle.trim() || (isEn ? 'IT HelpDesk Notice' : 'پیام واحد پشتیبانی IT'),
+        recipient: endpointMsgRecipient || '*',
+        displaySeconds: endpointMsgSeconds,
+      });
+      setEndpointMsgResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      if (res.data?.success) {
+        setEndpointMsgBody('');
+      }
+    } catch (err: any) {
+      setEndpointMsgError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn ? 'Failed to deliver interactive message to endpoint screen.' : 'ارسال پیام به صفحه نمایش سیستم کاربر ناموفق بود.')
+      );
+    } finally {
+      setSendingEndpointMsg(false);
       notifyHelpdeskAuditUpdated();
     }
   };
@@ -2543,17 +2955,77 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
-  const handleInspectDomainUser = async (e?: React.FormEvent) => {
+  const extractShortAdUsername = (raw: string): string =>
+    String(raw || '')
+      .trim()
+      .replace(/^.*\\/, '')
+      .split('@')[0]
+      .trim();
+
+  const detectedEndpointActiveUser = useMemo(() => {
+    const raw =
+      gpoData?.loggedInUser ||
+      healthData?.loggedInUser ||
+      logonsData?.loggedInUser ||
+      diagnosticsData?.loggedInUser ||
+      '';
+    return extractShortAdUsername(String(raw));
+  }, [
+    gpoData?.loggedInUser,
+    healthData?.loggedInUser,
+    logonsData?.loggedInUser,
+    diagnosticsData?.loggedInUser,
+  ]);
+
+  const handleRenameComputer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = buildPayload();
+    if (!payload) return;
+    const cleanName = renameInputValue.trim();
+    if (!cleanName) {
+      setRenameError(isEn ? 'Enter the new computer name first.' : 'ابتدا نام جدید کامپیوتر را وارد کنید.');
+      return;
+    }
+    setRenamingComputer(true);
+    setRenameError(null);
+    setRenameResult(null);
+    try {
+      const res = await renameHelpdeskComputer({
+        ...payload,
+        newHostname: cleanName,
+        restartAfter: renameRestartAfter,
+      });
+      setRenameResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      if (res.data?.success && !renameRestartAfter) {
+        setHealthData((prev: any) => (prev ? { ...prev, hostname: cleanName } : prev));
+      }
+      if (res.data?.success) {
+        setIsRenamingComputer(false);
+      }
+    } catch (err: any) {
+      setRenameError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn ? 'Failed to rename endpoint computer.' : 'تغییر نام کامپیوتر با خطا مواجه شد.')
+      );
+    } finally {
+      setRenamingComputer(false);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleInspectDomainUser = async (e?: React.FormEvent, overrideUsername?: string) => {
     if (e) e.preventDefault();
     const payload = buildPayload();
     if (!payload) return;
-    const targetUser = domainQueryUser.trim();
+    const targetUser = extractShortAdUsername(overrideUsername !== undefined ? overrideUsername : domainQueryUser);
     if (!targetUser) {
       setDomainUserError(
         isEn ? 'Enter a domain username (sAMAccountName) first.' : 'ابتدا نام کاربری دامین (مثلاً a.rezaei) را وارد کنید.'
       );
       return;
     }
+    setDomainQueryUser(targetUser);
     setLoadingDomainUser(true);
     setDomainUserError(null);
     try {
@@ -2563,12 +3035,42 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     } catch (err: any) {
       setDomainUserData(null);
       setDomainUserError(
-        err?.message || (isEn ? 'Domain user lookup failed.' : 'استعلام وضعیت اکانت دامین با خطا مواجه شد.')
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn ? 'Domain user lookup failed.' : 'استعلام وضعیت اکانت دامین با خطا مواجه شد.')
       );
     } finally {
       setLoadingDomainUser(false);
     }
   };
+
+  useEffect(() => {
+    if (
+      activeSubTab === 'maintenance' &&
+      canInspectDomainUsers &&
+      !prefetchProgress?.active &&
+      targetIp.trim() &&
+      username.trim() &&
+      password &&
+      detectedEndpointActiveUser &&
+      !loadingDomainUser &&
+      lastAutoAdUserRef.current.toLowerCase() !== detectedEndpointActiveUser.toLowerCase() &&
+      (!domainUserData ||
+        String(domainUserData?.username || '').toLowerCase() !== detectedEndpointActiveUser.toLowerCase())
+    ) {
+      lastAutoAdUserRef.current = detectedEndpointActiveUser;
+      handleInspectDomainUser(undefined, detectedEndpointActiveUser);
+    }
+  }, [
+    activeSubTab,
+    canInspectDomainUsers,
+    prefetchProgress?.active,
+    targetIp,
+    username,
+    password,
+    detectedEndpointActiveUser,
+    loadingDomainUser,
+    domainUserData,
+  ]);
 
   const handleRunDiagnosticsSuite = async (overrideChecks?: HelpdeskDiagnosticCheckId[]) => {
     const payload = buildPayload();
@@ -2623,8 +3125,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       if (tab === 'health' && !healthData && !loadingHealth) handleInspectHealth();
       else if (tab === 'hardware' && !hardwareData && !loadingHardware) handleInspectHardware();
       else if (tab === 'network' && !networkData && !loadingNetwork) handleInspectNetwork();
-      else if (tab === 'services_startup' && !servicesStartupData && !loadingServicesStartup) handleInspectServicesStartup();
-      else if (tab === 'region_fonts' && !regionFontsData && !loadingRegionFonts) handleInspectRegionFonts();
+      else if (tab === 'services_startup') {
+        if (!servicesStartupData && !loadingServicesStartup) handleInspectServicesStartup();
+        if (!msconfigEnvData && !loadingMsconfigEnv) handleInspectMsconfigEnv();
+      } else if (tab === 'region_fonts' && !regionFontsData && !loadingRegionFonts) handleInspectRegionFonts();
       else if (tab === 'security_av' && !securityAvData && !loadingSecurityAv) handleInspectSecurityAv();
       else if (tab === 'updates') {
         if (!sysInfoData && !loadingSysInfo) handleInspectSysInfo();
@@ -2633,12 +3137,11 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         if (!tempScanData && !loadingTempScan) handleScanTemp();
         if (!diskHealthData && !loadingDiskHealth) handleInspectDisks();
         if (!gpoData && !loadingGpo) handleInspectGpo();
-      } else if (tab === 'hardware_domain' && !domainQueryUser) {
-        const rawUser = String(diagnosticsData?.loggedInUser || healthData?.loggedInUser || '').trim();
-        if (rawUser) {
-          const shortUser = rawUser.split('\\').pop()?.trim() || '';
-          if (shortUser) setDomainQueryUser(shortUser);
+        if (canInspectDomainUsers && detectedEndpointActiveUser && !domainUserData && !loadingDomainUser) {
+          handleInspectDomainUser(undefined, detectedEndpointActiveUser);
         }
+      } else if (tab === 'hardware_domain' && !batteryData && !loadingBattery) {
+        handleInspectBattery();
       }
     }
 
@@ -2927,18 +3430,26 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     );
   }, [logonsData, logonsSearch]);
 
-  // Filtered Event Viewer items for Tab 4
+  // Filtered Event Viewer items for Tab 4 (including BSOD multi-cause category filter)
   const filteredEvents = useMemo(() => {
     const list: any[] = Array.isArray(eventData?.events) ? eventData.events : [];
     const q = eventSearch.trim().toLowerCase();
     return list.filter((ev) => {
       if (eventLevelFilter !== 'all' && ev.level !== eventLevelFilter) return false;
+      if (
+        eventData?.diagnosticFocus === 'bsod' &&
+        bsodReasonFilter !== 'all' &&
+        ev.bsodReason !== bsodReasonFilter
+      ) {
+        return false;
+      }
       if (!q) return true;
       const exp = ev.explanation || {};
       return (
         String(ev.eventId || '').includes(q) ||
         String(ev.source || '').toLowerCase().includes(q) ||
         String(ev.rawMessage || '').toLowerCase().includes(q) ||
+        String(ev.bugcheckCodeRaw || '').toLowerCase().includes(q) ||
         String(exp.humanTitleEn || '').toLowerCase().includes(q) ||
         String(exp.humanTitleFa || '').toLowerCase().includes(q) ||
         String(exp.humanReasonEn || '').toLowerCase().includes(q) ||
@@ -2947,7 +3458,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         String(exp.likelyCauseFa || '').toLowerCase().includes(q)
       );
     });
-  }, [eventData, eventSearch, eventLevelFilter]);
+  }, [eventData, eventSearch, eventLevelFilter, bsodReasonFilter]);
 
   // Filtered & sorted process list for Module 1 (with Asc/Desc + 20/page pagination)
   const filteredProcesses = useMemo(() => {
@@ -3630,14 +4141,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           {
             id: 'maintenance' as HelpdeskSubTab,
             icon: Wrench,
-            labelEn: 'System Repair, Temp & GPO',
-            labelFa: 'تعمیر سیستم، Temp و GPO',
+            labelEn: 'System Repair, Temp, GPO & AD Members',
+            labelFa: 'تعمیر سیستم، Temp، GPO و اعضای AD',
           },
           {
             id: 'hardware_domain' as HelpdeskSubTab,
             icon: BatteryCharging,
-            labelEn: 'Battery & Domain Account',
-            labelFa: 'سلامت باتری و اکانت دامین',
+            labelEn: 'Battery Health',
+            labelFa: 'گزارش سلامت باتری',
           },
           {
             id: 'history' as HelpdeskSubTab,
@@ -3659,10 +4170,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'logins' && loadingLogons) ||
             (tab.id === 'updates' && (loadingSysInfo || loadingUpdateStatus)) ||
             (tab.id === 'programs' && loadingPrograms) ||
-            (tab.id === 'services_startup' && loadingServicesStartup) ||
+            (tab.id === 'services_startup' && (loadingServicesStartup || loadingMsconfigEnv)) ||
             (tab.id === 'region_fonts' && loadingRegionFonts) ||
             (tab.id === 'security_av' && loadingSecurityAv) ||
-            (tab.id === 'maintenance' && (loadingTempScan || loadingGpo || loadingDiskHealth)) ||
+            (tab.id === 'maintenance' && (loadingTempScan || loadingGpo || loadingDomainUser || loadingDiskHealth)) ||
             (tab.id === 'hardware_domain' && loadingBattery) ||
             (tab.id === 'history' && loadingHistory);
           const hasTabData =
@@ -3675,10 +4186,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'logins' && Boolean(logonsData)) ||
             (tab.id === 'updates' && Boolean(sysInfoData || updateStatusData)) ||
             (tab.id === 'programs' && Boolean(programsData)) ||
-            (tab.id === 'services_startup' && Boolean(servicesStartupData)) ||
+            (tab.id === 'services_startup' && Boolean(servicesStartupData || msconfigEnvData)) ||
             (tab.id === 'region_fonts' && Boolean(regionFontsData)) ||
             (tab.id === 'security_av' && Boolean(securityAvData)) ||
-            (tab.id === 'maintenance' && Boolean(tempScanData || gpoData || diskHealthData)) ||
+            (tab.id === 'maintenance' && Boolean(tempScanData || gpoData || domainUserData || diskHealthData)) ||
             (tab.id === 'hardware_domain' && Boolean(batteryData)) ||
             (tab.id === 'history' && Boolean(historyStats?.totalConnections));
           const hasSecurityDisableAlert =
@@ -3705,8 +4216,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     if (!updateStatusData && !loadingUpdateStatus) handleInspectUpdateStatus('auto', true);
                   } else if (tab.id === 'programs' && !programsData && !loadingPrograms) {
                     handleInspectPrograms();
-                  } else if (tab.id === 'services_startup' && !servicesStartupData && !loadingServicesStartup) {
-                    handleInspectServicesStartup();
+                  } else if (tab.id === 'services_startup') {
+                    if (!servicesStartupData && !loadingServicesStartup) handleInspectServicesStartup();
+                    if (!msconfigEnvData && !loadingMsconfigEnv) handleInspectMsconfigEnv();
                   } else if (tab.id === 'region_fonts' && !regionFontsData && !loadingRegionFonts) {
                     handleInspectRegionFonts();
                   } else if (tab.id === 'security_av' && !securityAvData && !loadingSecurityAv) {
@@ -3714,6 +4226,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   } else if (tab.id === 'maintenance') {
                     if (!tempScanData && !loadingTempScan) handleScanTemp();
                     if (!gpoData && !loadingGpo) handleInspectGpo();
+                    if (canInspectDomainUsers && detectedEndpointActiveUser && !domainUserData && !loadingDomainUser) {
+                      handleInspectDomainUser(undefined, detectedEndpointActiveUser);
+                    }
                     if (!diskHealthData && !loadingDiskHealth) handleInspectDisks();
                   } else if (tab.id === 'hardware_domain' && !batteryData && !loadingBattery) handleInspectBattery();
                 }
@@ -3835,12 +4350,33 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               <div className={`rounded-xl border p-4 sm:p-5 ${surfaceBg}`}>
                 <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
                   <div>
-                    <h2 className={`text-base font-bold ${textPrimary}`}>
-                      {healthData.hostname}
-                      <span className={`ms-2 text-xs font-mono font-normal ${textMuted}`}>
-                        ({healthData.targetIp})
-                      </span>
-                    </h2>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className={`text-base font-bold ${textPrimary}`}>
+                        {healthData.hostname}
+                        <span className={`ms-2 text-xs font-mono font-normal ${textMuted}`}>
+                          ({healthData.targetIp})
+                        </span>
+                      </h2>
+                      <button
+                        type="button"
+                        disabled={!canExecuteActions}
+                        onClick={() => {
+                          setRenameInputValue(String(healthData.hostname || ''));
+                          setRenameRestartAfter(false);
+                          setRenameError(null);
+                          setIsRenamingComputer((v) => !v);
+                        }}
+                        title={isEn ? 'Rename Endpoint Computer' : 'تغییر نام کامپیوتر'}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-semibold transition cursor-pointer disabled:opacity-40 ${
+                          isLightMode
+                            ? 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-sky-50 hover:text-sky-600'
+                            : 'border-slate-700 bg-slate-800 text-slate-300 hover:border-sky-500 hover:text-sky-400'
+                        }`}
+                      >
+                        <Pencil className="w-3 h-3 text-sky-500" />
+                        <span>{isEn ? 'Rename PC' : 'تغییر نام کامپیوتر'}</span>
+                      </button>
+                    </div>
                     <div className={`text-xs mt-0.5 flex flex-wrap items-center gap-2 ${textMuted}`}>
                       <span>{healthData.osName}</span>
                       <span aria-hidden="true">·</span>
@@ -3865,6 +4401,105 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     <span>{isEn ? 'Refresh Live Data' : 'بروزرسانی زنده'}</span>
                   </button>
                 </div>
+
+                {/* Inline Rename Computer Panel */}
+                {(isRenamingComputer || renameError || renameResult) && (
+                  <div className={`mt-4 rounded-xl border p-3.5 space-y-3 ${subSurfaceBg}`}>
+                    {isRenamingComputer && (
+                      <form onSubmit={handleRenameComputer} className="flex flex-wrap items-end gap-3">
+                        <div className="flex-1 min-w-[200px] max-w-sm">
+                          <label className={`flex items-center gap-1.5 text-[11px] font-semibold mb-1 ${textMuted}`}>
+                            <span>{isEn ? 'New Computer Name (Hostname)' : 'نام جدید کامپیوتر (Hostname)'}</span>
+                            <FieldInfoTooltip
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                              fieldName={isEn ? 'Computer Rename' : 'تغییر نام کامپیوتر'}
+                              whatIsIt={
+                                isEn
+                                  ? 'Renames the endpoint hostname cleanly in Windows (Rename-Computer) or Linux (hostnamectl), preserving domain trust when applicable.'
+                                  : 'نام کامپیوتر (Hostname) سیستم کاربر را در ویندوز (Rename-Computer همراه با اعتبار دامین) یا لینوکس (hostnamectl) تغییر می‌دهد.'
+                              }
+                              whyNeeded={
+                                isEn
+                                  ? 'Standardizes workstation naming conventions or resolves NetBIOS/AD duplicate name conflicts remotely.'
+                                  : 'برای استانداردسازی نام سیستم‌های شبکه یا رفع تداخل نام کامپیوترها بدون مراجعه حضوری استفاده می‌شود.'
+                              }
+                              example={
+                                isEn
+                                  ? 'FIN-PC-042 (1–15 chars NetBIOS on Windows; restart completes domain rename)'
+                                  : 'مثال: FIN-PC-042 (حداکثر ۱۵ کاراکتر استاندارد ویندوز؛ با ری‌استارت کامل می‌شود)'
+                              }
+                            />
+                          </label>
+                          <input
+                            type="text"
+                            dir="ltr"
+                            required
+                            maxLength={63}
+                            value={renameInputValue}
+                            onChange={(e) => setRenameInputValue(e.target.value)}
+                            placeholder="WORKSTATION-01"
+                            className={`w-full px-3 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                          />
+                        </div>
+
+                        <label className={`inline-flex items-center gap-2 text-xs pb-1.5 cursor-pointer ${textPrimary}`}>
+                          <input
+                            type="checkbox"
+                            checked={renameRestartAfter}
+                            onChange={(e) => setRenameRestartAfter(e.target.checked)}
+                            className="accent-sky-500"
+                          />
+                          <span>
+                            {isEn ? 'Schedule reboot (10s delay)' : 'ری‌استارت خودکار پس از ۱۰ ثانیه'}
+                          </span>
+                        </label>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="submit"
+                            disabled={renamingComputer || !canExecuteActions}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                          >
+                            {renamingComputer ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                            <span>{isEn ? 'Apply Rename' : 'تغییر نام و اعمال'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsRenamingComputer(false)}
+                            className={`px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer ${inputCls}`}
+                          >
+                            {isEn ? 'Cancel' : 'انصراف'}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    {renameError && (
+                      <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-500 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                          <span>{renameError}</span>
+                        </div>
+                        <button type="button" onClick={() => setRenameError(null)} className="cursor-pointer opacity-75 hover:opacity-100">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+
+                    {renameResult && (
+                      <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                          <span>{isEn ? renameResult.message : renameResult.messageFa}</span>
+                        </div>
+                        <button type="button" onClick={() => setRenameResult(null)} className="cursor-pointer opacity-75 hover:opacity-100">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* 3 Crisp Circular Radial Gauges (CPU, RAM, Primary Disk) */}
                 <div
@@ -7413,11 +8048,41 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 </span>
               </div>
 
-              {/* Create New VPN Profile Form */}
+              {/* Create / Edit VPN Profile Form */}
               <form
+                id="hd-section-network-vpn-form"
                 onSubmit={handleCreateVpn}
-                className={`p-4 rounded-xl border space-y-4 ${subSurfaceBg}`}
+                className={`p-4 rounded-xl border space-y-4 ${
+                  editingVpnOriginalName
+                    ? isLightMode
+                      ? 'bg-sky-50/70 border-sky-300'
+                      : 'bg-sky-950/20 border-sky-500/40'
+                    : subSurfaceBg
+                }`}
               >
+                {editingVpnOriginalName && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-sky-500/20 text-xs">
+                    <div className="flex items-center gap-2 font-semibold text-sky-500">
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>
+                        {isEn
+                          ? `Editing VPN Profile: "${editingVpnOriginalName}"`
+                          : `در حال ویرایش کانکشن VPN: «${editingVpnOriginalName}»`}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCancelEditVpn}
+                      className={`px-2.5 py-1 rounded-md border text-[11px] font-semibold cursor-pointer ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                          : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      {isEn ? 'Cancel Edit' : 'لغو ویرایش'}
+                    </button>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
                   <div className="lg:col-span-3">
                     <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
@@ -7675,14 +8340,41 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-end">
+                <div className="flex items-center justify-end gap-2">
+                  {editingVpnOriginalName && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditVpn}
+                      className={`px-3 py-2 rounded-lg border text-xs font-semibold cursor-pointer ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                          : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      {isEn ? 'Cancel' : 'انصراف'}
+                    </button>
+                  )}
                   <button
                     type="submit"
                     disabled={!canExecuteActions || busyVpnKey !== null}
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
                   >
-                    {busyVpnKey === 'create' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                    <span>{isEn ? 'Create / Update VPN Connection' : 'ساخت / بروزرسانی کانکشن VPN'}</span>
+                    {busyVpnKey === 'create' ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : editingVpnOriginalName ? (
+                      <Check className="w-3.5 h-3.5" />
+                    ) : (
+                      <Plus className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {editingVpnOriginalName
+                        ? isEn
+                          ? 'Save VPN Changes'
+                          : 'ذخیره تغییرات VPN'
+                        : isEn
+                        ? 'Create VPN Connection'
+                        : 'ساخت کانکشن VPN'}
+                    </span>
                   </button>
                 </div>
               </form>
@@ -7787,6 +8479,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                                     <span>{isEn ? 'Connect' : 'اتصال'}</span>
                                   </button>
                                 )}
+
+                                <button
+                                  type="button"
+                                  disabled={!canExecuteActions || busyVpnKey !== null}
+                                  onClick={() => handleStartEditVpn(vpn)}
+                                  title={isEn ? 'Edit VPN connection' : 'ویرایش کانکشن VPN'}
+                                  className="h-7 px-2 inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-500 text-[11px] font-semibold cursor-pointer disabled:opacity-40"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                  <span>{isEn ? 'Edit' : 'ویرایش'}</span>
+                                </button>
 
                                 {confirmDeleteVpnName === vpn.name ? (
                                   <div className="inline-flex items-center gap-1">
@@ -8212,39 +8915,111 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={handleInspectEvents}
-                disabled={!canViewEventViewer || loadingEvents}
-                title={
-                  !canViewEventViewer
-                    ? isEn
-                      ? 'Requires canViewHelpdeskEventViewer permission'
-                      : 'نیازمند مجوز canViewHelpdeskEventViewer در Access Policy'
-                    : undefined
-                }
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
-              >
-                {loadingEvents ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : !canViewEventViewer ? (
-                  <Lock className="w-3.5 h-3.5" />
-                ) : (
-                  <RefreshCw className="w-3.5 h-3.5" />
-                )}
-                <span>{isEn ? 'Collect & Decode Events' : 'دریافت و تحلیل خطاها'}</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextHours = Math.max(eventHoursBack, 336);
+                    setEventDiagnosticFocus('bsod');
+                    setEventChannel('System');
+                    setEventHoursBack(nextHours);
+                    setEventSeverityMode('all');
+                    handleInspectEvents({
+                      focus: 'bsod',
+                      channel: 'System',
+                      hours: nextHours,
+                      severity: 'all',
+                    });
+                  }}
+                  disabled={!canViewEventViewer || loadingEvents}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg border text-xs font-semibold transition cursor-pointer disabled:opacity-50 ${
+                    isLightMode
+                      ? 'border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
+                      : 'border-indigo-500/40 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300'
+                  }`}
+                >
+                  <Bug className="w-3.5 h-3.5" />
+                  <span>{isEn ? 'Investigate BSOD Causes' : 'کشف علت صفحه آبی (BSOD)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleInspectEvents()}
+                  disabled={!canViewEventViewer || loadingEvents}
+                  title={
+                    !canViewEventViewer
+                      ? isEn
+                        ? 'Requires canViewHelpdeskEventViewer permission'
+                        : 'نیازمند مجوز canViewHelpdeskEventViewer در Access Policy'
+                      : undefined
+                  }
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+                >
+                  {loadingEvents ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : !canViewEventViewer ? (
+                    <Lock className="w-3.5 h-3.5" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isEn ? 'Collect & Decode Events' : 'دریافت و تحلیل خطاها'}</span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
               <div className="lg:col-span-3">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <label className={`block text-[11px] font-medium ${textMuted}`}>
+                    {isEn ? 'Diagnostic Mode' : 'حالت عیب‌یابی'}
+                  </label>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'BSOD Multi-Cause Investigation' : 'حالت کشف علت بلو اسکرین (BSOD)'}
+                    whatIsIt={
+                      isEn
+                        ? 'Targets all Windows crash/BSOD triggers across System logs and C:\\Windows\\Minidump instead of scanning generic events.'
+                        : 'به جای لیست عمومی، منحصراً تمام منابع مرتبط با بلو اسکرین (Stop Code، کرش درایور، WHEA، قطعی پاور ۴۱، خطای دیسک/رم و Minidump) را جمع‌آوری و تحلیل می‌کند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'BSODs can stem from multiple independent causes (0x9F/0x116 drivers, Kernel-Power 41, WHEA CPU/RAM errors, NVMe timeouts, GPU TDR, or volmgr dump failure).'
+                        : 'صفحه آبی ویندوز می‌تواند چند علت همزمان یا زنجیره‌ای داشته باشد (درایور، سخت‌افزار WHEA، کارت گرافیک، NVMe/دیسک یا حافظه) که باید در کنار هم بررسی شوند.'
+                    }
+                    example={
+                      isEn
+                        ? 'Select "BSOD / Blue Screen Multi-Cause" + 14/30 days to decode BugCheck Stop Codes and suspected .sys drivers.'
+                        : 'حالت «کشف علت بلو اسکرین (BSOD)» و بازه ۱۴ یا ۳۰ روز را انتخاب کنید تا Stop Code و فایل‌های .sys یا Minidump را بررسی کند.'
+                    }
+                  />
+                </div>
+                <select
+                  value={eventDiagnosticFocus}
+                  onChange={(e) => {
+                    const next = e.target.value as 'all' | 'bsod';
+                    setEventDiagnosticFocus(next);
+                    if (next === 'bsod') {
+                      setEventChannel('System');
+                      if (eventHoursBack < 168) setEventHoursBack(336);
+                    }
+                  }}
+                  className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                >
+                  <option value="all">{isEn ? 'Standard Event Viewer' : 'نمای استاندارد (همه خطاها)'}</option>
+                  <option value="bsod">{isEn ? 'BSOD / Blue Screen Multi-Cause' : 'کشف علت بلو اسکرین (BSOD چندعلتی)'}</option>
+                </select>
+              </div>
+
+              <div className="lg:col-span-2">
                 <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
                   {isEn ? 'Event Channel' : 'کانال لاگ'}
                 </label>
                 <select
-                  value={eventChannel}
+                  value={eventDiagnosticFocus === 'bsod' ? 'System' : eventChannel}
+                  disabled={eventDiagnosticFocus === 'bsod'}
                   onChange={(e) => setEventChannel(e.target.value as any)}
-                  className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                  className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none disabled:opacity-60 ${inputCls}`}
                 >
                   <option value="All">{isEn ? 'System + Application' : 'هر دو (System + Application)'}</option>
                   <option value="System">{isEn ? 'System Only' : 'فقط System'}</option>
@@ -8265,26 +9040,29 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   <option value={48}>{isEn ? 'Last 48 Hours' : '۴۸ ساعت اخیر'}</option>
                   <option value={72}>{isEn ? 'Last 3 Days' : '۳ روز اخیر'}</option>
                   <option value={168}>{isEn ? 'Last 7 Days' : '۷ روز اخیر'}</option>
+                  <option value={336}>{isEn ? 'Last 14 Days' : '۱۴ روز اخیر'}</option>
+                  <option value={720}>{isEn ? 'Last 30 Days' : '۳۰ روز اخیر'}</option>
                 </select>
               </div>
 
-              <div className="lg:col-span-3">
+              <div className="lg:col-span-2">
                 <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
                   {isEn ? 'Collection Scope' : 'سطح دریافت'}
                 </label>
                 <select
                   value={eventSeverityMode}
                   onChange={(e) => setEventSeverityMode(e.target.value as any)}
-                  className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                  disabled={eventDiagnosticFocus === 'bsod'}
+                  className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none disabled:opacity-60 ${inputCls}`}
                 >
                   <option value="all">{isEn ? 'Critical + Error + Warning' : 'بحرانی + خطا + هشدار'}</option>
                   <option value="critical_error">{isEn ? 'Critical & Error Only' : 'فقط بحرانی و خطا'}</option>
                 </select>
               </div>
 
-              <div className="lg:col-span-4">
+              <div className="lg:col-span-3">
                 <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
-                  {isEn ? 'Quick Search (Code / Cause / Source)' : 'جستجو (کد خطا / دلیل / منبع)'}
+                  {isEn ? 'Quick Search (Code / Driver / Source)' : 'جستجو (کد Stop / درایور / منبع)'}
                 </label>
                 <div className="relative">
                   <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 start-2.5 ${textMuted}`} />
@@ -8292,7 +9070,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     type="text"
                     value={eventSearch}
                     onChange={(e) => setEventSearch(e.target.value)}
-                    placeholder={isEn ? 'e.g. 41, DNS, Disk, BSOD...' : 'مثلاً 41، دیسک، DNS، پرینتر...'}
+                    placeholder={isEn ? 'e.g. 0x9F, nvlddmkm, 41, WHEA...' : 'مثلاً 41، 0x9F، nvlddmkm، دیسک...'}
                     className={`w-full ps-8 pe-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
                   />
                 </div>
@@ -8407,6 +9185,204 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   )}
                 </div>
               </div>
+
+              {/* BSOD Multi-Cause Root Analyzer Card (rendered in BSOD Diagnostic Mode) */}
+              {eventData.diagnosticFocus === 'bsod' && eventData.bsodAnalysis && (
+                <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Bug className="w-4 h-4 text-indigo-500" />
+                      <h3 className={`text-sm font-bold ${textPrimary}`}>
+                        {isEn
+                          ? 'BSOD / Blue Screen Multi-Cause Root Analyzer'
+                          : 'تحلیل چندعلتی ریشه بلو اسکرین (BSOD) از Event Viewer'}
+                      </h3>
+                    </div>
+                    <span
+                      className={`px-2.5 py-1 rounded-md border text-[11px] font-semibold ${
+                        eventData.bsodAnalysis.crashDetected
+                          ? isLightMode
+                            ? 'bg-rose-50 border-rose-200 text-rose-700'
+                            : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                          : isLightMode
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                      }`}
+                    >
+                      {eventData.bsodAnalysis.crashDetected
+                        ? isEn
+                          ? 'Crash / Unexpected Reset Signals Found'
+                          : 'نشانه‌های بلو اسکرین / کرش شناسایی شد'
+                        : isEn
+                        ? 'No BSOD Evidence in Selected Window'
+                        : 'مدرک BSOD در این بازه زمانی یافت نشد'}
+                    </span>
+                  </div>
+
+                  {/* Verdict Banner */}
+                  <div className={`p-3.5 rounded-lg border text-xs leading-relaxed ${subSurfaceBg} ${textPrimary}`}>
+                    {isEn ? eventData.bsodAnalysis.summaryEn : eventData.bsodAnalysis.summaryFa}
+                  </div>
+
+                  {/* Clickable Multi-Cause Filter Pills */}
+                  <div>
+                    <div className={`text-[11px] font-semibold mb-2 ${textMuted}`}>
+                      {isEn
+                        ? 'Filter by Suspected BSOD Trigger Category:'
+                        : 'فیلتر بر اساس دسته‌بندی علل احتمالی بلو اسکرین:'}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBsodReasonFilter('all')}
+                        className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition ${
+                          bsodReasonFilter === 'all'
+                            ? 'border-sky-500 bg-sky-500/15 text-sky-500'
+                            : `${subSurfaceBg} ${textPrimary}`
+                        }`}
+                      >
+                        {isEn ? `All Causes (${eventData.events?.length || 0})` : `همه علل (${eventData.events?.length || 0})`}
+                      </button>
+                      {(eventData.bsodAnalysis.reasonBuckets || []).map((bucket: any) => (
+                        <button
+                          key={bucket.category}
+                          type="button"
+                          onClick={() =>
+                            setBsodReasonFilter((prev) =>
+                              prev === bucket.category ? 'all' : bucket.category
+                            )
+                          }
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition flex items-center gap-1.5 ${
+                            bsodReasonFilter === bucket.category
+                              ? 'border-indigo-500 bg-indigo-500/15 text-indigo-500'
+                              : `${subSurfaceBg} ${textPrimary}`
+                          }`}
+                        >
+                          <span>{isEn ? bucket.labelEn : bucket.labelFa}</span>
+                          <span className="font-mono text-[11px] opacity-80">({bucket.count})</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Decoded Stop Codes + Suspected .sys Drivers + Minidumps & CrashControl */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 text-xs">
+                    {/* Decoded BugCheck Stop Codes */}
+                    <div className={`p-3.5 rounded-lg border space-y-2 ${subSurfaceBg}`}>
+                      <div className={`font-bold flex items-center justify-between ${textPrimary}`}>
+                        <span>{isEn ? 'Decoded Stop Codes' : 'کدهای Stop شناسایی‌شده'}</span>
+                        <span className="font-mono text-[11px] text-rose-500">
+                          {eventData.bsodAnalysis.stopCodes?.length || 0}
+                        </span>
+                      </div>
+                      {!eventData.bsodAnalysis.stopCodes || eventData.bsodAnalysis.stopCodes.length === 0 ? (
+                        <div className={`text-[11px] ${textMuted}`}>
+                          {isEn ? 'No BugCheck hex code recorded in events.' : 'کد BugCheck (Hex) در رویدادها ثبت نشده است.'}
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-44 overflow-y-auto">
+                          {eventData.bsodAnalysis.stopCodes.map((sc: any) => (
+                            <div
+                              key={sc.codeHex}
+                              className={`p-2 rounded border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-950/60 border-slate-800'}`}
+                            >
+                              <div className="font-mono font-bold text-rose-500" dir="ltr">
+                                {sc.codeHex} — {sc.symbolicName}
+                              </div>
+                              <div className={`mt-0.5 text-[11px] ${textMuted}`}>
+                                {isEn ? sc.causeEn : sc.causeFa}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Suspected Drivers */}
+                    <div className={`p-3.5 rounded-lg border space-y-2 ${subSurfaceBg}`}>
+                      <div className={`font-bold flex items-center justify-between ${textPrimary}`}>
+                        <span>{isEn ? 'Suspected Kernel Drivers (.sys)' : 'درایورهای مشکوک (.sys)'}</span>
+                        <span className="font-mono text-[11px] text-amber-500">
+                          {eventData.bsodAnalysis.suspectedDrivers?.length || 0}
+                        </span>
+                      </div>
+                      {!eventData.bsodAnalysis.suspectedDrivers || eventData.bsodAnalysis.suspectedDrivers.length === 0 ? (
+                        <div className={`text-[11px] ${textMuted}`}>
+                          {isEn
+                            ? 'No explicit .sys filename extracted from System event text (check C:\\Windows\\Minidump if available).'
+                            : 'نام فایل درایور (.sys) به صورت مستقیم در متن لاگ ثبت نشده است؛ در صورت وجود فایل Minidump را بررسی کنید.'}
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {eventData.bsodAnalysis.suspectedDrivers.map((drv: string) => (
+                            <span
+                              key={drv}
+                              dir="ltr"
+                              className="px-2 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-500 font-mono text-[11px] font-semibold"
+                            >
+                              {drv}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Minidump Files & CrashControl */}
+                    <div className={`p-3.5 rounded-lg border space-y-2 ${subSurfaceBg}`}>
+                      <div className={`font-bold flex items-center justify-between ${textPrimary}`}>
+                        <span>{isEn ? 'Minidump Files & Crash Policy' : 'فایل‌های Minidump و تنظیمات دامپ'}</span>
+                        <span className="font-mono text-[11px] text-sky-500">
+                          {eventData.bsodAnalysis.minidumps?.length || 0}
+                        </span>
+                      </div>
+                      {eventData.bsodAnalysis.crashControl && (
+                        <div className={`text-[11px] flex flex-wrap gap-2 pb-1.5 border-b ${isLightMode ? 'border-slate-200' : 'border-slate-800'} ${textMuted}`}>
+                          <span>
+                            {isEn ? 'AutoReboot: ' : 'ری‌استارت خودکار: '}
+                            <strong className={textPrimary}>
+                              {eventData.bsodAnalysis.crashControl.autoReboot === null
+                                ? '—'
+                                : eventData.bsodAnalysis.crashControl.autoReboot
+                                ? isEn
+                                  ? 'Enabled'
+                                  : 'فعال'
+                                : isEn
+                                ? 'Disabled'
+                                : 'غیرفعال'}
+                            </strong>
+                          </span>
+                          <span>
+                            {isEn ? 'Dump Mode: ' : 'نوع دامپ: '}
+                            <strong className="font-mono">{eventData.bsodAnalysis.crashControl.crashDumpEnabled ?? '—'}</strong>
+                          </span>
+                        </div>
+                      )}
+                      {!eventData.bsodAnalysis.minidumps || eventData.bsodAnalysis.minidumps.length === 0 ? (
+                        <div className={`text-[11px] ${textMuted}`}>
+                          {isEn
+                            ? 'No recent .dmp crash dump files found in %SystemRoot%\\Minidump.'
+                            : 'فایل کرش (.dmp) در مسیر Minidump ویندوز یافت نشد.'}
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                          {eventData.bsodAnalysis.minidumps.map((d: any) => (
+                            <div
+                              key={d.fullPath || d.fileName}
+                              className="flex items-center justify-between gap-2 font-mono text-[11px]"
+                              dir="ltr"
+                            >
+                              <span className={`truncate ${textPrimary}`} title={d.fullPath}>
+                                {d.fileName}
+                              </span>
+                              <span className={textMuted}>{d.sizeKb} KB</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Human-Decoded Event Incident Cards */}
               {filteredEvents.length === 0 ? (
@@ -8971,6 +9947,317 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 )}
               </div>
             )}
+          </div>
+
+          {/* ACTIVE DIRECTORY DOMAIN ACCOUNT INSPECTOR & AD GROUP MEMBERS (auto-loaded for connected user) */}
+          <div
+            id="hd-section-domain-account"
+            className={`rounded-xl border p-4 sm:p-5 space-y-5 transition-shadow scroll-mt-4 ${
+              highlightedSectionId === 'hd-section-domain-account' ? 'ring-2 ring-sky-500 ring-offset-2' : ''
+            } ${surfaceBg}`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-sky-500" />
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'Active Directory Domain Account & Group Memberships (net user /domain)'
+                      : 'اطلاعات اکانت دامین کاربر فعال و عضویت گروه‌های اکتیو دایرکتوری (AD Members)'}
+                  </h2>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Domain Account & AD Members' : 'اکانت دامین و اعضای AD'}
+                    whatIsIt={
+                      isEn
+                        ? 'Automatically inspects the connected endpoint user in Active Directory (net user <username> /domain + ADSI MemberOf) showing full permissions, password state, lockout status, and AD groups.'
+                        : 'وضعیت اکانت کاربر متصل به سیستم را به‌صورت خودکار در اکتیو دایرکتوری استعلام می‌گیرد و دسترسی‌ها، وضعیت رمز، قفل اکانت و لیست کامل گروه‌های عضو (AD Members) را نمایش می‌دهد.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Instantly shows which AD groups, shared folder permissions, and domain password policies govern the user you are troubleshooting — without needing to retype their username.'
+                        : 'بلافاصله پس از اتصال نشان می‌دهد کاربر تحت کنترل چه گروه‌ها و دسترسی‌هایی در اکتیو دایرکتوری است، آیا رمزش منقضی یا اکانتش قفل شده، بدون نیاز به وارد کردن دستی نام کاربری.'
+                    }
+                    example={
+                      isEn
+                        ? 'Auto-inspects logged-in user (e.g. a.rezaei) → Displays Department, Global AD Groups, Local Groups, Lockout & Password status.'
+                        : 'استعلام خودکار کاربر فعال سیستم (مثلاً a.rezaei) ← نمایش گروه‌های AD، گروه‌های Local، آخرین تغییر رمز و وضعیت قفل حساب.'
+                    }
+                  />
+                </div>
+                <p className={`text-xs mt-0.5 ${textMuted}`}>
+                  {detectedEndpointActiveUser
+                    ? isEn
+                      ? `Connected endpoint user auto-detected: ${detectedEndpointActiveUser}. Full AD permissions, lockout status, and group memberships load automatically.`
+                      : `کاربر فعال سیستم به‌صورت خودکار شناسایی شد (${detectedEndpointActiveUser}). دسترسی‌ها، وضعیت اکانت و عضویت گروه‌های AD بدون نیاز به تایپ نام کاربری نمایش داده می‌شود.`
+                    : isEn
+                    ? 'Inspect password last set, expiration state, lockout flag, last logon, and Local/Global AD group memberships.'
+                    : 'بررسی تاریخ آخرین تغییر پسورد، وضعیت انقضا، قفل بودن حساب، آخرین لاگین و عضویت گروه‌های Local و Global در اکتیو دایرکتوری.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {detectedEndpointActiveUser && (
+                  <button
+                    type="button"
+                    disabled={!canInspectDomainUsers || loadingDomainUser}
+                    onClick={() => handleInspectDomainUser(undefined, detectedEndpointActiveUser)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 disabled:opacity-50 text-sky-600 dark:text-sky-400 text-xs font-semibold transition cursor-pointer"
+                  >
+                    {loadingDomainUser ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                    <span>
+                      {isEn
+                        ? `Refresh Connected User (${detectedEndpointActiveUser})`
+                        : `بروزرسانی اطلاعات کاربر فعال (${detectedEndpointActiveUser})`}
+                    </span>
+                  </button>
+                )}
+                {!canInspectDomainUsers && (
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-500">
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Requires canInspectHelpdeskDomainUsers' : 'نیازمند مجوز canInspectHelpdeskDomainUsers'}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {loadingDomainUser && !domainUserData && (
+              <div className={`rounded-xl border p-6 text-center space-y-2 ${subSurfaceBg}`}>
+                <Loader2 className="w-6 h-6 mx-auto text-sky-500 animate-spin" />
+                <div className={`text-xs font-semibold ${textPrimary}`}>
+                  {isEn
+                    ? `Querying Active Directory details & group memberships for ${domainQueryUser || detectedEndpointActiveUser}...`
+                    : `در حال دریافت اطلاعات کامل اکانت دامین و گروه‌های AD برای ${domainQueryUser || detectedEndpointActiveUser}...`}
+                </div>
+              </div>
+            )}
+
+            {domainUserError && (
+              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{domainUserError}</span>
+              </div>
+            )}
+
+            {domainUserData && !domainUserData.found && (
+              <div className="p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs space-y-2">
+                <div className="font-bold text-amber-500 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>
+                    {isEn
+                      ? `Domain user "${domainUserData.username}" was not found or the endpoint cannot reach a Domain Controller.`
+                      : `اکانت دامین «${domainUserData.username}» یافت نشد یا سیستم به Domain Controller دسترسی ندارد.`}
+                  </span>
+                </div>
+                {domainUserData.rawOutput && (
+                  <pre dir="ltr" className={`p-3 rounded-lg border font-mono text-[11px] overflow-x-auto ${subSurfaceBg} ${textMuted}`}>
+                    {domainUserData.rawOutput}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            {domainUserData && domainUserData.found && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'User, Full Name & Role' : 'نام کاربری، نام کامل و سمت'}</div>
+                    <div className={`mt-1 font-bold font-mono ${textPrimary}`}>{domainUserData.username}</div>
+                    <div className={`mt-0.5 truncate ${textMuted}`}>{domainUserData.fullName || '-'}</div>
+                    {(domainUserData.title || domainUserData.department || domainUserData.email) && (
+                      <div className={`mt-1 text-[11px] truncate ${textMuted}`} dir="ltr">
+                        {[domainUserData.title, domainUserData.department, domainUserData.email].filter(Boolean).join(' · ')}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Account Status & Lockout' : 'وضعیت فعال و قفل اکانت'}</div>
+                    <div className={`mt-1 font-bold ${
+                      String(domainUserData.accountActive).toLowerCase() === 'yes' ? 'text-emerald-500' : 'text-rose-500'
+                    }`}>
+                      {isEn ? 'Active' : 'فعال'}: {domainUserData.accountActive || '-'}
+                    </div>
+                    <div className={`mt-0.5 font-semibold ${
+                      domainUserData.accountLocked === true
+                        ? 'text-rose-500'
+                        : domainUserData.accountLocked === false
+                        ? 'text-emerald-500'
+                        : textMuted
+                    }`}>
+                      {domainUserData.accountLocked === true
+                        ? isEn
+                          ? 'LOCKED OUT'
+                          : 'قفل‌شده (Locked)'
+                        : domainUserData.accountLocked === false
+                        ? isEn
+                          ? 'Unlocked'
+                          : 'باز (قفل نیست)'
+                        : isEn
+                        ? 'Lockout: N/A'
+                        : 'وضعیت قفل نامشخص'}
+                    </div>
+                  </div>
+
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Password Status' : 'وضعیت پسورد'}</div>
+                    <div className={`mt-1 font-bold ${
+                      domainUserData.passwordStatus === 'expired' || domainUserData.passwordStatus === 'must_change'
+                        ? 'text-rose-500'
+                        : domainUserData.passwordStatus === 'active' || domainUserData.passwordStatus === 'never_expires'
+                        ? 'text-emerald-500'
+                        : textMuted
+                    }`}>
+                      {domainUserData.passwordStatus === 'expired'
+                        ? isEn
+                          ? 'Expired'
+                          : 'منقضی شده (Expired)'
+                        : domainUserData.passwordStatus === 'must_change'
+                        ? isEn
+                          ? 'Must Change at Next Logon'
+                          : 'اجبار به تغییر در ورود بعدی'
+                        : domainUserData.passwordStatus === 'never_expires'
+                        ? isEn
+                          ? 'Active (Never Expires)'
+                          : 'فعال (بدون انقضا)'
+                        : domainUserData.passwordStatus === 'active'
+                        ? isEn
+                          ? 'Valid / Active'
+                          : 'معتبر و فعال'
+                        : isEn
+                        ? 'Unknown'
+                        : 'نامشخص'}
+                    </div>
+                    <div className={`mt-0.5 text-[11px] font-mono ${textMuted}`} dir="ltr">
+                      {isEn ? 'Exp' : 'انقضا'}: {domainUserData.passwordExpires || '-'}
+                    </div>
+                  </div>
+
+                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={textMuted}>{isEn ? 'Last Password Set / Logon' : 'آخرین تغییر رمز / آخرین لاگین'}</div>
+                    <div className={`mt-1 font-mono text-[11px] font-semibold ${textPrimary}`} dir="ltr">
+                      {domainUserData.passwordLastSet || '-'}
+                    </div>
+                    <div className={`mt-0.5 font-mono text-[11px] ${textMuted}`} dir="ltr">
+                      {isEn ? 'Logon' : 'لاگین'}: {domainUserData.lastLogon || '-'}
+                    </div>
+                  </div>
+                </div>
+
+                {domainUserData.distinguishedName && (
+                  <div className={`px-3 py-2 rounded-lg border text-[11px] font-mono break-all ${subSurfaceBg} ${textMuted}`} dir="ltr">
+                    <span className="font-semibold me-1.5">DN:</span>
+                    {domainUserData.distinguishedName}
+                  </div>
+                )}
+
+                {/* Group Memberships */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
+                  <div className={`p-4 rounded-xl border space-y-2.5 ${subSurfaceBg}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`font-bold ${textPrimary}`}>
+                        {isEn
+                          ? `AD Global Group Memberships (${domainUserData.globalGroups?.length || 0})`
+                          : `عضویت در گروه‌های AD دامین (${domainUserData.globalGroups?.length || 0})`}
+                      </span>
+                      {(domainUserData.globalGroups?.length || 0) > 6 && (
+                        <input
+                          type="text"
+                          value={domainGroupFilter}
+                          onChange={(e) => setDomainGroupFilter(e.target.value)}
+                          placeholder={isEn ? 'Filter groups...' : 'فیلتر گروه...'}
+                          className={`px-2 py-1 rounded-md border text-[11px] outline-none w-36 ${inputCls}`}
+                        />
+                      )}
+                    </div>
+                    <div className="max-h-56 overflow-y-auto space-y-1">
+                      {(domainUserData.globalGroups || [])
+                        .filter((g: string) => !domainGroupFilter.trim() || g.toLowerCase().includes(domainGroupFilter.trim().toLowerCase()))
+                        .map((g: string, idx: number) => (
+                          <div key={`gg-${g}-${idx}`} className={`px-2.5 py-1.5 rounded-md border font-mono ${surfaceBg} ${textPrimary}`} dir="ltr">
+                            {g}
+                          </div>
+                        ))}
+                      {(domainUserData.globalGroups?.length || 0) === 0 && (
+                        <div className={textMuted}>{isEn ? 'No Global AD groups listed.' : 'گروه Global دامین ثبت نشده است.'}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={`p-4 rounded-xl border space-y-2.5 ${subSurfaceBg}`}>
+                    <div className={`font-bold ${textPrimary}`}>
+                      {isEn
+                        ? `Local Group Memberships (${domainUserData.localGroups?.length || 0})`
+                        : `عضویت در گروه‌های Local (${domainUserData.localGroups?.length || 0})`}
+                    </div>
+                    <div className="max-h-56 overflow-y-auto space-y-1">
+                      {(domainUserData.localGroups || []).map((g: string, idx: number) => (
+                        <div key={`lg-${g}-${idx}`} className={`px-2.5 py-1.5 rounded-md border font-mono ${surfaceBg} ${textPrimary}`} dir="ltr">
+                          {g}
+                        </div>
+                      ))}
+                      {(domainUserData.localGroups?.length || 0) === 0 && (
+                        <div className={textMuted}>{isEn ? 'No Local groups listed.' : 'گروه Local ثبت نشده است.'}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {domainUserData.rawOutput && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowRawDomainUser((v) => !v)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-sky-500 hover:underline cursor-pointer"
+                    >
+                      {showRawDomainUser ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      <span>
+                        {showRawDomainUser
+                          ? isEn
+                            ? 'Hide Raw net user /domain Output'
+                            : 'بستن خروجی خام net user /domain'
+                          : isEn
+                          ? 'Show Full net user /domain Output'
+                          : 'مشاهده خروجی کامل net user /domain'}
+                      </span>
+                    </button>
+                    {showRawDomainUser && (
+                      <pre
+                        dir="ltr"
+                        className={`mt-2 p-3.5 rounded-xl border font-mono text-[11px] overflow-x-auto max-h-64 ${subSurfaceBg} ${textMuted}`}
+                      >
+                        {domainUserData.rawOutput}
+                      </pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Optional Lookup Another Domain Account */}
+            <form onSubmit={(e) => handleInspectDomainUser(e)} className={`pt-3 border-t flex flex-wrap items-end gap-3 ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
+              <div className="flex-1 min-w-[220px] max-w-md">
+                <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                  {isEn ? 'Inspect Another Domain Username (Optional)' : 'بررسی اکانت دامین دیگر (اختیاری)'}
+                </label>
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={domainQueryUser}
+                  onChange={(e) => setDomainQueryUser(e.target.value)}
+                  placeholder={detectedEndpointActiveUser || 'j.smith'}
+                  className={`w-full px-3 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={!canInspectDomainUsers || loadingDomainUser}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
+              >
+                {loadingDomainUser ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                <span>{isEn ? 'Inspect Domain Account' : 'استعلام اکانت دامین'}</span>
+              </button>
+            </form>
           </div>
 
           {/* SYSTEM FILE INTEGRITY (SFC) & WINDOWS IMAGE REPAIR (DISM) */}
@@ -9706,272 +10993,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </div>
             )}
           </div>
-
-          {/* ACTIVE DIRECTORY DOMAIN ACCOUNT INSPECTOR (net user <USERNAME> /domain) */}
-          <div
-            id="hd-section-domain-account"
-            className={`rounded-xl border p-4 sm:p-5 space-y-5 transition-shadow scroll-mt-4 ${
-              highlightedSectionId === 'hd-section-domain-account' ? 'ring-2 ring-sky-500 ring-offset-2' : ''
-            } ${surfaceBg}`}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <UserCheck className="w-4 h-4 text-sky-500" />
-                  <h2 className={`text-sm font-bold ${textPrimary}`}>
-                    {isEn
-                      ? 'Active Directory Domain Account Inspector (net user /domain)'
-                      : 'بررسی وضعیت اکانت دامین کاربر (آخرین تغییر پسورد، انقضا، قفل حساب و گروه‌ها)'}
-                  </h2>
-                  <FieldInfoTooltip
-                    isEn={isEn}
-                    isLightMode={isLightMode}
-                    fieldName={isEn ? 'Domain Account Lookup' : 'استعلام اکانت دامین'}
-                    whatIsIt={
-                      isEn
-                        ? 'Queries Active Directory from the domain-joined workstation using net user <username> /domain plus ADSI lockout state.'
-                        : 'وضعیت اکانت کاربری را از طریق سیستم عضو دامین با دستور net user USERNAME /domain و بررسی ADSI Lockout استعلام می‌گیرد.'
-                    }
-                    whyNeeded={
-                      isEn
-                        ? 'Quickly reveals expired passwords, locked accounts, last logon time, and AD group memberships during login troubleshooting.'
-                        : 'بلافاصله مشخص می‌کند آیا پسورد کاربر منقضی شده، اکانت قفل (Locked) شده، آخرین بار چه زمانی رمز عوض کرده و عضو کدام گروه‌ها است.'
-                    }
-                    example={
-                      isEn
-                        ? 'Username: m.shahbazi → Password Last Set, Expires, Active/Locked, Global & Local Groups'
-                        : 'نام کاربری: m.shahbazi ← نمایش تاریخ آخرین تغییر رمز، انقضا، وضعیت قفل و لیست کامل گروه‌ها'
-                    }
-                  />
-                </div>
-                <p className={`text-xs mt-0.5 ${textMuted}`}>
-                  {isEn
-                    ? 'Inspect password last set, expiration state, lockout flag, last logon, and Local/Global group memberships.'
-                    : 'بررسی تاریخ آخرین تغییر پسورد، وضعیت انقضا، قفل بودن حساب، آخرین لاگین و عضویت گروه‌های Local و Global در اکتیو دایرکتوری.'}
-                </p>
-              </div>
-              {!canInspectDomainUsers && (
-                <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-500">
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>{isEn ? 'Requires canInspectHelpdeskDomainUsers' : 'نیازمند مجوز canInspectHelpdeskDomainUsers'}</span>
-                </span>
-              )}
-            </div>
-
-            <form onSubmit={handleInspectDomainUser} className="flex flex-wrap items-end gap-3">
-              <div className="flex-1 min-w-[220px] max-w-md">
-                <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
-                  {isEn ? 'Domain Username (sAMAccountName)' : 'نام کاربری دامین (بدون نام دامین)'}
-                </label>
-                <input
-                  type="text"
-                  dir="ltr"
-                  value={domainQueryUser}
-                  onChange={(e) => setDomainQueryUser(e.target.value)}
-                  placeholder="j.smith"
-                  className={`w-full px-3 py-2 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={!canInspectDomainUsers || loadingDomainUser}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
-              >
-                {loadingDomainUser ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                <span>{isEn ? 'Inspect Domain Account' : 'استعلام اکانت دامین'}</span>
-              </button>
-            </form>
-
-            {domainUserError && (
-              <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{domainUserError}</span>
-              </div>
-            )}
-
-            {domainUserData && !domainUserData.found && (
-              <div className="p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs space-y-2">
-                <div className="font-bold text-amber-500 flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4" />
-                  <span>
-                    {isEn
-                      ? `Domain user "${domainUserData.username}" was not found or the endpoint cannot reach a Domain Controller.`
-                      : `اکانت دامین «${domainUserData.username}» یافت نشد یا سیستم به Domain Controller دسترسی ندارد.`}
-                  </span>
-                </div>
-                {domainUserData.rawOutput && (
-                  <pre dir="ltr" className={`p-3 rounded-lg border font-mono text-[11px] overflow-x-auto ${subSurfaceBg} ${textMuted}`}>
-                    {domainUserData.rawOutput}
-                  </pre>
-                )}
-              </div>
-            )}
-
-            {domainUserData && domainUserData.found && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
-                    <div className={textMuted}>{isEn ? 'User & Full Name' : 'نام کاربری و نام کامل'}</div>
-                    <div className={`mt-1 font-bold font-mono ${textPrimary}`}>{domainUserData.username}</div>
-                    <div className={`mt-0.5 truncate ${textMuted}`}>{domainUserData.fullName || '-'}</div>
-                  </div>
-
-                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
-                    <div className={textMuted}>{isEn ? 'Account Status & Lockout' : 'وضعیت فعال و قفل اکانت'}</div>
-                    <div className={`mt-1 font-bold ${
-                      String(domainUserData.accountActive).toLowerCase() === 'yes' ? 'text-emerald-500' : 'text-rose-500'
-                    }`}>
-                      {isEn ? 'Active' : 'فعال'}: {domainUserData.accountActive || '-'}
-                    </div>
-                    <div className={`mt-0.5 font-semibold ${
-                      domainUserData.accountLocked === true
-                        ? 'text-rose-500'
-                        : domainUserData.accountLocked === false
-                        ? 'text-emerald-500'
-                        : textMuted
-                    }`}>
-                      {domainUserData.accountLocked === true
-                        ? isEn
-                          ? 'LOCKED OUT'
-                          : 'قفل‌شده (Locked)'
-                        : domainUserData.accountLocked === false
-                        ? isEn
-                          ? 'Unlocked'
-                          : 'باز (قفل نیست)'
-                        : isEn
-                        ? 'Lockout: N/A'
-                        : 'وضعیت قفل نامشخص'}
-                    </div>
-                  </div>
-
-                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
-                    <div className={textMuted}>{isEn ? 'Password Status' : 'وضعیت پسورد'}</div>
-                    <div className={`mt-1 font-bold ${
-                      domainUserData.passwordStatus === 'expired' || domainUserData.passwordStatus === 'must_change'
-                        ? 'text-rose-500'
-                        : domainUserData.passwordStatus === 'active' || domainUserData.passwordStatus === 'never_expires'
-                        ? 'text-emerald-500'
-                        : textMuted
-                    }`}>
-                      {domainUserData.passwordStatus === 'expired'
-                        ? isEn
-                          ? 'Expired'
-                          : 'منقضی شده (Expired)'
-                        : domainUserData.passwordStatus === 'must_change'
-                        ? isEn
-                          ? 'Must Change at Next Logon'
-                          : 'اجبار به تغییر در ورود بعدی'
-                        : domainUserData.passwordStatus === 'never_expires'
-                        ? isEn
-                          ? 'Active (Never Expires)'
-                          : 'فعال (بدون انقضا)'
-                        : domainUserData.passwordStatus === 'active'
-                        ? isEn
-                          ? 'Valid / Active'
-                          : 'معتبر و فعال'
-                        : isEn
-                        ? 'Unknown'
-                        : 'نامشخص'}
-                    </div>
-                    <div className={`mt-0.5 text-[11px] font-mono ${textMuted}`} dir="ltr">
-                      {isEn ? 'Exp' : 'انقضا'}: {domainUserData.passwordExpires || '-'}
-                    </div>
-                  </div>
-
-                  <div className={`p-3.5 rounded-xl border ${subSurfaceBg}`}>
-                    <div className={textMuted}>{isEn ? 'Last Password Set / Logon' : 'آخرین تغییر رمز / آخرین لاگین'}</div>
-                    <div className={`mt-1 font-mono text-[11px] font-semibold ${textPrimary}`} dir="ltr">
-                      {domainUserData.passwordLastSet || '-'}
-                    </div>
-                    <div className={`mt-0.5 font-mono text-[11px] ${textMuted}`} dir="ltr">
-                      {isEn ? 'Logon' : 'لاگین'}: {domainUserData.lastLogon || '-'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Group Memberships */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
-                  <div className={`p-4 rounded-xl border space-y-2.5 ${subSurfaceBg}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className={`font-bold ${textPrimary}`}>
-                        {isEn
-                          ? `Global Group Memberships (${domainUserData.globalGroups?.length || 0})`
-                          : `عضویت در گروه‌های Global دامین (${domainUserData.globalGroups?.length || 0})`}
-                      </span>
-                      {(domainUserData.globalGroups?.length || 0) > 6 && (
-                        <input
-                          type="text"
-                          value={domainGroupFilter}
-                          onChange={(e) => setDomainGroupFilter(e.target.value)}
-                          placeholder={isEn ? 'Filter groups...' : 'فیلتر گروه...'}
-                          className={`px-2 py-1 rounded-md border text-[11px] outline-none w-36 ${inputCls}`}
-                        />
-                      )}
-                    </div>
-                    <div className="max-h-48 overflow-y-auto space-y-1">
-                      {(domainUserData.globalGroups || [])
-                        .filter((g: string) => !domainGroupFilter.trim() || g.toLowerCase().includes(domainGroupFilter.trim().toLowerCase()))
-                        .map((g: string, idx: number) => (
-                          <div key={`gg-${g}-${idx}`} className={`px-2.5 py-1.5 rounded-md border font-mono ${surfaceBg} ${textPrimary}`} dir="ltr">
-                            {g}
-                          </div>
-                        ))}
-                      {(domainUserData.globalGroups?.length || 0) === 0 && (
-                        <div className={textMuted}>{isEn ? 'No Global groups listed.' : 'گروه Global ثبت نشده است.'}</div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className={`p-4 rounded-xl border space-y-2.5 ${subSurfaceBg}`}>
-                    <div className={`font-bold ${textPrimary}`}>
-                      {isEn
-                        ? `Local Group Memberships (${domainUserData.localGroups?.length || 0})`
-                        : `عضویت در گروه‌های Local (${domainUserData.localGroups?.length || 0})`}
-                    </div>
-                    <div className="max-h-48 overflow-y-auto space-y-1">
-                      {(domainUserData.localGroups || []).map((g: string, idx: number) => (
-                        <div key={`lg-${g}-${idx}`} className={`px-2.5 py-1.5 rounded-md border font-mono ${surfaceBg} ${textPrimary}`} dir="ltr">
-                          {g}
-                        </div>
-                      ))}
-                      {(domainUserData.localGroups?.length || 0) === 0 && (
-                        <div className={textMuted}>{isEn ? 'No Local groups listed.' : 'گروه Local ثبت نشده است.'}</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {domainUserData.rawOutput && (
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => setShowRawDomainUser((v) => !v)}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-sky-500 hover:underline cursor-pointer"
-                    >
-                      {showRawDomainUser ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                      <span>
-                        {showRawDomainUser
-                          ? isEn
-                            ? 'Hide Raw net user /domain Output'
-                            : 'بستن خروجی خام net user /domain'
-                          : isEn
-                          ? 'Show Full net user /domain Output'
-                          : 'مشاهده خروجی کامل net user /domain'}
-                      </span>
-                    </button>
-                    {showRawDomainUser && (
-                      <pre
-                        dir="ltr"
-                        className={`mt-2 p-3.5 rounded-xl border font-mono text-[11px] overflow-x-auto max-h-64 ${subSurfaceBg} ${textMuted}`}
-                      >
-                        {domainUserData.rawOutput}
-                      </pre>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
         </div>
       )}
 
@@ -10490,6 +11511,206 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   >
                     {powerResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
                     <span>{isEn ? powerResult.message : powerResult.messageFa}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Send Interactive Message to Endpoint Screen (Strict RBAC: canSendHelpdeskMessage or Super Admin) */}
+              <div className={`rounded-xl border p-4 sm:p-5 space-y-3 ${surfaceBg}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-sky-500" />
+                    <span className={`text-xs font-bold ${textPrimary}`}>
+                      {isEn
+                        ? 'Send Interactive Message to Endpoint Screen'
+                        : 'ارسال پیام تعاملی روی صفحه نمایش سیستم کاربر'}
+                    </span>
+                    <FieldInfoTooltip
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                      fieldName={isEn ? 'Endpoint Screen Messaging' : 'ارسال پیام به صفحه کاربر'}
+                      whatIsIt={
+                        isEn
+                          ? 'Displays an on-screen notification box directly on the remote workstation monitor (Windows msg.exe / interactive desktop popup or Linux notify-send/wall).'
+                          : 'یک پنجره پیام فوری را مستقیماً روی صفحه نمایش سیستم کاربر (ویندوز msg.exe / پاپ‌آپ تعاملی یا لینوکس notify-send/wall) به کاربر نشان می‌دهد.'
+                      }
+                      whyNeeded={
+                        isEn
+                          ? 'Used to alert users before maintenance, restart, logoff, or urgent IT support contact. Restricted by RBAC to Super Admins or users granted canSendHelpdeskMessage.'
+                          : 'برای اطلاع‌رسانی فوری پیش از ری‌استارت، پشتیبانی یا هشدار IT به کاربر روی مانیتور؛ این قابلیت منحصراً در اختیار سوپرادمین یا کاربران دارای مجوز RBAC مربوطه است.'
+                      }
+                      example={
+                        isEn
+                          ? 'Target: Active User Session · Message: "IT will restart your PC in 5 minutes — please save your work."'
+                          : 'مخاطب: کاربر فعال سیستم · پیام: «لطفاً فایل‌های خود را ذخیره کنید، سیستم تا ۵ دقیقه دیگر ری‌استارت می‌شود.»'
+                      }
+                    />
+                  </div>
+                  {!canSendEndpointMessage ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 text-[11px] font-semibold text-amber-500">
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>
+                        {isEn
+                          ? 'RBAC Locked: Requires canSendHelpdeskMessage or Super Admin'
+                          : 'قفل دسترسی RBAC: نیازمند مجوز ارسال پیام یا نقش سوپرادمین'}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-[11px] font-semibold text-emerald-500">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Authorized' : 'مجاز برای ارسال'}</span>
+                    </span>
+                  )}
+                </div>
+
+                <form onSubmit={handleSendEndpointMessage} className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                    <div className="md:col-span-4">
+                      <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                        {isEn ? 'Target Recipient / Session' : 'مخاطب / نشست هدف'}
+                      </label>
+                      <select
+                        value={endpointMsgRecipient}
+                        disabled={!canSendEndpointMessage || sendingEndpointMsg}
+                        onChange={(e) => setEndpointMsgRecipient(e.target.value)}
+                        className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none disabled:opacity-50 ${inputCls}`}
+                      >
+                        <option value="*">
+                          {isEn ? 'All Active Logged-In Sessions (*)' : 'همه کاربران / نشست‌های فعال (*)'}
+                        </option>
+                        {Array.isArray(logonsData?.activeSessions) &&
+                          logonsData.activeSessions
+                            .filter((s: any) => String(s.sessionId) !== '0' && s.username)
+                            .map((s: any, idx: number) => {
+                              const label = s.domain ? `${s.domain}\\${s.username}` : s.username;
+                              return (
+                                <option key={`${s.sessionId || s.username}-${idx}`} value={s.username}>
+                                  {label} ({s.sessionName || `ID:${s.sessionId || '-'}`})
+                                </option>
+                              );
+                            })}
+                      </select>
+                    </div>
+
+                    <div className="md:col-span-5">
+                      <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                        {isEn ? 'Popup Title' : 'عنوان پنجره پیام'}
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={80}
+                        disabled={!canSendEndpointMessage || sendingEndpointMsg}
+                        value={endpointMsgTitle}
+                        onChange={(e) => setEndpointMsgTitle(e.target.value)}
+                        placeholder={isEn ? 'IT HelpDesk Notice' : 'پیام واحد پشتیبانی IT'}
+                        className={`w-full px-3 py-1.5 rounded-lg border text-xs outline-none disabled:opacity-50 ${inputCls}`}
+                      />
+                    </div>
+
+                    <div className="md:col-span-3">
+                      <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
+                        {isEn ? 'Auto-Hide (Seconds)' : 'مدت نمایش (ثانیه)'}
+                      </label>
+                      <input
+                        type="number"
+                        min={10}
+                        max={120}
+                        disabled={!canSendEndpointMessage || sendingEndpointMsg}
+                        value={endpointMsgSeconds}
+                        onChange={(e) =>
+                          setEndpointMsgSeconds(Math.max(10, Math.min(120, Number(e.target.value) || 45)))
+                        }
+                        className={`w-full px-3 py-1.5 rounded-lg border text-xs font-mono tabular-nums outline-none disabled:opacity-50 ${inputCls}`}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <textarea
+                      rows={2}
+                      maxLength={500}
+                      disabled={!canSendEndpointMessage || sendingEndpointMsg}
+                      value={endpointMsgBody}
+                      onChange={(e) => setEndpointMsgBody(e.target.value)}
+                      placeholder={
+                        !canSendEndpointMessage
+                          ? isEn
+                            ? 'Locked: Enable "HelpDesk & Servers: Send Interactive Message" in Access Policy or sign in as Super Admin.'
+                            : 'غیرفعال: برای ارسال پیام باید دسترسی RBAC مربوطه در Access Policy فعال باشد یا کاربر سوپرادمین باشید.'
+                          : isEn
+                          ? 'Type message to display immediately on the user workstation screen...'
+                          : 'متن پیامی که باید فوراً روی مانیتور سیستم کاربر نمایش داده شود را بنویسید...'
+                      }
+                      className={`w-full px-3 py-2 rounded-lg border text-xs outline-none disabled:opacity-50 ${inputCls}`}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {[
+                        {
+                          label: isEn ? 'Save Work Before Restart' : 'ذخیره فایل قبل از ری‌استارت',
+                          text: isEn
+                            ? 'IT HelpDesk Notice: Please save your open documents now. Your workstation will restart shortly for maintenance.'
+                            : 'اطلاعیه پشتیبانی IT: لطفاً فایل‌های باز خود را ذخیره کنید؛ سیستم شما به زودی جهت تعمیرات/بروزرسانی ری‌استارت خواهد شد.',
+                        },
+                        {
+                          label: isEn ? 'Contact IT Desk' : 'تماس با واحد IT',
+                          text: isEn
+                            ? 'IT HelpDesk Notice: Your support technician is working on your ticket. Please contact IT extension or wait a moment.'
+                            : 'اطلاعیه پشتیبانی IT: کارشناس پشتیبانی در حال بررسی درخواست شماست؛ در صورت نیاز با داخلی پشتیبانی تماس بگیرید.',
+                        },
+                      ].map((tpl) => (
+                        <button
+                          key={tpl.label}
+                          type="button"
+                          disabled={!canSendEndpointMessage || sendingEndpointMsg}
+                          onClick={() => setEndpointMsgBody(tpl.text)}
+                          className={`px-2 py-1 rounded-md border text-[11px] font-medium transition cursor-pointer disabled:opacity-40 ${subSurfaceBg} ${textMuted} hover:text-sky-500`}
+                        >
+                          {tpl.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={!canSendEndpointMessage || sendingEndpointMsg || !endpointMsgBody.trim()}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-45 text-white text-xs font-semibold transition cursor-pointer"
+                    >
+                      {sendingEndpointMsg ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : !canSendEndpointMessage ? (
+                        <Lock className="w-3.5 h-3.5" />
+                      ) : (
+                        <Send className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isEn ? 'Send Screen Message' : 'ارسال پیام روی صفحه کاربر'}</span>
+                    </button>
+                  </div>
+                </form>
+
+                {endpointMsgError && (
+                  <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{endpointMsgError}</span>
+                  </div>
+                )}
+
+                {endpointMsgResult && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs flex items-center gap-2 font-semibold ${
+                      endpointMsgResult.success
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+                        : 'border-rose-500/40 bg-rose-500/10 text-rose-500'
+                    }`}
+                  >
+                    {endpointMsgResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                    )}
+                    <span>{isEn ? endpointMsgResult.message : endpointMsgResult.messageFa}</span>
                   </div>
                 )}
               </div>
@@ -12108,7 +13329,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       )}
 
       {/* =================================================================== */}
-      {/* TAB 6C: SERVICES & STARTUP PROGRAMS                                 */}
+      {/* TAB 6C: SERVICES, STARTUP, MSCONFIG & ENVIRONMENT VARIABLES         */}
       {/* =================================================================== */}
       {activeSubTab === 'services_startup' && (
         <ServicesStartupTab
@@ -12119,6 +13340,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           data={servicesStartupData}
           loading={loadingServicesStartup}
           error={servicesStartupError}
+          msconfigEnvData={msconfigEnvData}
+          loadingMsconfigEnv={loadingMsconfigEnv}
+          msconfigEnvError={msconfigEnvError}
           actionResult={serviceStartupActionResult}
           actionError={serviceStartupActionError}
           onClearActionBanner={() => {
@@ -12126,8 +13350,11 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             setServiceStartupActionError(null);
           }}
           onRefresh={handleInspectServicesStartup}
+          onRefreshMsconfigEnv={handleInspectMsconfigEnv}
           onServiceAction={handleServiceAction}
           onStartupAction={handleStartupAction}
+          onMsconfigAction={handleMsconfigAction}
+          onEnvVarAction={handleEnvVarAction}
           busyKey={serviceStartupBusyKey}
         />
       )}
@@ -12155,6 +13382,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           onUpdateLanguages={handleUpdateRegionLanguages}
           onInstallFont={handleInstallEndpointFont}
           onDeleteFont={handleDeleteEndpointFont}
+          onExportFont={handleExportEndpointFont}
+          onExportFontsArchive={handleExportEndpointFontsArchive}
           busyKey={regionFontsBusyKey}
         />
       )}
@@ -12229,13 +13458,38 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <div>
-                <h2 className={`text-sm font-bold ${textPrimary}`}>
-                  {isEn ? 'HelpDesk Workstation Connection History' : 'تاریخچه اتصالات انجام‌شده در هلپ‌دسک'}
-                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className={`text-sm font-bold ${textPrimary}`}>
+                    {isEn ? 'HelpDesk Workstation Connection History' : 'تاریخچه اتصالات انجام‌شده در هلپ‌دسک'}
+                  </h2>
+                  <span
+                    className={`px-2 py-0.5 rounded-md border text-[11px] font-semibold ${
+                      historyScope === 'all'
+                        ? isLightMode
+                          ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                          : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300'
+                        : isLightMode
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                    }`}
+                  >
+                    {historyScope === 'all'
+                      ? isEn
+                        ? 'All Operators — Full Access'
+                        : 'همه اپراتورها (دسترسی کامل)'
+                      : isEn
+                      ? 'Your Connections Only'
+                      : 'فقط اتصالات شخصی شما'}
+                  </span>
+                </div>
                 <p className={`text-xs mt-0.5 ${textMuted}`}>
-                  {isEn
-                    ? 'Shows target IP, computer name, endpoint logged-in PC user, timestamp, and 1-click reconnect (passwords are never stored).'
-                    : 'نمایش آدرس IP، نام کامپیوتر، کاربر فعالِ سیستم، زمان و تاریخ اتصال همراه با امکان اتصال مجدد فوری (هیچ رمزی ذخیره نمی‌شود).'}
+                  {historyScope === 'all'
+                    ? isEn
+                      ? 'Shows target IP, computer name, endpoint logged-in PC user, operator, timestamp, and 1-click reconnect across all operators (passwords are never stored).'
+                      : 'نمایش آدرس IP، نام کامپیوتر، کاربر فعال سیستم، اپراتور و زمان اتصال برای تمام کارشناسان همراه با اتصال مجدد فوری (هیچ رمزی ذخیره نمی‌شود).'
+                    : isEn
+                    ? 'Scoped to your own HelpDesk connections — target IP, computer name, active PC user, timestamp, and 1-click reconnect (passwords are never stored).'
+                    : 'محدود به تاریخچه اتصالات خودتان — نمایش آدرس IP، نام کامپیوتر، کاربر فعال سیستم، زمان اتصال و اتصال مجدد فوری (هیچ رمزی ذخیره نمی‌شود).'}
                 </p>
               </div>
 
@@ -12871,6 +14125,18 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
               <button
                 type="button"
+                disabled={!canExecuteActions}
+                onClick={() => handleSendTestPrintPage(printerMenuAnchor.printer.name)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-start transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
+                  isLightMode ? 'hover:bg-emerald-50 text-slate-800' : 'hover:bg-slate-800 text-slate-100'
+                }`}
+              >
+                <Printer className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                <span>{isEn ? 'Send Test Print Page' : 'ارسال صفحه تست چاپ (Test Print)'}</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => {
                   const pr = printerMenuAnchor.printer;
                   setPrinterMenuAnchor(null);
@@ -13011,6 +14277,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         workstationIp={sharesData?.targetIp || healthData?.targetIp || targetIp.trim()}
         detectedLoggedInUser={sharesData?.loggedInUser || healthData?.loggedInUser || ''}
         userProfiles={sharesData?.userProfiles || []}
+        usedDriveLetters={sharesData?.usedDriveLetters || []}
+        disks={healthData?.disks || []}
+        existingShares={sharesData?.shares || []}
         initialRemotePath={shareModalPrefill.remotePath}
         initialDriveLetter={shareModalPrefill.driveLetter}
         initialScope={shareModalPrefill.scope}

@@ -67,6 +67,8 @@ export interface RegionFontsTabProps {
     activeUserSid?: string;
   }) => Promise<void>;
   onDeleteFont: (font: any) => Promise<void>;
+  onExportFont: (font: any) => Promise<void>;
+  onExportFontsArchive: (fonts: any[]) => Promise<void>;
   busyKey: string | null;
 }
 
@@ -168,6 +170,8 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
   onUpdateLanguages,
   onInstallFont,
   onDeleteFont,
+  onExportFont,
+  onExportFontsArchive,
   busyKey,
 }) => {
   const surfaceBg = isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800';
@@ -444,6 +448,7 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
   const [fontSortDir, setFontSortDir] = useState<'asc' | 'desc'>('asc');
   const [fontPage, setFontPage] = useState(1);
   const [confirmDeleteFontId, setConfirmDeleteFontId] = useState<string | null>(null);
+  const [selectedFontIds, setSelectedFontIds] = useState<string[]>([]);
 
   const filteredFonts = useMemo(() => {
     const list: any[] = Array.isArray(data?.fonts) ? data.fonts : [];
@@ -478,6 +483,38 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
   useEffect(() => {
     setFontPage(1);
   }, [fontSearch, fontScopeFilter, fontFormatFilter]);
+
+  useEffect(() => {
+    setSelectedFontIds([]);
+  }, [data?.collectedAt]);
+
+  const selectedFontsForArchive = useMemo(() => {
+    const idSet = new Set(selectedFontIds);
+    const chosen = filteredFonts.filter((f) => idSet.has(String(f.id)));
+    return chosen.length > 0 ? chosen : filteredFonts;
+  }, [filteredFonts, selectedFontIds]);
+
+  const allPageFontsSelected = useMemo(() => {
+    if (pagedFonts.length === 0) return false;
+    const idSet = new Set(selectedFontIds);
+    return pagedFonts.every((f) => idSet.has(String(f.id)));
+  }, [pagedFonts, selectedFontIds]);
+
+  const handleTogglePageFontSelection = () => {
+    const pageIds = pagedFonts.map((f) => String(f.id));
+    if (allPageFontsSelected) {
+      const pageSet = new Set(pageIds);
+      setSelectedFontIds((prev) => prev.filter((id) => !pageSet.has(id)));
+    } else {
+      setSelectedFontIds((prev) => Array.from(new Set([...prev, ...pageIds])));
+    }
+  };
+
+  const handleToggleSingleFontSelection = (id: string) => {
+    setSelectedFontIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
 
   const handleExportFontsCsv = () => {
     if (!filteredFonts.length) return;
@@ -555,18 +592,46 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
 
           <div className="flex flex-wrap items-center gap-2">
             {data && filteredFonts.length > 0 && (
-              <button
-                type="button"
-                onClick={handleExportFontsCsv}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0 ${
-                  isLightMode
-                    ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                    : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700'
-                }`}
-              >
-                <Download className="w-3.5 h-3.5 text-emerald-500" />
-                <span>{isEn ? 'Export Fonts CSV' : 'خروجی CSV فونت‌ها'}</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleExportFontsCsv}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                    isLightMode
+                      ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                      : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700'
+                  }`}
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>{isEn ? 'Export Fonts CSV' : 'خروجی CSV فونت‌ها'}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={busyKey !== null}
+                  onClick={() => onExportFontsArchive(selectedFontsForArchive.slice(0, 250))}
+                  title={
+                    isEn
+                      ? 'Download real font files (.ttf/.otf) as a ZIP archive from this endpoint'
+                      : 'دانلود فایل‌های واقعی فونت‌های سیستم کاربر در قالب یک فایل ZIP'
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  {busyKey === 'font:export_zip' ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {selectedFontIds.length > 0
+                      ? isEn
+                        ? `Export Selected ZIP (${Math.min(selectedFontIds.length, 250)})`
+                        : `خروجی ZIP فونت‌های انتخابی (${Math.min(selectedFontIds.length, 250)})`
+                      : isEn
+                      ? `Export Filtered ZIP (${Math.min(filteredFonts.length, 250)})`
+                      : `خروجی ZIP فونت‌ها (${Math.min(filteredFonts.length, 250)})`}
+                  </span>
+                </button>
+              </>
             )}
             <button
               type="button"
@@ -1610,6 +1675,39 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
               </div>
 
               {/* Installed Fonts Table */}
+              {selectedFontIds.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs">
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                    {isEn
+                      ? `${selectedFontIds.length} font(s) selected for ZIP export`
+                      : `${selectedFontIds.length} فونت برای خروجی ZIP انتخاب شده است`}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={busyKey !== null}
+                      onClick={() => onExportFontsArchive(selectedFontsForArchive.slice(0, 250))}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold cursor-pointer"
+                    >
+                      {busyKey === 'font:export_zip' ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Download className="w-3 h-3" />
+                      )}
+                      <span>{isEn ? 'Download ZIP' : 'دانلود فایل ZIP'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFontIds([])}
+                      className={`px-2.5 py-1 rounded-md border text-[11px] cursor-pointer ${
+                        isLightMode ? 'bg-white border-slate-300 text-slate-700' : 'bg-slate-900 border-slate-700 text-slate-300'
+                      }`}
+                    >
+                      {isEn ? 'Clear' : 'پاک کردن انتخاب'}
+                    </button>
+                  </div>
+                </div>
+              )}
               <div
                 className={`overflow-x-auto rounded-xl border ${
                   isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
@@ -1624,6 +1722,15 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
                           : 'bg-slate-950/70 border-slate-800 text-slate-400'
                       }`}
                     >
+                      <th className="py-2.5 px-3 w-8 text-center">
+                        <input
+                          type="checkbox"
+                          checked={allPageFontsSelected}
+                          onChange={handleTogglePageFontSelection}
+                          title={isEn ? 'Select / deselect current page fonts' : 'انتخاب همه فونت‌های این صفحه'}
+                          className="rounded border-slate-400 text-emerald-600 cursor-pointer"
+                        />
+                      </th>
                       <th className="py-2.5 px-3 text-start">{isEn ? 'Font Name' : 'نام فونت'}</th>
                       <th className="py-2.5 px-3 text-start">{isEn ? 'File Name' : 'نام فایل'}</th>
                       <th className="py-2.5 px-3 text-start">{isEn ? 'Format' : 'فرمت'}</th>
@@ -1635,19 +1742,29 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
                   <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/80">
                     {pagedFonts.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className={`py-8 text-center ${textMuted}`}>
+                        <td colSpan={7} className={`py-8 text-center ${textMuted}`}>
                           {isEn ? 'No fonts match the current filters.' : 'هیچ فونتی با فیلتر فعلی یافت نشد.'}
                         </td>
                       </tr>
                     ) : (
                       pagedFonts.map((font: any) => {
                         const rowBusy = busyKey === `font:del:${font.id}`;
+                        const exportBusy = busyKey === `font:export:${font.id}`;
                         const isConfirming = confirmDeleteFontId === font.id;
+                        const isChecked = selectedFontIds.includes(String(font.id));
                         return (
                           <tr
                             key={font.id}
                             className={isLightMode ? 'hover:bg-slate-50/90' : 'hover:bg-slate-800/40'}
                           >
+                            <td className="py-2.5 px-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => handleToggleSingleFontSelection(String(font.id))}
+                                className="rounded border-slate-400 text-emerald-600 cursor-pointer"
+                              />
+                            </td>
                             <td className="py-2.5 px-3 max-w-[260px]">
                               <div className="flex items-center gap-1.5">
                                 <span className={`font-semibold truncate ${textPrimary}`}>{font.displayName}</span>
@@ -1694,54 +1811,79 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
                               {formatBytes(font.sizeBytes, isEn)}
                             </td>
                             <td className="py-2.5 px-3 text-end whitespace-nowrap">
-                              {font.isProtected ? (
-                                <span
-                                  title={isEn ? font.protectionReason : font.protectionReasonFa}
-                                  className={`inline-flex items-center gap-1 text-[11px] font-medium ${textMuted}`}
-                                >
-                                  <Lock className="w-3 h-3 text-amber-500" />
-                                  <span>{isEn ? 'Protected' : 'محافظت‌شده'}</span>
-                                </span>
-                              ) : isConfirming ? (
-                                <div className="inline-flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    disabled={rowBusy || !canExecuteActions}
-                                    onClick={async () => {
-                                      setConfirmDeleteFontId(null);
-                                      await onDeleteFont(font);
-                                    }}
-                                    className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-semibold cursor-pointer"
-                                  >
-                                    {isEn ? 'Confirm' : 'تایید حذف'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmDeleteFontId(null)}
-                                    className={`px-2 py-1 rounded border text-[11px] cursor-pointer ${
-                                      isLightMode
-                                        ? 'border-slate-300 text-slate-600 hover:bg-slate-100'
-                                        : 'border-slate-700 text-slate-300 hover:bg-slate-800'
-                                    }`}
-                                  >
-                                    {isEn ? 'Cancel' : 'انصراف'}
-                                  </button>
-                                </div>
-                              ) : (
+                              <div className="inline-flex items-center justify-end gap-1.5">
                                 <button
                                   type="button"
-                                  disabled={rowBusy || busyKey !== null || !canExecuteActions}
-                                  onClick={() => setConfirmDeleteFontId(font.id)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-rose-500/30 text-rose-500 hover:bg-rose-500/10 text-[11px] font-semibold cursor-pointer disabled:opacity-45"
+                                  disabled={exportBusy || busyKey !== null}
+                                  onClick={() => onExportFont(font)}
+                                  title={
+                                    isEn
+                                      ? `Download font file (${font.fileName})`
+                                      : `دانلود فایل فونت (${font.fileName})`
+                                  }
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer disabled:opacity-45 ${
+                                    isLightMode
+                                      ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                      : 'border-emerald-500/35 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                                  }`}
                                 >
-                                  {rowBusy ? (
+                                  {exportBusy ? (
                                     <Loader2 className="w-3 h-3 animate-spin" />
                                   ) : (
-                                    <Trash2 className="w-3 h-3" />
+                                    <Download className="w-3 h-3" />
                                   )}
-                                  <span>{isEn ? 'Uninstall' : 'حذف فونت'}</span>
+                                  <span>{isEn ? 'Export' : 'اکسپورت'}</span>
                                 </button>
-                              )}
+
+                                {font.isProtected ? (
+                                  <span
+                                    title={isEn ? font.protectionReason : font.protectionReasonFa}
+                                    className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 ${textMuted}`}
+                                  >
+                                    <Lock className="w-3 h-3 text-amber-500" />
+                                    <span>{isEn ? 'Protected' : 'محافظت‌شده'}</span>
+                                  </span>
+                                ) : isConfirming ? (
+                                  <div className="inline-flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      disabled={rowBusy || !canExecuteActions}
+                                      onClick={async () => {
+                                        setConfirmDeleteFontId(null);
+                                        await onDeleteFont(font);
+                                      }}
+                                      className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-semibold cursor-pointer"
+                                    >
+                                      {isEn ? 'Confirm' : 'تایید حذف'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteFontId(null)}
+                                      className={`px-2 py-1 rounded border text-[11px] cursor-pointer ${
+                                        isLightMode
+                                          ? 'border-slate-300 text-slate-600 hover:bg-slate-100'
+                                          : 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                                      }`}
+                                    >
+                                      {isEn ? 'Cancel' : 'انصراف'}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={rowBusy || busyKey !== null || !canExecuteActions}
+                                    onClick={() => setConfirmDeleteFontId(font.id)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-rose-500/30 text-rose-500 hover:bg-rose-500/10 text-[11px] font-semibold cursor-pointer disabled:opacity-45"
+                                  >
+                                    {rowBusy ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-3 h-3" />
+                                    )}
+                                    <span>{isEn ? 'Uninstall' : 'حذف فونت'}</span>
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         );

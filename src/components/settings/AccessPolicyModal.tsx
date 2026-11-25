@@ -238,6 +238,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canManageHelpdeskExceptions:
         initialPolicy.canManageHelpdeskExceptions ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canSendHelpdeskMessage:
+        initialPolicy.canSendHelpdeskMessage ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canViewAllHelpdeskHistory:
+        initialPolicy.canViewAllHelpdeskHistory ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
       canViewCommunications: initialPolicy.canViewCommunications ?? true,
       canSendCommunications: initialPolicy.canSendCommunications ?? true,
       canSendAnnouncements:
@@ -1700,6 +1706,8 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canInspectHelpdeskDomainUsers: enabled,
         canPowerControlHelpdeskEndpoints: enabled,
         canManageHelpdeskExceptions: enabled,
+        canSendHelpdeskMessage: enabled,
+        canViewAllHelpdeskHistory: enabled,
         canBatchOperate: enabled,
         canViewSessionRecordings: enabled,
         canPlaybackSessionRecordings: enabled,
@@ -6882,6 +6890,28 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         whatFa: 'مجوز مدیریت قوانین مسدودسازی و استثنائات اتصال در ماژول هلپ‌دسک (ذخیره و اعمال قطعی در سمت سرور و دیتابیس PostgreSQL).',
                         why: 'Ensures only trusted security/infrastructure administrators can add or lift exclusions protecting sensitive executives, servers, or privileged AD groups.',
                         whyFa: 'از حذف یا دور زدن محدودیت‌های امنیتی سیستم‌های حساس (مدیران ارشد یا گروه‌های ویژه AD) توسط اپراتورهای عادی جلوگیری می‌کند.',
+                      },
+                      {
+                        key: 'canSendHelpdeskMessage',
+                        labelEn: 'HelpDesk & Servers: Send Interactive Message to Endpoint Screen / Terminal',
+                        labelFa: 'هلپ‌دسک و سرورها: ارسال پیام تعاملی روی صفحه سیستم کاربر / ترمینال',
+                        descEn: 'Authorize sending live screen popup notices (Windows msg.exe / desktop dialog) and Linux terminal broadcast messages (wall/write/notify)',
+                        descFa: 'مجوز ارسال پیام زنده روی مانیتور سیستم ویندوزی کاربر (پنجره اعلان روی صفحه) و پیام ترمینال لینوکس (wall / write)',
+                        what: 'Grants explicit permission to display immediate alert popups on remote workstation screens or broadcast messages to active Linux sessions.',
+                        whatFa: 'مجوز صریح برای ارسال و نمایش پیام فوری روی صفحه نمایش ایستگاه‌های کاری کاربران در ماژول هلپ‌دسک و ترمینال سرورهای لینوکس.',
+                        why: 'Separated strictly from standard HelpDesk actions so unauthorized operators cannot display disruptive or social-engineering popups on user screens unless Super Admin or explicitly permitted.',
+                        whyFa: 'به صورت سخت‌گیرانه از سایر دسترسی‌ها جدا شده است تا فقط سوپرادمین یا اپراتورهای دارای مجوز صریح بتوانند روی مانیتور کاربران پیام ارسال کنند.',
+                      },
+                      {
+                        key: 'canViewAllHelpdeskHistory',
+                        labelEn: 'HelpDesk: View & Manage All Operators Connection History',
+                        labelFa: 'هلپ‌دسک: مشاهده و مدیریت تاریخچه اتصالات تمامی اپراتورها',
+                        descEn: 'View, audit, and manage HelpDesk connection history across all technicians; when disabled, operators see only their own connections',
+                        descFa: 'مشاهده و مدیریت سوابق اتصال تمام کارشناسان در تاریخچه هلپ‌دسک؛ در صورت غیرفعال بودن، هر کارشناس فقط اتصالات خودش را می‌بیند',
+                        what: 'Expands the Connection History tab scope from operator-private records to organization-wide HelpDesk audit records.',
+                        whatFa: 'دامنه نمایش و مدیریت تب Connection History را از سوابق شخصی اپراتور به تاریخچه جامع همه کارشناسان گسترش می‌دهد.',
+                        why: 'Preserves operator privacy and least-privilege separation while letting managers and Super Admins audit all remote support sessions.',
+                        whyFa: 'حریم شخصی و اصل حداقل دسترسی میان اپراتورهای هلپ‌دسک را حفظ می‌کند و هم‌زمان امکان نظارت جامع را برای مدیران فراهم می‌سازد.',
                       },
                       {
                         key: 'canBatchOperate',
