@@ -2627,6 +2627,210 @@ export async function inspectHelpdeskDomainUser(
   return res.json();
 }
 
+export interface HelpdeskTargetUserRequestPayload {
+  targetUsername: string;
+  adminUsername: string;
+  adminPassword: string;
+  domainController?: string;
+  ldapProtocol?: 'auto' | 'ldaps' | 'ldap';
+  exchangeServer?: string;
+  winrmProtocol?: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
+  includeMailbox?: boolean;
+}
+
+export interface HelpdeskUserRelatedPerson {
+  dn: string;
+  samAccountName: string;
+  displayName: string;
+  title: string;
+  department: string;
+  email: string;
+}
+
+export interface HelpdeskUserMailboxInfo {
+  hasMailbox: boolean;
+  source: 'exchange_ps' | 'ad_only' | 'none';
+  liveStatsRetrieved: boolean;
+  exchangeHostTried?: string;
+  exchangeHostUsed?: string;
+  exchangeStatusMessage?: string;
+  exchangeStatusMessageFa?: string;
+  databaseName: string;
+  serverName: string;
+  mailNickname: string;
+  recipientType?: string;
+  storageLimitStatus?: string;
+  useDatabaseQuotaDefaults: boolean | null;
+  totalUsedBytes: number | null;
+  deletedItemsBytes: number | null;
+  itemCount: number | null;
+  deletedItemCount: number | null;
+  issueWarningQuotaBytes: number | null;
+  prohibitSendQuotaBytes: number | null;
+  prohibitSendReceiveQuotaBytes: number | null;
+  effectiveQuotaBytes: number | null;
+  usedPercent: number | null;
+  isUnlimitedQuota: boolean;
+  lastLogonTime: string | null;
+  archiveEnabled: boolean;
+  archiveStatus?: string;
+  archiveGuid?: string;
+  archiveUsedBytes?: number | null;
+  archiveQuotaBytes?: number | null;
+  forwardingAddress?: string;
+  forwardingSmtpAddress?: string;
+  deliverToMailboxAndForward?: boolean;
+}
+
+export interface HelpdeskUserInspectionData {
+  found: boolean;
+  collectedAt: string;
+  queryTarget: string;
+  connectionInfo: {
+    method: 'ldaps' | 'ldap' | 'winrm_adsi';
+    domainController: string;
+    port: number;
+    domainName: string;
+    baseDn: string;
+  };
+  profile: {
+    samAccountName: string;
+    userPrincipalName: string;
+    displayName: string;
+    cn: string;
+    firstName: string;
+    lastName: string;
+    middleName: string;
+    initials: string;
+    description: string;
+    jobTitle: string;
+    department: string;
+    company: string;
+    office: string;
+    division: string;
+    employeeId: string;
+    employeeNumber: string;
+    manager: HelpdeskUserRelatedPerson | null;
+    directReports: HelpdeskUserRelatedPerson[];
+    distinguishedName: string;
+    organizationalUnit: string;
+    objectSid: string;
+    objectGuid: string;
+    whenCreated: string | null;
+    whenChanged: string | null;
+    thumbnailPhotoDataUrl: string | null;
+    notes: string;
+  };
+  contact: {
+    primaryEmail: string;
+    emailAliases: Array<{ address: string; protocol: string; isPrimary: boolean }>;
+    internalPhones: string[];
+    mobileNumbers: string[];
+    homePhones: string[];
+    faxNumber: string;
+    webPage: string;
+  };
+  security: {
+    accountEnabled: boolean;
+    accountLocked: boolean;
+    lockoutTimeRaw: string;
+    lockedAt: string | null;
+    lockoutSourceNote?: string;
+    badPwdCount: number;
+    badPasswordTime: string | null;
+    passwordLastSet: string | null;
+    passwordAgeDays: number | null;
+    passwordExpiresAt: string | null;
+    passwordExpired: boolean;
+    passwordNeverExpires: boolean;
+    mustChangePasswordAtNextLogon: boolean;
+    userCannotChangePassword: boolean;
+    accountExpiresAt: string | null;
+    accountNeverExpires: boolean;
+    accountExpired: boolean;
+    lastLogon: string | null;
+    logonCount: number;
+    userAccountControl: number;
+    uacFlags: string[];
+    domainPolicy: {
+      domainName: string;
+      source: 'pso' | 'domain_root' | 'unknown';
+      psoName?: string;
+      maxPasswordAgeDays: number | null;
+      minPasswordAgeDays: number | null;
+      minPasswordLength: number | null;
+      lockoutThreshold: number | null;
+      lockoutDurationMinutes: number | null;
+      lockoutObservationWindowMinutes: number | null;
+    };
+  };
+  groups: Array<{ cn: string; dn: string; isPrimary?: boolean }>;
+  mailbox: HelpdeskUserMailboxInfo;
+}
+
+export async function inspectHelpdeskTargetUser(
+  payload: HelpdeskTargetUserRequestPayload
+): Promise<{
+  success: boolean;
+  data: HelpdeskUserInspectionData;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/user/inspect`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Active Directory user lookup failed');
+  return res.json();
+}
+
+export async function refreshHelpdeskTargetMailbox(
+  payload: HelpdeskTargetUserRequestPayload
+): Promise<{
+  success: boolean;
+  data: HelpdeskUserMailboxInfo;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/user/mailbox`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Exchange mailbox query failed');
+  return res.json();
+}
+
+export async function unlockHelpdeskTargetUser(
+  payload: HelpdeskTargetUserRequestPayload
+): Promise<{
+  success: boolean;
+  data: {
+    unlocked: boolean;
+    wasLocked: boolean;
+    stillLockedAfter: boolean;
+    samAccountName: string;
+    displayName: string;
+    distinguishedName: string;
+    domainController: string;
+    methodUsed: string;
+    message: string;
+    messageFa: string;
+    unlockedAt: string;
+  };
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/user/unlock`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to unlock AD user account');
+  return res.json();
+}
+
 export async function executeHelpdeskPowerControl(
   payload: HelpdeskConnectionPayload & {
     powerAction: 'restart_now' | 'restart_scheduled' | 'shutdown_force' | 'shutdown_scheduled' | 'abort';

@@ -125,6 +125,13 @@ import {
   inspectEndpointIdentityForExceptions,
   clearHelpdeskExceptionIdentityCache,
 } from './helpdeskService';
+import {
+  inspectTargetDomainUser,
+  inspectTargetDomainMailbox,
+  unlockTargetDomainUser,
+  HelpdeskUserInspectInput,
+  LdapTransportProtocol,
+} from './helpdeskUserService';
 import { ZipArchive } from 'archiver';
 import { runRetentionPurgeJob } from './logRetentionDaemon';
 import {
@@ -10807,6 +10814,217 @@ apiRouter.post('/helpdesk/ad/user', async (req: Request, res: Response) => {
       success: false,
       error: msg,
       errorFa: msg,
+    });
+  }
+});
+
+// ============================================================================
+// ON-DEMAND TARGET USER HELPDESK (ACTIVE DIRECTORY + PASSWORD/LOCKOUT + MAILBOX)
+// ============================================================================
+
+function extractHelpdeskUserInputFromBody(body: any): HelpdeskUserInspectInput {
+  const rawLdap = String(body?.ldapProtocol || 'auto').trim().toLowerCase();
+  const ldapProtocol: LdapTransportProtocol =
+    rawLdap === 'ldaps' || rawLdap === 'ldap' ? rawLdap : 'auto';
+  const rawWinrm = String(body?.winrmProtocol || 'auto').trim().toLowerCase();
+  const winrmProtocol: HelpdeskProtocol =
+    rawWinrm === 'winrm_https' ||
+    rawWinrm === 'winrm_http' ||
+    rawWinrm === 'smb_rpc' ||
+    rawWinrm === 'ssh'
+      ? rawWinrm
+      : 'auto';
+
+  return {
+    targetUsername: String(body?.targetUsername || '').trim(),
+    adminUsername: String(body?.adminUsername || '').trim(),
+    adminPassword: String(body?.adminPassword || ''),
+    domainController: body?.domainController ? String(body.domainController).trim() : undefined,
+    ldapProtocol,
+    exchangeServer: body?.exchangeServer ? String(body.exchangeServer).trim() : undefined,
+    winrmProtocol,
+    includeMailbox: body?.includeMailbox !== false,
+  };
+}
+
+// POST /helpdesk/user/inspect - On-demand AD user profile, contacts, password/lockout & mailbox quota
+apiRouter.post('/helpdesk/user/inspect', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'domain_user');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const input = extractHelpdeskUserInputFromBody(req.body);
+  if (!input.targetUsername || !input.adminUsername || !input.adminPassword) {
+    return res.status(400).json({
+      success: false,
+      error: 'Target username and ephemeral domain admin username & password are required.',
+      errorFa: 'وارد کردن نام کاربری هدف و نام کاربری و رمز عبور ادمین دامین الزامی است.',
+    });
+  }
+
+  try {
+    const data = await inspectTargetDomainUser(input);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_user_inspect',
+      title: `بررسی پروفایل و وضعیت کاربر دامین (${data.profile.samAccountName})`,
+      title_en: `HelpDesk Target User Inspect (${data.profile.samAccountName})`,
+      details: `کاربر ${data.profile.displayName} (${data.profile.samAccountName}) بررسی شد — قفل: ${data.security.accountLocked ? 'بله' : 'خیر'} — ایمیل: ${data.contact.primaryEmail || '-'} — دپارتمان: ${data.profile.department || '-'}.`,
+      details_en: `Inspected AD user ${data.profile.displayName} (${data.profile.samAccountName}) — Locked: ${data.security.accountLocked ? 'Yes' : 'No'} — Email: ${data.contact.primaryEmail || '-'} — Department: ${data.profile.department || '-'}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      target: {
+        type: 'user',
+        name: data.profile.samAccountName,
+        metadata: {
+          domainController: data.connectionInfo.domainController,
+          method: data.connectionInfo.method,
+          locked: data.security.accountLocked,
+          passwordExpired: data.security.passwordExpired,
+          hasMailbox: data.mailbox.hasMailbox,
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Target domain user inspection failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_user_inspect_failed',
+      title: `خطا در بررسی کاربر دامین ${input.targetUsername}`,
+      title_en: `HelpDesk Target User Inspect Failed: ${input.targetUsername}`,
+      targetIp: input.domainController || input.targetUsername,
+      errorMsg: msg,
+      metadata: { targetUsername: input.targetUsername, domainController: input.domainController || '' },
+    });
+    return res.status(/invalid|required/i.test(msg) ? 400 : /not found/i.test(msg) ? 404 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/user/mailbox - Refresh Exchange mailbox usage & quotas for target domain user
+apiRouter.post('/helpdesk/user/mailbox', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'domain_user');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const input = extractHelpdeskUserInputFromBody(req.body);
+  if (!input.targetUsername || !input.adminUsername || !input.adminPassword) {
+    return res.status(400).json({
+      success: false,
+      error: 'Target username and ephemeral domain admin credentials are required.',
+      errorFa: 'نام کاربری هدف و مشخصات ادمین دامین الزامی است.',
+    });
+  }
+
+  try {
+    const data = await inspectTargetDomainMailbox(input);
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Exchange mailbox query failed');
+    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/user/unlock - Unlock locked Active Directory user account (lockoutTime = 0)
+apiRouter.post('/helpdesk/user/unlock', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: Your policy does not permit Active Directory user inspection/unlock.',
+      errorFa: 'عدم دسترسی: پالیسی شما فاقد مجوز بررسی و رفع قفل کاربران دامین است.',
+    });
+  }
+
+  const input = extractHelpdeskUserInputFromBody(req.body);
+  if (!input.targetUsername || !input.adminUsername || !input.adminPassword) {
+    return res.status(400).json({
+      success: false,
+      error: 'Target username and ephemeral domain admin credentials are required.',
+      errorFa: 'نام کاربری هدف و اطلاعات ادمین دامین الزامی است.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, input.targetUsername, 'ad_user_unlock');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: input.targetUsername,
+      actionName: 'ad_user_unlock',
+      rl,
+    });
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await unlockTargetDomainUser(input);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_user_unlock',
+      title: `خروج از قفل اکانت دامین (${data.samAccountName})`,
+      title_en: `HelpDesk AD User Unlock (${data.samAccountName})`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.unlocked ? 'success' : 'failed',
+      severity: 'info',
+      target: {
+        type: 'user',
+        name: data.samAccountName,
+        metadata: {
+          distinguishedName: data.distinguishedName,
+          domainController: data.domainController,
+          methodUsed: data.methodUsed,
+          wasLocked: data.wasLocked,
+          stillLockedAfter: data.stillLockedAfter,
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to unlock AD user account');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_user_unlock_failed',
+      title: `خطا در خروج از قفل اکانت ${input.targetUsername}`,
+      title_en: `HelpDesk AD User Unlock Failed: ${input.targetUsername}`,
+      targetIp: input.domainController || input.targetUsername,
+      errorMsg: msg,
+      metadata: { targetUsername: input.targetUsername },
+    });
+    return res.status(err?.blockedByException ? 403 : /invalid|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: err?.reasonFa || msg,
+      blockedByException: Boolean(err?.blockedByException),
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
     });
   }
 });

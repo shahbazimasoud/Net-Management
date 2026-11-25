@@ -1516,6 +1516,12 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
       return policy?.canViewSslCertificates !== undefined ? Boolean(policy?.canViewSslCertificates) : true;
     case 'helpdesk':
       return (policy?.canViewHelpdesk !== undefined ? Boolean(policy?.canViewHelpdesk) : false) || isUserDomainAdmin(user);
+    case 'helpdesk-users':
+      return (
+        ((policy?.canViewHelpdesk !== undefined ? Boolean(policy?.canViewHelpdesk) : false) &&
+          (policy?.canInspectHelpdeskDomainUsers !== undefined ? Boolean(policy?.canInspectHelpdeskDomainUsers) : false)) ||
+        isUserDomainAdmin(user)
+      );
     case 'communications':
       return policy?.canViewCommunications !== undefined ? Boolean(policy?.canViewCommunications) : true;
     case 'profile-security':

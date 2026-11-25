@@ -80,6 +80,7 @@ export type ActiveTab =
   | 'contracts'
   | 'ssl-certificates'
   | 'helpdesk'
+  | 'helpdesk-users'
   | 'settings'
   | 'settings-groups'
   | 'settings-users'
@@ -274,6 +275,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_helpdesk',
           icon: Headphones,
           badge: null,
+        },
+        {
+          id: 'helpdesk-users',
+          labelKey: 'tab_helpdesk_users',
+          icon: UserCog,
+          badge: 'User',
         },
       ],
     },

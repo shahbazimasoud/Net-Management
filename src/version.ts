@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.481.0';
+export const APP_VERSION = '1.482.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.482.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'افزودن زیرمنوی پشتیبانی کاربران دامین (On-Demand Target User HelpDesk) همراه با اطلاعات تماس، وضعیت پسورد، رفع قفل و حجم میل‌باکس',
+    title_en: 'Add On-Demand Target User HelpDesk Submenu (AD Profile, Contacts, Password Expiry, Unlock & Live Exchange Mailbox Quota)',
+    changes: [
+      'افزودن زیرمنوی جدید «پشتیبانی کاربران و اکانت دامین (User)» در بخش HelpDesk با کادر اتصال لحظه‌ای On-Demand Target User (دریافت نام کاربری هدف + یوزر/پسورد دامین بدون ذخیره رمز و بدون نیاز به IP سیستم).',
+      'ایجاد ۴ تب دسته‌بندی‌شده شامل: ۱) پروفایل کامل سازمانی، سمت، دپارتمان، مدیر/زیرمجموعه، شماره‌های داخلی، تمامی شماره‌های موبایل و ایمیل/Aliasها، ۲) تاریخ آخرین تعویض رمز، تاریخ انقضا، وضعیت قفل و دکمه تایید دومرحله‌ای خروج از قفل (Unlock)، ۳) حجم میل‌باکس Exchange، میزان فضای مصرفی، آیتم‌ها و سهمیه‌ها و ۴) عضویت گروه‌های AD و OU.'
+    ],
+    changes_en: [
+      'Added a new `HelpDesk (User & AD Support)` submenu under HelpDesk featuring an `On-Demand Target User` connection bar (target username/UPN/email + ephemeral domain admin credentials kept in RAM only, no workstation IP required).',
+      'Built a 4-tab bilingual UI covering: (1) Full name, job title, department, manager/direct reports, all internal extensions, all mobile numbers, and primary/alias emails; (2) Password last change, expiry countdown, domain policy, lockout status & two-step Unlock control; (3) Live Exchange mailbox used space, quota thresholds, archive & database details; and (4) Searchable AD group memberships.'
+    ]
+  },
   {
     version: '1.481.0',
     releaseDate: '2026-11-25',

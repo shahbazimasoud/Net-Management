@@ -38,6 +38,8 @@ import { ContractsView } from './components/licenses/ContractsView';
 import { SslCertificatesView } from './components/licenses/SslCertificatesView';
 import { HelpDeskView } from './components/HelpDeskView';
 import { wipeHelpdeskRamOnLogout } from './services/helpdeskRamSession';
+import { HelpDeskUsersView } from './components/HelpDeskUsersView';
+import { wipeHelpdeskUserRamOnLogout } from './services/helpdeskUserRamSession';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
 import { ToolsDock, StandardModalId, MinimizedStandardModal } from './components/tools/ToolsDock';
 import { NetworkToolId, ActiveToolState } from './components/tools/types';
@@ -434,6 +436,7 @@ export default function App() {
         'contracts',
         'ssl-certificates',
         'helpdesk',
+        'helpdesk-users',
         'ports',
         'scanner',
         'templates',
@@ -738,10 +741,11 @@ export default function App() {
     };
   }, [isAuthenticated]);
 
-  // Wipe volatile HelpDesk RAM session on logout
+  // Wipe volatile HelpDesk RAM sessions on logout
   useEffect(() => {
     if (!isAuthenticated) {
       wipeHelpdeskRamOnLogout();
+      wipeHelpdeskUserRamOnLogout();
     }
   }, [isAuthenticated]);
 
@@ -2084,6 +2088,16 @@ export default function App() {
               isEn={isEn}
               effectivePolicy={effectivePolicy}
               currentUser={user}
+            />
+          )}
+
+          {activeTab === 'helpdesk-users' && (
+            <HelpDeskUsersView
+              isLightMode={isLightMode}
+              isEn={isEn}
+              effectivePolicy={effectivePolicy}
+              currentUser={user}
+              onNavigateToEndpointHelpdesk={() => setActiveTab('helpdesk')}
             />
           )}
 

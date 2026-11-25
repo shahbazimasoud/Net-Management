@@ -89,7 +89,8 @@ export type HelpdeskWriteAction =
   | 'computer_rename'
   | 'msconfig_update'
   | 'env_var_set'
-  | 'env_var_delete';
+  | 'env_var_delete'
+  | 'ad_user_unlock';
 
 export type HelpdeskProcessCategory =
   | 'user_app'
@@ -1490,6 +1491,18 @@ async function executeHardcodedScripts(
     stdout: winSshRes.stdout,
     stderr: winSshRes.stderr,
   };
+}
+
+/**
+ * Shared adapter allowing other HelpDesk backend modules (e.g. AD User & Exchange Quota inspection)
+ * to execute signed/hardcoded PowerShell scripts across WinRM HTTPS/HTTP, Domain Admin SMB/RPC, or SSH.
+ */
+export async function executeHelpdeskPowerShell(
+  input: HelpdeskTargetInput,
+  windowsPsScript: string,
+  linuxShellScript = 'echo "{}"'
+) {
+  return executeHardcodedScripts(input, windowsPsScript, linuxShellScript);
 }
 
 function parseJsonFromStdout<T>(stdout: string, contextLabel: string): T {
