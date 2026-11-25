@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.473.0';
+export const APP_VERSION = '1.473.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.473.1',
+    releaseDate: '2026-11-24',
+    type: 'patch',
+    title: 'حذف آدرس نامعتبر 0.0.0.0 از تست پینگ گیت‌وی و جلوگیری از بیرون‌زدگی متن خطا از کادر کارت‌های دیاگنوستیگ',
+    title_en: 'Filter Unspecified 0.0.0.0/::0 Gateways from Gateway Ping Check & Prevent Card Overflow on Long Status Badges',
+    changes: [
+      'حذف آدرس‌های نامشخص (`0.0.0.0`، `::` و `::0`) هنگام استخراج Default Gateway در اسکریپت PowerShell، بک‌اند و فالبک لینوکس تا تنها گیت‌وی واقعی کارت شبکه پینگ شود و خطای `unspecified addresses that cannot be used as a target address` رخ ندهد.',
+      'افزودن محدودیت عرض، شکست خط (`break-words` و `overflow-hidden`) و کوتاه‌سازی ایمن (`truncate`) برای بج‌ها و پیام‌های طولانی داخل کارت‌های تب **Diagnostics** جهت جلوگیری کامل از خروج متن از کادر.'
+    ],
+    changes_en: [
+      'Filtered out unspecified gateway addresses (`0.0.0.0`, `::`, `::0`) during gateway discovery in Windows PowerShell (`Get-NetIPConfiguration` / WMI fallback), Linux SSH probe, and server result mapping so only real configured default gateways are pinged.',
+      'Hardened card layout containment (`min-w-0`, `overflow-hidden`, `break-words`, and bounded `max-w` badge truncation with concise error badges) in `DiagnosticsTab.tsx` so long exception strings never overflow card borders.'
+    ],
+  },
   {
     version: '1.473.0',
     releaseDate: '2026-11-24',

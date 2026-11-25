@@ -15053,6 +15053,13 @@ $needAdapters = ($flags.ip_dns -or $flags.gateway_ping -or $flags.nic_link_speed
 $netConfigs = @()
 $netAdapters = @()
 $gwList = @()
+function Test-ValidGatewayIp([string]$ip) {
+  if ([string]::IsNullOrWhiteSpace($ip)) { return $false }
+  $t = $ip.Trim()
+  if ($t -eq '0.0.0.0' -or $t -eq '::' -or $t -eq '::0' -or $t -eq '0:0:0:0:0:0:0:0') { return $false }
+  return $true
+}
+
 if ($needAdapters) {
   try { $netAdapters = @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' -or $_.HardwareInterface }) } catch {}
   if ($netAdapters.Count -eq 0) {
@@ -15064,17 +15071,20 @@ if ($needAdapters) {
   if ($netConfigs.Count -gt 0) {
     foreach ($nc in $netConfigs) {
       foreach ($gw in @($nc.IPv4DefaultGateway)) {
-        if ($gw -and $gw.NextHop -and ($gwList -notcontains (To-Str $gw.NextHop))) {
-          $gwList += To-Str $gw.NextHop
+        $gwIp = To-Str $gw.NextHop
+        if ((Test-ValidGatewayIp $gwIp) -and ($gwList -notcontains $gwIp.Trim())) {
+          $gwList += $gwIp.Trim()
         }
       }
     }
-  } else {
+  }
+  if ($gwList.Count -eq 0) {
     try {
       $wmiNics = @(Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -Filter "IPEnabled=True" -ErrorAction SilentlyContinue)
       foreach ($wn in $wmiNics) {
         foreach ($g in @($wn.DefaultIPGateway)) {
-          if ($g -and ($gwList -notcontains (To-Str $g))) { $gwList += To-Str $g }
+          $gwIp = To-Str $g
+          if ((Test-ValidGatewayIp $gwIp) -and ($gwList -notcontains $gwIp.Trim())) { $gwList += $gwIp.Trim() }
         }
       }
     } catch {}
@@ -15092,7 +15102,7 @@ if ($flags.ip_dns) {
       $ipv4s = @($wc.IPAddress | Where-Object { $_ -match '^\\d+\\.\\d+\\.\\d+\\.\\d+$' })
       if ($ipv4s.Count -eq 0) { continue }
       $dnss = @($wc.DNSServerSearchOrder | Where-Object { $_ })
-      $gws = @($wc.DefaultIPGateway | Where-Object { $_ })
+      $gws = @($wc.DefaultIPGateway | Where-Object { Test-ValidGatewayIp (To-Str $_) })
       $adaptersOut += [PSCustomObject]@{
         name = To-Str $wc.Description
         ips = $ipv4s
@@ -15143,7 +15153,8 @@ if ($flags.gateway_ping) {
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
   try {
     $gwResults = @()
-    foreach ($gw in ($gwList | Select-Object -First 3)) {
+    $validGws = @($gwList | Where-Object { Test-ValidGatewayIp $_ })
+    foreach ($gw in ($validGws | Select-Object -First 3)) {
       $sent = 3; $recv = 0; $rtts = @(); $lastStatus = ''
       $pinger = New-Object System.Net.NetworkInformation.Ping
       for ($i = 0; $i -lt $sent; $i++) {
@@ -15842,8 +15853,9 @@ if flags.get("gateway_ping"):
     if rc == 0:
         try:
             for r in json.loads(rt_out):
-                if r.get("gateway") and r.get("gateway") not in gws:
-                    gws.append(r.get("gateway"))
+                gw_ip = str(r.get("gateway") or "").strip()
+                if gw_ip and gw_ip not in ("0.0.0.0", "::", "::0") and gw_ip not in gws:
+                    gws.append(gw_ip)
         except Exception:
             pass
     res_gws = []
@@ -16097,7 +16109,10 @@ PY`;
         jumpTarget,
       });
     } else if (id === 'gateway_ping') {
-      const gws: any[] = Array.isArray(raw.gateways) ? raw.gateways : [];
+      const gws: any[] = (Array.isArray(raw.gateways) ? raw.gateways : []).filter((g) => {
+        const gwIp = String(g?.gateway || '').trim();
+        return gwIp && gwIp !== '0.0.0.0' && gwIp !== '::' && gwIp !== '::0';
+      });
       const anyRecv = gws.some((g) => Number(g.received) > 0);
       const allFull = gws.length > 0 && gws.every((g) => Number(g.lossPct) === 0);
       const maxAvg = gws.reduce((m, g) => Math.max(m, Number(g.avgMs) || 0), 0);
@@ -16137,12 +16152,19 @@ PY`;
               tone: Number(g.lossPct) === 0 && (Number(g.avgMs) || 0) < 50 ? 'ok' : Number(g.received) > 0 ? 'warn' : 'fail',
             }))
           : [{ labelEn: 'Gateway', labelFa: 'گیت‌وی', value: 'None', tone: 'fail' }],
-        highlights: gws.map((g) => ({
-          primary: String(g.gateway),
-          secondary: `${g.received}/${g.sent} packets received`,
-          badge: g.avgMs != null ? `${g.avgMs} ms` : g.lastStatus || 'Timeout',
-          badgeTone: Number(g.lossPct) === 0 ? 'ok' : Number(g.received) > 0 ? 'warn' : 'fail',
-        })),
+        highlights: gws.map((g) => {
+          const rawStatus = String(g.lastStatus || 'Timeout');
+          const conciseBadge = g.avgMs != null ? `${g.avgMs} ms` : rawStatus.length > 28 ? 'Ping Failed' : rawStatus;
+          return {
+            primary: String(g.gateway),
+            secondary:
+              rawStatus.length > 28 && g.avgMs == null
+                ? `${g.received}/${g.sent} packets · ${rawStatus}`
+                : `${g.received}/${g.sent} packets received`,
+            badge: conciseBadge,
+            badgeTone: Number(g.lossPct) === 0 ? 'ok' : Number(g.received) > 0 ? 'warn' : 'fail',
+          };
+        }),
         durationMs,
         jumpTarget,
       });
