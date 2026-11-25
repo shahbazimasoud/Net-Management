@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.475.0';
+export const APP_VERSION = '1.476.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.476.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'افزودن تب جامع فایروال و آنتی‌ویروس (Firewall & Antivirus) در صفحه HelpDesk با مدیریت رول‌ها، تشخیص آنتی‌ویروس‌های نصب‌شده و هشدار غیرفعال‌سازی',
+    title_en: 'Add HelpDesk Firewall & Antivirus Tab with Installed AV Control, Unlock Password Prompt, Firewall Rules Builder, and Disabled-Protection Alerts',
+    changes: [
+      'افزودن تب جدید **فایروال و آنتی‌ویروس (`Firewall & Antivirus`)** در صفحه هلپ‌دسک شامل وضعیت کامل **Windows Defender**، شناسایی خودکار **تنها آنتی‌ویروس‌های واقعاً نصب‌شده** (مانند ESET NOD32، Symantec SEP، McAfee/Trellix، Kaspersky، Bitdefender، CrowdStrike، SentinelOne، Sophos، Trend Micro و...) و تشخیص حالت Passive شدن Defender هنگام فعال بودن آنتی‌ویروس شخص ثالث.',
+      'امکان **شروع، توقف، ری‌استارت و تغییر حفاظت لحظه‌ای (Real-time Protection)** آنتی‌ویروس‌ها از همین تب با پشتیبانی از **پنجره وارد کردن رمز عبور محافظتی (Tamper/Unlock Password)** بدون ذخیره یا لاگ کردن رمز عبور در حافظه یا دیتابیس.',
+      'نمایش کامل **وضعیت پروفایل‌های فایروال ویندوز** (Domain / Private / Public یا UFW/Firewalld در لینوکس) همراه با **جدول مدیریت قوانین فایروال** (جستجو، فیلتر جهت/اکشن/وضعیت، باز و بسته کردن یا Allow/Block و حذف رول) و **فرم ساخت رول جدید** مجهز به راهنمای سه‌گانه Info.',
+      'نمایش **بنر هشدار قرمز برجسته و تغییر رنگ خودکار کارت‌ها و دکمه تب** به محض غیرفعال کردن آنتی‌ویروس یا فایروال در طول نشست همراه با یادآوری صریح و دکمه یک‌کلیک برای **فعال‌سازی مجدد (Re-enable Protection)**.'
+    ],
+    changes_en: [
+      'Added the **Firewall & Antivirus** tab in HelpDesk displaying **Microsoft Defender** telemetry, authentic **installed-only 3rd-party Antivirus** detection (`SecurityCenter2`, Windows Services, and Uninstall Registry for ESET/NOD32, Symantec SEP, McAfee/Trellix, Kaspersky, Bitdefender, CrowdStrike, SentinelOne, Sophos, Trend Micro, etc.), and automatic passive/superseded state reporting.',
+      'Added live **Start, Stop, Restart, and Real-time Protection toggle** controls for installed Antivirus products with an inline **optional Tamper/Unlock Password prompt** passed securely in-memory via Base64 without ever persisting or logging the secret.',
+      'Built **Windows Firewall** profile controls (`Domain`, `Private`, `Public`, `All`, plus Linux `UFW`/`Firewalld` support), paginated/searchable **Firewall Rules** table (`Enable`, `Disable`, `Allow`, `Block`, `Delete`), and a new **Firewall Rule Builder** with 3-part `<FieldInfoTooltip />` documentation.',
+      'Implemented prominent **crimson/amber disabled-protection visual state transitions** on cards, subtab button indicator, and top reminder banner whenever protection is stopped or disabled during the session, with 1-click re-enable actions.'
+    ],
+  },
   {
     version: '1.475.0',
     releaseDate: '2026-11-25',

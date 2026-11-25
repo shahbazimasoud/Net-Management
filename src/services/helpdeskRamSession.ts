@@ -15,6 +15,7 @@ import {
   fetchHelpdeskHardwareInventory,
   fetchHelpdeskServicesAndStartup,
   fetchHelpdeskRegionAndFonts,
+  fetchHelpdeskSecurityAndAv,
   HelpdeskConnectionPayload,
   HelpdeskDiagnosticCheckId,
   ALL_HELPDESK_DIAGNOSTIC_CHECKS,
@@ -32,6 +33,7 @@ export type HelpdeskSubTab =
   | 'programs'
   | 'services_startup'
   | 'region_fonts'
+  | 'security_av'
   | 'maintenance'
   | 'hardware_domain'
   | 'history';
@@ -158,6 +160,14 @@ export interface HelpdeskRamState {
   regionFontsActionResult: any | null;
   regionFontsActionError: string | null;
 
+  // Tab 6E: Firewall & Antivirus Protection
+  securityAvData: any | null;
+  loadingSecurityAv: boolean;
+  securityAvError: string | null;
+  securityAvActionResult: any | null;
+  securityAvActionError: string | null;
+  securityAvDisabledInSession: string[];
+
   // Tab 7: Temp, GPO & Disk Repair
   tempScanData: any | null;
   loadingTempScan: boolean;
@@ -275,6 +285,13 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     regionFontsError: null,
     regionFontsActionResult: null,
     regionFontsActionError: null,
+
+    securityAvData: null,
+    loadingSecurityAv: false,
+    securityAvError: null,
+    securityAvActionResult: null,
+    securityAvActionError: null,
+    securityAvDisabledInSession: [],
 
     tempScanData: null,
     loadingTempScan: false,
@@ -853,6 +870,37 @@ export async function runHelpdeskSequentialConnect(options: {
                 (isEn
                   ? 'Failed to inspect region, time, languages and fonts.'
                   : 'خطا در دریافت تنظیمات زمان، زبان و فونت‌های سیستم کاربر.'),
+            });
+          }
+        }
+        return true;
+      },
+    },
+    {
+      id: 'security_av',
+      labelEn: 'Firewall & Antivirus',
+      labelFa: 'فایروال و آنتی‌ویروس',
+      run: async () => {
+        patchHelpdeskRamSnapshot({ loadingSecurityAv: true, securityAvError: null });
+        try {
+          const saRes = await fetchHelpdeskSecurityAndAv(payload);
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              securityAvData: saRes.data,
+              loadingSecurityAv: false,
+              ...(saRes.rateLimit ? { rateLimit: saRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              securityAvData: null,
+              loadingSecurityAv: false,
+              securityAvError:
+                (isEn ? err?.message : err?.errorFa || err?.message) ||
+                (isEn
+                  ? 'Failed to inspect endpoint firewall and antivirus status.'
+                  : 'خطا در دریافت وضعیت فایروال و آنتی‌ویروس سیستم کاربر.'),
             });
           }
         }

@@ -92,6 +92,11 @@ import {
   manageEndpointLanguagesAndLocale,
   installEndpointFont,
   deleteEndpointFont,
+  collectEndpointSecurityAndAv,
+  controlEndpointAntivirus,
+  toggleEndpointFirewallProfile,
+  createEndpointFirewallRule,
+  manageEndpointFirewallRule,
   runEndpointDiagnostics,
   HelpdeskDiagnosticCheckId,
   HelpdeskProgramRegistryHive,
@@ -11810,6 +11815,368 @@ apiRouter.post('/helpdesk/diagnostics/run', async (req: Request, res: Response) 
       errorMsg: msg,
     });
     return res.status(/invalid|required|selected/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/security-av/inspect - Collect Windows Firewall Profiles/Rules + Defender + Installed 3rd-Party AVs
+apiRouter.post('/helpdesk/security-av/inspect', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointSecurityAndAv(target);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_security_av_inspect',
+      title: `پایش فایروال و آنتی‌ویروس سیستم ${data.targetIp} (${data.antivirus.products.length} آنتی‌ویروس / ${data.firewall.totalRules} رول فایروال)`,
+      title_en: `HelpDesk Firewall & Antivirus Scan on ${data.targetIp} (${data.antivirus.products.length} AV products, ${data.firewall.totalRules} firewall rules)`,
+      details: `میزبان: ${data.hostname} | حفاظت آنتی‌ویروس فعال: ${data.antivirus.anyActiveProtection ? 'بله' : 'خیر (هشدار)'}`,
+      details_en: `Host: ${data.hostname} | Active AV protection: ${data.antivirus.anyActiveProtection ? 'Yes' : 'No (Unprotected)'}`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: data.antivirus.unprotectedWarning ? 'warning' : 'info',
+      target: {
+        type: 'device',
+        name: data.hostname || data.targetIp,
+        ip: data.targetIp,
+        metadata: {
+          avCount: data.antivirus.products.length,
+          anyActiveProtection: data.antivirus.anyActiveProtection,
+          firewallEngine: data.firewall.engine,
+          totalRules: data.firewall.totalRules,
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Firewall & Antivirus inspection failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_security_av_inspect_failed',
+      title: `خطا در پایش فایروال و آنتی‌ویروس ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Firewall & Antivirus Scan Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/security-av/antivirus/control - Start/Stop/Restart/Enable/Disable Installed Antivirus (with optional unlock password)
+apiRouter.post('/helpdesk/security-av/antivirus/control', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const productId = String(req.body?.productId || '').trim();
+  const serviceName = String(req.body?.serviceName || '').trim() || undefined;
+  const action = String(req.body?.action || '').trim() as
+    | 'start'
+    | 'stop'
+    | 'restart'
+    | 'enable_realtime'
+    | 'disable_realtime';
+  const unlockPassword = typeof req.body?.unlockPassword === 'string' ? req.body.unlockPassword : '';
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'antivirus_control');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: 'antivirus_control',
+      rl,
+    });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await controlEndpointAntivirus(target, {
+      productId,
+      serviceName,
+      action,
+      unlockPassword,
+    });
+    const isDisabling = action === 'stop' || action === 'disable_realtime';
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_antivirus_control',
+      title: `کنترل آنتی‌ویروس «${productId}» (${action}) روی ${data.targetIp}`,
+      title_en: `HelpDesk Antivirus Control "${productId}" (${action}) on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: isDisabling ? 'warning' : 'info',
+      target: {
+        type: 'device',
+        name: data.targetIp,
+        ip: data.targetIp,
+        metadata: {
+          productId,
+          serviceName: serviceName || null,
+          action,
+          usedPassword: Boolean(unlockPassword),
+          newState: data.details?.newState || null,
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Antivirus control action failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_antivirus_control_failed',
+      title: `خطا در کنترل آنتی‌ویروس «${productId || 'AV'}» روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Antivirus Control Failed (${productId}): ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { productId, action, usedPassword: Boolean(unlockPassword) },
+    });
+    return res.status(/invalid|required|tamper|self-defense|passphrase|password|blocked/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/security-av/firewall/profile - Enable/Disable Firewall Profile (Domain, Private, Public, All, UFW, Firewalld)
+apiRouter.post('/helpdesk/security-av/firewall/profile', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const profile = String(req.body?.profile || '').trim() as
+    | 'Domain'
+    | 'Private'
+    | 'Public'
+    | 'All'
+    | 'UFW'
+    | 'Firewalld';
+  const enabled = Boolean(req.body?.enabled);
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'firewall_profile_toggle');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: 'firewall_profile_toggle',
+      rl,
+    });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await toggleEndpointFirewallProfile(target, { profile, enabled });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_firewall_profile_toggle',
+      title: `${enabled ? 'فعال‌سازی' : 'غیرفعال‌سازی'} پروفایل فایروال «${profile}» روی ${data.targetIp}`,
+      title_en: `HelpDesk Firewall Profile "${profile}" ${enabled ? 'Enabled' : 'Disabled'} on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: enabled ? 'info' : 'warning',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: { profile, enabled } },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Firewall profile toggle failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_firewall_profile_toggle_failed',
+      title: `خطا در تغییر پروفایل فایروال روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Firewall Profile Toggle Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/security-av/firewall/rules/create - Create New Windows/UFW Firewall Rule
+apiRouter.post('/helpdesk/security-av/firewall/rules/create', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const displayName = String(req.body?.displayName || '').trim();
+  const direction = req.body?.direction === 'Outbound' ? 'Outbound' : 'Inbound';
+  const action = req.body?.action === 'Block' ? 'Block' : 'Allow';
+  const protocol = (String(req.body?.ruleProtocol || 'TCP').trim() || 'TCP') as
+    | 'TCP'
+    | 'UDP'
+    | 'Any'
+    | 'ICMPv4'
+    | 'ICMPv6';
+  const localPort = String(req.body?.localPort || '').trim() || undefined;
+  const remotePort = String(req.body?.remotePort || '').trim() || undefined;
+  const remoteAddress = String(req.body?.remoteAddress || '').trim() || undefined;
+  const program = String(req.body?.program || '').trim() || undefined;
+  const profiles = Array.isArray(req.body?.profiles) ? req.body.profiles : undefined;
+  const description = String(req.body?.description || '').trim() || undefined;
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'firewall_rule_create');
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: 'firewall_rule_create',
+      rl,
+    });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await createEndpointFirewallRule(target, {
+      displayName,
+      direction,
+      action,
+      protocol,
+      localPort,
+      remotePort,
+      remoteAddress,
+      program,
+      profiles,
+      description,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_firewall_rule_create',
+      title: `ایجاد رول فایروال «${displayName}» (${direction} / ${action}) روی ${data.targetIp}`,
+      title_en: `HelpDesk Firewall Rule Created "${displayName}" (${direction}/${action}) on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed creating firewall rule');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_firewall_rule_create_failed',
+      title: `خطا در ایجاد رول فایروال «${displayName || 'Rule'}» روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Firewall Rule Creation Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|only be specified/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/security-av/firewall/rules/action - Enable, Disable, Allow, Block, or Delete Firewall Rule
+apiRouter.post('/helpdesk/security-av/firewall/rules/action', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const ruleName = String(req.body?.ruleName || '').trim();
+  const displayName = String(req.body?.displayName || ruleName).trim();
+  const action = String(req.body?.action || '').trim() as 'enable' | 'disable' | 'allow' | 'block' | 'delete';
+
+  const rateAct: HelpdeskWriteAction =
+    action === 'delete'
+      ? 'firewall_rule_delete'
+      : action === 'allow' || action === 'block'
+      ? 'firewall_rule_action'
+      : 'firewall_rule_toggle';
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rateAct);
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: rateAct,
+      rl,
+    });
+    return res.status(429).json({ success: false, error: rl.reason, errorFa: rl.reasonFa, rateLimit: rl.status });
+  }
+
+  try {
+    const data = await manageEndpointFirewallRule(target, { ruleName, displayName, action });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: `helpdesk_${rateAct}`,
+      title: `تغییر رول فایروال «${displayName}» (${action}) روی ${data.targetIp}`,
+      title_en: `HelpDesk Firewall Rule "${displayName}" (${action}) on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: action === 'delete' || action === 'disable' ? 'warning' : 'info',
+      target: { type: 'device', name: data.targetIp, ip: data.targetIp, metadata: data.details },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Firewall rule update failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_firewall_rule_action_failed',
+      title: `خطا در تغییر رول فایروال «${displayName || ruleName}» روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Firewall Rule Update Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,

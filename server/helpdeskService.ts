@@ -70,7 +70,13 @@ export type HelpdeskWriteAction =
   | 'region_languages_set'
   | 'region_locale_set'
   | 'font_install'
-  | 'font_delete';
+  | 'font_delete'
+  | 'firewall_profile_toggle'
+  | 'firewall_rule_create'
+  | 'firewall_rule_toggle'
+  | 'firewall_rule_action'
+  | 'firewall_rule_delete'
+  | 'antivirus_control';
 
 export type HelpdeskProcessCategory =
   | 'user_app'
@@ -18194,4 +18200,1410 @@ export async function verifyHelpdeskTargetNotBlocked(
 
   return { blocked: false };
 }
+
+// ============================================================================
+// FIREWALL & ANTIVIRUS PROTECTION MANAGEMENT (WINDOWS & LINUX ENDPOINTS)
+// ============================================================================
+
+export interface HelpdeskFirewallProfileInfo {
+  name: string;
+  enabled: boolean;
+  defaultInboundAction: string;
+  defaultOutboundAction: string;
+  logAllowed: boolean;
+  logBlocked: boolean;
+  supersededByThirdParty: boolean;
+  supersededByProduct: string;
+}
+
+export interface HelpdeskFirewallRuleItem {
+  name: string;
+  displayName: string;
+  description: string;
+  direction: 'Inbound' | 'Outbound';
+  action: 'Allow' | 'Block';
+  enabled: boolean;
+  profiles: string[];
+  protocol: string;
+  localPort: string;
+  remotePort: string;
+  remoteAddress: string;
+  program: string;
+  group: string;
+}
+
+export interface HelpdeskInstalledAntivirusItem {
+  id: string;
+  vendor: string;
+  productName: string;
+  isMicrosoftDefender: boolean;
+  installed: boolean;
+  enabled: boolean;
+  serviceRunning: boolean;
+  definitionsUpToDate: boolean | null;
+  serviceName: string;
+  allServices: string[];
+  version: string;
+  statusText: string;
+  isPassiveMode: boolean;
+  tamperProtected: boolean | null;
+  supportsPasswordStop: boolean;
+  canControl: boolean;
+  details?: {
+    amRunningMode?: string;
+    realTimeProtectionEnabled?: boolean;
+    behaviorMonitorEnabled?: boolean;
+    ioavProtectionEnabled?: boolean;
+    onAccessProtectionEnabled?: boolean;
+    antivirusSignatureVersion?: string;
+    antivirusSignatureLastUpdated?: string | null;
+    antivirusSignatureAge?: number | null;
+    quickScanAge?: number | null;
+    fullScanAge?: number | null;
+    amServiceEnabled?: boolean;
+  };
+}
+
+export interface HelpdeskSecurityAvSnapshot {
+  targetIp: string;
+  hostname: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  osFamily: 'windows' | 'linux';
+  activeUser: string;
+  collectedAt: string;
+  firewall: {
+    engine: 'windows_firewall' | 'third_party_firewall' | 'ufw' | 'firewalld' | 'iptables' | 'none';
+    thirdPartyFirewalls: Array<{ name: string; enabled: boolean; upToDate: boolean | null }>;
+    profiles: HelpdeskFirewallProfileInfo[];
+    rules: HelpdeskFirewallRuleItem[];
+    totalRules: number;
+    enabledRules: number;
+    inboundRules: number;
+    outboundRules: number;
+    supersededByThirdPartyFirewall: boolean;
+  };
+  antivirus: {
+    products: HelpdeskInstalledAntivirusItem[];
+    defender: HelpdeskInstalledAntivirusItem | null;
+    hasActiveThirdPartyAv: boolean;
+    anyActiveProtection: boolean;
+    unprotectedWarning: boolean;
+  };
+}
+
+export async function collectEndpointSecurityAndAv(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskSecurityAvSnapshot> {
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+function To-Str($v) { if ($null -eq $v) { return '' }; try { return ([string]$v).Trim() } catch { return '' } }
+function To-Bool($v) { if ($null -eq $v) { return $false }; try { return [bool]$v } catch { return $false } }
+function To-IntOrNull($v) {
+  if ($null -eq $v -or "$v" -eq '') { return $null }
+  try { $n = [int]$v; if ($n -ge 0 -and $n -lt 100000) { return $n } } catch {}
+  return $null
+}
+
+$hostName = To-Str $env:COMPUTERNAME
+$activeUser = ''
+try {
+  $cs = @(Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue)
+  if ($cs.Count -gt 0 -and $cs[0].UserName) { $activeUser = To-Str $cs[0].UserName }
+} catch {}
+
+# 1. SecurityCenter2 AntiVirusProduct & FirewallProduct (Desktop Windows 10/11)
+$scAvList = @()
+$scFwList = @()
+try {
+  $rawScAv = @(Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName AntiVirusProduct -ErrorAction Stop)
+  foreach ($item in $rawScAv) {
+    $dName = To-Str $item.displayName
+    if (-not $dName) { continue }
+    $st = 0
+    try { $st = [int64]$item.productState } catch {}
+    $enabled = (($st -band 0x1000) -ne 0)
+    $upToDate = (($st -band 0x00F0) -eq 0)
+    $scAvList += [PSCustomObject]@{
+      displayName = $dName
+      enabled = $enabled
+      upToDate = $upToDate
+      productState = $st
+      pathToSignedProductExe = To-Str $item.pathToSignedProductExe
+    }
+  }
+} catch {}
+
+try {
+  $rawScFw = @(Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName FirewallProduct -ErrorAction Stop)
+  foreach ($item in $rawScFw) {
+    $dName = To-Str $item.displayName
+    if (-not $dName) { continue }
+    $st = 0
+    try { $st = [int64]$item.productState } catch {}
+    $enabled = (($st -band 0x1000) -ne 0)
+    $upToDate = (($st -band 0x00F0) -eq 0)
+    $scFwList += [PSCustomObject]@{
+      name = $dName
+      enabled = $enabled
+      upToDate = $upToDate
+    }
+  }
+} catch {}
+
+# 2. Windows Services snapshot for accurate AV service matching
+$allSvcs = @()
+try {
+  $allSvcs = @(Get-CimInstance -ClassName Win32_Service -ErrorAction SilentlyContinue | Select-Object Name, DisplayName, State, StartMode, PathName)
+} catch {
+  try {
+    $allSvcs = @(Get-Service -ErrorAction SilentlyContinue | Select-Object Name, DisplayName, @{N='State';E={$_.Status.ToString()}}, @{N='StartMode';E={$_.StartType.ToString()}}, @{N='PathName';E={''}})
+  } catch {}
+}
+
+# 3. Uninstall entries for version lookup of installed 3rd-party AVs
+$uninstallApps = @()
+foreach ($regPath in @(
+  'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',
+  'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'
+)) {
+  try {
+    foreach ($app in @(Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue)) {
+      $dn = To-Str $app.DisplayName
+      if ($dn) {
+        $uninstallApps += [PSCustomObject]@{
+          displayName = $dn
+          publisher = To-Str $app.Publisher
+          version = To-Str $app.DisplayVersion
+        }
+      }
+    }
+  } catch {}
+}
+
+# 4. Windows Defender Status
+$defMp = $null
+$defAvailable = $false
+try {
+  $mp = Get-MpComputerStatus -ErrorAction Stop
+  if ($mp) {
+    $defAvailable = $true
+    $sigIso = $null
+    try {
+      if ($mp.AntivirusSignatureLastUpdated) {
+        $sigIso = ([datetime]$mp.AntivirusSignatureLastUpdated).ToUniversalTime().ToString('o')
+      }
+    } catch {}
+    $defMp = [PSCustomObject]@{
+      amServiceEnabled = To-Bool $mp.AMServiceEnabled
+      amRunningMode = To-Str $mp.AMRunningMode
+      realTimeProtectionEnabled = To-Bool $mp.RealTimeProtectionEnabled
+      behaviorMonitorEnabled = To-Bool $mp.BehaviorMonitorEnabled
+      ioavProtectionEnabled = To-Bool $mp.IoavProtectionEnabled
+      onAccessProtectionEnabled = To-Bool $mp.OnAccessProtectionEnabled
+      isTamperProtected = To-Bool $mp.IsTamperProtected
+      antivirusEnabled = To-Bool $mp.AntivirusEnabled
+      antivirusSignatureVersion = To-Str $mp.AntivirusSignatureVersion
+      antivirusSignatureLastUpdated = $sigIso
+      antivirusSignatureAge = To-IntOrNull $mp.AntivirusSignatureAge
+      quickScanAge = To-IntOrNull $mp.QuickScanAge
+      fullScanAge = To-IntOrNull $mp.FullScanAge
+      productVersion = To-Str $mp.AMProductVersion
+    }
+  }
+} catch {}
+
+$defSvc = $allSvcs | Where-Object { $_.Name -ieq 'WinDefend' } | Select-Object -First 1
+$defSc = $scAvList | Where-Object { $_.displayName -match 'Windows Defender|Microsoft Defender' } | Select-Object -First 1
+$defInstalled = $defAvailable -or ($null -ne $defSvc) -or ($null -ne $defSc)
+
+# 5. Well-Known 3rd-Party AV Catalog (ONLY emitted when actually detected via SecurityCenter2, Services, or Uninstall!)
+$knownVendors = @(
+  @{ Id = 'eset'; Vendor = 'ESET'; SvcPatterns = @('^ekrn$', '^ekrnEpfw$', '^egui$', '^ESET'); DisplayPatterns = @('ESET', 'NOD32'); SupportsPw = $true },
+  @{ Id = 'symantec'; Vendor = 'Symantec / Broadcom'; SvcPatterns = @('^SepMasterService$', '^Smc$', '^SNAC$', '^SymEFASI$'); DisplayPatterns = @('Symantec Endpoint', 'Symantec', 'Norton'); SupportsPw = $true },
+  @{ Id = 'mcafee'; Vendor = 'McAfee / Trellix'; SvcPatterns = @('^mfemms$', '^mfevtp$', '^masvc$', '^macmnsvc$', '^McShield$', '^Trellix'); DisplayPatterns = @('McAfee', 'Trellix'); SupportsPw = $true },
+  @{ Id = 'kaspersky'; Vendor = 'Kaspersky'; SvcPatterns = @('^AVP', '^klnagent$', '^KSDE'); DisplayPatterns = @('Kaspersky'); SupportsPw = $true },
+  @{ Id = 'bitdefender'; Vendor = 'Bitdefender'; SvcPatterns = @('^epsecurityservice$', '^VSSERV$', '^EPIntegrationService$', '^bdredline$', '^EPProtectedService$'); DisplayPatterns = @('Bitdefender'); SupportsPw = $true },
+  @{ Id = 'crowdstrike'; Vendor = 'CrowdStrike'; SvcPatterns = @('^CSFalconService$'); DisplayPatterns = @('CrowdStrike', 'Falcon'); SupportsPw = $true },
+  @{ Id = 'sentinelone'; Vendor = 'SentinelOne'; SvcPatterns = @('^SentinelAgent$', '^SentinelStaticEngine$', '^SentinelOne'); DisplayPatterns = @('SentinelOne', 'Sentinel Agent'); SupportsPw = $true },
+  @{ Id = 'sophos'; Vendor = 'Sophos'; SvcPatterns = @('^SAVService$', '^Sophos Health Service$', '^Sophos Endpoint Defense Service$', '^SntpService$'); DisplayPatterns = @('Sophos'); SupportsPw = $true },
+  @{ Id = 'trendmicro'; Vendor = 'Trend Micro'; SvcPatterns = @('^ntrtscan$', '^tmlisten$', '^TMBMSRV$', '^ds_agent$'); DisplayPatterns = @('Trend Micro', 'Apex One', 'Deep Security'); SupportsPw = $true },
+  @{ Id = 'malwarebytes'; Vendor = 'Malwarebytes'; SvcPatterns = @('^MBAMService$'); DisplayPatterns = @('Malwarebytes'); SupportsPw = $false },
+  @{ Id = 'avast'; Vendor = 'Avast'; SvcPatterns = @('^avast! Antivirus$', '^aswBcc$'); DisplayPatterns = @('Avast'); SupportsPw = $true },
+  @{ Id = 'avg'; Vendor = 'AVG'; SvcPatterns = @('^AVG Antivirus$', '^avgBcc$'); DisplayPatterns = @('AVG'); SupportsPw = $true },
+  @{ Id = 'cortex_xdr'; Vendor = 'Palo Alto Cortex XDR'; SvcPatterns = @('^cyserver$', '^Traps$'); DisplayPatterns = @('Cortex XDR', 'Traps'); SupportsPw = $true }
+)
+
+$thirdPartyAvs = @()
+$matchedScNames = @{}
+
+foreach ($kv in $knownVendors) {
+  $matchedSvcs = @()
+  foreach ($s in $allSvcs) {
+    $sn = To-Str $s.Name
+    $sd = To-Str $s.DisplayName
+    $hit = $false
+    foreach ($pat in $kv.SvcPatterns) {
+      if ($sn -match $pat) { $hit = $true; break }
+    }
+    if (-not $hit -and $sd) {
+      foreach ($dp in $kv.DisplayPatterns) {
+        if ($sd -match [regex]::Escape($dp) -and $sn -notmatch '^WinDefend$|^WdNisSvc$|^Sense$') {
+          $hit = $true; break
+        }
+      }
+    }
+    if ($hit) { $matchedSvcs += $s }
+  }
+
+  $matchedSc = $null
+  foreach ($sc in $scAvList) {
+    if ($sc.displayName -match 'Windows Defender|Microsoft Defender') { continue }
+    foreach ($dp in $kv.DisplayPatterns) {
+      if ($sc.displayName -match [regex]::Escape($dp)) {
+        $matchedSc = $sc
+        $matchedScNames[$sc.displayName.ToLowerInvariant()] = $true
+        break
+      }
+    }
+    if ($matchedSc) { break }
+  }
+
+  $matchedApp = $null
+  foreach ($app in $uninstallApps) {
+    foreach ($dp in $kv.DisplayPatterns) {
+      if ($app.displayName -match [regex]::Escape($dp)) {
+        $matchedApp = $app; break
+      }
+    }
+    if ($matchedApp) { break }
+  }
+
+  # ONLY add if actually installed via SecurityCenter2 OR Service OR Uninstall Registry
+  if ($matchedSvcs.Count -eq 0 -and $null -eq $matchedSc -and $null -eq $matchedApp) {
+    continue
+  }
+
+  $primarySvc = $matchedSvcs | Where-Object { $_.State -eq 'Running' } | Select-Object -First 1
+  if (-not $primarySvc -and $matchedSvcs.Count -gt 0) { $primarySvc = $matchedSvcs[0] }
+  $anyRunning = (@($matchedSvcs | Where-Object { $_.State -eq 'Running' })).Count -gt 0
+
+  $isEnabled = $anyRunning
+  if ($null -ne $matchedSc) {
+    # Both SecurityCenter2 enabled flag and primary service running matter
+    if ($matchedSvcs.Count -gt 0) {
+      $isEnabled = $matchedSc.enabled -and $anyRunning
+    } else {
+      $isEnabled = $matchedSc.enabled
+    }
+  }
+
+  $prodName = if ($matchedSc) { $matchedSc.displayName } elseif ($matchedApp) { $matchedApp.displayName } elseif ($primarySvc -and $primarySvc.DisplayName) { To-Str $primarySvc.DisplayName } else { $kv.Vendor }
+
+  $thirdPartyAvs += [PSCustomObject]@{
+    id = $kv.Id
+    vendor = $kv.Vendor
+    productName = $prodName
+    isMicrosoftDefender = $false
+    installed = $true
+    enabled = [bool]$isEnabled
+    serviceRunning = [bool]$anyRunning
+    definitionsUpToDate = if ($matchedSc) { [bool]$matchedSc.upToDate } else { $null }
+    serviceName = if ($primarySvc) { To-Str $primarySvc.Name } else { '' }
+    allServices = @($matchedSvcs | ForEach-Object { To-Str $_.Name } | Select-Object -Unique)
+    version = if ($matchedApp) { $matchedApp.version } else { '' }
+    tamperProtected = $null
+    supportsPasswordStop = [bool]$kv.SupportsPw
+    canControl = ($matchedSvcs.Count -gt 0)
+  }
+}
+
+# Include any additional SecurityCenter2 3rd-party AV not in the preset catalog (still ONLY genuinely installed ones)
+foreach ($sc in $scAvList) {
+  if ($sc.displayName -match 'Windows Defender|Microsoft Defender') { continue }
+  if ($matchedScNames.ContainsKey($sc.displayName.ToLowerInvariant())) { continue }
+  $slug = ($sc.displayName.ToLowerInvariant() -replace '[^a-z0-9]+', '_').Trim('_')
+  if (-not $slug) { $slug = 'third_party_av' }
+  $thirdPartyAvs += [PSCustomObject]@{
+    id = $slug
+    vendor = $sc.displayName
+    productName = $sc.displayName
+    isMicrosoftDefender = $false
+    installed = $true
+    enabled = [bool]$sc.enabled
+    serviceRunning = [bool]$sc.enabled
+    definitionsUpToDate = [bool]$sc.upToDate
+    serviceName = ''
+    allServices = @()
+    version = ''
+    tamperProtected = $null
+    supportsPasswordStop = $false
+    canControl = $false
+  }
+}
+
+# 6. Windows Firewall Profiles
+$fwProfiles = @()
+try {
+  $rawProfiles = @(Get-NetFirewallProfile -Profile Domain,Private,Public -ErrorAction Stop)
+  foreach ($p in $rawProfiles) {
+    $fwProfiles += [PSCustomObject]@{
+      name = To-Str $p.Name
+      enabled = To-Bool $p.Enabled
+      defaultInboundAction = To-Str $p.DefaultInboundAction
+      defaultOutboundAction = To-Str $p.DefaultOutboundAction
+      logAllowed = To-Bool $p.LogAllowed
+      logBlocked = To-Bool $p.LogBlocked
+    }
+  }
+} catch {
+  # Fallback using netsh advfirewall if NetSecurity CIM/module unavailable
+  try {
+    foreach ($pn in @('Domain', 'Private', 'Public')) {
+      $arg = $pn.ToLowerInvariant() + 'profile'
+      $out = (& netsh advfirewall show $arg 2>$null) -join "\`n"
+      $stOn = $out -match 'State\\s+ON'
+      $inAct = if ($out -match 'Firewall Policy\\s+([^,\\r\\n]+)') { $Matches[1].Trim() } else { 'BlockInbound' }
+      $outAct = if ($out -match 'Firewall Policy\\s+[^,]+,([^\\r\\n]+)') { $Matches[1].Trim() } else { 'AllowOutbound' }
+      $fwProfiles += [PSCustomObject]@{
+        name = $pn
+        enabled = $stOn
+        defaultInboundAction = if ($inAct -match 'Allow') { 'Allow' } else { 'Block' }
+        defaultOutboundAction = if ($outAct -match 'Block') { 'Block' } else { 'Allow' }
+        logAllowed = $false
+        logBlocked = $false
+      }
+    }
+  } catch {}
+}
+
+# 7. Windows Firewall Rules (fast single-pass hashtable join)
+$fwRules = @()
+$totalRuleCount = 0
+$enabledRuleCount = 0
+$inboundRuleCount = 0
+$outboundRuleCount = 0
+try {
+  $portMap = @{}
+  foreach ($pf in @(Get-NetFirewallPortFilter -ErrorAction SilentlyContinue)) {
+    $iid = To-Str $pf.InstanceID
+    if ($iid) { $portMap[$iid] = $pf }
+  }
+  $addrMap = @{}
+  foreach ($af in @(Get-NetFirewallAddressFilter -ErrorAction SilentlyContinue)) {
+    $iid = To-Str $af.InstanceID
+    if ($iid) { $addrMap[$iid] = $af }
+  }
+  $appMap = @{}
+  foreach ($ap in @(Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue)) {
+    $iid = To-Str $ap.InstanceID
+    if ($iid) { $appMap[$iid] = $ap }
+  }
+
+  $allRules = @(Get-NetFirewallRule -ErrorAction Stop)
+  $totalRuleCount = $allRules.Count
+  foreach ($r in $allRules) {
+    $en = To-Bool $r.Enabled
+    $dir = To-Str $r.Direction
+    if ($en) { $enabledRuleCount++ }
+    if ($dir -eq 'Inbound') { $inboundRuleCount++ } else { $outboundRuleCount++ }
+  }
+
+  # Prioritize recently created / custom non-grouped rules and enabled rules up to 500 rows for fast UI responsiveness
+  $sortedRules = $allRules | Sort-Object -Property @{Expression={ [string]::IsNullOrWhiteSpace([string]$_.Group) }; Descending=$true}, @{Expression={ To-Bool $_.Enabled }; Descending=$true}, @{Expression={ To-Str $_.DisplayName }; Descending=$false} | Select-Object -First 500
+
+  foreach ($r in $sortedRules) {
+    $id = To-Str $r.Name
+    $pf = $portMap[$id]
+    $af = $addrMap[$id]
+    $ap = $appMap[$id]
+    $profStr = To-Str $r.Profile
+    $profArr = if ($profStr) { @($profStr -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) } else { @('Any') }
+    $lp = if ($pf -and $pf.LocalPort) { (@($pf.LocalPort) -join ',') } else { 'Any' }
+    $rp = if ($pf -and $pf.RemotePort) { (@($pf.RemotePort) -join ',') } else { 'Any' }
+    $ra = if ($af -and $af.RemoteAddress) { (@($af.RemoteAddress) -join ',') } else { 'Any' }
+    $proto = if ($pf -and $pf.Protocol) { To-Str $pf.Protocol } else { 'Any' }
+    $prog = if ($ap -and $ap.Program) { To-Str $ap.Program } else { 'Any' }
+    $desc = To-Str $r.Description
+    if ($desc.Length -gt 240) { $desc = $desc.Substring(0, 240) + '...' }
+
+    $fwRules += [PSCustomObject]@{
+      name = $id
+      displayName = if (To-Str $r.DisplayName) { To-Str $r.DisplayName } else { $id }
+      description = $desc
+      direction = if ((To-Str $r.Direction) -eq 'Outbound') { 'Outbound' } else { 'Inbound' }
+      action = if ((To-Str $r.Action) -eq 'Block') { 'Block' } else { 'Allow' }
+      enabled = To-Bool $r.Enabled
+      profiles = $profArr
+      protocol = $proto
+      localPort = if ($lp) { $lp } else { 'Any' }
+      remotePort = if ($rp) { $rp } else { 'Any' }
+      remoteAddress = if ($ra) { $ra } else { 'Any' }
+      program = if ($prog) { $prog } else { 'Any' }
+      group = To-Str $r.Group
+    }
+  }
+} catch {}
+
+[PSCustomObject]@{
+  hostname = $hostName
+  activeUser = $activeUser
+  defender = if ($defInstalled) {
+    [PSCustomObject]@{
+      installed = $true
+      serviceRunning = ($null -ne $defSvc -and $defSvc.State -eq 'Running')
+      scEnabled = if ($defSc) { [bool]$defSc.enabled } else { $null }
+      scUpToDate = if ($defSc) { [bool]$defSc.upToDate } else { $null }
+      mp = $defMp
+    }
+  } else { $null }
+  thirdPartyAvs = @($thirdPartyAvs)
+  firewallProfiles = @($fwProfiles)
+  thirdPartyFirewalls = @($scFwList)
+  firewallRules = @($fwRules)
+  totalRuleCount = $totalRuleCount
+  enabledRuleCount = $enabledRuleCount
+  inboundRuleCount = $inboundRuleCount
+  outboundRuleCount = $outboundRuleCount
+} | ConvertTo-Json -Depth 6 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import json, os, re, shutil, socket, subprocess
+
+def run(cmd):
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+        return p.returncode, (p.stdout or '').strip(), (p.stderr or '').strip()
+    except Exception as e:
+        return 1, '', str(e)
+
+hostname = socket.gethostname()
+_, who_out, _ = run(['who'])
+active_user = who_out.splitlines()[0].split()[0] if who_out.splitlines() else ''
+
+fw_profiles = []
+fw_rules = []
+engine = 'none'
+
+if shutil.which('ufw'):
+    rc, out, _ = run(['ufw', 'status', 'verbose'])
+    if rc == 0 and out:
+        engine = 'ufw'
+        enabled = 'Status: active' in out
+        def_in = 'Allow' if 'Default: allow (incoming)' in out else 'Block'
+        def_out = 'Block' if 'deny (outgoing)' in out else 'Allow'
+        fw_profiles.append({
+            'name': 'UFW',
+            'enabled': enabled,
+            'defaultInboundAction': def_in,
+            'defaultOutboundAction': def_out,
+            'logAllowed': False,
+            'logBlocked': 'Logging: on' in out,
+        })
+        in_table = False
+        idx = 0
+        for ln in out.splitlines():
+            if ln.strip().startswith('--'):
+                in_table = True
+                continue
+            if in_table and ln.strip():
+                idx += 1
+                parts = re.split(r'\\s{2,}', ln.strip())
+                to_col = parts[0] if len(parts) > 0 else 'Any'
+                act_col = parts[1] if len(parts) > 1 else 'ALLOW IN'
+                from_col = parts[2] if len(parts) > 2 else 'Anywhere'
+                direction = 'Outbound' if 'OUT' in act_col.upper() else 'Inbound'
+                action = 'Block' if ('DENY' in act_col.upper() or 'REJECT' in act_col.upper()) else 'Allow'
+                proto = 'UDP' if '/udp' in to_col.lower() else ('TCP' if '/tcp' in to_col.lower() else 'Any')
+                port = to_col.split('/')[0].strip()
+                fw_rules.append({
+                    'name': f'ufw-{idx}:{to_col}',
+                    'displayName': f'UFW {to_col} ({action})',
+                    'description': ln.strip(),
+                    'direction': direction,
+                    'action': action,
+                    'enabled': enabled,
+                    'profiles': ['UFW'],
+                    'protocol': proto,
+                    'localPort': port or 'Any',
+                    'remotePort': 'Any',
+                    'remoteAddress': from_col or 'Any',
+                    'program': 'Any',
+                    'group': 'UFW',
+                })
+
+if not fw_profiles and shutil.which('firewall-cmd'):
+    rc, st, _ = run(['firewall-cmd', '--state'])
+    if rc == 0 or 'not running' in st.lower():
+        engine = 'firewalld'
+        fw_profiles.append({
+            'name': 'Firewalld',
+            'enabled': st.strip().lower() == 'running',
+            'defaultInboundAction': 'Block',
+            'defaultOutboundAction': 'Allow',
+            'logAllowed': False,
+            'logBlocked': False,
+        })
+
+av_catalog = [
+    ('clamav', 'ClamAV', 'ClamAV Antivirus', ['clamav-daemon', 'clamd@scan', 'clamd']),
+    ('crowdstrike', 'CrowdStrike', 'CrowdStrike Falcon Sensor', ['falcon-sensor']),
+    ('sentinelone', 'SentinelOne', 'SentinelOne Agent', ['sentinelone']),
+    ('eset', 'ESET', 'ESET Endpoint Antivirus for Linux', ['efs', 'esets']),
+    ('sophos', 'Sophos', 'Sophos Protection for Linux', ['sophos-spl']),
+    ('trendmicro', 'Trend Micro', 'Trend Micro Deep Security Agent', ['ds_agent']),
+]
+
+third_party_avs = []
+for av_id, vendor, pname, units in av_catalog:
+    found_unit = None
+    running = False
+    for u in units:
+        rc_load, load_st, _ = run(['systemctl', 'show', u, '--property=LoadState', '--value'])
+        if load_st.strip() == 'loaded':
+            found_unit = u
+            rc_act, act_st, _ = run(['systemctl', 'is-active', u])
+            running = (rc_act == 0 and act_st.strip() == 'active')
+            break
+    if found_unit:
+        third_party_avs.append({
+            'id': av_id,
+            'vendor': vendor,
+            'productName': pname,
+            'isMicrosoftDefender': False,
+            'installed': True,
+            'enabled': running,
+            'serviceRunning': running,
+            'definitionsUpToDate': None,
+            'serviceName': found_unit,
+            'allServices': [found_unit],
+            'version': '',
+            'tamperProtected': None,
+            'supportsPasswordStop': False,
+            'canControl': True,
+        })
+
+print(json.dumps({
+    'hostname': hostname,
+    'activeUser': active_user,
+    'defender': None,
+    'thirdPartyAvs': third_party_avs,
+    'firewallProfiles': fw_profiles,
+    'thirdPartyFirewalls': [],
+    'firewallRules': fw_rules,
+    'firewallEngine': engine,
+    'totalRuleCount': len(fw_rules),
+    'enabledRuleCount': sum(1 for r in fw_rules if r['enabled']),
+    'inboundRuleCount': sum(1 for r in fw_rules if r['direction'] == 'Inbound'),
+    'outboundRuleCount': sum(1 for r in fw_rules if r['direction'] == 'Outbound'),
+}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(45000, input.timeoutMs || 45000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'collect endpoint firewall and antivirus status');
+  const thirdPartyFirewalls: Array<{ name: string; enabled: boolean; upToDate: boolean | null }> = Array.isArray(
+    parsed.thirdPartyFirewalls
+  )
+    ? parsed.thirdPartyFirewalls.map((f: any) => ({
+        name: String(f.name || '').trim(),
+        enabled: Boolean(f.enabled),
+        upToDate: typeof f.upToDate === 'boolean' ? f.upToDate : null,
+      }))
+    : [];
+
+  const activeThirdPartyFw = thirdPartyFirewalls.find((f) => f.enabled) || null;
+
+  const thirdPartyAvs: HelpdeskInstalledAntivirusItem[] = (
+    Array.isArray(parsed.thirdPartyAvs) ? parsed.thirdPartyAvs : []
+  ).map((av: any) => {
+    const enabled = Boolean(av.enabled);
+    const serviceRunning = Boolean(av.serviceRunning);
+    return {
+      id: String(av.id || 'third_party_av'),
+      vendor: String(av.vendor || av.productName || 'Antivirus'),
+      productName: String(av.productName || av.vendor || 'Antivirus'),
+      isMicrosoftDefender: false,
+      installed: true,
+      enabled,
+      serviceRunning,
+      definitionsUpToDate: typeof av.definitionsUpToDate === 'boolean' ? av.definitionsUpToDate : null,
+      serviceName: String(av.serviceName || ''),
+      allServices: Array.isArray(av.allServices) ? av.allServices.map(String) : [],
+      version: String(av.version || ''),
+      statusText: enabled
+        ? 'Active & Protecting'
+        : serviceRunning
+        ? 'Service Running (Protection Disabled)'
+        : 'Stopped / Disabled',
+      isPassiveMode: false,
+      tamperProtected: typeof av.tamperProtected === 'boolean' ? av.tamperProtected : null,
+      supportsPasswordStop: Boolean(av.supportsPasswordStop),
+      canControl: Boolean(av.canControl),
+    };
+  });
+
+  const hasActiveThirdPartyAv = thirdPartyAvs.some((a) => a.enabled);
+
+  let defenderItem: HelpdeskInstalledAntivirusItem | null = null;
+  if (parsed.defender) {
+    const d = parsed.defender;
+    const mp = d.mp || null;
+    const runningMode = String(mp?.amRunningMode || '');
+    const isPassive =
+      /passive/i.test(runningMode) ||
+      (hasActiveThirdPartyAv && !Boolean(mp?.realTimeProtectionEnabled));
+    const rtEnabled = mp ? Boolean(mp.realTimeProtectionEnabled) : Boolean(d.scEnabled);
+    const svcRunning = Boolean(d.serviceRunning);
+    const enabled = Boolean(rtEnabled && (mp ? Boolean(mp.amServiceEnabled) : svcRunning));
+
+    defenderItem = {
+      id: 'microsoft_defender',
+      vendor: 'Microsoft',
+      productName: 'Microsoft Defender Antivirus',
+      isMicrosoftDefender: true,
+      installed: true,
+      enabled,
+      serviceRunning: svcRunning,
+      definitionsUpToDate: typeof d.scUpToDate === 'boolean' ? d.scUpToDate : null,
+      serviceName: 'WinDefend',
+      allServices: ['WinDefend'],
+      version: String(mp?.productVersion || ''),
+      statusText: isPassive
+        ? 'Passive / Superseded by 3rd-Party AV'
+        : enabled
+        ? 'Active & Protecting'
+        : 'Disabled / Real-Time Protection Off',
+      isPassiveMode: isPassive,
+      tamperProtected: mp ? Boolean(mp.isTamperProtected) : null,
+      supportsPasswordStop: false,
+      canControl: true,
+      details: mp
+        ? {
+            amRunningMode: runningMode,
+            realTimeProtectionEnabled: Boolean(mp.realTimeProtectionEnabled),
+            behaviorMonitorEnabled: Boolean(mp.behaviorMonitorEnabled),
+            ioavProtectionEnabled: Boolean(mp.ioavProtectionEnabled),
+            onAccessProtectionEnabled: Boolean(mp.onAccessProtectionEnabled),
+            antivirusSignatureVersion: String(mp.antivirusSignatureVersion || ''),
+            antivirusSignatureLastUpdated: mp.antivirusSignatureLastUpdated || null,
+            antivirusSignatureAge: typeof mp.antivirusSignatureAge === 'number' ? mp.antivirusSignatureAge : null,
+            quickScanAge: typeof mp.quickScanAge === 'number' ? mp.quickScanAge : null,
+            fullScanAge: typeof mp.fullScanAge === 'number' ? mp.fullScanAge : null,
+            amServiceEnabled: Boolean(mp.amServiceEnabled),
+          }
+        : undefined,
+    };
+  }
+
+  // Only list actually installed products: 3rd-party AVs first (when installed) + Microsoft Defender (if present)
+  const products: HelpdeskInstalledAntivirusItem[] = [
+    ...thirdPartyAvs,
+    ...(defenderItem ? [defenderItem] : []),
+  ];
+
+  const anyActiveProtection = products.some((p) => p.enabled);
+
+  const fwProfiles: HelpdeskFirewallProfileInfo[] = (
+    Array.isArray(parsed.firewallProfiles) ? parsed.firewallProfiles : []
+  ).map((p: any) => {
+    const enabled = Boolean(p.enabled);
+    const superseded = !enabled && Boolean(activeThirdPartyFw);
+    return {
+      name: String(p.name || 'Profile'),
+      enabled,
+      defaultInboundAction: String(p.defaultInboundAction || 'Block'),
+      defaultOutboundAction: String(p.defaultOutboundAction || 'Allow'),
+      logAllowed: Boolean(p.logAllowed),
+      logBlocked: Boolean(p.logBlocked),
+      supersededByThirdParty: superseded,
+      supersededByProduct: superseded && activeThirdPartyFw ? activeThirdPartyFw.name : '',
+    };
+  });
+
+  const fwRules: HelpdeskFirewallRuleItem[] = (
+    Array.isArray(parsed.firewallRules) ? parsed.firewallRules : []
+  ).map((r: any) => ({
+    name: String(r.name || ''),
+    displayName: String(r.displayName || r.name || ''),
+    description: String(r.description || ''),
+    direction: r.direction === 'Outbound' ? 'Outbound' : 'Inbound',
+    action: r.action === 'Block' ? 'Block' : 'Allow',
+    enabled: Boolean(r.enabled),
+    profiles: Array.isArray(r.profiles) ? r.profiles.map(String) : ['Any'],
+    protocol: String(r.protocol || 'Any'),
+    localPort: String(r.localPort || 'Any'),
+    remotePort: String(r.remotePort || 'Any'),
+    remoteAddress: String(r.remoteAddress || 'Any'),
+    program: String(r.program || 'Any'),
+    group: String(r.group || ''),
+  }));
+
+  const firewallEngine: HelpdeskSecurityAvSnapshot['firewall']['engine'] =
+    execRes.osFamily === 'linux'
+      ? ((parsed.firewallEngine as any) || 'none')
+      : activeThirdPartyFw && !fwProfiles.some((p) => p.enabled)
+      ? 'third_party_firewall'
+      : 'windows_firewall';
+
+  return {
+    targetIp: execRes.host,
+    hostname: String(parsed.hostname || execRes.host),
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    activeUser: String(parsed.activeUser || ''),
+    collectedAt: new Date().toISOString(),
+    firewall: {
+      engine: firewallEngine,
+      thirdPartyFirewalls,
+      profiles: fwProfiles,
+      rules: fwRules,
+      totalRules: Number(parsed.totalRuleCount ?? fwRules.length),
+      enabledRules: Number(parsed.enabledRuleCount ?? fwRules.filter((r) => r.enabled).length),
+      inboundRules: Number(parsed.inboundRuleCount ?? fwRules.filter((r) => r.direction === 'Inbound').length),
+      outboundRules: Number(parsed.outboundRuleCount ?? fwRules.filter((r) => r.direction === 'Outbound').length),
+      supersededByThirdPartyFirewall: Boolean(activeThirdPartyFw && !fwProfiles.some((p) => p.enabled)),
+    },
+    antivirus: {
+      products,
+      defender: defenderItem,
+      hasActiveThirdPartyAv,
+      anyActiveProtection,
+      unprotectedWarning: !anyActiveProtection,
+    },
+  };
+}
+
+export async function controlEndpointAntivirus(
+  input: HelpdeskTargetInput,
+  options: {
+    productId: string;
+    serviceName?: string;
+    action: 'start' | 'stop' | 'restart' | 'enable_realtime' | 'disable_realtime';
+    unlockPassword?: string;
+  }
+): Promise<HelpdeskActionResult> {
+  const productId = String(options.productId || '').trim().toLowerCase();
+  const serviceName = String(options.serviceName || '').trim();
+  const action = String(options.action || '').trim() as
+    | 'start'
+    | 'stop'
+    | 'restart'
+    | 'enable_realtime'
+    | 'disable_realtime';
+  const unlockPassword = typeof options.unlockPassword === 'string' ? options.unlockPassword : '';
+
+  if (!productId || !/^[a-z0-9_-]{1,64}$/.test(productId)) {
+    throw new Error('Invalid antivirus product identifier.');
+  }
+  if (!['start', 'stop', 'restart', 'enable_realtime', 'disable_realtime'].includes(action)) {
+    throw new Error('Invalid antivirus control action.');
+  }
+  if (serviceName && (serviceName.length > 150 || /[\x00-\x1F\x7F]/.test(serviceName))) {
+    throw new Error('Invalid antivirus service name.');
+  }
+
+  const pidB64 = Buffer.from(productId, 'utf8').toString('base64');
+  const svcB64 = Buffer.from(serviceName, 'utf8').toString('base64');
+  const pwB64 = Buffer.from(unlockPassword, 'utf8').toString('base64');
+
+  const winPs = `
+$ErrorActionPreference = 'Stop'
+$prodId = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${pidB64}'))
+$svcName = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${svcB64}'))
+$pw = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${pwB64}'))
+$action = '${action}'
+
+$ok = $false
+$msg = ''
+$newState = 'unknown'
+
+if ($prodId -eq 'microsoft_defender') {
+  if ($action -eq 'start' -or $action -eq 'enable_realtime') {
+    try {
+      $svc = Get-Service -Name 'WinDefend' -ErrorAction SilentlyContinue
+      if ($svc -and $svc.Status -ne 'Running') {
+        Start-Service -Name 'WinDefend' -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 700
+      }
+    } catch {}
+    Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction Stop
+    Start-Sleep -Milliseconds 600
+    $after = Get-MpComputerStatus -ErrorAction SilentlyContinue
+    $rt = if ($after) { [bool]$after.RealTimeProtectionEnabled } else { $true }
+    $ok = $rt
+    $newState = if ($rt) { 'enabled' } else { 'disabled' }
+    $msg = if ($rt) { 'Microsoft Defender Real-Time Protection enabled.' } else { 'Microsoft Defender remained disabled (check Group Policy or 3rd-party AV Passive Mode).' }
+  } elseif ($action -eq 'stop' -or $action -eq 'disable_realtime') {
+    $mpBefore = $null
+    try { $mpBefore = Get-MpComputerStatus -ErrorAction SilentlyContinue } catch {}
+    if ($mpBefore -and $mpBefore.IsTamperProtected) {
+      throw 'Microsoft Defender Tamper Protection is enabled on this workstation and blocks disabling Real-Time Protection remotely. Disable Tamper Protection in Windows Security or Intune/GPO first.'
+    }
+    Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
+    Start-Sleep -Milliseconds 600
+    $after = Get-MpComputerStatus -ErrorAction SilentlyContinue
+    $rt = if ($after) { [bool]$after.RealTimeProtectionEnabled } else { $false }
+    if ($rt) {
+      throw 'Microsoft Defender Real-Time Protection stayed ON after Set-MpPreference (blocked by Tamper Protection or GPO).'
+    }
+    $ok = $true
+    $newState = 'disabled'
+    $msg = 'Microsoft Defender Real-Time Protection temporarily disabled. Remember to re-enable it!'
+  } else {
+    Restart-Service -Name 'WinDefend' -Force -ErrorAction Stop
+    $ok = $true
+    $newState = 'enabled'
+    $msg = 'Microsoft Defender service restarted.'
+  }
+} else {
+  # Find vendor CLI tools if available (supports stop passwords / tamper unlock passcodes)
+  $usedCli = $false
+  if ($prodId -eq 'symantec') {
+    $smcCandidates = @(
+      "$env:ProgramFiles\\Symantec\\Symantec Endpoint Protection\\Smc.exe",
+      "$env:ProgramFiles (x86)\\Symantec\\Symantec Endpoint Protection\\Smc.exe"
+    )
+    try {
+      $smcDir = Get-ChildItem -Path "$env:ProgramFiles\\Symantec\\Symantec Endpoint Protection" -Filter 'Smc.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($smcDir) { $smcCandidates += $smcDir.FullName }
+    } catch {}
+    $smc = $smcCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+    if ($smc) {
+      $usedCli = $true
+      if ($action -eq 'stop' -or $action -eq 'disable_realtime') {
+        if ($pw) {
+          $p = Start-Process -FilePath $smc -ArgumentList @('-p', $pw, '-stop') -Wait -NoNewWindow -PassThru
+        } else {
+          $p = Start-Process -FilePath $smc -ArgumentList @('-stop') -Wait -NoNewWindow -PassThru
+        }
+        Start-Sleep -Milliseconds 2200
+        $svcAfter = Get-Service -Name 'SepMasterService' -ErrorAction SilentlyContinue
+        if ($svcAfter -and $svcAfter.Status -eq 'Running') {
+          throw 'Symantec Endpoint Protection remained running (invalid unload password or Symantec Self-Defense blocked the request).'
+        }
+        $ok = $true
+        $newState = 'stopped'
+        $msg = 'Symantec Endpoint Protection stopped via Smc.exe. Remember to restart it!'
+      } else {
+        $p = Start-Process -FilePath $smc -ArgumentList @('-start') -Wait -NoNewWindow -PassThru
+        Start-Sleep -Milliseconds 1800
+        $svcAfter = Get-Service -Name 'SepMasterService' -ErrorAction SilentlyContinue
+        $ok = ($null -eq $svcAfter) -or ($svcAfter.Status -eq 'Running')
+        $newState = if ($ok) { 'running' } else { 'stopped' }
+        $msg = if ($ok) { 'Symantec Endpoint Protection started.' } else { 'Symantec Endpoint Protection failed to start.' }
+      }
+    }
+  } elseif ($prodId -eq 'kaspersky') {
+    $avpExe = Get-ChildItem -Path "$env:ProgramFiles\\Kaspersky Lab","$env:ProgramFiles (x86)\\Kaspersky Lab" -Filter 'avp.com' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    if ($avpExe) {
+      $usedCli = $true
+      if ($action -eq 'stop' -or $action -eq 'disable_realtime') {
+        $args = if ($pw) { @('STOP', 'RTP', "/password=$pw") } else { @('STOP', 'RTP') }
+        $out = & $avpExe @args 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+          throw ("Kaspersky CLI rejected stop request (exit $LASTEXITCODE): " + $out.Trim())
+        }
+        $ok = $true
+        $newState = 'stopped'
+        $msg = 'Kaspersky protection stopped. Remember to re-enable protection!'
+      } else {
+        $out = & $avpExe START RTP 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+          throw ("Kaspersky CLI failed to start protection (exit $LASTEXITCODE): " + $out.Trim())
+        }
+        $ok = $true
+        $newState = 'running'
+        $msg = 'Kaspersky protection started.'
+      }
+    }
+  } elseif ($prodId -eq 'sentinelone') {
+    $s1Ctl = Get-ChildItem -Path "$env:ProgramFiles\\SentinelOne" -Filter 'sentinelctl.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    if ($s1Ctl) {
+      $usedCli = $true
+      if ($action -eq 'stop' -or $action -eq 'disable_realtime') {
+        if (-not $pw) {
+          throw 'SentinelOne requires a valid site/agent passphrase (-k) to unload protection.'
+        }
+        $out = & $s1Ctl unload -a -k $pw 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+          throw ("SentinelOne unload failed (exit $LASTEXITCODE): " + $out.Trim())
+        }
+        $ok = $true
+        $newState = 'stopped'
+        $msg = 'SentinelOne agent unloaded with passphrase. Remember to reload it!'
+      } else {
+        $out = & $s1Ctl load -a 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+          throw ("SentinelOne load failed (exit $LASTEXITCODE): " + $out.Trim())
+        }
+        $ok = $true
+        $newState = 'running'
+        $msg = 'SentinelOne agent loaded.'
+      }
+    }
+  }
+
+  if (-not $usedCli) {
+    if (-not $svcName) {
+      throw "No controllable Windows service or vendor CLI detected for '$prodId'."
+    }
+    $targetSvc = Get-Service -Name $svcName -ErrorAction Stop
+    if ($action -eq 'stop' -or $action -eq 'disable_realtime') {
+      try {
+        Stop-Service -Name $svcName -Force -ErrorAction Stop
+      } catch {
+        throw ("Vendor self-defense or permission error prevented stopping service '$svcName': " + $_.Exception.Message)
+      }
+      Start-Sleep -Milliseconds 1000
+      $afterSvc = Get-Service -Name $svcName -ErrorAction Stop
+      if ($afterSvc.Status -eq 'Running') {
+        throw "Antivirus service '$svcName' is still running (blocked by Self-Defense / Tamper Protection)."
+      }
+      $ok = $true
+      $newState = 'stopped'
+      $msg = "Antivirus service '$svcName' stopped. Remember to start it again!"
+    } elseif ($action -eq 'restart') {
+      Restart-Service -Name $svcName -Force -ErrorAction Stop
+      Start-Sleep -Milliseconds 900
+      $afterSvc = Get-Service -Name $svcName -ErrorAction Stop
+      $ok = ($afterSvc.Status -eq 'Running')
+      $newState = if ($ok) { 'running' } else { 'stopped' }
+      $msg = "Antivirus service '$svcName' restarted ($($afterSvc.Status))."
+    } else {
+      Start-Service -Name $svcName -ErrorAction Stop
+      Start-Sleep -Milliseconds 900
+      $afterSvc = Get-Service -Name $svcName -ErrorAction Stop
+      $ok = ($afterSvc.Status -eq 'Running')
+      $newState = if ($ok) { 'running' } else { 'stopped' }
+      $msg = "Antivirus service '$svcName' started ($($afterSvc.Status))."
+    }
+  }
+}
+
+[PSCustomObject]@{
+  ok = $ok
+  productId = $prodId
+  newState = $newState
+  output = $msg
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import base64, json, re, subprocess
+
+svc = base64.b64decode('${svcB64}').decode('utf-8', errors='ignore').strip()
+prod = base64.b64decode('${pidB64}').decode('utf-8', errors='ignore').strip()
+action = '${action}'
+
+if not svc or not re.match(r'^[a-zA-Z0-9._@$-]{1,128}$', svc):
+    print(json.dumps({"ok": False, "newState": "unknown", "output": "Invalid antivirus unit name"}))
+    raise SystemExit(0)
+
+sys_act = 'stop' if action in ('stop', 'disable_realtime') else ('restart' if action == 'restart' else 'start')
+p = subprocess.run(['systemctl', sys_act, svc], capture_output=True, text=True, timeout=20)
+chk = subprocess.run(['systemctl', 'is-active', svc], capture_output=True, text=True, timeout=8)
+running = (chk.returncode == 0 and chk.stdout.strip() == 'active')
+ok = (p.returncode == 0)
+msg = f"systemctl {sys_act} {svc}: active={running}" if ok else (p.stderr or p.stdout or "systemctl action failed").strip()
+print(json.dumps({
+    "ok": ok,
+    "productId": prod,
+    "newState": "running" if running else "stopped",
+    "output": msg,
+}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(35000, input.timeoutMs || 35000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'antivirus control');
+  const ok = Boolean(parsed.ok);
+  const outMsg = String(parsed.output || '');
+  const newState = String(parsed.newState || '');
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'antivirus_control',
+    success: ok,
+    message: ok ? outMsg : outMsg || `Failed to ${action} antivirus ${productId}.`,
+    messageFa: ok
+      ? action === 'stop' || action === 'disable_realtime'
+        ? `آنتی‌ویروس (${productId}) با موفقیت غیرفعال/متوقف شد. حتماً پس از اتمام کار مجدداً آن را فعال کنید!`
+        : `آنتی‌ویروس (${productId}) با موفقیت فعال/راه‌اندازی شد.`
+      : outMsg || `عملیات روی آنتی‌ویروس (${productId}) ناموفق بود.`,
+    details: {
+      productId,
+      serviceName: serviceName || null,
+      action,
+      newState,
+      usedPassword: Boolean(unlockPassword),
+    },
+    rawOutput: outMsg,
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function toggleEndpointFirewallProfile(
+  input: HelpdeskTargetInput,
+  options: {
+    profile: 'Domain' | 'Private' | 'Public' | 'All' | 'UFW' | 'Firewalld';
+    enabled: boolean;
+  }
+): Promise<HelpdeskActionResult> {
+  const profile = String(options.profile || '').trim();
+  const enabled = Boolean(options.enabled);
+  if (!['Domain', 'Private', 'Public', 'All', 'UFW', 'Firewalld'].includes(profile)) {
+    throw new Error('Invalid firewall profile specified.');
+  }
+
+  const profB64 = Buffer.from(profile, 'utf8').toString('base64');
+  const winBool = enabled ? '$true' : '$false';
+  const netshTarget =
+    profile === 'All'
+      ? 'allprofiles'
+      : profile === 'Domain'
+      ? 'domainprofile'
+      : profile === 'Private'
+      ? 'privateprofile'
+      : 'publicprofile';
+  const netshState = enabled ? 'on' : 'off';
+
+  const winPs = `
+$ErrorActionPreference = 'Stop'
+$prof = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${profB64}'))
+$en = ${winBool}
+if ($prof -eq 'UFW' -or $prof -eq 'Firewalld') { $prof = 'All' }
+
+try {
+  if ($prof -eq 'All') {
+    Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled ($en) -ErrorAction Stop
+  } else {
+    Set-NetFirewallProfile -Name $prof -Enabled ($en) -ErrorAction Stop
+  }
+} catch {
+  $out = & netsh advfirewall set ${netshTarget} state ${netshState} 2>&1 | Out-String
+  if ($LASTEXITCODE -ne 0) {
+    throw ("Failed updating Windows Firewall profile: " + $out.Trim())
+  }
+}
+
+$after = @()
+try {
+  if ($prof -eq 'All') {
+    $after = @(Get-NetFirewallProfile -Profile Domain,Private,Public -ErrorAction SilentlyContinue | ForEach-Object { @{ name=[string]$_.Name; enabled=[bool]$_.Enabled } })
+  } else {
+    $after = @(Get-NetFirewallProfile -Name $prof -ErrorAction SilentlyContinue | ForEach-Object { @{ name=[string]$_.Name; enabled=[bool]$_.Enabled } })
+  }
+} catch {}
+
+[PSCustomObject]@{
+  ok = $true
+  profile = $prof
+  enabled = $en
+  profiles = $after
+  output = "Firewall profile '$prof' set to Enabled=$en"
+} | ConvertTo-Json -Depth 4 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import json, shutil, subprocess
+en = ${enabled ? 'True' : 'False'}
+if shutil.which('ufw'):
+    cmd = ['ufw', '--force', 'enable'] if en else ['ufw', 'disable']
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    print(json.dumps({"ok": p.returncode == 0, "profile": "UFW", "enabled": en, "output": (p.stdout or p.stderr).strip()}))
+elif shutil.which('firewall-cmd'):
+    cmd = ['systemctl', 'start' if en else 'stop', 'firewalld']
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    print(json.dumps({"ok": p.returncode == 0, "profile": "Firewalld", "enabled": en, "output": (p.stdout or p.stderr).strip()}))
+else:
+    print(json.dumps({"ok": False, "profile": "none", "enabled": False, "output": "No supported Linux firewall (ufw/firewalld) found."}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(25000, input.timeoutMs || 25000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'toggle firewall profile');
+  const ok = Boolean(parsed.ok);
+  const out = String(parsed.output || '');
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'firewall_profile_toggle',
+    success: ok,
+    message: ok
+      ? `Firewall profile "${profile}" ${enabled ? 'enabled' : 'disabled'} on ${execRes.host}.`
+      : out || `Failed to update firewall profile "${profile}".`,
+    messageFa: ok
+      ? enabled
+        ? `پروفایل فایروال «${profile}» روی سیستم ${execRes.host} فعال شد.`
+        : `پروفایل فایروال «${profile}» روی سیستم ${execRes.host} غیرفعال شد. حتماً پس از تست دوباره آن را فعال کنید!`
+      : out || `تغییر وضعیت پروفایل فایروال «${profile}» ناموفق بود.`,
+    details: { profile, enabled, profiles: parsed.profiles || [] },
+    rawOutput: out,
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function createEndpointFirewallRule(
+  input: HelpdeskTargetInput,
+  options: {
+    displayName: string;
+    direction: 'Inbound' | 'Outbound';
+    action: 'Allow' | 'Block';
+    protocol?: 'TCP' | 'UDP' | 'Any' | 'ICMPv4' | 'ICMPv6';
+    localPort?: string;
+    remotePort?: string;
+    remoteAddress?: string;
+    program?: string;
+    profiles?: Array<'Domain' | 'Private' | 'Public'>;
+    description?: string;
+  }
+): Promise<HelpdeskActionResult> {
+  const displayName = String(options.displayName || '').trim();
+  if (!displayName || displayName.length > 140 || /[\x00-\x1F\x7F]/.test(displayName)) {
+    throw new Error('Invalid firewall rule name.');
+  }
+  const direction = options.direction === 'Outbound' ? 'Outbound' : 'Inbound';
+  const action = options.action === 'Block' ? 'Block' : 'Allow';
+  const protocol = String(options.protocol || 'TCP').trim();
+  if (!['TCP', 'UDP', 'Any', 'ICMPv4', 'ICMPv6'].includes(protocol)) {
+    throw new Error('Invalid firewall protocol.');
+  }
+
+  const localPort = String(options.localPort || '').trim();
+  const remotePort = String(options.remotePort || '').trim();
+  const portRx = /^([0-9]{1,5}(-[0-9]{1,5})?)(\s*,\s*[0-9]{1,5}(-[0-9]{1,5})?)*$/;
+  if (localPort && localPort.toLowerCase() !== 'any' && !portRx.test(localPort)) {
+    throw new Error('Invalid local port format. Use port numbers, ranges (8000-8010), comma-separated ports, or leave blank.');
+  }
+  if (remotePort && remotePort.toLowerCase() !== 'any' && !portRx.test(remotePort)) {
+    throw new Error('Invalid remote port format.');
+  }
+  if ((localPort || remotePort) && protocol !== 'TCP' && protocol !== 'UDP') {
+    throw new Error('Ports can only be specified when Protocol is TCP or UDP.');
+  }
+
+  const remoteAddress = String(options.remoteAddress || '').trim();
+  if (
+    remoteAddress &&
+    remoteAddress.toLowerCase() !== 'any' &&
+    !/^[a-zA-Z0-9.,:/\-_ ]{1,256}$/.test(remoteAddress)
+  ) {
+    throw new Error('Invalid remote IP/CIDR address filter.');
+  }
+
+  const program = String(options.program || '').trim();
+  if (program && (/[\x00-\x1F\x7F;|&$`<>]/.test(program) || program.length > 260)) {
+    throw new Error('Invalid program executable path.');
+  }
+
+  const profilesRaw = Array.isArray(options.profiles) ? options.profiles : ['Domain', 'Private', 'Public'];
+  const validProfiles = profilesRaw.filter((p): p is 'Domain' | 'Private' | 'Public' =>
+    ['Domain', 'Private', 'Public'].includes(p)
+  );
+  const profilesCsv = (validProfiles.length > 0 ? validProfiles : ['Domain', 'Private', 'Public']).join(',');
+  const description = String(options.description || '').trim().slice(0, 240);
+
+  const specB64 = Buffer.from(
+    JSON.stringify({
+      displayName,
+      direction,
+      action,
+      protocol,
+      localPort,
+      remotePort,
+      remoteAddress,
+      program,
+      profilesCsv,
+      description,
+    }),
+    'utf8'
+  ).toString('base64');
+
+  const winPs = `
+$ErrorActionPreference = 'Stop'
+$spec = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${specB64}')) | ConvertFrom-Json
+
+$params = @{
+  DisplayName = [string]$spec.displayName
+  Direction   = [string]$spec.direction
+  Action      = [string]$spec.action
+  Enabled     = 'True'
+}
+if ($spec.description) { $params['Description'] = [string]$spec.description }
+if ($spec.protocol -and $spec.protocol -ne 'Any') { $params['Protocol'] = [string]$spec.protocol }
+if ($spec.localPort -and $spec.localPort -ne 'Any') {
+  $params['LocalPort'] = @([string]$spec.localPort -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+if ($spec.remotePort -and $spec.remotePort -ne 'Any') {
+  $params['RemotePort'] = @([string]$spec.remotePort -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+if ($spec.remoteAddress -and $spec.remoteAddress -ne 'Any') {
+  $params['RemoteAddress'] = @([string]$spec.remoteAddress -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+if ($spec.program) { $params['Program'] = [string]$spec.program }
+if ($spec.profilesCsv) {
+  $params['Profile'] = @([string]$spec.profilesCsv -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
+$created = New-NetFirewallRule @params -ErrorAction Stop | Select-Object -First 1
+[PSCustomObject]@{
+  ok = $true
+  ruleName = [string]$created.Name
+  displayName = [string]$created.DisplayName
+  output = "Created firewall rule '$($created.DisplayName)' ($($spec.direction) / $($spec.action))"
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import base64, json, shutil, subprocess
+
+spec = json.loads(base64.b64decode('${specB64}').decode('utf-8'))
+if not shutil.which('ufw'):
+    print(json.dumps({"ok": False, "output": "Creating rules via Linux SSH currently requires ufw."}))
+    raise SystemExit(0)
+
+cmd = ['ufw', 'deny' if spec['action'] == 'Block' else 'allow']
+cmd.append('out' if spec['direction'] == 'Outbound' else 'in')
+if spec.get('remoteAddress') and spec['remoteAddress'].lower() != 'any':
+    cmd.extend(['from', spec['remoteAddress']])
+if spec.get('localPort') and spec['localPort'].lower() != 'any':
+    port_arg = spec['localPort'].replace('-', ':')
+    if spec['protocol'] in ('TCP', 'UDP'):
+        port_arg = f"{port_arg}/{spec['protocol'].lower()}"
+    cmd.extend(['to', 'any', 'port', port_arg])
+elif spec['protocol'] in ('TCP', 'UDP'):
+    cmd.extend(['proto', spec['protocol'].lower()])
+cmd.extend(['comment', spec['displayName'][:60]])
+
+p = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+print(json.dumps({"ok": p.returncode == 0, "ruleName": spec['displayName'], "output": (p.stdout or p.stderr).strip()}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(25000, input.timeoutMs || 25000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'create firewall rule');
+  const ok = Boolean(parsed.ok);
+  const out = String(parsed.output || '');
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: 'firewall_rule_create',
+    success: ok,
+    message: ok
+      ? `Firewall rule "${displayName}" (${direction} / ${action}) created on ${execRes.host}.`
+      : out || `Failed creating firewall rule "${displayName}".`,
+    messageFa: ok
+      ? `رول فایروال «${displayName}» (${direction === 'Inbound' ? 'ورودی' : 'خروجی'} / ${action === 'Allow' ? 'مجاز' : 'مسدود'}) با موفقیت روی سیستم ${execRes.host} ایجاد شد.`
+      : out || `ایجاد رول فایروال «${displayName}» ناموفق بود.`,
+    details: { displayName, direction, action, protocol, localPort, remoteAddress, ruleName: parsed.ruleName || null },
+    rawOutput: out,
+    executedAt: new Date().toISOString(),
+  };
+}
+
+export async function manageEndpointFirewallRule(
+  input: HelpdeskTargetInput,
+  options: {
+    ruleName: string;
+    displayName?: string;
+    action: 'enable' | 'disable' | 'allow' | 'block' | 'delete';
+  }
+): Promise<HelpdeskActionResult> {
+  const ruleName = String(options.ruleName || '').trim();
+  const displayName = String(options.displayName || ruleName).trim();
+  const action = String(options.action || '').trim() as 'enable' | 'disable' | 'allow' | 'block' | 'delete';
+  if (!ruleName || ruleName.length > 260 || /[\x00-\x1F\x7F]/.test(ruleName)) {
+    throw new Error('Invalid firewall rule identifier.');
+  }
+  if (!['enable', 'disable', 'allow', 'block', 'delete'].includes(action)) {
+    throw new Error('Invalid firewall rule action.');
+  }
+
+  const rnB64 = Buffer.from(ruleName, 'utf8').toString('base64');
+
+  const winPs = `
+$ErrorActionPreference = 'Stop'
+$rn = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${rnB64}'))
+$act = '${action}'
+
+switch ($act) {
+  'enable'  { Enable-NetFirewallRule -Name $rn -ErrorAction Stop }
+  'disable' { Disable-NetFirewallRule -Name $rn -ErrorAction Stop }
+  'allow'   { Set-NetFirewallRule -Name $rn -Action Allow -ErrorAction Stop }
+  'block'   { Set-NetFirewallRule -Name $rn -Action Block -ErrorAction Stop }
+  'delete'  { Remove-NetFirewallRule -Name $rn -ErrorAction Stop }
+}
+
+$msg = "Firewall rule '$rn' action '$act' completed."
+[PSCustomObject]@{
+  ok = $true
+  ruleName = $rn
+  action = $act
+  output = $msg
+} | ConvertTo-Json -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import json
+print(json.dumps({"ok": False, "output": "Per-rule Windows NetFirewall actions are supported on Windows hosts; toggle the UFW profile or create a new UFW rule on Linux."}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(25000, input.timeoutMs || 25000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'manage firewall rule');
+  const ok = Boolean(parsed.ok);
+  const out = String(parsed.output || '');
+
+  const writeAct: HelpdeskWriteAction =
+    action === 'delete'
+      ? 'firewall_rule_delete'
+      : action === 'allow' || action === 'block'
+      ? 'firewall_rule_action'
+      : 'firewall_rule_toggle';
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: writeAct,
+    success: ok,
+    message: ok
+      ? `Firewall rule "${displayName}" updated (${action}) on ${execRes.host}.`
+      : out || `Failed to ${action} firewall rule "${displayName}".`,
+    messageFa: ok
+      ? `عملیات «${action}» روی رول فایروال «${displayName}» در سیستم ${execRes.host} انجام شد.`
+      : out || `تغییر وضعیت رول فایروال «${displayName}» ناموفق بود.`,
+    details: { ruleName, displayName, action },
+    rawOutput: out,
+    executedAt: new Date().toISOString(),
+  };
+}
+
 

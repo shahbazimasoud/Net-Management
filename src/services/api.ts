@@ -2163,6 +2163,114 @@ export async function runHelpdeskDiagnosticsSuite(
   return res.json();
 }
 
+export async function fetchHelpdeskSecurityAndAv(
+  payload: HelpdeskConnectionPayload
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/security-av/inspect`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to inspect endpoint firewall and antivirus');
+  return res.json();
+}
+
+export async function controlHelpdeskAntivirus(
+  payload: HelpdeskConnectionPayload & {
+    productId: string;
+    serviceName?: string;
+    action: 'start' | 'stop' | 'restart' | 'enable_realtime' | 'disable_realtime';
+    unlockPassword?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/security-av/antivirus/control`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to control endpoint antivirus');
+  return res.json();
+}
+
+export async function toggleHelpdeskFirewallProfile(
+  payload: HelpdeskConnectionPayload & {
+    profile: 'Domain' | 'Private' | 'Public' | 'All' | 'UFW' | 'Firewalld';
+    enabled: boolean;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/security-av/firewall/profile`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to toggle firewall profile');
+  return res.json();
+}
+
+export async function createHelpdeskFirewallRule(
+  payload: HelpdeskConnectionPayload & {
+    displayName: string;
+    direction: 'Inbound' | 'Outbound';
+    action: 'Allow' | 'Block';
+    ruleProtocol?: 'TCP' | 'UDP' | 'Any' | 'ICMPv4' | 'ICMPv6';
+    localPort?: string;
+    remotePort?: string;
+    remoteAddress?: string;
+    program?: string;
+    profiles?: Array<'Domain' | 'Private' | 'Public'>;
+    description?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/security-av/firewall/rules/create`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to create firewall rule');
+  return res.json();
+}
+
+export async function manageHelpdeskFirewallRule(
+  payload: HelpdeskConnectionPayload & {
+    ruleName: string;
+    displayName?: string;
+    action: 'enable' | 'disable' | 'allow' | 'block' | 'delete';
+  }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/security-av/firewall/rules/action`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update firewall rule');
+  return res.json();
+}
+
 export interface HelpdeskExceptionAdCatalog {
   enabled: boolean;
   domain: string;

@@ -131,6 +131,11 @@ import {
   updateHelpdeskLanguagesAndLocale,
   installHelpdeskFont,
   deleteHelpdeskFont,
+  fetchHelpdeskSecurityAndAv,
+  controlHelpdeskAntivirus,
+  toggleHelpdeskFirewallProfile,
+  createHelpdeskFirewallRule,
+  manageHelpdeskFirewallRule,
   fetchHelpdeskDiskHealth,
   executeHelpdeskSystemRepair,
   inspectHelpdeskDomainUser,
@@ -166,6 +171,7 @@ import { PrintServerConnectModal } from './helpdesk/PrintServerConnectModal';
 import { NetworkShareMapModal } from './helpdesk/NetworkShareMapModal';
 import { ServicesStartupTab } from './helpdesk/ServicesStartupTab';
 import { RegionFontsTab } from './helpdesk/RegionFontsTab';
+import { FirewallAntivirusTab } from './helpdesk/FirewallAntivirusTab';
 import { DiagnosticsTab } from './helpdesk/DiagnosticsTab';
 import { DiagnosticsConfigModal } from './helpdesk/DiagnosticsConfigModal';
 import { HelpdeskExceptionsModal } from './helpdesk/HelpdeskExceptionsModal';
@@ -656,6 +662,21 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const setRegionFontsActionError = setRamField('regionFontsActionError');
   const [regionFontsBusyKey, setRegionFontsBusyKey] = useState<string | null>(null);
 
+  // Firewall & Antivirus Control
+  const securityAvData = ram.securityAvData;
+  const setSecurityAvData = setRamField('securityAvData');
+  const loadingSecurityAv = ram.loadingSecurityAv;
+  const setLoadingSecurityAv = setRamField('loadingSecurityAv');
+  const securityAvError = ram.securityAvError;
+  const setSecurityAvError = setRamField('securityAvError');
+  const securityAvActionResult = ram.securityAvActionResult;
+  const setSecurityAvActionResult = setRamField('securityAvActionResult');
+  const securityAvActionError = ram.securityAvActionError;
+  const setSecurityAvActionError = setRamField('securityAvActionError');
+  const securityAvDisabledInSession = ram.securityAvDisabledInSession || [];
+  const setSecurityAvDisabledInSession = setRamField('securityAvDisabledInSession');
+  const [securityAvBusyKey, setSecurityAvBusyKey] = useState<string | null>(null);
+
   // Diagnostics Suite (13-Check Interactive Troubleshooter)
   const diagnosticsData = ram.diagnosticsData;
   const setDiagnosticsData = setRamField('diagnosticsData');
@@ -913,6 +934,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setConfirmPowerAction(false);
     setSessionActionBusy(null);
     setConfirmLogoffKey(null);
+    setSecurityAvBusyKey(null);
   };
 
   const handleInspectShares = async (overridePayload?: HelpdeskConnectionPayload) => {
@@ -2202,6 +2224,187 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
+  const handleInspectSecurityAv = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingSecurityAv(true);
+    setSecurityAvError(null);
+    try {
+      const res = await fetchHelpdeskSecurityAndAv(payload);
+      setSecurityAvData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setSecurityAvData(null);
+      setSecurityAvError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? 'Failed to inspect Windows Firewall and Antivirus protection status.'
+            : 'خطا در دریافت وضعیت فایروال و آنتی‌ویروس‌های نصب‌شده روی سیستم کاربر.')
+      );
+    } finally {
+      setLoadingSecurityAv(false);
+    }
+  };
+
+  const handleControlAntivirus = async (params: {
+    productId: string;
+    productName: string;
+    serviceName?: string;
+    action: 'start' | 'stop' | 'restart' | 'enable_realtime' | 'disable_realtime';
+    unlockPassword?: string;
+  }) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setSecurityAvBusyKey(`av:${params.productId}:${params.action}`);
+    setSecurityAvActionError(null);
+    setSecurityAvActionResult(null);
+    try {
+      const res = await controlHelpdeskAntivirus({ ...payload, ...params });
+      setSecurityAvActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      const token = `av:${params.productId}`;
+      if (params.action === 'stop' || params.action === 'disable_realtime') {
+        if (!securityAvDisabledInSession.includes(token)) {
+          setSecurityAvDisabledInSession([...securityAvDisabledInSession, token]);
+        }
+      } else if (params.action === 'start' || params.action === 'enable_realtime') {
+        setSecurityAvDisabledInSession(securityAvDisabledInSession.filter((item) => item !== token));
+      }
+      try {
+        const refreshed = await fetchHelpdeskSecurityAndAv(payload);
+        setSecurityAvData(refreshed.data);
+        if (refreshed.rateLimit) setRateLimit(refreshed.rateLimit);
+      } catch {}
+    } catch (err: any) {
+      setSecurityAvActionError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? `Failed to execute "${params.action}" on ${params.productName}.`
+            : `اجرای عملیات روی آنتی‌ویروس ${params.productName} با خطا مواجه شد.`)
+      );
+    } finally {
+      setSecurityAvBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleToggleFirewallProfile = async (params: {
+    profile: 'Domain' | 'Private' | 'Public' | 'All' | 'UFW' | 'Firewalld';
+    enabled: boolean;
+  }) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setSecurityAvBusyKey(`fw:profile:${params.profile}`);
+    setSecurityAvActionError(null);
+    setSecurityAvActionResult(null);
+    try {
+      const res = await toggleHelpdeskFirewallProfile({ ...payload, ...params });
+      setSecurityAvActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      const profileTokens =
+        params.profile === 'All'
+          ? ['fw:Domain', 'fw:Private', 'fw:Public']
+          : [`fw:${params.profile}`];
+      if (!params.enabled) {
+        const next = Array.from(new Set([...securityAvDisabledInSession, ...profileTokens]));
+        setSecurityAvDisabledInSession(next);
+      } else {
+        setSecurityAvDisabledInSession(
+          securityAvDisabledInSession.filter((item) => !profileTokens.includes(item))
+        );
+      }
+      try {
+        const refreshed = await fetchHelpdeskSecurityAndAv(payload);
+        setSecurityAvData(refreshed.data);
+        if (refreshed.rateLimit) setRateLimit(refreshed.rateLimit);
+      } catch {}
+    } catch (err: any) {
+      setSecurityAvActionError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? `Failed to update Firewall profile (${params.profile}).`
+            : `تغییر وضعیت پروفایل فایروال (${params.profile}) با خطا مواجه شد.`)
+      );
+    } finally {
+      setSecurityAvBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleCreateFirewallRule = async (params: {
+    displayName: string;
+    direction: 'Inbound' | 'Outbound';
+    action: 'Allow' | 'Block';
+    protocol: 'TCP' | 'UDP' | 'Any' | 'ICMPv4' | 'ICMPv6';
+    localPort?: string;
+    remotePort?: string;
+    remoteAddress?: string;
+    program?: string;
+    profiles: Array<'Domain' | 'Private' | 'Public'>;
+    description?: string;
+  }): Promise<boolean> => {
+    const payload = buildPayload();
+    if (!payload) return false;
+    setSecurityAvBusyKey('fw:rule:create');
+    setSecurityAvActionError(null);
+    setSecurityAvActionResult(null);
+    try {
+      const { protocol: ruleProtocol, ...ruleFields } = params;
+      const res = await createHelpdeskFirewallRule({ ...payload, ...ruleFields, ruleProtocol });
+      setSecurityAvActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskSecurityAndAv(payload);
+        setSecurityAvData(refreshed.data);
+        if (refreshed.rateLimit) setRateLimit(refreshed.rateLimit);
+      } catch {}
+      return true;
+    } catch (err: any) {
+      setSecurityAvActionError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? `Failed to create firewall rule "${params.displayName}".`
+            : `ایجاد رول فایروال «${params.displayName}» ناموفق بود.`)
+      );
+      return false;
+    } finally {
+      setSecurityAvBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleManageFirewallRule = async (params: {
+    ruleName: string;
+    displayName: string;
+    action: 'enable' | 'disable' | 'allow' | 'block' | 'delete';
+  }) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setSecurityAvBusyKey(`fw:rule:${params.ruleName}:${params.action}`);
+    setSecurityAvActionError(null);
+    setSecurityAvActionResult(null);
+    try {
+      const res = await manageHelpdeskFirewallRule({ ...payload, ...params });
+      setSecurityAvActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      try {
+        const refreshed = await fetchHelpdeskSecurityAndAv(payload);
+        setSecurityAvData(refreshed.data);
+        if (refreshed.rateLimit) setRateLimit(refreshed.rateLimit);
+      } catch {}
+    } catch (err: any) {
+      setSecurityAvActionError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? `Failed to update firewall rule "${params.displayName}".`
+            : `تغییر رول فایروال «${params.displayName}» با خطا مواجه شد.`)
+      );
+    } finally {
+      setSecurityAvBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
   const handleInspectDisks = async () => {
     const payload = buildPayload();
     if (!payload) return;
@@ -2420,6 +2623,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       if (tab === 'health' && !healthData && !loadingHealth) handleInspectHealth();
       else if (tab === 'hardware' && !hardwareData && !loadingHardware) handleInspectHardware();
       else if (tab === 'network' && !networkData && !loadingNetwork) handleInspectNetwork();
+      else if (tab === 'services_startup' && !servicesStartupData && !loadingServicesStartup) handleInspectServicesStartup();
+      else if (tab === 'region_fonts' && !regionFontsData && !loadingRegionFonts) handleInspectRegionFonts();
+      else if (tab === 'security_av' && !securityAvData && !loadingSecurityAv) handleInspectSecurityAv();
       else if (tab === 'updates') {
         if (!sysInfoData && !loadingSysInfo) handleInspectSysInfo();
         if (!updateStatusData && !loadingUpdateStatus) handleInspectUpdateStatus('auto', true);
@@ -2971,6 +3177,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     loadingLogons ||
     loadingTempScan ||
     loadingGpo ||
+    loadingSecurityAv ||
     loadingDiskHealth ||
     loadingBattery ||
     loadingDomainUser;
@@ -3415,6 +3622,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'ریجن و فونت',
           },
           {
+            id: 'security_av' as HelpdeskSubTab,
+            icon: securityAvDisabledInSession.length > 0 ? ShieldAlert : ShieldCheck,
+            labelEn: 'Firewall & Antivirus',
+            labelFa: 'فایروال و آنتی‌ویروس',
+          },
+          {
             id: 'maintenance' as HelpdeskSubTab,
             icon: Wrench,
             labelEn: 'System Repair, Temp & GPO',
@@ -3448,6 +3661,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'programs' && loadingPrograms) ||
             (tab.id === 'services_startup' && loadingServicesStartup) ||
             (tab.id === 'region_fonts' && loadingRegionFonts) ||
+            (tab.id === 'security_av' && loadingSecurityAv) ||
             (tab.id === 'maintenance' && (loadingTempScan || loadingGpo || loadingDiskHealth)) ||
             (tab.id === 'hardware_domain' && loadingBattery) ||
             (tab.id === 'history' && loadingHistory);
@@ -3463,9 +3677,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'programs' && Boolean(programsData)) ||
             (tab.id === 'services_startup' && Boolean(servicesStartupData)) ||
             (tab.id === 'region_fonts' && Boolean(regionFontsData)) ||
+            (tab.id === 'security_av' && Boolean(securityAvData)) ||
             (tab.id === 'maintenance' && Boolean(tempScanData || gpoData || diskHealthData)) ||
             (tab.id === 'hardware_domain' && Boolean(batteryData)) ||
             (tab.id === 'history' && Boolean(historyStats?.totalConnections));
+          const hasSecurityDisableAlert =
+            tab.id === 'security_av' && securityAvDisabledInSession.length > 0;
 
           return (
             <button
@@ -3492,6 +3709,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     handleInspectServicesStartup();
                   } else if (tab.id === 'region_fonts' && !regionFontsData && !loadingRegionFonts) {
                     handleInspectRegionFonts();
+                  } else if (tab.id === 'security_av' && !securityAvData && !loadingSecurityAv) {
+                    handleInspectSecurityAv();
                   } else if (tab.id === 'maintenance') {
                     if (!tempScanData && !loadingTempScan) handleScanTemp();
                     if (!gpoData && !loadingGpo) handleInspectGpo();
@@ -3500,7 +3719,15 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 }
               }}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition whitespace-nowrap cursor-pointer ${
-                active
+                hasSecurityDisableAlert
+                  ? active
+                    ? isLightMode
+                      ? 'bg-rose-50 text-rose-700 border border-rose-300 shadow-xs'
+                      : 'bg-rose-950/60 text-rose-200 border border-rose-500/50 shadow-xs'
+                    : isLightMode
+                    ? 'bg-rose-50/70 text-rose-700 border border-rose-200 hover:bg-rose-100'
+                    : 'bg-rose-950/35 text-rose-300 border border-rose-500/35 hover:bg-rose-950/60'
+                  : active
                   ? isLightMode
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'bg-slate-800 text-white shadow-xs'
@@ -3512,11 +3739,18 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               {isFetchingThisTab ? (
                 <Loader2 className="w-3.5 h-3.5 text-sky-500 animate-spin" />
               ) : (
-                <Icon className={`w-3.5 h-3.5 ${active ? 'text-sky-500' : ''}`} />
+                <Icon
+                  className={`w-3.5 h-3.5 ${
+                    hasSecurityDisableAlert ? 'text-rose-500' : active ? 'text-sky-500' : ''
+                  }`}
+                />
               )}
               <span>{isEn ? tab.labelEn : tab.labelFa}</span>
-              {!isFetchingThisTab && hasTabData && (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+              {!isFetchingThisTab && hasSecurityDisableAlert ? (
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0" />
+              ) : (
+                !isFetchingThisTab &&
+                hasTabData && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
               )}
             </button>
           );
@@ -11922,6 +12156,34 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           onInstallFont={handleInstallEndpointFont}
           onDeleteFont={handleDeleteEndpointFont}
           busyKey={regionFontsBusyKey}
+        />
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 6E: WINDOWS FIREWALL, DEFENDER & INSTALLED ANTIVIRUS SUITE      */}
+      {/* =================================================================== */}
+      {activeSubTab === 'security_av' && (
+        <FirewallAntivirusTab
+          isLightMode={isLightMode}
+          isEn={isEn}
+          targetIp={targetIp}
+          canExecuteActions={canExecuteActions}
+          data={securityAvData}
+          loading={loadingSecurityAv}
+          error={securityAvError}
+          actionResult={securityAvActionResult}
+          actionError={securityAvActionError}
+          disabledInSessionIds={securityAvDisabledInSession}
+          busyKey={securityAvBusyKey}
+          onClearActionBanner={() => {
+            setSecurityAvActionResult(null);
+            setSecurityAvActionError(null);
+          }}
+          onRefresh={handleInspectSecurityAv}
+          onControlAntivirus={handleControlAntivirus}
+          onToggleFirewallProfile={handleToggleFirewallProfile}
+          onCreateFirewallRule={handleCreateFirewallRule}
+          onManageFirewallRule={handleManageFirewallRule}
         />
       )}
 
