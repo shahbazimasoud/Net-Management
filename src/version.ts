@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.472.0';
+export const APP_VERSION = '1.473.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.473.0',
+    releaseDate: '2026-11-24',
+    type: 'minor',
+    title: 'افزودن تب جدید «دیاگنوستیگ (Diagnostics)» در HelpDesk با مودال انتخاب تست‌ها، بررسی ۱۳ بخش حیاتی سیستم و دکمه پرش مستقیم به بخش اصلاح',
+    title_en: 'Add HelpDesk "Diagnostics" Tab with Configurable 13-Check Troubleshooting Modal & Direct Fix-Section Jump Links',
+    changes: [
+      'افزودن تب جدید **«دیاگنوستیگ (`Diagnostics`)»** در **Agentless Endpoint HelpDesk** همراه با خلاصه وضعیت کلی، فیلتر وضعیت/دسته‌بندی و خروجی استاندارد `CSV`.',
+      'طراحی **مودال استاندارد تنظیم و اجرای دیاگنوستیک (`DiagnosticsConfigModal`)** مطابق قوانین یونیورسال مودال (امکان Minimize به `ToolsDock`، Maximize/Restore، راهنمای سه‌گانه `FieldInfoTooltip` و پشتیبانی کامل از تم روشن/تیره و دو زبان) که هنگام زدن دکمه **Start Diagnostics** باز شده و به صورت پیش‌فرض هر **۱۳ تست تخصصی** را تیک‌خورده نمایش می‌دهد تا تکنسین بتواند به دلخواه موارد بررسی را کم یا زیاد کند.',
+      'بررسی زنده و بدون داده ساختگی هر ۱۳ محور عیب‌یابی: **۱)** وضعیت IP، فعال‌بودن DNS و حالت Static/DHCP، **۲)** پینگ واقعی به Default Gateway، **۳)** سرعت لینک کارت شبکه (`Link Speed`)، **۴)** جدول مسیرهای سیستم (`Routing Table`)، **۵)** وضعیت فعال یا غیرفعال بودن `Proxy`، **۶)** ارتباط واقعی با اینترنت، **۷)** وضعیت اتصال `VPN`، **۸)** ظرفیت درایو ویندوز (`OS Drive`) همراه با فایل‌های Temp و وضعیت `Recycle Bin`، **۹)** سلامت و عدم خرابی فایل‌های سیستمی ویندوز (`DISM /CheckHealth` و `CBS` و `Dirty Bit`)، **۱۰)** تاریخ آخرین آپدیت نصب‌شده ویندوز (`KB` و روزهای گذشته)، **۱۱)** سلامت و وضعیت تمام درایورها (`PnP ConfigManagerErrorCode`)، **۱۲)** میزان لحظه‌ای مصرف `CPU` و `RAM`، و **۱۳)** فهرست نرم‌افزارها و پروسه‌هایی که بیشترین `CPU` و `RAM` را مصرف می‌کنند.',
+      'قراردادن **دکمه پرش مستقیم («رفتن به بخش اصلاح» / `Open & Fix`)** روی کارت هر ۱۳ بخش دیاگنوستیک که کاربر را دقیقاً به تب و پنل مربوطه در HelpDesk (نظیر آداپتورهای شبکه، تست شبکه، مسیرها، پروکسی، VPN، پاکسازی و Recycle Bin، ترمیم SFC/DISM، آپدیت‌های ویندوز، درایورها، منابع سخت‌افزار و پروسه‌ها) هدایت و هایلایت می‌کند.'
+    ],
+    changes_en: [
+      'Added a new **Diagnostics** tab to **Agentless Endpoint HelpDesk** with overall health KPIs, status/category filtering, and CSV troubleshooting report export.',
+      'Built **DiagnosticsConfigModal** (compliant with Universal Modal Standards: Close, Minimize to `ToolsDock`, Maximize/Restore, 3-part `FieldInfoTooltip`, Dark/Light theme, strict EN/FA i18n) triggered by **Start Diagnostics**, with **all 13 checks selected by default** and per-check/per-category toggles.',
+      'Implemented live real-device telemetry (Windows PowerShell via WinRM & Linux SSH fallback, zero fake/mock data) across all 13 troubleshooting checks: **1)** IP / DNS / DHCP vs. Static mode, **2)** Default Gateway ICMP Ping, **3)** NIC Link Speed, **4)** Active Routing Table, **5)** System/WinHTTP Proxy Status, **6)** Live Internet Connectivity & DNS Resolution, **7)** VPN Adapter/Tunnel Status, **8)** OS Drive Capacity, Temp Cleanup & Recycle Bin Item/Size Status, **9)** Windows System File Integrity (`DISM /CheckHealth`, CBS corruption & Dirty Bit), **10)** Last Installed Windows Update Date & Pending Reboot, **11)** Hardware Drivers Health (`Win32_PnPEntity` error codes), **12)** Real-time CPU & RAM Utilization, and **13)** Top CPU & RAM Consuming Processes.',
+      'Added a direct **"Open & Fix" deep-link jump button** on every diagnostic card that navigates directly to the exact HelpDesk sub-tab, loads missing telemetry if needed, scrolls to the matching section anchor (`#hd-section-...`), and highlights it.'
+    ],
+  },
   {
     version: '1.472.0',
     releaseDate: '2026-11-24',

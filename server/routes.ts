@@ -92,6 +92,8 @@ import {
   manageEndpointLanguagesAndLocale,
   installEndpointFont,
   deleteEndpointFont,
+  runEndpointDiagnostics,
+  HelpdeskDiagnosticCheckId,
   HelpdeskProgramRegistryHive,
   HelpdeskServiceActionType,
   HelpdeskStartupSourceType,
@@ -11369,6 +11371,63 @@ apiRouter.post('/helpdesk/fonts/delete', async (req: Request, res: Response) => 
       errorMsg: msg,
     });
     return res.status(/invalid|required|protected|cannot be removed|blocked/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/diagnostics/run - Execute Selected Live Endpoint Troubleshooting Diagnostics
+apiRouter.post('/helpdesk/diagnostics/run', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return res.status(auth.status).json({ success: false, error: auth.error, errorFa: auth.errorFa });
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const selectedChecks: HelpdeskDiagnosticCheckId[] | undefined = Array.isArray(req.body?.checks)
+    ? req.body.checks
+    : undefined;
+
+  try {
+    const data = await runEndpointDiagnostics(target, selectedChecks);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_diagnostics_suite_run',
+      title: `اجرای دیاگنوستیک جامع سیستم ${data.targetIp} (${data.summary.totalChecked} مورد | ${data.summary.failures} خطا / ${data.summary.warnings} هشدار)`,
+      title_en: `HelpDesk Endpoint Diagnostics on ${data.targetIp} (${data.summary.totalChecked} checked: ${data.summary.failures} failed, ${data.summary.warnings} warnings)`,
+      details: `سیستم: ${data.hostname} | موارد بررسی‌شده: ${data.summary.totalChecked} | سالم: ${data.summary.passed} | هشدار: ${data.summary.warnings} | خطا: ${data.summary.failures}`,
+      details_en: `Host: ${data.hostname} | Checked: ${data.summary.totalChecked} | Passed: ${data.summary.passed} | Warnings: ${data.summary.warnings} | Failures: ${data.summary.failures}`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: data.summary.failures > 0 ? 'warning' : 'info',
+      target: {
+        type: 'device',
+        name: data.hostname || data.targetIp,
+        ip: data.targetIp,
+        metadata: {
+          ...data.summary,
+          requestedChecks: data.requestedChecks,
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Endpoint diagnostics failed');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_diagnostics_suite_failed',
+      title: `خطا در اجرای دیاگنوستیک روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Endpoint Diagnostics Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|required|selected/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,

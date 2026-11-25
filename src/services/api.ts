@@ -2101,6 +2101,54 @@ export async function deleteHelpdeskFont(
   return res.json();
 }
 
+export type HelpdeskDiagnosticCheckId =
+  | 'ip_dns'
+  | 'gateway_ping'
+  | 'nic_link_speed'
+  | 'routing_table'
+  | 'proxy_status'
+  | 'internet_connectivity'
+  | 'vpn_status'
+  | 'os_drive_cleanup'
+  | 'windows_integrity'
+  | 'windows_update_last'
+  | 'drivers_status'
+  | 'cpu_ram_usage'
+  | 'top_resource_apps';
+
+export const ALL_HELPDESK_DIAGNOSTIC_CHECKS: HelpdeskDiagnosticCheckId[] = [
+  'ip_dns',
+  'gateway_ping',
+  'nic_link_speed',
+  'routing_table',
+  'proxy_status',
+  'internet_connectivity',
+  'vpn_status',
+  'os_drive_cleanup',
+  'windows_integrity',
+  'windows_update_last',
+  'drivers_status',
+  'cpu_ram_usage',
+  'top_resource_apps',
+];
+
+export async function runHelpdeskDiagnosticsSuite(
+  payload: HelpdeskConnectionPayload & { checks?: HelpdeskDiagnosticCheckId[] }
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/diagnostics/run`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to execute HelpDesk diagnostics suite');
+  return res.json();
+}
+
 export async function fetchHelpdeskDiskHealth(payload: HelpdeskConnectionPayload): Promise<{
   success: boolean;
   data: any;

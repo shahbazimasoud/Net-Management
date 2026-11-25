@@ -82,6 +82,7 @@ import {
   Fingerprint,
   Wifi,
   Cog,
+  Stethoscope,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -134,6 +135,8 @@ import {
   inspectHelpdeskDomainUser,
   executeHelpdeskPowerControl,
   fetchHelpdeskBatteryReport,
+  runHelpdeskDiagnosticsSuite,
+  HelpdeskDiagnosticCheckId,
   HelpdeskConnectionPayload,
   HelpdeskConnectionHistoryItem,
   HelpdeskConnectionHistoryResponse,
@@ -160,6 +163,8 @@ import { PrintServerConnectModal } from './helpdesk/PrintServerConnectModal';
 import { NetworkShareMapModal } from './helpdesk/NetworkShareMapModal';
 import { ServicesStartupTab } from './helpdesk/ServicesStartupTab';
 import { RegionFontsTab } from './helpdesk/RegionFontsTab';
+import { DiagnosticsTab } from './helpdesk/DiagnosticsTab';
+import { DiagnosticsConfigModal } from './helpdesk/DiagnosticsConfigModal';
 
 interface HelpDeskViewProps {
   isLightMode: boolean;
@@ -634,6 +639,19 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const regionFontsActionError = ram.regionFontsActionError;
   const setRegionFontsActionError = setRamField('regionFontsActionError');
   const [regionFontsBusyKey, setRegionFontsBusyKey] = useState<string | null>(null);
+
+  // Diagnostics Suite (13-Check Interactive Troubleshooter)
+  const diagnosticsData = ram.diagnosticsData;
+  const setDiagnosticsData = setRamField('diagnosticsData');
+  const loadingDiagnostics = ram.loadingDiagnostics;
+  const setLoadingDiagnostics = setRamField('loadingDiagnostics');
+  const diagnosticsError = ram.diagnosticsError;
+  const setDiagnosticsError = setRamField('diagnosticsError');
+  const diagnosticsSelectedChecks = ram.diagnosticsSelectedChecks;
+  const setDiagnosticsSelectedChecks = setRamField('diagnosticsSelectedChecks');
+  const [isDiagnosticsModalOpen, setIsDiagnosticsModalOpen] = useState(false);
+  const [highlightedSectionId, setHighlightedSectionId] = useState<string | null>(null);
+  const pendingScrollSectionRef = useRef<{ tab: HelpdeskSubTab; sectionId: string; startedAt: number } | null>(null);
 
   // System Integrity Repair (SFC / DISM) & Smart Disk Media (HDD vs SSD) + CHKDSK
   const diskHealthData = ram.diskHealthData;
@@ -2315,6 +2333,89 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
+  const handleRunDiagnosticsSuite = async (overrideChecks?: HelpdeskDiagnosticCheckId[]) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    const checksToRun = overrideChecks && overrideChecks.length > 0 ? overrideChecks : diagnosticsSelectedChecks;
+    setIsDiagnosticsModalOpen(false);
+    undockModal('modal-helpdesk-diagnostics-config');
+    setLoadingDiagnostics(true);
+    setDiagnosticsError(null);
+    try {
+      const res = await runHelpdeskDiagnosticsSuite({
+        ...payload,
+        checks: checksToRun,
+      });
+      setDiagnosticsData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setDiagnosticsError(
+        err?.message ||
+          (isEn ? 'Failed to run endpoint diagnostics.' : 'اجرای عیب‌یابی و دیاگنوستیک روی سیستم کاربر ناموفق بود.')
+      );
+    } finally {
+      setLoadingDiagnostics(false);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleMinimizeDiagnosticsModal = () => {
+    dockModal({
+      id: 'modal-helpdesk-diagnostics-config',
+      labelEn: 'Diagnostics Selection',
+      labelFa: 'انتخاب موارد دیاگنوستیک',
+      badge: `${diagnosticsSelectedChecks.length}/13`,
+      category: 'tools',
+      onRestore: () => {
+        undockModal('modal-helpdesk-diagnostics-config');
+        setIsDiagnosticsModalOpen(true);
+      },
+      onClose: () => {
+        undockModal('modal-helpdesk-diagnostics-config');
+        setIsDiagnosticsModalOpen(false);
+      },
+    });
+    setIsDiagnosticsModalOpen(false);
+  };
+
+  const handleJumpToHelpdeskSection = (tab: HelpdeskSubTab, sectionId: string) => {
+    pendingScrollSectionRef.current = { tab, sectionId, startedAt: Date.now() };
+    setActiveSubTab(tab);
+
+    if (!prefetchProgress?.active && targetIp.trim() && username.trim() && password) {
+      if (tab === 'health' && !healthData && !loadingHealth) handleInspectHealth();
+      else if (tab === 'hardware' && !hardwareData && !loadingHardware) handleInspectHardware();
+      else if (tab === 'network' && !networkData && !loadingNetwork) handleInspectNetwork();
+      else if (tab === 'updates') {
+        if (!sysInfoData && !loadingSysInfo) handleInspectSysInfo();
+        if (!updateStatusData && !loadingUpdateStatus) handleInspectUpdateStatus('auto', true);
+      } else if (tab === 'maintenance') {
+        if (!tempScanData && !loadingTempScan) handleScanTemp();
+        if (!diskHealthData && !loadingDiskHealth) handleInspectDisks();
+      }
+    }
+
+    const attemptScroll = (triesLeft: number) => {
+      const pending = pendingScrollSectionRef.current;
+      if (!pending || pending.sectionId !== sectionId || pending.tab !== tab) return;
+      const el = document.getElementById(sectionId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setHighlightedSectionId(sectionId);
+        pendingScrollSectionRef.current = null;
+        window.setTimeout(() => {
+          setHighlightedSectionId((prev) => (prev === sectionId ? null : prev));
+        }, 2800);
+        return;
+      }
+      if (triesLeft > 0) {
+        window.setTimeout(() => attemptScroll(triesLeft - 1), 220);
+      }
+    };
+
+    window.setTimeout(() => attemptScroll(35), 90);
+  };
+
   const notifyHelpdeskAuditUpdated = () => {
     try {
       window.dispatchEvent(new CustomEvent('nettopology_audit_log_updated'));
@@ -3167,6 +3268,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'سلامت سیستم و کنترل پروسس‌ها',
           },
           {
+            id: 'diagnostics' as HelpdeskSubTab,
+            icon: Stethoscope,
+            labelEn: 'Diagnostics',
+            labelFa: 'دیاگنوستیگ (Diagnostics)',
+          },
+          {
             id: 'hardware' as HelpdeskSubTab,
             icon: CircuitBoard,
             labelEn: 'Hardware & Peripherals',
@@ -3244,6 +3351,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           const isFetchingThisTab =
             (prefetchProgress?.active && prefetchProgress.currentTab === tab.id) ||
             (tab.id === 'health' && loadingHealth) ||
+            (tab.id === 'diagnostics' && loadingDiagnostics) ||
             (tab.id === 'hardware' && loadingHardware) ||
             (tab.id === 'network' && loadingNetwork) ||
             (tab.id === 'printers' && loadingPrinters) ||
@@ -3258,6 +3366,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'history' && loadingHistory);
           const hasTabData =
             (tab.id === 'health' && Boolean(healthData)) ||
+            (tab.id === 'diagnostics' && Boolean(diagnosticsData)) ||
             (tab.id === 'hardware' && Boolean(hardwareData)) ||
             (tab.id === 'network' && Boolean(networkData)) ||
             (tab.id === 'printers' && Boolean(printerData)) ||
@@ -3407,7 +3516,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 </div>
 
                 {/* 3 Crisp Circular Radial Gauges (CPU, RAM, Primary Disk) */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-6">
+                <div
+                  id="hd-section-health-resources"
+                  className={`scroll-mt-4 grid grid-cols-1 md:grid-cols-3 gap-6 py-6 rounded-xl transition ${
+                    highlightedSectionId === 'hd-section-health-resources'
+                      ? 'ring-2 ring-sky-500 ring-offset-2'
+                      : ''
+                  }`}
+                >
                   <CircularGauge
                     value={healthData.cpu?.usagePercent ?? 0}
                     label="CPU"
@@ -3869,7 +3985,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </div>
 
               {/* VISUAL PROCESS MONITOR — Interactive Circular Donut + Paginated/Sortable Progress Table */}
-              <div className={`rounded-xl border p-4 sm:p-5 space-y-5 ${surfaceBg}`}>
+              <div
+                id="hd-section-health-processes"
+                className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-5 transition ${surfaceBg} ${
+                  highlightedSectionId === 'hd-section-health-processes'
+                    ? 'ring-2 ring-sky-500 ring-offset-2'
+                    : ''
+                }`}
+              >
                 <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
                   <div>
                     <h3 className={`text-sm font-bold ${textPrimary}`}>
@@ -4715,6 +4838,25 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       )}
 
       {/* =================================================================== */}
+      {/* TAB 1A: INTERACTIVE DIAGNOSTICS & TROUBLESHOOTING SUITE             */}
+      {/* =================================================================== */}
+      {activeSubTab === 'diagnostics' && (
+        <DiagnosticsTab
+          isLightMode={isLightMode}
+          isEn={isEn}
+          targetIp={targetIp}
+          canRunDiagnostics={canRunDiagnostics}
+          data={diagnosticsData}
+          loading={loadingDiagnostics}
+          error={diagnosticsError}
+          selectedChecks={diagnosticsSelectedChecks}
+          onOpenConfigModal={() => setIsDiagnosticsModalOpen(true)}
+          onRunQuickSelected={() => handleRunDiagnosticsSuite()}
+          onJumpToSection={handleJumpToHelpdeskSection}
+        />
+      )}
+
+      {/* =================================================================== */}
       {/* TAB 1B: VISUAL HARDWARE INVENTORY & CONNECTED PERIPHERALS           */}
       {/* =================================================================== */}
       {activeSubTab === 'hardware' && (
@@ -5441,7 +5583,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </div>
 
               {/* Row 5: CONNECTED PERIPHERALS EXPLORER (USB / MOUSE / KEYBOARD / CAMERA / BLUETOOTH / BIOMETRIC) */}
-              <div className={`rounded-2xl border p-5 space-y-4 ${surfaceBg}`}>
+              <div
+                id="hd-section-hardware-peripherals"
+                className={`scroll-mt-4 rounded-2xl border p-5 space-y-4 transition ${surfaceBg} ${
+                  highlightedSectionId === 'hd-section-hardware-peripherals'
+                    ? 'ring-2 ring-sky-500 ring-offset-2'
+                    : ''
+                }`}
+              >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">
                     <Usb className="w-4 h-4 text-indigo-500" />
@@ -5699,7 +5848,15 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           </div>
 
           {/* Endpoint-Side Live Probe Console (Ping / Port / DNS / NSLookup / Tracert / HTTP / ARP FROM INSIDE the User's PC!) */}
-          <form onSubmit={handleRunProbe} className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+          <form
+            id="hd-section-network-probes"
+            onSubmit={handleRunProbe}
+            className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-4 transition ${surfaceBg} ${
+              highlightedSectionId === 'hd-section-network-probes'
+                ? 'ring-2 ring-sky-500 ring-offset-2'
+                : ''
+            }`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-sm font-bold">
                 <Globe className="w-4 h-4 text-sky-500" />
@@ -5937,7 +6094,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
           {/* Network Adapters Table + Manual IPv4 & DNS Editor */}
           {networkData && (
-            <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+            <div
+              id="hd-section-network-adapters"
+              className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-4 transition ${surfaceBg} ${
+                highlightedSectionId === 'hd-section-network-adapters'
+                  ? 'ring-2 ring-sky-500 ring-offset-2'
+                  : ''
+              }`}
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className={`text-sm font-bold ${textPrimary}`}>
                   {isEn
@@ -6219,7 +6383,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           {networkData && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* OS Proxy Inspector & Manager Card */}
-              <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+              <div
+                id="hd-section-network-proxy"
+                className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-4 transition ${surfaceBg} ${
+                  highlightedSectionId === 'hd-section-network-proxy'
+                    ? 'ring-2 ring-sky-500 ring-offset-2'
+                    : ''
+                }`}
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-2">
@@ -6529,7 +6700,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
           {/* Simple Static Routing Table & Easy Route Writer */}
           {networkData && (
-            <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+            <div
+              id="hd-section-network-routes"
+              className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-4 transition ${surfaceBg} ${
+                highlightedSectionId === 'hd-section-network-routes'
+                  ? 'ring-2 ring-sky-500 ring-offset-2'
+                  : ''
+              }`}
+            >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
@@ -6788,7 +6966,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
           {/* Endpoint VPN Connection Provisioning & Management */}
           {networkData && (
-            <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+            <div
+              id="hd-section-network-vpn"
+              className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-4 transition ${surfaceBg} ${
+                highlightedSectionId === 'hd-section-network-vpn'
+                  ? 'ring-2 ring-sky-500 ring-offset-2'
+                  : ''
+              }`}
+            >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
@@ -7970,7 +8155,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       {activeSubTab === 'maintenance' && (
         <div className="space-y-6">
           {/* MODULE 6: SAFE CONFINED TEMP FOLDER CLEANUP */}
-          <div className={`rounded-xl border p-4 sm:p-5 space-y-5 ${surfaceBg}`}>
+          <div
+            id="hd-section-temp-cleanup"
+            className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-5 transition ${surfaceBg} ${
+              highlightedSectionId === 'hd-section-temp-cleanup'
+                ? 'ring-2 ring-sky-500 ring-offset-2'
+                : ''
+            }`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -8363,7 +8555,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           </div>
 
           {/* SYSTEM FILE INTEGRITY (SFC) & WINDOWS IMAGE REPAIR (DISM) */}
-          <div className={`rounded-xl border p-4 sm:p-5 space-y-5 ${surfaceBg}`}>
+          <div
+            id="hd-section-sfc-dism"
+            className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-5 transition ${surfaceBg} ${
+              highlightedSectionId === 'hd-section-sfc-dism'
+                ? 'ring-2 ring-sky-500 ring-offset-2'
+                : ''
+            }`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -10418,7 +10617,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           )}
 
           {/* Windows Update & WSUS Control Toolbar */}
-          <div className={`rounded-xl border p-4 sm:p-5 space-y-4 ${surfaceBg}`}>
+          <div
+            id="hd-section-windows-updates"
+            className={`scroll-mt-4 rounded-xl border p-4 sm:p-5 space-y-4 transition ${surfaceBg} ${
+              highlightedSectionId === 'hd-section-windows-updates'
+                ? 'ring-2 ring-sky-500 ring-offset-2'
+                : ''
+            }`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -12379,6 +12585,20 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         target={shareDeleteTarget}
         onConfirmDeleteNetworkShare={handleConfirmDisconnectShare}
         isLightMode={isLightMode}
+      />
+
+      {/* Interactive Diagnostics Selection & Launch Modal */}
+      <DiagnosticsConfigModal
+        isOpen={isDiagnosticsModalOpen}
+        onClose={() => setIsDiagnosticsModalOpen(false)}
+        onMinimize={handleMinimizeDiagnosticsModal}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        targetIp={targetIp.trim()}
+        selectedChecks={diagnosticsSelectedChecks}
+        onChangeSelectedChecks={setDiagnosticsSelectedChecks}
+        onStartRun={(checks) => handleRunDiagnosticsSuite(checks)}
+        running={loadingDiagnostics}
       />
     </div>
   );

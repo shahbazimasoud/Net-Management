@@ -14739,6 +14739,1943 @@ PY`;
   };
 }
 
+// ============================================================================
+// ENDPOINT FULL TROUBLESHOOTING DIAGNOSTICS SUITE (13 ALLOWLISTED CHECKS)
+// ============================================================================
 
+export type HelpdeskDiagnosticCheckId =
+  | 'ip_dns'
+  | 'gateway_ping'
+  | 'nic_link_speed'
+  | 'routing_table'
+  | 'proxy_status'
+  | 'internet_connectivity'
+  | 'vpn_status'
+  | 'os_drive_cleanup'
+  | 'windows_integrity'
+  | 'windows_update_last'
+  | 'drivers_status'
+  | 'cpu_ram_usage'
+  | 'top_resource_apps';
 
+export const ALL_DIAGNOSTIC_CHECK_IDS: HelpdeskDiagnosticCheckId[] = [
+  'ip_dns',
+  'gateway_ping',
+  'nic_link_speed',
+  'routing_table',
+  'proxy_status',
+  'internet_connectivity',
+  'vpn_status',
+  'os_drive_cleanup',
+  'windows_integrity',
+  'windows_update_last',
+  'drivers_status',
+  'cpu_ram_usage',
+  'top_resource_apps',
+];
 
+const DIAGNOSTIC_CHECK_SET = new Set<string>(ALL_DIAGNOSTIC_CHECK_IDS);
+
+export interface HelpdeskDiagnosticMetric {
+  labelEn: string;
+  labelFa: string;
+  value: string;
+  tone?: 'ok' | 'warn' | 'fail' | 'info';
+}
+
+export interface HelpdeskDiagnosticHighlight {
+  primary: string;
+  secondary?: string;
+  badge?: string;
+  badgeTone?: 'ok' | 'warn' | 'fail' | 'info';
+}
+
+export interface HelpdeskDiagnosticJumpTarget {
+  tab: 'health' | 'hardware' | 'network' | 'maintenance' | 'updates';
+  sectionId: string;
+  labelEn: string;
+  labelFa: string;
+}
+
+export interface HelpdeskDiagnosticCheckResult {
+  id: HelpdeskDiagnosticCheckId;
+  category: 'network' | 'system_storage' | 'hardware_perf';
+  titleEn: string;
+  titleFa: string;
+  status: 'pass' | 'warn' | 'fail' | 'info' | 'skipped';
+  statusLabelEn: string;
+  statusLabelFa: string;
+  summaryEn: string;
+  summaryFa: string;
+  recommendationEn: string;
+  recommendationFa: string;
+  metrics: HelpdeskDiagnosticMetric[];
+  highlights: HelpdeskDiagnosticHighlight[];
+  durationMs: number;
+  jumpTarget: HelpdeskDiagnosticJumpTarget;
+}
+
+export interface HelpdeskDiagnosticsSuiteResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  osName: string;
+  loggedInUser: string;
+  collectedAt: string;
+  totalDurationMs: number;
+  requestedChecks: HelpdeskDiagnosticCheckId[];
+  summary: {
+    totalChecked: number;
+    passed: number;
+    warnings: number;
+    failures: number;
+    infoOnly: number;
+    skipped: number;
+    overallStatus: 'healthy' | 'warning' | 'critical';
+  };
+  checks: HelpdeskDiagnosticCheckResult[];
+}
+
+const DIAGNOSTIC_JUMP_TARGETS: Record<HelpdeskDiagnosticCheckId, HelpdeskDiagnosticJumpTarget> = {
+  ip_dns: {
+    tab: 'network',
+    sectionId: 'hd-section-network-adapters',
+    labelEn: 'Fix IP / DNS in Network Tab',
+    labelFa: 'تنظیم IP و DNS در تب شبکه',
+  },
+  gateway_ping: {
+    tab: 'network',
+    sectionId: 'hd-section-network-probes',
+    labelEn: 'Open Network Probes & Reset',
+    labelFa: 'تست و ریست شبکه در تب شبکه',
+  },
+  nic_link_speed: {
+    tab: 'network',
+    sectionId: 'hd-section-network-adapters',
+    labelEn: 'Inspect NICs in Network Tab',
+    labelFa: 'مشاهده کارت‌های شبکه',
+  },
+  routing_table: {
+    tab: 'network',
+    sectionId: 'hd-section-network-routes',
+    labelEn: 'Manage Routes in Network Tab',
+    labelFa: 'مدیریت روت‌ها در تب شبکه',
+  },
+  proxy_status: {
+    tab: 'network',
+    sectionId: 'hd-section-network-proxy',
+    labelEn: 'Configure Proxy in Network Tab',
+    labelFa: 'تنظیم پروکسی در تب شبکه',
+  },
+  internet_connectivity: {
+    tab: 'network',
+    sectionId: 'hd-section-network-probes',
+    labelEn: 'Run Live Probes in Network Tab',
+    labelFa: 'تست زنده ارتباط در تب شبکه',
+  },
+  vpn_status: {
+    tab: 'network',
+    sectionId: 'hd-section-network-vpn',
+    labelEn: 'Manage VPN in Network Tab',
+    labelFa: 'مدیریت VPN در تب شبکه',
+  },
+  os_drive_cleanup: {
+    tab: 'maintenance',
+    sectionId: 'hd-section-temp-cleanup',
+    labelEn: 'Clean Temp & Storage',
+    labelFa: 'پاک‌سازی فضا در تب تعمیر سیستم',
+  },
+  windows_integrity: {
+    tab: 'maintenance',
+    sectionId: 'hd-section-sfc-dism',
+    labelEn: 'Open SFC / DISM Repair',
+    labelFa: 'تعمیر ویندوز با SFC / DISM',
+  },
+  windows_update_last: {
+    tab: 'updates',
+    sectionId: 'hd-section-windows-updates',
+    labelEn: 'Open Windows Updates & HotFixes',
+    labelFa: 'مدیریت آپدیت‌ها و KBها',
+  },
+  drivers_status: {
+    tab: 'hardware',
+    sectionId: 'hd-section-hardware-peripherals',
+    labelEn: 'Inspect Devices in Hardware Tab',
+    labelFa: 'بررسی سخت‌افزار و درایورها',
+  },
+  cpu_ram_usage: {
+    tab: 'health',
+    sectionId: 'hd-section-health-resources',
+    labelEn: 'Open CPU & RAM Telemetry',
+    labelFa: 'مشاهده وضعیت CPU و RAM',
+  },
+  top_resource_apps: {
+    tab: 'health',
+    sectionId: 'hd-section-health-processes',
+    labelEn: 'Manage Processes in Health Tab',
+    labelFa: 'مدیریت پروسس‌های پرمصرف',
+  },
+};
+
+function normalizeSelectedDiagnosticChecks(rawChecks?: unknown): HelpdeskDiagnosticCheckId[] {
+  if (!Array.isArray(rawChecks) || rawChecks.length === 0) {
+    return [...ALL_DIAGNOSTIC_CHECK_IDS];
+  }
+  const seen = new Set<HelpdeskDiagnosticCheckId>();
+  for (const item of rawChecks) {
+    const id = String(item || '').trim();
+    if (DIAGNOSTIC_CHECK_SET.has(id)) {
+      seen.add(id as HelpdeskDiagnosticCheckId);
+    }
+  }
+  if (seen.size === 0) {
+    throw new Error('At least one valid diagnostic check must be selected.');
+  }
+  return ALL_DIAGNOSTIC_CHECK_IDS.filter((id) => seen.has(id));
+}
+
+function mapPnpConfigErrorCode(code: number): { en: string; fa: string } {
+  switch (code) {
+    case 1:
+      return { en: 'Code 1: Device not configured correctly', fa: 'کد ۱: تنظیمات درایور ناقص است' };
+    case 3:
+      return { en: 'Code 3: Driver may be corrupted', fa: 'کد ۳: درایور دستگاه خراب است' };
+    case 10:
+      return { en: 'Code 10: Device cannot start', fa: 'کد ۱۰: دستگاه استارت نمی‌شود' };
+    case 12:
+      return { en: 'Code 12: Not enough free resources', fa: 'کد ۱۲: تداخل منابع IRQ/DMA' };
+    case 14:
+      return { en: 'Code 14: Restart required to finish', fa: 'کد ۱۴: نیازمند ری‌استارت ویندوز' };
+    case 18:
+      return { en: 'Code 18: Reinstall drivers', fa: 'کد ۱۸: نیاز به نصب مجدد درایور' };
+    case 22:
+      return { en: 'Code 22: Device is disabled', fa: 'کد ۲۲: دستگاه Disable شده است' };
+    case 28:
+      return { en: 'Code 28: Drivers are not installed', fa: 'کد ۲۸: درایور نصب نیست' };
+    case 31:
+      return { en: 'Code 31: Windows cannot load required drivers', fa: 'کد ۳۱: عدم بارگذاری درایور' };
+    case 39:
+      return { en: 'Code 39: Driver corrupted or missing', fa: 'کد ۳۹: فایل درایور مفقود/خراب' };
+    case 43:
+      return { en: 'Code 43: Device reported hardware problem', fa: 'کد ۴۳: خطای سخت‌افزاری یا درایور' };
+    case 45:
+      return { en: 'Code 45: Device currently not connected', fa: 'کد ۴۵: دستگاه قطع شده است' };
+    case 52:
+      return { en: 'Code 52: Unsigned driver blocked', fa: 'کد ۵۲: درایور بدون امضای دیجیتال' };
+    default:
+      return { en: `Code ${code}: Driver/Hardware error`, fa: `کد خطا ${code}` };
+  }
+}
+
+function formatBytesHuman(bytes: number): string {
+  const b = Math.max(0, Number(bytes) || 0);
+  if (b >= 1024 * 1024 * 1024) return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  if (b >= 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+  if (b >= 1024) return `${(b / 1024).toFixed(0)} KB`;
+  return `${Math.round(b)} B`;
+}
+
+export async function runEndpointDiagnostics(
+  input: HelpdeskTargetInput,
+  selectedChecksRaw?: unknown
+): Promise<HelpdeskDiagnosticsSuiteResult> {
+  const startedAtMs = Date.now();
+  const requestedChecks = normalizeSelectedDiagnosticChecks(selectedChecksRaw);
+  const want = new Set<HelpdeskDiagnosticCheckId>(requestedChecks);
+
+  const flagsJsonB64 = Buffer.from(
+    JSON.stringify(Object.fromEntries(ALL_DIAGNOSTIC_CHECK_IDS.map((k) => [k, want.has(k)]))),
+    'utf8'
+  ).toString('base64');
+
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+function To-Str($v) { if ($null -eq $v) { return '' }; try { return [string]$v } catch { return '' } }
+function To-Int($v) { if ($null -eq $v) { return 0 }; try { return [int]$v } catch { return 0 } }
+function To-Dbl($v) { if ($null -eq $v) { return 0.0 }; try { return [double]$v } catch { return 0.0 } }
+function Measure-Folder($p) {
+  $sum = [int64]0; $cnt = 0
+  if ($p -and (Test-Path -LiteralPath $p)) {
+    try {
+      $files = @(Get-ChildItem -LiteralPath $p -File -Force -Recurse -ErrorAction SilentlyContinue)
+      $cnt = $files.Count
+      foreach ($f in $files) { $sum += [int64]$f.Length }
+    } catch {}
+  }
+  return [PSCustomObject]@{ bytes = $sum; count = $cnt }
+}
+
+$flagsJson = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${flagsJsonB64}'))
+$flags = $flagsJson | ConvertFrom-Json
+
+$hostname = To-Str $env:COMPUTERNAME
+$osObj = $null
+try { $osObj = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue } catch {}
+if (-not $osObj) { try { $osObj = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction SilentlyContinue } catch {} }
+$osName = if ($osObj) { (To-Str $osObj.Caption).Trim() } else { 'Windows' }
+
+$loggedUser = ''
+$activeUserSid = ''
+$activeUserProfilePath = ''
+try {
+  $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+  if ($cs -and $cs.UserName) { $loggedUser = To-Str $cs.UserName }
+  if (-not $loggedUser) {
+    $exp = @(Get-CimInstance -ClassName Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue) | Select-Object -First 1
+    if ($exp) {
+      $own = Invoke-CimMethod -InputObject $exp -MethodName GetOwner -ErrorAction SilentlyContinue
+      if ($own -and $own.User) { $loggedUser = if ($own.Domain) { "$($own.Domain)\\$($own.User)" } else { To-Str $own.User } }
+    }
+  }
+  if ($loggedUser) {
+    try {
+      $nt = New-Object System.Security.Principal.NTAccount($loggedUser)
+      $activeUserSid = To-Str ($nt.Translate([System.Security.Principal.SecurityIdentifier]).Value)
+    } catch {}
+  }
+  if ($activeUserSid) {
+    $pl = Get-ItemProperty -LiteralPath "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$activeUserSid" -ErrorAction SilentlyContinue
+    if ($pl -and $pl.ProfileImagePath) { $activeUserProfilePath = To-Str $pl.ProfileImagePath }
+  }
+} catch {}
+
+$out = [ordered]@{
+  hostname = $hostname
+  osName = $osName
+  loggedInUser = $loggedUser
+  checks = [ordered]@{}
+}
+
+# Pre-collect basic adapter data if any network check needs it
+$needAdapters = ($flags.ip_dns -or $flags.gateway_ping -or $flags.nic_link_speed)
+$netConfigs = @()
+$netAdapters = @()
+$gwList = @()
+if ($needAdapters) {
+  try { $netAdapters = @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' -or $_.HardwareInterface }) } catch {}
+  if ($netAdapters.Count -eq 0) {
+    try { $netAdapters = @(Get-CimInstance -ClassName Win32_NetworkAdapter -ErrorAction SilentlyContinue | Where-Object { $_.NetEnabled -eq $true -or $_.PhysicalAdapter -eq $true }) } catch {}
+  }
+  try {
+    $netConfigs = @(Get-NetIPConfiguration -ErrorAction SilentlyContinue)
+  } catch {}
+  if ($netConfigs.Count -gt 0) {
+    foreach ($nc in $netConfigs) {
+      foreach ($gw in @($nc.IPv4DefaultGateway)) {
+        if ($gw -and $gw.NextHop -and ($gwList -notcontains (To-Str $gw.NextHop))) {
+          $gwList += To-Str $gw.NextHop
+        }
+      }
+    }
+  } else {
+    try {
+      $wmiNics = @(Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -Filter "IPEnabled=True" -ErrorAction SilentlyContinue)
+      foreach ($wn in $wmiNics) {
+        foreach ($g in @($wn.DefaultIPGateway)) {
+          if ($g -and ($gwList -notcontains (To-Str $g))) { $gwList += To-Str $g }
+        }
+      }
+    } catch {}
+  }
+}
+
+# 1. ip_dns
+if ($flags.ip_dns) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $adaptersOut = @()
+    $wmiConfigs = @()
+    try { $wmiConfigs = @(Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -Filter "IPEnabled=True" -ErrorAction SilentlyContinue) } catch {}
+    foreach ($wc in $wmiConfigs) {
+      $ipv4s = @($wc.IPAddress | Where-Object { $_ -match '^\\d+\\.\\d+\\.\\d+\\.\\d+$' })
+      if ($ipv4s.Count -eq 0) { continue }
+      $dnss = @($wc.DNSServerSearchOrder | Where-Object { $_ })
+      $gws = @($wc.DefaultIPGateway | Where-Object { $_ })
+      $adaptersOut += [PSCustomObject]@{
+        name = To-Str $wc.Description
+        ips = $ipv4s
+        masks = @($wc.IPSubnet)
+        gateways = $gws
+        dns = $dnss
+        dhcp = [bool]$wc.DHCPEnabled
+        dhcpServer = To-Str $wc.DHCPServer
+      }
+    }
+    $dnsWorks = $false
+    $dnsResolvedIp = ''
+    $dnsError = ''
+    try {
+      $resDns = @(Resolve-DnsName -Name 'www.microsoft.com' -Type A -DnsOnly -ErrorAction Stop | Where-Object { $_.IPAddress } | Select-Object -First 1)
+      if ($resDns.Count -gt 0) {
+        $dnsWorks = $true
+        $dnsResolvedIp = To-Str $resDns[0].IPAddress
+      }
+    } catch {
+      try {
+        $addrs = @([System.Net.Dns]::GetHostAddresses('www.microsoft.com'))
+        if ($addrs.Count -gt 0) {
+          $dnsWorks = $true
+          $dnsResolvedIp = To-Str $addrs[0].IPAddressToString
+        }
+      } catch {
+        $dnsError = To-Str $_.Exception.Message
+      }
+    }
+    $sw.Stop()
+    $out.checks['ip_dns'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      adapters = $adaptersOut
+      dnsWorks = $dnsWorks
+      dnsResolvedIp = $dnsResolvedIp
+      dnsError = $dnsError
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['ip_dns'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+# 2. gateway_ping
+if ($flags.gateway_ping) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $gwResults = @()
+    foreach ($gw in ($gwList | Select-Object -First 3)) {
+      $sent = 3; $recv = 0; $rtts = @(); $lastStatus = ''
+      $pinger = New-Object System.Net.NetworkInformation.Ping
+      for ($i = 0; $i -lt $sent; $i++) {
+        try {
+          $reply = $pinger.Send($gw, 1500)
+          $lastStatus = To-Str $reply.Status
+          if ($reply.Status -eq [System.Net.NetworkInformation.IPStatus]::Success) {
+            $recv++
+            $rtts += [int]$reply.RoundtripTime
+          }
+        } catch { $lastStatus = To-Str $_.Exception.Message }
+      }
+      $pinger.Dispose()
+      $avg = if ($rtts.Count -gt 0) { [math]::Round((($rtts | Measure-Object -Average).Average), 1) } else { $null }
+      $loss = [math]::Round((($sent - $recv) / $sent) * 100, 0)
+      $gwResults += [PSCustomObject]@{
+        gateway = $gw
+        sent = $sent
+        received = $recv
+        lossPct = $loss
+        avgMs = $avg
+        lastStatus = $lastStatus
+      }
+    }
+    $sw.Stop()
+    $out.checks['gateway_ping'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      gateways = $gwResults
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['gateway_ping'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+# 3. nic_link_speed
+if ($flags.nic_link_speed) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $nicList = @()
+    $gn = @()
+    try { $gn = @(Get-NetAdapter -ErrorAction SilentlyContinue) } catch {}
+    if ($gn.Count -gt 0) {
+      foreach ($a in $gn) {
+        if (-not $a.HardwareInterface -and $a.Status -ne 'Up') { continue }
+        $mbps = 0
+        if ($a.ReceiveLinkSpeed) { $mbps = [math]::Round((To-Dbl $a.ReceiveLinkSpeed) / 1000000, 0) }
+        elseif ($a.LinkSpeed -match '([0-9.]+)\\s*Gbps') { $mbps = [int]([double]$Matches[1] * 1000) }
+        elseif ($a.LinkSpeed -match '([0-9.]+)\\s*Mbps') { $mbps = [int][double]$Matches[1] }
+        $nicList += [PSCustomObject]@{
+          name = To-Str $a.Name
+          description = To-Str $a.InterfaceDescription
+          status = To-Str $a.Status
+          linkSpeed = To-Str $a.LinkSpeed
+          speedMbps = $mbps
+          mediaType = To-Str $a.MediaType
+          fullDuplex = $a.FullDuplex
+          virtual = [bool]$a.Virtual
+        }
+      }
+    } else {
+      $wnics = @(Get-CimInstance -ClassName Win32_NetworkAdapter -ErrorAction SilentlyContinue | Where-Object { $_.PhysicalAdapter -eq $true })
+      foreach ($a in $wnics) {
+        $mbps = if ($a.Speed) { [math]::Round((To-Dbl $a.Speed) / 1000000, 0) } else { 0 }
+        $nicList += [PSCustomObject]@{
+          name = To-Str $a.NetConnectionID
+          description = To-Str $a.Name
+          status = if ($a.NetConnectionStatus -eq 2) { 'Up' } else { 'Disconnected' }
+          linkSpeed = if ($mbps -ge 1000) { "$([math]::Round($mbps / 1000, 1)) Gbps" } elseif ($mbps -gt 0) { "$mbps Mbps" } else { 'N/A' }
+          speedMbps = $mbps
+          mediaType = To-Str $a.AdapterType
+          fullDuplex = $null
+          virtual = $false
+        }
+      }
+    }
+    $sw.Stop()
+    $out.checks['nic_link_speed'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      adapters = $nicList
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['nic_link_speed'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+# 4. routing_table
+if ($flags.routing_table) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $routesOut = @()
+    $defaultRoutes = @()
+    $totalCount = 0
+    $persistentCount = 0
+    $rawRoutes = @()
+    try { $rawRoutes = @(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue) } catch {}
+    if ($rawRoutes.Count -gt 0) {
+      $totalCount = $rawRoutes.Count
+      foreach ($r in $rawRoutes) {
+        $isDef = ($r.DestinationPrefix -eq '0.0.0.0/0')
+        $isPersist = (To-Str $r.PolicyStore) -eq 'PersistentStore'
+        if ($isPersist) { $persistentCount++ }
+        if ($isDef) {
+          $defaultRoutes += [PSCustomObject]@{
+            destination = To-Str $r.DestinationPrefix
+            nextHop = To-Str $r.NextHop
+            ifIndex = To-Int $r.InterfaceIndex
+            ifAlias = To-Str $r.InterfaceAlias
+            metric = (To-Int $r.RouteMetric) + (To-Int $r.InterfaceMetric)
+          }
+        }
+      }
+      $sorted = @($rawRoutes | Where-Object { $_.NextHop -ne '0.0.0.0' -or $_.DestinationPrefix -eq '0.0.0.0/0' } | Sort-Object RouteMetric | Select-Object -First 15)
+      foreach ($r in $sorted) {
+        $routesOut += [PSCustomObject]@{
+          destination = To-Str $r.DestinationPrefix
+          nextHop = To-Str $r.NextHop
+          ifAlias = To-Str $r.InterfaceAlias
+          metric = (To-Int $r.RouteMetric) + (To-Int $r.InterfaceMetric)
+          persistent = ((To-Str $r.PolicyStore) -eq 'PersistentStore')
+        }
+      }
+    } else {
+      $wmiR = @(Get-CimInstance -ClassName Win32_IP4RouteTable -ErrorAction SilentlyContinue)
+      $totalCount = $wmiR.Count
+      foreach ($r in ($wmiR | Select-Object -First 15)) {
+        $dest = "$(To-Str $r.Destination)/$(To-Str $r.Mask)"
+        if ($r.Destination -eq '0.0.0.0') {
+          $defaultRoutes += [PSCustomObject]@{ destination = '0.0.0.0/0'; nextHop = To-Str $r.NextHop; ifIndex = To-Int $r.InterfaceIndex; ifAlias = ''; metric = To-Int $r.Metric1 }
+        }
+        $routesOut += [PSCustomObject]@{ destination = $dest; nextHop = To-Str $r.NextHop; ifAlias = ''; metric = To-Int $r.Metric1; persistent = ([int]$r.Type -eq 4) }
+      }
+    }
+    $sw.Stop()
+    $out.checks['routing_table'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      totalRoutes = $totalCount
+      persistentRoutes = $persistentCount
+      defaultRoutes = $defaultRoutes
+      sampleRoutes = $routesOut
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['routing_table'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+# 5. proxy_status
+if ($flags.proxy_status) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $regPath = if ($activeUserSid -and (Test-Path "Registry::HKEY_USERS\\$activeUserSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")) {
+      "Registry::HKEY_USERS\\$activeUserSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
+    } else {
+      'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
+    }
+    $pReg = Get-ItemProperty -LiteralPath $regPath -ErrorAction SilentlyContinue
+    $winInetEnabled = ([int]($pReg.ProxyEnable) -eq 1)
+    $winInetServer = To-Str $pReg.ProxyServer
+    $pacUrl = To-Str $pReg.AutoConfigURL
+    $bypass = To-Str $pReg.ProxyOverride
+
+    $winhttpOut = ''
+    try { $winhttpOut = ((& netsh winhttp show proxy 2>&1) -join ' ') } catch {}
+    $winhttpDirect = ($winhttpOut -match 'Direct access|no proxy server')
+    $winhttpServer = ''
+    if (-not $winhttpDirect -and $winhttpOut -match 'Proxy Server\\(s\\)\\s*:\\s*([^\\r\\n]+)') {
+      $winhttpServer = To-Str $Matches[1]
+    }
+    $sw.Stop()
+    $out.checks['proxy_status'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      winInetEnabled = $winInetEnabled
+      winInetServer = $winInetServer
+      pacUrl = $pacUrl
+      bypassList = $bypass
+      winhttpDirect = $winhttpDirect
+      winhttpServer = $winhttpServer
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['proxy_status'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+# 6. internet_connectivity
+if ($flags.internet_connectivity) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $ncsiList = @()
+    try {
+      foreach ($np in @(Get-NetConnectionProfile -ErrorAction SilentlyContinue)) {
+        $ncsiList += [PSCustomObject]@{
+          name = To-Str $np.Name
+          iface = To-Str $np.InterfaceAlias
+          category = To-Str $np.NetworkCategory
+          ipv4 = To-Str $np.IPv4Connectivity
+        }
+      }
+    } catch {}
+
+    $icmpOk = $false
+    $icmpMs = $null
+    try {
+      $pg = New-Object System.Net.NetworkInformation.Ping
+      $rep = $pg.Send('8.8.8.8', 1800)
+      if ($rep.Status -eq [System.Net.NetworkInformation.IPStatus]::Success) {
+        $icmpOk = $true
+        $icmpMs = [int]$rep.RoundtripTime
+      } else {
+        $rep2 = $pg.Send('1.1.1.1', 1800)
+        if ($rep2.Status -eq [System.Net.NetworkInformation.IPStatus]::Success) {
+          $icmpOk = $true
+          $icmpMs = [int]$rep2.RoundtripTime
+        }
+      }
+      $pg.Dispose()
+    } catch {}
+
+    $tcp443Ok = $false
+    $tcpTarget = ''
+    foreach ($tgt in @('1.1.1.1', '8.8.8.8')) {
+      try {
+        $tc = New-Object System.Net.Sockets.TcpClient
+        $iar = $tc.BeginConnect($tgt, 443, $null, $null)
+        $wait = $iar.AsyncWaitHandle.WaitOne(2200, $false)
+        if ($wait -and $tc.Connected) {
+          $tcp443Ok = $true
+          $tcpTarget = $tgt
+          $tc.EndConnect($iar)
+          $tc.Close()
+          break
+        }
+        $tc.Close()
+      } catch {}
+    }
+    $sw.Stop()
+    $out.checks['internet_connectivity'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      ncsi = $ncsiList
+      icmpOk = $icmpOk
+      icmpMs = $icmpMs
+      tcp443Ok = $tcp443Ok
+      tcpTarget = $tcpTarget
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['internet_connectivity'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+# 7. vpn_status
+if ($flags.vpn_status) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $rasVpns = @()
+    try {
+      foreach ($v in @(Get-VpnConnection -AllUserConnection -ErrorAction SilentlyContinue)) {
+        $rasVpns += [PSCustomObject]@{
+          name = To-Str $v.Name
+          server = To-Str $v.ServerAddress
+          tunnelType = To-Str $v.TunnelType
+          status = To-Str $v.ConnectionStatus
+          scope = 'AllUsers'
+        }
+      }
+    } catch {}
+    try {
+      foreach ($v in @(Get-VpnConnection -ErrorAction SilentlyContinue)) {
+        $rasVpns += [PSCustomObject]@{
+          name = To-Str $v.Name
+          server = To-Str $v.ServerAddress
+          tunnelType = To-Str $v.TunnelType
+          status = To-Str $v.ConnectionStatus
+          scope = 'CurrentUser'
+        }
+      }
+    } catch {}
+
+    $vpnAdapters = @()
+    try {
+      $allAds = @(Get-NetAdapter -ErrorAction SilentlyContinue)
+      foreach ($ad in $allAds) {
+        $desc = To-Str $ad.InterfaceDescription
+        $nm = To-Str $ad.Name
+        if ($desc -match 'WAN Miniport|AnyConnect|Fortinet|FortiSSL|TAP-Windows|Wintun|OpenVPN|WireGuard|PanGP|GlobalProtect|Kerio|Cisco|Pulse|Juniper|VPN' -or $nm -match 'VPN|WireGuard|OpenVPN|Forti') {
+          if ($desc -match 'WAN Miniport' -and $ad.Status -ne 'Up') { continue }
+          $vpnAdapters += [PSCustomObject]@{
+            name = $nm
+            description = $desc
+            status = To-Str $ad.Status
+            linkSpeed = To-Str $ad.LinkSpeed
+          }
+        }
+      }
+    } catch {}
+
+    $vpnProcs = @()
+    try {
+      $vp = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^(vpnui|vpnagent|FortiClient|FortiSSLVPNdaemon|openvpn|openvpn-gui|wireguard|PanGPA|PanGPS|kvpncsvc|kvpncgui)$' } | Select-Object -ExpandProperty ProcessName -Unique)
+      $vpnProcs = @($vp)
+    } catch {}
+
+    $sw.Stop()
+    $out.checks['vpn_status'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      rasProfiles = $rasVpns
+      vpnAdapters = $vpnAdapters
+      vpnProcesses = $vpnProcs
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['vpn_status'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+# 8. os_drive_cleanup
+if ($flags.os_drive_cleanup) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $sysDrive = if ($env:SystemDrive) { To-Str $env:SystemDrive } else { 'C:' }
+    $vol = Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DeviceID='$sysDrive'" -ErrorAction SilentlyContinue
+    if (-not $vol) { $vol = Get-WmiObject -Class Win32_LogicalDisk -Filter "DeviceID='$sysDrive'" -ErrorAction SilentlyContinue }
+    $totalBytes = if ($vol) { [int64]$vol.Size } else { 0 }
+    $freeBytes = if ($vol) { [int64]$vol.FreeSpace } else { 0 }
+    $usedBytes = [math]::Max(0, $totalBytes - $freeBytes)
+    $freePct = if ($totalBytes -gt 0) { [math]::Round(($freeBytes / $totalBytes) * 100, 1) } else { 0 }
+
+    $winTemp = Measure-Folder (Join-Path $env:SystemRoot 'Temp')
+    $userTempPath = if ($activeUserProfilePath) { Join-Path $activeUserProfilePath 'AppData\\Local\\Temp' } else { To-Str $env:TEMP }
+    $userTemp = Measure-Folder $userTempPath
+    $wuCache = Measure-Folder (Join-Path $env:SystemRoot 'SoftwareDistribution\\Download')
+
+    # Recycle Bin scan on OS Drive (count actual recycled $R* files or entries)
+    $rbBytes = [int64]0
+    $rbCount = 0
+    $rbPath = Join-Path ($sysDrive + '\\') '$Recycle.Bin'
+    if (Test-Path -LiteralPath $rbPath) {
+      try {
+        $rbFiles = @(Get-ChildItem -LiteralPath $rbPath -File -Force -Recurse -ErrorAction SilentlyContinue)
+        foreach ($rf in $rbFiles) {
+          if ($rf.Name -like '$I*') { continue }
+          $rbCount++
+          $rbBytes += [int64]$rf.Length
+        }
+      } catch {}
+    }
+
+    $sw.Stop()
+    $out.checks['os_drive_cleanup'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      drive = $sysDrive
+      totalBytes = $totalBytes
+      usedBytes = $usedBytes
+      freeBytes = $freeBytes
+      freePct = $freePct
+      winTempBytes = $winTemp.bytes
+      winTempCount = $winTemp.count
+      userTempBytes = $userTemp.bytes
+      userTempCount = $userTemp.count
+      wuCacheBytes = $wuCache.bytes
+      recycleBinBytes = $rbBytes
+      recycleBinCount = $rbCount
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['os_drive_cleanup'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+# 9. windows_integrity
+if ($flags.windows_integrity) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $dismStatus = 'Unknown'
+    $dismExit = -1
+    $dismOutput = ''
+    try {
+      $dismRaw = (& dism.exe /Online /Cleanup-Image /CheckHealth 2>&1) -join ' '
+      $dismExit = $LASTEXITCODE
+      $dismOutput = To-Str $dismRaw
+      if ($dismOutput -match 'No component store corruption detected') { $dismStatus = 'Healthy' }
+      elseif ($dismOutput -match 'repairable') { $dismStatus = 'Repairable' }
+      elseif ($dismOutput -match 'corrupted') { $dismStatus = 'Corrupted' }
+      elseif ($dismExit -eq 0) { $dismStatus = 'Healthy' }
+      else { $dismStatus = "ExitCode:$dismExit" }
+    } catch { $dismStatus = 'CheckError' }
+
+    $cbsFlag = $false
+    try {
+      $corruptKey = Get-Item -LiteralPath 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\CorruptionDetected' -ErrorAction SilentlyContinue
+      if ($corruptKey) { $cbsFlag = $true }
+    } catch {}
+
+    $cbsRecentErrors = 0
+    $cbsLog = Join-Path $env:SystemRoot 'Logs\\CBS\\CBS.log'
+    if (Test-Path -LiteralPath $cbsLog) {
+      try {
+        $tailLines = @(Get-Content -LiteralPath $cbsLog -Tail 200 -ErrorAction SilentlyContinue)
+        foreach ($ln in $tailLines) {
+          if ($ln -match 'Cannot repair member file|Corrupt|CSI Store Corruption') { $cbsRecentErrors++ }
+        }
+      } catch {}
+    }
+
+    $pendingReboot = $false
+    if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending') { $pendingReboot = $true }
+    if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired') { $pendingReboot = $true }
+
+    $dirtyDisks = @()
+    try {
+      foreach ($dv in @(Get-CimInstance -ClassName Win32_Volume -Filter "DriveType=3" -ErrorAction SilentlyContinue)) {
+        if ($dv.DirtyBitSet -eq $true) { $dirtyDisks += To-Str $dv.DriveLetter }
+      }
+    } catch {}
+
+    $sw.Stop()
+    $out.checks['windows_integrity'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      dismStatus = $dismStatus
+      dismExit = $dismExit
+      cbsCorruptionKey = $cbsFlag
+      cbsRecentErrors = $cbsRecentErrors
+      pendingReboot = $pendingReboot
+      dirtyDisks = $dirtyDisks
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['windows_integrity'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+# 10. windows_update_last
+if ($flags.windows_update_last) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $hotfixes = @()
+    try {
+      $rawHf = @(Get-HotFix -ErrorAction SilentlyContinue)
+      foreach ($hf in $rawHf) {
+        $dt = $null
+        if ($hf.InstalledOn) { try { $dt = [datetime]$hf.InstalledOn } catch {} }
+        if ($dt) {
+          $hotfixes += [PSCustomObject]@{
+            kb = To-Str $hf.HotFixID
+            description = To-Str $hf.Description
+            installedIso = $dt.ToString('yyyy-MM-dd')
+            ticks = $dt.Ticks
+          }
+        }
+      }
+    } catch {}
+    $sortedHf = @($hotfixes | Sort-Object ticks -Descending)
+    $latest = if ($sortedHf.Count -gt 0) { $sortedHf[0] } else { $null }
+
+    $wuLastInstall = ''
+    try {
+      $wuRes = Get-ItemProperty -LiteralPath 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\Results\\Install' -ErrorAction SilentlyContinue
+      if ($wuRes -and $wuRes.LastSuccessTime) { $wuLastInstall = To-Str $wuRes.LastSuccessTime }
+    } catch {}
+
+    $wsusUrl = ''
+    $useWsus = $false
+    try {
+      $auKey = Get-ItemProperty -LiteralPath 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate' -ErrorAction SilentlyContinue
+      $auOpt = Get-ItemProperty -LiteralPath 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU' -ErrorAction SilentlyContinue
+      if ($auOpt -and ([int]$auOpt.UseWUServer -eq 1)) {
+        $useWsus = $true
+        $wsusUrl = To-Str $auKey.WUServer
+      }
+    } catch {}
+
+    $pendingReboot = (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired')
+    $sw.Stop()
+    $out.checks['windows_update_last'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      hotfixCount = $sortedHf.Count
+      latestKb = if ($latest) { To-Str $latest.kb } else { '' }
+      latestDescription = if ($latest) { To-Str $latest.description } else { '' }
+      latestDate = if ($latest) { To-Str $latest.installedIso } else { '' }
+      recentHotfixes = @($sortedHf | Select-Object -First 4 | ForEach-Object { [PSCustomObject]@{ kb = $_.kb; description = $_.description; date = $_.installedIso } })
+      wuLastInstall = $wuLastInstall
+      useWsus = $useWsus
+      wsusUrl = $wsusUrl
+      pendingReboot = $pendingReboot
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['windows_update_last'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+# 11. drivers_status
+if ($flags.drivers_status) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $allPnp = @(Get-CimInstance -ClassName Win32_PnPEntity -ErrorAction SilentlyContinue)
+    if ($allPnp.Count -eq 0) {
+      $allPnp = @(Get-WmiObject -Class Win32_PnPEntity -ErrorAction SilentlyContinue)
+    }
+    $problems = @()
+    foreach ($d in $allPnp) {
+      $ec = To-Int $d.ConfigManagerErrorCode
+      if ($ec -ne 0) {
+        $problems += [PSCustomObject]@{
+          name = To-Str $d.Name
+          pnpClass = To-Str $d.PNPClass
+          manufacturer = To-Str $d.Manufacturer
+          errorCode = $ec
+          status = To-Str $d.Status
+        }
+      }
+    }
+    $sw.Stop()
+    $out.checks['drivers_status'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      totalDevices = $allPnp.Count
+      problemCount = $problems.Count
+      problemDevices = @($problems | Select-Object -First 20)
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['drivers_status'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+# 12. cpu_ram_usage
+if ($flags.cpu_ram_usage) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $cpuName = ''
+    $cores = 0
+    $logical = 0
+    $cpuLoads = @()
+    $cpus = @(Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue)
+    if ($cpus.Count -eq 0) { $cpus = @(Get-WmiObject -Class Win32_Processor -ErrorAction SilentlyContinue) }
+    foreach ($c in $cpus) {
+      if (-not $cpuName) { $cpuName = (To-Str $c.Name).Trim() }
+      $cores += To-Int $c.NumberOfCores
+      $logical += To-Int $c.NumberOfLogicalProcessors
+      if ($null -ne $c.LoadPercentage) { $cpuLoads += To-Dbl $c.LoadPercentage }
+    }
+    $cpuPct = if ($cpuLoads.Count -gt 0) { [math]::Round((($cpuLoads | Measure-Object -Average).Average), 1) } else { 0.0 }
+    if ($logical -le 0) { $logical = [Environment]::ProcessorCount }
+    if ($cores -le 0) { $cores = $logical }
+
+    $totalMemKb = if ($osObj) { To-Dbl $osObj.TotalVisibleMemorySize } else { 0.0 }
+    $freeMemKb = if ($osObj) { To-Dbl $osObj.FreePhysicalMemory } else { 0.0 }
+    $totalGb = [math]::Round($totalMemKb / 1048576.0, 2)
+    $freeGb = [math]::Round($freeMemKb / 1048576.0, 2)
+    $usedGb = [math]::Round([math]::Max(0, $totalGb - $freeGb), 2)
+    $ramPct = if ($totalMemKb -gt 0) { [math]::Round((($totalMemKb - $freeMemKb) / $totalMemKb) * 100.0, 1) } else { 0.0 }
+
+    $sw.Stop()
+    $out.checks['cpu_ram_usage'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      cpuModel = $cpuName
+      cores = $cores
+      logicalProcessors = $logical
+      cpuPercent = $cpuPct
+      totalRamGb = $totalGb
+      usedRamGb = $usedGb
+      freeRamGb = $freeGb
+      ramPercent = $ramPct
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['cpu_ram_usage'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+# 13. top_resource_apps
+if ($flags.top_resource_apps) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $totalMemKb = if ($osObj) { To-Dbl $osObj.TotalVisibleMemorySize } else { 0.0 }
+    $totalRamMb = if ($totalMemKb -gt 0) { $totalMemKb / 1024.0 } else { 1.0 }
+    $lpCount = [math]::Max(1, [Environment]::ProcessorCount)
+
+    # Sample two snapshots 350ms apart to compute real live CPU%
+    $p1 = @{}
+    foreach ($pr in @(Get-Process -ErrorAction SilentlyContinue)) {
+      if ($pr.Id -le 4) { continue }
+      try { $p1[$pr.Id] = To-Dbl $pr.TotalProcessorTime.TotalMilliseconds } catch {}
+    }
+    Start-Sleep -Milliseconds 350
+    $procs = @()
+    foreach ($pr in @(Get-Process -ErrorAction SilentlyContinue)) {
+      if ($pr.Id -le 4) { continue }
+      $memMb = [math]::Round((To-Dbl $pr.WorkingSet64) / 1048576.0, 1)
+      $memPct = [math]::Round(($memMb / $totalRamMb) * 100.0, 1)
+      $cpuNow = 0.0
+      try { $cpuNow = To-Dbl $pr.TotalProcessorTime.TotalMilliseconds } catch {}
+      $cpuPrev = if ($p1.ContainsKey($pr.Id)) { $p1[$pr.Id] } else { $cpuNow }
+      $cpuPct = [math]::Round([math]::Max(0.0, [math]::Min(100.0, (($cpuNow - $cpuPrev) / (350.0 * $lpCount)) * 100.0)), 1)
+      $procs += [PSCustomObject]@{
+        pid = [int]$pr.Id
+        name = To-Str $pr.ProcessName
+        cpuPercent = $cpuPct
+        memoryMb = $memMb
+        memoryPercent = $memPct
+      }
+    }
+    $topCpu = @($procs | Sort-Object cpuPercent -Descending | Select-Object -First 6)
+    $topRam = @($procs | Sort-Object memoryMb -Descending | Select-Object -First 6)
+
+    $sw.Stop()
+    $out.checks['top_resource_apps'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      totalProcesses = $procs.Count
+      topCpu = $topCpu
+      topRam = $topRam
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['top_resource_apps'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
+$out | ConvertTo-Json -Depth 7 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PY'
+import base64, json, os, shutil, socket, subprocess, time
+
+flags = json.loads(base64.b64decode('${flagsJsonB64}').decode('utf-8', errors='ignore') or '{}')
+hostname = socket.gethostname()
+os_name = "Linux"
+try:
+    with open("/etc/os-release", "r") as f:
+        for line in f:
+            if line.startswith("PRETTY_NAME="):
+                os_name = line.split("=", 1)[1].strip().strip('"')
+                break
+except Exception:
+    pass
+
+checks = {}
+
+def run_cmd(cmd, timeout=8):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except Exception as e:
+        return 1, str(e)
+
+if flags.get("ip_dns"):
+    t0 = time.time()
+    rc, ip_out = run_cmd(["ip", "-j", "addr", "show"])
+    adapters = []
+    if rc == 0:
+        try:
+            for itf in json.loads(ip_out):
+                if itf.get("ifname") == "lo": continue
+                v4s = [a.get("local") for a in itf.get("addr_info", []) if a.get("family") == "inet"]
+                if not v4s: continue
+                adapters.append({"name": itf.get("ifname"), "ips": v4s, "dns": [], "gateways": [], "dhcp": None})
+        except Exception:
+            pass
+    dns_list = []
+    try:
+        with open("/etc/resolv.conf") as rf:
+            for ln in rf:
+                if ln.strip().startswith("nameserver"):
+                    dns_list.append(ln.split()[1])
+    except Exception:
+        pass
+    for ad in adapters:
+        ad["dns"] = dns_list
+    dns_ok = False
+    dns_ip = ""
+    try:
+        dns_ip = socket.gethostbyname("www.microsoft.com")
+        dns_ok = True
+    except Exception:
+        pass
+    checks["ip_dns"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "adapters": adapters, "dnsWorks": dns_ok, "dnsResolvedIp": dns_ip, "dnsError": ""}
+
+if flags.get("gateway_ping"):
+    t0 = time.time()
+    rc, rt_out = run_cmd(["ip", "-j", "route", "show", "default"])
+    gws = []
+    if rc == 0:
+        try:
+            for r in json.loads(rt_out):
+                if r.get("gateway") and r.get("gateway") not in gws:
+                    gws.append(r.get("gateway"))
+        except Exception:
+            pass
+    res_gws = []
+    for gw in gws[:2]:
+        prc, pout = run_cmd(["ping", "-c", "3", "-W", "2", gw], timeout=10)
+        avg = None
+        for ln in pout.splitlines():
+            if "rtt min/avg/max" in ln or "round-trip" in ln:
+                try:
+                    avg = float(ln.split("=")[1].split("/")[1])
+                except Exception:
+                    pass
+        res_gws.append({"gateway": gw, "sent": 3, "received": 3 if prc == 0 else 0, "lossPct": 0 if prc == 0 else 100, "avgMs": avg, "lastStatus": "Success" if prc == 0 else "Failed"})
+    checks["gateway_ping"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "gateways": res_gws}
+
+if flags.get("nic_link_speed"):
+    t0 = time.time()
+    nics = []
+    try:
+        for fn in os.listdir("/sys/class/net"):
+            if fn == "lo": continue
+            oper = open(f"/sys/class/net/{fn}/operstate").read().strip() if os.path.exists(f"/sys/class/net/{fn}/operstate") else "unknown"
+            spd = 0
+            try:
+                spd = int(open(f"/sys/class/net/{fn}/speed").read().strip())
+            except Exception:
+                spd = 0
+            nics.append({"name": fn, "description": fn, "status": "Up" if oper == "up" else oper, "linkSpeed": f"{spd} Mbps" if spd > 0 else "N/A", "speedMbps": spd, "virtual": False})
+    except Exception:
+        pass
+    checks["nic_link_speed"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "adapters": nics}
+
+if flags.get("routing_table"):
+    t0 = time.time()
+    rc, rt_out = run_cmd(["ip", "-j", "route"])
+    routes = []
+    defs = []
+    if rc == 0:
+        try:
+            data = json.loads(rt_out)
+            for r in data[:15]:
+                dst = r.get("dst", "")
+                if dst == "default":
+                    defs.append({"destination": "0.0.0.0/0", "nextHop": r.get("gateway", ""), "ifAlias": r.get("dev", ""), "metric": r.get("metric", 0)})
+                routes.append({"destination": dst, "nextHop": r.get("gateway", "direct"), "ifAlias": r.get("dev", ""), "metric": r.get("metric", 0), "persistent": True})
+        except Exception:
+            pass
+    checks["routing_table"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "totalRoutes": len(routes), "persistentRoutes": len(routes), "defaultRoutes": defs, "sampleRoutes": routes}
+
+if flags.get("proxy_status"):
+    t0 = time.time()
+    hp = os.environ.get("https_proxy") or os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY") or ""
+    checks["proxy_status"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "winInetEnabled": bool(hp), "winInetServer": hp, "pacUrl": "", "winhttpDirect": not bool(hp), "winhttpServer": hp}
+
+if flags.get("internet_connectivity"):
+    t0 = time.time()
+    tcp_ok = False
+    try:
+        s = socket.create_connection(("1.1.1.1", 443), timeout=2.5)
+        s.close()
+        tcp_ok = True
+    except Exception:
+        pass
+    prc, _ = run_cmd(["ping", "-c", "1", "-W", "2", "8.8.8.8"], timeout=5)
+    checks["internet_connectivity"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "ncsi": [], "icmpOk": prc == 0, "icmpMs": None, "tcp443Ok": tcp_ok, "tcpTarget": "1.1.1.1" if tcp_ok else ""}
+
+if flags.get("vpn_status"):
+    t0 = time.time()
+    vpns = []
+    try:
+        for fn in os.listdir("/sys/class/net"):
+            if fn.startswith(("tun", "tap", "wg", "ppp")):
+                vpns.append({"name": fn, "description": "Linux VPN Interface", "status": "Up", "linkSpeed": ""})
+    except Exception:
+        pass
+    checks["vpn_status"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "rasProfiles": [], "vpnAdapters": vpns, "vpnProcesses": []}
+
+if flags.get("os_drive_cleanup"):
+    t0 = time.time()
+    du = shutil.disk_usage("/")
+    free_pct = round((du.free / du.total) * 100, 1) if du.total else 0
+    tmp_b = sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fns in os.walk("/tmp") for f in fns if os.path.isfile(os.path.join(dp, f))) if os.path.exists("/tmp") else 0
+    checks["os_drive_cleanup"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "drive": "/", "totalBytes": du.total, "usedBytes": du.used, "freeBytes": du.free, "freePct": free_pct, "winTempBytes": tmp_b, "winTempCount": 0, "userTempBytes": 0, "userTempCount": 0, "wuCacheBytes": 0, "recycleBinBytes": 0, "recycleBinCount": 0}
+
+if flags.get("windows_integrity"):
+    t0 = time.time()
+    rc, sys_out = run_cmd(["systemctl", "--failed", "--no-legend"])
+    failed_cnt = len([l for l in sys_out.splitlines() if l.strip()]) if rc == 0 else 0
+    checks["windows_integrity"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "dismStatus": "Healthy" if failed_cnt == 0 else f"{failed_cnt} failed units", "dismExit": failed_cnt, "cbsCorruptionKey": False, "cbsRecentErrors": failed_cnt, "pendingReboot": os.path.exists("/var/run/reboot-required"), "dirtyDisks": []}
+
+if flags.get("windows_update_last"):
+    t0 = time.time()
+    checks["windows_update_last"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "hotfixCount": 0, "latestKb": "", "latestDescription": "Linux host (use apt/dnf)", "latestDate": "", "recentHotfixes": [], "wuLastInstall": "", "useWsus": False, "wsusUrl": "", "pendingReboot": os.path.exists("/var/run/reboot-required")}
+
+if flags.get("drivers_status"):
+    t0 = time.time()
+    checks["drivers_status"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "totalDevices": 0, "problemCount": 0, "problemDevices": []}
+
+if flags.get("cpu_ram_usage"):
+    t0 = time.time()
+    total_kb, avail_kb = 0, 0
+    try:
+        for ln in open("/proc/meminfo"):
+            if ln.startswith("MemTotal:"): total_kb = int(ln.split()[1])
+            elif ln.startswith("MemAvailable:"): avail_kb = int(ln.split()[1])
+    except Exception:
+        pass
+    total_gb = round(total_kb / 1048576, 2)
+    free_gb = round(avail_kb / 1048576, 2)
+    used_gb = round(max(0, total_gb - free_gb), 2)
+    ram_pct = round(((total_kb - avail_kb) / total_kb) * 100, 1) if total_kb else 0
+    checks["cpu_ram_usage"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "cpuModel": "Linux CPU", "cores": os.cpu_count() or 1, "logicalProcessors": os.cpu_count() or 1, "cpuPercent": 0, "totalRamGb": total_gb, "usedRamGb": used_gb, "freeRamGb": free_gb, "ramPercent": ram_pct}
+
+if flags.get("top_resource_apps"):
+    t0 = time.time()
+    rc, ps_out = run_cmd(["ps", "-eo", "pid,comm,%cpu,%mem,rss", "--sort=-%cpu"])
+    rows = []
+    for ln in ps_out.splitlines()[1:15]:
+        parts = ln.split()
+        if len(parts) >= 5:
+            rows.append({"pid": int(parts[0]), "name": parts[1], "cpuPercent": float(parts[2]), "memoryPercent": float(parts[3]), "memoryMb": round(int(parts[4])/1024, 1)})
+    top_ram = sorted(rows, key=lambda x: x["memoryMb"], reverse=True)[:6]
+    checks["top_resource_apps"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "totalProcesses": len(rows), "topCpu": rows[:6], "topRam": top_ram}
+
+print(json.dumps({"hostname": hostname, "osName": os_name, "loggedInUser": "", "checks": checks}))
+PY`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(75000, input.timeoutMs || 75000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint troubleshooting diagnostics suite');
+  const rawChecks: Record<string, any> = parsed?.checks && typeof parsed.checks === 'object' ? parsed.checks : {};
+
+  const results: HelpdeskDiagnosticCheckResult[] = [];
+
+  for (const id of requestedChecks) {
+    const raw = rawChecks[id];
+    const jumpTarget = DIAGNOSTIC_JUMP_TARGETS[id];
+
+    if (!raw) {
+      results.push({
+        id,
+        category: id === 'os_drive_cleanup' || id === 'windows_integrity' || id === 'windows_update_last'
+          ? 'system_storage'
+          : id === 'drivers_status' || id === 'cpu_ram_usage' || id === 'top_resource_apps'
+          ? 'hardware_perf'
+          : 'network',
+        titleEn: id,
+        titleFa: id,
+        status: 'skipped',
+        statusLabelEn: 'No Data',
+        statusLabelFa: 'بدون داده',
+        summaryEn: 'Check did not return telemetry from the endpoint.',
+        summaryFa: 'داده‌ای از این بخش روی سیستم دریافت نشد.',
+        recommendationEn: 'Open the dedicated tab to inspect manually.',
+        recommendationFa: 'برای بررسی دقیق‌تر به تب مربوطه بروید.',
+        metrics: [],
+        highlights: [],
+        durationMs: 0,
+        jumpTarget,
+      });
+      continue;
+    }
+
+    if (raw.ok === false) {
+      results.push({
+        id,
+        category: id === 'os_drive_cleanup' || id === 'windows_integrity' || id === 'windows_update_last'
+          ? 'system_storage'
+          : id === 'drivers_status' || id === 'cpu_ram_usage' || id === 'top_resource_apps'
+          ? 'hardware_perf'
+          : 'network',
+        titleEn: id,
+        titleFa: id,
+        status: 'fail',
+        statusLabelEn: 'Check Error',
+        statusLabelFa: 'خطا در بررسی',
+        summaryEn: String(raw.error || 'Diagnostic probe failed on endpoint.'),
+        summaryFa: String(raw.error || 'اجرای این بررسی روی سیستم کاربر با خطا مواجه شد.'),
+        recommendationEn: 'Inspect manually in the target tab.',
+        recommendationFa: 'لطفاً بخش مربوطه را به صورت دستی در تب خود بررسی کنید.',
+        metrics: [],
+        highlights: [],
+        durationMs: Number(raw.durationMs) || 0,
+        jumpTarget,
+      });
+      continue;
+    }
+
+    const durationMs = Number(raw.durationMs) || 0;
+
+    if (id === 'ip_dns') {
+      const adapters: any[] = Array.isArray(raw.adapters) ? raw.adapters : [];
+      const first = adapters[0] || {};
+      const ips = adapters.flatMap((a) => (Array.isArray(a.ips) ? a.ips : [])).filter(Boolean);
+      const dnsServers = Array.from(new Set(adapters.flatMap((a) => (Array.isArray(a.dns) ? a.dns : [])).filter(Boolean)));
+      const anyDhcp = adapters.some((a) => a.dhcp === true);
+      const anyStatic = adapters.some((a) => a.dhcp === false);
+      const modeEn = anyDhcp && anyStatic ? 'Mixed (DHCP + Static)' : anyDhcp ? 'Automatic (DHCP)' : adapters.length ? 'Manual (Static IP)' : 'No IP';
+      const modeFa = anyDhcp && anyStatic ? 'ترکیبی (DHCP + دستی)' : anyDhcp ? 'خودکار (DHCP)' : adapters.length ? 'دستی (Manual / Static)' : 'بدون IP';
+      const hasApipa = ips.some((ip: string) => String(ip).startsWith('169.254.'));
+      const dnsWorks = Boolean(raw.dnsWorks);
+
+      let status: 'pass' | 'warn' | 'fail' = 'pass';
+      if (ips.length === 0 || hasApipa) status = 'fail';
+      else if (dnsServers.length === 0 || !dnsWorks) status = 'warn';
+
+      results.push({
+        id,
+        category: 'network',
+        titleEn: 'IP Addressing, DHCP/Static Mode & Live DNS',
+        titleFa: 'آدرس IP سیستم، حالت DHCP/دستی و سلامت DNS',
+        status,
+        statusLabelEn: status === 'pass' ? 'IP & DNS Healthy' : status === 'warn' ? 'DNS Warning' : 'IP Failure',
+        statusLabelFa: status === 'pass' ? 'IP و DNS سالم' : status === 'warn' ? 'هشدار در DNS' : 'اختلال آدرس IP',
+        summaryEn:
+          ips.length === 0
+            ? 'No active IPv4 address assigned on endpoint adapters.'
+            : hasApipa
+            ? `Endpoint received APIPA fallback IP (${ips.join(', ')}) — DHCP server unreachable.`
+            : `${modeEn} · IP: ${ips.join(', ')} · DNS servers: ${dnsServers.join(', ') || 'None'} · Live DNS: ${dnsWorks ? `Resolved (${raw.dnsResolvedIp})` : 'FAILED'}.`,
+        summaryFa:
+          ips.length === 0
+            ? 'هیچ آدرس IPv4 فعالی روی کارت‌های شبکه سیستم وجود ندارد.'
+            : hasApipa
+            ? `سیستم IP نامعتبر APIPA گرفته است (${ips.join(', ')}) — به سرور DHCP دسترسی ندارد.`
+            : `حالت: ${modeFa} · آدرس IP: ${ips.join(', ')} · سرورهای DNS: ${dnsServers.join(', ') || 'ندارد'} · تست زنده DNS: ${dnsWorks ? `موفق (${raw.dnsResolvedIp})` : 'ناموفق'}.`,
+        recommendationEn:
+          status === 'pass'
+            ? 'IP configuration and DNS resolution are working normally.'
+            : 'Adjust DHCP/Static IP or DNS servers in the Network Adapters panel.',
+        recommendationFa:
+          status === 'pass'
+            ? 'تنظیمات IP و پاسخ‌دهی سرور DNS کاملاً سالم است.'
+            : 'از تب شبکه بخش تنظیمات کارت شبکه، آدرس IP یا سرورهای DNS را اصلاح یا Renew کنید.',
+        metrics: [
+          { labelEn: 'Primary IP', labelFa: 'IP اصلی', value: ips[0] || '-', tone: hasApipa ? 'fail' : 'ok' },
+          { labelEn: 'Assignment', labelFa: 'نوع دریافت', value: modeEn, tone: 'info' },
+          { labelEn: 'DNS Servers', labelFa: 'سرورهای DNS', value: dnsServers.slice(0, 2).join(', ') || 'None', tone: dnsServers.length ? 'info' : 'warn' },
+          { labelEn: 'DNS Resolve', labelFa: 'تست Resolve', value: dnsWorks ? `OK (${raw.dnsResolvedIp})` : 'Failed', tone: dnsWorks ? 'ok' : 'warn' },
+        ],
+        highlights: adapters.slice(0, 4).map((ad) => ({
+          primary: `${ad.name}: ${(ad.ips || []).join(', ')}`,
+          secondary: `DNS: ${(ad.dns || []).join(', ') || '-'} · GW: ${(ad.gateways || []).join(', ') || '-'}`,
+          badge: ad.dhcp ? 'DHCP' : 'Static',
+          badgeTone: 'info',
+        })),
+        durationMs,
+        jumpTarget,
+      });
+    } else if (id === 'gateway_ping') {
+      const gws: any[] = Array.isArray(raw.gateways) ? raw.gateways : [];
+      const anyRecv = gws.some((g) => Number(g.received) > 0);
+      const allFull = gws.length > 0 && gws.every((g) => Number(g.lossPct) === 0);
+      const maxAvg = gws.reduce((m, g) => Math.max(m, Number(g.avgMs) || 0), 0);
+      let status: 'pass' | 'warn' | 'fail' = 'pass';
+      if (gws.length === 0 || !anyRecv) status = 'fail';
+      else if (!allFull || maxAvg >= 50) status = 'warn';
+
+      results.push({
+        id,
+        category: 'network',
+        titleEn: 'Default Gateway Reachability (ICMP Ping)',
+        titleFa: 'تست پینگ تا Default Gateway شبکه',
+        status,
+        statusLabelEn: status === 'pass' ? 'Gateway Reachable' : status === 'warn' ? 'Loss / High Latency' : 'Unreachable',
+        statusLabelFa: status === 'pass' ? 'دسترسی سالم' : status === 'warn' ? 'تأخیر یا Loss' : 'عدم دسترسی به گیت‌وی',
+        summaryEn:
+          gws.length === 0
+            ? 'No Default Gateway configured on any active adapter.'
+            : gws.map((g) => `GW ${g.gateway}: ${g.lossPct}% loss${g.avgMs != null ? `, avg ${g.avgMs} ms` : ''}`).join(' | '),
+        summaryFa:
+          gws.length === 0
+            ? 'هیچ Default Gateway روی کارت‌های شبکه سیستم تنظیم نشده است.'
+            : gws.map((g) => `گیت‌وی ${g.gateway}: ${g.lossPct}% پکت‌لاس${g.avgMs != null ? ` · میانگین ${g.avgMs} ms` : ''}`).join(' | '),
+        recommendationEn:
+          status === 'pass'
+            ? 'Local LAN path to router/gateway is clean with low latency.'
+            : 'Check LAN cable, VLAN switch port, or gateway IP inside Network Probes.',
+        recommendationFa:
+          status === 'pass'
+            ? 'ارتباط با روتر/گیت‌وی بدون افت بسته و با تأخیر استاندارد برقرار است.'
+            : 'کابل شبکه، پورت سوئیچ یا آدرس Gateway را بررسی کرده و از تب شبکه پینگ و ریست شبکه را امتحان کنید.',
+        metrics: gws.length
+          ? gws.slice(0, 3).map((g) => ({
+              labelEn: `GW ${g.gateway}`,
+              labelFa: `گیت‌وی ${g.gateway}`,
+              value: g.avgMs != null ? `${g.avgMs} ms (${g.lossPct}% loss)` : `${g.lossPct}% loss`,
+              tone: Number(g.lossPct) === 0 && (Number(g.avgMs) || 0) < 50 ? 'ok' : Number(g.received) > 0 ? 'warn' : 'fail',
+            }))
+          : [{ labelEn: 'Gateway', labelFa: 'گیت‌وی', value: 'None', tone: 'fail' }],
+        highlights: gws.map((g) => ({
+          primary: String(g.gateway),
+          secondary: `${g.received}/${g.sent} packets received`,
+          badge: g.avgMs != null ? `${g.avgMs} ms` : g.lastStatus || 'Timeout',
+          badgeTone: Number(g.lossPct) === 0 ? 'ok' : Number(g.received) > 0 ? 'warn' : 'fail',
+        })),
+        durationMs,
+        jumpTarget,
+      });
+    } else if (id === 'nic_link_speed') {
+      const nics: any[] = Array.isArray(raw.adapters) ? raw.adapters : [];
+      const upNics = nics.filter((n) => String(n.status).toLowerCase() === 'up');
+      const slowUp = upNics.filter((n) => !n.virtual && Number(n.speedMbps) > 0 && Number(n.speedMbps) <= 100);
+      let status: 'pass' | 'warn' | 'fail' = 'pass';
+      if (upNics.length === 0) status = 'fail';
+      else if (slowUp.length > 0) status = 'warn';
+
+      results.push({
+        id,
+        category: 'network',
+        titleEn: 'NIC Negotiated Link Speed & Port State',
+        titleFa: 'سرعت لینک (Link Speed) و وضعیت پورت کارت شبکه',
+        status,
+        statusLabelEn: status === 'pass' ? 'Full Link Speed' : status === 'warn' ? 'Slow Link (≤100 Mbps)' : 'No Active Link',
+        statusLabelFa: status === 'pass' ? 'سرعت استاندارد' : status === 'warn' ? 'سرعت پایین (≤100M)' : 'لینک فعال ندارد',
+        summaryEn:
+          upNics.length === 0
+            ? 'No network adapter reports Link Up.'
+            : slowUp.length > 0
+            ? `Adapter(s) negotiated at ≤100 Mbps (${slowUp.map((n) => `${n.name}: ${n.linkSpeed}`).join(', ')}) — check Cat5e/Cat6 cable or switch port.`
+            : `${upNics.length} adapter(s) connected cleanly: ${upNics.map((n) => `${n.name} @ ${n.linkSpeed || 'Up'}`).join(', ')}.`,
+        summaryFa:
+          upNics.length === 0
+            ? 'هیچ کارت شبکه‌ای در وضعیت Up قرار ندارد.'
+            : slowUp.length > 0
+            ? `کارت شبکه با سرعت پایین ≤100 Mbps بالا آمده است (${slowUp.map((n) => `${n.name}: ${n.linkSpeed}`).join(', ')}) — احتمال خرابی کابل یا پورت سوئیچ.`
+            : `${upNics.length} کارت شبکه با سرعت مطلوب متصل است: ${upNics.map((n) => `${n.name} (${n.linkSpeed || 'Up'})`).join('، ')}.`,
+        recommendationEn:
+          status === 'warn'
+            ? 'Inspect patch cord, RJ45 keystone, or duplex speed negotiation on switch port.'
+            : 'Physical link negotiation looks healthy.',
+        recommendationFa:
+          status === 'warn'
+            ? 'پچ‌کورد، کیستون شبکه و تنظیم Speed/Duplex روی پورت سوئیچ بررسی شود.'
+            : 'نرخ لینک کارت‌های شبکه بدون افت سرعت برقرار است.',
+        metrics: upNics.slice(0, 4).map((n) => ({
+          labelEn: n.name,
+          labelFa: n.name,
+          value: n.linkSpeed || n.status,
+          tone: Number(n.speedMbps) >= 1000 ? 'ok' : Number(n.speedMbps) > 0 && Number(n.speedMbps) <= 100 ? 'warn' : 'info',
+        })),
+        highlights: nics.slice(0, 5).map((n) => ({
+          primary: `${n.name} — ${n.linkSpeed || n.status}`,
+          secondary: n.description,
+          badge: n.status,
+          badgeTone: String(n.status).toLowerCase() === 'up' ? (Number(n.speedMbps) > 0 && Number(n.speedMbps) <= 100 && !n.virtual ? 'warn' : 'ok') : 'fail',
+        })),
+        durationMs,
+        jumpTarget,
+      });
+    } else if (id === 'routing_table') {
+      const defRoutes: any[] = Array.isArray(raw.defaultRoutes) ? raw.defaultRoutes : [];
+      const sampleRoutes: any[] = Array.isArray(raw.sampleRoutes) ? raw.sampleRoutes : [];
+      const totalRoutes = Number(raw.totalRoutes) || sampleRoutes.length;
+      const persistentRoutes = Number(raw.persistentRoutes) || 0;
+      const status: 'pass' | 'warn' | 'fail' = defRoutes.length === 0 ? 'fail' : defRoutes.length > 1 ? 'warn' : 'pass';
+
+      results.push({
+        id,
+        category: 'network',
+        titleEn: 'IPv4 Routing Table & Default Route Analysis',
+        titleFa: 'جدول مسیریابی (Routing Table) و روت‌های سیستم',
+        status,
+        statusLabelEn: status === 'pass' ? 'Clean Routing' : status === 'warn' ? 'Multiple Default Routes' : 'No Default Route',
+        statusLabelFa: status === 'pass' ? 'مسیریابی سالم' : status === 'warn' ? 'چند روت پیش‌فرض' : 'روت پیش‌فرض ندارد',
+        summaryEn:
+          defRoutes.length === 0
+            ? `No 0.0.0.0/0 default route exists across ${totalRoutes} IPv4 routes.`
+            : `${totalRoutes} active IPv4 routes (${persistentRoutes} persistent). Default 0.0.0.0/0 via ${defRoutes.map((d) => `${d.nextHop} (metric ${d.metric}${d.ifAlias ? `, ${d.ifAlias}` : ''})`).join('; ')}.`,
+        summaryFa:
+          defRoutes.length === 0
+            ? `در میان ${totalRoutes} مسیر IPv4 هیچ مسیر پیش‌فرضی (0.0.0.0/0) ثبت نشده است.`
+            : `مجموعاً ${totalRoutes} روت IPv4 فعال (${persistentRoutes} روت ماندگار). مسیر پیش‌فرض: ${defRoutes.map((d) => `${d.nextHop} (متریک ${d.metric}${d.ifAlias ? ` روی ${d.ifAlias}` : ''})`).join(' | ')}.`,
+        recommendationEn:
+          defRoutes.length > 1
+            ? 'Multiple default gateways detected (e.g., LAN + Wi-Fi or VPN); verify route metrics if traffic misroutes.'
+            : 'Open Static Routing Table to inspect or add custom subnet routes.',
+        recommendationFa:
+          defRoutes.length > 1
+            ? 'بیش از یک Default Route وجود دارد (مثلاً LAN و Wi-Fi یا VPN هم‌زمان)؛ اولویت Metric بررسی شود.'
+            : 'در تب شبکه می‌توانید جدول کامل روت‌ها را ببینید یا روت استاتیک اضافه کنید.',
+        metrics: [
+          { labelEn: 'Total Routes', labelFa: 'تعداد کل روت‌ها', value: String(totalRoutes), tone: 'info' },
+          { labelEn: 'Default Routes', labelFa: 'روت‌های 0.0.0.0', value: String(defRoutes.length), tone: defRoutes.length === 1 ? 'ok' : defRoutes.length > 1 ? 'warn' : 'fail' },
+          { labelEn: 'Persistent', labelFa: 'ماندگار (-p)', value: String(persistentRoutes), tone: 'info' },
+        ],
+        highlights: sampleRoutes.slice(0, 6).map((r) => ({
+          primary: `${r.destination} → ${r.nextHop}`,
+          secondary: `${r.ifAlias || 'NIC'} · Metric ${r.metric}`,
+          badge: r.destination === '0.0.0.0/0' ? 'Default' : r.persistent ? 'Persistent' : 'Active',
+          badgeTone: r.destination === '0.0.0.0/0' ? 'ok' : 'info',
+        })),
+        durationMs,
+        jumpTarget,
+      });
+    } else if (id === 'proxy_status') {
+      const userOn = Boolean(raw.winInetEnabled || raw.pacUrl);
+      const sysOn = raw.winhttpDirect === false;
+      const anyProxy = userOn || sysOn;
+      const status: 'pass' | 'warn' = anyProxy ? 'warn' : 'pass';
+
+      results.push({
+        id,
+        category: 'network',
+        titleEn: 'OS Proxy Server Status (WinINet & WinHTTP)',
+        titleFa: 'وضعیت پروکسی سرور (Proxy) سیستم‌عامل و مرورگر',
+        status,
+        statusLabelEn: anyProxy ? 'Proxy Enabled' : 'Direct (No Proxy)',
+        statusLabelFa: anyProxy ? 'پروکسی فعال است' : 'مستقیم (بدون پروکسی)',
+        summaryEn: anyProxy
+          ? `Proxy active — User: ${raw.winInetServer || raw.pacUrl || 'Enabled'} | WinHTTP: ${sysOn ? raw.winhttpServer || 'Configured' : 'Direct'}.`
+          : 'No manual proxy, PAC auto-config, or WinHTTP system proxy is enabled (Direct access).',
+        summaryFa: anyProxy
+          ? `پروکسی روی سیستم فعال است — کاربر: ${raw.winInetServer || raw.pacUrl || 'فعال'} | WinHTTP: ${sysOn ? raw.winhttpServer || 'تنظیم‌شده' : 'مستقیم'}.`
+          : 'هیچ پروکسی دستی، PAC یا پروکسی سرویس‌های ویندوز فعال نیست (اتصال مستقیم).',
+        recommendationEn: anyProxy
+          ? 'If websites or Outlook fail to connect, verify the proxy server is reachable or switch to Direct in Network tab.'
+          : 'No proxy interference detected.',
+        recommendationFa: anyProxy
+          ? 'در صورت اختلال وب، Outlook یا سرویس‌ها، صحت سرور پروکسی را بررسی کرده یا در تب شبکه آن را غیرفعال کنید.'
+          : 'تنظیمات پروکسی مانعی برای ارتباط ایجاد نمی‌کند.',
+        metrics: [
+          { labelEn: 'User WinINet', labelFa: 'پروکسی کاربر', value: raw.winInetEnabled ? raw.winInetServer || 'Enabled' : 'Disabled', tone: raw.winInetEnabled ? 'warn' : 'ok' },
+          { labelEn: 'PAC Script', labelFa: 'اسکریپت PAC', value: raw.pacUrl || 'None', tone: raw.pacUrl ? 'warn' : 'ok' },
+          { labelEn: 'System WinHTTP', labelFa: 'پروکسی WinHTTP', value: sysOn ? raw.winhttpServer || 'Enabled' : 'Direct', tone: sysOn ? 'warn' : 'ok' },
+        ],
+        highlights: anyProxy
+          ? [
+              ...(raw.winInetServer ? [{ primary: `User Proxy: ${raw.winInetServer}`, secondary: raw.bypassList ? `Bypass: ${raw.bypassList}` : undefined, badge: 'WinINet', badgeTone: 'warn' as const }] : []),
+              ...(raw.pacUrl ? [{ primary: `PAC URL: ${raw.pacUrl}`, badge: 'AutoConfig', badgeTone: 'warn' as const }] : []),
+              ...(sysOn ? [{ primary: `WinHTTP: ${raw.winhttpServer}`, badge: 'System', badgeTone: 'warn' as const }] : []),
+            ]
+          : [{ primary: 'Direct Connection (No Proxy)', badge: 'Direct', badgeTone: 'ok' }],
+        durationMs,
+        jumpTarget,
+      });
+    } else if (id === 'internet_connectivity') {
+      const ncsi: any[] = Array.isArray(raw.ncsi) ? raw.ncsi : [];
+      const hasNcsiInternet = ncsi.some((n) => String(n.ipv4).toLowerCase() === 'internet');
+      const tcpOk = Boolean(raw.tcp443Ok);
+      const icmpOk = Boolean(raw.icmpOk);
+      let status: 'pass' | 'warn' | 'fail' = 'pass';
+      if (!tcpOk && !icmpOk && !hasNcsiInternet) status = 'fail';
+      else if (!tcpOk || (!icmpOk && !hasNcsiInternet)) status = 'warn';
+
+      results.push({
+        id,
+        category: 'network',
+        titleEn: 'Real Internet Reachability & NCSI State',
+        titleFa: 'وضعیت واقعی ارتباط سیستم با اینترنت (HTTPS / ICMP / NCSI)',
+        status,
+        statusLabelEn: status === 'pass' ? 'Internet Online' : status === 'warn' ? 'Limited Access' : 'No Internet',
+        statusLabelFa: status === 'pass' ? 'اینترنت متصل' : status === 'warn' ? 'دسترسی محدود' : 'بدون اینترنت',
+        summaryEn: `HTTPS TCP/443: ${tcpOk ? `Reachable (${raw.tcpTarget})` : 'Blocked/Timeout'} · ICMP 8.8.8.8: ${icmpOk ? `Reply ${raw.icmpMs ?? ''}ms` : 'No Reply'} · Windows NCSI: ${ncsi.map((n) => `${n.iface || n.name}=${n.ipv4}`).join(', ') || 'N/A'}.`,
+        summaryFa: `ارتباط HTTPS (پورت ۴۴۳): ${tcpOk ? `برقرار (${raw.tcpTarget})` : 'ناموفق/بسته'} · پینگ 8.8.8.8: ${icmpOk ? `پاسخ ${raw.icmpMs ?? ''}ms` : 'بدون پاسخ'} · وضعیت ویندوز: ${ncsi.map((n) => `${n.iface || n.name}: ${n.ipv4}`).join('، ') || 'نامشخص'}.`,
+        recommendationEn:
+          status === 'pass'
+            ? 'Workstation can reach external internet endpoints over HTTPS.'
+            : 'Check default gateway, DNS, proxy, firewall policy, or run Tracert/HTTP probe in Network tab.',
+        recommendationFa:
+          status === 'pass'
+            ? 'دسترسی سیستم کاربر به اینترنت بدون اختلال برقرار است.'
+            : 'گیت‌وی، DNS، پروکسی یا فایروال بررسی شود و با ابزار Probe در تب شبکه مسیر یابی (Tracert) انجام شود.',
+        metrics: [
+          { labelEn: 'TCP 443 (HTTPS)', labelFa: 'پورت ۴۴۳ اینترنت', value: tcpOk ? `Connected (${raw.tcpTarget})` : 'Failed', tone: tcpOk ? 'ok' : 'fail' },
+          { labelEn: 'ICMP 8.8.8.8', labelFa: 'پینگ 8.8.8.8', value: icmpOk ? `Reply ${raw.icmpMs ?? ''}ms` : 'Timeout', tone: icmpOk ? 'ok' : 'warn' },
+          { labelEn: 'NCSI Profile', labelFa: 'پروفایل ویندوز', value: ncsi[0]?.ipv4 || 'Unknown', tone: hasNcsiInternet ? 'ok' : 'warn' },
+        ],
+        highlights: ncsi.map((n) => ({
+          primary: `${n.iface || n.name} (${n.category})`,
+          secondary: `IPv4 Connectivity: ${n.ipv4}`,
+          badge: n.ipv4,
+          badgeTone: String(n.ipv4).toLowerCase() === 'internet' ? 'ok' : 'warn',
+        })),
+        durationMs,
+        jumpTarget,
+      });
+    } else if (id === 'vpn_status') {
+      const ras: any[] = Array.isArray(raw.rasProfiles) ? raw.rasProfiles : [];
+      const vpnAds: any[] = Array.isArray(raw.vpnAdapters) ? raw.vpnAdapters : [];
+      const vpnProcs: string[] = Array.isArray(raw.vpnProcesses) ? raw.vpnProcesses : [];
+
+      const connectedRas = ras.filter((v) => String(v.status).toLowerCase() === 'connected');
+      const upAdapters = vpnAds.filter((a) => String(a.status).toLowerCase() === 'up');
+      const isConnected = connectedRas.length > 0 || upAdapters.length > 0;
+      const hasConfigured = ras.length > 0 || vpnAds.length > 0 || vpnProcs.length > 0;
+
+      const status: 'pass' | 'warn' | 'info' = isConnected ? 'pass' : hasConfigured ? 'warn' : 'info';
+
+      results.push({
+        id,
+        category: 'network',
+        titleEn: 'VPN Connection Status & Active Tunnels',
+        titleFa: 'وضعیت اتصال VPN و تانل‌های فعال سیستم',
+        status,
+        statusLabelEn: isConnected ? 'VPN Connected' : hasConfigured ? 'VPN Disconnected' : 'No VPN Active',
+        statusLabelFa: isConnected ? 'VPN متصل است' : hasConfigured ? 'VPN قطع است' : 'VPN وجود ندارد',
+        summaryEn: isConnected
+          ? `Active VPN tunnel detected: ${[...connectedRas.map((v) => `${v.name} (${v.tunnelType})`), ...upAdapters.map((a) => `${a.name} [${a.description}]`)].join(', ')}.`
+          : hasConfigured
+          ? `${ras.length} Windows VPN profile(s) / client adapters detected, currently Disconnected.`
+          : 'No Windows RAS VPN profiles or 3rd-party VPN adapters/clients are currently active.',
+        summaryFa: isConnected
+          ? `تانل VPN متصل شناسایی شد: ${[...connectedRas.map((v) => `${v.name} (${v.tunnelType})`), ...upAdapters.map((a) => a.name)].join('، ')}.`
+          : hasConfigured
+          ? `پروفایل یا کلاینت VPN روی سیستم وجود دارد اما در حال حاضر متصل (Connected) نیست.`
+          : 'هیچ کانکشن یا تانل VPN فعالی روی این سیستم شناسایی نشد.',
+        recommendationEn: 'Connect, disconnect, or provision Windows VPN profiles directly inside the Network -> VPN section.',
+        recommendationFa: 'مدیریت اتصال، قطع یا ساخت پروفایل‌های VPN مستقیماً از تب شبکه امکان‌پذیر است.',
+        metrics: [
+          { labelEn: 'Connection', labelFa: 'وضعیت اتصال', value: isConnected ? 'Connected' : 'Disconnected', tone: isConnected ? 'ok' : hasConfigured ? 'warn' : 'info' },
+          { labelEn: 'RAS Profiles', labelFa: 'پروفایل ویندوز', value: String(ras.length), tone: 'info' },
+          { labelEn: 'VPN Clients/NICs', labelFa: 'آداپتر/کلاینت', value: String(upAdapters.length || vpnProcs.length), tone: 'info' },
+        ],
+        highlights: [
+          ...ras.map((v) => ({
+            primary: `${v.name} (${v.server})`,
+            secondary: `${v.tunnelType} · ${v.scope}`,
+            badge: v.status,
+            badgeTone: (String(v.status).toLowerCase() === 'connected' ? 'ok' : 'warn') as 'ok' | 'warn',
+          })),
+          ...upAdapters.map((a) => ({
+            primary: a.name,
+            secondary: a.description,
+            badge: a.status,
+            badgeTone: 'ok' as const,
+          })),
+        ],
+        durationMs,
+        jumpTarget,
+      });
+    } else if (id === 'os_drive_cleanup') {
+      const totalB = Number(raw.totalBytes) || 0;
+      const freeB = Number(raw.freeBytes) || 0;
+      const usedB = Number(raw.usedBytes) || 0;
+      const freePct = Number(raw.freePct) || 0;
+      const winTempB = Number(raw.winTempBytes) || 0;
+      const userTempB = Number(raw.userTempBytes) || 0;
+      const wuB = Number(raw.wuCacheBytes) || 0;
+      const rbB = Number(raw.recycleBinBytes) || 0;
+      const rbCnt = Number(raw.recycleBinCount) || 0;
+      const junkTotalB = winTempB + userTempB + rbB;
+
+      let status: 'pass' | 'warn' | 'fail' = 'pass';
+      if (freePct < 10 || (totalB > 0 && freeB < 5 * 1024 * 1024 * 1024)) status = 'fail';
+      else if (freePct < 20 || junkTotalB >= 2 * 1024 * 1024 * 1024) status = 'warn';
+
+      results.push({
+        id,
+        category: 'system_storage',
+        titleEn: `OS Drive (${raw.drive || 'C:'}) Capacity, Temp & Recycle Bin`,
+        titleFa: `فضای درایو ویندوز (${raw.drive || 'C:'})، فایل‌های Temp و سطل زباله (Recycle Bin)`,
+        status,
+        statusLabelEn: status === 'pass' ? `${freePct}% Free` : status === 'warn' ? 'Cleanup Recommended' : 'Critically Low Space',
+        statusLabelFa: status === 'pass' ? `${freePct}% فضای آزاد` : status === 'warn' ? 'نیازمند پاک‌سازی' : 'کمبود شدید فضا',
+        summaryEn: `Drive ${raw.drive || 'C:'}: ${formatBytesHuman(freeB)} free of ${formatBytesHuman(totalB)} (${freePct}% free). Temp folders: ${formatBytesHuman(winTempB + userTempB)} · WU Cache: ${formatBytesHuman(wuB)} · Recycle Bin: ${formatBytesHuman(rbB)} (${rbCnt} items).`,
+        summaryFa: `درایو ${raw.drive || 'C:'}: ${formatBytesHuman(freeB)} آزاد از ${formatBytesHuman(totalB)} (${freePct}% آزاد). پوشه‌های Temp: ${formatBytesHuman(winTempB + userTempB)} · کش آپدیت: ${formatBytesHuman(wuB)} · سطل زباله (Recycle Bin): ${formatBytesHuman(rbB)} (${rbCnt} فایل).`,
+        recommendationEn:
+          status === 'pass'
+            ? 'OS drive capacity is healthy. You can reclaim Temp files anytime in Maintenance.'
+            : 'Run safe Temp cleanup in Maintenance tab and empty Recycle Bin on the workstation.',
+        recommendationFa:
+          status === 'pass'
+            ? 'ظرفیت درایو ویندوز مناسب است. در صورت نیاز از تب تعمیر سیستم پوشه Temp را پاک‌سازی کنید.'
+            : 'پیشنهاد می‌شود فوراً از تب تعمیر سیستم پوشه‌های Temp را پاک‌سازی و سطل زباله کاربر را تخلیه کنید.',
+        metrics: [
+          { labelEn: 'Free Space', labelFa: 'فضای آزاد', value: `${formatBytesHuman(freeB)} (${freePct}%)`, tone: status === 'fail' ? 'fail' : status === 'warn' ? 'warn' : 'ok' },
+          { labelEn: 'Temp Folders', labelFa: 'پوشه‌های Temp', value: formatBytesHuman(winTempB + userTempB), tone: winTempB + userTempB > 1024 * 1024 * 1024 ? 'warn' : 'info' },
+          { labelEn: 'Recycle Bin', labelFa: 'سطل زباله', value: `${formatBytesHuman(rbB)} (${rbCnt})`, tone: rbB > 1024 * 1024 * 1024 ? 'warn' : 'info' },
+          { labelEn: 'WU Cache', labelFa: 'کش آپدیت', value: formatBytesHuman(wuB), tone: 'info' },
+        ],
+        highlights: [
+          { primary: `Used: ${formatBytesHuman(usedB)} / ${formatBytesHuman(totalB)}`, secondary: `Windows\\Temp: ${formatBytesHuman(winTempB)} · User Temp: ${formatBytesHuman(userTempB)}`, badge: `${freePct}% Free`, badgeTone: status === 'fail' ? 'fail' : status === 'warn' ? 'warn' : 'ok' },
+          { primary: `Recycle Bin: ${formatBytesHuman(rbB)}`, secondary: `${rbCnt} deleted item(s) waiting`, badge: rbCnt > 0 ? 'Not Empty' : 'Empty', badgeTone: rbB > 1024 * 1024 * 1024 ? 'warn' : 'info' },
+        ],
+        durationMs,
+        jumpTarget,
+      });
+    } else if (id === 'windows_integrity') {
+      const dismStatus = String(raw.dismStatus || 'Unknown');
+      const corruptKey = Boolean(raw.cbsCorruptionKey);
+      const cbsErrs = Number(raw.cbsRecentErrors) || 0;
+      const pendingReboot = Boolean(raw.pendingReboot);
+      const dirtyDisks: string[] = Array.isArray(raw.dirtyDisks) ? raw.dirtyDisks.filter(Boolean) : [];
+      const isBad = /repairable|corrupt/i.test(dismStatus) || corruptKey || cbsErrs > 0 || dirtyDisks.length > 0;
+      const status: 'pass' | 'warn' | 'fail' = isBad ? 'fail' : pendingReboot ? 'warn' : 'pass';
+
+      results.push({
+        id,
+        category: 'system_storage',
+        titleEn: 'Windows System File & Component Integrity (DISM / CBS)',
+        titleFa: 'بررسی خرابی فایل‌های سیستمی و ایمیج ویندوز (DISM / CBS)',
+        status,
+        statusLabelEn: isBad ? 'Corruption Detected' : pendingReboot ? 'Reboot Pending' : 'System Healthy',
+        statusLabelFa: isBad ? 'احتمال خرابی فایل‌ها' : pendingReboot ? 'نیازمند ری‌استارت' : 'فایل‌های سیستمی سالم',
+        summaryEn: `DISM CheckHealth: ${dismStatus} · CBS Log Recent Corruption Hits: ${cbsErrs} · Pending Reboot: ${pendingReboot ? 'Yes' : 'No'}${dirtyDisks.length ? ` · Dirty Volumes: ${dirtyDisks.join(', ')}` : ''}.`,
+        summaryFa: `نتیجه DISM CheckHealth: ${dismStatus} · موارد خرابی در لاگ CBS: ${cbsErrs} · ری‌استارت در انتظار: ${pendingReboot ? 'بله' : 'خیر'}${dirtyDisks.length ? ` · درایو معیوب (Dirty Bit): ${dirtyDisks.join(', ')}` : ''}.`,
+        recommendationEn: isBad
+          ? 'Open SFC & DISM Repair in Maintenance tab to run DISM /RestoreHealth and sfc /scannow.'
+          : 'Component store reports no detected corruption. Run full SFC /scannow manually if needed.',
+        recommendationFa: isBad
+          ? 'به تب تعمیر سیستم بخش SFC & DISM رفته و دستور DISM RestoreHealth سپس sfc /scannow را اجرا کنید.'
+          : 'مخزن فایل‌های ویندوز سالم گزارش شد (در صورت نیاز بررسی عمیق‌تر از بخش SFC & DISM اقدام کنید).',
+        metrics: [
+          { labelEn: 'DISM CheckHealth', labelFa: 'سلامت ایمیج DISM', value: dismStatus, tone: isBad ? 'fail' : 'ok' },
+          { labelEn: 'CBS Errors', labelFa: 'خطاهای اخیر CBS', value: String(cbsErrs), tone: cbsErrs > 0 ? 'fail' : 'ok' },
+          { labelEn: 'Pending Reboot', labelFa: 'نیاز به ری‌استارت', value: pendingReboot ? 'Yes' : 'No', tone: pendingReboot ? 'warn' : 'ok' },
+        ],
+        highlights: [
+          { primary: `DISM Component Store: ${dismStatus}`, secondary: `CBS Corruption Registry Flag: ${corruptKey ? 'SET' : 'Clean'}`, badge: isBad ? 'Repair Needed' : 'Healthy', badgeTone: isBad ? 'fail' : 'ok' },
+        ],
+        durationMs,
+        jumpTarget,
+      });
+    } else if (id === 'windows_update_last') {
+      const latestDate = String(raw.latestDate || '').trim();
+      const latestKb = String(raw.latestKb || '').trim();
+      const wuLast = String(raw.wuLastInstall || '').trim();
+      const recentHotfixes: any[] = Array.isArray(raw.recentHotfixes) ? raw.recentHotfixes : [];
+      const pendingReboot = Boolean(raw.pendingReboot);
+      let daysAgo: number | null = null;
+      if (latestDate) {
+        const parsedTs = Date.parse(latestDate);
+        if (!Number.isNaN(parsedTs)) {
+          daysAgo = Math.max(0, Math.floor((Date.now() - parsedTs) / 86400000));
+        }
+      }
+      let status: 'pass' | 'warn' | 'fail' = 'pass';
+      if (!latestDate && !wuLast) status = 'warn';
+      else if (daysAgo !== null && daysAgo > 90) status = 'fail';
+      else if ((daysAgo !== null && daysAgo > 45) || pendingReboot) status = 'warn';
+
+      results.push({
+        id,
+        category: 'system_storage',
+        titleEn: 'Last Installed Windows Update & WSUS Policy',
+        titleFa: 'تاریخ آخرین آپدیت نصب‌شده ویندوز و وضعیت WSUS',
+        status,
+        statusLabelEn: status === 'pass' ? 'Recently Updated' : status === 'warn' ? (pendingReboot ? 'Reboot Pending' : 'Update Aging') : 'Outdated (>90d)',
+        statusLabelFa: status === 'pass' ? 'به‌روز' : status === 'warn' ? (pendingReboot ? 'نیاز به ری‌استارت' : 'آپدیت قدیمی') : 'بسیار قدیمی (>۹۰ روز)',
+        summaryEn: latestDate
+          ? `Latest HotFix: ${latestKb} (${raw.latestDescription || 'Update'}) installed on ${latestDate} (${daysAgo} days ago). Source: ${raw.useWsus ? `WSUS (${raw.wsusUrl || 'Configured'})` : 'Microsoft Update / Internet'}.`
+          : `No Win32_QuickFixEngineering HotFix record found.${wuLast ? ` Last WU install timestamp: ${wuLast}.` : ''}`,
+        summaryFa: latestDate
+          ? `آخرین آپدیت (HotFix): ${latestKb} (${raw.latestDescription || 'Update'}) در تاریخ ${latestDate} (${daysAgo} روز پیش) نصب شده است. منبع: ${raw.useWsus ? `WSUS (${raw.wsusUrl || 'فعال'})` : 'اینترنت مستقیم'}.`
+          : `رکوردی در HotFix ویندوز یافت نشد.${wuLast ? ` آخرین زمان ثبت‌شده در WU: ${wuLast}.` : ''}`,
+        recommendationEn: 'Check pending updates, WSUS settings, or install/uninstall KBs inside the Updates tab.',
+        recommendationFa: 'برای بررسی آپدیت‌های در انتظار، تغییر منبع WSUS/اینترنت یا حذف/نصب KB به تب آپدیت ویندوز بروید.',
+        metrics: [
+          { labelEn: 'Last KB / Date', labelFa: 'آخرین آپدیت', value: latestDate ? `${latestKb} (${latestDate})` : wuLast || 'None', tone: status === 'fail' ? 'fail' : status === 'warn' ? 'warn' : 'ok' },
+          { labelEn: 'Age', labelFa: 'فاصله زمانی', value: daysAgo !== null ? `${daysAgo} days ago` : '-', tone: daysAgo !== null && daysAgo > 45 ? 'warn' : 'info' },
+          { labelEn: 'Update Source', labelFa: 'منبع آپدیت', value: raw.useWsus ? 'WSUS' : 'Internet', tone: 'info' },
+        ],
+        highlights: recentHotfixes.map((hf) => ({
+          primary: `${hf.kb} — ${hf.date}`,
+          secondary: hf.description,
+          badge: 'Installed',
+          badgeTone: 'ok',
+        })),
+        durationMs,
+        jumpTarget,
+      });
+    } else if (id === 'drivers_status') {
+      const totalDevices = Number(raw.totalDevices) || 0;
+      const problemCount = Number(raw.problemCount) || 0;
+      const problems: any[] = Array.isArray(raw.problemDevices) ? raw.problemDevices : [];
+      const status: 'pass' | 'fail' = problemCount > 0 ? 'fail' : 'pass';
+
+      results.push({
+        id,
+        category: 'hardware_perf',
+        titleEn: 'Device Drivers & Plug-and-Play Health',
+        titleFa: 'سلامت درایورها و تجهیزات سخت‌افزاری (Device Manager)',
+        status,
+        statusLabelEn: status === 'pass' ? 'All Drivers OK' : `${problemCount} Driver Error(s)`,
+        statusLabelFa: status === 'pass' ? 'همه درایورها سالم' : `${problemCount} درایور معیوب`,
+        summaryEn:
+          problemCount === 0
+            ? `All ${totalDevices} PnP hardware devices report healthy status (ConfigManagerErrorCode = 0).`
+            : `${problemCount} of ${totalDevices} hardware devices report driver or hardware errors: ${problems.slice(0, 3).map((p) => `${p.name} (Code ${p.errorCode})`).join(', ')}.`,
+        summaryFa:
+          problemCount === 0
+            ? `تمام ${totalDevices} دستگاه و درایور سخت‌افزاری سیستم بدون هیچ خطایی نصب و سالم هستند.`
+            : `${problemCount} قطعه/درایور دارای خطا است: ${problems.slice(0, 3).map((p) => `${p.name} (کد ${p.errorCode})`).join('، ')}.`,
+        recommendationEn:
+          problemCount === 0
+            ? 'No missing or broken drivers detected.'
+            : 'Inspect affected hardware devices in the Hardware & Peripherals tab and reinstall/enable their drivers.',
+        recommendationFa:
+          problemCount === 0
+            ? 'هیچ درایور نصب‌نشده یا معیوبی یافت نشد.'
+            : 'در تب سخت‌افزار و تجهیزات متصل جزئیات دستگاه‌های معیوب را بررسی کنید.',
+        metrics: [
+          { labelEn: 'Total PnP Devices', labelFa: 'کل دستگاه‌ها', value: String(totalDevices), tone: 'info' },
+          { labelEn: 'Driver Errors', labelFa: 'خطای درایور', value: String(problemCount), tone: problemCount > 0 ? 'fail' : 'ok' },
+        ],
+        highlights: problems.map((p) => {
+          const desc = mapPnpConfigErrorCode(Number(p.errorCode) || 0);
+          return {
+            primary: p.name || 'Unknown Device',
+            secondary: `${p.pnpClass || 'Device'} · ${p.manufacturer || ''} · ${desc.en}`,
+            badge: `Code ${p.errorCode}`,
+            badgeTone: 'fail',
+          };
+        }),
+        durationMs,
+        jumpTarget,
+      });
+    } else if (id === 'cpu_ram_usage') {
+      const cpuPct = Number(raw.cpuPercent) || 0;
+      const ramPct = Number(raw.ramPercent) || 0;
+      const usedGb = Number(raw.usedRamGb) || 0;
+      const totalGb = Number(raw.totalRamGb) || 0;
+      const freeGb = Number(raw.freeRamGb) || 0;
+      let status: 'pass' | 'warn' | 'fail' = 'pass';
+      if (cpuPct >= 90 || ramPct >= 92) status = 'fail';
+      else if (cpuPct >= 75 || ramPct >= 80) status = 'warn';
+
+      results.push({
+        id,
+        category: 'hardware_perf',
+        titleEn: 'CPU & Memory (RAM) Utilization',
+        titleFa: 'میزان مصرف لحظه‌ای پردازنده (CPU) و حافظه (RAM)',
+        status,
+        statusLabelEn: status === 'pass' ? 'Resources Normal' : status === 'warn' ? 'Elevated Usage' : 'Resource Saturation',
+        statusLabelFa: status === 'pass' ? 'مصرف نرمال' : status === 'warn' ? 'مصرف بالا' : 'اشباع شدید منابع',
+        summaryEn: `CPU: ${cpuPct}% (${raw.cores}C / ${raw.logicalProcessors}T — ${raw.cpuModel || 'CPU'}) · RAM: ${usedGb} / ${totalGb} GB (${ramPct}% used, ${freeGb} GB free).`,
+        summaryFa: `مصرف CPU: ${cpuPct}% (${raw.cores} هسته / ${raw.logicalProcessors} ترد) · مصرف RAM: ${usedGb} از ${totalGb} گیگابایت (${ramPct}% پر، ${freeGb} GB آزاد).`,
+        recommendationEn:
+          status === 'pass'
+            ? 'CPU and RAM headroom are healthy.'
+            : 'Open System Health tab to inspect resource gauges and terminate heavy background apps if needed.',
+        recommendationFa:
+          status === 'pass'
+            ? 'میزان مصرف CPU و RAM در محدوده کاملاً استاندارد است.'
+            : 'برای مشاهده نمودار زنده و کنترل پروسس‌های پرمصرف به تب سلامت سیستم بروید.',
+        metrics: [
+          { labelEn: 'CPU Load', labelFa: 'مصرف CPU', value: `${cpuPct}%`, tone: cpuPct >= 90 ? 'fail' : cpuPct >= 75 ? 'warn' : 'ok' },
+          { labelEn: 'RAM Usage', labelFa: 'مصرف RAM', value: `${usedGb} / ${totalGb} GB (${ramPct}%)`, tone: ramPct >= 92 ? 'fail' : ramPct >= 80 ? 'warn' : 'ok' },
+          { labelEn: 'RAM Free', labelFa: 'RAM آزاد', value: `${freeGb} GB`, tone: 'info' },
+        ],
+        highlights: [
+          { primary: String(raw.cpuModel || 'Processor'), secondary: `${raw.cores} Cores / ${raw.logicalProcessors} Logical Threads`, badge: `${cpuPct}%`, badgeTone: cpuPct >= 90 ? 'fail' : cpuPct >= 75 ? 'warn' : 'ok' },
+          { primary: `Physical Memory: ${usedGb} GB Used / ${totalGb} GB Total`, secondary: `Available: ${freeGb} GB`, badge: `${ramPct}%`, badgeTone: ramPct >= 92 ? 'fail' : ramPct >= 80 ? 'warn' : 'ok' },
+        ],
+        durationMs,
+        jumpTarget,
+      });
+    } else if (id === 'top_resource_apps') {
+      const topCpu: any[] = Array.isArray(raw.topCpu) ? raw.topCpu : [];
+      const topRam: any[] = Array.isArray(raw.topRam) ? raw.topRam : [];
+      const maxCpuProc = topCpu[0];
+      const maxRamProc = topRam[0];
+      const hasSpike = (Number(maxCpuProc?.cpuPercent) || 0) >= 50 || (Number(maxRamProc?.memoryPercent) || 0) >= 35;
+      const status: 'pass' | 'warn' = hasSpike ? 'warn' : 'pass';
+
+      results.push({
+        id,
+        category: 'hardware_perf',
+        titleEn: 'Top Resource-Consuming Applications',
+        titleFa: 'نرم‌افزارها و پروسس‌های با بیشترین مصرف منابع (CPU / RAM)',
+        status,
+        statusLabelEn: status === 'warn' ? 'Heavy Process Found' : 'Normal Distribution',
+        statusLabelFa: status === 'warn' ? 'پروسس پرمصرف' : 'توزیع عادی منابع',
+        summaryEn: `Top CPU: ${maxCpuProc ? `${maxCpuProc.name} (${maxCpuProc.cpuPercent}%)` : '-'} · Top RAM: ${maxRamProc ? `${maxRamProc.name} (${maxRamProc.memoryMb} MB / ${maxRamProc.memoryPercent}%)` : '-'} across ${raw.totalProcesses || 0} processes.`,
+        summaryFa: `بیشترین مصرف CPU: ${maxCpuProc ? `${maxCpuProc.name} (${maxCpuProc.cpuPercent}%)` : '-'} · بیشترین مصرف RAM: ${maxRamProc ? `${maxRamProc.name} (${maxRamProc.memoryMb} MB)` : '-'} از بین ${raw.totalProcesses || 0} پروسس.`,
+        recommendationEn: 'Jump to Live Process Monitor in the Health tab to end hung user applications safely.',
+        recommendationFa: 'از دکمه تب سلامت سیستم می‌توانید مستقیماً وارد لیست پروسس‌ها شده و برنامه هنگ‌کرده یا پرمصرف را ببندید.',
+        metrics: [
+          { labelEn: 'Top CPU App', labelFa: 'پرمصرف‌ترین CPU', value: maxCpuProc ? `${maxCpuProc.name} (${maxCpuProc.cpuPercent}%)` : '-', tone: Number(maxCpuProc?.cpuPercent) >= 50 ? 'warn' : 'info' },
+          { labelEn: 'Top RAM App', labelFa: 'پرمصرف‌ترین RAM', value: maxRamProc ? `${maxRamProc.name} (${maxRamProc.memoryMb} MB)` : '-', tone: Number(maxRamProc?.memoryPercent) >= 35 ? 'warn' : 'info' },
+          { labelEn: 'Active Processes', labelFa: 'کل پروسس‌ها', value: String(raw.totalProcesses || 0), tone: 'info' },
+        ],
+        highlights: [
+          ...topRam.slice(0, 4).map((p) => ({
+            primary: `${p.name} (PID ${p.pid})`,
+            secondary: `RAM: ${p.memoryMb} MB (${p.memoryPercent}%) · CPU: ${p.cpuPercent}%`,
+            badge: `${p.memoryMb} MB`,
+            badgeTone: (Number(p.memoryPercent) >= 35 ? 'warn' : 'info') as 'warn' | 'info',
+          })),
+          ...topCpu
+            .filter((p) => !topRam.slice(0, 4).some((r) => r.pid === p.pid))
+            .slice(0, 2)
+            .map((p) => ({
+              primary: `${p.name} (PID ${p.pid})`,
+              secondary: `CPU: ${p.cpuPercent}% · RAM: ${p.memoryMb} MB`,
+              badge: `CPU ${p.cpuPercent}%`,
+              badgeTone: (Number(p.cpuPercent) >= 50 ? 'warn' : 'info') as 'warn' | 'info',
+            })),
+        ],
+        durationMs,
+        jumpTarget,
+      });
+    }
+  }
+
+  let passed = 0;
+  let warnings = 0;
+  let failures = 0;
+  let infoOnly = 0;
+  let skipped = 0;
+  for (const c of results) {
+    if (c.status === 'pass') passed++;
+    else if (c.status === 'warn') warnings++;
+    else if (c.status === 'fail') failures++;
+    else if (c.status === 'info') infoOnly++;
+    else skipped++;
+  }
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed?.hostname || execRes.host),
+    osName: String(parsed?.osName || (execRes.osFamily === 'linux' ? 'Linux' : 'Windows')),
+    loggedInUser: String(parsed?.loggedInUser || ''),
+    collectedAt: new Date().toISOString(),
+    totalDurationMs: Date.now() - startedAtMs,
+    requestedChecks,
+    summary: {
+      totalChecked: results.length - skipped,
+      passed,
+      warnings,
+      failures,
+      infoOnly,
+      skipped,
+      overallStatus: failures > 0 ? 'critical' : warnings > 0 ? 'warning' : 'healthy',
+    },
+    checks: results,
+  };
+}

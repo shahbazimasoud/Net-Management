@@ -16,10 +16,13 @@ import {
   fetchHelpdeskServicesAndStartup,
   fetchHelpdeskRegionAndFonts,
   HelpdeskConnectionPayload,
+  HelpdeskDiagnosticCheckId,
+  ALL_HELPDESK_DIAGNOSTIC_CHECKS,
 } from './api';
 
 export type HelpdeskSubTab =
   | 'health'
+  | 'diagnostics'
   | 'hardware'
   | 'network'
   | 'printers'
@@ -177,6 +180,12 @@ export interface HelpdeskRamState {
   domainUserData: any | null;
   loadingDomainUser: boolean;
   domainUserError: string | null;
+
+  // Diagnostics Tab (Configurable 13-Check Troubleshooter)
+  diagnosticsData: any | null;
+  loadingDiagnostics: boolean;
+  diagnosticsError: string | null;
+  diagnosticsSelectedChecks: HelpdeskDiagnosticCheckId[];
 }
 
 function createInitialHelpdeskRamState(ownerUserId: string | null = null): HelpdeskRamState {
@@ -286,6 +295,11 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     domainUserData: null,
     loadingDomainUser: false,
     domainUserError: null,
+
+    diagnosticsData: null,
+    loadingDiagnostics: false,
+    diagnosticsError: null,
+    diagnosticsSelectedChecks: [...ALL_HELPDESK_DIAGNOSTIC_CHECKS],
   };
 }
 
@@ -460,6 +474,9 @@ export async function runHelpdeskSequentialConnect(options: {
     loadingBattery: false,
     domainUserData: null,
     domainUserError: null,
+    diagnosticsData: null,
+    loadingDiagnostics: false,
+    diagnosticsError: null,
   });
 
   const steps: Array<{
