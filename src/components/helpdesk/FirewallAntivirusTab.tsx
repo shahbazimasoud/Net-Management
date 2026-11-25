@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { DeleteConfirmModal, DeleteGenericTarget } from '../DeleteConfirmModal';
+import { TimeoutAntivirusHint } from './TimeoutAntivirusHint';
 
 export interface FirewallAntivirusTabProps {
   isLightMode: boolean;
@@ -467,15 +468,25 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
 
       {actionError && (
         <div
-          className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-3 text-xs ${
+          className={`rounded-xl border px-4 py-3 flex items-start justify-between gap-3 text-xs ${
             isLightMode
               ? 'bg-rose-50 border-rose-300 text-rose-900'
               : 'bg-rose-500/15 border-rose-500/40 text-rose-200'
           }`}
         >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
-            <span className="break-words">{actionError}</span>
+          <div className="flex items-start gap-2.5 min-w-0 flex-1">
+            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <span className="break-words">{actionError}</span>
+              <TimeoutAntivirusHint
+                errorText={actionError}
+                isEn={isEn}
+                isLightMode={isLightMode}
+                canViewSecurityAv={true}
+                canControlAntivirus={canExecuteActions}
+                isAlreadyOnSecurityTab={true}
+              />
+            </div>
           </div>
           <button
             type="button"
@@ -496,11 +507,19 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
           }`}
         >
           <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-          <div className="space-y-1 min-w-0">
+          <div className="space-y-1 min-w-0 flex-1">
             <div className="font-bold">
               {isEn ? 'Failed to Inspect Firewall & Antivirus' : 'خطا در دریافت اطلاعات فایروال و آنتی‌ویروس'}
             </div>
             <div className="break-words">{error}</div>
+            <TimeoutAntivirusHint
+              errorText={error}
+              isEn={isEn}
+              isLightMode={isLightMode}
+              canViewSecurityAv={true}
+              canControlAntivirus={canExecuteActions}
+              isAlreadyOnSecurityTab={true}
+            />
           </div>
         </div>
       )}

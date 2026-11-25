@@ -30,12 +30,15 @@ import {
   X,
 } from 'lucide-react';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { TimeoutAntivirusHint } from './TimeoutAntivirusHint';
 
 export interface RegionFontsTabProps {
   isLightMode: boolean;
   isEn: boolean;
   targetIp: string;
   canExecuteActions: boolean;
+  canViewSecurityAv?: boolean;
+  onGoToAntivirus?: () => void;
   data: any | null;
   loading: boolean;
   error: string | null;
@@ -159,6 +162,8 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
   isEn,
   targetIp,
   canExecuteActions,
+  canViewSecurityAv = true,
+  onGoToAntivirus,
   data,
   loading,
   error,
@@ -649,17 +654,37 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
         {error && (
           <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3.5 flex items-start gap-2.5 text-xs text-rose-500">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{error}</span>
+            <div className="min-w-0 flex-1">
+              <span>{error}</span>
+              <TimeoutAntivirusHint
+                errorText={error}
+                isEn={isEn}
+                isLightMode={isLightMode}
+                canViewSecurityAv={canViewSecurityAv}
+                canControlAntivirus={canExecuteActions}
+                onGoToAntivirus={onGoToAntivirus}
+              />
+            </div>
           </div>
         )}
 
         {actionError && (
           <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3.5 flex items-start justify-between gap-2.5 text-xs text-rose-500">
-            <div className="flex items-start gap-2.5">
+            <div className="flex items-start gap-2.5 min-w-0 flex-1">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{actionError}</span>
+              <div className="min-w-0 flex-1">
+                <span>{actionError}</span>
+                <TimeoutAntivirusHint
+                  errorText={actionError}
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                  canViewSecurityAv={canViewSecurityAv}
+                  canControlAntivirus={canExecuteActions}
+                  onGoToAntivirus={onGoToAntivirus}
+                />
+              </div>
             </div>
-            <button type="button" onClick={onClearActionBanner} className="opacity-70 hover:opacity-100 cursor-pointer">
+            <button type="button" onClick={onClearActionBanner} className="opacity-70 hover:opacity-100 cursor-pointer shrink-0">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>

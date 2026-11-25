@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.480.0';
+export const APP_VERSION = '1.481.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.481.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'افزودن راهنمای هوشمند خاموش‌سازی آنتی‌ویروس و دکمه پرش سریع در خطاهای تایم‌اوت HelpDesk (مبتنی بر RBAC)',
+    title_en: 'Add RBAC-Gated Antivirus Timeout Recommendation Hint & Quick-Jump Button Across HelpDesk Errors',
+    changes: [
+      'افزودن کامپوننت `TimeoutAntivirusHint` جهت تشخیص خودکار خطاهای تایم‌اوت (فارسی و انگلیسی) در تمامی تب‌ها و بنرهای خطای HelpDesk.',
+      'نمایش پیشنهاد خاموش کردن موقت آنتی‌ویروس و دکمه پرش سریع به تب `فایروال و آنتی‌ویروس` در صورت داشتن مجوز دسترسی (`canRunDiagnostics` و `canExecuteActions`)، همراه با بارگذاری خودکار تب و پنهان‌سازی کامل برای کاربران فاقد دسترسی.'
+    ],
+    changes_en: [
+      'Created `TimeoutAntivirusHint` to automatically detect endpoint timeout errors (EN/FA) across all HelpDesk tabs and inline error banners.',
+      'Displays a targeted recommendation to temporarily disable Antivirus along with a quick-jump button to the `Firewall & Antivirus` tab strictly gated by RBAC permissions (`canRunDiagnostics` / `canExecuteActions`).'
+    ]
+  },
   {
     version: '1.480.0',
     releaseDate: '2026-11-25',

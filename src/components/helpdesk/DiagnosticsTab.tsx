@@ -21,12 +21,14 @@ import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { DIAGNOSTIC_CHECK_CATALOG } from './DiagnosticsConfigModal';
 import { ALL_HELPDESK_DIAGNOSTIC_CHECKS, HelpdeskDiagnosticCheckId } from '../../services/api';
 import { HelpdeskSubTab } from '../../services/helpdeskRamSession';
+import { TimeoutAntivirusHint } from './TimeoutAntivirusHint';
 
 interface DiagnosticsTabProps {
   isLightMode: boolean;
   isEn: boolean;
   targetIp: string;
   canRunDiagnostics: boolean;
+  canControlAntivirus?: boolean;
   data: any | null;
   loading: boolean;
   error: string | null;
@@ -34,6 +36,7 @@ interface DiagnosticsTabProps {
   onOpenConfigModal: () => void;
   onRunQuickSelected: () => void;
   onJumpToSection: (tab: HelpdeskSubTab, sectionId: string) => void;
+  onGoToAntivirus?: () => void;
 }
 
 export const DiagnosticsTab: React.FC<DiagnosticsTabProps> = ({
@@ -41,6 +44,7 @@ export const DiagnosticsTab: React.FC<DiagnosticsTabProps> = ({
   isEn,
   targetIp,
   canRunDiagnostics,
+  canControlAntivirus = false,
   data,
   loading,
   error,
@@ -48,6 +52,7 @@ export const DiagnosticsTab: React.FC<DiagnosticsTabProps> = ({
   onOpenConfigModal,
   onRunQuickSelected,
   onJumpToSection,
+  onGoToAntivirus,
 }) => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'issues' | 'passed'>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'network' | 'system_storage' | 'hardware_perf'>('all');
@@ -228,6 +233,14 @@ export const DiagnosticsTab: React.FC<DiagnosticsTabProps> = ({
               {isEn ? 'Diagnostics Execution Failed' : 'خطا در اجرای دیاگنوستیک'}
             </div>
             <div className={`break-words ${isLightMode ? 'text-rose-800' : 'text-rose-200'}`}>{error}</div>
+            <TimeoutAntivirusHint
+              errorText={error}
+              isEn={isEn}
+              isLightMode={isLightMode}
+              canViewSecurityAv={canRunDiagnostics}
+              canControlAntivirus={canControlAntivirus}
+              onGoToAntivirus={onGoToAntivirus}
+            />
           </div>
         </div>
       )}

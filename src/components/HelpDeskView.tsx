@@ -187,6 +187,7 @@ import { FirewallAntivirusTab } from './helpdesk/FirewallAntivirusTab';
 import { DiagnosticsTab } from './helpdesk/DiagnosticsTab';
 import { DiagnosticsConfigModal } from './helpdesk/DiagnosticsConfigModal';
 import { HelpdeskExceptionsModal } from './helpdesk/HelpdeskExceptionsModal';
+import { TimeoutAntivirusHint } from './helpdesk/TimeoutAntivirusHint';
 
 interface HelpDeskViewProps {
   isLightMode: boolean;
@@ -3360,6 +3361,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     stopHelpdeskPrefetch();
   };
 
+  const handleGoToSecurityAv = () => {
+    if (!canRunDiagnostics) return;
+    setActiveSubTab('security_av');
+    if (!securityAvData && !loadingSecurityAv && targetIp.trim() && username.trim() && password) {
+      handleInspectSecurityAv();
+    }
+  };
+
   const handleConnectCurrentTab = async (e?: React.FormEvent, overridePayload?: HelpdeskConnectionPayload) => {
     if (e) e.preventDefault();
     const payload = overridePayload || buildPayload();
@@ -4573,13 +4582,13 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         <div className="space-y-6">
           {healthError && (
             <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 flex items-start justify-between gap-3 text-xs text-rose-500">
-              <div className="flex items-start gap-3 min-w-0">
+              <div className="flex items-start gap-3 min-w-0 flex-1">
                 {healthBlockedByException ? (
                   <ShieldBan className="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
                 ) : (
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 )}
-                <div className="space-y-1 min-w-0">
+                <div className="space-y-1 min-w-0 flex-1">
                   <div className="font-bold">
                     {healthBlockedByException
                       ? isEn
@@ -4592,6 +4601,16 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   <div className={`break-words ${isLightMode ? 'text-rose-800' : 'text-rose-200'}`}>
                     {healthError}
                   </div>
+                  {!healthBlockedByException && (
+                    <TimeoutAntivirusHint
+                      errorText={healthError}
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                      canViewSecurityAv={canRunDiagnostics}
+                      canControlAntivirus={canExecuteActions}
+                      onGoToAntivirus={handleGoToSecurityAv}
+                    />
+                  )}
                 </div>
               </div>
               {healthBlockedByException && (
@@ -4770,12 +4789,23 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     )}
 
                     {renameError && (
-                      <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-500 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                          <span>{renameError}</span>
+                      <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-500 flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2 min-w-0 flex-1">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <div className="min-w-0 flex-1">
+                            <span>{renameError}</span>
+                            <TimeoutAntivirusHint
+                              errorText={renameError}
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                              canViewSecurityAv={canRunDiagnostics}
+                              canControlAntivirus={canExecuteActions}
+                              onGoToAntivirus={handleGoToSecurityAv}
+                              compact
+                            />
+                          </div>
                         </div>
-                        <button type="button" onClick={() => setRenameError(null)} className="cursor-pointer opacity-75 hover:opacity-100">
+                        <button type="button" onClick={() => setRenameError(null)} className="cursor-pointer opacity-75 hover:opacity-100 shrink-0 mt-0.5">
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -5878,7 +5908,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             {healthError && (
               <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{healthError}</span>
+                <div className="min-w-0 flex-1">
+                  <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{healthError}</span>
+                  <TimeoutAntivirusHint
+                    errorText={healthError}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    canViewSecurityAv={canRunDiagnostics}
+                    canControlAntivirus={canExecuteActions}
+                    onGoToAntivirus={handleGoToSecurityAv}
+                  />
+                </div>
               </div>
             )}
 
@@ -6040,7 +6080,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             {sharesError && (
               <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{sharesError}</span>
+                <div className="min-w-0 flex-1">
+                  <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{sharesError}</span>
+                  <TimeoutAntivirusHint
+                    errorText={sharesError}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    canViewSecurityAv={canRunDiagnostics}
+                    canControlAntivirus={canExecuteActions}
+                    onGoToAntivirus={handleGoToSecurityAv}
+                  />
+                </div>
               </div>
             )}
 
@@ -6357,14 +6407,34 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             {tempError && (
               <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{tempError}</span>
+                <div className="min-w-0 flex-1">
+                  <span>{tempError}</span>
+                  <TimeoutAntivirusHint
+                    errorText={tempError}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    canViewSecurityAv={canRunDiagnostics}
+                    canControlAntivirus={canExecuteActions}
+                    onGoToAntivirus={handleGoToSecurityAv}
+                  />
+                </div>
               </div>
             )}
 
             {recycleBinError && (
               <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{recycleBinError}</span>
+                <div className="min-w-0 flex-1">
+                  <span>{recycleBinError}</span>
+                  <TimeoutAntivirusHint
+                    errorText={recycleBinError}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    canViewSecurityAv={canRunDiagnostics}
+                    canControlAntivirus={canExecuteActions}
+                    onGoToAntivirus={handleGoToSecurityAv}
+                  />
+                </div>
               </div>
             )}
 
@@ -6657,6 +6727,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           isEn={isEn}
           targetIp={targetIp}
           canRunDiagnostics={canRunDiagnostics}
+          canControlAntivirus={canExecuteActions}
           data={diagnosticsData}
           loading={loadingDiagnostics}
           error={diagnosticsError}
@@ -6664,6 +6735,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           onOpenConfigModal={() => setIsDiagnosticsModalOpen(true)}
           onRunQuickSelected={() => handleRunDiagnosticsSuite()}
           onJumpToSection={handleJumpToHelpdeskSection}
+          onGoToAntivirus={handleGoToSecurityAv}
         />
       )}
 
@@ -6748,7 +6820,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             {hardwareError && (
               <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3.5 flex items-start gap-2.5 text-xs text-rose-500">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{hardwareError}</span>
+                <div className="min-w-0 flex-1">
+                  <span>{hardwareError}</span>
+                  <TimeoutAntivirusHint
+                    errorText={hardwareError}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    canViewSecurityAv={canRunDiagnostics}
+                    canControlAntivirus={canExecuteActions}
+                    onGoToAntivirus={handleGoToSecurityAv}
+                  />
+                </div>
               </div>
             )}
 
@@ -7621,7 +7703,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           {networkError && (
             <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 flex items-start gap-3 text-xs text-rose-500">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{networkError}</span>
+              <div className="min-w-0 flex-1">
+                <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{networkError}</span>
+                <TimeoutAntivirusHint
+                  errorText={networkError}
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                  canViewSecurityAv={canRunDiagnostics}
+                  canControlAntivirus={canExecuteActions}
+                  onGoToAntivirus={handleGoToSecurityAv}
+                />
+              </div>
             </div>
           )}
 
@@ -7922,8 +8014,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             </div>
 
             {probeError && (
-              <div className="p-3 rounded-lg border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500">
-                {probeError}
+              <div className="p-3 rounded-lg border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 space-y-1">
+                <div>{probeError}</div>
+                <TimeoutAntivirusHint
+                  errorText={probeError}
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                  canViewSecurityAv={canRunDiagnostics}
+                  canControlAntivirus={canExecuteActions}
+                  onGoToAntivirus={handleGoToSecurityAv}
+                  compact
+                />
               </div>
             )}
 
@@ -9369,7 +9470,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           {printerError && (
             <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 flex items-start gap-3 text-xs text-rose-500">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{printerError}</span>
+              <div className="min-w-0 flex-1">
+                <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{printerError}</span>
+                <TimeoutAntivirusHint
+                  errorText={printerError}
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                  canViewSecurityAv={canRunDiagnostics}
+                  canControlAntivirus={canExecuteActions}
+                  onGoToAntivirus={handleGoToSecurityAv}
+                />
+              </div>
             </div>
           )}
 
@@ -9698,7 +9809,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           {eventError && (
             <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 flex items-start gap-3 text-xs text-rose-500">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{eventError}</span>
+              <div className="min-w-0 flex-1">
+                <span className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{eventError}</span>
+                <TimeoutAntivirusHint
+                  errorText={eventError}
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                  canViewSecurityAv={canRunDiagnostics}
+                  canControlAntivirus={canExecuteActions}
+                  onGoToAntivirus={handleGoToSecurityAv}
+                />
+              </div>
             </div>
           )}
 
@@ -10450,7 +10571,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             {gpoError && (
               <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{gpoError}</span>
+                <div className="min-w-0 flex-1">
+                  <span>{gpoError}</span>
+                  <TimeoutAntivirusHint
+                    errorText={gpoError}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    canViewSecurityAv={canRunDiagnostics}
+                    canControlAntivirus={canExecuteActions}
+                    onGoToAntivirus={handleGoToSecurityAv}
+                  />
+                </div>
               </div>
             )}
 
@@ -10647,7 +10778,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             {domainUserError && (
               <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{domainUserError}</span>
+                <div className="min-w-0 flex-1">
+                  <span>{domainUserError}</span>
+                  <TimeoutAntivirusHint
+                    errorText={domainUserError}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    canViewSecurityAv={canRunDiagnostics}
+                    canControlAntivirus={canExecuteActions}
+                    onGoToAntivirus={handleGoToSecurityAv}
+                  />
+                </div>
               </div>
             )}
 
@@ -11065,7 +11206,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             {repairError && (
               <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{repairError}</span>
+                <div className="min-w-0 flex-1">
+                  <span>{repairError}</span>
+                  <TimeoutAntivirusHint
+                    errorText={repairError}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    canViewSecurityAv={canRunDiagnostics}
+                    canControlAntivirus={canExecuteActions}
+                    onGoToAntivirus={handleGoToSecurityAv}
+                  />
+                </div>
               </div>
             )}
 
@@ -11172,7 +11323,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             {diskHealthError && (
               <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{diskHealthError}</span>
+                <div className="min-w-0 flex-1">
+                  <span>{diskHealthError}</span>
+                  <TimeoutAntivirusHint
+                    errorText={diskHealthError}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    canViewSecurityAv={canRunDiagnostics}
+                    canControlAntivirus={canExecuteActions}
+                    onGoToAntivirus={handleGoToSecurityAv}
+                  />
+                </div>
               </div>
             )}
 
@@ -11364,7 +11525,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             {batteryError && (
               <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{batteryError}</span>
+                <div className="min-w-0 flex-1">
+                  <span>{batteryError}</span>
+                  <TimeoutAntivirusHint
+                    errorText={batteryError}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    canViewSecurityAv={canRunDiagnostics}
+                    canControlAntivirus={canExecuteActions}
+                    onGoToAntivirus={handleGoToSecurityAv}
+                  />
+                </div>
               </div>
             )}
 
@@ -11727,11 +11898,19 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           {logonsError && (
             <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 flex items-start gap-3 text-xs text-rose-500">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div className="space-y-1">
+              <div className="space-y-1 min-w-0 flex-1">
                 <div className="font-bold">
                   {isEn ? 'Workstation Login Inspection Error' : 'خطا در دریافت گزارش ورود کاربران سیستم'}
                 </div>
                 <div className={isLightMode ? 'text-rose-800' : 'text-rose-200'}>{logonsError}</div>
+                <TimeoutAntivirusHint
+                  errorText={logonsError}
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                  canViewSecurityAv={canRunDiagnostics}
+                  canControlAntivirus={canExecuteActions}
+                  onGoToAntivirus={handleGoToSecurityAv}
+                />
               </div>
             </div>
           )}
@@ -11967,7 +12146,18 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 {sessionActionError && (
                   <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>{sessionActionError}</span>
+                    <div className="min-w-0 flex-1">
+                      <span>{sessionActionError}</span>
+                      <TimeoutAntivirusHint
+                        errorText={sessionActionError}
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                        canViewSecurityAv={canRunDiagnostics}
+                        canControlAntivirus={canExecuteActions}
+                        onGoToAntivirus={handleGoToSecurityAv}
+                        compact
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -12109,7 +12299,18 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 {powerError && (
                   <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>{powerError}</span>
+                    <div className="min-w-0 flex-1">
+                      <span>{powerError}</span>
+                      <TimeoutAntivirusHint
+                        errorText={powerError}
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                        canViewSecurityAv={canRunDiagnostics}
+                        canControlAntivirus={canExecuteActions}
+                        onGoToAntivirus={handleGoToSecurityAv}
+                        compact
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -12305,7 +12506,18 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 {endpointMsgError && (
                   <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>{endpointMsgError}</span>
+                    <div className="min-w-0 flex-1">
+                      <span>{endpointMsgError}</span>
+                      <TimeoutAntivirusHint
+                        errorText={endpointMsgError}
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                        canViewSecurityAv={canRunDiagnostics}
+                        canControlAntivirus={canExecuteActions}
+                        onGoToAntivirus={handleGoToSecurityAv}
+                        compact
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -12838,10 +13050,18 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           {(updateStatusError || sysInfoError || updateActionError) && (
             <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 flex items-start gap-3 text-xs text-rose-500">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div className="space-y-1">
+              <div className="space-y-1 min-w-0 flex-1">
                 {updateStatusError && <div>{updateStatusError}</div>}
                 {sysInfoError && <div>{sysInfoError}</div>}
                 {updateActionError && <div>{updateActionError}</div>}
+                <TimeoutAntivirusHint
+                  errorText={[updateStatusError, sysInfoError, updateActionError].filter(Boolean).join(' | ')}
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                  canViewSecurityAv={canRunDiagnostics}
+                  canControlAntivirus={canExecuteActions}
+                  onGoToAntivirus={handleGoToSecurityAv}
+                />
               </div>
             </div>
           )}
@@ -13406,14 +13626,34 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             {programsError && (
               <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3.5 flex items-start gap-2.5 text-xs text-rose-500">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{programsError}</span>
+                <div className="min-w-0 flex-1">
+                  <span>{programsError}</span>
+                  <TimeoutAntivirusHint
+                    errorText={programsError}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    canViewSecurityAv={canRunDiagnostics}
+                    canControlAntivirus={canExecuteActions}
+                    onGoToAntivirus={handleGoToSecurityAv}
+                  />
+                </div>
               </div>
             )}
 
             {programActionError && (
               <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3.5 flex items-start gap-2.5 text-xs text-rose-500">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{programActionError}</span>
+                <div className="min-w-0 flex-1">
+                  <span>{programActionError}</span>
+                  <TimeoutAntivirusHint
+                    errorText={programActionError}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    canViewSecurityAv={canRunDiagnostics}
+                    canControlAntivirus={canExecuteActions}
+                    onGoToAntivirus={handleGoToSecurityAv}
+                  />
+                </div>
               </div>
             )}
 
@@ -13949,6 +14189,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           isEn={isEn}
           targetIp={targetIp}
           canExecuteActions={canExecuteActions}
+          canViewSecurityAv={canRunDiagnostics}
+          onGoToAntivirus={handleGoToSecurityAv}
           data={servicesStartupData}
           loading={loadingServicesStartup}
           error={servicesStartupError}
@@ -13980,6 +14222,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           isEn={isEn}
           targetIp={targetIp}
           canExecuteActions={canExecuteActions}
+          canViewSecurityAv={canRunDiagnostics}
+          onGoToAntivirus={handleGoToSecurityAv}
           data={regionFontsData}
           loading={loadingRegionFonts}
           error={regionFontsError}
