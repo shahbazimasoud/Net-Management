@@ -11111,6 +11111,7 @@ export interface HelpdeskHardwareCpuInfo {
   l3CacheMb: number;
   architecture: string;
   virtualizationEnabled: boolean | null;
+  identifier?: string;
 }
 
 export interface HelpdeskHardwareMotherboardInfo {
@@ -11122,6 +11123,8 @@ export interface HelpdeskHardwareMotherboardInfo {
   biosVendor: string;
   biosVersion: string;
   biosReleaseDate: string;
+  firmwareMode?: string;
+  secureBoot?: boolean | null;
 }
 
 export interface HelpdeskHardwareGpuItem {
@@ -11310,7 +11313,51 @@ function Decode-FormFactor($ff) {
   }
 }
 
-# 1. System, Chassis, Motherboard & BIOS
+function Clean-HwStr($v) {
+  $s = ((To-Str $v) -replace '\\s+', ' ').Trim()
+  if (-not $s) { return '' }
+  if ($s -match '^(?i)(to be filled by o\\.?e\\.?m\\.?|default string|system serial number|system product name|system manufacturer|base board serial number|chassis serial number|not specified|not applicable|none|n/a|o\\.?e\\.?m\\.?|empty|0{4,})$') {
+    return ''
+  }
+  return $s
+}
+
+function Parse-BiosDate($val) {
+  if ($null -eq $val) { return '' }
+  if ($val -is [datetime]) { return $val.ToString('yyyy-MM-dd') }
+  $s = To-Str $val
+  if (-not $s) { return '' }
+  if ($s -match '^(\\d{4})(\\d{2})(\\d{2})\\d{6}') {
+    return "$($Matches[1])-$($Matches[2])-$($Matches[3])"
+  }
+  try { return ([datetime]$s).ToString('yyyy-MM-dd') } catch { return $s }
+}
+
+function Decode-CpuSocket($upgradeCode) {
+  switch (To-Int $upgradeCode) {
+    36 { 'Socket AM2' }
+    39 { 'Socket AM3' }
+    42 { 'BGA' }
+    43 { 'LGA1155' }
+    44 { 'Socket AM3+' }
+    45 { 'Socket FM1' }
+    47 { 'Socket FM2' }
+    48 { 'LGA2011-3' }
+    49 { 'LGA1151' }
+    50 { 'LGA1150' }
+    52 { 'LGA2066' }
+    56 { 'LGA1151-2' }
+    59 { 'Socket AM4' }
+    62 { 'LGA1200' }
+    63 { 'LGA1700' }
+    64 { 'Socket AM5' }
+    65 { 'LGA1851' }
+    66 { 'Socket SP5' }
+    default { '' }
+  }
+}
+
+# 1. System, Chassis, Motherboard & BIOS (CIM/WMI + Registry SMBIOS fallbacks)
 $cs = $null; $csp = $null; $bios = $null; $board = $null; $enclosure = $null; $os = $null
 try { $cs = Safe-Cim 'Win32_ComputerSystem' | Select-Object -First 1 } catch {}
 try { $csp = Safe-Cim 'Win32_ComputerSystemProduct' | Select-Object -First 1 } catch {}
@@ -11318,6 +11365,9 @@ try { $bios = Safe-Cim 'Win32_BIOS' | Select-Object -First 1 } catch {}
 try { $board = Safe-Cim 'Win32_BaseBoard' | Select-Object -First 1 } catch {}
 try { $enclosure = Safe-Cim 'Win32_SystemEnclosure' | Select-Object -First 1 } catch {}
 try { $os = Safe-Cim 'Win32_OperatingSystem' | Select-Object -First 1 } catch {}
+
+$regBios = $null
+try { $regBios = Get-ItemProperty -LiteralPath 'HKLM:\\HARDWARE\\DESCRIPTION\\System\\BIOS' -ErrorAction SilentlyContinue } catch {}
 
 $sysType = 'Desktop'
 try {
@@ -11330,35 +11380,102 @@ try {
   }
 } catch {}
 
-$oemMfg = To-Str $cs.Manufacturer
-$oemModel = To-Str $cs.Model
-$biosVendor = To-Str $bios.Manufacturer
+$oemMfg = Clean-HwStr $(if ($cs) { $cs.Manufacturer })
+if (-not $oemMfg -and $csp) { $oemMfg = Clean-HwStr $csp.Vendor }
+if (-not $oemMfg -and $regBios) { $oemMfg = Clean-HwStr $regBios.SystemManufacturer }
+
+$oemModel = Clean-HwStr $(if ($cs) { $cs.Model })
+if (-not $oemModel -and $csp) { $oemModel = Clean-HwStr $csp.Name }
+if (-not $oemModel -and $regBios) { $oemModel = Clean-HwStr $regBios.SystemProductName }
+
+$biosVendor = Clean-HwStr $(if ($bios) { $bios.Manufacturer })
+if (-not $biosVendor -and $regBios) { $biosVendor = Clean-HwStr $regBios.BIOSVendor }
+
+$biosVersion = Clean-HwStr $(if ($bios) { $bios.SMBIOSBIOSVersion })
+if (-not $biosVersion -and $bios -and $bios.BIOSVersion) {
+  $bvJoin = (@($bios.BIOSVersion) | ForEach-Object { Clean-HwStr $_ } | Where-Object { $_ }) -join ' / '
+  $biosVersion = $bvJoin
+}
+if (-not $biosVersion -and $bios) { $biosVersion = Clean-HwStr $bios.Version }
+if (-not $biosVersion -and $bios) { $biosVersion = Clean-HwStr $bios.Name }
+if (-not $biosVersion -and $regBios) { $biosVersion = Clean-HwStr $regBios.BIOSVersion }
+
 $isVirt = ("$oemMfg $oemModel $biosVendor" -match '(?i)vmware|virtualbox|vbox|qemu|kvm|hyper-v|virtual machine|xen|bochs|parallels')
 if ($isVirt) { $sysType = 'Virtual Machine' }
 
-$serialNo = To-Str $bios.SerialNumber
-if (-not $serialNo -or $serialNo -match 'To Be Filled|Default string|System Serial') {
-  $altSn = To-Str $enclosure.SerialNumber
-  if ($altSn -and $altSn -notmatch 'To Be Filled|Default string') { $serialNo = $altSn }
-}
+$serialNo = Clean-HwStr $(if ($bios) { $bios.SerialNumber })
+if (-not $serialNo -and $enclosure) { $serialNo = Clean-HwStr $enclosure.SerialNumber }
+if (-not $serialNo -and $csp) { $serialNo = Clean-HwStr $csp.IdentifyingNumber }
 
-$biosDate = ''
+$biosDate = Parse-BiosDate $(if ($bios) { $bios.ReleaseDate })
+if (-not $biosDate -and $regBios) { $biosDate = Parse-BiosDate $regBios.BIOSReleaseDate }
+
+$boardMfg = Clean-HwStr $(if ($board) { $board.Manufacturer })
+if (-not $boardMfg -and $regBios) { $boardMfg = Clean-HwStr $regBios.BaseBoardManufacturer }
+if (-not $boardMfg) { $boardMfg = $oemMfg }
+
+$boardProduct = Clean-HwStr $(if ($board) { $board.Product })
+if (-not $boardProduct -and $regBios) { $boardProduct = Clean-HwStr $regBios.BaseBoardProduct }
+if (-not $boardProduct) { $boardProduct = $oemModel }
+
+$boardVersion = Clean-HwStr $(if ($board) { $board.Version })
+if (-not $boardVersion -and $regBios) { $boardVersion = Clean-HwStr $regBios.BaseBoardVersion }
+if (-not $boardVersion -and $regBios) { $boardVersion = Clean-HwStr $regBios.SystemVersion }
+
+$boardSerial = Clean-HwStr $(if ($board) { $board.SerialNumber })
+if (-not $boardSerial) { $boardSerial = $serialNo }
+
+$firmwareMode = ''
+$secureBoot = $null
 try {
-  if ($bios -and $bios.ReleaseDate) {
-    $biosDate = ([datetime]$bios.ReleaseDate).ToString('yyyy-MM-dd')
-  }
-} catch { $biosDate = To-Str $bios.ReleaseDate }
+  $sbState = Confirm-SecureBootUEFI -ErrorAction Stop
+  $firmwareMode = 'UEFI'
+  $secureBoot = [bool]$sbState
+} catch {
+  $errTxt = To-Str $_.Exception.Message
+  if ($errTxt -match '(?i)not supported|legacy|bios') { $firmwareMode = 'Legacy BIOS' }
+}
+if (-not $firmwareMode) {
+  try {
+    $peFw = Get-ItemProperty -LiteralPath 'HKLM:\\SYSTEM\\CurrentControlSet\\Control' -Name 'PEFirmwareType' -ErrorAction SilentlyContinue
+    if ($peFw -and (To-Int $peFw.PEFirmwareType) -eq 2) { $firmwareMode = 'UEFI' }
+    elseif ($peFw -and (To-Int $peFw.PEFirmwareType) -eq 1) { $firmwareMode = 'Legacy BIOS' }
+  } catch {}
+}
+if (-not $firmwareMode) {
+  try {
+    $sbKey = Get-ItemProperty -LiteralPath 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\State' -ErrorAction SilentlyContinue
+    if ($sbKey) {
+      $firmwareMode = 'UEFI'
+      if ($null -ne $sbKey.UEFISecureBootEnabled) { $secureBoot = ((To-Int $sbKey.UEFISecureBootEnabled) -eq 1) }
+    }
+  } catch {}
+}
 
 $chipset = ''
 try {
   $chipObj = Safe-Cim 'Win32_PnPEntity' | Where-Object {
-    $_.Present -eq $true -and $_.PNPClass -eq 'System' -and $_.Name -match '(?i)Host Bridge|PCI Express Root Complex|Chipset|DRAM Controller|LPC Controller|PCH'
+    ($null -eq $_.Present -or $_.Present -eq $true) -and $_.Name -match '(?i)Host Bridge|Host CPU Bridge|PCI Express Root Complex|Chipset|DRAM Controller|LPC Controller|eSPI Controller|Platform Controller Hub|\\bPCH\\b|\\bSMBus\\b|Q35|440FX'
   } | Select-Object -First 1
   if ($chipObj) { $chipset = To-Str $chipObj.Name }
 } catch {}
+if (-not $chipset -and $regBios) { $chipset = Clean-HwStr $regBios.SystemFamily }
 
-# 2. CPU
-$cpuName = ''; $cpuMfg = ''; $cpuSocket = ''; $cpuArch = To-Str $env:PROCESSOR_ARCHITECTURE
+# 2. CPU (CIM/WMI + Win32_CacheMemory + Registry CentralProcessor fallbacks)
+$regCpu0 = $null
+$regCpuCount = 0
+try {
+  $regCpu0 = Get-ItemProperty -LiteralPath 'HKLM:\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0' -ErrorAction SilentlyContinue
+  $regCpuCount = @(Get-ChildItem -LiteralPath 'HKLM:\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^\\d+$' }).Count
+} catch {}
+
+$cpuName = ''; $cpuMfg = ''; $cpuSocket = ''; $cpuIdent = ''
+$cpuArch = switch ((To-Str $env:PROCESSOR_ARCHITECTURE).ToUpperInvariant()) {
+  'AMD64' { 'x64' }
+  'ARM64' { 'ARM64' }
+  'X86' { 'x86' }
+  default { To-Str $env:PROCESSOR_ARCHITECTURE }
+}
 $totalCores = 0; $totalThreads = 0; $baseMhz = 0; $maxMhz = 0; $l2Mb = [double]0; $l3Mb = [double]0
 $virtFw = $null
 try {
@@ -11368,15 +11485,17 @@ try {
     foreach ($c in $cpuArr) {
       $totalCores += (To-Int $c.NumberOfCores)
       $totalThreads += (To-Int $c.NumberOfLogicalProcessors)
+      if ((To-Dbl $c.L2CacheSize) -gt 0) { $l2Mb += (To-Dbl $c.L2CacheSize) / 1024.0 }
+      if ((To-Dbl $c.L3CacheSize) -gt 0) { $l3Mb += (To-Dbl $c.L3CacheSize) / 1024.0 }
     }
-    $cpuName = ((To-Str $cpu1.Name) -replace '\\s+',' ').Trim()
-    $cpuMfg = To-Str $cpu1.Manufacturer
-    $cpuSocket = To-Str $cpu1.SocketDesignation
+    $cpuName = Clean-HwStr $cpu1.Name
+    $cpuMfg = Clean-HwStr $cpu1.Manufacturer
+    $cpuSocket = Clean-HwStr $cpu1.SocketDesignation
+    if (-not $cpuSocket) { $cpuSocket = Decode-CpuSocket $cpu1.UpgradeMethod }
+    $cpuIdent = Clean-HwStr $cpu1.Caption
     $baseMhz = To-Int $cpu1.CurrentClockSpeed
     $maxMhz = To-Int $cpu1.MaxClockSpeed
     if ($maxMhz -le 0) { $maxMhz = $baseMhz }
-    $l2Mb = [Math]::Round((To-Dbl $cpu1.L2CacheSize) / 1024.0, 1)
-    $l3Mb = [Math]::Round((To-Dbl $cpu1.L3CacheSize) / 1024.0, 1)
     $archCode = To-Int $cpu1.Architecture
     if ($archCode -eq 0) { $cpuArch = 'x86' }
     elseif ($archCode -eq 5) { $cpuArch = 'ARM' }
@@ -11387,8 +11506,41 @@ try {
         $virtFw = [bool]$cpu1.VirtualizationFirmwareEnabled
       }
     } catch { $virtFw = $null }
+    if ($null -eq $virtFw) {
+      try {
+        if ($cs -and $cs.HypervisorPresent -eq $true) { $virtFw = $true }
+        elseif ($null -ne $cpu1.VMMonitorModeExtensions -and $cpu1.VMMonitorModeExtensions -eq $true -and $cpu1.SecondLevelAddressTranslationExtensions -eq $true) { $virtFw = $true }
+      } catch {}
+    }
   }
 } catch {}
+
+if (-not $cpuName -and $regCpu0) { $cpuName = Clean-HwStr $regCpu0.ProcessorNameString }
+if (-not $cpuMfg -and $regCpu0) { $cpuMfg = Clean-HwStr $regCpu0.VendorIdentifier }
+if (-not $cpuIdent -and $regCpu0) { $cpuIdent = Clean-HwStr $regCpu0.Identifier }
+if ($baseMhz -le 0 -and $regCpu0) { $baseMhz = To-Int $regCpu0.'~MHz' }
+if ($maxMhz -le 0) { $maxMhz = $baseMhz }
+if ($totalThreads -le 0) { $totalThreads = if ($regCpuCount -gt 0) { $regCpuCount } else { [Environment]::ProcessorCount } }
+if ($totalCores -le 0) { $totalCores = $totalThreads }
+if ($null -eq $virtFw -and $cs -and $cs.HypervisorPresent -eq $true) { $virtFw = $true }
+
+if ($l2Mb -le 0 -or $l3Mb -le 0) {
+  try {
+    $caches = @(Safe-Cim 'Win32_CacheMemory')
+    $l2SumKb = [double]0; $l3SumKb = [double]0
+    foreach ($cm in $caches) {
+      $lvl = To-Int $cm.Level
+      $kb = To-Dbl $cm.MaxCacheSize
+      if ($kb -le 0) { $kb = To-Dbl $cm.InstalledSize }
+      if ($lvl -eq 4) { $l2SumKb += $kb }
+      elseif ($lvl -eq 5) { $l3SumKb += $kb }
+    }
+    if ($l2Mb -le 0 -and $l2SumKb -gt 0) { $l2Mb = $l2SumKb / 1024.0 }
+    if ($l3Mb -le 0 -and $l3SumKb -gt 0) { $l3Mb = $l3SumKb / 1024.0 }
+  } catch {}
+}
+$l2Mb = [Math]::Round($l2Mb, 1)
+$l3Mb = [Math]::Round($l3Mb, 1)
 
 # 3. Physical RAM Arrays & Modules
 $totalSlots = 0; $maxCapKb = [double]0
@@ -11701,14 +11853,16 @@ try {
     isVirtual = [bool]$isVirt
   }
   motherboard = [PSCustomObject]@{
-    manufacturer = To-Str $board.Manufacturer
-    product = To-Str $board.Product
-    version = To-Str $board.Version
-    serialNumber = To-Str $board.SerialNumber
+    manufacturer = $boardMfg
+    product = $boardProduct
+    version = $boardVersion
+    serialNumber = $boardSerial
     chipset = $chipset
     biosVendor = $biosVendor
-    biosVersion = To-Str $bios.SMBIOSBIOSVersion
+    biosVersion = $biosVersion
     biosReleaseDate = $biosDate
+    firmwareMode = $firmwareMode
+    secureBoot = $secureBoot
   }
   cpu = [PSCustomObject]@{
     name = $cpuName
@@ -11722,6 +11876,7 @@ try {
     l3CacheMb = $l3Mb
     architecture = $cpuArch
     virtualizationEnabled = $virtFw
+    identifier = $cpuIdent
   }
   memory = [PSCustomObject]@{
     totalGb = $totalRamGb
@@ -11762,36 +11917,104 @@ def readf(p):
     except Exception:
         return ""
 
-mfg = readf("/sys/class/dmi/id/sys_vendor")
-model = readf("/sys/class/dmi/id/product_name")
-serial = readf("/sys/class/dmi/id/product_serial")
-uuid = readf("/sys/class/dmi/id/product_uuid")
-board_mfg = readf("/sys/class/dmi/id/board_vendor")
-board_prod = readf("/sys/class/dmi/id/board_name")
-board_ver = readf("/sys/class/dmi/id/board_version")
-bios_ven = readf("/sys/class/dmi/id/bios_vendor")
-bios_ver = readf("/sys/class/dmi/id/bios_version")
-bios_date = readf("/sys/class/dmi/id/bios_date")
+def clean_dmi(s):
+    s = re.sub(r"\\s+", " ", (s or "")).strip()
+    if re.match(r"^(to be filled by o\\.?e\\.?m\\.?|default string|system serial number|system product name|not specified|not applicable|none|n/a)$", s, re.I):
+        return ""
+    return s
+
+mfg = clean_dmi(readf("/sys/class/dmi/id/sys_vendor"))
+model = clean_dmi(readf("/sys/class/dmi/id/product_name"))
+serial = clean_dmi(readf("/sys/class/dmi/id/product_serial"))
+uuid = clean_dmi(readf("/sys/class/dmi/id/product_uuid"))
+board_mfg = clean_dmi(readf("/sys/class/dmi/id/board_vendor")) or mfg
+board_prod = clean_dmi(readf("/sys/class/dmi/id/board_name")) or model
+board_ver = clean_dmi(readf("/sys/class/dmi/id/board_version"))
+board_sn = clean_dmi(readf("/sys/class/dmi/id/board_serial")) or serial
+bios_ven = clean_dmi(readf("/sys/class/dmi/id/bios_vendor"))
+bios_ver = clean_dmi(readf("/sys/class/dmi/id/bios_version"))
+bios_date = clean_dmi(readf("/sys/class/dmi/id/bios_date"))
+fw_mode = "UEFI" if os.path.exists("/sys/firmware/efi") else "Legacy BIOS"
 is_virt = bool(re.search(r"vmware|virtualbox|qemu|kvm|hyper-v|xen|bochs", f"{mfg} {model} {bios_ven}", re.I))
 
 cpu_name = platform.processor() or ""
-cores = os.cpu_count() or 1
+cpu_mfg = ""
+logical_procs = os.cpu_count() or 1
+phys_cores = logical_procs
 lscpu_out = run(["lscpu"])
+base_mhz = 0.0
 max_mhz = 0.0
 socket_name = ""
+l2_mb = 0.0
 l3_mb = 0.0
+virt_enabled = None
+sockets_cnt = 1
+cores_per_socket = 0
+
+def parse_cache_mb(val):
+    m = re.search(r"([\\d.]+)\\s*(GiB|GB|MiB|MB|KiB|KB)", val or "", re.I)
+    if not m:
+        return 0.0
+    num = float(m.group(1))
+    unit = m.group(2).lower()
+    if "g" in unit: return round(num * 1024.0, 1)
+    if "k" in unit: return round(num / 1024.0, 1)
+    return round(num, 1)
+
 for ln in lscpu_out.splitlines():
     if ":" not in ln: continue
     k, v = [x.strip() for x in ln.split(":", 1)]
-    if k == "Model name": cpu_name = v
+    if k == "Model name" and v: cpu_name = v
+    elif k == "Vendor ID" and v: cpu_mfg = v
+    elif k == "CPU(s)":
+        try: logical_procs = int(v)
+        except: pass
+    elif k == "Socket(s)":
+        try: sockets_cnt = int(v)
+        except: pass
+    elif k == "Core(s) per socket":
+        try: cores_per_socket = int(v)
+        except: pass
     elif k == "CPU max MHz":
         try: max_mhz = float(v)
         except: pass
+    elif k == "CPU MHz":
+        try: base_mhz = float(v)
+        except: pass
+    elif k == "L2 cache":
+        l2_mb = parse_cache_mb(v)
     elif k == "L3 cache":
-        m = re.search(r"([\\d.]+)\\s*(MiB|MB|KiB|KB)", v)
-        if m:
-            val = float(m.group(1))
-            l3_mb = val / 1024.0 if "K" in m.group(2) else val
+        l3_mb = parse_cache_mb(v)
+    elif k in ("Virtualization", "Virtualization type") and v:
+        virt_enabled = True
+    elif k == "Hypervisor vendor" and v:
+        virt_enabled = True
+
+if cores_per_socket > 0:
+    phys_cores = cores_per_socket * max(1, sockets_cnt)
+
+cpuinfo = readf("/proc/cpuinfo")
+for ln in cpuinfo.splitlines():
+    if ":" not in ln: continue
+    k, v = [x.strip() for x in ln.split(":", 1)]
+    if k == "model name" and not cpu_name: cpu_name = v
+    elif k == "vendor_id" and not cpu_mfg: cpu_mfg = v
+    elif k == "cpu MHz" and base_mhz <= 0:
+        try: base_mhz = float(v)
+        except: pass
+    elif k == "flags" and virt_enabled is None:
+        if re.search(r"\\b(vmx|svm)\\b", v): virt_enabled = True
+
+if max_mhz <= 0:
+    khz = readf("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
+    if khz.isdigit():
+        max_mhz = float(khz) / 1000.0
+if max_mhz <= 0:
+    max_mhz = base_mhz
+if base_mhz <= 0:
+    base_mhz = max_mhz
+if not socket_name:
+    socket_name = f"{sockets_cnt} Socket"
 
 meminfo = readf("/proc/meminfo")
 m_tot = re.search(r"MemTotal:\\s+(\\d+)\\s+kB", meminfo)
@@ -11822,9 +12045,12 @@ if lsblk_json:
 
 gpus = []
 audios = []
+chipset_name = ""
 lspci_out = run(["lspci"])
 for ln in lspci_out.splitlines():
-    if re.search(r"VGA compatible|3D controller|Display controller", ln, re.I):
+    if not chipset_name and re.search(r"Host bridge", ln, re.I):
+        chipset_name = ln.split(":", 2)[-1].strip()
+    elif re.search(r"VGA compatible|3D controller|Display controller", ln, re.I):
         gpus.append({"name": ln.split(":", 2)[-1].strip(), "vendor": "", "type": "virtual" if is_virt else "integrated", "vramGb": 0, "driverVersion": "", "driverDate": "", "resolution": "", "refreshRateHz": 0})
     elif re.search(r"Audio device", ln, re.I):
         audios.append({"name": ln.split(":", 2)[-1].strip(), "manufacturer": "", "status": "OK", "isOnboard": True})
@@ -11841,8 +12067,8 @@ for ln in lsusb_out.splitlines():
 print(json.dumps({
     "hostname": hostname,
     "system": {"manufacturer": mfg, "model": model, "systemType": "Virtual Machine" if is_virt else "Linux Host", "serialNumber": serial, "uuid": uuid, "isVirtual": is_virt},
-    "motherboard": {"manufacturer": board_mfg, "product": board_prod, "version": board_ver, "serialNumber": "", "chipset": "", "biosVendor": bios_ven, "biosVersion": bios_ver, "biosReleaseDate": bios_date},
-    "cpu": {"name": cpu_name, "manufacturer": "", "socket": socket_name, "cores": cores, "logicalProcessors": cores, "baseClockGhz": round(max_mhz/1000.0, 2) if max_mhz else 0, "maxClockGhz": round(max_mhz/1000.0, 2) if max_mhz else 0, "l2CacheMb": 0, "l3CacheMb": round(l3_mb, 1), "architecture": platform.machine(), "virtualizationEnabled": None},
+    "motherboard": {"manufacturer": board_mfg, "product": board_prod, "version": board_ver, "serialNumber": board_sn, "chipset": chipset_name, "biosVendor": bios_ven, "biosVersion": bios_ver, "biosReleaseDate": bios_date, "firmwareMode": fw_mode, "secureBoot": None},
+    "cpu": {"name": cpu_name, "manufacturer": cpu_mfg, "socket": socket_name, "cores": phys_cores, "logicalProcessors": logical_procs, "baseClockGhz": round(base_mhz/1000.0, 2) if base_mhz else 0, "maxClockGhz": round(max_mhz/1000.0, 2) if max_mhz else 0, "l2CacheMb": l2_mb, "l3CacheMb": round(l3_mb, 1), "architecture": platform.machine(), "virtualizationEnabled": virt_enabled, "identifier": ""},
     "memory": {"totalGb": total_gb, "usableGb": total_gb, "totalSlots": 1, "populatedSlots": 1, "freeSlots": 0, "maxCapacityGb": 0, "memoryType": "RAM", "speedMhz": 0, "channelMode": "N/A", "modules": []},
     "gpus": gpus,
     "monitors": [],

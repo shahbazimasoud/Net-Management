@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.474.0';
+export const APP_VERSION = '1.474.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.474.1',
+    releaseDate: '2026-11-25',
+    type: 'patch',
+    title: 'تکمیل و رفع نواقص اطلاعات Processor (CPU) و Motherboard & System Firmware (BIOS) در تب Hardware & Peripherals',
+    title_en: 'Complete Processor (CPU) & Motherboard/BIOS Telemetry Fallbacks and UI Display in Hardware & Peripherals Tab',
+    changes: [
+      'افزودن لایه‌های خوانش تکمیلی از رجیستری ویندوز (`HKLM\\HARDWARE\\DESCRIPTION\\System\\BIOS` و `CentralProcessor\\0`)، کش `Win32_CacheMemory` (برای L2/L3 در زمان صفر بودن مقدار `Win32_Processor`)، تبدیل استاندارد تاریخ DMTF بایوس، تشخیص `UEFI` / `Legacy BIOS` و `Secure Boot`، تشخیص سوکت (`UpgradeMethod`)، وضعیت مجازی‌سازی (`HypervisorPresent`) و چیپست مادربرد.',
+      'تکمیل جمع‌آوری اطلاعات در سرورهای لینوکس (`lscpu` + `/proc/cpuinfo` + `sysfs` + `lspci` Host Bridge + `/sys/firmware/efi`) و فیلتر کردن مقادیر ساختگی/خالی OEM مانند `To be filled by O.E.M.` یا `Default string`.',
+      'بهبود کارت‌های **Processor (CPU)** و **Motherboard & System Firmware (BIOS)** در تب `Hardware & Peripherals` برای نمایش کامل مشخصات همراه با بج‌های `UEFI` / `Secure Boot`، شناسه پردازنده و فالبک‌های دقیق بدون بریدگی.'
+    ],
+    changes_en: [
+      'Added multi-source Windows fallbacks in `collectEndpointHardwareInventory` using SMBIOS Registry (`HKLM\\HARDWARE\\DESCRIPTION\\System\\BIOS`), `CentralProcessor\\0`, `Win32_CacheMemory` (L2/L3 cache when `Win32_Processor` reports 0), DMTF BIOS date parsing, `Confirm-SecureBootUEFI` / `PEFirmwareType` (`UEFI` vs `Legacy BIOS` & `Secure Boot`), socket `UpgradeMethod` decoding, `HypervisorPresent` virtualization detection, and broadened chipset `Win32_PnPEntity` matching.',
+      'Upgraded the Linux hardware collector (`lscpu`, `/proc/cpuinfo`, `cpufreq`, `sysfs` DMI, `/sys/firmware/efi`, and `lspci` Host Bridge) and stripped OEM placeholder strings (`To be filled by O.E.M.`, `Default string`).',
+      'Enhanced the **Processor (CPU)** and **Motherboard & System Firmware (BIOS)** hero cards in `HelpDeskView.tsx` to display `UEFI`/`Secure Boot` badges, CPU stepping/identifier, L2/L3 smart fallbacks, and clean text wrapping.'
+    ],
+  },
   {
     version: '1.474.0',
     releaseDate: '2026-11-25',

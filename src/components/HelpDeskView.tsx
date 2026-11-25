@@ -4963,9 +4963,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               {/* Row 1: CPU & Motherboard Side-by-Side Hero Cards */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 {/* PROCESSOR (CPU) CARD */}
-                <div className={`rounded-2xl border p-5 space-y-4 ${surfaceBg}`}>
+                <div className={`rounded-2xl border p-5 space-y-4 min-w-0 overflow-hidden ${surfaceBg}`}>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div
                         className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${
                           isLightMode
@@ -4975,12 +4975,15 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                       >
                         <Cpu className="w-5 h-5" />
                       </div>
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <div className={`text-[11px] font-semibold uppercase tracking-wide ${textMuted}`}>
                           {isEn ? 'Processor (CPU)' : 'پردازنده (CPU)'}
                         </div>
-                        <h3 className={`text-sm font-bold leading-snug ${textPrimary}`} dir="ltr">
-                          {hardwareData.cpu?.name || '—'}
+                        <h3 className={`text-sm font-bold leading-snug break-words ${textPrimary}`} dir="ltr">
+                          {hardwareData.cpu?.name ||
+                            hardwareData.cpu?.identifier ||
+                            hardwareData.cpu?.manufacturer ||
+                            '—'}
                         </h3>
                       </div>
                     </div>
@@ -4996,18 +4999,18 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
                   {/* Highlighted Speed & Core Metrics */}
                   <div className="grid grid-cols-3 gap-3">
-                    <div className={`rounded-xl border p-3 ${subSurfaceBg}`}>
-                      <div className={`text-[11px] ${textMuted}`}>
+                    <div className={`rounded-xl border p-3 min-w-0 ${subSurfaceBg}`}>
+                      <div className={`text-[11px] truncate ${textMuted}`}>
                         {isEn ? 'Clock Speed' : 'فرکانس / سرعت'}
                       </div>
-                      <div className="text-lg font-bold font-mono tabular-nums text-sky-500 mt-0.5" dir="ltr">
+                      <div className="text-lg font-bold font-mono tabular-nums text-sky-500 mt-0.5 truncate" dir="ltr">
                         {hardwareData.cpu?.maxClockGhz > 0
                           ? `${hardwareData.cpu.maxClockGhz} GHz`
                           : hardwareData.cpu?.baseClockGhz > 0
                           ? `${hardwareData.cpu.baseClockGhz} GHz`
                           : '—'}
                       </div>
-                      <div className={`text-[10px] font-mono ${textMuted}`} dir="ltr">
+                      <div className={`text-[10px] font-mono truncate ${textMuted}`} dir="ltr">
                         {hardwareData.cpu?.baseClockGhz > 0
                           ? `Base: ${hardwareData.cpu.baseClockGhz} GHz`
                           : isEn
@@ -5016,46 +5019,64 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                       </div>
                     </div>
 
-                    <div className={`rounded-xl border p-3 ${subSurfaceBg}`}>
-                      <div className={`text-[11px] ${textMuted}`}>
+                    <div className={`rounded-xl border p-3 min-w-0 ${subSurfaceBg}`}>
+                      <div className={`text-[11px] truncate ${textMuted}`}>
                         {isEn ? 'Cores / Threads' : 'هسته / ترد'}
                       </div>
-                      <div className={`text-lg font-bold font-mono tabular-nums mt-0.5 ${textPrimary}`} dir="ltr">
+                      <div className={`text-lg font-bold font-mono tabular-nums mt-0.5 truncate ${textPrimary}`} dir="ltr">
                         {hardwareData.cpu?.cores || 0}C / {hardwareData.cpu?.logicalProcessors || 0}T
                       </div>
-                      <div className={`text-[10px] ${textMuted}`}>
+                      <div className={`text-[10px] truncate ${textMuted}`}>
                         {isEn ? 'Physical / Logical' : 'هسته فیزیکی / منطقی'}
                       </div>
                     </div>
 
-                    <div className={`rounded-xl border p-3 ${subSurfaceBg}`}>
-                      <div className={`text-[11px] ${textMuted}`}>
+                    <div className={`rounded-xl border p-3 min-w-0 ${subSurfaceBg}`}>
+                      <div className={`text-[11px] truncate ${textMuted}`}>
                         {isEn ? 'L2 / L3 Cache' : 'حافظه کش'}
                       </div>
-                      <div className={`text-lg font-bold font-mono tabular-nums mt-0.5 ${textPrimary}`} dir="ltr">
-                        {hardwareData.cpu?.l3CacheMb > 0 ? `${hardwareData.cpu.l3CacheMb} MB` : '—'}
+                      <div className={`text-lg font-bold font-mono tabular-nums mt-0.5 truncate ${textPrimary}`} dir="ltr">
+                        {hardwareData.cpu?.l3CacheMb > 0
+                          ? `${hardwareData.cpu.l3CacheMb} MB`
+                          : hardwareData.cpu?.l2CacheMb > 0
+                          ? `L2: ${hardwareData.cpu.l2CacheMb} MB`
+                          : '—'}
                       </div>
-                      <div className={`text-[10px] font-mono ${textMuted}`} dir="ltr">
-                        {hardwareData.cpu?.l2CacheMb > 0 ? `L2: ${hardwareData.cpu.l2CacheMb} MB` : 'Smart Cache'}
+                      <div className={`text-[10px] font-mono truncate ${textMuted}`} dir="ltr">
+                        {hardwareData.cpu?.l3CacheMb > 0 && hardwareData.cpu?.l2CacheMb > 0
+                          ? `L2: ${hardwareData.cpu.l2CacheMb} MB`
+                          : hardwareData.cpu?.l3CacheMb > 0
+                          ? 'L3 Smart Cache'
+                          : hardwareData.cpu?.l2CacheMb > 0
+                          ? 'L2 Cache'
+                          : 'Smart Cache'}
                       </div>
                     </div>
                   </div>
 
                   {/* Specs Footer */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs pt-1">
-                    <div className={`px-3 py-2 rounded-lg border ${subSurfaceBg}`}>
+                    <div className={`px-3 py-2 rounded-lg border min-w-0 truncate ${subSurfaceBg}`}>
                       <span className={textMuted}>{isEn ? 'Socket: ' : 'سوکت: '}</span>
-                      <span className={`font-mono font-semibold ${textPrimary}`} dir="ltr">
-                        {hardwareData.cpu?.socket || '—'}
+                      <span
+                        className={`font-mono font-semibold ${textPrimary}`}
+                        dir="ltr"
+                        title={hardwareData.cpu?.socket || ''}
+                      >
+                        {hardwareData.cpu?.socket || (hardwareData.system?.isVirtual ? 'vCPU' : '—')}
                       </span>
                     </div>
-                    <div className={`px-3 py-2 rounded-lg border ${subSurfaceBg}`}>
+                    <div className={`px-3 py-2 rounded-lg border min-w-0 truncate ${subSurfaceBg}`}>
                       <span className={textMuted}>{isEn ? 'Vendor: ' : 'سازنده: '}</span>
-                      <span className={`font-mono font-semibold truncate ${textPrimary}`} dir="ltr">
+                      <span
+                        className={`font-mono font-semibold ${textPrimary}`}
+                        dir="ltr"
+                        title={hardwareData.cpu?.manufacturer || ''}
+                      >
                         {hardwareData.cpu?.manufacturer || '—'}
                       </span>
                     </div>
-                    <div className={`px-3 py-2 rounded-lg border ${subSurfaceBg}`}>
+                    <div className={`px-3 py-2 rounded-lg border min-w-0 truncate ${subSurfaceBg}`}>
                       <span className={textMuted}>{isEn ? 'Virtualization: ' : 'مجازی‌سازی: '}</span>
                       <span
                         className={`font-semibold ${
@@ -5074,16 +5095,28 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                           ? isEn
                             ? 'Disabled'
                             : 'غیرفعال'
+                          : hardwareData.system?.isVirtual
+                          ? isEn
+                            ? 'Guest vCPU'
+                            : 'مجازی (VM)'
                           : '—'}
                       </span>
                     </div>
+                    {hardwareData.cpu?.identifier && (
+                      <div className={`px-3 py-2 rounded-lg border col-span-2 sm:col-span-3 min-w-0 truncate ${subSurfaceBg}`}>
+                        <span className={textMuted}>{isEn ? 'Stepping / ID: ' : 'شناسه / معماری: '}</span>
+                        <span className={`font-mono font-medium ${textPrimary}`} dir="ltr" title={hardwareData.cpu.identifier}>
+                          {hardwareData.cpu.identifier}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* MOTHERBOARD & BIOS CARD */}
-                <div className={`rounded-2xl border p-5 space-y-4 ${surfaceBg}`}>
+                <div className={`rounded-2xl border p-5 space-y-4 min-w-0 overflow-hidden ${surfaceBg}`}>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div
                         className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${
                           isLightMode
@@ -5093,63 +5126,93 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                       >
                         <CircuitBoard className="w-5 h-5" />
                       </div>
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <div className={`text-[11px] font-semibold uppercase tracking-wide ${textMuted}`}>
                           {isEn ? 'Motherboard & System Firmware (BIOS)' : 'مادربرد و بایوس (Motherboard & BIOS)'}
                         </div>
-                        <h3 className={`text-sm font-bold leading-snug ${textPrimary}`} dir="ltr">
-                          {[hardwareData.motherboard?.manufacturer, hardwareData.motherboard?.product]
+                        <h3 className={`text-sm font-bold leading-snug break-words ${textPrimary}`} dir="ltr">
+                          {[
+                            hardwareData.motherboard?.manufacturer || hardwareData.system?.manufacturer,
+                            hardwareData.motherboard?.product || hardwareData.system?.model,
+                          ]
                             .filter(Boolean)
                             .join(' ') || '—'}
                         </h3>
                       </div>
                     </div>
-                    {hardwareData.motherboard?.version && (
-                      <span
-                        dir="ltr"
-                        className={`px-2 py-0.5 rounded-md border font-mono text-[11px] font-semibold shrink-0 ${subSurfaceBg} ${textMuted}`}
-                      >
-                        Rev {hardwareData.motherboard.version}
-                      </span>
-                    )}
+                    <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
+                      {hardwareData.motherboard?.firmwareMode && (
+                        <span
+                          dir="ltr"
+                          className={`px-2 py-0.5 rounded-md border font-mono text-[11px] font-semibold ${
+                            hardwareData.motherboard.firmwareMode === 'UEFI'
+                              ? 'border-teal-500/40 bg-teal-500/10 text-teal-500'
+                              : `${subSurfaceBg} ${textMuted}`
+                          }`}
+                        >
+                          {hardwareData.motherboard.firmwareMode}
+                        </span>
+                      )}
+                      {hardwareData.motherboard?.secureBoot === true && (
+                        <span
+                          dir="ltr"
+                          className="px-2 py-0.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-500 font-mono text-[10px] font-semibold"
+                        >
+                          Secure Boot
+                        </span>
+                      )}
+                      {hardwareData.motherboard?.version && (
+                        <span
+                          dir="ltr"
+                          className={`px-2 py-0.5 rounded-md border font-mono text-[11px] font-semibold ${subSurfaceBg} ${textMuted}`}
+                        >
+                          Rev {hardwareData.motherboard.version}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-                    <div className={`p-3 rounded-xl border ${subSurfaceBg}`}>
-                      <div className={`text-[11px] ${textMuted}`}>{isEn ? 'Board Model' : 'مدل مادربرد'}</div>
-                      <div className={`font-mono font-bold mt-0.5 break-all ${textPrimary}`} dir="ltr">
-                        {hardwareData.motherboard?.product || '—'}
+                    <div className={`p-3 rounded-xl border min-w-0 ${subSurfaceBg}`}>
+                      <div className={`text-[11px] ${textMuted}`}>{isEn ? 'Board Model & Vendor' : 'مدل و سازنده مادربرد'}</div>
+                      <div className={`font-mono font-bold mt-0.5 break-words ${textPrimary}`} dir="ltr">
+                        {hardwareData.motherboard?.product || hardwareData.system?.model || '—'}
                       </div>
-                      <div className={`text-[10px] mt-0.5 ${textMuted}`} dir="ltr">
-                        S/N: {hardwareData.motherboard?.serialNumber || '—'}
+                      <div className={`text-[10px] mt-0.5 truncate ${textMuted}`} dir="ltr">
+                        {hardwareData.motherboard?.manufacturer || hardwareData.system?.manufacturer || 'Vendor —'} · S/N:{' '}
+                        {hardwareData.motherboard?.serialNumber || hardwareData.system?.serialNumber || '—'}
                       </div>
                     </div>
 
-                    <div className={`p-3 rounded-xl border ${subSurfaceBg}`}>
+                    <div className={`p-3 rounded-xl border min-w-0 ${subSurfaceBg}`}>
                       <div className={`text-[11px] ${textMuted}`}>{isEn ? 'BIOS / UEFI Version' : 'نسخه و تاریخ BIOS'}</div>
-                      <div className="font-mono font-bold mt-0.5 text-teal-500 truncate" dir="ltr">
+                      <div
+                        className="font-mono font-bold mt-0.5 text-teal-500 truncate"
+                        dir="ltr"
+                        title={hardwareData.motherboard?.biosVersion || ''}
+                      >
                         {hardwareData.motherboard?.biosVersion || '—'}
                       </div>
-                      <div className={`text-[10px] font-mono mt-0.5 ${textMuted}`} dir="ltr">
+                      <div className={`text-[10px] font-mono mt-0.5 truncate ${textMuted}`} dir="ltr">
                         {hardwareData.motherboard?.biosVendor || 'BIOS'}{' '}
                         {hardwareData.motherboard?.biosReleaseDate ? `(${hardwareData.motherboard.biosReleaseDate})` : ''}
                       </div>
                     </div>
 
-                    <div className={`p-3 rounded-xl border sm:col-span-2 ${subSurfaceBg}`}>
+                    <div className={`p-3 rounded-xl border sm:col-span-2 min-w-0 ${subSurfaceBg}`}>
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
+                        <div className="min-w-0">
                           <div className={`text-[11px] ${textMuted}`}>{isEn ? 'Chipset / Platform Bridge' : 'چیپست / پل اصلی مادربرد'}</div>
-                          <div className={`font-mono text-xs font-semibold mt-0.5 ${textPrimary}`} dir="ltr">
+                          <div className={`font-mono text-xs font-semibold mt-0.5 break-words ${textPrimary}`} dir="ltr">
                             {hardwareData.motherboard?.chipset ||
                               `${hardwareData.system?.manufacturer || ''} ${hardwareData.system?.model || ''}`.trim() ||
                               '—'}
                           </div>
                         </div>
                         {hardwareData.system?.uuid && (
-                          <div className="text-end" dir="ltr">
+                          <div className="text-end min-w-0" dir="ltr">
                             <div className={`text-[10px] ${textMuted}`}>SMBIOS UUID</div>
-                            <div className={`font-mono text-[10px] ${textMuted}`}>{hardwareData.system.uuid}</div>
+                            <div className={`font-mono text-[10px] break-all ${textMuted}`}>{hardwareData.system.uuid}</div>
                           </div>
                         )}
                       </div>
