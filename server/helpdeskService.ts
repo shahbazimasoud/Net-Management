@@ -14528,55 +14528,65 @@ try {
   }
 } catch {}
 
-# 4. User Languages (Active Desktop User Hive first, then WinUserLanguageList fallback)
+# 4. User Languages (Active Desktop User Hive via .NET RegistryKey first, then WinUserLanguageList fallback)
 $userLangs = @()
 $seenTags = @{}
 
-if ($activeSid -and (Test-Path -LiteralPath "Registry::HKEY_USERS\\$activeSid\\Control Panel\\International\\User Profile")) {
+if ($activeSid) {
   try {
-    $upKey = "Registry::HKEY_USERS\\$activeSid\\Control Panel\\International\\User Profile"
-    $upProps = Get-ItemProperty -LiteralPath $upKey -ErrorAction SilentlyContinue
-    $tags = @()
-    if ($upProps -and $upProps.Languages) {
-      $tags = @($upProps.Languages)
-    }
-    $rank = 1
-    foreach ($t in $tags) {
-      $tagStr = (To-Str $t).Trim()
-      if (-not $tagStr -or $seenTags.ContainsKey($tagStr.ToLower())) { continue }
-      $seenTags[$tagStr.ToLower()] = $true
-      $eng = $tagStr
-      $nat = $tagStr
-      try {
-        $ci = [System.Globalization.CultureInfo]::GetCultureInfo($tagStr)
-        if ($ci) {
-          $eng = To-Str $ci.EnglishName
-          $nat = To-Str $ci.NativeName
-        }
-      } catch {}
-      $tips = @()
-      try {
-        $subPath = "$upKey\\$tagStr"
-        if (Test-Path -LiteralPath $subPath) {
-          $subItem = Get-Item -LiteralPath $subPath -ErrorAction SilentlyContinue
-          if ($subItem) {
-            foreach ($vn in @($subItem.GetValueNames())) {
-              if ($vn -match '^[0-9a-fA-F]{4}:[0-9a-fA-F]{8}$') { $tips += $vn }
-            }
+    $hkuBase = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::Users, [Microsoft.Win32.RegistryView]::Default)
+    $upNet = $hkuBase.OpenSubKey("$activeSid\\Control Panel\\International\\User Profile", $false)
+    if ($upNet) {
+      $rawLangVal = $upNet.GetValue('Languages')
+      $tags = @()
+      if ($null -ne $rawLangVal) {
+        foreach ($entry in @($rawLangVal)) {
+          $entryStr = (To-Str $entry).Trim()
+          if (-not $entryStr) { continue }
+          # Auto-recover if an earlier write stored space-merged tags (e.g. "en-US fa it-IT")
+          foreach ($part in @($entryStr -split '[\\s,;]+')) {
+            $cleanPart = $part.Trim()
+            if ($cleanPart) { $tags += $cleanPart }
           }
         }
-      } catch {}
-      $userLangs += [PSCustomObject]@{
-        tag = $tagStr
-        englishName = $eng
-        nativeName = $nat
-        autonym = $nat
-        inputMethodTips = @($tips)
-        rank = $rank
-        source = 'active_user_hive'
       }
-      $rank++
+      $rank = 1
+      foreach ($tagStr in $tags) {
+        if (-not $tagStr -or $seenTags.ContainsKey($tagStr.ToLower())) { continue }
+        $seenTags[$tagStr.ToLower()] = $true
+        $eng = $tagStr
+        $nat = $tagStr
+        try {
+          $ci = [System.Globalization.CultureInfo]::GetCultureInfo($tagStr)
+          if ($ci) {
+            $eng = To-Str $ci.EnglishName
+            $nat = To-Str $ci.NativeName
+          }
+        } catch {}
+        $tips = @()
+        try {
+          $subNet = $upNet.OpenSubKey($tagStr, $false)
+          if ($subNet) {
+            foreach ($vn in @($subNet.GetValueNames())) {
+              if ($vn -match '^[0-9a-fA-F]{4}:[0-9a-fA-F]{8}$') { $tips += $vn }
+            }
+            $subNet.Close()
+          }
+        } catch {}
+        $userLangs += [PSCustomObject]@{
+          tag = $tagStr
+          englishName = $eng
+          nativeName = $nat
+          autonym = $nat
+          inputMethodTips = @($tips)
+          rank = $rank
+          source = 'active_user_hive'
+        }
+        $rank++
+      }
+      $upNet.Close()
     }
+    $hkuBase.Close()
   } catch {}
 }
 
@@ -14585,23 +14595,27 @@ if ($userLangs.Count -eq 0) {
     $wull = @(Get-WinUserLanguageList -ErrorAction SilentlyContinue)
     $rank = 1
     foreach ($wl in $wull) {
-      $tagStr = (To-Str $wl.LanguageTag).Trim()
-      if (-not $tagStr -or $seenTags.ContainsKey($tagStr.ToLower())) { continue }
-      $seenTags[$tagStr.ToLower()] = $true
-      $tips = @()
-      if ($wl.InputMethodTips) {
-        foreach ($tip in @($wl.InputMethodTips)) { $tips += (To-Str $tip) }
+      $rawTag = (To-Str $wl.LanguageTag).Trim()
+      if (-not $rawTag) { continue }
+      foreach ($part in @($rawTag -split '[\\s,;]+')) {
+        $tagStr = $part.Trim()
+        if (-not $tagStr -or $seenTags.ContainsKey($tagStr.ToLower())) { continue }
+        $seenTags[$tagStr.ToLower()] = $true
+        $tips = @()
+        if ($wl.InputMethodTips) {
+          foreach ($tip in @($wl.InputMethodTips)) { $tips += (To-Str $tip) }
+        }
+        $userLangs += [PSCustomObject]@{
+          tag = $tagStr
+          englishName = To-Str $wl.EnglishName
+          nativeName = To-Str $wl.LocalizedName
+          autonym = To-Str $wl.Autonym
+          inputMethodTips = @($tips)
+          rank = $rank
+          source = 'session_profile'
+        }
+        $rank++
       }
-      $userLangs += [PSCustomObject]@{
-        tag = $tagStr
-        englishName = To-Str $wl.EnglishName
-        nativeName = To-Str $wl.LocalizedName
-        autonym = To-Str $wl.Autonym
-        inputMethodTips = @($tips)
-        rank = $rank
-        source = 'session_profile'
-      }
-      $rank++
     }
   } catch {}
 }
@@ -14879,17 +14893,32 @@ PY`;
     };
   });
 
-  const userLanguages: HelpdeskLanguageEntry[] = Array.isArray(parsed.userLanguages)
-    ? parsed.userLanguages.map((l: any, idx: number) => ({
-        tag: String(l.tag || '').trim(),
-        englishName: String(l.englishName || l.tag || '').trim(),
-        nativeName: String(l.nativeName || l.englishName || l.tag || '').trim(),
-        autonym: String(l.autonym || l.nativeName || l.tag || '').trim(),
-        inputMethodTips: Array.isArray(l.inputMethodTips) ? l.inputMethodTips.map(String) : [],
-        rank: typeof l.rank === 'number' ? l.rank : idx + 1,
-        source: l.source === 'active_user_hive' || l.source === 'session_profile' ? l.source : 'system',
-      }))
-    : [];
+  const seenParsedLangs = new Set<string>();
+  const userLanguages: HelpdeskLanguageEntry[] = [];
+  if (Array.isArray(parsed.userLanguages)) {
+    for (const l of parsed.userLanguages) {
+      const splitTags = String(l.tag || '')
+        .trim()
+        .split(/[\s,;]+/)
+        .map((t) => t.trim())
+        .filter(Boolean);
+      for (const t of splitTags) {
+        const lk = t.toLowerCase();
+        if (seenParsedLangs.has(lk)) continue;
+        seenParsedLangs.add(lk);
+        userLanguages.push({
+          tag: t,
+          englishName: splitTags.length === 1 ? String(l.englishName || t).trim() : t,
+          nativeName: splitTags.length === 1 ? String(l.nativeName || l.englishName || t).trim() : t,
+          autonym: splitTags.length === 1 ? String(l.autonym || l.nativeName || t).trim() : t,
+          inputMethodTips:
+            splitTags.length === 1 && Array.isArray(l.inputMethodTips) ? l.inputMethodTips.map(String) : [],
+          rank: userLanguages.length + 1,
+          source: l.source === 'active_user_hive' || l.source === 'session_profile' ? l.source : 'system',
+        });
+      }
+    }
+  }
 
   const installedMui: string[] = Array.isArray(parsed?.region?.installedMuiLanguages)
     ? parsed.region.installedMuiLanguages.map(String).filter(Boolean)
@@ -15176,7 +15205,8 @@ export async function manageEndpointLanguagesAndLocale(
     throw new Error('Invalid Home Location GeoID.');
   }
 
-  const tagsB64 = Buffer.from(JSON.stringify(tags), 'utf8').toString('base64');
+  const tagsJsonB64 = Buffer.from(JSON.stringify(tags), 'utf8').toString('base64');
+  const tagsLinesB64 = Buffer.from(tags.join('\n'), 'utf8').toString('base64');
   const sidB64 = Buffer.from(activeUserSid, 'utf8').toString('base64');
   const sysLocB64 = Buffer.from(sysLoc, 'utf8').toString('base64');
   const cultB64 = Buffer.from(cult, 'utf8').toString('base64');
@@ -15184,25 +15214,37 @@ export async function manageEndpointLanguagesAndLocale(
   const winPs = `
 $ErrorActionPreference = 'Stop'
 $op = '${op}'
-$tagsJson = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${tagsB64}'))
-$tags = @($tagsJson | ConvertFrom-Json)
+$tagsRaw = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${tagsLinesB64}'))
+[string[]]$tags = @($tagsRaw -split "[\\r\\n,|;\\s]+" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+if ($op -eq 'set_languages' -and $tags.Count -eq 0) {
+  throw 'No valid language tags provided.'
+}
 $activeSid = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sidB64}'))
 $sysLoc = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sysLocB64}'))
 $cult = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${cultB64}'))
 $geoId = ${geoId !== null ? geoId : '$null'}
 
 $tipFallback = @{
+  'en' = '0409:00000409'
   'en-us' = '0409:00000409'
   'en-gb' = '0809:00000809'
+  'fa' = '0429:00000429'
   'fa-ir' = '0429:00000429'
+  'ar' = '0401:00000401'
   'ar-sa' = '0401:00000401'
   'ar-iq' = '0801:00000401'
   'ar-ae' = '3801:00000401'
+  'de' = '0407:00000407'
   'de-de' = '0407:00000407'
+  'fr' = '040C:0000040C'
   'fr-fr' = '040C:0000040C'
+  'tr' = '041F:0000041F'
   'tr-tr' = '041F:0000041F'
+  'ru' = '0419:00000419'
   'ru-ru' = '0419:00000419'
+  'es' = '0C0A:0000040A'
   'es-es' = '0C0A:0000040A'
+  'it' = '0410:00000410'
   'it-it' = '0410:00000410'
   'zh-cn' = '0804:0804'
   'ja-jp' = '0411:0411'
@@ -15212,11 +15254,39 @@ $tipFallback = @{
 $notes = @()
 
 if ($op -eq 'set_languages') {
+  # Resolve active desktop user & SID if not already resolved
+  $activeUser = ''
+  try {
+    $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+    if ($cs -and $cs.UserName) {
+      $activeUser = [string]$cs.UserName
+      if (-not $activeSid) {
+        $nt = New-Object System.Security.Principal.NTAccount($activeUser)
+        $activeSid = [string]$nt.Translate([System.Security.Principal.SecurityIdentifier]).Value
+      }
+    }
+  } catch {}
+  if (-not $activeSid) {
+    try {
+      $exp = @(Get-CimInstance -ClassName Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue) | Select-Object -First 1
+      if ($exp) {
+        $own = Invoke-CimMethod -InputObject $exp -MethodName GetOwnerSid -ErrorAction SilentlyContinue
+        if ($own -and $own.Sid) { $activeSid = [string]$own.Sid }
+        if (-not $activeUser) {
+          $oname = Invoke-CimMethod -InputObject $exp -MethodName GetOwner -ErrorAction SilentlyContinue
+          if ($oname -and $oname.User) {
+            $activeUser = if ($oname.Domain) { "$($oname.Domain)\\$($oname.User)" } else { [string]$oname.User }
+          }
+        }
+      }
+    } catch {}
+  }
+
   # 1. Apply to active WinUserLanguageList (session profile)
   try {
     $newList = New-WinUserLanguageList -Language $tags[0]
     for ($i = 1; $i -lt $tags.Count; $i++) {
-      $newList.Add($tags[$i]) | Out-Null
+      try { $newList.Add($tags[$i]) | Out-Null } catch {}
     }
     Set-WinUserLanguageList -LanguageList $newList -Force -ErrorAction SilentlyContinue
     $notes += "Updated WinUserLanguageList ($($tags -join ', '))"
@@ -15224,72 +15294,97 @@ if ($op -eq 'set_languages') {
     $notes += "WinUserLanguageList note: $($_.Exception.Message)"
   }
 
-  # 2. Apply directly to Active Logged-In User's loaded HKU Registry Hive so desktop user receives languages immediately/on refresh
-  if (-not $activeSid) {
+  # 2. Apply directly to Active Logged-In User's loaded HKU Registry Hive using .NET RegistryKey (guaranteed REG_MULTI_SZ)
+  if ($activeSid) {
     try {
-      $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
-      if ($cs -and $cs.UserName) {
-        $nt = New-Object System.Security.Principal.NTAccount([string]$cs.UserName)
-        $activeSid = [string]$nt.Translate([System.Security.Principal.SecurityIdentifier]).Value
+      $hkuBase = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::Users, [Microsoft.Win32.RegistryView]::Default)
+      $sidCheck = $hkuBase.OpenSubKey($activeSid, $false)
+      if ($sidCheck) {
+        $sidCheck.Close()
+        $upSub = $hkuBase.CreateSubKey("$activeSid\\Control Panel\\International\\User Profile", $true)
+        if ($upSub) {
+          # Clean any previously corrupted space-containing language subkey names
+          foreach ($existingSub in @($upSub.GetSubKeyNames())) {
+            if ($existingSub -match '\\s') {
+              try { $upSub.DeleteSubKeyTree($existingSub, $false) } catch {}
+            }
+          }
+          $upSub.SetValue('Languages', [string[]]$tags, [Microsoft.Win32.RegistryValueKind]::MultiString)
+
+          $preloadSub = $hkuBase.CreateSubKey("$activeSid\\Keyboard Layout\\Preload", $true)
+          if ($preloadSub) {
+            foreach ($vn in @($preloadSub.GetValueNames())) {
+              try { $preloadSub.DeleteValue($vn, $false) } catch {}
+            }
+          }
+
+          $preloadIdx = 1
+          foreach ($tag in $tags) {
+            $tagLower = $tag.ToLower()
+            $tipCode = ''
+            try {
+              $tmpL = New-WinUserLanguageList -Language $tag -ErrorAction SilentlyContinue
+              if ($tmpL -and $tmpL[0].InputMethodTips -and $tmpL[0].InputMethodTips.Count -gt 0) {
+                $tipCode = [string]$tmpL[0].InputMethodTips[0]
+              }
+            } catch {}
+            if (-not $tipCode -and $tipFallback.ContainsKey($tagLower)) {
+              $tipCode = $tipFallback[$tagLower]
+            }
+            if (-not $tipCode) {
+              try {
+                $ci = [System.Globalization.CultureInfo]::GetCultureInfo($tag)
+                $lcidHex = ('{0:X4}' -f $ci.LCID)
+                $tipCode = ($lcidHex + ':0000' + $lcidHex)
+              } catch {
+                $tipCode = '0409:00000409'
+              }
+            }
+
+            $langSub = $upSub.CreateSubKey($tag, $true)
+            if ($langSub) {
+              $langSub.SetValue('CachedLanguageName', '@Winlangdb.dll,-1', [Microsoft.Win32.RegistryValueKind]::String)
+              $langSub.SetValue($tipCode, 1, [Microsoft.Win32.RegistryValueKind]::DWord)
+              $langSub.Close()
+            }
+
+            if ($preloadSub) {
+              $parts = $tipCode -split ':'
+              $klid = if ($parts.Count -ge 2) { $parts[1] } else { '00000409' }
+              $preloadSub.SetValue([string]$preloadIdx, $klid, [Microsoft.Win32.RegistryValueKind]::String)
+            }
+            $preloadIdx++
+          }
+          if ($preloadSub) { $preloadSub.Close() }
+          $upSub.Close()
+          $notes += "Updated Active User Hive (HKU\\$activeSid) REG_MULTI_SZ Languages & Preload keyboards"
+        }
       }
-    } catch {}
+      $hkuBase.Close()
+    } catch {
+      $notes += "HKU registry update error: $($_.Exception.Message)"
+    }
   }
 
-  if ($activeSid -and (Test-Path -LiteralPath "Registry::HKEY_USERS\\$activeSid")) {
-    $upPath = "Registry::HKEY_USERS\\$activeSid\\Control Panel\\International\\User Profile"
-    if (-not (Test-Path -LiteralPath $upPath)) {
-      New-Item -Path $upPath -Force | Out-Null
-    }
-    Set-ItemProperty -LiteralPath $upPath -Name 'Languages' -Value ([string[]]$tags) -Type MultiString -Force
-
-    $preloadPath = "Registry::HKEY_USERS\\$activeSid\\Keyboard Layout\\Preload"
-    if (-not (Test-Path -LiteralPath $preloadPath)) {
-      New-Item -Path $preloadPath -Force | Out-Null
-    }
-    $existingPreload = Get-Item -LiteralPath $preloadPath -ErrorAction SilentlyContinue
-    if ($existingPreload) {
-      foreach ($vn in @($existingPreload.GetValueNames())) {
-        Remove-ItemProperty -LiteralPath $preloadPath -Name $vn -ErrorAction SilentlyContinue
+  # 3. Also refresh live TSF/taskbar language list inside active interactive user desktop session if logged in
+  if ($activeUser) {
+    try {
+      $liveLines = @('$l = New-WinUserLanguageList -Language "' + $tags[0] + '"')
+      foreach ($t in @($tags | Select-Object -Skip 1)) {
+        $liveLines += ('try { $l.Add("' + $t + '") | Out-Null } catch {}')
       }
-    }
-
-    $preloadIdx = 1
-    foreach ($tag in $tags) {
-      $tagLower = $tag.ToLower()
-      $tipCode = ''
-      try {
-        $tmpL = New-WinUserLanguageList -Language $tag -ErrorAction SilentlyContinue
-        if ($tmpL -and $tmpL[0].InputMethodTips -and $tmpL[0].InputMethodTips.Count -gt 0) {
-          $tipCode = [string]$tmpL[0].InputMethodTips[0]
-        }
-      } catch {}
-      if (-not $tipCode -and $tipFallback.ContainsKey($tagLower)) {
-        $tipCode = $tipFallback[$tagLower]
+      $liveLines += 'Set-WinUserLanguageList -LanguageList $l -Force -ErrorAction SilentlyContinue'
+      $liveScript = $liveLines -join '; '
+      $liveB64 = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($liveScript))
+      $taskName = "NetTopo_Lang_" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+      & schtasks.exe /Create /TN $taskName /TR "powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand $liveB64" /SC ONCE /ST 00:00 /RU $activeUser /IT /F 2>$null | Out-Null
+      if ($LASTEXITCODE -eq 0) {
+        & schtasks.exe /Run /TN $taskName 2>$null | Out-Null
+        Start-Sleep -Milliseconds 900
+        & schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
+        $notes += "Refreshed interactive desktop language bar for $activeUser"
       }
-      if (-not $tipCode) {
-        try {
-          $ci = [System.Globalization.CultureInfo]::GetCultureInfo($tag)
-          $lcidHex = ('{0:X4}' -f $ci.LCID)
-          $tipCode = ($lcidHex + ':0000' + $lcidHex)
-        } catch {
-          $tipCode = '0409:00000409'
-        }
-      }
-
-      $langSubKey = "$upPath\\$tag"
-      if (-not (Test-Path -LiteralPath $langSubKey)) {
-        New-Item -Path $langSubKey -Force | Out-Null
-      }
-      Set-ItemProperty -LiteralPath $langSubKey -Name 'CachedLanguageName' -Value "@Winlangdb.dll,-1" -Type String -Force -ErrorAction SilentlyContinue
-      Set-ItemProperty -LiteralPath $langSubKey -Name $tipCode -Value 1 -Type DWord -Force
-
-      # Also populate Preload layout ID for instant Alt+Shift / Win+Space switching
-      $parts = $tipCode -split ':'
-      $klid = if ($parts.Count -ge 2) { $parts[1] } else { '00000409' }
-      Set-ItemProperty -LiteralPath $preloadPath -Name ([string]$preloadIdx) -Value $klid -Type String -Force
-      $preloadIdx++
-    }
-    $notes += "Updated Active User Hive (HKU\\$activeSid) Languages & Preload keyboards"
+    } catch {}
   }
 } else {
   if ($sysLoc) {
@@ -15319,7 +15414,7 @@ if ($op -eq 'set_languages') {
 import base64, json, subprocess
 
 op = '${op}'
-tags = json.loads(base64.b64decode('${tagsB64}').decode('utf-8', errors='ignore') or '[]')
+tags = json.loads(base64.b64decode('${tagsJsonB64}').decode('utf-8', errors='ignore') or '[]')
 sys_loc = base64.b64decode('${sysLocB64}').decode('utf-8', errors='ignore').strip()
 
 if op == 'set_languages' and tags:

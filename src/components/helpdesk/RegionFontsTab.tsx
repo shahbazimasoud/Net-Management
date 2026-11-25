@@ -301,7 +301,22 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
 
   useEffect(() => {
     if (Array.isArray(data?.userLanguages)) {
-      setDraftLanguages(data.userLanguages.map((l: any) => String(l.tag || '').trim()).filter(Boolean));
+      const seen = new Set<string>();
+      const normalized: string[] = [];
+      for (const l of data.userLanguages) {
+        const parts = String(l.tag || '')
+          .trim()
+          .split(/[\s,;]+/)
+          .map((t) => t.trim())
+          .filter(Boolean);
+        for (const p of parts) {
+          const lk = p.toLowerCase();
+          if (seen.has(lk)) continue;
+          seen.add(lk);
+          normalized.push(p);
+        }
+      }
+      setDraftLanguages(normalized);
     }
     if (data?.region) {
       setDraftSystemLocale(data.region.systemLocale || '');
@@ -1117,7 +1132,7 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
 
                   <button
                     type="button"
-                    disabled={!canExecuteActions || !languagesDirty || busyKey !== null}
+                    disabled={!canExecuteActions || draftLanguages.length === 0 || busyKey !== null}
                     onClick={() =>
                       onUpdateLanguages({
                         operation: 'set_languages',
@@ -1129,8 +1144,8 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
                       languagesDirty
                         ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
                         : isLightMode
-                        ? 'bg-slate-200 text-slate-600'
-                        : 'bg-slate-800 text-slate-400'
+                        ? 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
                     }`}
                   >
                     {busyKey === 'lang:set_languages' ? (
@@ -1141,6 +1156,22 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
                     <span>{isEn ? 'Save Language Order' : 'ذخیره و اعمال زبان‌ها'}</span>
                   </button>
                 </div>
+
+                {languagesDirty && (
+                  <div
+                    className={`rounded-lg border px-3 py-2 text-[11px] font-medium flex items-center justify-between gap-2 ${
+                      isLightMode
+                        ? 'bg-amber-50 border-amber-200 text-amber-800'
+                        : 'bg-amber-950/25 border-amber-500/35 text-amber-300'
+                    }`}
+                  >
+                    <span>
+                      {isEn
+                        ? 'Language list modified locally — click "Save Language Order" above to apply it to the remote PC.'
+                        : 'لیست زبان‌ها تغییر کرده است — برای اعمال نهایی روی سیستم، دکمه سبز «ذخیره و اعمال زبان‌ها» در بالا را بزنید.'}
+                    </span>
+                  </div>
+                )}
 
                 {/* Ordered Language Rows */}
                 <div className="space-y-2">
@@ -1268,6 +1299,12 @@ export const RegionFontsTab: React.FC<RegionFontsTabProps> = ({
                       type="text"
                       value={customLangTag}
                       onChange={(e) => setCustomLangTag(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddLanguageToDraft(customLangTag);
+                        }
+                      }}
                       placeholder={isEn ? 'Or enter custom tag (e.g. nl-NL, sv-SE)...' : 'یا کد دلخواه زبان (مثلاً nl-NL یا ku-Arab-IQ)...'}
                       className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-mono ${inputBg}`}
                       dir="ltr"

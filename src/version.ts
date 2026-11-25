@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.485.0';
+export const APP_VERSION = '1.485.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.485.1',
+    releaseDate: '2026-11-25',
+    type: 'patch',
+    title: 'رفع ریشه‌ای باگ ادغام شدن تگ‌های زبان ویندوز (مانند en-US fa it-IT) هنگام افزودن زبان جدید در بخش Region, Time, Languages & Fonts',
+    title_en: 'Fix Root Cause of Merged Windows Input Language Tags (e.g. en-US fa it-IT) When Adding New Languages in Region, Time, Languages & Fonts',
+    changes: [
+      'رفع ریشه‌ای خطای تودرتو شدن آرایه `ConvertFrom-Json` در PowerShell 5.1 و نوشتن با `Set-ItemProperty -Type MultiString` که باعث ادغام تمام زبان‌ها با فاصله (مثل `en-US fa it-IT`) می‌شد، از طریق دیکد خط‌به‌خط و نوشتن مستقیم `.NET Microsoft.Win32.RegistryKey` با نوع `REG_MULTI_SZ`.',
+      'پاک‌سازی خودکار زیرکلیدهای خراب حاوی فاصله در `User Profile` رجیستری و بازیابی خودکار رشته‌های ادغام‌شده قبلی هنگام خواندن لیست زبان‌ها.',
+      'افزودن اجرای هم‌زمان `Set-WinUserLanguageList` در نشست تعاملی کاربر فعال دسکتاپ جهت بروزرسانی نوار زبان ویندوز و بهبود UX افزودن زبان در فرانت‌اند (`Enter` برای تگ دلخواه و هشدار تغییرات ذخیره‌نشده).'
+    ],
+    changes_en: [
+      'Fixed root cause in PowerShell 5.1 where `@($tagsJson | ConvertFrom-Json)` wrapped JSON arrays into a nested single-element array and caused `Set-ItemProperty -Type MultiString` to flatten language tags with spaces (e.g., `"en-US fa it-IT"`); replaced with explicit line-delimited decoding and direct `.NET Microsoft.Win32.RegistryKey.SetValue(..., MultiString)` writes.',
+      'Added automatic cleanup of malformed space-containing subkeys in Windows Registry `User Profile` and automatic split recovery for previously merged tags on read in both backend and `RegionFontsTab`.',
+      'Added live interactive desktop `Set-WinUserLanguageList` task refresh for the logged-in user and improved `RegionFontsTab` UX (unsaved changes banner, Enter-to-add custom tag, and re-apply support).'
+    ]
+  },
   {
     version: '1.485.0',
     releaseDate: '2026-11-25',
