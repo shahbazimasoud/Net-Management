@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.479.1';
+export const APP_VERSION = '1.480.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.480.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'نمایش دائمی نام کامپیوتر، کاربر جاری و آپتایم سیستم متصل در نوار On-Demand Target Workstation Session',
+    title_en: 'Add Persistent Connected Workstation Identity, Active User & Uptime Strip Under On-Demand Target Workstation Session',
+    changes: [
+      'افزودن نوار وضعیت زنده و دائمی سیستم متصل در پایین کادر `On-Demand Target Workstation Session` جهت جلوگیری از گم کردن سیستم هدف هنگام جابه‌جایی بین تب‌های HelpDesk.',
+      'نمایش آنی **نام کامپیوتر و IP**، **کاربر جاری سیستم (`loggedInUser`)**، **آپتایم (`Uptime`)**، **سیستم‌عامل**، **دامین/ورک‌گروپ**، **پروتکل و مصرف CPU/RAM** بر اساس داده‌های واقعی دریافت‌شده از سیستم کاربر (و پاک‌سازی خودکار با زدن Wipe Session).'
+    ],
+    changes_en: [
+      'Added a persistent live connected-workstation summary strip inside the `On-Demand Target Workstation Session` card so operators always retain context while switching across all HelpDesk tabs.',
+      'Displays authentic endpoint telemetry including **Hostname & IP**, **Current Logged-In Desktop User**, **System Uptime**, **OS**, **Domain/Workgroup**, **Protocol/Port**, and quick **CPU/RAM** metrics (automatically cleared on Wipe Session).'
+    ]
+  },
   {
     version: '1.479.1',
     releaseDate: '2026-11-25',

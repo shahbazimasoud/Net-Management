@@ -3012,6 +3012,124 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     diagnosticsData?.loggedInUser,
   ]);
 
+  const activeSessionSummary = useMemo(() => {
+    const anyEndpoint =
+      healthData ||
+      sysInfoData ||
+      hardwareData ||
+      networkData ||
+      securityAvData ||
+      gpoData ||
+      logonsData ||
+      diagnosticsData ||
+      sharesData ||
+      printerData ||
+      programsData ||
+      servicesStartupData ||
+      regionFontsData ||
+      batteryData;
+    if (!anyEndpoint) return null;
+
+    const hostname = String(
+      healthData?.hostname ||
+        sysInfoData?.hostname ||
+        hardwareData?.hostname ||
+        networkData?.hostname ||
+        securityAvData?.hostname ||
+        gpoData?.hostname ||
+        logonsData?.hostname ||
+        diagnosticsData?.hostname ||
+        sharesData?.hostname ||
+        printerData?.hostname ||
+        programsData?.hostname ||
+        servicesStartupData?.hostname ||
+        regionFontsData?.hostname ||
+        batteryData?.hostname ||
+        ''
+    ).trim();
+
+    const loggedInUser = String(
+      healthData?.loggedInUser ||
+        gpoData?.loggedInUser ||
+        logonsData?.loggedInUser ||
+        diagnosticsData?.loggedInUser ||
+        sharesData?.loggedInUser ||
+        ''
+    ).trim();
+
+    const uptimeText = String(
+      healthData?.uptimeText ||
+        sysInfoData?.os?.uptimeText ||
+        sysInfoData?.uptimeText ||
+        ''
+    ).trim();
+
+    const osName = String(
+      healthData?.osName ||
+        sysInfoData?.os?.caption ||
+        hardwareData?.osName ||
+        ''
+    ).trim();
+
+    const endpointIp = String(
+      healthData?.targetIp ||
+        anyEndpoint?.targetIp ||
+        targetIp ||
+        ''
+    ).trim();
+
+    const protocolUsed = String(
+      healthData?.protocolUsed ||
+        anyEndpoint?.protocolUsed ||
+        ''
+    ).trim();
+
+    const portUsed = healthData?.portUsed || anyEndpoint?.portUsed || null;
+    const domain = String(
+      sysInfoData?.computer?.domain ||
+        gpoData?.domain ||
+        ''
+    ).trim();
+
+    const cpuPct =
+      typeof healthData?.cpu?.usagePercent === 'number'
+        ? Math.round(healthData.cpu.usagePercent)
+        : null;
+    const ramPct =
+      typeof healthData?.memory?.usedPercent === 'number'
+        ? Math.round(healthData.memory.usedPercent)
+        : null;
+
+    return {
+      hostname,
+      loggedInUser,
+      uptimeText,
+      osName,
+      endpointIp,
+      protocolUsed,
+      portUsed,
+      domain,
+      cpuPct,
+      ramPct,
+    };
+  }, [
+    healthData,
+    sysInfoData,
+    hardwareData,
+    networkData,
+    securityAvData,
+    gpoData,
+    logonsData,
+    diagnosticsData,
+    sharesData,
+    printerData,
+    programsData,
+    servicesStartupData,
+    regionFontsData,
+    batteryData,
+    targetIp,
+  ]);
+
   const handleRenameComputer = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload = buildPayload();
@@ -4093,6 +4211,133 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 className={`w-full px-3 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
               />
             </div>
+          </div>
+        )}
+
+        {/* Persistent Active Workstation Summary Strip (always visible across all sub-tabs once connected) */}
+        {activeSessionSummary && (
+          <div
+            className={`pt-3 border-t flex flex-wrap items-center justify-between gap-2.5 text-xs ${
+              isLightMode ? 'border-slate-200' : 'border-slate-800'
+            }`}
+          >
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+              <div
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-semibold ${
+                  isLightMode
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                <span>{isEn ? 'Connected' : 'متصل'}</span>
+              </div>
+
+              <div
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border min-w-0 ${subSurfaceBg}`}
+                title={isEn ? 'Computer Name & IP' : 'نام کامپیوتر و آدرس IP'}
+              >
+                <Monitor className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                <span className={`font-bold truncate ${textPrimary}`} dir="ltr">
+                  {activeSessionSummary.hostname || activeSessionSummary.endpointIp}
+                </span>
+                {activeSessionSummary.hostname && activeSessionSummary.endpointIp && (
+                  <span className={`font-mono text-[11px] shrink-0 ${textMuted}`} dir="ltr">
+                    ({activeSessionSummary.endpointIp})
+                  </span>
+                )}
+              </div>
+
+              <div
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border min-w-0 ${subSurfaceBg}`}
+                title={isEn ? 'Current Logged-In Desktop User' : 'کاربر جاری لاگین‌شده روی سیستم'}
+              >
+                <User className="w-3.5 h-3.5 text-teal-500 shrink-0" />
+                <span className={textMuted}>{isEn ? 'User:' : 'کاربر جاری:'}</span>
+                <span className={`font-mono font-semibold truncate ${textPrimary}`} dir="ltr">
+                  {activeSessionSummary.loggedInUser || '—'}
+                </span>
+              </div>
+
+              {activeSessionSummary.uptimeText && (
+                <div
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${subSurfaceBg}`}
+                  title={isEn ? 'System Uptime' : 'مدت روشن بودن سیستم (Uptime)'}
+                >
+                  <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <span className={textMuted}>{isEn ? 'Uptime:' : 'آپتایم:'}</span>
+                  <span className={`font-mono font-semibold tabular-nums ${textPrimary}`} dir="ltr">
+                    {activeSessionSummary.uptimeText}
+                  </span>
+                </div>
+              )}
+
+              {activeSessionSummary.osName && (
+                <div
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border min-w-0 max-w-xs ${subSurfaceBg}`}
+                  title={activeSessionSummary.osName}
+                >
+                  <Laptop className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                  <span className={`truncate ${textMuted}`} dir="ltr">
+                    {activeSessionSummary.osName}
+                  </span>
+                </div>
+              )}
+
+              {activeSessionSummary.domain && (
+                <div
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${subSurfaceBg}`}
+                  title={isEn ? 'Domain / Workgroup' : 'دامین / ورک‌گروپ'}
+                >
+                  <Globe className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                  <span className={`font-mono text-[11px] ${textPrimary}`} dir="ltr">
+                    {activeSessionSummary.domain}
+                  </span>
+                </div>
+              )}
+
+              {activeSessionSummary.protocolUsed && (
+                <div
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border font-mono text-[11px] ${subSurfaceBg} ${textMuted}`}
+                  dir="ltr"
+                >
+                  <span>
+                    {activeSessionSummary.protocolUsed.toUpperCase()}
+                    {activeSessionSummary.portUsed ? `:${activeSessionSummary.portUsed}` : ''}
+                  </span>
+                  {activeSessionSummary.cpuPct !== null && activeSessionSummary.ramPct !== null && (
+                    <>
+                      <span>·</span>
+                      <span className="tabular-nums">
+                        CPU {activeSessionSummary.cpuPct}% · RAM {activeSessionSummary.ramPct}%
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {securityAvDisabledInSession.length > 0 && canRunDiagnostics && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSubTab('security_av');
+                  if (!securityAvData && !loadingSecurityAv && targetIp.trim() && username.trim() && password) {
+                    handleInspectSecurityAv();
+                  }
+                }}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer shrink-0 ${
+                  isLightMode
+                    ? 'bg-rose-50 border-rose-300 text-rose-700 hover:bg-rose-100'
+                    : 'bg-rose-950/60 border-rose-500/45 text-rose-300 hover:bg-rose-900/50'
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                <span>
+                  {isEn ? 'AV/Firewall Disabled — Re-Enable' : 'آنتی‌ویروس/فایروال خاموش است'}
+                </span>
+              </button>
+            )}
           </div>
         )}
       </form>
