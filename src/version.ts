@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.483.0';
+export const APP_VERSION = '1.484.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.484.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'افزودن گزارش جامع سلامت کاربر، تاریخچه بررسی‌های کاربران با تفکیک دسترسی RBAC، اولویت‌دهی دامنه عمومی/ایمیل برای Exchange و پاک‌سازی فرم دستی AD در بخش System Repair',
+    title_en: 'Add User Reports & Health Brief, RBAC-Scoped User Check History, Public-Domain/Email-Driven mail.<domain> Exchange Default & Remove Manual User Lookup from System Repair',
+    changes: [
+      'هوشمندسازی پیش‌فرض سرور Exchange (`mail.<domain>`): اولویت‌بندی خودکار دامنه دارای پسوند عمومی (مانند `.com` / `.ir` و عدم انتخاب دامنه‌های داخلی `.local` / `.internal`) یا دامنه استخراج‌شده از آدرس ایمیل ثبت‌شده خود کاربر پس از استعلام پروفایل، همراه با دکمه بازگشت به مقدار خودکار.',
+      'افزودن تب جدید «گزارش‌ها و خلاصه سلامت کاربر (User Reports & Health Brief)»: محاسبه امتیاز سلامت واقعی ۰ تا ۱۰۰، شناسایی یافته‌های بحرانی و هشدارهای اکانت/رمز/میل‌باکس، تشخیص گروه‌های حساس مدیریتی، خلاصه آماده تیکت پشتیبانی، و خروجی HTML تعاملی، CSV، JSON و چاپ مستقیم.',
+      'افزودن تب جدید «تاریخچه بررسی‌ها (Check History)» با کنترل دسترسی RBAC سرور: هر اپراتور منحصراً کاربران بررسی‌شده توسط خود را مشاهده و مدیریت می‌کند و سوپرادمین‌ها یا رول‌های دارای مجوز کامل (`canViewAllHelpdeskHistory`) تمام بررسی‌های همه اپراتورها را همراه با فیلتر، صفحه‌بندی، خروجی CSV و دکمه بررسی مجدد یک‌کلیک مشاهده می‌کنند (بدون ذخیره هیچ‌گونه رمز عبور).',
+      'حذف بخش دستی `Inspect Another Domain Username (Optional)` از تب `System Repair, GPO & AD Members` در صفحه `Agentless Endpoint HelpDesk` ضمن حفظ بازرسی خودکار کاربر جاری سیستم متصل.'
+    ],
+    changes_en: [
+      'Upgraded automatic `Exchange Server Host / IP` (`mail.<domain>`) prioritization to prefer domains with a public suffix (`.com`, `.ir`, etc., skipping `.local`/`.internal`) or the domain extracted directly from the inspected user’s registered email address, complete with automatic post-Step-1 host sync and Reset-to-Auto button.',
+      'Added a rich `User Reports & Health Brief` tab computing an authentic 0–100 Account Health Score from live AD & Exchange telemetry, surfacing severity findings, privileged AD group flags, copyable helpdesk ticket summaries, print view, and interactive HTML/CSV/JSON report downloads.',
+      'Added an RBAC-scoped `Check History` tab matching Endpoint HelpDesk: standard operators can only view/manage checks they performed themselves, while Super Admins, Domain Admins, and roles with `canViewAllHelpdeskHistory` see all operators’ check history with filters, pagination, CSV export, and 1-click Re-Inspect (zero passwords stored).',
+      'Removed the manual `Inspect Another Domain Username (Optional)` form from the `System Repair, GPO & AD Members` tab in `Agentless Endpoint HelpDesk` while preserving automatic logged-in workstation user AD inspection.'
+    ]
+  },
   {
     version: '1.483.0',
     releaseDate: '2026-11-25',

@@ -810,11 +810,109 @@ function dedupeStrings(items: Array<string | undefined | null>): string[] {
   return out;
 }
 
+const INTERNAL_AD_DOMAIN_TLDS = new Set([
+  'local',
+  'lan',
+  'internal',
+  'intranet',
+  'corp',
+  'home',
+  'localdomain',
+  'priv',
+  'arpa',
+  'workgroup',
+  'ad',
+  'ds',
+  'test',
+  'localhost',
+]);
+
+function isIpLiteralHost(host: string): boolean {
+  return net.isIP(host) !== 0;
+}
+
+export function isPublicSuffixDomain(domainHint: string | undefined | null): boolean {
+  const clean = String(domainHint || '').trim().replace(/^\.+|\.+$/g, '').toLowerCase();
+  if (!clean || !clean.includes('.') || isIpLiteralHost(clean)) return false;
+  const labels = clean.split('.').filter(Boolean);
+  if (labels.length < 2) return false;
+  const lastTld = labels[labels.length - 1];
+  if (!/^[a-z]{2,24}$/.test(lastTld)) return false;
+  if (INTERNAL_AD_DOMAIN_TLDS.has(lastTld)) return false;
+  return true;
+}
+
+function extractDomainFromIdentity(val: string | undefined | null): string {
+  const clean = String(val || '').trim();
+  if (!clean.includes('@')) return '';
+  const dom = clean.split('@').pop()?.trim().replace(/^\.+|\.+$/g, '').toLowerCase() || '';
+  return dom.includes('.') ? dom : '';
+}
+
 function deriveDefaultExchangeHost(domainHint: string | undefined | null): string {
   const clean = String(domainHint || '').trim().replace(/^\.+|\.+$/g, '').toLowerCase();
-  if (!clean || !clean.includes('.')) return '';
+  if (!clean || !clean.includes('.') || isIpLiteralHost(clean)) return '';
   if (clean.startsWith('mail.')) return clean;
   return `mail.${clean}`;
+}
+
+function buildPrioritizedExchangeCandidates(params: {
+  explicitExch?: string;
+  primaryEmail?: string;
+  emailAliases?: HelpdeskUserEmailAlias[];
+  upn?: string;
+  targetDomain?: string;
+  adminDomain?: string;
+  sessionDomain?: string;
+  adConfigDomain?: string;
+  discoveredExchHost?: string;
+  fallbackHost?: string;
+}): { defaultMailHost: string; candidates: string[] } {
+  const emailDomains = dedupeStrings([
+    extractDomainFromIdentity(params.primaryEmail),
+    ...(params.emailAliases || []).map((a) => extractDomainFromIdentity(a.address)),
+  ]);
+  const otherDomains = dedupeStrings([
+    extractDomainFromIdentity(params.upn),
+    params.targetDomain,
+    params.adminDomain,
+    params.sessionDomain,
+    params.adConfigDomain,
+  ]).filter((d) => d.includes('.') && !isIpLiteralHost(d));
+
+  // Strictly prefer:
+  // 1) User's own registered email domain if it has a public TLD
+  // 2) Any public-TLD domain (UPN / AD domain / etc.)
+  // 3) User's own registered email domain (even if internal)
+  // 4) Any remaining dotted AD domain
+  const publicEmailHosts = emailDomains
+    .filter((d) => isPublicSuffixDomain(d))
+    .map((d) => deriveDefaultExchangeHost(d));
+  const publicOtherHosts = otherDomains
+    .filter((d) => isPublicSuffixDomain(d))
+    .map((d) => deriveDefaultExchangeHost(d));
+  const anyEmailHosts = emailDomains.map((d) => deriveDefaultExchangeHost(d));
+  const fallbackMailHosts = otherDomains.map((d) => deriveDefaultExchangeHost(d));
+
+  const orderedMailSubdomains = dedupeStrings([
+    ...publicEmailHosts,
+    ...publicOtherHosts,
+    ...anyEmailHosts,
+    ...fallbackMailHosts,
+  ]);
+
+  // If the caller supplied an explicit exchangeServer that uses an internal suffix
+  // while no manual override flag was intended, explicitExch still goes first when present,
+  // followed immediately by mail.<public_domain or user_email_domain>.
+  const defaultMailHost = orderedMailSubdomains[0] || '';
+  const candidates = dedupeStrings([
+    params.explicitExch,
+    ...orderedMailSubdomains,
+    params.discoveredExchHost,
+    params.fallbackHost,
+  ]);
+
+  return { defaultMailHost, candidates };
 }
 
 function parseProxyAddresses(
@@ -1743,17 +1841,34 @@ export async function inspectTargetDomainUser(
           winrmProtocol: input.winrmProtocol,
         });
         if (input.includeMailbox !== false && winrmRes.mailbox.hasMailbox) {
-          const defaultMailHost = deriveDefaultExchangeHost(
-            winrmRes.connectionInfo.domainName ||
-              adConfig?.domain ||
-              domainHints.find((d) => d.includes('.'))
-          );
+          const { defaultMailHost, candidates } = buildPrioritizedExchangeCandidates({
+            explicitExch,
+            primaryEmail: winrmRes.contact.primaryEmail,
+            emailAliases: winrmRes.contact.emailAliases,
+            upn: winrmRes.profile.userPrincipalName,
+            targetDomain: targetParts.domain,
+            adminDomain: adminParts.domain,
+            sessionDomain: winrmRes.connectionInfo.domainName,
+            adConfigDomain: adConfig?.domain,
+            discoveredExchHost: winrmRes.mailbox.serverName,
+            fallbackHost,
+          });
+          if (!explicitExch && defaultMailHost) {
+            winrmRes.mailbox.exchangeHostTried = defaultMailHost;
+            if (!winrmRes.mailbox.serverName) {
+              winrmRes.mailbox.serverName = defaultMailHost;
+            }
+          }
           winrmRes.mailbox = await enrichLiveMailboxStats({
             mailbox: winrmRes.mailbox,
-            identity: winrmRes.profile.samAccountName || cleanTarget,
+            identity:
+              winrmRes.contact.primaryEmail ||
+              winrmRes.profile.userPrincipalName ||
+              winrmRes.profile.samAccountName ||
+              cleanTarget,
             adminUsername,
             adminPassword,
-            exchangeHosts: [explicitExch || '', defaultMailHost, winrmRes.mailbox.serverName || '', fallbackHost],
+            exchangeHosts: candidates,
             winrmProtocol: input.winrmProtocol,
           });
         }
@@ -2084,9 +2199,18 @@ export async function inspectTargetDomainUser(
     const archQuotaQ = parseExchKbQuotaToBytes(getFirstAttr(attrs, 'msExchArchiveQuota'));
 
     const hasMailbox = Boolean(mbxGuid || homeMdbDn || mailNickname || explicitExch);
-    const defaultMailHost = deriveDefaultExchangeHost(
-      session.domainName || adConfig?.domain || domainHints.find((d) => d.includes('.'))
-    );
+    const { defaultMailHost, candidates: exchangeCandidates } = buildPrioritizedExchangeCandidates({
+      explicitExch,
+      primaryEmail,
+      emailAliases: aliases,
+      upn,
+      targetDomain: targetParts.domain,
+      adminDomain: adminParts.domain,
+      sessionDomain: session.domainName,
+      adConfigDomain: adConfig?.domain,
+      discoveredExchHost,
+      fallbackHost: session.host,
+    });
     const effectiveExchangeTarget = explicitExch || defaultMailHost || discoveredExchHost;
 
     let mailbox: HelpdeskUserMailboxInfo = {
@@ -2120,7 +2244,7 @@ export async function inspectTargetDomainUser(
         identity: primaryEmail || upn || sam,
         adminUsername,
         adminPassword,
-        exchangeHosts: [explicitExch || '', defaultMailHost, discoveredExchHost, session.host],
+        exchangeHosts: exchangeCandidates,
         winrmProtocol: input.winrmProtocol,
       });
     } else if (!hasMailbox) {

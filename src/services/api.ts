@@ -2636,6 +2636,8 @@ export interface HelpdeskTargetUserRequestPayload {
   exchangeServer?: string;
   winrmProtocol?: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
   includeMailbox?: boolean;
+  historyId?: string;
+  skipHistory?: boolean;
 }
 
 export interface HelpdeskUserRelatedPerson {
@@ -2773,6 +2775,7 @@ export async function inspectHelpdeskTargetUser(
 ): Promise<{
   success: boolean;
   data: HelpdeskUserInspectionData;
+  historyId?: string;
   rateLimit?: any;
 }> {
   const res = await fetchWithRetry(`${API_BASE}/helpdesk/user/inspect`, {
@@ -2828,6 +2831,93 @@ export async function unlockHelpdeskTargetUser(
     body: JSON.stringify(payload),
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Failed to unlock AD user account');
+  return res.json();
+}
+
+export interface HelpdeskUserHistoryItem {
+  id: string;
+  queryTarget: string;
+  samAccountName: string;
+  displayName: string;
+  department: string;
+  jobTitle: string;
+  primaryEmail: string;
+  domainName: string;
+  domainController: string;
+  methodUsed: 'ldaps' | 'ldap' | 'winrm_adsi' | 'unknown';
+  portUsed: number;
+  accountEnabled: boolean | null;
+  accountLocked: boolean | null;
+  passwordExpired: boolean | null;
+  mailboxUsedBytes: number | null;
+  mailboxQuotaBytes: number | null;
+  mailboxUsedPercent: number | null;
+  status: 'success' | 'failed';
+  errorMessage?: string;
+  actionType: 'inspect' | 'unlock';
+  actorName: string;
+  actorRole: string;
+  checkedAt: string;
+}
+
+export interface HelpdeskUserHistoryResponse {
+  success: boolean;
+  scope?: 'all' | 'own';
+  items: HelpdeskUserHistoryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: {
+    totalChecks: number;
+    uniqueUsers: number;
+    successCount: number;
+    failedCount: number;
+    lockedSeenCount: number;
+    lastCheckedAt: string | null;
+    lastSamAccountName: string | null;
+  };
+}
+
+export async function fetchHelpdeskUserHistory(params: {
+  search?: string;
+  status?: 'all' | 'success' | 'failed';
+  actionType?: 'all' | 'inspect' | 'unlock';
+  page?: number;
+  pageSize?: number;
+}): Promise<HelpdeskUserHistoryResponse> {
+  const qs = new URLSearchParams();
+  if (params.search) qs.set('search', params.search);
+  if (params.status) qs.set('status', params.status);
+  if (params.actionType) qs.set('actionType', params.actionType);
+  if (params.page) qs.set('page', String(params.page));
+  if (params.pageSize) qs.set('pageSize', String(params.pageSize));
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/user/history?${qs.toString()}`, {
+    method: 'GET',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to fetch HelpDesk user check history');
+  return res.json();
+}
+
+export async function deleteHelpdeskUserHistoryItem(id: string): Promise<{ success: boolean }> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/user/history/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to delete HelpDesk user check history record');
+  return res.json();
+}
+
+export async function clearHelpdeskUserHistory(): Promise<{
+  success: boolean;
+  clearedCount: number;
+  scope?: 'all' | 'own';
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/user/history`, {
+    method: 'DELETE',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to clear HelpDesk user check history');
   return res.json();
 }
 

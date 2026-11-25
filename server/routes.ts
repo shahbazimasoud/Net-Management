@@ -268,6 +268,11 @@ import {
   queryHelpdeskConnectionHistoryFromDb,
   deleteHelpdeskConnectionHistoryFromDb,
   clearHelpdeskConnectionHistoryFromDb,
+  addHelpdeskUserHistoryInDb,
+  updateHelpdeskUserHistoryMailboxInDb,
+  queryHelpdeskUserHistoryFromDb,
+  deleteHelpdeskUserHistoryFromDb,
+  clearHelpdeskUserHistoryFromDb,
   HelpdeskExceptionRuleType,
   listHelpdeskExceptionsFromDb,
   createHelpdeskExceptionInDb,
@@ -7945,7 +7950,7 @@ async function resolveHelpdeskAuth(
   const canDomainUsers = hasFullHelpdeskAccess || (canDiagnostics && effectivePolicy?.canInspectHelpdeskDomainUsers === true);
   const canPowerControl = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true);
   const canManageExceptions = hasFullHelpdeskAccess || effectivePolicy?.canManageHelpdeskExceptions === true;
-  const canViewAllHistory = hasFullHelpdeskAccess || (canDiagnostics && effectivePolicy?.canViewAllHelpdeskHistory === true);
+  const canViewAllHistory = hasFullHelpdeskAccess || ((canDiagnostics || canDomainUsers) && effectivePolicy?.canViewAllHelpdeskHistory === true);
   // Strict: Interactive screen messaging strictly requires explicit RBAC grant or Super Admin
   const canSendMessage = isSuperAdmin || (canView && effectivePolicy?.canSendHelpdeskMessage === true);
 
@@ -10864,6 +10869,33 @@ apiRouter.post('/helpdesk/user/inspect', async (req: Request, res: Response) => 
 
   try {
     const data = await inspectTargetDomainUser(input);
+    const skipHistory = req.body?.skipHistory === true;
+    let historyId: string | undefined;
+    if (!skipHistory) {
+      const savedHist = await addHelpdeskUserHistoryInDb({
+        queryTarget: input.targetUsername,
+        samAccountName: data.profile.samAccountName,
+        displayName: data.profile.displayName || data.profile.samAccountName,
+        department: data.profile.department || '',
+        jobTitle: data.profile.jobTitle || '',
+        primaryEmail: data.contact.primaryEmail || '',
+        domainName: data.connectionInfo.domainName || '',
+        domainController: data.connectionInfo.domainController || '',
+        methodUsed: data.connectionInfo.method,
+        portUsed: data.connectionInfo.port,
+        accountEnabled: data.security.accountEnabled,
+        accountLocked: data.security.accountLocked,
+        passwordExpired: data.security.passwordExpired,
+        mailboxUsedBytes: data.mailbox.totalUsedBytes,
+        mailboxQuotaBytes: data.mailbox.effectiveQuotaBytes,
+        mailboxUsedPercent: data.mailbox.usedPercent,
+        status: 'success',
+        actionType: 'inspect',
+        actorName: auth.actorName,
+        actorRole: auth.actorRole,
+      }).catch(() => null);
+      historyId = savedHist?.id;
+    }
     await addPortalAuditLog({
       category: 'helpdesk',
       action: 'helpdesk_user_inspect',
@@ -10888,9 +10920,40 @@ apiRouter.post('/helpdesk/user/inspect', async (req: Request, res: Response) => 
       },
       clientIp: auth.clientIp,
     }).catch(() => {});
-    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+    return res.json({
+      success: true,
+      data,
+      historyId,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
   } catch (err: any) {
     const msg = String(err?.message || 'Target domain user inspection failed');
+    const skipHistory = req.body?.skipHistory === true;
+    if (!skipHistory) {
+      await addHelpdeskUserHistoryInDb({
+        queryTarget: input.targetUsername,
+        samAccountName: input.targetUsername.split(/[\\@]/).pop() || input.targetUsername,
+        displayName: '',
+        department: '',
+        jobTitle: '',
+        primaryEmail: '',
+        domainName: '',
+        domainController: input.domainController || '',
+        methodUsed: 'unknown',
+        portUsed: 0,
+        accountEnabled: null,
+        accountLocked: null,
+        passwordExpired: null,
+        mailboxUsedBytes: null,
+        mailboxQuotaBytes: null,
+        mailboxUsedPercent: null,
+        status: 'failed',
+        errorMessage: msg,
+        actionType: 'inspect',
+        actorName: auth.actorName,
+        actorRole: auth.actorRole,
+      }).catch(() => {});
+    }
     await logHelpdeskErrorAudit({
       actorName: auth.actorName,
       actorRole: auth.actorRole,
@@ -10927,6 +10990,26 @@ apiRouter.post('/helpdesk/user/mailbox', async (req: Request, res: Response) => 
 
   try {
     const data = await inspectTargetDomainMailbox(input);
+    const historyId = typeof req.body?.historyId === 'string' ? req.body.historyId.trim() : '';
+    if (historyId) {
+      const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+      const actorAliases = canViewAll
+        ? undefined
+        : Array.from(
+            new Set(
+              [auth.actorName, auth.user?.username, auth.user?.fullName]
+                .map((s) => String(s || '').trim())
+                .filter(Boolean)
+            )
+          );
+      await updateHelpdeskUserHistoryMailboxInDb({
+        historyId,
+        actorAliases,
+        mailboxUsedBytes: data.totalUsedBytes,
+        mailboxQuotaBytes: data.effectiveQuotaBytes,
+        mailboxUsedPercent: data.usedPercent,
+      }).catch(() => {});
+    }
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Exchange mailbox query failed');
@@ -10981,6 +11064,34 @@ apiRouter.post('/helpdesk/user/unlock', async (req: Request, res: Response) => {
 
   try {
     const data = await unlockTargetDomainUser(input);
+    await addHelpdeskUserHistoryInDb({
+      queryTarget: input.targetUsername,
+      samAccountName: data.samAccountName,
+      displayName: data.displayName || data.samAccountName,
+      department: '',
+      jobTitle: '',
+      primaryEmail: '',
+      domainName: '',
+      domainController: data.domainController || '',
+      methodUsed:
+        data.methodUsed === 'ldaps_modify'
+          ? 'ldaps'
+          : data.methodUsed === 'ldap_modify'
+          ? 'ldap'
+          : 'winrm_adsi',
+      portUsed: data.methodUsed === 'ldaps_modify' ? 636 : data.methodUsed === 'ldap_modify' ? 389 : 5985,
+      accountEnabled: null,
+      accountLocked: data.stillLockedAfter,
+      passwordExpired: null,
+      mailboxUsedBytes: null,
+      mailboxQuotaBytes: null,
+      mailboxUsedPercent: null,
+      status: data.unlocked ? 'success' : 'failed',
+      errorMessage: data.unlocked ? '' : data.message,
+      actionType: 'unlock',
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+    }).catch(() => {});
     await addPortalAuditLog({
       category: 'helpdesk',
       action: 'helpdesk_user_unlock',
@@ -11025,6 +11136,160 @@ apiRouter.post('/helpdesk/user/unlock', async (req: Request, res: Response) => {
       errorFa: err?.reasonFa || msg,
       blockedByException: Boolean(err?.blockedByException),
       rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// GET /helpdesk/user/history - Paginated Target User check history (scoped per operator unless Super Admin or canViewAllHelpdeskHistory)
+apiRouter.get('/helpdesk/user/history', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'domain_user');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const actorAliases = canViewAll
+      ? undefined
+      : Array.from(
+          new Set(
+            [auth.actorName, auth.user?.username, auth.user?.fullName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )
+        );
+    const rawStatus = String(req.query.status || 'all').trim().toLowerCase();
+    const status = rawStatus === 'success' || rawStatus === 'failed' ? rawStatus : 'all';
+    const rawAction = String(req.query.actionType || 'all').trim().toLowerCase();
+    const actionType = rawAction === 'inspect' || rawAction === 'unlock' ? rawAction : 'all';
+    const result = await queryHelpdeskUserHistoryFromDb({
+      search: String(req.query.search || ''),
+      status,
+      actionType,
+      page: Number(req.query.page || 1),
+      pageSize: Number(req.query.pageSize || 15),
+      actorAliases,
+    });
+    return res.json({ success: true, scope: canViewAll ? 'all' : 'own', ...result });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to load HelpDesk user check history',
+      errorFa: 'خطا در دریافت تاریخچه بررسی کاربران دامین',
+    });
+  }
+});
+
+// DELETE /helpdesk/user/history/:id - Remove single user check history entry (owner or full access)
+apiRouter.delete('/helpdesk/user/history/:id', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'actions');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Insufficient permissions for user check history.',
+        errorFa: 'عدم دسترسی: مجوز مدیریت تاریخچه بررسی کاربران دامین وجود ندارد.',
+      });
+    }
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'History record ID is required' });
+    }
+    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const actorAliases = canViewAll
+      ? undefined
+      : Array.from(
+          new Set(
+            [auth.actorName, auth.user?.username, auth.user?.fullName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )
+        );
+    const removed = await deleteHelpdeskUserHistoryFromDb(id, actorAliases);
+    if (removed.forbidden) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: You can only delete your own user check history records.',
+        errorFa: 'عدم دسترسی: شما فقط مجاز به حذف سوابق بررسی کاربران مربوط به خودتان هستید.',
+      });
+    }
+    if (!removed.deleted) {
+      return res.status(404).json({ success: false, error: 'History record not found' });
+    }
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_user_history_delete_item',
+      title: `حذف یک ردیف از تاریخچه بررسی کاربران هلپ‌دسک (${id})`,
+      title_en: `Deleted HelpDesk User Check History Entry (${id})`,
+      description: `کاربر ${auth.actorName} یک رکورد از تاریخچه بررسی کاربران هلپ‌دسک را حذف کرد.`,
+      description_en: `Operator ${auth.actorName} deleted HelpDesk user check history item ${id}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: id,
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to delete user check history record',
+    });
+  }
+});
+
+// DELETE /helpdesk/user/history - Clear user check history (own records unless full access)
+apiRouter.delete('/helpdesk/user/history', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'actions');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Insufficient permissions for user check history.',
+        errorFa: 'عدم دسترسی: مجوز پاک‌سازی تاریخچه بررسی کاربران دامین وجود ندارد.',
+      });
+    }
+    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const actorAliases = canViewAll
+      ? undefined
+      : Array.from(
+          new Set(
+            [auth.actorName, auth.user?.username, auth.user?.fullName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )
+        );
+    const clearedCount = await clearHelpdeskUserHistoryFromDb(actorAliases);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_user_history_clear_all',
+      title: canViewAll
+        ? `پاک‌سازی کامل تاریخچه بررسی کاربران هلپ‌دسک (${clearedCount} رکورد)`
+        : `پاک‌سازی تاریخچه بررسی کاربران شخصی (${clearedCount} رکورد)`,
+      title_en: canViewAll
+        ? `Cleared All HelpDesk User Check History (${clearedCount} records)`
+        : `Cleared Own HelpDesk User Check History (${clearedCount} records)`,
+      description: `کاربر ${auth.actorName} ${canViewAll ? 'کل' : 'سوابق شخصی'} تاریخچه بررسی کاربران دامین (${clearedCount} مورد) را پاک کرد.`,
+      description_en: `Operator ${auth.actorName} cleared ${clearedCount} ${canViewAll ? '' : 'own '}HelpDesk user check history records.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'warning',
+      targetName: 'helpdesk_user_history',
+      clientIp: auth.clientIp,
+      metadata: { clearedCount, scope: canViewAll ? 'all' : 'own' },
+    }).catch(() => {});
+    return res.json({ success: true, clearedCount, scope: canViewAll ? 'all' : 'own' });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to clear HelpDesk user check history',
     });
   }
 });

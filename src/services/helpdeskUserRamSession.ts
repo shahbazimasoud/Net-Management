@@ -11,8 +11,10 @@ import { loadActiveDirectoryConfig } from './settingsStorage';
 export type HelpdeskUserSubTab =
   | 'overview'
   | 'security'
+  | 'groups'
   | 'mailbox'
-  | 'groups';
+  | 'reports'
+  | 'history';
 
 export interface HelpdeskUserPrefetchProgress {
   active: boolean;
@@ -48,6 +50,7 @@ export interface HelpdeskUserRamState {
   groupsLoaded: boolean;
   mailboxLoaded: boolean;
   error: string | null;
+  lastHistoryId: string | null;
 
   mailboxLoading: boolean;
   mailboxError: string | null;
@@ -75,19 +78,48 @@ export interface HelpdeskUserRamState {
   }>;
 }
 
+const INTERNAL_AD_DOMAIN_TLDS = new Set([
+  'local',
+  'lan',
+  'internal',
+  'intranet',
+  'corp',
+  'home',
+  'localdomain',
+  'priv',
+  'arpa',
+  'workgroup',
+  'ad',
+  'ds',
+  'test',
+  'localhost',
+]);
+
+export function isPublicSuffixDomain(domainName?: string | null): boolean {
+  const clean = String(domainName || '').trim().replace(/^\.+|\.+$/g, '').toLowerCase();
+  if (!clean || !clean.includes('.')) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(clean) || clean.includes(':')) return false;
+  const labels = clean.split('.').filter(Boolean);
+  if (labels.length < 2) return false;
+  const tld = labels[labels.length - 1];
+  if (!/^[a-z]{2,24}$/.test(tld)) return false;
+  return !INTERNAL_AD_DOMAIN_TLDS.has(tld);
+}
+
 export function deriveDefaultExchangeHostForDomain(domainName?: string | null): string {
   const clean = String(domainName || '').trim().replace(/^\.+|\.+$/g, '').toLowerCase();
   if (!clean || !clean.includes('.')) return '';
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(clean) || clean.includes(':')) return '';
   if (clean.startsWith('mail.')) return clean;
   return `mail.${clean}`;
 }
 
 export function resolveHintedExchangeHost(state?: Partial<HelpdeskUserRamState>): string {
   const s = state || ramState;
-  const extractAtDomain = (val?: string) => {
+  const extractAtDomain = (val?: string | null) => {
     const str = String(val || '').trim();
     if (!str.includes('@')) return '';
-    const dom = str.split('@').pop()?.trim() || '';
+    const dom = str.split('@').pop()?.trim().replace(/^\.+|\.+$/g, '').toLowerCase() || '';
     return dom.includes('.') ? dom : '';
   };
 
@@ -99,13 +131,38 @@ export function resolveHintedExchangeHost(state?: Partial<HelpdeskUserRamState>)
     }
   })();
 
-  const candidateDomain =
-    s.userData?.connectionInfo?.domainName ||
-    extractAtDomain(s.adminUsername) ||
-    extractAtDomain(s.targetUsername) ||
-    savedAdDomain;
+  const userEmailDomains = [
+    extractAtDomain(s.userData?.contact?.primaryEmail),
+    ...(s.userData?.contact?.emailAliases || []).map((a) => extractAtDomain(a.address)),
+  ].filter(Boolean);
 
-  return deriveDefaultExchangeHostForDomain(candidateDomain);
+  const otherDomains = [
+    extractAtDomain(s.userData?.profile?.userPrincipalName),
+    extractAtDomain(s.targetUsername),
+    extractAtDomain(s.adminUsername),
+    String(s.userData?.connectionInfo?.domainName || '').trim(),
+    String(savedAdDomain || '').trim(),
+  ].filter((d) => d.includes('.'));
+
+  // 1) User's registered email domain with a public suffix (e.g. ali@company.com -> mail.company.com)
+  const publicUserEmailDomain = userEmailDomains.find((d) => isPublicSuffixDomain(d));
+  if (publicUserEmailDomain) {
+    return deriveDefaultExchangeHostForDomain(publicUserEmailDomain);
+  }
+
+  // 2) Any public-suffix domain (e.g. UPN / AD public domain)
+  const publicOtherDomain = otherDomains.find((d) => isPublicSuffixDomain(d));
+  if (publicOtherDomain) {
+    return deriveDefaultExchangeHostForDomain(publicOtherDomain);
+  }
+
+  // 3) User's registered email domain even if internal
+  if (userEmailDomains[0]) {
+    return deriveDefaultExchangeHostForDomain(userEmailDomains[0]);
+  }
+
+  // 4) Fallback AD / input domain
+  return deriveDefaultExchangeHostForDomain(otherDomains[0] || '');
 }
 
 function createInitialHelpdeskUserRamState(): HelpdeskUserRamState {
@@ -137,6 +194,7 @@ function createInitialHelpdeskUserRamState(): HelpdeskUserRamState {
     groupsLoaded: false,
     mailboxLoaded: false,
     error: null,
+    lastHistoryId: null,
     mailboxLoading: false,
     mailboxError: null,
     unlocking: false,
@@ -241,7 +299,8 @@ export function wipeHelpdeskUserRamOnLogout(): void {
 
 function buildUserRequestPayload(
   overrideTarget?: string,
-  includeMailbox = false
+  includeMailbox = false,
+  extra?: Partial<HelpdeskTargetUserRequestPayload>
 ): HelpdeskTargetUserRequestPayload {
   const s = ramState;
   const effectiveExchange =
@@ -255,6 +314,7 @@ function buildUserRequestPayload(
     exchangeServer: effectiveExchange,
     winrmProtocol: s.winrmProtocol,
     includeMailbox,
+    ...extra,
   };
 }
 
@@ -305,14 +365,17 @@ export async function runHelpdeskUserInspect(
   });
 
   let data: HelpdeskUserInspectionData;
+  let inspectHistoryId: string | undefined;
   try {
     const res = await inspectHelpdeskTargetUser(initialPayload);
     if (isCancelled()) return null;
     data = res.data;
+    inspectHistoryId = res.historyId;
 
-    const autoMailHost = deriveDefaultExchangeHostForDomain(
-      data.connectionInfo.domainName || resolveHintedExchangeHost()
-    );
+    const autoMailHost = resolveHintedExchangeHost({
+      ...ramState,
+      userData: data,
+    });
 
     patchHelpdeskUserRamSnapshot((prev) => {
       const nextRecent = [
@@ -337,6 +400,7 @@ export async function runHelpdeskUserInspect(
         loadingOverview: false,
         overviewLoaded: true,
         userData: data,
+        lastHistoryId: inspectHistoryId || null,
         exchangeServer: nextExchangeServer,
         rateLimit: res.rateLimit || prev.rateLimit,
         recentUsers: nextRecent,
@@ -410,7 +474,11 @@ export async function runHelpdeskUserInspect(
   });
 
   try {
-    const mbxPayload = buildUserRequestPayload(data.profile.samAccountName, true);
+    const mbxPayload = buildUserRequestPayload(
+      data.profile.samAccountName,
+      true,
+      inspectHistoryId ? { historyId: inspectHistoryId } : undefined
+    );
     const mbxRes = await refreshHelpdeskTargetMailbox(mbxPayload);
     if (!isCancelled()) {
       patchHelpdeskUserRamSnapshot((prev) => ({
@@ -436,7 +504,11 @@ export async function runHelpdeskUserInspect(
 }
 
 export async function runHelpdeskUserMailboxRefresh(): Promise<HelpdeskUserMailboxInfo | null> {
-  const payload = buildUserRequestPayload(undefined, true);
+  const payload = buildUserRequestPayload(
+    undefined,
+    true,
+    ramState.lastHistoryId ? { historyId: ramState.lastHistoryId } : undefined
+  );
   if (!payload.targetUsername || !payload.adminUsername || !payload.adminPassword) {
     return null;
   }

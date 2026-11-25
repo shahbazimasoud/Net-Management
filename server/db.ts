@@ -315,6 +315,7 @@ export interface FallbackStore {
   session_recording_markers?: any[];
   ssl_certificates?: any[];
   helpdesk_connection_history?: HelpdeskConnectionHistoryRecord[];
+  helpdesk_user_history?: HelpdeskUserHistoryRecord[];
   helpdesk_exceptions?: HelpdeskExceptionRecord[];
 }
 
@@ -350,6 +351,32 @@ export interface HelpdeskConnectionHistoryRecord {
   actorName: string;
   actorRole: string;
   connectedAt: string;
+}
+
+export interface HelpdeskUserHistoryRecord {
+  id: string;
+  queryTarget: string;
+  samAccountName: string;
+  displayName: string;
+  department: string;
+  jobTitle: string;
+  primaryEmail: string;
+  domainName: string;
+  domainController: string;
+  methodUsed: 'ldaps' | 'ldap' | 'winrm_adsi' | 'unknown';
+  portUsed: number;
+  accountEnabled: boolean | null;
+  accountLocked: boolean | null;
+  passwordExpired: boolean | null;
+  mailboxUsedBytes: number | null;
+  mailboxQuotaBytes: number | null;
+  mailboxUsedPercent: number | null;
+  status: 'success' | 'failed';
+  errorMessage?: string;
+  actionType: 'inspect' | 'unlock';
+  actorName: string;
+  actorRole: string;
+  checkedAt: string;
 }
 
 export interface SystemSecurityKeysRecord {
@@ -3158,6 +3185,18 @@ export async function initDatabase(): Promise<void> {
       `);
       await client.query(
         "CREATE INDEX IF NOT EXISTS idx_helpdesk_exceptions_updated ON helpdesk_exceptions(updated_at DESC)"
+      );
+
+      // 35. HelpDesk Target User Check History (Non-Secret Metadata Only — Zero Passwords!)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS helpdesk_user_history (
+          id VARCHAR(128) PRIMARY KEY,
+          data JSONB NOT NULL,
+          checked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query(
+        "CREATE INDEX IF NOT EXISTS idx_helpdesk_user_history_ts ON helpdesk_user_history(checked_at DESC)"
       );
     } catch {}
 
@@ -15590,6 +15629,369 @@ export async function clearHelpdeskConnectionHistoryFromDb(actorAliases?: string
       }
     } catch (e: any) {
       console.warn('[DB] clearHelpdeskConnectionHistoryFromDb error:', e?.message || e);
+    }
+  }
+  return fbRemoved;
+}
+
+// ============================================================================
+// HelpDesk Target User Check History (PostgreSQL + Fallback Store, Zero Passwords!)
+// ============================================================================
+
+async function ensureHelpdeskUserHistoryTable(): Promise<void> {
+  if (!isPostgresReady || !pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS helpdesk_user_history (
+      id VARCHAR(128) PRIMARY KEY,
+      data JSONB NOT NULL,
+      checked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_helpdesk_user_history_ts ON helpdesk_user_history(checked_at DESC)"
+  );
+}
+
+export async function addHelpdeskUserHistoryInDb(
+  entry: Omit<HelpdeskUserHistoryRecord, 'id' | 'checkedAt'> & {
+    id?: string;
+    checkedAt?: string;
+  }
+): Promise<HelpdeskUserHistoryRecord> {
+  const rec: HelpdeskUserHistoryRecord = {
+    id: entry.id || `hduhist_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    queryTarget: String(entry.queryTarget || '').trim(),
+    samAccountName: String(entry.samAccountName || '').trim(),
+    displayName: String(entry.displayName || '').trim(),
+    department: String(entry.department || '').trim(),
+    jobTitle: String(entry.jobTitle || '').trim(),
+    primaryEmail: String(entry.primaryEmail || '').trim(),
+    domainName: String(entry.domainName || '').trim(),
+    domainController: String(entry.domainController || '').trim(),
+    methodUsed:
+      entry.methodUsed === 'ldaps' || entry.methodUsed === 'ldap' || entry.methodUsed === 'winrm_adsi'
+        ? entry.methodUsed
+        : 'unknown',
+    portUsed: Number(entry.portUsed || 0),
+    accountEnabled: typeof entry.accountEnabled === 'boolean' ? entry.accountEnabled : null,
+    accountLocked: typeof entry.accountLocked === 'boolean' ? entry.accountLocked : null,
+    passwordExpired: typeof entry.passwordExpired === 'boolean' ? entry.passwordExpired : null,
+    mailboxUsedBytes:
+      typeof entry.mailboxUsedBytes === 'number' && Number.isFinite(entry.mailboxUsedBytes)
+        ? entry.mailboxUsedBytes
+        : null,
+    mailboxQuotaBytes:
+      typeof entry.mailboxQuotaBytes === 'number' && Number.isFinite(entry.mailboxQuotaBytes)
+        ? entry.mailboxQuotaBytes
+        : null,
+    mailboxUsedPercent:
+      typeof entry.mailboxUsedPercent === 'number' && Number.isFinite(entry.mailboxUsedPercent)
+        ? entry.mailboxUsedPercent
+        : null,
+    status: entry.status === 'failed' ? 'failed' : 'success',
+    errorMessage: entry.errorMessage ? String(entry.errorMessage).slice(0, 300) : '',
+    actionType: entry.actionType === 'unlock' ? 'unlock' : 'inspect',
+    actorName: String(entry.actorName || '').trim(),
+    actorRole: String(entry.actorRole || '').trim(),
+    checkedAt: entry.checkedAt || new Date().toISOString(),
+  };
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.helpdesk_user_history)) {
+    store.helpdesk_user_history = [];
+  }
+  store.helpdesk_user_history.unshift(rec);
+  if (store.helpdesk_user_history.length > 2000) {
+    store.helpdesk_user_history = store.helpdesk_user_history.slice(0, 2000);
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskUserHistoryTable();
+      await pool.query(
+        `INSERT INTO helpdesk_user_history (id, data, checked_at)
+         VALUES ($1, $2::jsonb, $3::timestamptz)
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, checked_at = EXCLUDED.checked_at`,
+        [rec.id, JSON.stringify(rec), rec.checkedAt]
+      );
+    } catch (e: any) {
+      console.warn('[DB] addHelpdeskUserHistoryInDb error:', e?.message || e);
+    }
+  }
+  return rec;
+}
+
+export async function updateHelpdeskUserHistoryMailboxInDb(params: {
+  historyId: string;
+  actorAliases?: string[];
+  mailboxUsedBytes: number | null;
+  mailboxQuotaBytes: number | null;
+  mailboxUsedPercent: number | null;
+}): Promise<boolean> {
+  const id = String(params.historyId || '').trim();
+  if (!id) return false;
+  const actorSet = normalizeActorMatchSet(params.actorAliases);
+
+  const applyPatch = (rec: HelpdeskUserHistoryRecord): HelpdeskUserHistoryRecord => ({
+    ...rec,
+    mailboxUsedBytes:
+      typeof params.mailboxUsedBytes === 'number' && Number.isFinite(params.mailboxUsedBytes)
+        ? params.mailboxUsedBytes
+        : rec.mailboxUsedBytes,
+    mailboxQuotaBytes:
+      typeof params.mailboxQuotaBytes === 'number' && Number.isFinite(params.mailboxQuotaBytes)
+        ? params.mailboxQuotaBytes
+        : rec.mailboxQuotaBytes,
+    mailboxUsedPercent:
+      typeof params.mailboxUsedPercent === 'number' && Number.isFinite(params.mailboxUsedPercent)
+        ? params.mailboxUsedPercent
+        : rec.mailboxUsedPercent,
+  });
+
+  let updated = false;
+  const store = loadFallbackStore();
+  if (Array.isArray(store.helpdesk_user_history)) {
+    const idx = store.helpdesk_user_history.findIndex((h) => h.id === id);
+    if (idx >= 0) {
+      const target = store.helpdesk_user_history[idx];
+      if (!actorSet || actorSet.has(String(target.actorName || '').trim().toLowerCase())) {
+        store.helpdesk_user_history[idx] = applyPatch(target);
+        saveFallbackStore(store);
+        updated = true;
+      }
+    }
+  }
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskUserHistoryTable();
+      const chk = await pool.query(`SELECT data, checked_at FROM helpdesk_user_history WHERE id = $1`, [id]);
+      if (chk.rows.length > 0) {
+        const rec: HelpdeskUserHistoryRecord =
+          typeof chk.rows[0].data === 'string' ? JSON.parse(chk.rows[0].data) : chk.rows[0].data;
+        if (!actorSet || actorSet.has(String(rec.actorName || '').trim().toLowerCase())) {
+          const next = applyPatch(rec);
+          await pool.query(
+            `UPDATE helpdesk_user_history SET data = $2::jsonb WHERE id = $1`,
+            [id, JSON.stringify(next)]
+          );
+          updated = true;
+        }
+      }
+    } catch (e: any) {
+      console.warn('[DB] updateHelpdeskUserHistoryMailboxInDb error:', e?.message || e);
+    }
+  }
+
+  return updated;
+}
+
+export async function queryHelpdeskUserHistoryFromDb(params: {
+  search?: string;
+  status?: 'all' | 'success' | 'failed';
+  actionType?: 'all' | 'inspect' | 'unlock';
+  page?: number;
+  pageSize?: number;
+  actorAliases?: string[];
+}): Promise<{
+  items: HelpdeskUserHistoryRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: {
+    totalChecks: number;
+    uniqueUsers: number;
+    successCount: number;
+    failedCount: number;
+    lockedSeenCount: number;
+    lastCheckedAt: string | null;
+    lastSamAccountName: string | null;
+  };
+}> {
+  let allRecords: HelpdeskUserHistoryRecord[] = [];
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskUserHistoryTable();
+      const res = await pool.query(
+        `SELECT data FROM helpdesk_user_history ORDER BY checked_at DESC LIMIT 2000`
+      );
+      allRecords = res.rows.map((r: any) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data));
+      if (allRecords.length === 0) {
+        const fb = loadFallbackStore();
+        if (Array.isArray(fb.helpdesk_user_history) && fb.helpdesk_user_history.length > 0) {
+          allRecords = fb.helpdesk_user_history;
+          for (const item of allRecords.slice(0, 500)) {
+            if (item?.id) {
+              await pool.query(
+                `INSERT INTO helpdesk_user_history (id, data, checked_at)
+                 VALUES ($1, $2::jsonb, $3::timestamptz)
+                 ON CONFLICT (id) DO NOTHING`,
+                [String(item.id), JSON.stringify(item), item.checkedAt || new Date().toISOString()]
+              );
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[DB] queryHelpdeskUserHistoryFromDb fallback:', e?.message || e);
+      const fb = loadFallbackStore();
+      allRecords = Array.isArray(fb.helpdesk_user_history) ? fb.helpdesk_user_history : [];
+    }
+  } else {
+    const fb = loadFallbackStore();
+    allRecords = Array.isArray(fb.helpdesk_user_history) ? fb.helpdesk_user_history : [];
+  }
+
+  allRecords = [...allRecords].sort(
+    (a, b) => new Date(b.checkedAt || 0).getTime() - new Date(a.checkedAt || 0).getTime()
+  );
+
+  // Enforce per-user scoping unless operator has Super Admin / full history permission
+  const actorSet = normalizeActorMatchSet(params.actorAliases);
+  if (actorSet) {
+    allRecords = allRecords.filter((r) => actorSet.has(String(r.actorName || '').trim().toLowerCase()));
+  }
+
+  const uniqueSet = new Set<string>();
+  let successCount = 0;
+  let failedCount = 0;
+  let lockedSeenCount = 0;
+  for (const r of allRecords) {
+    const key = (r.samAccountName || r.queryTarget || '').toLowerCase();
+    if (key) uniqueSet.add(key);
+    if (r.status === 'failed') failedCount++;
+    else successCount++;
+    if (r.accountLocked) lockedSeenCount++;
+  }
+
+  const q = String(params.search || '').trim().toLowerCase();
+  const statusFilter = params.status || 'all';
+  const actionFilter = params.actionType || 'all';
+
+  const filtered = allRecords.filter((r) => {
+    if (statusFilter === 'success' && r.status !== 'success') return false;
+    if (statusFilter === 'failed' && r.status !== 'failed') return false;
+    if (actionFilter !== 'all' && r.actionType !== actionFilter) return false;
+    if (!q) return true;
+    return (
+      String(r.samAccountName || '').toLowerCase().includes(q) ||
+      String(r.queryTarget || '').toLowerCase().includes(q) ||
+      String(r.displayName || '').toLowerCase().includes(q) ||
+      String(r.department || '').toLowerCase().includes(q) ||
+      String(r.jobTitle || '').toLowerCase().includes(q) ||
+      String(r.primaryEmail || '').toLowerCase().includes(q) ||
+      String(r.domainName || '').toLowerCase().includes(q) ||
+      String(r.domainController || '').toLowerCase().includes(q) ||
+      String(r.actorName || '').toLowerCase().includes(q)
+    );
+  });
+
+  const pageSize = Math.max(5, Math.min(100, Number(params.pageSize) || 15));
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.max(1, Math.min(totalPages, Number(params.page) || 1));
+  const start = (page - 1) * pageSize;
+
+  return {
+    items: filtered.slice(start, start + pageSize),
+    total,
+    page,
+    pageSize,
+    stats: {
+      totalChecks: allRecords.length,
+      uniqueUsers: uniqueSet.size,
+      successCount,
+      failedCount,
+      lockedSeenCount,
+      lastCheckedAt: allRecords[0]?.checkedAt || null,
+      lastSamAccountName: allRecords[0]?.samAccountName || allRecords[0]?.queryTarget || null,
+    },
+  };
+}
+
+export async function deleteHelpdeskUserHistoryFromDb(
+  id: string,
+  actorAliases?: string[]
+): Promise<{ deleted: boolean; forbidden?: boolean }> {
+  const actorSet = normalizeActorMatchSet(actorAliases);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool && actorSet) {
+    try {
+      await ensureHelpdeskUserHistoryTable();
+      const chk = await pool.query(`SELECT data FROM helpdesk_user_history WHERE id = $1`, [id]);
+      if (chk.rows.length > 0) {
+        const rec = typeof chk.rows[0].data === 'string' ? JSON.parse(chk.rows[0].data) : chk.rows[0].data;
+        const owner = String(rec?.actorName || '').trim().toLowerCase();
+        if (!actorSet.has(owner)) {
+          return { deleted: false, forbidden: true };
+        }
+      }
+    } catch {}
+  }
+
+  const store = loadFallbackStore();
+  const list: any[] = Array.isArray(store.helpdesk_user_history) ? store.helpdesk_user_history : [];
+  const fbMatch = list.find((h: any) => h.id === id);
+  if (fbMatch && actorSet && !actorSet.has(String(fbMatch.actorName || '').trim().toLowerCase())) {
+    return { deleted: false, forbidden: true };
+  }
+
+  const beforeLen = list.length;
+  store.helpdesk_user_history = list.filter((h: any) => h.id !== id);
+  saveFallbackStore(store);
+
+  let deletedInPg = false;
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskUserHistoryTable();
+      const res = await pool.query(`DELETE FROM helpdesk_user_history WHERE id = $1`, [id]);
+      deletedInPg = (res.rowCount || 0) > 0;
+    } catch (e: any) {
+      console.warn('[DB] deleteHelpdeskUserHistoryFromDb error:', e?.message || e);
+    }
+  }
+  return { deleted: deletedInPg || store.helpdesk_user_history.length < beforeLen };
+}
+
+export async function clearHelpdeskUserHistoryFromDb(actorAliases?: string[]): Promise<number> {
+  const actorSet = normalizeActorMatchSet(actorAliases);
+  const store = loadFallbackStore();
+  const list: any[] = Array.isArray(store.helpdesk_user_history) ? store.helpdesk_user_history : [];
+  let fbRemoved = 0;
+
+  if (actorSet) {
+    store.helpdesk_user_history = list.filter((h: any) => {
+      const owned = actorSet.has(String(h?.actorName || '').trim().toLowerCase());
+      if (owned) fbRemoved++;
+      return !owned;
+    });
+  } else {
+    fbRemoved = list.length;
+    store.helpdesk_user_history = [];
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskUserHistoryTable();
+      if (actorSet) {
+        const res = await pool.query(
+          `DELETE FROM helpdesk_user_history WHERE LOWER(COALESCE(data->>'actorName', '')) = ANY($1::text[])`,
+          [Array.from(actorSet)]
+        );
+        return Math.max(fbRemoved, res.rowCount || 0);
+      } else {
+        const res = await pool.query(`DELETE FROM helpdesk_user_history`);
+        return Math.max(fbRemoved, res.rowCount || 0);
+      }
+    } catch (e: any) {
+      console.warn('[DB] clearHelpdeskUserHistoryFromDb error:', e?.message || e);
     }
   }
   return fbRemoved;

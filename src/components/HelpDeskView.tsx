@@ -10986,31 +10986,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 )}
               </div>
             )}
-
-            {/* Optional Lookup Another Domain Account */}
-            <form onSubmit={(e) => handleInspectDomainUser(e)} className={`pt-3 border-t flex flex-wrap items-end gap-3 ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
-              <div className="flex-1 min-w-[220px] max-w-md">
-                <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
-                  {isEn ? 'Inspect Another Domain Username (Optional)' : 'بررسی اکانت دامین دیگر (اختیاری)'}
-                </label>
-                <input
-                  type="text"
-                  dir="ltr"
-                  value={domainQueryUser}
-                  onChange={(e) => setDomainQueryUser(e.target.value)}
-                  placeholder={detectedEndpointActiveUser || 'j.smith'}
-                  className={`w-full px-3 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={!canInspectDomainUsers || loadingDomainUser}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer"
-              >
-                {loadingDomainUser ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                <span>{isEn ? 'Inspect Domain Account' : 'استعلام اکانت دامین'}</span>
-              </button>
-            </form>
           </div>
 
           {/* SYSTEM FILE INTEGRITY (SFC) & WINDOWS IMAGE REPAIR (DISM) */}
