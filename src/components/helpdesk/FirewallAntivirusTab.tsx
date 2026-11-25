@@ -261,6 +261,76 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
     );
   };
 
+  // Accurate busyKey matchers aligned with HelpDeskView handlers:
+  // - av:${productId}:${action}
+  // - fw:profile:${profile}
+  // - fw:rule:create
+  // - fw:rule:${ruleName}:${action}
+  const getAvBusyAction = (productId: string): string | null => {
+    if (!busyKey) return null;
+    const prefix = `av:${productId}:`;
+    return busyKey.startsWith(prefix) ? busyKey.slice(prefix.length) : null;
+  };
+
+  const isFwAllBusy = busyKey === 'fw:profile:All';
+  const isFwProfileBusy = (profileName: string): boolean =>
+    Boolean(busyKey && (busyKey === `fw:profile:${profileName}` || isFwAllBusy));
+  const isFwCreateBusy = busyKey === 'fw:rule:create';
+  const getFwRuleBusyAction = (ruleName: string): string | null => {
+    if (!busyKey) return null;
+    const prefix = `fw:rule:${ruleName}:`;
+    return busyKey.startsWith(prefix) ? busyKey.slice(prefix.length) : null;
+  };
+
+  const activeBusyDescription = useMemo(() => {
+    if (!busyKey) return null;
+    if (busyKey.startsWith('av:')) {
+      const parts = busyKey.split(':');
+      const action = parts[parts.length - 1];
+      const prodId = parts.slice(1, -1).join(':');
+      const matchedAv = avProducts.find((a) => String(a.id) === prodId);
+      const name = matchedAv?.productName || (isEn ? 'Antivirus' : 'آنتی‌ویروس');
+      if (action === 'stop' || action === 'disable_realtime') {
+        return isEn
+          ? `Stopping / disabling ${name} on ${targetIp || 'endpoint'}... Please wait.`
+          : `در حال توقف / غیرفعال‌سازی ${name} روی سیستم کاربر... لطفاً شکیبا باشید.`;
+      }
+      if (action === 'restart') {
+        return isEn
+          ? `Restarting ${name} service on ${targetIp || 'endpoint'}...`
+          : `در حال ری‌استارت سرویس ${name} روی سیستم کاربر...`;
+      }
+      return isEn
+        ? `Starting / enabling ${name} on ${targetIp || 'endpoint'}... Please wait.`
+        : `در حال راه‌اندازی / فعال‌سازی ${name} روی سیستم کاربر... لطفاً شکیبا باشید.`;
+    }
+    if (busyKey.startsWith('fw:profile:')) {
+      const prof = busyKey.slice('fw:profile:'.length);
+      const targetLabel =
+        prof === 'All'
+          ? isEn
+            ? 'all Firewall profiles'
+            : 'تمام پروفایل‌های فایروال'
+          : isEn
+          ? `Firewall profile (${prof})`
+          : `پروفایل فایروال (${prof})`;
+      return isEn
+        ? `Updating ${targetLabel} on ${targetIp || 'endpoint'}... Please wait.`
+        : `در حال تغییر وضعیت ${targetLabel} روی سیستم کاربر... لطفاً شکیبا باشید.`;
+    }
+    if (busyKey === 'fw:rule:create') {
+      return isEn
+        ? 'Creating new Firewall rule on endpoint... Please wait.'
+        : 'در حال ثبت رول جدید فایروال روی سیستم کاربر...';
+    }
+    if (busyKey.startsWith('fw:rule:')) {
+      return isEn
+        ? 'Applying Firewall rule change on endpoint... Please wait.'
+        : 'در حال اعمال تغییر روی رول فایروال...';
+    }
+    return isEn ? 'Executing security operation...' : 'در حال اجرای عملیات امنیتی...';
+  }, [busyKey, avProducts, isEn, targetIp]);
+
   return (
     <div className="space-y-6">
       {/* Header Bar */}
@@ -345,6 +415,22 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
           <span>{isEn ? 'Refresh Security Status' : 'بروزرسانی وضعیت امنیت'}</span>
         </button>
       </div>
+
+      {/* Active Operation Progress Banner */}
+      {activeBusyDescription && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`rounded-xl border px-4 py-3 flex items-center gap-3 text-xs font-semibold ${
+            isLightMode
+              ? 'bg-sky-50 border-sky-300 text-sky-900'
+              : 'bg-sky-950/50 border-sky-500/45 text-sky-200'
+          }`}
+        >
+          <Loader2 className="w-4 h-4 text-sky-500 animate-spin shrink-0" />
+          <span className="break-words">{activeBusyDescription}</span>
+        </div>
+      )}
 
       {/* Action Feedback Banners */}
       {actionResult && (
@@ -449,11 +535,13 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
               <div className="flex flex-wrap items-center gap-2">
                 {disabledAvNeedsAttention.map((av) => {
                   const bKey = `av:${av.id}`;
+                  const avBusyAction = getAvBusyAction(av.id);
+                  const isAvLoading = avBusyAction !== null;
                   return (
                     <button
                       key={bKey}
                       type="button"
-                      disabled={busyKey === bKey}
+                      disabled={isAvLoading || Boolean(busyKey)}
                       onClick={() =>
                         onControlAntivirus({
                           productId: av.id,
@@ -462,44 +550,60 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                           action: av.isMicrosoftDefender ? 'enable_realtime' : 'start',
                         })
                       }
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                     >
-                      {busyKey === bKey ? (
+                      {isAvLoading ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : (
                         <Play className="w-3.5 h-3.5" />
                       )}
                       <span>
-                        {isEn ? `Re-Enable ${av.vendor}` : `فعال‌سازی مجدد ${av.vendor}`}
+                        {isAvLoading
+                          ? isEn
+                            ? `Enabling ${av.vendor}...`
+                            : `در حال فعال‌سازی ${av.vendor}...`
+                          : isEn
+                          ? `Re-Enable ${av.vendor}`
+                          : `فعال‌سازی مجدد ${av.vendor}`}
                       </span>
                     </button>
                   );
                 })}
-                {disabledFwProfilesNeedAttention.length > 0 && (
-                  <button
-                    type="button"
-                    disabled={busyKey === 'fw:All'}
-                    onClick={() =>
-                      onToggleFirewallProfile({
-                        profile:
-                          disabledFwProfilesNeedAttention.length === 1
-                            ? (disabledFwProfilesNeedAttention[0].name as any)
-                            : 'All',
-                        enabled: true,
-                      })
-                    }
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                  >
-                    {busyKey === 'fw:All' ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                    )}
-                    <span>
-                      {isEn ? 'Re-Enable Firewall' : 'فعال‌سازی مجدد فایروال'}
-                    </span>
-                  </button>
-                )}
+                {disabledFwProfilesNeedAttention.length > 0 && (() => {
+                  const targetProfile =
+                    disabledFwProfilesNeedAttention.length === 1
+                      ? (disabledFwProfilesNeedAttention[0].name as any)
+                      : 'All';
+                  const isReEnableFwBusy = isFwProfileBusy(targetProfile) || isFwAllBusy;
+                  return (
+                    <button
+                      type="button"
+                      disabled={isReEnableFwBusy || Boolean(busyKey)}
+                      onClick={() =>
+                        onToggleFirewallProfile({
+                          profile: targetProfile,
+                          enabled: true,
+                        })
+                      }
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {isReEnableFwBusy ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                      )}
+                      <span>
+                        {isReEnableFwBusy
+                          ? isEn
+                            ? 'Re-Enabling Firewall...'
+                            : 'در حال فعال‌سازی فایروال...'
+                          : isEn
+                          ? 'Re-Enable Firewall'
+                          : 'فعال‌سازی مجدد فایروال'}
+                      </span>
+                    </button>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -579,7 +683,8 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {avProducts.map((av) => {
                   const bKey = `av:${av.id}`;
-                  const isBusy = busyKey === bKey;
+                  const busyAction = getAvBusyAction(av.id);
+                  const isBusy = busyAction !== null;
                   const wasDisabledInSession = disabledInSessionIds.includes(bKey);
                   const isDisabledAlert = !av.enabled && (!av.isPassiveMode || wasDisabledInSession);
                   const isPassive = !av.enabled && av.isPassiveMode && !wasDisabledInSession;
@@ -600,7 +705,12 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                   const showStopFormHere = stopPromptAv?.id === av.id;
 
                   return (
-                    <div key={av.id} className={`rounded-xl p-4 sm:p-5 space-y-4 transition-colors ${cardClasses}`}>
+                    <div
+                      key={av.id}
+                      className={`rounded-xl p-4 sm:p-5 space-y-4 transition-colors ${cardClasses} ${
+                        isBusy ? 'ring-2 ring-sky-500/60' : ''
+                      }`}
+                    >
                       {/* Top Row: Title + Clear State Indicator */}
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-3 min-w-0">
@@ -787,11 +897,36 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                       {/* Action Buttons */}
                       {canExecuteActions && av.canControl && (
                         <div className="space-y-3 pt-1">
+                          {isBusy && (
+                            <div
+                              className={`rounded-lg border px-3 py-2 text-xs font-semibold flex items-center gap-2 ${
+                                isLightMode
+                                  ? 'bg-sky-50 border-sky-300 text-sky-900'
+                                  : 'bg-sky-950/50 border-sky-500/45 text-sky-200'
+                              }`}
+                            >
+                              <Loader2 className="w-3.5 h-3.5 text-sky-500 animate-spin shrink-0" />
+                              <span>
+                                {busyAction === 'stop' || busyAction === 'disable_realtime'
+                                  ? isEn
+                                    ? 'Stopping / pausing Antivirus protection... Please wait.'
+                                    : 'در حال توقف آنتی‌ویروس... لطفاً صبر کنید.'
+                                  : busyAction === 'restart'
+                                  ? isEn
+                                    ? 'Restarting Antivirus service... Please wait.'
+                                    : 'در حال ری‌استارت سرویس آنتی‌ویروس... لطفاً صبر کنید.'
+                                  : isEn
+                                  ? 'Starting / enabling Antivirus protection... Please wait.'
+                                  : 'در حال راه‌اندازی و فعال‌سازی آنتی‌ویروس... لطفاً صبر کنید.'}
+                              </span>
+                            </div>
+                          )}
+
                           <div className="flex flex-wrap items-center gap-2">
                             {!av.enabled ? (
                               <button
                                 type="button"
-                                disabled={isBusy}
+                                disabled={isBusy || Boolean(busyKey)}
                                 onClick={() =>
                                   onControlAntivirus({
                                     productId: av.id,
@@ -800,15 +935,19 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                                     action: av.isMicrosoftDefender ? 'enable_realtime' : 'start',
                                   })
                                 }
-                                className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                                className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                               >
-                                {isBusy ? (
+                                {busyAction === 'start' || busyAction === 'enable_realtime' ? (
                                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                 ) : (
                                   <Play className="w-3.5 h-3.5" />
                                 )}
                                 <span>
-                                  {av.isMicrosoftDefender
+                                  {busyAction === 'start' || busyAction === 'enable_realtime'
+                                    ? isEn
+                                      ? 'Starting...'
+                                      : 'در حال راه‌اندازی...'
+                                    : av.isMicrosoftDefender
                                     ? isEn
                                       ? 'Enable Real-Time Protection'
                                       : 'فعال‌سازی آنتی‌ویروس ویندوز'
@@ -820,7 +959,7 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                             ) : (
                               <button
                                 type="button"
-                                disabled={isBusy}
+                                disabled={isBusy || Boolean(busyKey)}
                                 onClick={() => {
                                   setAvStopPassword('');
                                   setShowAvStopPassword(false);
@@ -832,15 +971,19 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                                     supportsPasswordStop: Boolean(av.supportsPasswordStop),
                                   });
                                 }}
-                                className="px-3.5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                                className="px-3.5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                               >
-                                {isBusy ? (
+                                {busyAction === 'stop' || busyAction === 'disable_realtime' ? (
                                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                 ) : (
                                   <Square className="w-3.5 h-3.5" />
                                 )}
                                 <span>
-                                  {av.isMicrosoftDefender
+                                  {busyAction === 'stop' || busyAction === 'disable_realtime'
+                                    ? isEn
+                                      ? 'Stopping...'
+                                      : 'در حال توقف...'
+                                    : av.isMicrosoftDefender
                                     ? isEn
                                       ? 'Pause / Disable Real-Time'
                                       : 'توقف موقت حفاظت لحظه‌ای'
@@ -854,7 +997,7 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                             {!av.isMicrosoftDefender && av.serviceName && (
                               <button
                                 type="button"
-                                disabled={isBusy}
+                                disabled={isBusy || Boolean(busyKey)}
                                 onClick={() =>
                                   onControlAntivirus({
                                     productId: av.id,
@@ -863,14 +1006,22 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                                     action: 'restart',
                                   })
                                 }
-                                className={`px-3 py-2 rounded-lg border text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${
+                                className={`px-3 py-2 rounded-lg border text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-60 ${
                                   isLightMode
                                     ? 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100'
                                     : 'bg-slate-950 border-slate-700 text-slate-200 hover:bg-slate-800'
                                 }`}
                               >
-                                <RefreshCw className={`w-3.5 h-3.5 ${isBusy ? 'animate-spin' : ''}`} />
-                                <span>{isEn ? 'Restart Service' : 'ری‌استارت'}</span>
+                                <RefreshCw className={`w-3.5 h-3.5 ${busyAction === 'restart' ? 'animate-spin' : ''}`} />
+                                <span>
+                                  {busyAction === 'restart'
+                                    ? isEn
+                                      ? 'Restarting...'
+                                      : 'در حال ری‌استارت...'
+                                    : isEn
+                                    ? 'Restart Service'
+                                    : 'ری‌استارت'}
+                                </span>
                               </button>
                             )}
                           </div>
@@ -1008,27 +1159,51 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                     {fwProfiles.some((p) => !p.enabled) && (
                       <button
                         type="button"
-                        disabled={busyKey === 'fw:All'}
+                        disabled={isFwAllBusy || Boolean(busyKey)}
                         onClick={() => onToggleFirewallProfile({ profile: 'All', enabled: true })}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                       >
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>{isEn ? 'Enable All Profiles' : 'فعال‌سازی همه پروفایل‌ها'}</span>
+                        {isFwAllBusy ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                        )}
+                        <span>
+                          {isFwAllBusy
+                            ? isEn
+                              ? 'Enabling All...'
+                              : 'در حال فعال‌سازی...'
+                            : isEn
+                            ? 'Enable All Profiles'
+                            : 'فعال‌سازی همه پروفایل‌ها'}
+                        </span>
                       </button>
                     )}
                     {fwProfiles.some((p) => p.enabled) && (
                       <button
                         type="button"
-                        disabled={busyKey === 'fw:All'}
+                        disabled={isFwAllBusy || Boolean(busyKey)}
                         onClick={() => onToggleFirewallProfile({ profile: 'All', enabled: false })}
-                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-60 ${
                           isLightMode
                             ? 'bg-white border-rose-300 text-rose-700 hover:bg-rose-50'
                             : 'bg-slate-950 border-rose-500/40 text-rose-300 hover:bg-rose-500/10'
                         }`}
                       >
-                        <ShieldOff className="w-3.5 h-3.5" />
-                        <span>{isEn ? 'Disable All' : 'خاموش کردن همه'}</span>
+                        {isFwAllBusy ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ShieldOff className="w-3.5 h-3.5" />
+                        )}
+                        <span>
+                          {isFwAllBusy
+                            ? isEn
+                              ? 'Disabling All...'
+                              : 'در حال خاموش کردن...'
+                            : isEn
+                            ? 'Disable All'
+                            : 'خاموش کردن همه'}
+                        </span>
                       </button>
                     )}
                   </div>
@@ -1061,7 +1236,7 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
                 {fwProfiles.map((prof) => {
                   const fKey = `fw:${prof.name}`;
-                  const isBusy = busyKey === fKey || busyKey === 'fw:All';
+                  const isBusy = isFwProfileBusy(prof.name);
                   const sessionOff = disabledInSessionIds.includes(fKey);
                   const isDangerOff = !prof.enabled && (!prof.supersededByThirdParty || sessionOff);
 
@@ -1069,6 +1244,8 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                     <div
                       key={prof.name}
                       className={`rounded-xl border p-4 space-y-3 transition-colors ${
+                        isBusy ? 'ring-2 ring-sky-500/60 ' : ''
+                      }${
                         prof.enabled
                           ? isLightMode
                             ? 'bg-emerald-50/40 border-emerald-300'
@@ -1082,7 +1259,9 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          {prof.enabled ? (
+                          {isBusy ? (
+                            <Loader2 className="w-4 h-4 text-sky-500 animate-spin shrink-0" />
+                          ) : prof.enabled ? (
                             <Lock className="w-4 h-4 text-emerald-500 shrink-0" />
                           ) : (
                             <Unlock className={`w-4 h-4 shrink-0 ${isDangerOff ? 'text-rose-500' : 'text-slate-400'}`} />
@@ -1132,14 +1311,14 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                       {canExecuteActions && (
                         <button
                           type="button"
-                          disabled={isBusy}
+                          disabled={isBusy || Boolean(busyKey)}
                           onClick={() =>
                             onToggleFirewallProfile({
                               profile: prof.name as any,
                               enabled: !prof.enabled,
                             })
                           }
-                          className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                          className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-60 ${
                             prof.enabled
                               ? isLightMode
                                 ? 'bg-white border border-rose-300 text-rose-700 hover:bg-rose-50'
@@ -1155,7 +1334,15 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                             <ShieldCheck className="w-3.5 h-3.5" />
                           )}
                           <span>
-                            {prof.enabled
+                            {isBusy
+                              ? prof.enabled
+                                ? isEn
+                                  ? `Turning Off ${prof.name}...`
+                                  : `در حال غیرفعال‌سازی ${prof.name}...`
+                                : isEn
+                                ? `Turning On ${prof.name}...`
+                                : `در حال فعال‌سازی ${prof.name}...`
+                              : prof.enabled
                               ? isEn
                                 ? `Turn Off ${prof.name}`
                                 : `غیرفعال کردن ${prof.name}`
@@ -1408,15 +1595,23 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                     </button>
                     <button
                       type="submit"
-                      disabled={busyKey === 'fw:create' || !newRuleName.trim()}
+                      disabled={isFwCreateBusy || Boolean(busyKey) || !newRuleName.trim()}
                       className="px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                     >
-                      {busyKey === 'fw:create' ? (
+                      {isFwCreateBusy ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : (
                         <CheckCircle2 className="w-3.5 h-3.5" />
                       )}
-                      <span>{isEn ? 'Create Firewall Rule' : 'ثبت رول فایروال'}</span>
+                      <span>
+                        {isFwCreateBusy
+                          ? isEn
+                            ? 'Creating Rule...'
+                            : 'در حال ثبت رول...'
+                          : isEn
+                          ? 'Create Firewall Rule'
+                          : 'ثبت رول فایروال'}
+                      </span>
                     </button>
                   </div>
                 </form>
@@ -1575,8 +1770,8 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                     </thead>
                     <tbody className="divide-y divide-slate-500/15">
                       {paginatedRules.map((rule) => {
-                        const rKey = `rule:${rule.name}`;
-                        const isBusy = busyKey === rKey;
+                        const busyRuleAction = getFwRuleBusyAction(rule.name);
+                        const isBusy = busyRuleAction !== null;
                         return (
                           <tr
                             key={rule.name}
@@ -1652,7 +1847,7 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                                 <div className="flex items-center justify-center gap-1.5">
                                   <button
                                     type="button"
-                                    disabled={isBusy}
+                                    disabled={isBusy || Boolean(busyKey)}
                                     onClick={() =>
                                       onManageFirewallRule({
                                         ruleName: rule.name,
@@ -1671,7 +1866,7 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                                     }`}
                                     title={rule.enabled ? (isEn ? 'Disable rule' : 'بستن / غیرفعال کردن رول') : isEn ? 'Enable rule' : 'باز کردن / فعال‌سازی رول'}
                                   >
-                                    {isBusy ? (
+                                    {busyRuleAction === 'enable' || busyRuleAction === 'disable' ? (
                                       <Loader2 className="w-3 h-3 animate-spin" />
                                     ) : rule.enabled ? (
                                       isEn ? 'Disable' : 'غیرفعال'
@@ -1684,7 +1879,7 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
 
                                   <button
                                     type="button"
-                                    disabled={isBusy}
+                                    disabled={isBusy || Boolean(busyKey)}
                                     onClick={() =>
                                       onManageFirewallRule({
                                         ruleName: rule.name,
@@ -1703,12 +1898,20 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                                     }`}
                                     title={rule.action === 'Allow' ? (isEn ? 'Switch to Block' : 'تبدیل به مسدود (Block)') : isEn ? 'Switch to Allow' : 'تبدیل به مجاز (Allow)'}
                                   >
-                                    {rule.action === 'Allow' ? (isEn ? 'Block' : 'بستن') : isEn ? 'Allow' : 'باز کردن'}
+                                    {busyRuleAction === 'allow' || busyRuleAction === 'block' ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : rule.action === 'Allow' ? (
+                                      isEn ? 'Block' : 'بستن'
+                                    ) : isEn ? (
+                                      'Allow'
+                                    ) : (
+                                      'باز کردن'
+                                    )}
                                   </button>
 
                                   <button
                                     type="button"
-                                    disabled={isBusy}
+                                    disabled={isBusy || Boolean(busyKey)}
                                     onClick={() =>
                                       setDeleteRuleTarget({
                                         ruleName: rule.name,
@@ -1729,7 +1932,11 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                                     }`}
                                     title={isEn ? 'Delete Firewall Rule' : 'حذف رول'}
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    {busyRuleAction === 'delete' ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    )}
                                   </button>
                                 </div>
                               </td>

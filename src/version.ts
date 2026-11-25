@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.479.0';
+export const APP_VERSION = '1.479.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.479.1',
+    releaseDate: '2026-11-25',
+    type: 'patch',
+    title: 'افزودن نشانگر لودینگ زنده برای عملیات توقف/راه‌اندازی آنتی‌ویروس و فایروال در HelpDesk',
+    title_en: 'Fix & Enhance Live Loading Indicators for Antivirus and Firewall Stop/Start Operations in HelpDesk',
+    changes: [
+      'رفع عدم تطابق کلید وضعیت مشغولی (`busyKey`) بین `HelpDeskView` و `FirewallAntivirusTab` برای عملیات‌های آنتی‌ویروس (`start` / `stop` / `restart` / `enable_realtime` / `disable_realtime`)، پروفایل‌های فایروال و قوانین فایروال.',
+      'افزودن بنر پیشرفت زنده در بالای تب فایروال و آنتی‌ویروس، کادر وضعیت لودینگ داخل کارت آنتی‌ویروس در حال اجرا و اسپینر/متن وضعیت روی دکمه‌ها هنگام توقف، راه‌اندازی یا ری‌استارت.'
+    ],
+    changes_en: [
+      'Fixed `busyKey` matching mismatch between `HelpDeskView` and `FirewallAntivirusTab` across Antivirus actions (`av:<id>:<action>`), Firewall profile toggles (`fw:profile:<profile>`), rule creation (`fw:rule:create`), and rule actions (`fw:rule:<name>:<action>`).',
+      'Added a live operation-in-progress banner, inline card loading strip, spinning indicators, and active action labels (Stopping.../Starting.../Restarting...) while Antivirus or Firewall operations are executing.'
+    ]
+  },
   {
     version: '1.479.0',
     releaseDate: '2026-11-25',
