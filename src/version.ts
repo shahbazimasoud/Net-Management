@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.484.0';
+export const APP_VERSION = '1.485.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.485.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'محاسبه دقیق مجموع زمان‌های لاگین، قفل و لاگ‌اوت کاربران به همراه ریز بازه‌ها و خروجی CSV/HTML/JSON در تب User Logins, Sessions & Power',
+    title_en: 'Add User Session Time Breakdown (Logged In, Locked & Logged Off Durations), Interval Audit Table & CSV/HTML/JSON Export in User Logins, Sessions & Power',
+    changes: [
+      'افزودن بخش تحلیلی و محاسبه زمان‌بندی حضور کاربر (`Session Time Breakdown`) مستقیماً بالای بخش `Detailed Login, Logoff & Lock Timeline` در تب `User Logins, Sessions & Power`.',
+      'محاسبه دقیق و لحظه‌ای مجموع زمان و درصد **لاگین فعال (Logged In)**، **قفل صفحه / قطع‌اتصال RDP (Locked)** و **لاگ‌اوت (Logged Off)** به همراه نوار توزیع گرافیکی، انتخابگر/جدول مقایسه تمامی کاربران سیستم و جدول فیلترپذیر ریز بازه‌های زمانی (Interval Audit).',
+      'بهبود جمع‌آوری رویدادهای Security ویندوز برای جلوگیری از حذف رویدادهای قفل/بازگشایی/خروج (`4800/4801/4647/4778/4779`) در اثر ترافیک شبکه (LogonType 3) و افزودن استخراج زمان Logoff در `wtmp` لینوکس.',
+      'افزودن قابلیت خروجی کامل و دوزبانه در ۳ فرمت **CSV** (سازگار با اکسل)، **HTML** (گزارش قابل چاپ و امن‌سازی‌شده) و **JSON** از خلاصه کاربران و ریز بازه‌های زمانی.'
+    ],
+    changes_en: [
+      'Added a `Session Time Breakdown` analytics panel directly above `Detailed Login, Logoff & Lock Timeline` inside `User Logins, Sessions & Power`.',
+      'Computes authentic cumulative durations and percentages for **Logged In (Active)**, **Screen Locked / RDP Disconnected**, and **Logged Off (Offline)** across the selected timeframe, alongside a proportional timeline bar, multi-user comparison table, and filterable state-interval audit log.',
+      'Enhanced Windows Security Log querying so noisy LogonType 3 network traffic cannot crowd out interactive lock/unlock/logoff events (`4800/4801/4647/4778/4779`), and added `last -F` logoff timestamp parsing for Linux workstations.',
+      'Added one-click bilingual **CSV**, **HTML** (printable report), and **JSON** exports covering both per-user duration summaries and interval-by-interval breakdowns.'
+    ]
+  },
   {
     version: '1.484.0',
     releaseDate: '2026-11-25',

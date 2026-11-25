@@ -595,6 +595,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [logonsEventFilter, setLogonsEventFilter] = useState<
     'all' | 'logon' | 'logoff' | 'lock_unlock' | 'rdp' | 'failed'
   >('all');
+  const [selectedDurationUserKey, setSelectedDurationUserKey] = useState<string>('__auto__');
+  const [durationIntervalFilter, setDurationIntervalFilter] = useState<'all' | 'logged_in' | 'locked' | 'logged_off'>('all');
+  const [showAllDurationIntervals, setShowAllDurationIntervals] = useState<boolean>(false);
 
   // Module 5: Safe User-App Process Termination inline confirm state
   const [confirmKillPid, setConfirmKillPid] = useState<number | null>(null);
@@ -3339,7 +3342,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       const res = await fetchHelpdeskEndpointLogons({
         ...payload,
         hoursBack: hours,
-        maxEvents: 120,
+        maxEvents: 350,
       });
       setLogonsData(res.data);
       if (res.rateLimit) setRateLimit(res.rateLimit);
@@ -3594,6 +3597,692 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         String(u.currentState || '').toLowerCase().includes(q)
     );
   }, [logonsData, logonsSearch]);
+
+  const formatDurationHuman = useCallback(
+    (ms: number) => {
+      const safeMs = Math.max(0, Math.round(ms));
+      const totalSec = Math.floor(safeMs / 1000);
+      if (totalSec <= 0) return isEn ? '0s' : '۰ ثانیه';
+      const days = Math.floor(totalSec / 86400);
+      const hours = Math.floor((totalSec % 86400) / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+      if (isEn) {
+        if (days > 0) return `${days}d ${hours}h ${mins}m`;
+        if (hours > 0) return `${hours}h ${mins}m`;
+        if (mins > 0) return `${mins}m ${secs}s`;
+        return `${secs}s`;
+      }
+      if (days > 0) return `${days} روز و ${hours} ساعت و ${mins} دقیقه`;
+      if (hours > 0) return `${hours} ساعت و ${mins} دقیقه`;
+      if (mins > 0) return `${mins} دقیقه و ${secs} ثانیه`;
+      return `${secs} ثانیه`;
+    },
+    [isEn]
+  );
+
+  const formatDurationHMS = useCallback((ms: number) => {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }, []);
+
+  const userDurationAnalytics = useMemo(() => {
+    if (!logonsData) return null;
+
+    type StateKind = 'logged_in' | 'locked' | 'logged_off';
+    type SubStateKind = 'active' | 'locked' | 'rdp_disconnected' | 'logged_off';
+    interface ComputedInterval {
+      id: string;
+      userKey: string;
+      displayName: string;
+      state: StateKind;
+      subState: SubStateKind;
+      startMs: number;
+      endMs: number;
+      durationMs: number;
+      startReason: string;
+      endReason: string;
+      isOngoing: boolean;
+      isUnclosedFallback?: boolean;
+    }
+    interface ComputedUserBreakdown {
+      userKey: string;
+      displayName: string;
+      isCurrentlyLoggedIn: boolean;
+      currentState: 'active' | 'locked' | 'disconnected' | 'offline';
+      loggedInMs: number;
+      lockedMs: number;
+      loggedOffMs: number;
+      totalTrackedMs: number;
+      loggedInPct: number;
+      lockedPct: number;
+      loggedOffPct: number;
+      loginCount: number;
+      lockCount: number;
+      logoffCount: number;
+      failedCount: number;
+      currentSessionDurationMs: number;
+      hasAuditLockEvents: boolean;
+      hasMissingLogoffGap: boolean;
+      intervals: ComputedInterval[];
+    }
+
+    const collectedParsed = logonsData.collectedAt ? new Date(logonsData.collectedAt).getTime() : NaN;
+    const windowEndMs = Number.isNaN(collectedParsed) ? Date.now() : collectedParsed;
+    const windowHours = Math.max(1, Number(logonsData.hoursBack || logonsHoursBack || 168));
+    const windowStartMs = windowEndMs - windowHours * 3600_000;
+
+    const normKey = (raw: string) => {
+      const s = String(raw || '').trim();
+      if (!s) return '';
+      const short = s.includes('\\') ? s.split('\\').pop() || s : s;
+      return short.trim().toLowerCase();
+    };
+
+    const userDisplayMap = new Map<string, string>();
+    const registerDisplay = (rawUser: string, rawDomain?: string) => {
+      const k = normKey(rawUser);
+      if (!k || k.endsWith('$')) return '';
+      const candidate =
+        rawDomain && !rawUser.includes('\\') ? `${rawDomain}\\${rawUser}` : String(rawUser || '').trim();
+      const prev = userDisplayMap.get(k);
+      if (!prev || (candidate.includes('\\') && !prev.includes('\\'))) {
+        userDisplayMap.set(k, candidate);
+      }
+      return k;
+    };
+
+    const activeSessions: any[] = Array.isArray(logonsData.activeSessions) ? logonsData.activeSessions : [];
+    const userSummaries: any[] = Array.isArray(logonsData.userSummaries) ? logonsData.userSummaries : [];
+    const allEvents: any[] = Array.isArray(logonsData.events) ? logonsData.events : [];
+
+    for (const as of activeSessions) registerDisplay(as.username, as.domain);
+    for (const us of userSummaries) registerDisplay(us.username);
+    for (const ev of allEvents) registerDisplay(ev.username, ev.domain);
+
+    const activeByUser = new Map<string, any>();
+    const sessPriority: Record<string, number> = { active: 4, locked: 3, disconnected: 2, idle: 1 };
+    for (const as of activeSessions) {
+      const k = normKey(as.username);
+      if (!k) continue;
+      const existing = activeByUser.get(k);
+      if (!existing || (sessPriority[as.state] || 0) > (sessPriority[existing.state] || 0)) {
+        activeByUser.set(k, as);
+      }
+    }
+
+    const summaryByUser = new Map<string, any>();
+    for (const us of userSummaries) {
+      const k = normKey(us.username);
+      if (k && !summaryByUser.has(k)) summaryByUser.set(k, us);
+    }
+
+    const eventsByUser = new Map<string, any[]>();
+    const failedCountByUser = new Map<string, number>();
+    for (const ev of allEvents) {
+      const k = normKey(ev.username);
+      if (!k) continue;
+      if (ev.eventType === 'failed') {
+        failedCountByUser.set(k, (failedCountByUser.get(k) || 0) + 1);
+        continue;
+      }
+      const tsMs = ev.timestamp ? new Date(ev.timestamp).getTime() : NaN;
+      if (Number.isNaN(tsMs)) continue;
+      const list = eventsByUser.get(k) || [];
+      list.push({ ...ev, tsMs });
+      eventsByUser.set(k, list);
+    }
+
+    const mapEventToState = (evType: string): { state: StateKind; sub: SubStateKind } => {
+      switch (evType) {
+        case 'lock':
+          return { state: 'locked', sub: 'locked' };
+        case 'rdp_disconnect':
+          return { state: 'locked', sub: 'rdp_disconnected' };
+        case 'logoff':
+          return { state: 'logged_off', sub: 'logged_off' };
+        default:
+          return { state: 'logged_in', sub: 'active' };
+      }
+    };
+
+    const describeReason = (ev: any): string => {
+      if (!ev) return '—';
+      if (ev.eventType === 'logon') return `Logon (ID ${ev.eventId || 4624})`;
+      if (ev.eventType === 'unlock') return `Unlock (ID ${ev.eventId || 4801})`;
+      if (ev.eventType === 'rdp_reconnect') return `RDP Reconnect (ID ${ev.eventId || 4778})`;
+      if (ev.eventType === 'lock') return `Lock (ID ${ev.eventId || 4800})`;
+      if (ev.eventType === 'rdp_disconnect') return `RDP Disconnect (ID ${ev.eventId || 4779})`;
+      if (ev.eventType === 'logoff') return `Logoff (ID ${ev.eventId || 4647})`;
+      return String(ev.eventType || 'Event');
+    };
+
+    const profiles: ComputedUserBreakdown[] = [];
+
+    for (const [uKey, displayName] of userDisplayMap.entries()) {
+      const activeSess = activeByUser.get(uKey);
+      const uSummary = summaryByUser.get(uKey);
+      const rawEvs = (eventsByUser.get(uKey) || [])
+        .filter((e) => e.tsMs <= windowEndMs + 120_000)
+        .sort((a, b) => a.tsMs - b.tsMs);
+
+      const stateEvents = rawEvs.filter((e) => e.tsMs >= windowStartMs - 1000);
+      const intervals: ComputedInterval[] = [];
+      let loginCount = 0;
+      let lockCount = 0;
+      let logoffCount = 0;
+      let hasAuditLockEvents = false;
+      let hasMissingLogoffGap = false;
+
+      const pushInterval = (
+        state: StateKind,
+        subState: SubStateKind,
+        startMs: number,
+        endMs: number,
+        startReason: string,
+        endReason: string,
+        isOngoing: boolean,
+        isUnclosedFallback = false
+      ) => {
+        const s = Math.max(windowStartMs, Math.min(windowEndMs, startMs));
+        const e = Math.max(s, Math.min(windowEndMs, endMs));
+        if (e <= s) return;
+        const last = intervals[intervals.length - 1];
+        if (last && last.state === state && last.subState === subState && Math.abs(last.endMs - s) <= 2000 && !last.isUnclosedFallback && !isUnclosedFallback) {
+          last.endMs = e;
+          last.durationMs = last.endMs - last.startMs;
+          last.endReason = endReason;
+          last.isOngoing = isOngoing;
+          return;
+        }
+        intervals.push({
+          id: `${uKey}-${intervals.length}-${s}`,
+          userKey: uKey,
+          displayName,
+          state,
+          subState,
+          startMs: s,
+          endMs: e,
+          durationMs: e - s,
+          startReason,
+          endReason,
+          isOngoing,
+          isUnclosedFallback,
+        });
+      };
+
+      if (stateEvents.length > 0) {
+        const firstEv = stateEvents[0];
+        let curState: StateKind = 'logged_off';
+        let curSub: SubStateKind = 'logged_off';
+        let curReason = 'Window Start (Offline)';
+        if (firstEv.eventType === 'lock' || firstEv.eventType === 'logoff' || firstEv.eventType === 'rdp_disconnect') {
+          curState = 'logged_in';
+          curSub = 'active';
+          curReason = 'Window Start (Active Session)';
+        } else if (firstEv.eventType === 'unlock' || firstEv.eventType === 'rdp_reconnect') {
+          curState = 'locked';
+          curSub = firstEv.eventType === 'rdp_reconnect' ? 'rdp_disconnected' : 'locked';
+          curReason = 'Window Start (Locked/Disconnected)';
+        }
+        let curStart = windowStartMs;
+
+        for (const ev of stateEvents) {
+          if (ev.eventType === 'lock' || ev.eventType === 'rdp_disconnect' || ev.eventType === 'unlock') {
+            hasAuditLockEvents = true;
+          }
+          const evTs = Math.max(windowStartMs, Math.min(windowEndMs, ev.tsMs));
+          const mapped = mapEventToState(ev.eventType);
+          const evDesc = describeReason(ev);
+
+          if (ev.eventType === 'logon' || ev.eventType === 'rdp_reconnect') loginCount += 1;
+          else if (ev.eventType === 'lock' || ev.eventType === 'rdp_disconnect') lockCount += 1;
+          else if (ev.eventType === 'logoff') logoffCount += 1;
+
+          if (mapped.state !== curState || (mapped.state === 'locked' && mapped.sub !== curSub)) {
+            pushInterval(curState, curSub, curStart, evTs, curReason, evDesc, false);
+            curState = mapped.state;
+            curSub = mapped.sub;
+            curStart = evTs;
+            curReason = evDesc;
+          }
+        }
+
+        // Trailing interval up to windowEndMs
+        if (activeSess) {
+          const liveState: StateKind =
+            activeSess.state === 'locked' || activeSess.state === 'disconnected' ? 'locked' : 'logged_in';
+          const liveSub: SubStateKind =
+            activeSess.state === 'locked'
+              ? 'locked'
+              : activeSess.state === 'disconnected'
+              ? 'rdp_disconnected'
+              : 'active';
+          if (curState === liveState) {
+            pushInterval(curState, curSub, curStart, windowEndMs, curReason, 'Current Live Session', true);
+          } else if (curState === 'logged_off') {
+            const liveLogonMs = activeSess.logonTime ? new Date(activeSess.logonTime).getTime() : NaN;
+            if (!Number.isNaN(liveLogonMs) && liveLogonMs > curStart && liveLogonMs < windowEndMs) {
+              pushInterval('logged_off', 'logged_off', curStart, liveLogonMs, curReason, 'Live Session Logon', false);
+              pushInterval(liveState, liveSub, liveLogonMs, windowEndMs, 'Live Session Logon', 'Current Live Session', true);
+            } else {
+              pushInterval(liveState, liveSub, curStart, windowEndMs, 'Active Live Session', 'Current Live Session', true);
+            }
+          } else {
+            // Live session transitioned to locked/active even if latest lock/unlock wasn't in Security log
+            pushInterval(liveState, liveSub, curStart, windowEndMs, curReason, 'Current Live State', true);
+          }
+        } else {
+          // User is currently offline
+          if (curState === 'logged_off') {
+            pushInterval('logged_off', 'logged_off', curStart, windowEndMs, curReason, 'Currently Offline', true);
+          } else {
+            const unloadMs = uSummary?.lastLogoffTime ? new Date(uSummary.lastLogoffTime).getTime() : NaN;
+            if (!Number.isNaN(unloadMs) && unloadMs > curStart && unloadMs <= windowEndMs) {
+              pushInterval(curState, curSub, curStart, unloadMs, curReason, 'Profile Unload / Logoff', false);
+              pushInterval('logged_off', 'logged_off', unloadMs, windowEndMs, 'Profile Unload / Logoff', 'Currently Offline', true);
+            } else {
+              hasMissingLogoffGap = true;
+              pushInterval('logged_off', 'logged_off', curStart, windowEndMs, 'Unrecorded Sign-Off / Reboot', 'Currently Offline', true, true);
+            }
+          }
+        }
+      } else {
+        // Zero state events in window: infer strictly from activeSessions & ProfileList/NetworkLogin timestamps
+        if (activeSess) {
+          const liveState: StateKind =
+            activeSess.state === 'locked' || activeSess.state === 'disconnected' ? 'locked' : 'logged_in';
+          const liveSub: SubStateKind =
+            activeSess.state === 'locked'
+              ? 'locked'
+              : activeSess.state === 'disconnected'
+              ? 'rdp_disconnected'
+              : 'active';
+          const rawStart = activeSess.logonTime ? new Date(activeSess.logonTime).getTime() : NaN;
+          if (!Number.isNaN(rawStart) && rawStart > windowStartMs && rawStart < windowEndMs) {
+            pushInterval('logged_off', 'logged_off', windowStartMs, rawStart, 'Window Start (Offline)', 'Live Session Logon', false);
+            pushInterval(liveState, liveSub, rawStart, windowEndMs, 'Live Session Logon', 'Current Live Session', true);
+            loginCount = Math.max(loginCount, 1);
+          } else {
+            pushInterval(liveState, liveSub, windowStartMs, windowEndMs, 'Active Before Window', 'Current Live Session', true);
+          }
+        } else {
+          const onMs = uSummary?.lastLogonTime ? new Date(uSummary.lastLogonTime).getTime() : NaN;
+          const offMs = uSummary?.lastLogoffTime ? new Date(uSummary.lastLogoffTime).getTime() : NaN;
+          if (!Number.isNaN(onMs) && !Number.isNaN(offMs) && offMs > onMs && offMs > windowStartMs && onMs < windowEndMs) {
+            const s = Math.max(windowStartMs, onMs);
+            const e = Math.min(windowEndMs, offMs);
+            if (s > windowStartMs) {
+              pushInterval('logged_off', 'logged_off', windowStartMs, s, 'Window Start (Offline)', 'Profile Load', false);
+            }
+            pushInterval('logged_in', 'active', s, e, 'Profile Load', 'Profile Unload', false);
+            if (e < windowEndMs) {
+              pushInterval('logged_off', 'logged_off', e, windowEndMs, 'Profile Unload', 'Currently Offline', true);
+            }
+            loginCount = Math.max(loginCount, 1);
+            logoffCount = Math.max(logoffCount, 1);
+          } else {
+            pushInterval('logged_off', 'logged_off', windowStartMs, windowEndMs, 'Window Start (Offline)', 'Currently Offline', true);
+          }
+        }
+      }
+
+      let loggedInMs = 0;
+      let lockedMs = 0;
+      let loggedOffMs = 0;
+      for (const iv of intervals) {
+        if (iv.state === 'logged_in') loggedInMs += iv.durationMs;
+        else if (iv.state === 'locked') lockedMs += iv.durationMs;
+        else loggedOffMs += iv.durationMs;
+      }
+      const totalTrackedMs = Math.max(1, loggedInMs + lockedMs + loggedOffMs);
+      const lastInterval = intervals[intervals.length - 1];
+      const currentSessionDurationMs = lastInterval?.isOngoing ? lastInterval.durationMs : 0;
+
+      const currentState: ComputedUserBreakdown['currentState'] = activeSess
+        ? activeSess.state === 'locked'
+          ? 'locked'
+          : activeSess.state === 'disconnected'
+          ? 'disconnected'
+          : 'active'
+        : uSummary?.isCurrentlyLoggedIn
+        ? uSummary.currentState || 'active'
+        : 'offline';
+
+      profiles.push({
+        userKey: uKey,
+        displayName,
+        isCurrentlyLoggedIn: Boolean(activeSess || uSummary?.isCurrentlyLoggedIn),
+        currentState,
+        loggedInMs,
+        lockedMs,
+        loggedOffMs,
+        totalTrackedMs,
+        loggedInPct: Math.round((loggedInMs / totalTrackedMs) * 1000) / 10,
+        lockedPct: Math.round((lockedMs / totalTrackedMs) * 1000) / 10,
+        loggedOffPct: Math.round((loggedOffMs / totalTrackedMs) * 1000) / 10,
+        loginCount,
+        lockCount,
+        logoffCount,
+        failedCount: failedCountByUser.get(uKey) || Number(uSummary?.failedCountInWindow || 0),
+        currentSessionDurationMs,
+        hasAuditLockEvents,
+        hasMissingLogoffGap,
+        intervals: [...intervals].sort((a, b) => b.startMs - a.startMs), // newest interval first for display
+      });
+    }
+
+    profiles.sort((a, b) => {
+      if (a.isCurrentlyLoggedIn !== b.isCurrentlyLoggedIn) return a.isCurrentlyLoggedIn ? -1 : 1;
+      if (b.loggedInMs + b.lockedMs !== a.loggedInMs + a.lockedMs) {
+        return b.loggedInMs + b.lockedMs - (a.loggedInMs + a.lockedMs);
+      }
+      return a.displayName.localeCompare(b.displayName);
+    });
+
+    const primaryConsoleKey = normKey(logonsData.activeLoggedInUser || activeSessions[0]?.username || '');
+    return {
+      windowStartMs,
+      windowEndMs,
+      windowHours,
+      primaryConsoleKey,
+      profiles,
+    };
+  }, [logonsData, logonsHoursBack]);
+
+  const activeDurationProfile = useMemo(() => {
+    if (!userDurationAnalytics || userDurationAnalytics.profiles.length === 0) return null;
+    if (selectedDurationUserKey !== '__auto__') {
+      const exact = userDurationAnalytics.profiles.find((p) => p.userKey === selectedDurationUserKey);
+      if (exact) return exact;
+    }
+    const q = logonsSearch.trim().toLowerCase();
+    if (q) {
+      const matched = userDurationAnalytics.profiles.find(
+        (p) => p.userKey.includes(q) || p.displayName.toLowerCase().includes(q)
+      );
+      if (matched) return matched;
+    }
+    if (userDurationAnalytics.primaryConsoleKey) {
+      const primary = userDurationAnalytics.profiles.find((p) => p.userKey === userDurationAnalytics.primaryConsoleKey);
+      if (primary) return primary;
+    }
+    return userDurationAnalytics.profiles[0];
+  }, [userDurationAnalytics, selectedDurationUserKey, logonsSearch]);
+
+  const filteredDurationIntervals = useMemo(() => {
+    if (!activeDurationProfile) return [];
+    if (durationIntervalFilter === 'all') return activeDurationProfile.intervals;
+    return activeDurationProfile.intervals.filter((iv) => iv.state === durationIntervalFilter);
+  }, [activeDurationProfile, durationIntervalFilter]);
+
+  const escapeHtmlSafe = (val: any) =>
+    String(val ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+  const handleExportSessionDurations = (format: 'csv' | 'html' | 'json') => {
+    if (!userDurationAnalytics || !logonsData) return;
+    const targetProfile = activeDurationProfile || userDurationAnalytics.profiles[0];
+    const hostLabel = String(logonsData.hostname || logonsData.targetIp || 'workstation')
+      .replace(/[^a-zA-Z0-9._-]+/g, '_');
+    const userLabel = String(targetProfile?.userKey || 'all').replace(/[^a-zA-Z0-9._-]+/g, '_');
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+
+    const stateLabel = (state: 'logged_in' | 'locked' | 'logged_off', sub?: string) => {
+      if (state === 'logged_in') return isEn ? 'Logged In (Active)' : 'لاگین (فعال)';
+      if (state === 'locked') {
+        return sub === 'rdp_disconnected'
+          ? isEn
+            ? 'RDP Disconnected'
+            : 'قطع‌اتصال RDP'
+          : isEn
+          ? 'Screen Locked'
+          : 'صفحه قفل (Locked)';
+      }
+      return isEn ? 'Logged Off (Offline)' : 'لاگ‌اوت (آفلاین)';
+    };
+
+    if (format === 'json') {
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        hostname: logonsData.hostname || logonsData.targetIp,
+        targetIp: logonsData.targetIp,
+        windowHours: userDurationAnalytics.windowHours,
+        windowStart: new Date(userDurationAnalytics.windowStartMs).toISOString(),
+        windowEnd: new Date(userDurationAnalytics.windowEndMs).toISOString(),
+        selectedUser: targetProfile?.userKey || null,
+        userSummaries: userDurationAnalytics.profiles.map((p) => ({
+          username: p.displayName,
+          currentState: p.currentState,
+          loggedInSeconds: Math.round(p.loggedInMs / 1000),
+          loggedInHMS: formatDurationHMS(p.loggedInMs),
+          loggedInPercent: p.loggedInPct,
+          lockedSeconds: Math.round(p.lockedMs / 1000),
+          lockedHMS: formatDurationHMS(p.lockedMs),
+          lockedPercent: p.lockedPct,
+          loggedOffSeconds: Math.round(p.loggedOffMs / 1000),
+          loggedOffHMS: formatDurationHMS(p.loggedOffMs),
+          loggedOffPercent: p.loggedOffPct,
+          loginCount: p.loginCount,
+          lockCount: p.lockCount,
+          logoffCount: p.logoffCount,
+          failedAttempts: p.failedCount,
+          intervals: p.intervals.map((iv) => ({
+            state: iv.state,
+            subState: iv.subState,
+            start: new Date(iv.startMs).toISOString(),
+            end: new Date(iv.endMs).toISOString(),
+            durationSeconds: Math.round(iv.durationMs / 1000),
+            durationHMS: formatDurationHMS(iv.durationMs),
+            startTrigger: iv.startReason,
+            endTrigger: iv.endReason,
+            isOngoing: iv.isOngoing,
+          })),
+        })),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `session_time_report_${hostLabel}_${userLabel}_${stamp}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    if (format === 'csv') {
+      const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const lines: string[] = [];
+      lines.push(
+        [
+          isEn ? 'Section' : 'بخش',
+          isEn ? 'Workstation' : 'سیستم',
+          isEn ? 'User' : 'کاربر',
+          isEn ? 'Current State' : 'وضعیت فعلی',
+          isEn ? 'Logged In Time (HH:MM:SS)' : 'مدت لاگین فعال',
+          isEn ? 'Logged In %' : 'درصد لاگین',
+          isEn ? 'Locked / Disconnected Time (HH:MM:SS)' : 'مدت قفل / قطع‌اتصال',
+          isEn ? 'Locked %' : 'درصد قفل',
+          isEn ? 'Logged Off Time (HH:MM:SS)' : 'مدت لاگ‌اوت (آفلاین)',
+          isEn ? 'Logged Off %' : 'درصد لاگ‌اوت',
+          isEn ? 'Logins' : 'تعداد ورود',
+          isEn ? 'Locks' : 'تعداد قفل',
+          isEn ? 'Logoffs' : 'تعداد خروج',
+          isEn ? 'Failed Logins' : 'ورود ناموفق',
+        ]
+          .map(esc)
+          .join(',')
+      );
+      for (const p of userDurationAnalytics.profiles) {
+        lines.push(
+          [
+            isEn ? 'USER_SUMMARY' : 'خلاصه_کاربر',
+            `${logonsData.hostname || logonsData.targetIp} (${logonsData.targetIp})`,
+            p.displayName,
+            p.currentState,
+            formatDurationHMS(p.loggedInMs),
+            `${p.loggedInPct}%`,
+            formatDurationHMS(p.lockedMs),
+            `${p.lockedPct}%`,
+            formatDurationHMS(p.loggedOffMs),
+            `${p.loggedOffPct}%`,
+            p.loginCount,
+            p.lockCount,
+            p.logoffCount,
+            p.failedCount,
+          ]
+            .map(esc)
+            .join(',')
+        );
+      }
+      lines.push('');
+      lines.push(
+        [
+          isEn ? 'Section' : 'بخش',
+          isEn ? 'User' : 'کاربر',
+          isEn ? 'Session State' : 'وضعیت بازه',
+          isEn ? 'Start Time' : 'زمان شروع',
+          isEn ? 'End Time' : 'زمان پایان',
+          isEn ? 'Duration (HH:MM:SS)' : 'مدت (ساعت:دقیقه:ثانیه)',
+          isEn ? 'Duration (Readable)' : 'مدت خوانا',
+          isEn ? 'Start Trigger' : 'رویداد شروع',
+          isEn ? 'End Trigger' : 'رویداد پایان',
+          isEn ? 'Ongoing' : 'در حال جریان',
+        ]
+          .map(esc)
+          .join(',')
+      );
+      for (const p of userDurationAnalytics.profiles) {
+        for (const iv of p.intervals) {
+          lines.push(
+            [
+              isEn ? 'INTERVAL' : 'بازه_زمانی',
+              iv.displayName,
+              stateLabel(iv.state, iv.subState),
+              formatLogonTimestamp(new Date(iv.startMs).toISOString()),
+              formatLogonTimestamp(new Date(iv.endMs).toISOString()),
+              formatDurationHMS(iv.durationMs),
+              formatDurationHuman(iv.durationMs),
+              iv.startReason,
+              iv.endReason,
+              iv.isOngoing ? (isEn ? 'Yes' : 'بله') : isEn ? 'No' : 'خیر',
+            ]
+              .map(esc)
+              .join(',')
+          );
+        }
+      }
+      const csv = '\uFEFF' + lines.join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `session_time_report_${hostLabel}_${userLabel}_${stamp}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    // HTML export
+    const dir = isEn ? 'ltr' : 'rtl';
+    const summaryRowsHtml = userDurationAnalytics.profiles
+      .map(
+        (p) => `<tr>
+          <td><strong>${escapeHtmlSafe(p.displayName)}</strong></td>
+          <td>${escapeHtmlSafe(p.currentState)}</td>
+          <td style="color:#059669;font-weight:700">${escapeHtmlSafe(formatDurationHMS(p.loggedInMs))} (${p.loggedInPct}%)<div class="sub">${escapeHtmlSafe(formatDurationHuman(p.loggedInMs))}</div></td>
+          <td style="color:#d97706;font-weight:700">${escapeHtmlSafe(formatDurationHMS(p.lockedMs))} (${p.lockedPct}%)<div class="sub">${escapeHtmlSafe(formatDurationHuman(p.lockedMs))}</div></td>
+          <td style="color:#475569;font-weight:700">${escapeHtmlSafe(formatDurationHMS(p.loggedOffMs))} (${p.loggedOffPct}%)<div class="sub">${escapeHtmlSafe(formatDurationHuman(p.loggedOffMs))}</div></td>
+          <td>${p.loginCount} / ${p.lockCount} / ${p.logoffCount}</td>
+        </tr>`
+      )
+      .join('');
+    const intervalRowsHtml = (targetProfile?.intervals || [])
+      .map(
+        (iv) => `<tr>
+          <td><span class="badge badge-${escapeHtmlSafe(iv.state)}">${escapeHtmlSafe(stateLabel(iv.state, iv.subState))}</span></td>
+          <td dir="ltr">${escapeHtmlSafe(formatLogonTimestamp(new Date(iv.startMs).toISOString()))}</td>
+          <td dir="ltr">${escapeHtmlSafe(formatLogonTimestamp(new Date(iv.endMs).toISOString()))}</td>
+          <td dir="ltr" style="font-weight:700">${escapeHtmlSafe(formatDurationHMS(iv.durationMs))} <span class="sub">(${escapeHtmlSafe(formatDurationHuman(iv.durationMs))})</span></td>
+          <td>${escapeHtmlSafe(iv.startReason)} &rarr; ${escapeHtmlSafe(iv.endReason)}</td>
+        </tr>`
+      )
+      .join('');
+    const html = `<!doctype html>
+<html lang="${isEn ? 'en' : 'fa'}" dir="${dir}">
+<head>
+<meta charset="utf-8" />
+<title>${escapeHtmlSafe(isEn ? 'Workstation User Session Time Report' : 'گزارش جامع زمان حضور، قفل و لاگ‌اوت کاربر')} - ${escapeHtmlSafe(logonsData.hostname || logonsData.targetIp)}</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Tahoma, sans-serif; margin: 24px; color: #0f172a; background: #f8fafc; }
+  .card { background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 18px; margin-bottom: 18px; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  h2 { font-size: 14px; margin: 0 0 12px; color: #1e293b; }
+  .meta { font-size: 12px; color: #475569; }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+  .kpi { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; background: #f8fafc; }
+  .kpi-val { font-size: 18px; font-weight: 800; font-family: monospace; margin-top: 4px; }
+  .sub { font-size: 11px; color: #64748b; font-weight: 400; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { border-bottom: 1px solid #e2e8f0; padding: 8px 10px; text-align: start; }
+  th { background: #f1f5f9; color: #334155; font-weight: 700; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+  .badge-logged_in { background: #dcfce7; color: #166534; }
+  .badge-locked { background: #fef3c7; color: #92400e; }
+  .badge-logged_off { background: #e2e8f0; color: #334155; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>${escapeHtmlSafe(isEn ? 'Workstation User Login, Lock & Logoff Duration Report' : 'گزارش زمان‌بندی حضور (لاگین، قفل و لاگ‌اوت) کاربران سیستم')}</h1>
+    <div class="meta">${escapeHtmlSafe(isEn ? 'Workstation' : 'سیستم')}: <strong>${escapeHtmlSafe(logonsData.hostname || logonsData.targetIp)}</strong> (${escapeHtmlSafe(logonsData.targetIp)}) · ${escapeHtmlSafe(isEn ? 'Timeframe' : 'بازه')}: ${userDurationAnalytics.windowHours}h · ${escapeHtmlSafe(isEn ? 'Selected User' : 'کاربر منتخب')}: <strong>${escapeHtmlSafe(targetProfile?.displayName || '—')}</strong></div>
+    ${
+      targetProfile
+        ? `<div class="kpis">
+            <div class="kpi"><div>${escapeHtmlSafe(isEn ? 'Logged In (Active)' : 'مجموع زمان لاگین (فعال)')}</div><div class="kpi-val" style="color:#059669">${escapeHtmlSafe(formatDurationHMS(targetProfile.loggedInMs))} (${targetProfile.loggedInPct}%)</div><div class="sub">${escapeHtmlSafe(formatDurationHuman(targetProfile.loggedInMs))}</div></div>
+            <div class="kpi"><div>${escapeHtmlSafe(isEn ? 'Locked / Disconnected' : 'مجموع زمان قفل / قطع‌اتصال')}</div><div class="kpi-val" style="color:#d97706">${escapeHtmlSafe(formatDurationHMS(targetProfile.lockedMs))} (${targetProfile.lockedPct}%)</div><div class="sub">${escapeHtmlSafe(formatDurationHuman(targetProfile.lockedMs))}</div></div>
+            <div class="kpi"><div>${escapeHtmlSafe(isEn ? 'Logged Off (Offline)' : 'مجموع زمان لاگ‌اوت (خروج)')}</div><div class="kpi-val" style="color:#475569">${escapeHtmlSafe(formatDurationHMS(targetProfile.loggedOffMs))} (${targetProfile.loggedOffPct}%)</div><div class="sub">${escapeHtmlSafe(formatDurationHuman(targetProfile.loggedOffMs))}</div></div>
+          </div>`
+        : ''
+    }
+  </div>
+  <div class="card">
+    <h2>${escapeHtmlSafe(isEn ? 'All Users Session Duration Summary' : 'خلاصه مجموع زمان‌های تمامی کاربران سیستم')}</h2>
+    <table><thead><tr>
+      <th>${escapeHtmlSafe(isEn ? 'User' : 'کاربر')}</th>
+      <th>${escapeHtmlSafe(isEn ? 'Current State' : 'وضعیت فعلی')}</th>
+      <th>${escapeHtmlSafe(isEn ? 'Logged In' : 'زمان لاگین')}</th>
+      <th>${escapeHtmlSafe(isEn ? 'Locked' : 'زمان قفل')}</th>
+      <th>${escapeHtmlSafe(isEn ? 'Logged Off' : 'زمان لاگ‌اوت')}</th>
+      <th>${escapeHtmlSafe(isEn ? 'Events (In/Lock/Out)' : 'تعداد (ورود/قفل/خروج)')}</th>
+    </tr></thead><tbody>${summaryRowsHtml}</tbody></table>
+  </div>
+  <div class="card">
+    <h2>${escapeHtmlSafe(isEn ? `Detailed Time Intervals — ${targetProfile?.displayName || ''}` : `ریز بازه‌های زمانی — ${targetProfile?.displayName || ''}`)}</h2>
+    <table><thead><tr>
+      <th>${escapeHtmlSafe(isEn ? 'State' : 'وضعیت')}</th>
+      <th>${escapeHtmlSafe(isEn ? 'Start' : 'شروع')}</th>
+      <th>${escapeHtmlSafe(isEn ? 'End' : 'پایان')}</th>
+      <th>${escapeHtmlSafe(isEn ? 'Duration' : 'مدت')}</th>
+      <th>${escapeHtmlSafe(isEn ? 'Triggers' : 'علت تغییر وضعیت')}</th>
+    </tr></thead><tbody>${intervalRowsHtml}</tbody></table>
+  </div>
+</body></html>`;
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `session_time_report_${hostLabel}_${userLabel}_${stamp}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Filtered Event Viewer items for Tab 4 (including BSOD multi-cause category filter)
   const filteredEvents = useMemo(() => {
@@ -12843,6 +13532,489 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Section 2B: Computed User Session Time Breakdown (Logged In, Locked & Logged Off) + Export */}
+              {userDurationAnalytics && userDurationAnalytics.profiles.length > 0 && activeDurationProfile && (
+                <div className={`rounded-xl border overflow-hidden ${surfaceBg}`}>
+                  <div
+                    className={`px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 ${subSurfaceBg}`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Activity className="w-4 h-4 text-emerald-500 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className={`text-xs font-bold ${textPrimary}`}>
+                            {isEn
+                              ? `Session Time Breakdown — Logged In, Locked & Logged Off (${userDurationAnalytics.windowHours}h Window)`
+                              : `محاسبه مجموع زمان حضور، قفل و لاگ‌اوت کاربر (بازه ${userDurationAnalytics.windowHours} ساعت اخیر)`}
+                          </h3>
+                          <FieldInfoTooltip
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                            fieldName={isEn ? 'Session Time Duration Calculation' : 'محاسبه مدت‌زمان وضعیت نشست کاربر'}
+                            whatIsIt={
+                              isEn
+                                ? 'Aggregates authentic Windows Security/TerminalServices events (4624/4634/4647/4800/4801/4778/4779), Linux wtmp sessions, live quser/LogonUI state, and ProfileList timestamps to compute exact durations spent Logged In, Screen Locked, and Logged Off.'
+                                : 'بر اساس رویدادهای واقعی لاگ امنیتی ویندوز (ورود ۴۶۲۴، خروج ۴۶۳۴/۴۶۴۷، قفل ۴۸۰۰، بازگشایی ۴۸۰۱، قطع/وصل RDP)، وضعیت زنده سیستم (quser/LogonUI) و ProfileList مدت‌زمان دقیق لاگین فعال، صفحه قفل و لاگ‌اوت را در بازه انتخاب‌شده محاسبه می‌کند.'
+                            }
+                            whyNeeded={
+                              isEn
+                                ? 'Gives supervisors and IT support exact quantitative visibility into active workstation usage, screen-lock idle time, and signed-off intervals with exportable CSV, HTML, and JSON audit reports.'
+                                : 'امکان مشاهده دقیق مجموع ساعات کارکرد (لاگین فعال)، مدت قفل ماندن سیستم و زمان‌های خروج (لاگ‌اوت) را برای هر کاربر همراه با ریز بازه‌ها و خروجی قابل ارائه (CSV/HTML/JSON) فراهم می‌کند.'
+                            }
+                            example={
+                              isEn
+                                ? 'Logged In: 07:45:00 (32.3%) · Screen Locked: 00:45:00 (3.1%) · Logged Off: 15:30:00 (64.6%)'
+                                : 'لاگین فعال: ۰۷:۴۵:۰۰ (۳۲.۳٪) · قفل صفحه: ۰۰:۴۵:۰۰ (۳.۱٪) · لاگ‌اوت: ۱۵:۳۰:۰۰ (۶۴.۶٪)'
+                            }
+                          />
+                        </div>
+                        <p className={`text-[11px] mt-0.5 ${textMuted}`}>
+                          {isEn
+                            ? `Observed from ${formatLogonTimestamp(new Date(userDurationAnalytics.windowStartMs).toISOString())} to ${formatLogonTimestamp(new Date(userDurationAnalytics.windowEndMs).toISOString())}`
+                            : `بازه محاسبه از ${formatLogonTimestamp(new Date(userDurationAnalytics.windowStartMs).toISOString())} تا ${formatLogonTimestamp(new Date(userDurationAnalytics.windowEndMs).toISOString())}`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {userDurationAnalytics.profiles.length > 1 && (
+                        <select
+                          value={activeDurationProfile.userKey}
+                          onChange={(e) => {
+                            setSelectedDurationUserKey(e.target.value);
+                            setShowAllDurationIntervals(false);
+                          }}
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+                          dir="ltr"
+                        >
+                          {userDurationAnalytics.profiles.map((p) => (
+                            <option key={p.userKey} value={p.userKey}>
+                              {p.displayName} {p.isCurrentlyLoggedIn ? (isEn ? '● Active' : '● فعال') : ''}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleExportSessionDurations('csv')}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                            isLightMode
+                              ? 'bg-white border-emerald-300 text-emerald-700 hover:bg-emerald-50'
+                              : 'bg-emerald-500/10 border-emerald-500/35 text-emerald-300 hover:bg-emerald-500/20'
+                          }`}
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>CSV</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleExportSessionDurations('html')}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                            isLightMode
+                              ? 'bg-white border-sky-300 text-sky-700 hover:bg-sky-50'
+                              : 'bg-sky-500/10 border-sky-500/35 text-sky-300 hover:bg-sky-500/20'
+                          }`}
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>HTML</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleExportSessionDurations('json')}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                              : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                          }`}
+                        >
+                          <FileCode2 className="w-3.5 h-3.5" />
+                          <span>JSON</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 sm:p-5 space-y-4">
+                    {/* Selected User Banner + 4 Time KPI Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
+                      <div
+                        className={`p-3.5 rounded-xl border ${
+                          isLightMode ? 'bg-emerald-50/70 border-emerald-200' : 'bg-emerald-950/20 border-emerald-500/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`font-semibold ${isLightMode ? 'text-emerald-800' : 'text-emerald-300'}`}>
+                            {isEn ? 'Logged In (Active)' : 'مجموع زمان لاگین (فعال)'}
+                          </span>
+                          <span className="font-mono font-bold text-emerald-500 tabular-nums" dir="ltr">
+                            {activeDurationProfile.loggedInPct}%
+                          </span>
+                        </div>
+                        <div className="mt-1.5 text-lg font-extrabold font-mono tabular-nums text-emerald-500" dir="ltr">
+                          {formatDurationHMS(activeDurationProfile.loggedInMs)}
+                        </div>
+                        <div className={`mt-0.5 text-[11px] ${textMuted}`}>
+                          {formatDurationHuman(activeDurationProfile.loggedInMs)} ·{' '}
+                          {isEn
+                            ? `${activeDurationProfile.loginCount} login(s)`
+                            : `${activeDurationProfile.loginCount} ورود`}
+                        </div>
+                      </div>
+
+                      <div
+                        className={`p-3.5 rounded-xl border ${
+                          isLightMode ? 'bg-amber-50/70 border-amber-200' : 'bg-amber-950/20 border-amber-500/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`font-semibold ${isLightMode ? 'text-amber-800' : 'text-amber-300'}`}>
+                            {isEn ? 'Locked / Disconnected' : 'مجموع زمان قفل (Locked)'}
+                          </span>
+                          <span className="font-mono font-bold text-amber-500 tabular-nums" dir="ltr">
+                            {activeDurationProfile.lockedPct}%
+                          </span>
+                        </div>
+                        <div className="mt-1.5 text-lg font-extrabold font-mono tabular-nums text-amber-500" dir="ltr">
+                          {formatDurationHMS(activeDurationProfile.lockedMs)}
+                        </div>
+                        <div className={`mt-0.5 text-[11px] ${textMuted}`}>
+                          {formatDurationHuman(activeDurationProfile.lockedMs)} ·{' '}
+                          {isEn
+                            ? `${activeDurationProfile.lockCount} lock(s)`
+                            : `${activeDurationProfile.lockCount} بار قفل`}
+                        </div>
+                      </div>
+
+                      <div
+                        className={`p-3.5 rounded-xl border ${
+                          isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/70 border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`font-semibold ${textPrimary}`}>
+                            {isEn ? 'Logged Off (Offline)' : 'مجموع زمان لاگ‌اوت (خروج)'}
+                          </span>
+                          <span className={`font-mono font-bold tabular-nums ${textMuted}`} dir="ltr">
+                            {activeDurationProfile.loggedOffPct}%
+                          </span>
+                        </div>
+                        <div className={`mt-1.5 text-lg font-extrabold font-mono tabular-nums ${textPrimary}`} dir="ltr">
+                          {formatDurationHMS(activeDurationProfile.loggedOffMs)}
+                        </div>
+                        <div className={`mt-0.5 text-[11px] ${textMuted}`}>
+                          {formatDurationHuman(activeDurationProfile.loggedOffMs)} ·{' '}
+                          {isEn
+                            ? `${activeDurationProfile.logoffCount} logoff(s)`
+                            : `${activeDurationProfile.logoffCount} خروج`}
+                        </div>
+                      </div>
+
+                      <div
+                        className={`p-3.5 rounded-xl border ${
+                          isLightMode ? 'bg-sky-50/70 border-sky-200' : 'bg-sky-950/20 border-sky-500/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`font-semibold ${isLightMode ? 'text-sky-900' : 'text-sky-300'}`}>
+                            {isEn ? 'Current State Duration' : 'مدت وضعیت فعلی'}
+                          </span>
+                          <span className="font-mono text-[11px] font-bold text-sky-500 truncate max-w-[120px]" dir="ltr">
+                            {activeDurationProfile.displayName}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 text-lg font-extrabold font-mono tabular-nums text-sky-500" dir="ltr">
+                          {formatDurationHMS(activeDurationProfile.currentSessionDurationMs)}
+                        </div>
+                        <div className={`mt-0.5 text-[11px] ${textMuted}`}>
+                          {activeDurationProfile.currentState === 'active'
+                            ? isEn
+                              ? 'Currently Logged In (Active)'
+                              : 'هم‌اکنون لاگین (فعال)'
+                            : activeDurationProfile.currentState === 'locked'
+                            ? isEn
+                              ? 'Currently Screen Locked'
+                              : 'هم‌اکنون صفحه قفل است'
+                            : activeDurationProfile.currentState === 'disconnected'
+                            ? isEn
+                              ? 'Currently RDP Disconnected'
+                              : 'هم‌اکنون RDP قطع است'
+                            : isEn
+                            ? 'Currently Logged Off'
+                            : 'هم‌اکنون لاگ‌اوت (آفلاین)'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Visual Proportionality Distribution Bar */}
+                    <div className="space-y-1.5">
+                      <div className={`h-3 w-full rounded-full overflow-hidden flex border ${isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                        {activeDurationProfile.loggedInPct > 0 && (
+                          <div
+                            style={{ width: `${activeDurationProfile.loggedInPct}%` }}
+                            className="bg-emerald-500 h-full transition-all"
+                            title={`${isEn ? 'Logged In' : 'لاگین'}: ${formatDurationHuman(activeDurationProfile.loggedInMs)} (${activeDurationProfile.loggedInPct}%)`}
+                          />
+                        )}
+                        {activeDurationProfile.lockedPct > 0 && (
+                          <div
+                            style={{ width: `${activeDurationProfile.lockedPct}%` }}
+                            className="bg-amber-500 h-full transition-all"
+                            title={`${isEn ? 'Locked' : 'قفل'}: ${formatDurationHuman(activeDurationProfile.lockedMs)} (${activeDurationProfile.lockedPct}%)`}
+                          />
+                        )}
+                        {activeDurationProfile.loggedOffPct > 0 && (
+                          <div
+                            style={{ width: `${activeDurationProfile.loggedOffPct}%` }}
+                            className={isLightMode ? 'bg-slate-300 h-full transition-all' : 'bg-slate-700 h-full transition-all'}
+                            title={`${isEn ? 'Logged Off' : 'لاگ‌اوت'}: ${formatDurationHuman(activeDurationProfile.loggedOffMs)} (${activeDurationProfile.loggedOffPct}%)`}
+                          />
+                        )}
+                      </div>
+                      <div className={`flex flex-wrap items-center justify-between gap-2 text-[11px] ${textMuted}`}>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
+                            <span>{isEn ? 'Logged In' : 'لاگین فعال'}</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-sm bg-amber-500" />
+                            <span>{isEn ? 'Locked / Disconnected' : 'قفل / قطع‌اتصال'}</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className={`w-2.5 h-2.5 rounded-sm ${isLightMode ? 'bg-slate-300' : 'bg-slate-700'}`} />
+                            <span>{isEn ? 'Logged Off' : 'لاگ‌اوت (آفلاین)'}</span>
+                          </span>
+                        </div>
+                        {(activeDurationProfile.hasMissingLogoffGap ||
+                          (!activeDurationProfile.hasAuditLockEvents && logonsData.osFamily === 'windows')) && (
+                          <span className="text-[11px] text-amber-500">
+                            {activeDurationProfile.hasMissingLogoffGap
+                              ? isEn
+                                ? 'Note: An unclosed session ended without a 4634 logoff event (e.g., power loss/reboot); offline fallback was applied to prevent inflated active time.'
+                                : 'توجه: یک نشست بدون رویداد خروج (مانند ری‌استارت ناگهانی) بسته شده و زمان باقیمانده جهت جلوگیری از خطا در محاسبه، آفلاین در نظر گرفته شده است.'
+                              : isEn
+                              ? 'Note: No historical lock/unlock (4800/4801) audit events appeared in this window (Windows Audit Other Logon/Logoff Events may not be enabled).'
+                              : 'توجه: در این بازه رویداد تاریخی قفل/بازگشایی (۴۸۰۰/۴۸۰۱) ثبت نشده است (ممکن است Audit قفل در ویندوز فعال نباشد).'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Multi-User Comparison Table when more than 1 user exists */}
+                    {userDurationAnalytics.profiles.length > 1 && (
+                      <div className={`rounded-xl border overflow-hidden ${subSurfaceBg}`}>
+                        <div className={`px-4 py-2.5 border-b flex items-center justify-between text-[11px] font-bold ${textPrimary}`}>
+                          <span>
+                            {isEn
+                              ? `All Workstation Users Time Comparison (${userDurationAnalytics.profiles.length})`
+                              : `مقایسه مجموع زمان‌های تمامی کاربران سیستم (${userDurationAnalytics.profiles.length})`}
+                          </span>
+                          <span className={`font-normal ${textMuted}`}>
+                            {isEn ? 'Click a row to inspect its intervals' : 'برای مشاهده ریز بازه‌ها روی هر ردیف کلیک کنید'}
+                          </span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs text-start">
+                            <thead className={`border-b ${textMuted} ${isLightMode ? 'bg-slate-100/80' : 'bg-slate-900/60'}`}>
+                              <tr>
+                                <th className="px-3.5 py-2 text-start font-semibold">{isEn ? 'User' : 'کاربر'}</th>
+                                <th className="px-3.5 py-2 text-start font-semibold">{isEn ? 'Logged In' : 'مدت لاگین'}</th>
+                                <th className="px-3.5 py-2 text-start font-semibold">{isEn ? 'Locked' : 'مدت قفل'}</th>
+                                <th className="px-3.5 py-2 text-start font-semibold">{isEn ? 'Logged Off' : 'مدت لاگ‌اوت'}</th>
+                                <th className="px-3.5 py-2 text-start font-semibold">{isEn ? 'Counts (In/Lock/Out)' : 'تعداد (ورود/قفل/خروج)'}</th>
+                              </tr>
+                            </thead>
+                            <tbody className={`divide-y ${isLightMode ? 'divide-slate-200' : 'divide-slate-800'}`}>
+                              {userDurationAnalytics.profiles.map((p) => {
+                                const isSel = p.userKey === activeDurationProfile.userKey;
+                                return (
+                                  <tr
+                                    key={p.userKey}
+                                    onClick={() => {
+                                      setSelectedDurationUserKey(p.userKey);
+                                      setShowAllDurationIntervals(false);
+                                    }}
+                                    className={`cursor-pointer transition ${
+                                      isSel
+                                        ? isLightMode
+                                          ? 'bg-sky-50'
+                                          : 'bg-sky-950/30'
+                                        : isLightMode
+                                        ? 'hover:bg-slate-100/70'
+                                        : 'hover:bg-slate-800/40'
+                                    }`}
+                                  >
+                                    <td className={`px-3.5 py-2 font-mono font-semibold ${textPrimary}`} dir="ltr">
+                                      <div className="flex items-center gap-1.5">
+                                        {isSel && <span className="w-1.5 h-1.5 rounded-full bg-sky-500 shrink-0" />}
+                                        <span>{p.displayName}</span>
+                                      </div>
+                                    </td>
+                                    <td className="px-3.5 py-2 font-mono tabular-nums text-emerald-500 font-semibold" dir="ltr">
+                                      {formatDurationHMS(p.loggedInMs)} <span className="text-[10px] opacity-80">({p.loggedInPct}%)</span>
+                                    </td>
+                                    <td className="px-3.5 py-2 font-mono tabular-nums text-amber-500 font-semibold" dir="ltr">
+                                      {formatDurationHMS(p.lockedMs)} <span className="text-[10px] opacity-80">({p.lockedPct}%)</span>
+                                    </td>
+                                    <td className={`px-3.5 py-2 font-mono tabular-nums ${textMuted}`} dir="ltr">
+                                      {formatDurationHMS(p.loggedOffMs)} <span className="text-[10px] opacity-80">({p.loggedOffPct}%)</span>
+                                    </td>
+                                    <td className={`px-3.5 py-2 font-mono tabular-nums ${textMuted}`} dir="ltr">
+                                      {p.loginCount} / {p.lockCount} / {p.logoffCount}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Filterable Exact State Intervals Audit Table */}
+                    <div className={`rounded-xl border overflow-hidden ${subSurfaceBg}`}>
+                      <div className="px-4 py-2.5 border-b flex flex-wrap items-center justify-between gap-2">
+                        <div className={`text-[11px] font-bold ${textPrimary}`}>
+                          {isEn
+                            ? `Calculated Time Intervals for ${activeDurationProfile.displayName} (${filteredDurationIntervals.length})`
+                            : `ریز بازه‌های زمانی محاسبه‌شده برای ${activeDurationProfile.displayName} (${filteredDurationIntervals.length})`}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {[
+                            { id: 'all' as const, en: 'All', fa: 'همه' },
+                            { id: 'logged_in' as const, en: 'Logged In', fa: 'لاگین' },
+                            { id: 'locked' as const, en: 'Locked', fa: 'قفل' },
+                            { id: 'logged_off' as const, en: 'Logged Off', fa: 'لاگ‌اوت' },
+                          ].map((st) => (
+                            <button
+                              key={st.id}
+                              type="button"
+                              onClick={() => setDurationIntervalFilter(st.id)}
+                              className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border transition cursor-pointer ${
+                                durationIntervalFilter === st.id
+                                  ? 'border-sky-500 bg-sky-500/15 text-sky-500'
+                                  : isLightMode
+                                  ? 'bg-white border-slate-200 text-slate-600'
+                                  : 'bg-slate-900 border-slate-700 text-slate-400'
+                              }`}
+                            >
+                              {isEn ? st.en : st.fa}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto max-h-[300px]">
+                        <table className="w-full text-xs text-start">
+                          <thead className={`border-b sticky top-0 z-10 ${subSurfaceBg} ${textMuted}`}>
+                            <tr>
+                              <th className="px-3.5 py-2 text-start font-semibold">{isEn ? 'State' : 'وضعیت'}</th>
+                              <th className="px-3.5 py-2 text-start font-semibold">{isEn ? 'Start Time' : 'شروع'}</th>
+                              <th className="px-3.5 py-2 text-start font-semibold">{isEn ? 'End Time' : 'پایان'}</th>
+                              <th className="px-3.5 py-2 text-start font-semibold">{isEn ? 'Exact Duration' : 'مدت دقیق'}</th>
+                              <th className="px-3.5 py-2 text-start font-semibold">{isEn ? 'Transition Triggers' : 'رویداد شروع و پایان'}</th>
+                            </tr>
+                          </thead>
+                          <tbody className={`divide-y ${isLightMode ? 'divide-slate-200' : 'divide-slate-800'}`}>
+                            {(showAllDurationIntervals
+                              ? filteredDurationIntervals
+                              : filteredDurationIntervals.slice(0, 12)
+                            ).map((iv) => (
+                              <tr key={iv.id}>
+                                <td className="px-3.5 py-2 whitespace-nowrap">
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
+                                      iv.state === 'logged_in'
+                                        ? isLightMode
+                                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                          : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                        : iv.state === 'locked'
+                                        ? isLightMode
+                                          ? 'bg-amber-50 border-amber-200 text-amber-700'
+                                          : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                                        : isLightMode
+                                        ? 'bg-slate-100 border-slate-300 text-slate-700'
+                                        : 'bg-slate-800 border-slate-700 text-slate-300'
+                                    }`}
+                                  >
+                                    {iv.state === 'logged_in' ? (
+                                      <LogIn className="w-3 h-3" />
+                                    ) : iv.state === 'locked' ? (
+                                      <Lock className="w-3 h-3" />
+                                    ) : (
+                                      <LogOut className="w-3 h-3" />
+                                    )}
+                                    <span>
+                                      {iv.state === 'logged_in'
+                                        ? isEn
+                                          ? 'Logged In'
+                                          : 'لاگین فعال'
+                                        : iv.subState === 'rdp_disconnected'
+                                        ? isEn
+                                          ? 'RDP Disconnected'
+                                          : 'قطع‌اتصال RDP'
+                                        : iv.state === 'locked'
+                                        ? isEn
+                                          ? 'Locked'
+                                          : 'قفل صفحه'
+                                        : isEn
+                                        ? 'Logged Off'
+                                        : 'لاگ‌اوت'}
+                                    </span>
+                                    {iv.isOngoing && (
+                                      <span className="text-[10px] opacity-80">
+                                        ({isEn ? 'Now' : 'اکنون'})
+                                      </span>
+                                    )}
+                                  </span>
+                                </td>
+                                <td className={`px-3.5 py-2 font-mono tabular-nums whitespace-nowrap ${textPrimary}`} dir="ltr">
+                                  {formatLogonTimestamp(new Date(iv.startMs).toISOString())}
+                                </td>
+                                <td className={`px-3.5 py-2 font-mono tabular-nums whitespace-nowrap ${textMuted}`} dir="ltr">
+                                  {formatLogonTimestamp(new Date(iv.endMs).toISOString())}
+                                </td>
+                                <td className="px-3.5 py-2 whitespace-nowrap">
+                                  <span className="font-mono font-bold tabular-nums" dir="ltr">
+                                    {formatDurationHMS(iv.durationMs)}
+                                  </span>
+                                  <span className={`ms-1.5 text-[11px] ${textMuted}`}>
+                                    ({formatDurationHuman(iv.durationMs)})
+                                  </span>
+                                </td>
+                                <td className={`px-3.5 py-2 text-[11px] font-mono ${textMuted}`} dir="ltr">
+                                  {iv.startReason} → {iv.endReason}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {filteredDurationIntervals.length > 12 && (
+                        <div className="px-4 py-2 border-t flex justify-center">
+                          <button
+                            type="button"
+                            onClick={() => setShowAllDurationIntervals((v) => !v)}
+                            className="text-[11px] font-semibold text-sky-500 hover:underline cursor-pointer"
+                          >
+                            {showAllDurationIntervals
+                              ? isEn
+                                ? 'Show Top 12 Intervals'
+                                : 'نمایش ۱۲ بازه اخیر'
+                              : isEn
+                              ? `Show All ${filteredDurationIntervals.length} Intervals`
+                              : `نمایش تمام ${filteredDurationIntervals.length} بازه`}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Section 3: Detailed Login / Logoff / Lock / RDP / Failed Event Timeline */}
               <div className={`rounded-xl border overflow-hidden ${surfaceBg}`}>

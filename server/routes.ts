@@ -11439,7 +11439,7 @@ apiRouter.post('/helpdesk/logons', async (req: Request, res: Response) => {
   }
   const target = extractHelpdeskTargetFromBody(req.body);
   const hoursBack = Number(req.body?.hoursBack) || 168;
-  const maxEvents = Number(req.body?.maxEvents) || 150;
+  const maxEvents = Number(req.body?.maxEvents) || 350;
 
   try {
     const data = await collectEndpointUserLogons(target, { hoursBack, maxEvents });

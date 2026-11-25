@@ -10120,7 +10120,7 @@ export async function collectEndpointUserLogons(
   options?: { hoursBack?: number; maxEvents?: number }
 ): Promise<HelpdeskUserLogonsResult> {
   const hoursBack = Math.max(1, Math.min(720, Math.floor(Number(options?.hoursBack) || 168)));
-  const maxEvents = Math.max(20, Math.min(250, Math.floor(Number(options?.maxEvents) || 150)));
+  const maxEvents = Math.max(20, Math.min(600, Math.floor(Number(options?.maxEvents) || 350)));
 
   const ps = `
 $ErrorActionPreference = 'SilentlyContinue'
@@ -10250,13 +10250,26 @@ $securityNote = ''
 $rdpIpByUser = @{}
 
 try {
-  $secFilter = @{
+  # Query lock/unlock/logoff/RDP/failed first so noisy LogonType 3 (network/WinRM) 4624/4634 cannot crowd them out
+  $secRawDirect = @(Get-WinEvent -FilterHashtable @{
     LogName = 'Security'
-    Id = @(4624, 4625, 4634, 4647, 4778, 4779, 4800, 4801)
+    Id = @(4625, 4647, 4778, 4779, 4800, 4801)
     StartTime = $startTime
-  }
-  $secRaw = @(Get-WinEvent -FilterHashtable $secFilter -MaxEvents 450 -ErrorAction Stop)
+  } -MaxEvents 600 -ErrorAction Stop)
+  $secRawLogon = @()
+  try {
+    $secRawLogon = @(Get-WinEvent -FilterHashtable @{
+      LogName = 'Security'
+      Id = @(4624, 4634)
+      StartTime = $startTime
+    } -MaxEvents 1500 -ErrorAction SilentlyContinue)
+  } catch {}
+  $secRaw = @($secRawDirect + $secRawLogon | Sort-Object -Property TimeCreated -Descending)
+  $seenRecIds = @{}
   foreach ($ev in $secRaw) {
+    $recKey = [string]$ev.RecordId
+    if ($recKey -and $seenRecIds.ContainsKey($recKey)) { continue }
+    if ($recKey) { $seenRecIds[$recKey] = $true }
     $evId = [int]$ev.Id
     $xml = [xml]$ev.ToXml()
     $dMap = @{}
@@ -10586,7 +10599,7 @@ try:
         dt_str = f"{parts[2]} {parts[3]}"
         iso = ""
         try:
-            iso = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            iso = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M").astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         except Exception:
             pass
         active_sessions.append({
@@ -10620,15 +10633,29 @@ try:
         if re.match(r"^[0-9a-fA-F\\.:]+$", parts[2]) and parts[2] not in ("Mon","Tue","Wed","Thu","Fri","Sat","Sun"):
             src = parts[2]
             rest_idx = 3
-        m_dt = re.search(r"([A-Z][a-z]{2}\\s+[A-Z][a-z]{2}\\s+\\d+\\s+\\d{2}:\\d{2}:\\d{2}\\s+\\d{4})", " ".join(parts[rest_idx:]))
+        tail_str = " ".join(parts[rest_idx:])
+        dt_matches = re.findall(r"([A-Z][a-z]{2}\\s+[A-Z][a-z]{2}\\s+\\d+\\s+\\d{2}:\\d{2}:\\d{2}\\s+\\d{4})", tail_str)
         iso = ""
-        if m_dt:
+        logout_iso = ""
+        if dt_matches:
             try:
-                dt = datetime.datetime.strptime(m_dt.group(1), "%a %b %d %H:%M:%S %Y").replace(tzinfo=datetime.timezone.utc)
+                dt = datetime.datetime.strptime(dt_matches[0], "%a %b %d %H:%M:%S %Y").astimezone(datetime.timezone.utc)
                 iso = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
             except Exception:
                 pass
+            if len(dt_matches) >= 2:
+                try:
+                    dt_out = datetime.datetime.strptime(dt_matches[1], "%a %b %d %H:%M:%S %Y").astimezone(datetime.timezone.utc)
+                    logout_iso = dt_out.strftime("%Y-%m-%dT%H:%M:%SZ")
+                except Exception:
+                    pass
         ltype = 10 if src or "pts/" in tty else 2
+        if logout_iso:
+            events.append({
+                "id": f"wtmp-{idx}-off", "timestamp": logout_iso, "eventType": "logoff", "eventId": 23,
+                "channel": "wtmp", "username": u, "domain": "", "logonTypeCode": ltype,
+                "sourceIp": src, "sourceHost": "", "sessionName": tty, "failureSubStatus": ""
+            })
         events.append({
             "id": f"wtmp-{idx}", "timestamp": iso, "eventType": "logon", "eventId": 21,
             "channel": "wtmp", "username": u, "domain": "", "logonTypeCode": ltype,
@@ -10639,9 +10666,12 @@ try:
         if iso and (not us["lastLogonTime"] or iso > us["lastLogonTime"]):
             us["lastLogonTime"] = iso
             if src: us["lastSourceIp"] = src
+        if logout_iso and (not us["lastLogoffTime"] or logout_iso > us["lastLogoffTime"]):
+            us["lastLogoffTime"] = logout_iso
 except Exception:
     pass
 
+events.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
 logged_user = active_sessions[0]["username"] if active_sessions else ""
 print(json.dumps({
     "hostname": hostname,

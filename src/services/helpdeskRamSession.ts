@@ -749,7 +749,7 @@ export async function runHelpdeskSequentialConnect(options: {
           const res = await fetchHelpdeskEndpointLogons({
             ...payload,
             hoursBack: logonsHoursBack,
-            maxEvents: 120,
+            maxEvents: 350,
           });
           if (!isCancelled()) {
             patchHelpdeskRamSnapshot({
