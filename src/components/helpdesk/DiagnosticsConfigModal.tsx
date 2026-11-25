@@ -21,6 +21,7 @@ import {
   Download,
   CircuitBoard,
   Layers,
+  Building2,
 } from 'lucide-react';
 import { ModalHeaderControls } from '../common/ModalHeaderControls';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
@@ -194,6 +195,21 @@ export const DIAGNOSTIC_CHECK_CATALOG: DiagnosticCheckCatalogItem[] = [
     icon: Download,
   },
   {
+    id: 'active_directory_policy',
+    category: 'system_storage',
+    titleEn: 'Active Directory, Connected DC, GPO & User Groups',
+    titleFa: 'اکتیو دایرکتوری متصل، پالیسی (GPO) و گروه‌های کاربر',
+    descEn: 'Identifies AD domain, authenticating Domain Controller, applied GPOs, and user AD groups.',
+    descFa: 'نمایش اکتیودایرکتوری و DC متصل (ارائه‌دهنده خدمات و پالیسی)، GPOهای اعمال‌شده و گروه‌های AD کاربر.',
+    whatEn: 'Queries domain join status, connected Domain Controller (nltest/DC), applied Computer/User GPOs, and the active user’s Active Directory group memberships.',
+    whatFa: 'نام دامین، سرور Domain Controller متصل و خدمات آن، پالیسی‌های GPO اعمال‌شده و تمام گروه‌های اکتیودایرکتوری که کاربر در آن عضو است را می‌خواند.',
+    whyEn: 'Instantly verifies whether the user is receiving policies/permissions from the right DC and belongs to expected security groups (VPN, file shares, admin, etc.).',
+    whyFa: 'بلافاصله مشخص می‌کند سیستم به کدام دامین و DC وصل است، پالیسی‌ها اعمال می‌شوند یا خیر و کاربر برای دسترسی‌ها در چه گروه‌هایی عضو است.',
+    exampleEn: 'corp.local (DC: dc01) · 6 GPOs · Groups: Domain Users, IT_Support, VPN_Users',
+    exampleFa: 'corp.local (سرور DC01) · ۶ پالیسی GPO · گروه‌ها: Domain Users, IT_Support',
+    icon: Building2,
+  },
+  {
     id: 'drivers_status',
     category: 'hardware_perf',
     titleEn: 'Hardware & Device Driver Health',
@@ -322,8 +338,8 @@ export const DiagnosticsConfigModal: React.FC<DiagnosticsConfigModalProps> = ({
     },
     {
       id: 'system_storage',
-      titleEn: 'Storage, Recycle Bin, Windows Integrity & Updates',
-      titleFa: 'فضای دیسک، سطل زباله، سلامت ویندوز و آپدیت‌ها',
+      titleEn: 'Storage, Active Directory, GPO, Integrity & Updates',
+      titleFa: 'دیسک، اکتیودایرکتوری و پالیسی، سلامت ویندوز و آپدیت‌ها',
       icon: HardDrive,
       accent: 'text-amber-500',
     },
@@ -390,18 +406,18 @@ export const DiagnosticsConfigModal: React.FC<DiagnosticsConfigModalProps> = ({
                   title={isEn ? 'Endpoint Troubleshooting Suite' : 'پکیج عیب‌یابی هوشمند سیستم'}
                   whatIsIt={
                     isEn
-                      ? 'Lets you choose which live health, network, storage, update, driver, and resource checks run on the endpoint right now.'
-                      : 'امکان انتخاب دقیق بررسی‌های شبکه، اینترنت، پروکسی، VPN، دیسک/سطل زباله، سلامت فایل‌های ویندوز، آپدیت‌ها، درایورها و پروسس‌های پرمصرف را فراهم می‌کند.'
+                      ? 'Lets you choose which live health, network, Active Directory, policy, storage, update, driver, and resource checks run on the endpoint right now.'
+                      : 'امکان انتخاب دقیق بررسی‌های شبکه، اینترنت، پروکسی، VPN، اکتیودایرکتوری و پالیسی، دیسک/سطل زباله، سلامت ویندوز، آپدیت‌ها، درایورها و پروسس‌های پرمصرف را فراهم می‌کند.'
                   }
                   whyNeeded={
                     isEn
                       ? 'All checks are enabled by default for complete troubleshooting, or uncheck unnecessary modules for faster targeted diagnosis.'
-                      : 'به‌صورت پیش‌فرض همه ۱۳ مورد تیک خورده‌اند تا عیب‌یابی کامل انجام شود؛ در صورت نیاز می‌توانید تیک برخی موارد را کم یا زیاد کنید تا گزارش سریع‌تر و متمرکزتر بگیرید.'
+                      : `به‌صورت پیش‌فرض همه ${totalCount} مورد تیک خورده‌اند تا عیب‌یابی کامل انجام شود؛ در صورت نیاز می‌توانید تیک برخی موارد را کم یا زیاد کنید تا گزارش سریع‌تر و متمرکزتر بگیرید.`
                   }
                   example={
                     isEn
-                      ? 'Select all 13 checks for full audit, or pick only Network/Proxy/VPN for internet tickets'
-                      : 'انتخاب هر ۱۳ مورد برای چکاپ کامل، یا انتخاب صرفاً شبکه/پروکسی/VPN برای تیکت قطعی اینترنت'
+                      ? `Select all ${totalCount} checks for full audit, or pick only Network/Proxy/VPN for internet tickets`
+                      : `انتخاب هر ${totalCount} مورد برای چکاپ کامل، یا انتخاب صرفاً شبکه/پروکسی/VPN برای تیکت قطعی اینترنت`
                   }
                   isLightMode={isLightMode}
                   isEn={isEn}

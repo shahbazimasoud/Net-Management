@@ -136,6 +136,7 @@ import {
   executeHelpdeskPowerControl,
   fetchHelpdeskBatteryReport,
   runHelpdeskDiagnosticsSuite,
+  ALL_HELPDESK_DIAGNOSTIC_CHECKS,
   HelpdeskDiagnosticCheckId,
   HelpdeskConnectionPayload,
   HelpdeskConnectionHistoryItem,
@@ -2364,7 +2365,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       id: 'modal-helpdesk-diagnostics-config',
       labelEn: 'Diagnostics Selection',
       labelFa: 'انتخاب موارد دیاگنوستیک',
-      badge: `${diagnosticsSelectedChecks.length}/13`,
+      badge: `${diagnosticsSelectedChecks.length}/${ALL_HELPDESK_DIAGNOSTIC_CHECKS.length}`,
       category: 'tools',
       onRestore: () => {
         undockModal('modal-helpdesk-diagnostics-config');
@@ -2392,6 +2393,13 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       } else if (tab === 'maintenance') {
         if (!tempScanData && !loadingTempScan) handleScanTemp();
         if (!diskHealthData && !loadingDiskHealth) handleInspectDisks();
+        if (!gpoData && !loadingGpo) handleInspectGpo();
+      } else if (tab === 'hardware_domain' && !domainQueryUser) {
+        const rawUser = String(diagnosticsData?.loggedInUser || healthData?.loggedInUser || '').trim();
+        if (rawUser) {
+          const shortUser = rawUser.split('\\').pop()?.trim() || '';
+          if (shortUser) setDomainQueryUser(shortUser);
+        }
       }
     }
 
@@ -8368,7 +8376,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           </div>
 
           {/* MODULE 7: GROUP POLICY INSPECTION & SAFE GPUPDATE /FORCE */}
-          <div className={`rounded-xl border p-4 sm:p-5 space-y-5 ${surfaceBg}`}>
+          <div
+            id="hd-section-gpo-policy"
+            className={`rounded-xl border p-4 sm:p-5 space-y-5 transition-shadow scroll-mt-4 ${
+              highlightedSectionId === 'hd-section-gpo-policy' ? 'ring-2 ring-sky-500 ring-offset-2' : ''
+            } ${surfaceBg}`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -9289,7 +9302,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           </div>
 
           {/* ACTIVE DIRECTORY DOMAIN ACCOUNT INSPECTOR (net user <USERNAME> /domain) */}
-          <div className={`rounded-xl border p-4 sm:p-5 space-y-5 ${surfaceBg}`}>
+          <div
+            id="hd-section-domain-account"
+            className={`rounded-xl border p-4 sm:p-5 space-y-5 transition-shadow scroll-mt-4 ${
+              highlightedSectionId === 'hd-section-domain-account' ? 'ring-2 ring-sky-500 ring-offset-2' : ''
+            } ${surfaceBg}`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">

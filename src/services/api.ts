@@ -2112,6 +2112,7 @@ export type HelpdeskDiagnosticCheckId =
   | 'os_drive_cleanup'
   | 'windows_integrity'
   | 'windows_update_last'
+  | 'active_directory_policy'
   | 'drivers_status'
   | 'cpu_ram_usage'
   | 'top_resource_apps';
@@ -2127,6 +2128,7 @@ export const ALL_HELPDESK_DIAGNOSTIC_CHECKS: HelpdeskDiagnosticCheckId[] = [
   'os_drive_cleanup',
   'windows_integrity',
   'windows_update_last',
+  'active_directory_policy',
   'drivers_status',
   'cpu_ram_usage',
   'top_resource_apps',

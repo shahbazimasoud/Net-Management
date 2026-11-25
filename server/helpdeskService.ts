@@ -14754,6 +14754,7 @@ export type HelpdeskDiagnosticCheckId =
   | 'os_drive_cleanup'
   | 'windows_integrity'
   | 'windows_update_last'
+  | 'active_directory_policy'
   | 'drivers_status'
   | 'cpu_ram_usage'
   | 'top_resource_apps';
@@ -14769,6 +14770,7 @@ export const ALL_DIAGNOSTIC_CHECK_IDS: HelpdeskDiagnosticCheckId[] = [
   'os_drive_cleanup',
   'windows_integrity',
   'windows_update_last',
+  'active_directory_policy',
   'drivers_status',
   'cpu_ram_usage',
   'top_resource_apps',
@@ -14790,8 +14792,15 @@ export interface HelpdeskDiagnosticHighlight {
   badgeTone?: 'ok' | 'warn' | 'fail' | 'info';
 }
 
+export interface HelpdeskDiagnosticTagSection {
+  titleEn: string;
+  titleFa: string;
+  tone?: 'ok' | 'warn' | 'fail' | 'info';
+  items: string[];
+}
+
 export interface HelpdeskDiagnosticJumpTarget {
-  tab: 'health' | 'hardware' | 'network' | 'maintenance' | 'updates';
+  tab: 'health' | 'hardware' | 'network' | 'maintenance' | 'updates' | 'hardware_domain';
   sectionId: string;
   labelEn: string;
   labelFa: string;
@@ -14811,8 +14820,10 @@ export interface HelpdeskDiagnosticCheckResult {
   recommendationFa: string;
   metrics: HelpdeskDiagnosticMetric[];
   highlights: HelpdeskDiagnosticHighlight[];
+  tagSections?: HelpdeskDiagnosticTagSection[];
   durationMs: number;
   jumpTarget: HelpdeskDiagnosticJumpTarget;
+  secondaryJumpTarget?: HelpdeskDiagnosticJumpTarget;
 }
 
 export interface HelpdeskDiagnosticsSuiteResult {
@@ -14898,6 +14909,12 @@ const DIAGNOSTIC_JUMP_TARGETS: Record<HelpdeskDiagnosticCheckId, HelpdeskDiagnos
     sectionId: 'hd-section-windows-updates',
     labelEn: 'Open Windows Updates & HotFixes',
     labelFa: 'مدیریت آپدیت‌ها و KBها',
+  },
+  active_directory_policy: {
+    tab: 'maintenance',
+    sectionId: 'hd-section-gpo-policy',
+    labelEn: 'GPO & Policy Manager',
+    labelFa: 'مدیریت GPO و پالیسی',
   },
   drivers_status: {
     tab: 'hardware',
@@ -15019,8 +15036,10 @@ $osName = if ($osObj) { (To-Str $osObj.Caption).Trim() } else { 'Windows' }
 $loggedUser = ''
 $activeUserSid = ''
 $activeUserProfilePath = ''
+$cs = $null
 try {
   $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+  if (-not $cs) { $cs = Get-WmiObject -Class Win32_ComputerSystem -ErrorAction SilentlyContinue }
   if ($cs -and $cs.UserName) { $loggedUser = To-Str $cs.UserName }
   if (-not $loggedUser) {
     $exp = @(Get-CimInstance -ClassName Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue) | Select-Object -First 1
@@ -15787,6 +15806,240 @@ if ($flags.top_resource_apps) {
   }
 }
 
+# 14. active_directory_policy
+if ($flags.active_directory_policy) {
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $domainJoined = [bool]($cs -and $cs.PartOfDomain)
+    $domainName = if ($cs -and $cs.Domain) { (To-Str $cs.Domain).Trim() } else { '' }
+    $forestName = ''
+    $dcName = ''
+    $dcAddress = ''
+    $dcSite = ''
+    $clientSite = ''
+    $dcServices = @()
+    $secureChannelOk = $null
+    $trustMessage = ''
+
+    $targetUser = if ($loggedUser) { $loggedUser } else {
+      $uDom = To-Str $env:USERDOMAIN
+      $uUsr = To-Str $env:USERNAME
+      if ($uDom -and $uUsr) { "$uDom\\$uUsr" } else { $uUsr }
+    }
+    $samName = ($targetUser -split '\\\\')[-1].Trim()
+    $logonServer = (To-Str $env:LOGONSERVER).TrimStart('\\')
+
+    $policyDcComp = ''
+    $policyDcUser = ''
+    $compGpos = @()
+    $userGpos = @()
+    $lastGpoRefresh = ''
+    $adsiGroups = @()
+    $gpoSecGroups = @()
+    $netUserRaw = ''
+    $localUserGroups = @()
+
+    # Registry Group Policy State (fast & local)
+    try {
+      $mState = Get-ItemProperty -LiteralPath 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\State\\Machine' -ErrorAction SilentlyContinue
+      if ($mState -and $mState.DCName) { $policyDcComp = (To-Str $mState.DCName).TrimStart('\\') }
+      $mGpoRoot = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\State\\Machine\\GPO-List'
+      if (Test-Path -LiteralPath $mGpoRoot) {
+        foreach ($gk in @(Get-ChildItem -LiteralPath $mGpoRoot -ErrorAction SilentlyContinue)) {
+          $gp = Get-ItemProperty -LiteralPath $gk.PSPath -ErrorAction SilentlyContinue
+          $dn = (To-Str $gp.DisplayName).Trim()
+          if ($dn -and ($compGpos -notcontains $dn)) { $compGpos += $dn }
+        }
+      }
+      if ($activeUserSid) {
+        $uStatePath = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\State\\$activeUserSid"
+        if (Test-Path -LiteralPath $uStatePath) {
+          $uState = Get-ItemProperty -LiteralPath $uStatePath -ErrorAction SilentlyContinue
+          if ($uState -and $uState.DCName) { $policyDcUser = (To-Str $uState.DCName).TrimStart('\\') }
+          $uGpoRoot = "$uStatePath\\GPO-List"
+          if (Test-Path -LiteralPath $uGpoRoot) {
+            foreach ($gk in @(Get-ChildItem -LiteralPath $uGpoRoot -ErrorAction SilentlyContinue)) {
+              $gp = Get-ItemProperty -LiteralPath $gk.PSPath -ErrorAction SilentlyContinue
+              $dn = (To-Str $gp.DisplayName).Trim()
+              if ($dn -and ($userGpos -notcontains $dn)) { $userGpos += $dn }
+            }
+          }
+        }
+      }
+    } catch {}
+
+    # Entra / Hybrid Join state (fast read)
+    $entraJoined = $false
+    $tenantName = ''
+    try {
+      $dsOut = (& dsregcmd.exe /status 2>&1 | Out-String)
+      if ($dsOut -match 'AzureAdJoined\\s*:\\s*YES') { $entraJoined = $true }
+      if ($dsOut -match 'TenantName\\s*:\\s*([^\\r\\n]+)') { $tenantName = $Matches[1].Trim() }
+    } catch {}
+
+    if ($domainJoined -and $domainName) {
+      try {
+        $domObj = [System.DirectoryServices.ActiveDirectory.Domain]::GetComputerDomain()
+        if ($domObj) {
+          if ($domObj.Name) { $domainName = (To-Str $domObj.Name).Trim() }
+          if ($domObj.Forest -and $domObj.Forest.Name) { $forestName = (To-Str $domObj.Forest.Name).Trim() }
+        }
+      } catch {}
+
+      try {
+        $nlDc = (& nltest.exe /dsgetdc:$domainName 2>&1 | Out-String)
+        if ($nlDc -match 'DC:\\s*\\\\*([^\\r\\n\\s]+)') { $dcName = $Matches[1].Trim() }
+        if ($nlDc -match 'Address:\\s*\\\\*([^\\r\\n\\s]+)') { $dcAddress = $Matches[1].Trim() }
+        if ($nlDc -match 'DC Site Name:\\s*([^\\r\\n]+)') { $dcSite = $Matches[1].Trim() }
+        if ($nlDc -match 'Client Site Name:\\s*([^\\r\\n]+)') { $clientSite = $Matches[1].Trim() }
+        if ($nlDc -match 'Flags:\\s*([^\\r\\n]+)') {
+          foreach ($tk in ($Matches[1].Trim() -split '\\s+')) {
+            if ($tk -and ($dcServices -notcontains $tk)) { $dcServices += $tk }
+          }
+        }
+      } catch {}
+
+      try {
+        $scOut = (& nltest.exe /sc_query:$domainName 2>&1 | Out-String)
+        if ($scOut -match 'NERR_Success|Status = 0\\b') {
+          $secureChannelOk = $true
+        } elseif ($scOut.Trim()) {
+          $secureChannelOk = $false
+          $trustMessage = ($scOut.Trim() -split "\`r?\`n")[0]
+        }
+        if (-not $dcName -and $scOut -match 'Trusted DC Name\\s*\\\\*([^\\r\\n\\s]+)') {
+          $dcName = $Matches[1].Trim()
+        }
+      } catch {}
+
+      # GPResult fallback for last refresh timestamp, GPOs, and cached security groups
+      try {
+        $gpOut = ''
+        if ($targetUser -match '^[a-zA-Z0-9._\\\\@-]{1,96}$') {
+          $gpOut = (& gpresult.exe /USER $targetUser /R 2>&1 | Out-String)
+        }
+        if (-not $gpOut -or $gpOut -match 'INFO:\\s*The user.*does not have RSOP data|ERROR:') {
+          $gpOut = (& gpresult.exe /R 2>&1 | Out-String)
+        }
+        if ($gpOut) {
+          if ($gpOut -match 'Last time Group Policy was applied:\\s*([^\\r\\n]+)') {
+            $lastGpoRefresh = $Matches[1].Trim()
+          }
+          if (-not $policyDcComp -and $gpOut -match 'Group Policy was applied from:\\s*([^\\r\\n]+)') {
+            $policyDcComp = $Matches[1].Trim().TrimStart('\\')
+          }
+          $inComp = $false; $inUser = $false; $inSecGrp = $false; $ctx = ''
+          foreach ($ln in ($gpOut -split "\`r?\`n")) {
+            $t = $ln.Trim()
+            if ($t -match '^COMPUTER SETTINGS') { $ctx = 'comp'; $inComp = $false; $inUser = $false; $inSecGrp = $false; continue }
+            if ($t -match '^USER SETTINGS') { $ctx = 'user'; $inComp = $false; $inUser = $false; $inSecGrp = $false; continue }
+            if ($t -match '^Applied Group Policy Objects$') {
+              if ($ctx -eq 'user') { $inUser = $true } else { $inComp = $true }
+              $inSecGrp = $false; continue
+            }
+            if ($t -match '^The user is a part of the following security groups$') {
+              $inSecGrp = $true; $inComp = $false; $inUser = $false; continue
+            }
+            if ($t -match '^-+$') { continue }
+            if (-not $t -or $t -match '^(The following GPOs were not applied|The computer is a part of|Following is the list)') {
+              $inComp = $false; $inUser = $false; $inSecGrp = $false; continue
+            }
+            if ($inComp -and ($compGpos -notcontains $t)) { $compGpos += $t }
+            elseif ($inUser -and ($userGpos -notcontains $t)) { $userGpos += $t }
+            elseif ($inSecGrp -and ($gpoSecGroups -notcontains $t)) { $gpoSecGroups += $t }
+          }
+        }
+      } catch {}
+
+      # Query AD group memberships via ADSI (direct memberOf + transitive tokenGroups) and net user /domain
+      if ($samName -match '^[a-zA-Z0-9._-]{1,64}$') {
+        try {
+          $searcher = New-Object System.DirectoryServices.DirectorySearcher
+          $searcher.Filter = "(&(objectCategory=person)(objectClass=user)(sAMAccountName=$samName))"
+          $null = $searcher.PropertiesToLoad.Add('memberOf')
+          $null = $searcher.PropertiesToLoad.Add('distinguishedName')
+          $res = $searcher.FindOne()
+          if ($res) {
+            foreach ($dn in @($res.Properties['memberof'])) {
+              $dnStr = To-Str $dn
+              if ($dnStr -match '^CN=([^,]+)') {
+                $cn = $Matches[1].Replace('\\,', ',').Trim()
+                if ($cn -and ($adsiGroups -notcontains $cn)) { $adsiGroups += $cn }
+              }
+            }
+            try {
+              $entry = $res.GetDirectoryEntry()
+              $entry.RefreshCache(@('tokenGroups'))
+              foreach ($sidBytes in @($entry.Properties['tokenGroups'])) {
+                try {
+                  $sidObj = New-Object System.Security.Principal.SecurityIdentifier($sidBytes, 0)
+                  $ntName = To-Str ($sidObj.Translate([System.Security.Principal.NTAccount]).Value)
+                  if ($ntName -and $ntName -notmatch '^(NT AUTHORITY|BUILTIN)\\\\') {
+                    $grpShort = ($ntName -split '\\\\')[-1].Trim()
+                    if ($grpShort -and ($adsiGroups -notcontains $grpShort)) { $adsiGroups += $grpShort }
+                  }
+                } catch {}
+              }
+            } catch {}
+          }
+        } catch {}
+
+        try {
+          $netUserRaw = (& net.exe user $samName /domain 2>&1 | Out-String).Trim()
+        } catch {}
+      }
+    } else {
+      # Standalone / Workgroup local groups for target user
+      if ($samName -match '^[a-zA-Z0-9._-]{1,64}$') {
+        try {
+          foreach ($lg in @(Get-LocalGroup -ErrorAction SilentlyContinue)) {
+            $members = @(Get-LocalGroupMember -Group $lg.Name -ErrorAction SilentlyContinue)
+            if ($members | Where-Object { ((To-Str $_.Name) -split '\\\\')[-1] -ieq $samName }) {
+              $localUserGroups += To-Str $lg.Name
+            }
+          }
+        } catch {}
+      }
+    }
+
+    if (-not $dcName -and $policyDcComp) { $dcName = $policyDcComp }
+    if (-not $dcName -and $logonServer) { $dcName = $logonServer }
+
+    $sw.Stop()
+    $out.checks['active_directory_policy'] = [PSCustomObject]@{
+      ok = $true
+      durationMs = [int]$sw.ElapsedMilliseconds
+      domainJoined = $domainJoined
+      domainName = $domainName
+      forestName = if ($forestName) { $forestName } else { $domainName }
+      entraJoined = $entraJoined
+      tenantName = $tenantName
+      targetUser = $targetUser
+      samName = $samName
+      dcName = $dcName
+      dcAddress = $dcAddress
+      dcSite = $dcSite
+      clientSite = $clientSite
+      dcServices = $dcServices
+      secureChannelOk = $secureChannelOk
+      trustMessage = $trustMessage
+      logonServer = $logonServer
+      policyDcComputer = $policyDcComp
+      policyDcUser = $policyDcUser
+      lastGpoRefresh = $lastGpoRefresh
+      computerGpos = $compGpos
+      userGpos = $userGpos
+      adsiGroups = $adsiGroups
+      gpoSecGroups = $gpoSecGroups
+      netUserRaw = $netUserRaw
+      localUserGroups = $localUserGroups
+    }
+  } catch {
+    $sw.Stop()
+    $out.checks['active_directory_policy'] = [PSCustomObject]@{ ok = $false; durationMs = [int]$sw.ElapsedMilliseconds; error = To-Str $_.Exception.Message }
+  }
+}
+
 $out | ConvertTo-Json -Depth 7 -Compress
 `;
 
@@ -15979,6 +16232,56 @@ if flags.get("top_resource_apps"):
             rows.append({"pid": int(parts[0]), "name": parts[1], "cpuPercent": float(parts[2]), "memoryPercent": float(parts[3]), "memoryMb": round(int(parts[4])/1024, 1)})
     top_ram = sorted(rows, key=lambda x: x["memoryMb"], reverse=True)[:6]
     checks["top_resource_apps"] = {"ok": True, "durationMs": int((time.time() - t0)*1000), "totalProcesses": len(rows), "topCpu": rows[:6], "topRam": top_ram}
+
+if flags.get("active_directory_policy"):
+    t0 = time.time()
+    rc_realm, realm_out = run_cmd(["realm", "list"])
+    rc_dom, dom_out = run_cmd(["dnsdomainname"])
+    dom = dom_out.strip()
+    dc_name = ""
+    if rc_realm == 0 and realm_out.strip():
+        for ln in realm_out.splitlines():
+            s = ln.strip()
+            if s.startswith("domain-name:"):
+                dom = s.split(":", 1)[1].strip()
+            elif s.startswith("realm-name:") and not dom:
+                dom = s.split(":", 1)[1].strip()
+            elif s.startswith("server-software:") or s.startswith("configured:"):
+                pass
+    ad_groups = []
+    cur_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or ""
+    if cur_user:
+        rc_grp, grp_out = run_cmd(["id", "-Gn", cur_user])
+        if rc_grp == 0 and grp_out.strip():
+            ad_groups = grp_out.strip().split()
+    checks["active_directory_policy"] = {
+        "ok": True,
+        "durationMs": int((time.time() - t0)*1000),
+        "domainJoined": bool(rc_realm == 0 and realm_out.strip()),
+        "domainName": dom or "Standalone Linux",
+        "forestName": dom,
+        "entraJoined": False,
+        "tenantName": "",
+        "targetUser": cur_user,
+        "samName": cur_user,
+        "dcName": dc_name,
+        "dcAddress": "",
+        "dcSite": "",
+        "clientSite": "",
+        "dcServices": ["SSSD / Realmd"] if (rc_realm == 0 and realm_out.strip()) else [],
+        "secureChannelOk": True if (rc_realm == 0 and realm_out.strip()) else None,
+        "trustMessage": "",
+        "logonServer": "",
+        "policyDcComputer": "",
+        "policyDcUser": "",
+        "lastGpoRefresh": "",
+        "computerGpos": [],
+        "userGpos": [],
+        "adsiGroups": ad_groups,
+        "gpoSecGroups": [],
+        "netUserRaw": "",
+        "localUserGroups": ad_groups if not (rc_realm == 0 and realm_out.strip()) else [],
+    }
 
 print(json.dumps({"hostname": hostname, "osName": os_name, "loggedInUser": "", "checks": checks}))
 PY`;
@@ -16661,6 +16964,234 @@ PY`;
         ],
         durationMs,
         jumpTarget,
+      });
+    } else if (id === 'active_directory_policy') {
+      const domainJoined = Boolean(raw.domainJoined);
+      const domainName = String(raw.domainName || '').trim();
+      const forestName = String(raw.forestName || '').trim();
+      const entraJoined = Boolean(raw.entraJoined);
+      const tenantName = String(raw.tenantName || '').trim();
+      const targetUser = String(raw.targetUser || '').trim();
+      const samName = String(raw.samName || '').trim();
+      const dcName = String(raw.dcName || '').trim();
+      const dcAddress = String(raw.dcAddress || '').trim();
+      const dcSite = String(raw.dcSite || '').trim();
+      const clientSite = String(raw.clientSite || '').trim();
+      const dcServices: string[] = Array.isArray(raw.dcServices) ? raw.dcServices.map(String).filter(Boolean) : [];
+      const secureChannelOk: boolean | null =
+        typeof raw.secureChannelOk === 'boolean' ? raw.secureChannelOk : null;
+      const trustMessage = String(raw.trustMessage || '').trim();
+      const policyDc = String(raw.policyDcUser || raw.policyDcComputer || dcName || '').trim();
+      const lastGpoRefresh = String(raw.lastGpoRefresh || '').trim();
+      const compGpos: string[] = Array.isArray(raw.computerGpos) ? raw.computerGpos.map(String).filter(Boolean) : [];
+      const userGpos: string[] = Array.isArray(raw.userGpos) ? raw.userGpos.map(String).filter(Boolean) : [];
+      const allGpos = Array.from(new Set([...compGpos, ...userGpos]));
+
+      const netUserRaw = String(raw.netUserRaw || '');
+      const parseNetGroups = (startLabel: string, stopLabels: string[]): string[] => {
+        const lines = netUserRaw.split(/\r?\n/);
+        const grps: string[] = [];
+        let cap = false;
+        for (const ln of lines) {
+          if (!cap) {
+            if (new RegExp(`^${startLabel}`, 'i').test(ln)) {
+              cap = true;
+              const rest = ln.replace(new RegExp(`^${startLabel}`, 'i'), '').trim();
+              const ms = rest.match(/\*([^*]+)/g);
+              if (ms) ms.forEach((m) => grps.push(m.replace(/^\*/, '').trim()));
+            }
+          } else {
+            if (
+              !ln.trim() ||
+              stopLabels.some((lbl) => new RegExp(`^${lbl}`, 'i').test(ln)) ||
+              /command completed successfully/i.test(ln)
+            ) {
+              break;
+            }
+            const ms = ln.match(/\*([^*]+)/g);
+            if (ms) ms.forEach((m) => grps.push(m.replace(/^\*/, '').trim()));
+          }
+        }
+        return grps.filter((g) => g && !/^none$/i.test(g));
+      };
+
+      const netGlobalGroups = parseNetGroups('Global Group memberships', ['The command completed']);
+      const netLocalGroups = parseNetGroups('Local Group Memberships', ['Global Group memberships']);
+      const adsiGroups: string[] = Array.isArray(raw.adsiGroups) ? raw.adsiGroups.map(String).filter(Boolean) : [];
+      const gpoSecGroups: string[] = Array.isArray(raw.gpoSecGroups)
+        ? raw.gpoSecGroups
+            .map(String)
+            .filter(
+              (g) =>
+                g &&
+                !/^(Everyone|BUILTIN\\|NT AUTHORITY\\|Mandatory Label\\|Local account|Console Logon|This Organization|Authentication authority|NTLM Authentication|High Mandatory Level|Medium Mandatory Level)/i.test(
+                  g
+                )
+            )
+            .map((g) => (g.includes('\\') ? g.split('\\').pop() || g : g))
+        : [];
+      const localUserGroups: string[] = Array.isArray(raw.localUserGroups)
+        ? raw.localUserGroups.map(String).filter(Boolean)
+        : [];
+
+      const adGroups = Array.from(new Set([...adsiGroups, ...netGlobalGroups, ...gpoSecGroups]));
+      const localGroups = Array.from(new Set([...netLocalGroups, ...localUserGroups]));
+
+      let status: 'pass' | 'warn' | 'fail' | 'info' = 'info';
+      if (domainJoined) {
+        if (secureChannelOk === false || (!dcName && !policyDc)) status = 'warn';
+        else status = 'pass';
+      }
+
+      const servicesStr = dcServices.length > 0 ? dcServices.join(', ') : domainJoined ? 'AD DS / GPO' : '-';
+
+      const highlights: HelpdeskDiagnosticHighlight[] = [];
+      if (domainJoined) {
+        highlights.push({
+          primary: `AD Domain: ${domainName}${forestName && forestName !== domainName ? ` (Forest: ${forestName})` : ''}`,
+          secondary: `DC: ${dcName || 'Not resolved'}${dcAddress ? ` (${dcAddress})` : ''} · Site: ${clientSite || dcSite || '-'} · Services: ${servicesStr}`,
+          badge:
+            secureChannelOk === true
+              ? 'DC & Trust OK'
+              : secureChannelOk === false
+              ? 'Trust Broken'
+              : dcName
+              ? 'DC Active'
+              : 'DC Unreachable',
+          badgeTone: secureChannelOk === false || !dcName ? 'warn' : 'ok',
+        });
+        highlights.push({
+          primary: `Policy Server (GPO DC): ${policyDc || dcName || 'Cached / Unknown'}`,
+          secondary: `${compGpos.length} Computer GPO(s) · ${userGpos.length} User GPO(s)${lastGpoRefresh ? ` · Last Refresh: ${lastGpoRefresh}` : ''}`,
+          badge: `${allGpos.length} GPOs`,
+          badgeTone: allGpos.length > 0 ? 'ok' : 'info',
+        });
+        if (entraJoined) {
+          highlights.push({
+            primary: `Hybrid Entra ID / Azure AD Connected`,
+            secondary: tenantName ? `Tenant: ${tenantName}` : 'Device is Entra ID + On-Prem AD joined',
+            badge: 'Hybrid Joined',
+            badgeTone: 'info',
+          });
+        }
+      } else {
+        highlights.push({
+          primary: `${entraJoined ? 'Microsoft Entra ID Joined (Cloud)' : `Workgroup: ${domainName || 'WORKGROUP'}`}`,
+          secondary: entraJoined
+            ? `Tenant: ${tenantName || 'Cloud Entra'} · No on-premises Active Directory DC`
+            : 'Endpoint is standalone / workgroup and does not pull on-premises AD Group Policy.',
+          badge: entraJoined ? 'Entra ID' : 'Workgroup',
+          badgeTone: 'info',
+        });
+      }
+
+      if (trustMessage && secureChannelOk === false) {
+        highlights.push({
+          primary: 'AD Secure Channel Warning',
+          secondary: trustMessage,
+          badge: 'Verify Trust',
+          badgeTone: 'warn',
+        });
+      }
+
+      const tagSections: HelpdeskDiagnosticTagSection[] = [];
+      if (adGroups.length > 0) {
+        tagSections.push({
+          titleEn: `Active Directory Groups for "${targetUser || samName || 'User'}" (${adGroups.length})`,
+          titleFa: `گروه‌های اکتیو دایرکتوری کاربر «${targetUser || samName || 'User'}» (${adGroups.length} گروه)`,
+          tone: 'ok',
+          items: adGroups,
+        });
+      }
+      if (localGroups.length > 0) {
+        tagSections.push({
+          titleEn: `Local Security Groups (${localGroups.length})`,
+          titleFa: `گروه‌های محلی سیستم (${localGroups.length})`,
+          tone: 'info',
+          items: localGroups,
+        });
+      }
+      if (allGpos.length > 0) {
+        tagSections.push({
+          titleEn: `Applied Group Policy Objects (${allGpos.length})`,
+          titleFa: `پالیسی‌های اعمال‌شده از اکتیودایرکتوری / GPO (${allGpos.length})`,
+          tone: 'info',
+          items: allGpos,
+        });
+      }
+
+      results.push({
+        id,
+        category: 'system_storage',
+        titleEn: 'Active Directory, Connected DC, GPO Policies & User Groups',
+        titleFa: 'اتصال اکتیو دایرکتوری، سرور پالیسی (GPO) و گروه‌های کاربری',
+        status,
+        statusLabelEn: !domainJoined
+          ? entraJoined
+            ? 'Entra ID Only'
+            : 'Workgroup'
+          : status === 'pass'
+          ? 'AD & Policy Active'
+          : 'DC / Trust Warning',
+        statusLabelFa: !domainJoined
+          ? entraJoined
+            ? 'متصل به Entra ID'
+            : 'Workgroup (خارج دامین)'
+          : status === 'pass'
+          ? 'متصل به دامین و پالیسی'
+          : 'هشدار ارتباط DC / دامین',
+        summaryEn: domainJoined
+          ? `Connected to AD domain "${domainName}" via DC "${dcName || 'Unknown'}"${dcAddress ? ` (${dcAddress})` : ''} · Policy applied from "${policyDc || dcName || '-'}" (${allGpos.length} GPOs) · User "${targetUser || samName || '-'}" belongs to ${adGroups.length} AD group(s).`
+          : `Endpoint is in ${entraJoined ? `Entra ID (${tenantName || 'Cloud'})` : `Workgroup (${domainName || 'WORKGROUP'})`} — not connected to an on-premises Active Directory domain.`,
+        summaryFa: domainJoined
+          ? `متصل به اکتیو دایرکتوری «${domainName}» از طریق سرور DC «${dcName || 'نامشخص'}»${dcAddress ? ` (${dcAddress})` : ''} · دریافت پالیسی از «${policyDc || dcName || '-'}» (${allGpos.length} پالیسی GPO) · کاربر «${targetUser || samName || '-'}» عضو ${adGroups.length} گروه اکتیودایرکتوری است.`
+          : `این سیستم در حالت ${entraJoined ? `Entra ID (${tenantName || 'ابری'})` : `Workgroup (${domainName || 'WORKGROUP'})`} قرار دارد و به اکتیو دایرکتوری سازمانی متصل نیست.`,
+        recommendationEn: domainJoined
+          ? status === 'pass'
+            ? 'Inspect or force-refresh policies in GPO Manager, or look up full AD account lockout/expiry details in Domain Account Inspector.'
+            : 'Verify DNS points to your Active Directory DC and run gpupdate /force in the GPO panel.'
+          : 'No on-premises AD GPO applies in Workgroup mode.',
+        recommendationFa: domainJoined
+          ? status === 'pass'
+            ? 'برای رفرش آنی پالیسی‌ها به بخش GPO و برای بررسی انقضای رمز و قفل اکانت به بخش اکانت دامین بروید.'
+            : 'تنظیم بودن DNS روی آدرس Domain Controller را بررسی و در بخش GPO دستور gpupdate را اجرا کنید.'
+          : 'در حالت Workgroup پالیسی اکتیو دایرکتوری اعمال نمی‌شود.',
+        metrics: [
+          {
+            labelEn: 'AD Domain',
+            labelFa: 'دامین اکتیودایرکتوری',
+            value: domainName || 'Workgroup',
+            tone: domainJoined ? 'ok' : 'info',
+          },
+          {
+            labelEn: 'Domain Controller',
+            labelFa: 'سرور DC متصل',
+            value: dcName ? (dcAddress ? `${dcName} (${dcAddress})` : dcName) : domainJoined ? 'Unresolved' : 'N/A',
+            tone: domainJoined ? (dcName && secureChannelOk !== false ? 'ok' : 'warn') : 'info',
+          },
+          {
+            labelEn: 'Applied Policies',
+            labelFa: 'پالیسی‌های GPO',
+            value: domainJoined ? `${allGpos.length} GPOs` : 'None',
+            tone: domainJoined && allGpos.length > 0 ? 'ok' : 'info',
+          },
+          {
+            labelEn: 'User AD Groups',
+            labelFa: 'گروه‌های AD کاربر',
+            value: domainJoined ? `${adGroups.length} Groups` : `${localGroups.length} Local`,
+            tone: domainJoined && adGroups.length > 0 ? 'ok' : 'info',
+          },
+        ],
+        highlights,
+        tagSections,
+        durationMs,
+        jumpTarget,
+        secondaryJumpTarget: {
+          tab: 'hardware_domain',
+          sectionId: 'hd-section-domain-account',
+          labelEn: 'AD User & Groups',
+          labelFa: 'اکانت و گروه‌های دامین',
+        },
       });
     }
   }

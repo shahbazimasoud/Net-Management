@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.473.1';
+export const APP_VERSION = '1.474.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.474.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'افزودن بررسی اتصال اکتیودایرکتوری (DC)، سرور پالیسی (GPO) و لیست گروه‌های AD کاربر در تب دیاگنوستیگ HelpDesk',
+    title_en: 'Add Active Directory Domain, Connected DC Services, Applied GPO Policies & User AD Group Memberships to Diagnostics',
+    changes: [
+      'افزودن بررسی جدید **«اتصال اکتیو دایرکتوری، سرور پالیسی (GPO) و گروه‌های کاربری» (`active_directory_policy`)** به مودال و تب **Diagnostics** (با تیک پیش‌فرض در لیست ۱۴ تست دیاگنوستیگ).',
+      'نمایش نام دامین/فارست اکتیو دایرکتوری، سرور **Domain Controller** متصل و آدرس IP و Site آن (`nltest /dsgetdc`)، سرویس‌های فعال DC (`GC`، `KDC`، `TIMESERV`، `DS`) و وضعیت سلامت Trust (`nltest /sc_query`).',
+      'نمایش **سرور ارائه‌دهنده پالیسی (`GPO DC`)**، زمان آخرین رفرش GPO و فهرست کامل **پالیسی‌های اعمال‌شده کامپیوتر و کاربر (`Computer & User GPOs`)** به همراه لیست تگ‌شده تمامی **گروه‌های اکتیو دایرکتوری (`AD Groups`)** که کاربر فعال سیستم در آن عضو است (با خوانش ترکیبی `ADSI memberOf/tokenGroups`، `net user /domain` و `gpresult`).',
+      'افزودن **دو دکمه پرش مستقیم** روی کارت اکتیو دایرکتوری برای ورود آنی به **مدیریت GPO و اجرای `gpupdate`** و همچنین **استعلام اکانت و گروه‌های دامین**.'
+    ],
+    changes_en: [
+      'Added a new **Active Directory, Connected DC, GPO Policies & User Groups (`active_directory_policy`)** check to the HelpDesk **Diagnostics** suite (now 14 pre-checked tests).',
+      'Displays the joined AD domain & forest (or Entra ID / Workgroup state), active **Domain Controller** hostname/IP/Site (`nltest /dsgetdc`), advertised DC services (`GC`, `KDC`, `TIMESERV`, `DS`), and secure-channel trust status (`nltest /sc_query`).',
+      'Shows the **Policy DC server**, last GPO refresh timestamp, full wrapped list of **Applied Computer & User GPO Policies**, and complete **Active Directory Group Memberships** for the active user (collected cleanly via Registry GP State, ADSI `memberOf`/`tokenGroups`, `net user /domain`, and `gpresult`).',
+      'Added dual deep-link jump buttons directly on the card to open **GPO & Policy Manager** (`gpupdate /force`) and **AD User & Groups** (`Domain Account Inspector`).'
+    ],
+  },
   {
     version: '1.473.1',
     releaseDate: '2026-11-24',

@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { DIAGNOSTIC_CHECK_CATALOG } from './DiagnosticsConfigModal';
-import { HelpdeskDiagnosticCheckId } from '../../services/api';
+import { ALL_HELPDESK_DIAGNOSTIC_CHECKS, HelpdeskDiagnosticCheckId } from '../../services/api';
 import { HelpdeskSubTab } from '../../services/helpdeskRamSession';
 
 interface DiagnosticsTabProps {
@@ -87,6 +87,7 @@ export const DiagnosticsTab: React.FC<DiagnosticsTabProps> = ({
       'Summary',
       'Recommendation',
       'Metrics',
+      'Groups & Policies',
       'Duration (ms)',
     ];
     const rows = checks.map((c) => [
@@ -97,6 +98,9 @@ export const DiagnosticsTab: React.FC<DiagnosticsTabProps> = ({
       isEn ? c.summaryEn : c.summaryFa,
       isEn ? c.recommendationEn : c.recommendationFa,
       (c.metrics || []).map((m: any) => `${isEn ? m.labelEn : m.labelFa}: ${m.value}`).join(' | '),
+      (c.tagSections || [])
+        .map((ts: any) => `${isEn ? ts.titleEn : ts.titleFa}: ${(ts.items || []).join(', ')}`)
+        .join(' || '),
       c.durationMs,
     ]);
     const csv = '\uFEFF' + [headers.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\n');
@@ -137,8 +141,8 @@ export const DiagnosticsTab: React.FC<DiagnosticsTabProps> = ({
                   title={isEn ? 'Endpoint Diagnostics' : 'دیاگنوستیگ هوشمند'}
                   whatIsIt={
                     isEn
-                      ? 'Runs 13 customizable live checks (IP/DNS, Gateway, Link Speed, Routes, Proxy, Internet, VPN, OS Drive/Temp/Recycle Bin, Windows Integrity, Last Update, Drivers, CPU/RAM, Top Apps) and gives one-click jump buttons to fix each finding.'
-                      : '۱۳ بررسی کلیدی شامل شبکه، اینترنت، پروکسی، VPN، فضای درایو C و سطل زباله، سلامت فایل‌های ویندوز، تاریخ آخرین آپدیت، درایورها، CPU/RAM و برنامه‌های پرمصرف را به‌صورت یکجا اجرا می‌کند.'
+                      ? `Runs ${ALL_HELPDESK_DIAGNOSTIC_CHECKS.length} customizable live checks (IP/DNS, Gateway, Link Speed, Routes, Proxy, Internet, VPN, OS Drive/Temp/Recycle Bin, Windows Integrity, Last Update, Active Directory & GPO/Groups, Drivers, CPU/RAM, Top Apps) and gives one-click jump buttons to fix each finding.`
+                      : `${ALL_HELPDESK_DIAGNOSTIC_CHECKS.length} بررسی کلیدی شامل شبکه، اینترنت، پروکسی، VPN، اکتیودایرکتوری و پالیسی/گروه‌ها، فضای درایو C و سطل زباله، سلامت ویندوز، آخرین آپدیت، درایورها، CPU/RAM و برنامه‌های پرمصرف را به‌صورت یکجا اجرا می‌کند.`
                   }
                   whyNeeded={
                     isEn
@@ -156,8 +160,8 @@ export const DiagnosticsTab: React.FC<DiagnosticsTabProps> = ({
               </div>
               <p className={`text-xs mt-0.5 ${textMuted}`}>
                 {isEn
-                  ? `${selectedChecks.length} of 13 diagnostic checks active · Click "Start Diagnostics" to customize checks and inspect the endpoint.`
-                  : `${selectedChecks.length} از ۱۳ بررسی انتخاب شده · با زدن «شروع دیاگنوستیک» می‌توانید موارد بررسی را کم یا زیاد کرده و اسکن را اجرا کنید.`}
+                  ? `${selectedChecks.length} of ${ALL_HELPDESK_DIAGNOSTIC_CHECKS.length} diagnostic checks active · Click "Start Diagnostics" to customize checks and inspect the endpoint.`
+                  : `${selectedChecks.length} از ${ALL_HELPDESK_DIAGNOSTIC_CHECKS.length} بررسی انتخاب شده · با زدن «شروع دیاگنوستیک» می‌توانید موارد بررسی را کم یا زیاد کرده و اسکن را اجرا کنید.`}
               </p>
             </div>
           </div>
@@ -263,8 +267,8 @@ export const DiagnosticsTab: React.FC<DiagnosticsTabProps> = ({
             </h3>
             <p className={`text-xs leading-relaxed ${textMuted}`}>
               {isEn
-                ? 'Click "Start Diagnostics" to review all 13 pre-selected checks (customize checkboxes as needed) and run a comprehensive live diagnosis with direct fix shortcuts to every HelpDesk module.'
-                : 'روی «شروع دیاگنوستیک» کلیک کنید تا پنجره انتخاب موارد (که همگی به صورت پیش‌فرض تیک خورده‌اند) باز شود. پس از اجرا، وضعیت هر بخش با جزئیات دقیق و دکمه ورود مستقیم به قسمت رفع مشکل نمایش داده می‌شود.'}
+                ? `Click "Start Diagnostics" to review all ${ALL_HELPDESK_DIAGNOSTIC_CHECKS.length} pre-selected checks (customize checkboxes as needed) and run a comprehensive live diagnosis with direct fix shortcuts to every HelpDesk module.`
+                : `روی «شروع دیاگنوستیک» کلیک کنید تا پنجره انتخاب موارد (که همگی به صورت پیش‌فرض تیک خورده‌اند) باز شود. پس از اجرا، وضعیت هر بخش با جزئیات دقیق و دکمه ورود مستقیم به قسمت رفع مشکل نمایش داده می‌شود.`}
             </p>
           </div>
           <button
@@ -373,7 +377,7 @@ export const DiagnosticsTab: React.FC<DiagnosticsTabProps> = ({
               {[
                 { id: 'all' as const, en: 'All Categories', fa: 'همه بخش‌ها', icon: Stethoscope },
                 { id: 'network' as const, en: 'Network & VPN', fa: 'شبکه و VPN', icon: Network },
-                { id: 'system_storage' as const, en: 'Storage, OS & Updates', fa: 'دیسک، ویندوز و آپدیت', icon: HardDrive },
+                { id: 'system_storage' as const, en: 'OS, AD/GPO, Disk & Updates', fa: 'ویندوز، دامین/GPO، دیسک و آپدیت', icon: HardDrive },
                 { id: 'hardware_perf' as const, en: 'Drivers & Performance', fa: 'درایورها و منابع', icon: Cpu },
               ].map((cat) => {
                 const CatIcon = cat.icon;
@@ -546,9 +550,41 @@ export const DiagnosticsTab: React.FC<DiagnosticsTabProps> = ({
                           ))}
                         </div>
                       )}
+                      {/* Tag Sections (e.g. Active Directory Groups & Applied GPO Policies) */}
+                      {Array.isArray(chk.tagSections) && chk.tagSections.length > 0 && (
+                        <div className="space-y-2.5">
+                          {chk.tagSections.map((ts: any, tIdx: number) => (
+                            <div key={tIdx} className={`rounded-xl border p-3 space-y-2 min-w-0 ${subSurfaceBg}`}>
+                              <div className={`text-[11px] font-bold ${textPrimary}`}>
+                                {isEn ? ts.titleEn : ts.titleFa}
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {(Array.isArray(ts.items) ? ts.items : []).map((tag: string, gIdx: number) => (
+                                  <span
+                                    key={gIdx}
+                                    dir="ltr"
+                                    title={tag}
+                                    className={`px-2 py-0.5 rounded-md border text-[11px] font-mono font-medium max-w-full truncate ${
+                                      ts.tone === 'ok'
+                                        ? isLightMode
+                                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                          : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                                        : isLightMode
+                                        ? 'bg-sky-50 border-sky-200 text-sky-800'
+                                        : 'bg-sky-500/10 border-sky-500/30 text-sky-300'
+                                    }`}
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
-                    {/* Footer: Troubleshooting Advice + Exact Tab/Section Jump Button */}
+                    {/* Footer: Troubleshooting Advice + Exact Tab/Section Jump Buttons */}
                     <div
                       className={`pt-3 border-t flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 min-w-0 ${
                         isLightMode ? 'border-slate-200' : 'border-slate-800'
@@ -557,22 +593,40 @@ export const DiagnosticsTab: React.FC<DiagnosticsTabProps> = ({
                       <p className={`text-[11px] leading-relaxed break-words min-w-0 flex-1 ${textMuted}`}>
                         {isEn ? chk.recommendationEn : chk.recommendationFa}
                       </p>
-                      {chk.jumpTarget && (
-                        <button
-                          type="button"
-                          onClick={() => onJumpToSection(chk.jumpTarget.tab, chk.jumpTarget.sectionId)}
-                          className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition shrink-0 cursor-pointer ${
-                            chk.status === 'fail' || chk.status === 'warn'
-                              ? 'bg-sky-600 hover:bg-sky-500 text-white shadow-xs'
-                              : isLightMode
-                              ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
-                              : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'
-                          }`}
-                        >
-                          <span>{isEn ? chk.jumpTarget.labelEn : chk.jumpTarget.labelFa}</span>
-                          <JumpArrow className="w-3.5 h-3.5 shrink-0" />
-                        </button>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {chk.secondaryJumpTarget && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onJumpToSection(chk.secondaryJumpTarget.tab, chk.secondaryJumpTarget.sectionId)
+                            }
+                            className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition shrink-0 cursor-pointer border ${
+                              isLightMode
+                                ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700'
+                            }`}
+                          >
+                            <span>{isEn ? chk.secondaryJumpTarget.labelEn : chk.secondaryJumpTarget.labelFa}</span>
+                            <JumpArrow className="w-3.5 h-3.5 shrink-0" />
+                          </button>
+                        )}
+                        {chk.jumpTarget && (
+                          <button
+                            type="button"
+                            onClick={() => onJumpToSection(chk.jumpTarget.tab, chk.jumpTarget.sectionId)}
+                            className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition shrink-0 cursor-pointer ${
+                              chk.status === 'fail' || chk.status === 'warn'
+                                ? 'bg-sky-600 hover:bg-sky-500 text-white shadow-xs'
+                                : isLightMode
+                                ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700'
+                            }`}
+                          >
+                            <span>{isEn ? chk.jumpTarget.labelEn : chk.jumpTarget.labelFa}</span>
+                            <JumpArrow className="w-3.5 h-3.5 shrink-0" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
