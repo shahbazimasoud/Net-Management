@@ -124,6 +124,9 @@ import {
   verifyHelpdeskTargetNotBlocked,
   inspectEndpointIdentityForExceptions,
   clearHelpdeskExceptionIdentityCache,
+  collectEndpointUserProfiles,
+  manageEndpointUserProfile,
+  HelpdeskProfileActionType,
 } from './helpdeskService';
 import {
   inspectTargetDomainUser,
@@ -9645,6 +9648,158 @@ apiRouter.post('/helpdesk/printers/test-print', async (req: Request, res: Respon
       metadata: { printerName },
     });
     return res.status(/invalid|blocked|required|not found/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/profiles/list - Inspect All Endpoint User Profiles, Disk Footprint & Status
+apiRouter.post('/helpdesk/profiles/list', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await collectEndpointUserProfiles(target);
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_user_profiles_inspect',
+      title: `بررسی پروفایل‌های کاربری و حجم دیسک روی ${data.targetIp}`,
+      title_en: `HelpDesk User Profiles & Disk Usage Scan on ${data.targetIp}`,
+      description: `${data.profiles.length} پروفایل روی ${data.hostname} با مجموع حجم ${(data.totalProfilesSizeMb / 1024).toFixed(2)} GB شناسایی شد.`,
+      description_en: `Discovered ${data.profiles.length} user profile(s) on ${data.hostname} consuming ${(data.totalProfilesSizeMb / 1024).toFixed(2)} GB total.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.hostname || data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        profilesCount: data.profiles.length,
+        totalProfilesSizeMb: data.totalProfilesSizeMb,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to inspect endpoint user profiles');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_user_profiles_inspect_failed',
+      title: `خطا در بررسی پروفایل‌های کاربری روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk User Profiles Inspection Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/profiles/action - Manage User Profile (Clean Temp, Repair .bak, Unload Hive, or Safe Delete)
+apiRouter.post('/helpdesk/profiles/action', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const action = String(req.body?.action || '').trim() as HelpdeskProfileActionType;
+  const profileSid = String(req.body?.profileSid || '').trim();
+  const profileUsername = req.body?.profileUsername ? String(req.body.profileUsername).trim() : undefined;
+
+  const actionRateMap: Record<HelpdeskProfileActionType, HelpdeskWriteAction> = {
+    clean_temp: 'profile_temp_clean',
+    delete_profile: 'profile_delete',
+    repair_bak: 'profile_bak_repair',
+    unload_hive: 'profile_unload_hive',
+  };
+  if (!Object.prototype.hasOwnProperty.call(actionRateMap, action)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Unsupported user profile management action.',
+      errorFa: 'عملیات مدیریت پروفایل کاربری نامعتبر است.',
+    });
+  }
+  if (!profileSid) {
+    return res.status(400).json({
+      success: false,
+      error: 'Profile SID or username identifier is required.',
+      errorFa: 'شناسه SID یا نام پروفایل کاربری الزامی است.',
+    });
+  }
+
+  const rlAction = actionRateMap[action];
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rlAction);
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: target.targetIp,
+      actionName: rlAction,
+      rl,
+    });
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await manageEndpointUserProfile({
+      ...target,
+      action,
+      profileSid,
+      profileUsername,
+    });
+    await addPortalAuditLog({
+      category: 'system',
+      action: `helpdesk_profile_${action}`,
+      title: `مدیریت پروفایل کاربر ${data.profileUsername} روی ${data.targetIp}`,
+      title_en: `HelpDesk Profile Action (${action}): ${data.profileUsername} on ${data.targetIp}`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: action === 'delete_profile' ? 'warning' : 'info',
+      targetName: data.targetIp,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: data.targetIp,
+        action,
+        profileSid: data.profileSid,
+        profileUsername: data.profileUsername,
+        freedMb: data.freedMb,
+        deletedFiles: data.deletedFiles,
+      },
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to execute user profile action');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: `helpdesk_profile_${action}_failed`,
+      title: `خطا در مدیریت پروفایل ${profileUsername || profileSid} روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Profile Action Failed (${action}): ${profileUsername || profileSid}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { action, profileSid },
+    });
+    return res.status(/invalid|blocked|required|refused|cannot/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
       errorFa: msg,

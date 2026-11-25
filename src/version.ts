@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.485.1';
+export const APP_VERSION = '1.486.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.486.0',
+    releaseDate: '2026-11-25',
+    type: 'minor',
+    title: 'افزودن تب جدید یوزر پروفایل (User Profiles) در هلپ‌دسک جهت مشاهده حجم دقیق هر پروفایل و مدیریت کامل پروفایل‌های سیستم',
+    title_en: 'Add Workstation User Profiles Tab in HelpDesk with Live Storage Breakdown and Safe Profile Management',
+    changes: [
+      'افزودن تب اختصاصی «یوزر پروفایل» (`User Profiles`) در هلپ‌دسک جهت پایش زنده تمامی پروفایل‌های کاربری (دامینی، محلی و پوشه‌های رهاشده بدون کلید رجیستری) در ویندوز و لینوکس.',
+      'محاسبه واقعی و بدون شمارش تکراری حجم کل هر پروفایل به همراه تفکیک دقیق پوشه‌های `Desktop`، `Documents`، `Downloads`، `AppData` و حجم `Temp`/کش قابل آزادسازی و فایل `NTUSER.DAT`.',
+      'امکان مدیریت کامل پروفایل‌ها: پاک‌سازی ایمن فایل‌های Temp و کش مرورگر هر پروفایل، تعمیر کلیدهای خراب `.bak` (پروفایل موقت ویندوز)، آزادسازی هایو قفل‌شده (`Unload Hive`)، و حذف ایمن پروفایل‌های بلااستفاده با محافظت خودکار از کاربر فعال و خروجی CSV/JSON.'
+    ],
+    changes_en: [
+      'Added dedicated `User Profiles` workspace tab in Agentless Endpoint HelpDesk to enumerate all Windows Registry `ProfileList` / Linux home user profiles and orphaned profile directories.',
+      'Computes accurate per-profile disk usage (safely skipping NTFS reparse points/symlinks) with visual distribution bars and breakdown across `Desktop`, `Documents`, `Downloads`, `AppData`, `NTUSER.DAT`, and reclaimable temp/browser cache.',
+      'Added safe profile management actions (`clean_temp`, `.bak` temporary-profile registry repair, stuck hive `unload_hive`, and protected 2-step `delete_profile`) plus CSV and JSON exports.'
+    ]
+  },
   {
     version: '1.485.1',
     releaseDate: '2026-11-25',

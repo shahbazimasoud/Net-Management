@@ -90,7 +90,11 @@ export type HelpdeskWriteAction =
   | 'msconfig_update'
   | 'env_var_set'
   | 'env_var_delete'
-  | 'ad_user_unlock';
+  | 'ad_user_unlock'
+  | 'profile_temp_clean'
+  | 'profile_delete'
+  | 'profile_bak_repair'
+  | 'profile_unload_hive';
 
 export type HelpdeskProcessCategory =
   | 'user_app'
@@ -21828,6 +21832,1037 @@ PY`;
     skippedCount: Number(meta.skippedCount || 0),
   };
 }
+
+// ============================================================================
+// 24. USER PROFILES INVENTORY & MANAGEMENT (WINDOWS & LINUX)
+// ============================================================================
+
+export type HelpdeskProfileActionType =
+  | 'clean_temp'
+  | 'delete_profile'
+  | 'repair_bak'
+  | 'unload_hive';
+
+export interface HelpdeskUserProfileFolderBreakdown {
+  key: 'desktop' | 'documents' | 'downloads' | 'appdata' | 'temp' | 'media_other';
+  labelEn: string;
+  labelFa: string;
+  sizeBytes: number;
+  sizeMb: number;
+}
+
+export interface HelpdeskUserProfileItem {
+  id: string;
+  username: string;
+  shortName: string;
+  sid: string;
+  accountType: 'domain' | 'local' | 'system' | 'orphan';
+  profilePath: string;
+  pathExists: boolean;
+  isLoaded: boolean;
+  isActiveLoggedIn: boolean;
+  isCurrentSessionUser: boolean;
+  isProtected: boolean;
+  protectionReasonEn: string;
+  protectionReasonFa: string;
+  statusCode: 'healthy' | 'loaded' | 'temp_profile' | 'bak_corrupt' | 'orphan_folder' | 'missing_folder' | 'roaming';
+  roamingConfigured: boolean;
+  roamingPath: string;
+  hasBakRegistryKey: boolean;
+  isTemporaryProfile: boolean;
+  lastUseTime: string | null;
+  ntUserDatSizeMb: number | null;
+  sizeBytes: number;
+  sizeMb: number;
+  reclaimableTempBytes: number;
+  reclaimableTempMb: number;
+  fileCount: number;
+  folders: HelpdeskUserProfileFolderBreakdown[];
+  shell?: string;
+  uid?: number;
+}
+
+export interface HelpdeskUserProfilesResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  domain: string;
+  loggedInUser: string;
+  osDriveFreeGb: number;
+  osDriveTotalGb: number;
+  totalProfilesSizeBytes: number;
+  totalProfilesSizeMb: number;
+  totalReclaimableTempMb: number;
+  profiles: HelpdeskUserProfileItem[];
+  collectedAt: string;
+}
+
+export interface HelpdeskUserProfileActionResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  action: HelpdeskProfileActionType;
+  profileSid: string;
+  profileUsername: string;
+  success: boolean;
+  deletedFiles?: number;
+  freedMb?: number;
+  skippedLockedFiles?: number;
+  message: string;
+  messageFa: string;
+  rawOutput?: string;
+  executedAt: string;
+}
+
+function validateProfileActionTarget(
+  rawSidOrId: unknown,
+  osFamily: 'windows' | 'linux'
+): { normalizedId: string; isOrphan: boolean; orphanFolderName: string } {
+  const raw = String(rawSidOrId || '').trim();
+  if (!raw || raw.length > 160 || /[\r\n\0"`$|;&<>]/.test(raw)) {
+    throw new Error('Invalid profile identifier.');
+  }
+  if (raw.startsWith('orphan:')) {
+    const folder = raw.slice('orphan:'.length).trim();
+    if (
+      !folder ||
+      folder === '.' ||
+      folder === '..' ||
+      /[/\\]/.test(folder) ||
+      !/^[A-Za-z0-9._ -]{1,80}$/.test(folder)
+    ) {
+      throw new Error('Invalid orphan profile folder name.');
+    }
+    const lower = folder.toLowerCase();
+    if (['public', 'default', 'default user', 'all users', 'desktop.ini', 'root', 'lost+found'].includes(lower)) {
+      throw new Error('Protected system directory cannot be targeted.');
+    }
+    return { normalizedId: `orphan:${folder}`, isOrphan: true, orphanFolderName: folder };
+  }
+  if (osFamily === 'windows') {
+    if (!/^S-1-5-21-[0-9-]{6,120}(?:\.bak)?$/i.test(raw)) {
+      throw new Error('Invalid Windows user profile SID format.');
+    }
+    return { normalizedId: raw, isOrphan: false, orphanFolderName: '' };
+  }
+  if (!/^[a-z_][a-z0-9_.-]{0,63}$/i.test(raw)) {
+    throw new Error('Invalid Linux user profile username.');
+  }
+  return { normalizedId: raw, isOrphan: false, orphanFolderName: '' };
+}
+
+export async function collectEndpointUserProfiles(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskUserProfilesResult> {
+  const sessionUserLower = String(input.username || '').trim().toLowerCase();
+  const sessionShortLower = sessionUserLower.replace(/^.*\\/, '').split('@')[0];
+
+  const winPs = `
+$ErrorActionPreference = 'SilentlyContinue'
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+$cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+$compName = if ($cs -and $cs.Name) { [string]$cs.Name } else { [string]$env:COMPUTERNAME }
+$domName = if ($cs -and $cs.Domain) { [string]$cs.Domain } else { '' }
+$partOfDom = if ($cs) { [bool]$cs.PartOfDomain } else { $false }
+
+$sysDrive = if ($env:SystemDrive) { [string]$env:SystemDrive } else { 'C:' }
+$osFreeGb = 0.0; $osTotGb = 0.0
+try {
+  $ld = Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='" + $sysDrive + "'") -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($ld -and $ld.Size -gt 0) {
+    $osTotGb = [math]::Round(($ld.Size / 1GB), 2)
+    $osFreeGb = [math]::Round(($ld.FreeSpace / 1GB), 2)
+  }
+} catch {}
+
+function Get-SafeDirStats([string]$rootPath) {
+  $res = @{ bytes = [int64]0; files = [int64]0 }
+  if (-not $rootPath -or -not (Test-Path -LiteralPath $rootPath)) { return $res }
+  $stack = New-Object System.Collections.Generic.Stack[System.IO.DirectoryInfo]
+  try {
+    $rootInfo = New-Object System.IO.DirectoryInfo($rootPath)
+    if (($rootInfo.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { return $res }
+    $stack.Push($rootInfo)
+  } catch { return $res }
+  $iter = 0
+  while ($stack.Count -gt 0 -and $iter -lt 150000) {
+    $iter++
+    $dir = $stack.Pop()
+    try {
+      foreach ($f in $dir.EnumerateFiles()) {
+        try {
+          if (($f.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+            $res.bytes += [int64]$f.Length
+            $res.files += 1
+          }
+        } catch {}
+      }
+      foreach ($sub in $dir.EnumerateDirectories()) {
+        try {
+          if (($sub.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+            $stack.Push($sub)
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+  return $res
+}
+
+$wmiBySid = @{}
+try {
+  foreach ($wp in (Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue)) {
+    $s = [string]$wp.SID
+    if ($s) { $wmiBySid[$s] = $wp }
+  }
+} catch {}
+
+$regRoot = 'Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList'
+$bakSids = @{}
+$regKeys = @()
+try {
+  $regKeys = @(Get-ChildItem -Path $regRoot -ErrorAction SilentlyContinue)
+  foreach ($rk in $regKeys) {
+    $cname = [string]$rk.PSChildName
+    if ($cname -match '^(S-1-5-21-[0-9-]+)\\.bak$') {
+      $bakSids[$Matches[1]] = $true
+    }
+  }
+} catch {}
+
+$profilesOut = @()
+$knownPaths = @{}
+
+foreach ($rk in $regKeys) {
+  $keyName = [string]$rk.PSChildName
+  if ($keyName -notmatch '^S-1-5-21-') { continue }
+  $baseSid = $keyName -replace '\\.bak$', ''
+  $isBakEntry = $keyName.EndsWith('.bak')
+  # If the non-.bak SID exists too, skip listing the .bak duplicate separately (we annotate hasBakRegistryKey on the primary key)
+  if ($isBakEntry -and ($regKeys | Where-Object { $_.PSChildName -eq $baseSid })) { continue }
+
+  $props = Get-ItemProperty -Path $rk.PSPath -ErrorAction SilentlyContinue
+  $pPath = if ($props -and $props.ProfileImagePath) { [string]$props.ProfileImagePath } else { '' }
+  if ($pPath) { $knownPaths[$pPath.TrimEnd('\\').ToLower()] = $true }
+
+  $wp = if ($wmiBySid.ContainsKey($baseSid)) { $wmiBySid[$baseSid] } else { $null }
+  $acctName = ''
+  try {
+    $sidObj = New-Object System.Security.Principal.SecurityIdentifier($baseSid)
+    $acctName = $sidObj.Translate([System.Security.Principal.NTAccount]).Value
+  } catch {
+    if ($pPath) { $acctName = Split-Path -Path $pPath -Leaf } else { $acctName = $baseSid }
+  }
+  $shortName = ($acctName -replace '^.*\\\\', '').Split('@')[0]
+  $isDomAcct = $acctName.Contains('\\') -and (-not $acctName.StartsWith($compName + '\\', [System.StringComparison]::OrdinalIgnoreCase)) -and (-not $acctName.StartsWith('NT ', [System.StringComparison]::OrdinalIgnoreCase))
+  $isLoaded = (Test-Path ("Registry::HKEY_USERS\\" + $baseSid)) -or ($wp -and [bool]$wp.Loaded)
+  $isActive = ($userSid -and $baseSid -eq $userSid)
+  $stateVal = if ($props -and $null -ne $props.State) { [int]$props.State } else { 0 }
+  $isTempProf = (($stateVal -band 0x0800) -ne 0) -or ($pPath -match '\\\\TEMP(\\.|$)')
+  $hasBak = $isBakEntry -or $bakSids.ContainsKey($baseSid)
+  $pathExists = ($pPath -and (Test-Path -LiteralPath $pPath))
+
+  $lastUseIso = $null
+  if ($wp -and $wp.LastUseTime) {
+    try { $lastUseIso = ([DateTime]$wp.LastUseTime).ToUniversalTime().ToString('o') } catch {}
+  } elseif ($pPath -and (Test-Path -LiteralPath (Join-Path $pPath 'NTUSER.DAT'))) {
+    try { $lastUseIso = (Get-Item -LiteralPath (Join-Path $pPath 'NTUSER.DAT') -Force).LastWriteTimeUtc.ToString('o') } catch {}
+  }
+
+  $ntUserMb = $null
+  $ntDatPath = if ($pPath) { Join-Path $pPath 'NTUSER.DAT' } else { '' }
+  if ($ntDatPath -and (Test-Path -LiteralPath $ntDatPath)) {
+    try { $ntUserMb = [math]::Round(((Get-Item -LiteralPath $ntDatPath -Force).Length / 1MB), 2) } catch {}
+  }
+
+  $totalBytes = [int64]0; $totalFiles = [int64]0
+  $deskBytes = [int64]0; $docBytes = [int64]0; $dlBytes = [int64]0
+  $appBytes = [int64]0; $tempBytes = [int64]0
+  if ($pathExists) {
+    $totSt = Get-SafeDirStats $pPath
+    $totalBytes = [int64]$totSt.bytes
+    $totalFiles = [int64]$totSt.files
+    $deskBytes = [int64](Get-SafeDirStats (Join-Path $pPath 'Desktop')).bytes
+    $docBytes = [int64](Get-SafeDirStats (Join-Path $pPath 'Documents')).bytes
+    $dlBytes = [int64](Get-SafeDirStats (Join-Path $pPath 'Downloads')).bytes
+    $appBytes = [int64](Get-SafeDirStats (Join-Path $pPath 'AppData')).bytes
+    $t1 = [int64](Get-SafeDirStats (Join-Path $pPath 'AppData\\Local\\Temp')).bytes
+    $t2 = [int64](Get-SafeDirStats (Join-Path $pPath 'AppData\\Local\\Microsoft\\Windows\\INetCache')).bytes
+    $t3 = [int64](Get-SafeDirStats (Join-Path $pPath 'AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cache\\Cache_Data')).bytes
+    $t4 = [int64](Get-SafeDirStats (Join-Path $pPath 'AppData\\Local\\Microsoft\\Edge\\User Data\\Default\\Cache\\Cache_Data')).bytes
+    $tempBytes = $t1 + $t2 + $t3 + $t4
+  }
+
+  $statusCode = 'healthy'
+  if (-not $pathExists) { $statusCode = 'missing_folder' }
+  elseif ($isTempProf) { $statusCode = 'temp_profile' }
+  elseif ($hasBak) { $statusCode = 'bak_corrupt' }
+  elseif ($wp -and $wp.RoamingConfigured) { $statusCode = 'roaming' }
+  elseif ($isLoaded) { $statusCode = 'loaded' }
+
+  $profilesOut += [PSCustomObject]@{
+    id = $keyName
+    username = $acctName
+    shortName = $shortName
+    sid = $keyName
+    accountType = if ($isDomAcct) { 'domain' } else { 'local' }
+    profilePath = $pPath
+    pathExists = $pathExists
+    isLoaded = $isLoaded
+    isActiveLoggedIn = $isActive
+    isSpecial = if ($wp) { [bool]$wp.Special } else { $false }
+    statusCode = $statusCode
+    roamingConfigured = if ($wp) { [bool]$wp.RoamingConfigured } else { $false }
+    roamingPath = if ($wp -and $wp.RoamingPath) { [string]$wp.RoamingPath } else { '' }
+    hasBakRegistryKey = $hasBak
+    isTemporaryProfile = $isTempProf
+    lastUseTime = $lastUseIso
+    ntUserDatSizeMb = $ntUserMb
+    sizeBytes = $totalBytes
+    fileCount = $totalFiles
+    desktopBytes = $deskBytes
+    documentsBytes = $docBytes
+    downloadsBytes = $dlBytes
+    appDataBytes = $appBytes
+    reclaimableTempBytes = $tempBytes
+  }
+}
+
+# Detect orphaned C:\\Users\\* directories that are not registered in ProfileList
+$usersRoot = Join-Path $sysDrive '\\Users'
+if (Test-Path -LiteralPath $usersRoot) {
+  $skipNames = @('public', 'default', 'default user', 'all users', 'desktop.ini')
+  foreach ($ud in (Get-ChildItem -LiteralPath $usersRoot -Directory -Force -ErrorAction SilentlyContinue)) {
+    if (($ud.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+    $fn = [string]$ud.Name
+    if ($skipNames -contains $fn.ToLower()) { continue }
+    $fullNorm = $ud.FullName.TrimEnd('\\').ToLower()
+    if ($knownPaths.ContainsKey($fullNorm)) { continue }
+
+    $totSt = Get-SafeDirStats $ud.FullName
+    $deskBytes = [int64](Get-SafeDirStats (Join-Path $ud.FullName 'Desktop')).bytes
+    $docBytes = [int64](Get-SafeDirStats (Join-Path $ud.FullName 'Documents')).bytes
+    $dlBytes = [int64](Get-SafeDirStats (Join-Path $ud.FullName 'Downloads')).bytes
+    $appBytes = [int64](Get-SafeDirStats (Join-Path $ud.FullName 'AppData')).bytes
+    $tempBytes = [int64](Get-SafeDirStats (Join-Path $ud.FullName 'AppData\\Local\\Temp')).bytes
+
+    $profilesOut += [PSCustomObject]@{
+      id = ('orphan:' + $fn)
+      username = $fn
+      shortName = $fn
+      sid = ('orphan:' + $fn)
+      accountType = 'orphan'
+      profilePath = $ud.FullName
+      pathExists = $true
+      isLoaded = $false
+      isActiveLoggedIn = $false
+      isSpecial = $false
+      statusCode = 'orphan_folder'
+      roamingConfigured = $false
+      roamingPath = ''
+      hasBakRegistryKey = $false
+      isTemporaryProfile = $false
+      lastUseTime = $ud.LastWriteTimeUtc.ToString('o')
+      ntUserDatSizeMb = $null
+      sizeBytes = [int64]$totSt.bytes
+      fileCount = [int64]$totSt.files
+      desktopBytes = $deskBytes
+      documentsBytes = $docBytes
+      downloadsBytes = $dlBytes
+      appDataBytes = $appBytes
+      reclaimableTempBytes = $tempBytes
+    }
+  }
+}
+
+[PSCustomObject]@{
+  hostname = $compName
+  domain = if ($partOfDom) { $domName } else { '' }
+  loggedInUser = $loggedUser
+  osDriveFreeGb = $osFreeGb
+  osDriveTotalGb = $osTotGb
+  profiles = $profilesOut
+} | ConvertTo-Json -Depth 6 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PYEOF'
+import os, json, pwd, shutil, subprocess, socket, datetime
+
+hostname = socket.gethostname()
+st_root = shutil.disk_usage('/')
+os_tot_gb = round(st_root.total / (1024**3), 2)
+os_free_gb = round(st_root.free / (1024**3), 2)
+
+active_users = set()
+logged_in_user = ''
+try:
+    who_out = subprocess.check_output(['who'], text=True, stderr=subprocess.DEVNULL)
+    for line in who_out.splitlines():
+        parts = line.split()
+        if parts:
+            active_users.add(parts[0])
+            if not logged_in_user:
+                logged_in_user = parts[0]
+except Exception:
+    pass
+
+def dir_stats(path):
+    total_b = 0
+    total_f = 0
+    if not path or not os.path.isdir(path) or os.path.islink(path):
+        return 0, 0
+    stack = [path]
+    seen_dirs = 0
+    while stack and seen_dirs < 120000:
+        cur = stack.pop()
+        seen_dirs += 1
+        try:
+            with os.scandir(cur) as it:
+                for entry in it:
+                    try:
+                        if entry.is_symlink():
+                            continue
+                        if entry.is_file(follow_symlinks=False):
+                            total_b += entry.stat(follow_symlinks=False).st_size
+                            total_f += 1
+                        elif entry.is_dir(follow_symlinks=False):
+                            if entry.name in ('.gvfs',):
+                                continue
+                            stack.append(entry.path)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+    return total_b, total_f
+
+profiles = []
+known_homes = set()
+
+for pw in pwd.getpwall():
+    uid = pw.pw_uid
+    home = pw.pw_dir
+    name = pw.pw_name
+    if not (uid == 0 or (uid >= 1000 and uid < 65534) or (home.startswith('/home/') and os.path.isdir(home))):
+        continue
+    known_homes.add(os.path.normpath(home))
+    exists = os.path.isdir(home)
+    tot_b, tot_f = dir_stats(home) if exists else (0, 0)
+    desk_b, _ = dir_stats(os.path.join(home, 'Desktop')) if exists else (0, 0)
+    doc_b, _ = dir_stats(os.path.join(home, 'Documents')) if exists else (0, 0)
+    dl_b, _ = dir_stats(os.path.join(home, 'Downloads')) if exists else (0, 0)
+    cache_b, _ = dir_stats(os.path.join(home, '.cache')) if exists else (0, 0)
+    trash_b, _ = dir_stats(os.path.join(home, '.local/share/Trash')) if exists else (0, 0)
+    last_iso = None
+    if exists:
+        try:
+            mtime = os.stat(home).st_mtime
+            last_iso = datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc).isoformat()
+        except Exception:
+            pass
+    is_act = name in active_users
+    profiles.append({
+        'id': name,
+        'username': name,
+        'shortName': name,
+        'sid': name,
+        'accountType': 'system' if uid == 0 else 'local',
+        'profilePath': home,
+        'pathExists': exists,
+        'isLoaded': is_act,
+        'isActiveLoggedIn': is_act,
+        'isSpecial': uid == 0,
+        'statusCode': 'loaded' if is_act else ('healthy' if exists else 'missing_folder'),
+        'roamingConfigured': False,
+        'roamingPath': '',
+        'hasBakRegistryKey': False,
+        'isTemporaryProfile': False,
+        'lastUseTime': last_iso,
+        'ntUserDatSizeMb': None,
+        'sizeBytes': tot_b,
+        'fileCount': tot_f,
+        'desktopBytes': desk_b,
+        'documentsBytes': doc_b,
+        'downloadsBytes': dl_b,
+        'appDataBytes': cache_b,
+        'reclaimableTempBytes': cache_b + trash_b,
+        'shell': pw.pw_shell,
+        'uid': uid,
+    })
+
+if os.path.isdir('/home'):
+    try:
+        for entry in os.scandir('/home'):
+            if entry.is_dir(follow_symlinks=False) and not entry.name.startswith('lost+found'):
+                np = os.path.normpath(entry.path)
+                if np not in known_homes:
+                    tot_b, tot_f = dir_stats(entry.path)
+                    cache_b, _ = dir_stats(os.path.join(entry.path, '.cache'))
+                    profiles.append({
+                        'id': 'orphan:' + entry.name,
+                        'username': entry.name,
+                        'shortName': entry.name,
+                        'sid': 'orphan:' + entry.name,
+                        'accountType': 'orphan',
+                        'profilePath': entry.path,
+                        'pathExists': True,
+                        'isLoaded': False,
+                        'isActiveLoggedIn': False,
+                        'isSpecial': False,
+                        'statusCode': 'orphan_folder',
+                        'roamingConfigured': False,
+                        'roamingPath': '',
+                        'hasBakRegistryKey': False,
+                        'isTemporaryProfile': False,
+                        'lastUseTime': None,
+                        'ntUserDatSizeMb': None,
+                        'sizeBytes': tot_b,
+                        'fileCount': tot_f,
+                        'desktopBytes': 0,
+                        'documentsBytes': 0,
+                        'downloadsBytes': 0,
+                        'appDataBytes': cache_b,
+                        'reclaimableTempBytes': cache_b,
+                        'shell': '',
+                        'uid': None,
+                    })
+    except Exception:
+        pass
+
+print(json.dumps({
+    'hostname': hostname,
+    'domain': '',
+    'loggedInUser': logged_in_user,
+    'osDriveFreeGb': os_free_gb,
+    'osDriveTotalGb': os_tot_gb,
+    'profiles': profiles,
+}))
+PYEOF`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(55000, input.timeoutMs || 55000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint user profiles');
+  const rawList = Array.isArray(parsed.profiles) ? parsed.profiles : [];
+  const toMb = (b: number) => Math.round((Math.max(0, b) / (1024 * 1024)) * 100) / 100;
+
+  let totalBytes = 0;
+  let totalTempBytes = 0;
+
+  const profiles: HelpdeskUserProfileItem[] = rawList.map((p: any) => {
+    const sizeBytes = Math.max(0, Number(p.sizeBytes) || 0);
+    const desktopBytes = Math.max(0, Number(p.desktopBytes) || 0);
+    const documentsBytes = Math.max(0, Number(p.documentsBytes) || 0);
+    const downloadsBytes = Math.max(0, Number(p.downloadsBytes) || 0);
+    const appDataBytes = Math.max(0, Number(p.appDataBytes) || 0);
+    const tempBytes = Math.max(0, Number(p.reclaimableTempBytes) || 0);
+    const accounted = desktopBytes + documentsBytes + downloadsBytes + appDataBytes;
+    const otherBytes = Math.max(0, sizeBytes - accounted);
+
+    totalBytes += sizeBytes;
+    totalTempBytes += tempBytes;
+
+    const uname = String(p.username || p.shortName || p.sid || '');
+    const sname = String(p.shortName || uname.replace(/^.*\\/, '').split('@')[0]);
+    const isLoaded = Boolean(p.isLoaded);
+    const isActiveLoggedIn = Boolean(p.isActiveLoggedIn);
+    const isSpecial = Boolean(p.isSpecial) || p.accountType === 'system';
+    const isCurrentSessionUser =
+      Boolean(sessionShortLower) &&
+      (uname.toLowerCase() === sessionUserLower || sname.toLowerCase() === sessionShortLower);
+
+    let protectionReasonEn = '';
+    let protectionReasonFa = '';
+    if (isSpecial) {
+      protectionReasonEn = 'Built-in system/root profile is protected from deletion.';
+      protectionReasonFa = 'پروفایل سیستمی / root در برابر حذف محافظت شده است.';
+    } else if (isActiveLoggedIn) {
+      protectionReasonEn = 'User is actively logged into an interactive session on this endpoint.';
+      protectionReasonFa = 'این کاربر هم‌اکنون در سیستم لاگین فعال دارد و امکان حذف وجود ندارد.';
+    } else if (isCurrentSessionUser) {
+      protectionReasonEn = 'This account is currently authenticating your active HelpDesk session.';
+      protectionReasonFa = 'این اکانت در حال حاضر کاربر نشست اتصال فعلی هلپ‌دسک است.';
+    } else if (isLoaded) {
+      protectionReasonEn = 'Profile registry hive is currently loaded in memory (unload hive first).';
+      protectionReasonFa = 'هایو رجیستری این پروفایل در حافظه لود شده است (ابتدا Unload کنید).';
+    }
+
+    const isProtected = Boolean(protectionReasonEn);
+
+    const folders: HelpdeskUserProfileFolderBreakdown[] = [
+      {
+        key: 'appdata',
+        labelEn: execRes.osFamily === 'windows' ? 'AppData & Profile Config' : 'Cache (.cache)',
+        labelFa: execRes.osFamily === 'windows' ? 'AppData و تنظیمات برنامه‌ها' : 'پوشه کش (.cache)',
+        sizeBytes: appDataBytes,
+        sizeMb: toMb(appDataBytes),
+      },
+      {
+        key: 'downloads',
+        labelEn: 'Downloads',
+        labelFa: 'دانلودها (Downloads)',
+        sizeBytes: downloadsBytes,
+        sizeMb: toMb(downloadsBytes),
+      },
+      {
+        key: 'documents',
+        labelEn: 'Documents',
+        labelFa: 'اسناد (Documents)',
+        sizeBytes: documentsBytes,
+        sizeMb: toMb(documentsBytes),
+      },
+      {
+        key: 'desktop',
+        labelEn: 'Desktop',
+        labelFa: 'دسکتاپ (Desktop)',
+        sizeBytes: desktopBytes,
+        sizeMb: toMb(desktopBytes),
+      },
+      {
+        key: 'temp',
+        labelEn: execRes.osFamily === 'windows' ? 'Reclaimable Temp & Browser Cache' : 'Cache & Trash',
+        labelFa: execRes.osFamily === 'windows' ? 'فایل‌های Temp و کش قابل پاک‌سازی' : 'کش و سطل زباله قابل پاک‌سازی',
+        sizeBytes: tempBytes,
+        sizeMb: toMb(tempBytes),
+      },
+      {
+        key: 'media_other',
+        labelEn: 'Pictures, Videos & Other Folders',
+        labelFa: 'تصاویر، ویدئو و سایر پوشه‌ها',
+        sizeBytes: otherBytes,
+        sizeMb: toMb(otherBytes),
+      },
+    ];
+
+    return {
+      id: String(p.id || p.sid || uname),
+      username: uname,
+      shortName: sname,
+      sid: String(p.sid || ''),
+      accountType:
+        p.accountType === 'domain' || p.accountType === 'system' || p.accountType === 'orphan'
+          ? p.accountType
+          : 'local',
+      profilePath: String(p.profilePath || ''),
+      pathExists: Boolean(p.pathExists),
+      isLoaded,
+      isActiveLoggedIn,
+      isCurrentSessionUser,
+      isProtected,
+      protectionReasonEn,
+      protectionReasonFa,
+      statusCode: p.statusCode || 'healthy',
+      roamingConfigured: Boolean(p.roamingConfigured),
+      roamingPath: String(p.roamingPath || ''),
+      hasBakRegistryKey: Boolean(p.hasBakRegistryKey),
+      isTemporaryProfile: Boolean(p.isTemporaryProfile),
+      lastUseTime: p.lastUseTime ? String(p.lastUseTime) : null,
+      ntUserDatSizeMb: p.ntUserDatSizeMb !== null && p.ntUserDatSizeMb !== undefined ? Number(p.ntUserDatSizeMb) : null,
+      sizeBytes,
+      sizeMb: toMb(sizeBytes),
+      reclaimableTempBytes: tempBytes,
+      reclaimableTempMb: toMb(tempBytes),
+      fileCount: Math.max(0, Number(p.fileCount) || 0),
+      folders,
+      shell: p.shell ? String(p.shell) : undefined,
+      uid: p.uid !== null && p.uid !== undefined ? Number(p.uid) : undefined,
+    };
+  });
+
+  profiles.sort((a, b) => b.sizeBytes - a.sizeBytes);
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed.hostname || execRes.host),
+    domain: String(parsed.domain || ''),
+    loggedInUser: String(parsed.loggedInUser || ''),
+    osDriveFreeGb: Number(parsed.osDriveFreeGb) || 0,
+    osDriveTotalGb: Number(parsed.osDriveTotalGb) || 0,
+    totalProfilesSizeBytes: totalBytes,
+    totalProfilesSizeMb: toMb(totalBytes),
+    totalReclaimableTempMb: toMb(totalTempBytes),
+    profiles,
+    collectedAt: new Date().toISOString(),
+  };
+}
+
+export async function manageEndpointUserProfile(
+  input: HelpdeskTargetInput & {
+    action: HelpdeskProfileActionType;
+    profileSid: string;
+    profileUsername?: string;
+  }
+): Promise<HelpdeskUserProfileActionResult> {
+  const allowedActions: HelpdeskProfileActionType[] = ['clean_temp', 'delete_profile', 'repair_bak', 'unload_hive'];
+  if (!allowedActions.includes(input.action)) {
+    throw new Error('Unsupported user profile management action.');
+  }
+
+  // First detect target OS family cleanly via lightweight probe or protocol inference
+  const probeInput = { ...input, timeoutMs: Math.max(45000, input.timeoutMs || 45000) };
+  const rawSid = String(input.profileSid || '').trim();
+  const isWindowsSidFormat = /^S-1-5-21-[0-9-]{6,120}(?:\.bak)?$/i.test(rawSid) || rawSid.startsWith('orphan:');
+
+  const sidB64 = utf8Base64(rawSid);
+  const actB64 = utf8Base64(input.action);
+  const sessUserB64 = utf8Base64(String(input.username || '').trim());
+
+  const winPs = `
+$ErrorActionPreference = 'Stop'
+$targetId = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sidB64}')).Trim()
+$action = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${actB64}')).Trim()
+$sessUser = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sessUserB64}')).Trim()
+$sessShort = ($sessUser -replace '^.*\\\\', '').Split('@')[0].ToLower()
+
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+$isOrphan = $targetId.StartsWith('orphan:')
+$orphanName = if ($isOrphan) { $targetId.Substring(7).Trim() } else { '' }
+$sysDrive = if ($env:SystemDrive) { [string]$env:SystemDrive } else { 'C:' }
+$usersRoot = [System.IO.Path]::GetFullPath((Join-Path $sysDrive '\\Users'))
+$regRoot = 'Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList'
+
+if ($isOrphan) {
+  if (-not $orphanName -or $orphanName -match '[/\\\\]|\\.\\.' -or @('public','default','default user','all users','desktop.ini') -contains $orphanName.ToLower()) {
+    throw 'Refused: Invalid or protected Users directory.'
+  }
+  $profPath = [System.IO.Path]::GetFullPath((Join-Path $usersRoot $orphanName))
+  if (-not $profPath.StartsWith($usersRoot.TrimEnd('\\') + '\\', [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Refused: Target path escaped Users directory confinement.'
+  }
+  $acctName = $orphanName
+  $baseSid = $targetId
+  $isLoaded = $false
+} else {
+  if ($targetId -notmatch '^S-1-5-21-[0-9-]{6,120}(\\.bak)?$') {
+    throw 'Invalid Windows SID.'
+  }
+  $baseSid = $targetId -replace '\\.bak$', ''
+  $regKeyPath = Join-Path $regRoot $targetId
+  $altRegPath = Join-Path $regRoot $baseSid
+  $props = $null
+  if (Test-Path $regKeyPath) { $props = Get-ItemProperty -Path $regKeyPath -ErrorAction SilentlyContinue }
+  elseif (Test-Path $altRegPath) { $props = Get-ItemProperty -Path $altRegPath -ErrorAction SilentlyContinue }
+  $profPath = if ($props -and $props.ProfileImagePath) { [string]$props.ProfileImagePath } else { '' }
+  $acctName = $baseSid
+  try {
+    $acctName = (New-Object System.Security.Principal.SecurityIdentifier($baseSid)).Translate([System.Security.Principal.NTAccount]).Value
+  } catch {
+    if ($profPath) { $acctName = Split-Path -Path $profPath -Leaf }
+  }
+  $isLoaded = Test-Path ("Registry::HKEY_USERS\\" + $baseSid)
+}
+
+$shortName = ($acctName -replace '^.*\\\\', '').Split('@')[0].ToLower()
+
+if ($action -eq 'clean_temp') {
+  if (-not $profPath -or -not (Test-Path -LiteralPath $profPath)) {
+    throw 'Profile directory does not exist on disk.'
+  }
+  $subTargets = @(
+    (Join-Path $profPath 'AppData\\Local\\Temp'),
+    (Join-Path $profPath 'AppData\\Local\\Microsoft\\Windows\\INetCache'),
+    (Join-Path $profPath 'AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cache\\Cache_Data'),
+    (Join-Path $profPath 'AppData\\Local\\Microsoft\\Edge\\User Data\\Default\\Cache\\Cache_Data')
+  )
+  $deleted = 0; $freedBytes = [int64]0; $skipped = 0
+  foreach ($dir in $subTargets) {
+    if (-not (Test-Path -LiteralPath $dir)) { continue }
+    $items = Get-ChildItem -LiteralPath $dir -Force -Recurse -ErrorAction SilentlyContinue | Sort-Object { $_.FullName.Length } -Descending
+    foreach ($it in $items) {
+      if ($it.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
+      try {
+        if (-not $it.PSIsContainer) {
+          $sz = [int64]$it.Length
+          Remove-Item -LiteralPath $it.FullName -Force -ErrorAction Stop
+          $deleted++
+          $freedBytes += $sz
+        } else {
+          if (@(Get-ChildItem -LiteralPath $it.FullName -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+            Remove-Item -LiteralPath $it.FullName -Force -ErrorAction Stop
+          }
+        }
+      } catch {
+        if (-not $it.PSIsContainer) { $skipped++ }
+      }
+    }
+  }
+  $fMb = [math]::Round(($freedBytes / 1MB), 2)
+  [PSCustomObject]@{
+    success = $true
+    action = $action
+    profileSid = $targetId
+    profileUsername = $acctName
+    deletedFiles = $deleted
+    freedMb = $fMb
+    skippedLockedFiles = $skipped
+    message = "Cleaned $deleted temp/cache files ($fMb MB freed) for profile $acctName."
+    messageFa = "تعداد $deleted فایل موقت و کش ($fMb مگابایت) از پروفایل $acctName پاک‌سازی شد."
+  } | ConvertTo-Json -Compress
+  exit 0
+}
+
+if ($action -eq 'repair_bak') {
+  if ($isOrphan) { throw 'Cannot run .bak registry repair on an orphan folder.' }
+  $bakKeyFs = "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$baseSid.bak"
+  $normKeyFs = "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$baseSid"
+  $bakPs = Join-Path $regRoot ($baseSid + '.bak')
+  $normPs = Join-Path $regRoot $baseSid
+  if (-not (Test-Path $bakPs)) {
+    throw "No .bak registry key found for $baseSid."
+  }
+  if ($isLoaded -or ($userSid -and $baseSid -eq $userSid)) {
+    throw 'User must sign out completely before repairing the .bak profile registry key.'
+  }
+  if (Test-Path $normPs) {
+    $normProps = Get-ItemProperty -Path $normPs -ErrorAction SilentlyContinue
+    $normImg = if ($normProps -and $normProps.ProfileImagePath) { [string]$normProps.ProfileImagePath } else { '' }
+    if ($normImg -match '\\\\TEMP(\\.|$)' -or -not (Test-Path -LiteralPath $normImg)) {
+      Remove-Item -Path $normPs -Recurse -Force -ErrorAction Stop
+    } else {
+      $ts = Get-Date -Format 'yyyyMMddHHmmss'
+      & reg.exe copy $normKeyFs ($normKeyFs + '.old_' + $ts) /s /f | Out-Null
+      Remove-Item -Path $normPs -Recurse -Force -ErrorAction Stop
+    }
+  }
+  & reg.exe copy $bakKeyFs $normKeyFs /s /f | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Failed to restore .bak registry key.' }
+  Set-ItemProperty -Path $normPs -Name 'State' -Value 0 -Type DWord -Force
+  Set-ItemProperty -Path $normPs -Name 'RefCount' -Value 0 -Type DWord -Force
+  Remove-Item -Path $bakPs -Recurse -Force -ErrorAction SilentlyContinue
+  [PSCustomObject]@{
+    success = $true
+    action = $action
+    profileSid = $baseSid
+    profileUsername = $acctName
+    message = "Restored .bak profile registry entry and cleared Temporary Profile flags for $acctName."
+    messageFa = "کلید رجیستری .bak برای $acctName با موفقیت بازیابی و وضعیت Temporary Profile برطرف شد."
+  } | ConvertTo-Json -Compress
+  exit 0
+}
+
+if ($action -eq 'unload_hive') {
+  if ($isOrphan) { throw 'Orphan folder has no registry hive.' }
+  if ($userSid -and $baseSid -eq $userSid) {
+    throw 'Cannot unload the registry hive of an actively logged-in user.'
+  }
+  if ($sessShort -and $shortName -eq $sessShort) {
+    throw 'Cannot unload the registry hive of the current WinRM/SSH session user.'
+  }
+  if (-not (Test-Path ("Registry::HKEY_USERS\\" + $baseSid))) {
+    [PSCustomObject]@{
+      success = $true
+      action = $action
+      profileSid = $baseSid
+      profileUsername = $acctName
+      message = "Profile registry hive for $acctName is already unloaded."
+      messageFa = "هایو رجیستری پروفایل $acctName هم‌اکنون در حالت Unloaded است."
+    } | ConvertTo-Json -Compress
+    exit 0
+  }
+  [GC]::Collect()
+  [GC]::WaitForPendingFinalizers()
+  $out = (& reg.exe unload ("HKU\\" + $baseSid) 2>&1 | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) {
+    throw ("Failed to unload HKU\\" + $baseSid + ": " + $out)
+  }
+  [PSCustomObject]@{
+    success = $true
+    action = $action
+    profileSid = $baseSid
+    profileUsername = $acctName
+    rawOutput = $out
+    message = "Unloaded HKU\\$baseSid registry hive for $acctName cleanly."
+    messageFa = "هایو رجیستری HKU\\$baseSid برای کاربر $acctName با موفقیت Unload شد."
+  } | ConvertTo-Json -Compress
+  exit 0
+}
+
+if ($action -eq 'delete_profile') {
+  if ($userSid -and $baseSid -eq $userSid) {
+    throw 'Refused: Cannot delete the profile of the currently logged-in user.'
+  }
+  if ($sessShort -and $shortName -eq $sessShort) {
+    throw 'Refused: Cannot delete the profile of the active remote management account.'
+  }
+  if ($isLoaded) {
+    throw 'Refused: Profile registry hive is currently loaded. Sign out the user or unload hive first.'
+  }
+
+  $freedBytes = [int64]0
+  if ($profPath -and (Test-Path -LiteralPath $profPath)) {
+    try {
+      $freedBytes = [int64](Get-ChildItem -LiteralPath $profPath -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+    } catch {}
+  }
+
+  if ($isOrphan) {
+    Remove-Item -LiteralPath $profPath -Recurse -Force -ErrorAction Stop
+  } else {
+    $wp = Get-CimInstance Win32_UserProfile -Filter ("SID='" + $baseSid + "'") -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($wp) {
+      $wp | Remove-CimInstance -ErrorAction Stop
+    } else {
+      if ($profPath -and (Test-Path -LiteralPath $profPath)) {
+        $normP = [System.IO.Path]::GetFullPath($profPath)
+        if ($normP.StartsWith($usersRoot.TrimEnd('\\') + '\\', [System.StringComparison]::OrdinalIgnoreCase)) {
+          Remove-Item -LiteralPath $normP -Recurse -Force -ErrorAction Stop
+        }
+      }
+      if (Test-Path (Join-Path $regRoot $baseSid)) {
+        Remove-Item -Path (Join-Path $regRoot $baseSid) -Recurse -Force -ErrorAction SilentlyContinue
+      }
+      if (Test-Path (Join-Path $regRoot ($baseSid + '.bak'))) {
+        Remove-Item -Path (Join-Path $regRoot ($baseSid + '.bak')) -Recurse -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
+
+  $fMb = [math]::Round(($freedBytes / 1MB), 2)
+  [PSCustomObject]@{
+    success = $true
+    action = $action
+    profileSid = $targetId
+    profileUsername = $acctName
+    freedMb = $fMb
+    message = "User profile $acctName deleted cleanly (~$fMb MB reclaimed)."
+    messageFa = "پروفایل کاربر $acctName با موفقیت به‌طور کامل حذف شد (~$fMb مگابایت فضا آزاد گردید)."
+  } | ConvertTo-Json -Compress
+  exit 0
+}
+`;
+
+  const linuxSh = `python3 - <<'PYEOF'
+import base64, json, os, pwd, shutil, subprocess
+
+target_id = base64.b64decode("${sidB64}").decode("utf-8").strip()
+action = base64.b64decode("${actB64}").decode("utf-8").strip()
+sess_user = base64.b64decode("${sessUserB64}").decode("utf-8").strip()
+
+if action in ('repair_bak', 'unload_hive'):
+    raise SystemExit(json.dumps({"error": "This Windows-only registry action is not applicable on Linux."}))
+
+is_orphan = target_id.startswith("orphan:")
+if is_orphan:
+    folder = target_id[7:].strip()
+    if not folder or "/" in folder or ".." in folder or folder in ("lost+found", "root"):
+        raise SystemExit(json.dumps({"error": "Invalid orphan folder."}))
+    prof_path = os.path.realpath(os.path.join("/home", folder))
+    if not prof_path.startswith("/home/"):
+        raise SystemExit(json.dumps({"error": "Refused path outside /home."}))
+    uname = folder
+    uid = None
+else:
+    pw = pwd.getpwnam(target_id)
+    uname = pw.pw_name
+    uid = pw.pw_uid
+    prof_path = os.path.realpath(pw.pw_dir)
+
+if action == 'clean_temp':
+    deleted = 0
+    freed = 0
+    skipped = 0
+    for sub in ['.cache', '.local/share/Trash']:
+        tdir = os.path.join(prof_path, sub)
+        if not os.path.isdir(tdir) or os.path.islink(tdir):
+            continue
+        for dp, dns, fns in os.walk(tdir, topdown=False, followlinks=False):
+            for fn in fns:
+                fp = os.path.join(dp, fn)
+                if os.path.islink(fp):
+                    continue
+                try:
+                    sz = os.path.getsize(fp)
+                    os.remove(fp)
+                    deleted += 1
+                    freed += sz
+                except Exception:
+                    skipped += 1
+            for dn in dns:
+                subp = os.path.join(dp, dn)
+                try:
+                    if not os.listdir(subp):
+                        os.rmdir(subp)
+                except Exception:
+                    pass
+    fmb = round(freed / (1024**2), 2)
+    print(json.dumps({
+        "success": True,
+        "action": action,
+        "profileSid": target_id,
+        "profileUsername": uname,
+        "deletedFiles": deleted,
+        "freedMb": fmb,
+        "skippedLockedFiles": skipped,
+        "message": f"Cleaned {deleted} cache/trash files ({fmb} MB freed) for {uname}.",
+        "messageFa": f"تعداد {deleted} فایل کش/زباله ({fmb} مگابایت) برای کاربر {uname} پاک‌سازی شد."
+    }))
+elif action == 'delete_profile':
+    if uname == 'root' or (uid is not None and uid < 1000) or uname == sess_user:
+        raise SystemExit(json.dumps({"error": "Refused: Protected system or active SSH session account."}))
+    who = subprocess.check_output(['who'], text=True, stderr=subprocess.DEVNULL)
+    if any(line.split()[0] == uname for line in who.splitlines() if line.split()):
+        raise SystemExit(json.dumps({"error": f"Refused: User {uname} is currently logged in."}))
+    freed_b = 0
+    if os.path.isdir(prof_path):
+        for dp, _, fns in os.walk(prof_path, followlinks=False):
+            for fn in fns:
+                fp = os.path.join(dp, fn)
+                if not os.path.islink(fp):
+                    try: freed_b += os.path.getsize(fp)
+                    except Exception: pass
+    if is_orphan:
+        shutil.rmtree(prof_path)
+    else:
+        subprocess.check_call(['userdel', '-r', uname])
+    fmb = round(freed_b / (1024**2), 2)
+    print(json.dumps({
+        "success": True,
+        "action": action,
+        "profileSid": target_id,
+        "profileUsername": uname,
+        "freedMb": fmb,
+        "message": f"Profile {uname} removed cleanly (~{fmb} MB reclaimed).",
+        "messageFa": f"پروفایل {uname} با موفقیت حذف و حدود {fmb} مگابایت آزاد شد."
+    }))
+PYEOF`;
+
+  // Validate target format prior to executing scripts on remote endpoint
+  validateProfileActionTarget(rawSid, isWindowsSidFormat ? 'windows' : 'linux');
+
+  const execRes = await executeHardcodedScripts(probeInput, winPs, linuxSh);
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'manage endpoint user profile');
+  if (parsed?.error) {
+    throw new Error(String(parsed.error));
+  }
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    action: input.action,
+    profileSid: String(parsed.profileSid || rawSid),
+    profileUsername: String(parsed.profileUsername || input.profileUsername || rawSid),
+    success: Boolean(parsed.success),
+    deletedFiles: parsed.deletedFiles !== undefined ? Number(parsed.deletedFiles) : undefined,
+    freedMb: parsed.freedMb !== undefined ? Number(parsed.freedMb) : undefined,
+    skippedLockedFiles: parsed.skippedLockedFiles !== undefined ? Number(parsed.skippedLockedFiles) : undefined,
+    message: String(parsed.message || 'Profile action completed.'),
+    messageFa: String(parsed.messageFa || 'عملیات پروفایل با موفقیت انجام شد.'),
+    rawOutput: parsed.rawOutput ? String(parsed.rawOutput) : undefined,
+    executedAt: new Date().toISOString(),
+  };
+}
+
 
 
 

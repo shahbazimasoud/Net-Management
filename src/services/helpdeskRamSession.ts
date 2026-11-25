@@ -18,6 +18,8 @@ import {
   fetchHelpdeskRegionAndFonts,
   fetchHelpdeskSecurityAndAv,
   inspectHelpdeskDomainUser,
+  fetchHelpdeskUserProfiles,
+  HelpdeskUserProfilesResult,
   HelpdeskConnectionPayload,
   HelpdeskDiagnosticCheckId,
   ALL_HELPDESK_DIAGNOSTIC_CHECKS,
@@ -26,6 +28,7 @@ import {
 export type HelpdeskSubTab =
   | 'health'
   | 'disks_shares'
+  | 'user_profiles'
   | 'diagnostics'
   | 'hardware'
   | 'network'
@@ -98,6 +101,13 @@ export interface HelpdeskRamState {
   loadingShares: boolean;
   sharesError: string | null;
   shareActionResult: any | null;
+
+  // Tab 2B: User Profiles Inventory & Management
+  userProfilesData: HelpdeskUserProfilesResult | null;
+  loadingUserProfiles: boolean;
+  userProfilesError: string | null;
+  userProfilesActionResult: any | null;
+  userProfilesActionError: string | null;
 
   // Tab 1B: Full Hardware Inventory
   hardwareData: any | null;
@@ -238,6 +248,12 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     loadingShares: false,
     sharesError: null,
     shareActionResult: null,
+
+    userProfilesData: null,
+    loadingUserProfiles: false,
+    userProfilesError: null,
+    userProfilesActionResult: null,
+    userProfilesActionError: null,
 
     hardwareData: null,
     loadingHardware: false,
@@ -442,6 +458,11 @@ export async function runHelpdeskSequentialConnect(options: {
     sharesError: null,
     loadingShares: false,
     shareActionResult: null,
+    userProfilesData: null,
+    loadingUserProfiles: false,
+    userProfilesError: null,
+    userProfilesActionResult: null,
+    userProfilesActionError: null,
     hardwareData: null,
     loadingHardware: false,
     hardwareError: null,
@@ -602,6 +623,37 @@ export async function runHelpdeskSequentialConnect(options: {
                 (isEn
                   ? 'Failed to scan endpoint Temp & Recycle Bin.'
                   : 'خطا در اسکن پوشه‌های Temp و سطل زباله سیستم کاربر.'),
+            });
+          }
+        }
+        return true;
+      },
+    },
+    {
+      id: 'user_profiles',
+      labelEn: 'User Profiles & Disk Footprint',
+      labelFa: 'پروفایل‌های کاربران و حجم دیسک',
+      run: async () => {
+        patchHelpdeskRamSnapshot({ loadingUserProfiles: true, userProfilesError: null });
+        try {
+          const profRes = await fetchHelpdeskUserProfiles(payload);
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              userProfilesData: profRes.data,
+              loadingUserProfiles: false,
+              ...(profRes.rateLimit ? { rateLimit: profRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              userProfilesData: null,
+              loadingUserProfiles: false,
+              userProfilesError:
+                err?.message ||
+                (isEn
+                  ? 'Failed to inspect workstation user profiles.'
+                  : 'خطا در دریافت لیست پروفایل‌های کاربران و حجم آن‌ها.'),
             });
           }
         }

@@ -2581,6 +2581,122 @@ export async function fetchHelpdeskDiskHealth(payload: HelpdeskConnectionPayload
   return res.json();
 }
 
+export type HelpdeskProfileActionType =
+  | 'clean_temp'
+  | 'delete_profile'
+  | 'repair_bak'
+  | 'unload_hive';
+
+export interface HelpdeskUserProfileFolderBreakdown {
+  key: 'desktop' | 'documents' | 'downloads' | 'appdata' | 'temp' | 'media_other';
+  labelEn: string;
+  labelFa: string;
+  sizeBytes: number;
+  sizeMb: number;
+}
+
+export interface HelpdeskUserProfileItem {
+  id: string;
+  username: string;
+  shortName: string;
+  sid: string;
+  accountType: 'domain' | 'local' | 'system' | 'orphan';
+  profilePath: string;
+  pathExists: boolean;
+  isLoaded: boolean;
+  isActiveLoggedIn: boolean;
+  isCurrentSessionUser: boolean;
+  isProtected: boolean;
+  protectionReasonEn: string;
+  protectionReasonFa: string;
+  statusCode: 'healthy' | 'loaded' | 'temp_profile' | 'bak_corrupt' | 'orphan_folder' | 'missing_folder' | 'roaming';
+  roamingConfigured: boolean;
+  roamingPath: string;
+  hasBakRegistryKey: boolean;
+  isTemporaryProfile: boolean;
+  lastUseTime: string | null;
+  ntUserDatSizeMb: number | null;
+  sizeBytes: number;
+  sizeMb: number;
+  reclaimableTempBytes: number;
+  reclaimableTempMb: number;
+  fileCount: number;
+  folders: HelpdeskUserProfileFolderBreakdown[];
+  shell?: string;
+  uid?: number;
+}
+
+export interface HelpdeskUserProfilesResult {
+  targetIp: string;
+  protocolUsed: string;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  domain: string;
+  loggedInUser: string;
+  osDriveFreeGb: number;
+  osDriveTotalGb: number;
+  totalProfilesSizeBytes: number;
+  totalProfilesSizeMb: number;
+  totalReclaimableTempMb: number;
+  profiles: HelpdeskUserProfileItem[];
+  collectedAt: string;
+}
+
+export async function fetchHelpdeskUserProfiles(
+  payload: HelpdeskConnectionPayload
+): Promise<{
+  success: boolean;
+  data: HelpdeskUserProfilesResult;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/profiles/list`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to inspect endpoint user profiles');
+  return res.json();
+}
+
+export async function manageHelpdeskUserProfile(
+  payload: HelpdeskConnectionPayload & {
+    action: HelpdeskProfileActionType;
+    profileSid: string;
+    profileUsername?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: {
+    targetIp: string;
+    protocolUsed: string;
+    portUsed: number;
+    osFamily: 'windows' | 'linux';
+    action: HelpdeskProfileActionType;
+    profileSid: string;
+    profileUsername: string;
+    success: boolean;
+    deletedFiles?: number;
+    freedMb?: number;
+    skippedLockedFiles?: number;
+    message: string;
+    messageFa: string;
+    rawOutput?: string;
+    executedAt: string;
+  };
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/profiles/action`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to manage user profile');
+  return res.json();
+}
+
 export async function executeHelpdeskSystemRepair(
   payload: HelpdeskConnectionPayload & {
     mode:

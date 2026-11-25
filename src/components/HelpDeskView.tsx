@@ -58,6 +58,7 @@ import {
   LogIn,
   LogOut,
   User,
+  Users,
   UserX,
   Unlock,
   History,
@@ -155,6 +156,9 @@ import {
   renameHelpdeskComputer,
   runHelpdeskDiagnosticsSuite,
   fetchHelpdeskExceptions,
+  fetchHelpdeskUserProfiles,
+  manageHelpdeskUserProfile,
+  HelpdeskProfileActionType,
   ALL_HELPDESK_DIAGNOSTIC_CHECKS,
   HelpdeskDiagnosticCheckId,
   HelpdeskConnectionPayload,
@@ -188,6 +192,7 @@ import { DiagnosticsTab } from './helpdesk/DiagnosticsTab';
 import { DiagnosticsConfigModal } from './helpdesk/DiagnosticsConfigModal';
 import { HelpdeskExceptionsModal } from './helpdesk/HelpdeskExceptionsModal';
 import { TimeoutAntivirusHint } from './helpdesk/TimeoutAntivirusHint';
+import { UserProfilesTab } from './helpdesk/UserProfilesTab';
 
 interface HelpDeskViewProps {
   isLightMode: boolean;
@@ -558,6 +563,19 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     driveLetter?: string;
     scope?: 'active_user' | 'specific_user' | 'all_users';
   }>({});
+
+  // Module 2B: Workstation User Profiles Inventory & Management
+  const userProfilesData = ram.userProfilesData;
+  const setUserProfilesData = setRamField('userProfilesData');
+  const loadingUserProfiles = ram.loadingUserProfiles;
+  const setLoadingUserProfiles = setRamField('loadingUserProfiles');
+  const userProfilesError = ram.userProfilesError;
+  const setUserProfilesError = setRamField('userProfilesError');
+  const userProfilesActionResult = ram.userProfilesActionResult;
+  const setUserProfilesActionResult = setRamField('userProfilesActionResult');
+  const userProfilesActionError = ram.userProfilesActionError;
+  const setUserProfilesActionError = setRamField('userProfilesActionError');
+  const [userProfilesBusyKey, setUserProfilesBusyKey] = useState<string | null>(null);
 
   // Module 4: Event Viewer (Human-Readable Diagnostics + BSOD Analyzer) state
   const [eventChannel, setEventChannel] = useState<'All' | 'System' | 'Application'>('All');
@@ -1044,6 +1062,62 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       );
     } finally {
       setLoadingShares(false);
+    }
+  };
+
+  const handleInspectUserProfiles = async (overridePayload?: HelpdeskConnectionPayload) => {
+    const payload = overridePayload || buildPayload();
+    if (!payload) return;
+    setLoadingUserProfiles(true);
+    setUserProfilesError(null);
+    try {
+      const res = await fetchHelpdeskUserProfiles(payload);
+      setUserProfilesData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setUserProfilesData(null);
+      setUserProfilesError(
+        err?.message ||
+          (isEn
+            ? 'Failed to inspect workstation user profiles.'
+            : 'خطا در اسکن و دریافت لیست پروفایل‌های کاربران سیستم.')
+      );
+    } finally {
+      setLoadingUserProfiles(false);
+    }
+  };
+
+  const handleManageUserProfile = async (params: {
+    action: HelpdeskProfileActionType;
+    profileSid: string;
+    profileUsername: string;
+  }) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    const key = `${params.action}:${params.profileSid}`;
+    setUserProfilesBusyKey(key);
+    setUserProfilesActionResult(null);
+    setUserProfilesActionError(null);
+    try {
+      const res = await manageHelpdeskUserProfile({
+        ...payload,
+        action: params.action,
+        profileSid: params.profileSid,
+        profileUsername: params.profileUsername,
+      });
+      setUserProfilesActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      notifyHelpdeskAuditUpdated();
+      await handleInspectUserProfiles(payload);
+    } catch (err: any) {
+      setUserProfilesActionError(
+        err?.message ||
+          (isEn
+            ? 'User profile management action failed.'
+            : 'اجرای عملیات مدیریت پروفایل کاربر ناموفق بود.')
+      );
+    } finally {
+      setUserProfilesBusyKey(null);
     }
   };
 
@@ -3027,6 +3101,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       logonsData ||
       diagnosticsData ||
       sharesData ||
+      userProfilesData ||
       printerData ||
       programsData ||
       servicesStartupData ||
@@ -3044,6 +3119,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         logonsData?.hostname ||
         diagnosticsData?.hostname ||
         sharesData?.hostname ||
+        userProfilesData?.hostname ||
         printerData?.hostname ||
         programsData?.hostname ||
         servicesStartupData?.hostname ||
@@ -3058,6 +3134,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         logonsData?.loggedInUser ||
         diagnosticsData?.loggedInUser ||
         sharesData?.loggedInUser ||
+        userProfilesData?.loggedInUser ||
         ''
     ).trim();
 
@@ -3092,6 +3169,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     const domain = String(
       sysInfoData?.computer?.domain ||
         gpoData?.domain ||
+        userProfilesData?.domain ||
         ''
     ).trim();
 
@@ -3126,6 +3204,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     logonsData,
     diagnosticsData,
     sharesData,
+    userProfilesData,
     printerData,
     programsData,
     servicesStartupData,
@@ -3284,6 +3363,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         if (!healthData && !loadingHealth) handleInspectHealth();
         if (!sharesData && !loadingShares) handleInspectShares();
         if (!tempScanData && !loadingTempScan) handleScanTemp();
+      } else if (tab === 'user_profiles' && !userProfilesData && !loadingUserProfiles) {
+        handleInspectUserProfiles();
       } else if (tab === 'hardware' && !hardwareData && !loadingHardware) handleInspectHardware();
       else if (tab === 'network' && !networkData && !loadingNetwork) handleInspectNetwork();
       else if (tab === 'services_startup') {
@@ -5060,6 +5141,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'دیسک، درایوها و پوشه‌های اشتراکی',
           },
           {
+            id: 'user_profiles' as HelpdeskSubTab,
+            icon: Users,
+            labelEn: 'User Profiles',
+            labelFa: 'یوزر پروفایل',
+          },
+          {
             id: 'diagnostics' as HelpdeskSubTab,
             icon: Stethoscope,
             labelEn: 'Diagnostics',
@@ -5150,6 +5237,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (prefetchProgress?.active && prefetchProgress.currentTab === tab.id) ||
             (tab.id === 'health' && loadingHealth) ||
             (tab.id === 'disks_shares' && (loadingShares || loadingTempScan || loadingHealth)) ||
+            (tab.id === 'user_profiles' && loadingUserProfiles) ||
             (tab.id === 'diagnostics' && loadingDiagnostics) ||
             (tab.id === 'hardware' && loadingHardware) ||
             (tab.id === 'network' && loadingNetwork) ||
@@ -5167,6 +5255,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           const hasTabData =
             (tab.id === 'health' && Boolean(healthData)) ||
             (tab.id === 'disks_shares' && Boolean((healthData?.disks?.length || 0) > 0 || sharesData || tempScanData)) ||
+            (tab.id === 'user_profiles' && Boolean(userProfilesData)) ||
             (tab.id === 'diagnostics' && Boolean(diagnosticsData)) ||
             (tab.id === 'hardware' && Boolean(hardwareData)) ||
             (tab.id === 'network' && Boolean(networkData)) ||
@@ -5199,6 +5288,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     if (!healthData && !loadingHealth) handleInspectHealth();
                     if (!sharesData && !loadingShares) handleInspectShares();
                     if (!tempScanData && !loadingTempScan) handleScanTemp();
+                  } else if (tab.id === 'user_profiles' && !userProfilesData && !loadingUserProfiles) {
+                    handleInspectUserProfiles();
                   } else if (tab.id === 'hardware' && !hardwareData && !loadingHardware) handleInspectHardware();
                   else if (tab.id === 'network' && !networkData && !loadingNetwork) handleInspectNetwork();
                   else if (tab.id === 'printers' && !printerData && !loadingPrinters) handleInspectPrinters();
@@ -7405,6 +7496,32 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 2B: WORKSTATION USER PROFILES INVENTORY & STORAGE MANAGEMENT    */}
+      {/* =================================================================== */}
+      {activeSubTab === 'user_profiles' && (
+        <UserProfilesTab
+          isLightMode={isLightMode}
+          isEn={isEn}
+          targetIp={targetIp}
+          canRunDiagnostics={canRunDiagnostics}
+          canExecuteActions={canExecuteActions}
+          data={userProfilesData}
+          loading={loadingUserProfiles}
+          error={userProfilesError}
+          actionResult={userProfilesActionResult}
+          actionError={userProfilesActionError}
+          busyKey={userProfilesBusyKey}
+          onRefresh={() => handleInspectUserProfiles()}
+          onClearActionBanner={() => {
+            setUserProfilesActionResult(null);
+            setUserProfilesActionError(null);
+          }}
+          onProfileAction={handleManageUserProfile}
+          onGoToAntivirus={handleGoToSecurityAv}
+        />
       )}
 
       {/* =================================================================== */}
