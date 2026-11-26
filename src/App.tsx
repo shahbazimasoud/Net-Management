@@ -40,6 +40,8 @@ import { HelpDeskView } from './components/HelpDeskView';
 import { wipeHelpdeskRamOnLogout } from './services/helpdeskRamSession';
 import { HelpDeskUsersView } from './components/HelpDeskUsersView';
 import { wipeHelpdeskUserRamOnLogout } from './services/helpdeskUserRamSession';
+import { HelpDeskGroupsView } from './components/HelpDeskGroupsView';
+import { wipeHelpdeskGroupRamOnLogout } from './services/helpdeskGroupRamSession';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
 import { ToolsDock, StandardModalId, MinimizedStandardModal } from './components/tools/ToolsDock';
 import { NetworkToolId, ActiveToolState } from './components/tools/types';
@@ -437,6 +439,7 @@ export default function App() {
         'ssl-certificates',
         'helpdesk',
         'helpdesk-users',
+        'helpdesk-groups',
         'ports',
         'scanner',
         'templates',
@@ -746,6 +749,7 @@ export default function App() {
     if (!isAuthenticated) {
       wipeHelpdeskRamOnLogout();
       wipeHelpdeskUserRamOnLogout();
+      wipeHelpdeskGroupRamOnLogout();
     }
   }, [isAuthenticated]);
 
@@ -2093,6 +2097,16 @@ export default function App() {
 
           {activeTab === 'helpdesk-users' && (
             <HelpDeskUsersView
+              isLightMode={isLightMode}
+              isEn={isEn}
+              effectivePolicy={effectivePolicy}
+              currentUser={user}
+              onNavigateToEndpointHelpdesk={() => setActiveTab('helpdesk')}
+            />
+          )}
+
+          {activeTab === 'helpdesk-groups' && (
+            <HelpDeskGroupsView
               isLightMode={isLightMode}
               isEn={isEn}
               effectivePolicy={effectivePolicy}

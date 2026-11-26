@@ -238,7 +238,7 @@ export function sanitizeAndValidateTargetUsername(raw: string): string {
   return clean;
 }
 
-function validateSafeHostOrIp(raw: string | undefined, label: string): string | undefined {
+export function validateSafeHostOrIp(raw: string | undefined, label: string): string | undefined {
   const clean = String(raw || '').trim();
   if (!clean) return undefined;
   if (clean.length > 253 || !/^[a-zA-Z0-9.:_-]+$/.test(clean)) {
@@ -247,7 +247,7 @@ function validateSafeHostOrIp(raw: string | undefined, label: string): string | 
   return clean;
 }
 
-function splitUsernameParts(raw: string): { sam: string; domain: string; isUpnOrEmail: boolean } {
+export function splitUsernameParts(raw: string): { sam: string; domain: string; isUpnOrEmail: boolean } {
   const clean = String(raw || '').trim();
   if (clean.includes('\\')) {
     const idx = clean.indexOf('\\');
@@ -268,7 +268,7 @@ function splitUsernameParts(raw: string): { sam: string; domain: string; isUpnOr
   return { sam: clean, domain: '', isUpnOrEmail: false };
 }
 
-function escapeLdapFilterValue(input: string): string {
+export function escapeLdapFilterValue(input: string): string {
   return String(input || '').replace(/[\0*()\\]/g, (ch) => {
     switch (ch) {
       case '\\':
@@ -329,7 +329,7 @@ function adDurationToMinutes(raw: string | number | bigint | undefined | null): 
   }
 }
 
-function adGeneralizedTimeToIso(raw: string | undefined | null): string | null {
+export function adGeneralizedTimeToIso(raw: string | undefined | null): string | null {
   const s = String(raw || '').trim();
   const m = s.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
   if (!m) return null;
@@ -338,7 +338,7 @@ function adGeneralizedTimeToIso(raw: string | undefined | null): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-function parseBinarySid(buf: Buffer | undefined): string {
+export function parseBinarySid(buf: Buffer | undefined): string {
   if (!buf || !Buffer.isBuffer(buf) || buf.length < 8) return '';
   try {
     const revision = buf.readUInt8(0);
@@ -359,7 +359,7 @@ function parseBinarySid(buf: Buffer | undefined): string {
   }
 }
 
-function parseBinaryGuid(buf: Buffer | undefined): string {
+export function parseBinaryGuid(buf: Buffer | undefined): string {
   if (!buf || !Buffer.isBuffer(buf) || buf.length !== 16) return '';
   try {
     const p1 = buf.readUInt32LE(0).toString(16).padStart(8, '0');
@@ -391,7 +391,7 @@ function sanitizeImageBufferToDataUrl(buf: Buffer | undefined): string | null {
   return null;
 }
 
-function dnToDomainName(dn: string): string {
+export function dnToDomainName(dn: string): string {
   const dcParts = [...String(dn || '').matchAll(/DC=([^,]+)/gi)].map((m) => m[1].trim());
   return dcParts.join('.');
 }
@@ -407,13 +407,13 @@ function domainToBaseDn(domain: string): string {
     .join(',');
 }
 
-function extractCnFromDn(dn: string): string {
+export function extractCnFromDn(dn: string): string {
   const m = String(dn || '').match(/^CN=([^,]+(?:\\,[^,]+)*)/i);
   if (m?.[1]) return m[1].replace(/\\,/g, ',').trim();
   return String(dn || '').trim();
 }
 
-function extractOuBreadcrumb(dn: string): string {
+export function extractOuBreadcrumb(dn: string): string {
   const parts: string[] = [];
   const tokens = String(dn || '').split(/(?<!\\),/);
   for (const t of tokens.slice(1)) {
@@ -506,12 +506,12 @@ function extractEntryFieldsAndBuffers(entry: any): {
   return { attrs, buffers, dn };
 }
 
-function getFirstAttr(attrs: Record<string, string[]>, key: string): string {
+export function getFirstAttr(attrs: Record<string, string[]>, key: string): string {
   const arr = attrs[key.toLowerCase()];
   return arr && arr.length > 0 ? String(arr[0] || '').trim() : '';
 }
 
-function getAllAttrs(attrs: Record<string, string[]>, key: string): string[] {
+export function getAllAttrs(attrs: Record<string, string[]>, key: string): string[] {
   const arr = attrs[key.toLowerCase()];
   if (!arr || arr.length === 0) return [];
   return arr.map((v) => String(v || '').trim()).filter(Boolean);
@@ -562,7 +562,7 @@ function probePort(host: string, port: number, useTls: boolean, timeoutMs = 2500
   });
 }
 
-async function discoverDcHostsWithPdc(params: {
+export async function discoverDcHostsWithPdc(params: {
   explicitDc?: string;
   adConfig?: any;
   domainHints: string[];
@@ -619,7 +619,7 @@ async function discoverDcHostsWithPdc(params: {
   return { candidates, pdcHost };
 }
 
-interface ActiveLdapSession {
+export interface ActiveLdapSession {
   client: ldap.Client;
   host: string;
   port: number;
@@ -630,7 +630,7 @@ interface ActiveLdapSession {
   close: () => void;
 }
 
-async function openAuthenticatedLdapSession(params: {
+export async function openAuthenticatedLdapSession(params: {
   input: HelpdeskUserInspectInput;
   adConfig: any;
   dcCandidates: string[];
@@ -800,10 +800,11 @@ async function openAuthenticatedLdapSession(params: {
   return { session: null, errors };
 }
 
-function ldapSearchEntries(
+export function ldapSearchEntries(
   client: ldap.Client,
   searchBase: string,
-  options: ldap.SearchOptions
+  options: ldap.SearchOptions,
+  controls?: any
 ): Promise<Array<{ attrs: Record<string, string[]>; buffers: Record<string, Buffer[]>; dn: string }>> {
   return new Promise((resolve, reject) => {
     const rows: Array<{ attrs: Record<string, string[]>; buffers: Record<string, Buffer[]>; dn: string }> = [];
@@ -815,16 +816,22 @@ function ldapSearchEntries(
       else resolve(rows);
     };
 
-    client.search(searchBase, options, (err, res) => {
+    const handleSearch = (err: Error | null, res: any) => {
       if (err || !res) return finish(err || new Error('LDAP search failed'));
-      res.on('searchEntry', (entry) => {
+      res.on('searchEntry', (entry: any) => {
         rows.push(extractEntryFieldsAndBuffers(entry));
       });
       res.on('searchReference', () => {});
       res.on('pageError', () => {});
-      res.on('error', (sErr) => finish(sErr));
+      res.on('error', (sErr: Error) => finish(sErr));
       res.on('end', () => finish());
-    });
+    };
+
+    if (controls) {
+      client.search(searchBase, options, controls, handleSearch);
+    } else {
+      client.search(searchBase, options, handleSearch);
+    }
   });
 }
 
@@ -846,7 +853,7 @@ function decodeUacFlags(uac: number): string[] {
   return flags.filter(([bit]) => (uac & bit) !== 0).map(([, name]) => name);
 }
 
-function dedupeStrings(items: Array<string | undefined | null>): string[] {
+export function dedupeStrings(items: Array<string | undefined | null>): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const item of items) {

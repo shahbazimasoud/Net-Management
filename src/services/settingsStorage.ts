@@ -1517,6 +1517,7 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
     case 'helpdesk':
       return (policy?.canViewHelpdesk !== undefined ? Boolean(policy?.canViewHelpdesk) : false) || isUserDomainAdmin(user);
     case 'helpdesk-users':
+    case 'helpdesk-groups':
       return (
         ((policy?.canViewHelpdesk !== undefined ? Boolean(policy?.canViewHelpdesk) : false) &&
           (policy?.canInspectHelpdeskDomainUsers !== undefined ? Boolean(policy?.canInspectHelpdeskDomainUsers) : false)) ||

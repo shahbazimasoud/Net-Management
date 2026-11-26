@@ -138,6 +138,13 @@ import {
   HelpdeskUserInspectInput,
   LdapTransportProtocol,
 } from './helpdeskUserService';
+import {
+  searchDomainGroups,
+  inspectTargetDomainGroup,
+  manageDomainGroupMember,
+  HelpdeskGroupInspectInput,
+  HelpdeskGroupSearchInput,
+} from './helpdeskGroupService';
 import { ZipArchive } from 'archiver';
 import { runRetentionPurgeJob } from './logRetentionDaemon';
 import {
@@ -279,6 +286,10 @@ import {
   queryHelpdeskUserHistoryFromDb,
   deleteHelpdeskUserHistoryFromDb,
   clearHelpdeskUserHistoryFromDb,
+  addHelpdeskGroupHistoryInDb,
+  queryHelpdeskGroupHistoryFromDb,
+  deleteHelpdeskGroupHistoryFromDb,
+  clearHelpdeskGroupHistoryFromDb,
   HelpdeskExceptionRuleType,
   listHelpdeskExceptionsFromDb,
   createHelpdeskExceptionInDb,
@@ -11603,6 +11614,475 @@ apiRouter.delete('/helpdesk/user/history', async (req: Request, res: Response) =
     return res.status(500).json({
       success: false,
       error: err?.message || 'Failed to clear HelpDesk user check history',
+    });
+  }
+});
+
+// ============================================================================
+// ON-DEMAND TARGET AD GROUP HELPDESK (CREATOR, OU, MEMBERS & HUMAN PERMISSIONS)
+// ============================================================================
+
+function extractHelpdeskGroupInputFromBody(body: any): HelpdeskGroupInspectInput {
+  const rawLdap = String(body?.ldapProtocol || 'auto').trim().toLowerCase();
+  const ldapProtocol: LdapTransportProtocol =
+    rawLdap === 'ldaps' || rawLdap === 'ldap' ? rawLdap : 'auto';
+  const rawWinrm = String(body?.winrmProtocol || 'auto').trim().toLowerCase();
+  const winrmProtocol: HelpdeskProtocol =
+    rawWinrm === 'winrm_https' ||
+    rawWinrm === 'winrm_http' ||
+    rawWinrm === 'smb_rpc' ||
+    rawWinrm === 'ssh'
+      ? rawWinrm
+      : 'auto';
+
+  return {
+    targetGroup: String(body?.targetGroup || '').trim(),
+    adminUsername: String(body?.adminUsername || '').trim(),
+    adminPassword: String(body?.adminPassword || ''),
+    domainController: body?.domainController ? String(body.domainController).trim() : undefined,
+    ldapProtocol,
+    winrmProtocol,
+  };
+}
+
+// POST /helpdesk/group/search - Wildcard search AD groups for quick picker/autocomplete
+apiRouter.post('/helpdesk/group/search', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'domain_user');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const rawLdap = String(req.body?.ldapProtocol || 'auto').trim().toLowerCase();
+  const input: HelpdeskGroupSearchInput = {
+    query: String(req.body?.query || '').trim(),
+    adminUsername: String(req.body?.adminUsername || '').trim(),
+    adminPassword: String(req.body?.adminPassword || ''),
+    domainController: req.body?.domainController ? String(req.body.domainController).trim() : undefined,
+    ldapProtocol: rawLdap === 'ldaps' || rawLdap === 'ldap' ? rawLdap : 'auto',
+    limit: req.body?.limit !== undefined ? Number(req.body.limit) : 40,
+  };
+
+  if (!input.adminUsername || !input.adminPassword) {
+    return res.status(400).json({
+      success: false,
+      error: 'Ephemeral domain admin username & password are required to search groups.',
+      errorFa: 'نام کاربری و رمز عبور ادمین دامین جهت جستجوی گروه‌ها الزامی است.',
+    });
+  }
+
+  try {
+    const data = await searchDomainGroups(input);
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'AD group search failed');
+    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/group/inspect - Inspect AD group creation, creator, OU, members, nested groups & human-readable permissions
+apiRouter.post('/helpdesk/group/inspect', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'domain_user');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const input = extractHelpdeskGroupInputFromBody(req.body);
+  if (!input.targetGroup || !input.adminUsername || !input.adminPassword) {
+    return res.status(400).json({
+      success: false,
+      error: 'Target group name and ephemeral domain admin username & password are required.',
+      errorFa: 'نام گروه هدف و نام کاربری و رمز عبور ادمین دامین الزامی است.',
+    });
+  }
+
+  try {
+    const data = await inspectTargetDomainGroup(input);
+    const skipHistory = req.body?.skipHistory === true;
+    let historyId: string | undefined;
+    if (!skipHistory) {
+      const savedHist = await addHelpdeskGroupHistoryInDb({
+        queryTarget: input.targetGroup,
+        samAccountName: data.identity.samAccountName,
+        cn: data.identity.cn,
+        distinguishedName: data.identity.distinguishedName,
+        organizationalUnit: data.identity.organizationalUnit,
+        groupScope: data.identity.groupScope,
+        groupCategory: data.identity.groupCategory,
+        domainName: data.connectionInfo.domainName,
+        domainController: data.connectionInfo.domainController,
+        methodUsed: data.connectionInfo.method,
+        portUsed: data.connectionInfo.port,
+        memberCount:
+          data.membershipSummary.totalDirectMembers + data.membershipSummary.totalPrimaryGroupMembers,
+        nestedGroupCount: data.nestedChildGroups.length,
+        parentGroupCount: data.parentGroups.length,
+        isPrivileged: data.identity.isPrivileged,
+        adminCount: data.identity.adminCount,
+        whenCreated: data.lifecycleAndOwnership.whenCreated,
+        creatorDisplay: data.lifecycleAndOwnership.creatorAccount || data.lifecycleAndOwnership.objectOwner,
+        status: 'success',
+        actionType: 'inspect',
+        actorName: auth.actorName,
+        actorRole: auth.actorRole,
+      }).catch(() => null);
+      historyId = savedHist?.id;
+    }
+
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_group_inspect',
+      title: `بررسی گروه دامین (${data.identity.cn})`,
+      title_en: `HelpDesk Target AD Group Inspect (${data.identity.cn})`,
+      description: `گروه ${data.identity.cn} در مسیر ${data.identity.organizationalUnit} بررسی شد — تعداد عضو مستقیم: ${data.membershipSummary.totalDirectMembers} — سازنده/مالک: ${data.lifecycleAndOwnership.creatorAccount || '-'}.`,
+      description_en: `Inspected AD group ${data.identity.cn} in OU ${data.identity.organizationalUnit} — Direct members: ${data.membershipSummary.totalDirectMembers} — Creator/Owner: ${data.lifecycleAndOwnership.creatorAccount || '-'}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.identity.samAccountName,
+      clientIp: auth.clientIp,
+      metadata: {
+        domainController: data.connectionInfo.domainController,
+        method: data.connectionInfo.method,
+        ou: data.identity.organizationalUnit,
+        groupScope: data.identity.groupScope,
+        groupCategory: data.identity.groupCategory,
+        isPrivileged: data.identity.isPrivileged,
+      },
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      data,
+      historyId,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Target domain group inspection failed');
+    const skipHistory = req.body?.skipHistory === true;
+    if (!skipHistory) {
+      await addHelpdeskGroupHistoryInDb({
+        queryTarget: input.targetGroup,
+        samAccountName: input.targetGroup,
+        cn: input.targetGroup,
+        distinguishedName: '',
+        organizationalUnit: '',
+        groupScope: 'Unknown',
+        groupCategory: 'Security',
+        domainName: '',
+        domainController: input.domainController || '',
+        methodUsed: 'unknown',
+        portUsed: 0,
+        memberCount: null,
+        nestedGroupCount: null,
+        parentGroupCount: null,
+        isPrivileged: false,
+        adminCount: false,
+        whenCreated: null,
+        creatorDisplay: '',
+        status: 'failed',
+        errorMessage: msg,
+        actionType: 'inspect',
+        actorName: auth.actorName,
+        actorRole: auth.actorRole,
+      }).catch(() => {});
+    }
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_group_inspect_failed',
+      title: `خطا در بررسی گروه دامین ${input.targetGroup}`,
+      title_en: `HelpDesk Target Group Inspect Failed: ${input.targetGroup}`,
+      targetIp: input.domainController || input.targetGroup,
+      errorMsg: msg,
+      metadata: { targetGroup: input.targetGroup, domainController: input.domainController || '' },
+    });
+    return res.status(/invalid|required/i.test(msg) ? 400 : /not found/i.test(msg) ? 404 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/group/member-action - Add or remove a member from an AD group (guarded by exception policy & write rate limit)
+apiRouter.post('/helpdesk/group/member-action', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: Your policy does not permit Active Directory group management.',
+      errorFa: 'عدم دسترسی: پالیسی شما فاقد مجوز مدیریت اعضای گروه‌های دامین است.',
+    });
+  }
+
+  const input = extractHelpdeskGroupInputFromBody(req.body);
+  const action: 'add_member' | 'remove_member' =
+    req.body?.action === 'remove_member' ? 'remove_member' : 'add_member';
+  const memberIdentifier = String(req.body?.memberIdentifier || '').trim();
+
+  if (!input.targetGroup || !memberIdentifier || !input.adminUsername || !input.adminPassword) {
+    return res.status(400).json({
+      success: false,
+      error: 'Target group, member identifier, and ephemeral domain admin credentials are required.',
+      errorFa: 'نام گروه، نام عضو هدف و اطلاعات ادمین دامین الزامی است.',
+    });
+  }
+
+  const rlAction: HelpdeskWriteAction =
+    action === 'remove_member' ? 'ad_group_member_remove' : 'ad_group_member_add';
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, input.targetGroup, rlAction);
+  if (!rl.allowed) {
+    await logHelpdeskRateLimitAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      targetIp: input.targetGroup,
+      actionName: rlAction,
+      rl,
+    });
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await manageDomainGroupMember({
+      ...input,
+      action,
+      memberIdentifier,
+    });
+    await addHelpdeskGroupHistoryInDb({
+      queryTarget: input.targetGroup,
+      samAccountName: data.groupSamAccountName,
+      cn: data.groupCn,
+      distinguishedName: data.groupDn,
+      organizationalUnit: '',
+      groupScope: 'Unknown',
+      groupCategory: 'Security',
+      domainName: '',
+      domainController: data.domainController,
+      methodUsed:
+        data.methodUsed === 'ldaps_modify'
+          ? 'ldaps'
+          : data.methodUsed === 'ldap_modify'
+          ? 'ldap'
+          : 'winrm_adsi',
+      portUsed: data.methodUsed === 'ldaps_modify' ? 636 : data.methodUsed === 'ldap_modify' ? 389 : 5985,
+      memberCount: null,
+      nestedGroupCount: null,
+      parentGroupCount: null,
+      isPrivileged: false,
+      adminCount: false,
+      whenCreated: null,
+      creatorDisplay: '',
+      status: data.success ? 'success' : 'failed',
+      actionType: action,
+      actionTargetMember: data.memberSamAccountName,
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+    }).catch(() => {});
+
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: action === 'add_member' ? 'helpdesk_group_member_add' : 'helpdesk_group_member_remove',
+      title:
+        action === 'add_member'
+          ? `افزودن عضو (${data.memberSamAccountName}) به گروه (${data.groupCn})`
+          : `حذف عضو (${data.memberSamAccountName}) از گروه (${data.groupCn})`,
+      title_en:
+        action === 'add_member'
+          ? `HelpDesk AD Group Add Member (${data.memberSamAccountName} -> ${data.groupCn})`
+          : `HelpDesk AD Group Remove Member (${data.memberSamAccountName} <- ${data.groupCn})`,
+      description: data.messageFa,
+      description_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: data.groupSamAccountName,
+      clientIp: auth.clientIp,
+      metadata: {
+        groupDn: data.groupDn,
+        memberDn: data.memberDn,
+        domainController: data.domainController,
+        methodUsed: data.methodUsed,
+        action,
+      },
+    }).catch(() => {});
+
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to update AD group membership');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_group_member_action_failed',
+      title: `خطا در تغییر عضویت گروه ${input.targetGroup}`,
+      title_en: `HelpDesk AD Group Membership Update Failed: ${input.targetGroup}`,
+      targetIp: input.domainController || input.targetGroup,
+      errorMsg: msg,
+      metadata: { targetGroup: input.targetGroup, memberIdentifier, action },
+    });
+    return res.status(err?.blockedByException ? 403 : /invalid|required|not found|itself/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: err?.reasonFa || msg,
+      blockedByException: Boolean(err?.blockedByException),
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// GET /helpdesk/group/history - Paginated AD group check history (scoped per operator unless Super Admin or canViewAllHelpdeskHistory)
+apiRouter.get('/helpdesk/group/history', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'domain_user');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const actorAliases = canViewAll
+      ? undefined
+      : Array.from(
+          new Set(
+            [auth.actorName, auth.user?.username, auth.user?.fullName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )
+        );
+    const rawStatus = String(req.query.status || 'all').trim().toLowerCase();
+    const status = rawStatus === 'success' || rawStatus === 'failed' ? rawStatus : 'all';
+    const rawAction = String(req.query.actionType || 'all').trim().toLowerCase();
+    const actionType =
+      rawAction === 'inspect' || rawAction === 'add_member' || rawAction === 'remove_member'
+        ? rawAction
+        : 'all';
+    const result = await queryHelpdeskGroupHistoryFromDb({
+      search: String(req.query.search || ''),
+      status,
+      actionType,
+      page: Number(req.query.page || 1),
+      pageSize: Number(req.query.pageSize || 15),
+      actorAliases,
+    });
+    return res.json({ success: true, scope: canViewAll ? 'all' : 'own', ...result });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to load HelpDesk group check history',
+      errorFa: 'خطا در دریافت تاریخچه بررسی گروه‌های دامین',
+    });
+  }
+});
+
+// DELETE /helpdesk/group/history/:id - Remove single group check history entry
+apiRouter.delete('/helpdesk/group/history/:id', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'actions');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Insufficient permissions for group check history.',
+        errorFa: 'عدم دسترسی: مجوز مدیریت تاریخچه بررسی گروه‌های دامین وجود ندارد.',
+      });
+    }
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'History record ID is required' });
+    }
+    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const actorAliases = canViewAll
+      ? undefined
+      : Array.from(
+          new Set(
+            [auth.actorName, auth.user?.username, auth.user?.fullName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )
+        );
+    const removed = await deleteHelpdeskGroupHistoryFromDb(id, actorAliases);
+    if (removed.forbidden) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: You can only delete your own group check history records.',
+        errorFa: 'عدم دسترسی: شما فقط مجاز به حذف سوابق بررسی گروه‌های مربوط به خودتان هستید.',
+      });
+    }
+    if (!removed.deleted) {
+      return res.status(404).json({ success: false, error: 'History record not found' });
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to delete group check history record',
+    });
+  }
+});
+
+// DELETE /helpdesk/group/history - Clear group check history
+apiRouter.delete('/helpdesk/group/history', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'actions');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Insufficient permissions for group check history.',
+        errorFa: 'عدم دسترسی: مجوز پاک‌سازی تاریخچه بررسی گروه‌های دامین وجود ندارد.',
+      });
+    }
+    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const actorAliases = canViewAll
+      ? undefined
+      : Array.from(
+          new Set(
+            [auth.actorName, auth.user?.username, auth.user?.fullName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )
+        );
+    const clearedCount = await clearHelpdeskGroupHistoryFromDb(actorAliases);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_group_history_clear_all',
+      title: canViewAll
+        ? `پاک‌سازی کامل تاریخچه بررسی گروه‌های هلپ‌دسک (${clearedCount} رکورد)`
+        : `پاک‌سازی تاریخچه بررسی گروه‌های شخصی (${clearedCount} رکورد)`,
+      title_en: canViewAll
+        ? `Cleared All HelpDesk Group Check History (${clearedCount} records)`
+        : `Cleared Own HelpDesk Group Check History (${clearedCount} records)`,
+      description: `کاربر ${auth.actorName} ${canViewAll ? 'کل' : 'سوابق شخصی'} تاریخچه بررسی گروه‌های دامین (${clearedCount} مورد) را پاک کرد.`,
+      description_en: `Operator ${auth.actorName} cleared ${clearedCount} ${canViewAll ? '' : 'own '}HelpDesk group check history records.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'warning',
+      targetName: 'helpdesk_group_history',
+      clientIp: auth.clientIp,
+      metadata: { clearedCount, scope: canViewAll ? 'all' : 'own' },
+    }).catch(() => {});
+    return res.json({ success: true, clearedCount, scope: canViewAll ? 'all' : 'own' });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to clear HelpDesk group check history',
     });
   }
 });

@@ -3185,6 +3185,403 @@ export async function clearHelpdeskUserHistory(): Promise<{
   return res.json();
 }
 
+// ============================================================================
+// Active Directory & Group Support HelpDesk API
+// ============================================================================
+
+export type AdGroupScope = 'Global' | 'DomainLocal' | 'Universal' | 'BuiltinLocal' | 'Unknown';
+export type AdGroupCategory = 'Security' | 'Distribution';
+
+export interface HelpdeskTargetGroupRequestPayload {
+  targetGroup: string;
+  adminUsername: string;
+  adminPassword: string;
+  domainController?: string;
+  ldapProtocol?: 'auto' | 'ldaps' | 'ldap';
+  winrmProtocol?: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
+  skipHistory?: boolean;
+}
+
+export interface HelpdeskGroupSearchHit {
+  cn: string;
+  samAccountName: string;
+  displayName: string;
+  distinguishedName: string;
+  organizationalUnit: string;
+  description: string;
+  mail: string;
+  groupScope: AdGroupScope;
+  groupCategory: AdGroupCategory;
+  isPrivileged: boolean;
+  adminCount: boolean;
+  memberCountEstimate: number;
+  whenCreated: string | null;
+}
+
+export interface HelpdeskGroupMemberEntry {
+  dn: string;
+  cn: string;
+  samAccountName: string;
+  displayName: string;
+  objectType: 'user' | 'group' | 'computer' | 'contact' | 'foreign_principal' | 'unknown';
+  department: string;
+  jobTitle: string;
+  email: string;
+  organizationalUnit: string;
+  accountEnabled: boolean | null;
+  accountLocked: boolean | null;
+  isPrimaryGroupMember?: boolean;
+  nestedScope?: AdGroupScope;
+  nestedCategory?: AdGroupCategory;
+  isInherited?: boolean;
+  viaGroupCn?: string;
+  viaGroupDn?: string;
+}
+
+export interface HelpdeskGroupParentEntry {
+  cn: string;
+  samAccountName: string;
+  dn: string;
+  ou: string;
+  groupScope: AdGroupScope;
+  groupCategory: AdGroupCategory;
+  isPrivileged: boolean;
+  isDirect: boolean;
+  description: string;
+}
+
+export interface HelpdeskGroupPermissionInsight {
+  id: string;
+  category:
+    | 'privileged_role'
+    | 'inherited_role'
+    | 'admin_sd_holder'
+    | 'gpo_target'
+    | 'password_policy'
+    | 'mail_exchange'
+    | 'delegation'
+    | 'scope_rule';
+  severity: 'critical' | 'high' | 'medium' | 'info';
+  titleEn: string;
+  titleFa: string;
+  summaryEn: string;
+  summaryFa: string;
+  howItWorksEn: string;
+  howItWorksFa: string;
+  sourceLabel?: string;
+}
+
+export interface HelpdeskGroupAclEntry {
+  trustee: string;
+  trusteeSid: string;
+  accessType: 'Allow' | 'Deny';
+  rightsLabelEn: string;
+  rightsLabelFa: string;
+  scopeNoteEn: string;
+  scopeNoteFa: string;
+  isInherited: boolean;
+  isPrivilegeWrite: boolean;
+}
+
+export interface HelpdeskGroupGpoLink {
+  gpoName: string;
+  gpoId: string;
+  gpoStatus: string;
+  permissionLevel: string;
+  linkedOus: string[];
+}
+
+export interface HelpdeskGroupAuditEvent {
+  eventId: number;
+  eventType: 'created' | 'member_added' | 'member_removed' | 'group_changed' | 'deleted';
+  timestamp: string;
+  dcHost: string;
+  actor: string;
+  targetMember?: string;
+  summaryEn: string;
+  summaryFa: string;
+}
+
+export interface HelpdeskGroupInspectionData {
+  found: boolean;
+  collectedAt: string;
+  queryTarget: string;
+  connectionInfo: {
+    method: 'ldaps' | 'ldap' | 'winrm_adsi';
+    domainController: string;
+    port: number;
+    domainName: string;
+    baseDn: string;
+    pdcEmulator?: string;
+  };
+  identity: {
+    cn: string;
+    samAccountName: string;
+    displayName: string;
+    description: string;
+    notes: string;
+    distinguishedName: string;
+    organizationalUnit: string;
+    ouSegments: string[];
+    domainName: string;
+    objectSid: string;
+    objectGuid: string;
+    groupTypeRaw: number;
+    groupScope: AdGroupScope;
+    groupCategory: AdGroupCategory;
+    primaryGroupToken: number | null;
+    adminCount: boolean;
+    isBuiltinCritical: boolean;
+    isPrivileged: boolean;
+    privilegeLevel: 'critical' | 'elevated' | 'standard' | 'distribution';
+  };
+  lifecycleAndOwnership: {
+    whenCreated: string | null;
+    whenChanged: string | null;
+    createdAgeDays: number | null;
+    usnCreated: string;
+    objectOwner: string;
+    objectOwnerSid: string;
+    creatorAccount: string;
+    creatorTimestamp: string | null;
+    creatorDc: string;
+    creatorSource: 'security_event_log' | 'ad_owner_fallback' | 'unavailable';
+    creatorNoteEn: string;
+    creatorNoteFa: string;
+    managedBy: {
+      dn: string;
+      cn: string;
+      samAccountName: string;
+      displayName: string;
+      department: string;
+      jobTitle: string;
+      email: string;
+      ou: string;
+    } | null;
+    managerCanUpdateMembershipList: boolean | null;
+  };
+  mailAndExchange: {
+    isMailEnabled: boolean;
+    primaryEmail: string;
+    mailNickname: string;
+    emailAliases: Array<{ address: string; protocol: string; isPrimary: boolean }>;
+    requireSenderAuthentication: boolean | null;
+    hideFromAddressLists: boolean | null;
+    deliveryRestrictionNoteEn: string;
+    deliveryRestrictionNoteFa: string;
+  };
+  membershipSummary: {
+    totalDirectMembers: number;
+    totalPrimaryGroupMembers: number;
+    totalInheritedUsers: number;
+    directUsersCount: number;
+    directGroupsCount: number;
+    directComputersCount: number;
+    directContactsCount: number;
+    disabledMembersCount: number;
+    lockedMembersCount: number;
+    membersTruncated: boolean;
+    primaryMembersTruncated: boolean;
+    inheritedTruncated: boolean;
+  };
+  directMembers: HelpdeskGroupMemberEntry[];
+  primaryGroupMembers: HelpdeskGroupMemberEntry[];
+  nestedChildGroups: HelpdeskGroupMemberEntry[];
+  effectiveInheritedMembers: HelpdeskGroupMemberEntry[];
+  parentGroups: HelpdeskGroupParentEntry[];
+  permissions: {
+    plainSummaryEn: string;
+    plainSummaryFa: string;
+    insights: HelpdeskGroupPermissionInsight[];
+    linkedGpos: HelpdeskGroupGpoLink[];
+    appliedPasswordPolicies: Array<{
+      name: string;
+      precedence: number | null;
+      minLength: number | null;
+      lockoutThreshold: number | null;
+      maxPasswordAgeDays: number | null;
+    }>;
+    aclEntries: HelpdeskGroupAclEntry[];
+    aclSource: 'ldap_sd' | 'winrm_acl' | 'unavailable';
+  };
+  auditEventsStatus: 'available' | 'empty' | 'unavailable';
+  auditEventsNoteEn: string;
+  auditEventsNoteFa: string;
+  auditEvents: HelpdeskGroupAuditEvent[];
+}
+
+export interface HelpdeskGroupMemberActionResult {
+  success: boolean;
+  action: 'add_member' | 'remove_member';
+  groupSamAccountName: string;
+  groupCn: string;
+  groupDn: string;
+  memberSamAccountName: string;
+  memberDisplayName: string;
+  memberDn: string;
+  domainController: string;
+  methodUsed: 'ldaps_modify' | 'ldap_modify' | 'winrm_adsi';
+  message: string;
+  messageFa: string;
+  executedAt: string;
+}
+
+export interface HelpdeskGroupHistoryItem {
+  id: string;
+  queryTarget: string;
+  samAccountName: string;
+  cn: string;
+  distinguishedName: string;
+  organizationalUnit: string;
+  groupScope: AdGroupScope;
+  groupCategory: AdGroupCategory;
+  domainName: string;
+  domainController: string;
+  methodUsed: 'ldaps' | 'ldap' | 'winrm_adsi' | 'unknown';
+  portUsed: number;
+  memberCount: number | null;
+  nestedGroupCount: number | null;
+  parentGroupCount: number | null;
+  isPrivileged: boolean;
+  adminCount: boolean;
+  whenCreated: string | null;
+  creatorDisplay: string;
+  status: 'success' | 'failed';
+  errorMessage?: string;
+  actionType: 'inspect' | 'add_member' | 'remove_member';
+  actionTargetMember?: string;
+  actorName: string;
+  actorRole: string;
+  checkedAt: string;
+}
+
+export interface HelpdeskGroupHistoryResponse {
+  success: boolean;
+  scope?: 'all' | 'own';
+  items: HelpdeskGroupHistoryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: {
+    totalChecks: number;
+    uniqueGroups: number;
+    successCount: number;
+    failedCount: number;
+    privilegedSeenCount: number;
+    lastCheckedAt: string | null;
+    lastGroupName: string | null;
+  };
+}
+
+export async function searchHelpdeskDomainGroups(payload: {
+  query?: string;
+  adminUsername: string;
+  adminPassword: string;
+  domainController?: string;
+  ldapProtocol?: 'auto' | 'ldaps' | 'ldap';
+  limit?: number;
+}): Promise<{
+  success: boolean;
+  data: {
+    domainController: string;
+    domainName: string;
+    method: 'ldaps' | 'ldap';
+    port: number;
+    groups: HelpdeskGroupSearchHit[];
+  };
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/group/search`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Active Directory group search failed');
+  return res.json();
+}
+
+export async function inspectHelpdeskTargetGroup(
+  payload: HelpdeskTargetGroupRequestPayload
+): Promise<{
+  success: boolean;
+  data: HelpdeskGroupInspectionData;
+  historyId?: string;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/group/inspect`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Active Directory group inspection failed');
+  return res.json();
+}
+
+export async function manageHelpdeskGroupMember(
+  payload: HelpdeskTargetGroupRequestPayload & {
+    action: 'add_member' | 'remove_member';
+    memberIdentifier: string;
+  }
+): Promise<{
+  success: boolean;
+  data: HelpdeskGroupMemberActionResult;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/group/member-action`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to update AD group membership');
+  return res.json();
+}
+
+export async function fetchHelpdeskGroupHistory(params: {
+  search?: string;
+  status?: 'all' | 'success' | 'failed';
+  actionType?: 'all' | 'inspect' | 'add_member' | 'remove_member';
+  page?: number;
+  pageSize?: number;
+}): Promise<HelpdeskGroupHistoryResponse> {
+  const qs = new URLSearchParams();
+  if (params.search) qs.set('search', params.search);
+  if (params.status) qs.set('status', params.status);
+  if (params.actionType) qs.set('actionType', params.actionType);
+  if (params.page) qs.set('page', String(params.page));
+  if (params.pageSize) qs.set('pageSize', String(params.pageSize));
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/group/history?${qs.toString()}`, {
+    method: 'GET',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to fetch HelpDesk group check history');
+  return res.json();
+}
+
+export async function deleteHelpdeskGroupHistoryItem(id: string): Promise<{ success: boolean }> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/group/history/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to delete HelpDesk group check history record');
+  return res.json();
+}
+
+export async function clearHelpdeskGroupHistory(): Promise<{
+  success: boolean;
+  clearedCount: number;
+  scope?: 'all' | 'own';
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/group/history`, {
+    method: 'DELETE',
+    cache: 'no-store',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to clear HelpDesk group check history');
+  return res.json();
+}
+
 export async function executeHelpdeskPowerControl(
   payload: HelpdeskConnectionPayload & {
     powerAction: 'restart_now' | 'restart_scheduled' | 'shutdown_force' | 'shutdown_scheduled' | 'abort';

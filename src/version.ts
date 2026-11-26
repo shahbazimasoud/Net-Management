@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.487.1';
+export const APP_VERSION = '1.488.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.488.0',
+    releaseDate: '2026-11-26',
+    type: 'minor',
+    title: 'افزودن صفحه جدید پشتیبانی گروه‌های اکتیو دایرکتوری (HelpDesk Group Support) با نمایش تاریخ ساخت، سازنده، مسیر OU، اعضا و پرمیژن‌ها به زبان ساده',
+    title_en: 'Add Active Directory & Group Support HelpDesk Page with Creation History, Creator/Owner, OU Path, Members & Plain-Language Permissions',
+    changes: [
+      'افزودن زیرمنوی جدید «پشتیبانی گروه‌های اکتیو دایرکتوری (Group)» در بخش HelpDesk با طراحی، فواصل و پنج تب هم‌تراز با صفحه پشتیبانی کاربران (هویت و سازنده، اعضا و زیرگروه‌ها، پرمیژن‌ها به زبان ساده، گزارش‌های مدیریتی و تاریخچه بررسی‌ها).',
+      'استعلام لحظه‌ای و ایمن از AD و DC برای نمایش زمان دقیق ساخت گروه (`whenCreated`)، نام سازنده (از رویدادهای Security Event Log `4727/4731/4754` یا مالک آبجکت AD)، مسیر سلسله‌مراتبی OU، مدیر مسئول (`ManagedBy`) و مرورگر جستجوی گروه‌های دامین.',
+      'نمایش کامل اعضای مستقیم (با پشتیبانی از گروه‌های بزرگ Range Retrieval)، اعضای Primary Group RID (مانند Domain Users)، زیرگروه‌ها و اعضای ارث‌بری‌شده، گروه‌های والد (`memberOf`) همراه با امکان افزودن/حذف ایمن عضو و ترجمه تمام پرمیژن‌ها، GPOها، FGPP و جدول ACL به زبان ساده و قابل فهم.'
+    ],
+    changes_en: [
+      'Added new Active Directory & Group Support HelpDesk (`helpdesk-groups`) submenu matching HelpDeskUsersView spacing and 5-tab layout (`Overview, Creator & OU`, `Members & Nested Groups`, `Permissions (Plain Guide)`, `Management Reports`, and `Check History`).',
+      'Added live AD group search browser, exact creation timestamp (`whenCreated`), creator/owner attribution (`Security Event Log 4727/4731/4754` + AD `nTSecurityDescriptor` Owner), OU hierarchy breadcrumb, and `ManagedBy` resolution.',
+      'Added full member resolution (direct + Range Retrieval + Primary Group RIDs + transitive nested/parent groups) with exception-guarded Add/Remove Member controls plus plain-language permission translation covering built-in roles, inherited rights, `AdminSDHolder`, GPOs, Fine-Grained Password Policies, Exchange rules, and AD delegation ACLs.'
+    ]
+  },
   {
     version: '1.487.1',
     releaseDate: '2026-11-26',

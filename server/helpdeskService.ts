@@ -91,6 +91,8 @@ export type HelpdeskWriteAction =
   | 'env_var_set'
   | 'env_var_delete'
   | 'ad_user_unlock'
+  | 'ad_group_member_add'
+  | 'ad_group_member_remove'
   | 'profile_temp_clean'
   | 'profile_delete'
   | 'profile_bak_repair'

@@ -316,6 +316,7 @@ export interface FallbackStore {
   ssl_certificates?: any[];
   helpdesk_connection_history?: HelpdeskConnectionHistoryRecord[];
   helpdesk_user_history?: HelpdeskUserHistoryRecord[];
+  helpdesk_group_history?: HelpdeskGroupHistoryRecord[];
   helpdesk_exceptions?: HelpdeskExceptionRecord[];
 }
 
@@ -374,6 +375,35 @@ export interface HelpdeskUserHistoryRecord {
   status: 'success' | 'failed';
   errorMessage?: string;
   actionType: 'inspect' | 'unlock';
+  actorName: string;
+  actorRole: string;
+  checkedAt: string;
+}
+
+export interface HelpdeskGroupHistoryRecord {
+  id: string;
+  queryTarget: string;
+  samAccountName: string;
+  cn: string;
+  distinguishedName: string;
+  organizationalUnit: string;
+  groupScope: 'DomainLocal' | 'Global' | 'Universal' | 'BuiltinLocal' | 'Unknown';
+  groupCategory: 'Security' | 'Distribution';
+  domainName: string;
+  domainController: string;
+  methodUsed: 'ldaps' | 'ldap' | 'winrm_adsi' | 'unknown';
+  portUsed: number;
+  memberCount: number | null;
+  nestedGroupCount: number | null;
+  parentGroupCount: number | null;
+  isPrivileged: boolean;
+  adminCount: boolean;
+  whenCreated: string | null;
+  creatorDisplay: string;
+  status: 'success' | 'failed';
+  errorMessage?: string;
+  actionType: 'inspect' | 'add_member' | 'remove_member';
+  actionTargetMember?: string;
   actorName: string;
   actorRole: string;
   checkedAt: string;
@@ -15992,6 +16022,308 @@ export async function clearHelpdeskUserHistoryFromDb(actorAliases?: string[]): P
       }
     } catch (e: any) {
       console.warn('[DB] clearHelpdeskUserHistoryFromDb error:', e?.message || e);
+    }
+  }
+  return fbRemoved;
+}
+
+// ============================================================================
+// HelpDesk Target AD Group Check History (PostgreSQL + Fallback Store, Zero Passwords!)
+// ============================================================================
+
+async function ensureHelpdeskGroupHistoryTable(): Promise<void> {
+  if (!isPostgresReady || !pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS helpdesk_group_history (
+      id VARCHAR(128) PRIMARY KEY,
+      data JSONB NOT NULL,
+      checked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_helpdesk_group_history_ts ON helpdesk_group_history(checked_at DESC)"
+  );
+}
+
+export async function addHelpdeskGroupHistoryInDb(
+  entry: Omit<HelpdeskGroupHistoryRecord, 'id' | 'checkedAt'> & {
+    id?: string;
+    checkedAt?: string;
+  }
+): Promise<HelpdeskGroupHistoryRecord> {
+  const rec: HelpdeskGroupHistoryRecord = {
+    id: entry.id || `hdghist_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    queryTarget: String(entry.queryTarget || '').trim(),
+    samAccountName: String(entry.samAccountName || '').trim(),
+    cn: String(entry.cn || '').trim(),
+    distinguishedName: String(entry.distinguishedName || '').trim(),
+    organizationalUnit: String(entry.organizationalUnit || '').trim(),
+    groupScope:
+      entry.groupScope === 'DomainLocal' ||
+      entry.groupScope === 'Global' ||
+      entry.groupScope === 'Universal' ||
+      entry.groupScope === 'BuiltinLocal'
+        ? entry.groupScope
+        : 'Unknown',
+    groupCategory: entry.groupCategory === 'Distribution' ? 'Distribution' : 'Security',
+    domainName: String(entry.domainName || '').trim(),
+    domainController: String(entry.domainController || '').trim(),
+    methodUsed:
+      entry.methodUsed === 'ldaps' || entry.methodUsed === 'ldap' || entry.methodUsed === 'winrm_adsi'
+        ? entry.methodUsed
+        : 'unknown',
+    portUsed: Number(entry.portUsed || 0),
+    memberCount: typeof entry.memberCount === 'number' && Number.isFinite(entry.memberCount) ? entry.memberCount : null,
+    nestedGroupCount:
+      typeof entry.nestedGroupCount === 'number' && Number.isFinite(entry.nestedGroupCount)
+        ? entry.nestedGroupCount
+        : null,
+    parentGroupCount:
+      typeof entry.parentGroupCount === 'number' && Number.isFinite(entry.parentGroupCount)
+        ? entry.parentGroupCount
+        : null,
+    isPrivileged: Boolean(entry.isPrivileged),
+    adminCount: Boolean(entry.adminCount),
+    whenCreated: entry.whenCreated || null,
+    creatorDisplay: String(entry.creatorDisplay || '').trim(),
+    status: entry.status === 'failed' ? 'failed' : 'success',
+    errorMessage: entry.errorMessage ? String(entry.errorMessage).slice(0, 300) : '',
+    actionType:
+      entry.actionType === 'add_member' || entry.actionType === 'remove_member' ? entry.actionType : 'inspect',
+    actionTargetMember: entry.actionTargetMember ? String(entry.actionTargetMember).trim() : '',
+    actorName: String(entry.actorName || '').trim(),
+    actorRole: String(entry.actorRole || '').trim(),
+    checkedAt: entry.checkedAt || new Date().toISOString(),
+  };
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.helpdesk_group_history)) {
+    store.helpdesk_group_history = [];
+  }
+  store.helpdesk_group_history.unshift(rec);
+  if (store.helpdesk_group_history.length > 2000) {
+    store.helpdesk_group_history = store.helpdesk_group_history.slice(0, 2000);
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskGroupHistoryTable();
+      await pool.query(
+        `INSERT INTO helpdesk_group_history (id, data, checked_at)
+         VALUES ($1, $2::jsonb, $3::timestamptz)
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, checked_at = EXCLUDED.checked_at`,
+        [rec.id, JSON.stringify(rec), rec.checkedAt]
+      );
+    } catch (e: any) {
+      console.warn('[DB] addHelpdeskGroupHistoryInDb error:', e?.message || e);
+    }
+  }
+  return rec;
+}
+
+export async function queryHelpdeskGroupHistoryFromDb(params: {
+  search?: string;
+  status?: 'all' | 'success' | 'failed';
+  actionType?: 'all' | 'inspect' | 'add_member' | 'remove_member';
+  page?: number;
+  pageSize?: number;
+  actorAliases?: string[];
+}): Promise<{
+  items: HelpdeskGroupHistoryRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: {
+    totalChecks: number;
+    uniqueGroups: number;
+    successCount: number;
+    failedCount: number;
+    privilegedSeenCount: number;
+    lastCheckedAt: string | null;
+    lastGroupName: string | null;
+  };
+}> {
+  let allRecords: HelpdeskGroupHistoryRecord[] = [];
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskGroupHistoryTable();
+      const res = await pool.query(
+        `SELECT data FROM helpdesk_group_history ORDER BY checked_at DESC LIMIT 2000`
+      );
+      allRecords = res.rows.map((r: any) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data));
+      if (allRecords.length === 0) {
+        const fb = loadFallbackStore();
+        if (Array.isArray(fb.helpdesk_group_history) && fb.helpdesk_group_history.length > 0) {
+          allRecords = fb.helpdesk_group_history;
+          for (const item of allRecords.slice(0, 500)) {
+            if (item?.id) {
+              await pool.query(
+                `INSERT INTO helpdesk_group_history (id, data, checked_at)
+                 VALUES ($1, $2::jsonb, $3::timestamptz)
+                 ON CONFLICT (id) DO NOTHING`,
+                [String(item.id), JSON.stringify(item), item.checkedAt || new Date().toISOString()]
+              );
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[DB] queryHelpdeskGroupHistoryFromDb fallback:', e?.message || e);
+      const fb = loadFallbackStore();
+      allRecords = Array.isArray(fb.helpdesk_group_history) ? fb.helpdesk_group_history : [];
+    }
+  } else {
+    const fb = loadFallbackStore();
+    allRecords = Array.isArray(fb.helpdesk_group_history) ? fb.helpdesk_group_history : [];
+  }
+
+  allRecords = [...allRecords].sort(
+    (a, b) => new Date(b.checkedAt || 0).getTime() - new Date(a.checkedAt || 0).getTime()
+  );
+
+  const actorSet = normalizeActorMatchSet(params.actorAliases);
+  if (actorSet) {
+    allRecords = allRecords.filter((r) => actorSet.has(String(r.actorName || '').trim().toLowerCase()));
+  }
+
+  const uniqueSet = new Set<string>();
+  let successCount = 0;
+  let failedCount = 0;
+  let privilegedSeenCount = 0;
+  for (const r of allRecords) {
+    const key = (r.samAccountName || r.cn || r.queryTarget || '').toLowerCase();
+    if (key) uniqueSet.add(key);
+    if (r.status === 'failed') failedCount++;
+    else successCount++;
+    if (r.isPrivileged) privilegedSeenCount++;
+  }
+
+  const q = String(params.search || '').trim().toLowerCase();
+  const statusFilter = params.status || 'all';
+  const actionFilter = params.actionType || 'all';
+
+  const filtered = allRecords.filter((r) => {
+    if (statusFilter === 'success' && r.status !== 'success') return false;
+    if (statusFilter === 'failed' && r.status !== 'failed') return false;
+    if (actionFilter !== 'all' && r.actionType !== actionFilter) return false;
+    if (!q) return true;
+    return (
+      String(r.samAccountName || '').toLowerCase().includes(q) ||
+      String(r.cn || '').toLowerCase().includes(q) ||
+      String(r.queryTarget || '').toLowerCase().includes(q) ||
+      String(r.organizationalUnit || '').toLowerCase().includes(q) ||
+      String(r.creatorDisplay || '').toLowerCase().includes(q) ||
+      String(r.domainName || '').toLowerCase().includes(q) ||
+      String(r.domainController || '').toLowerCase().includes(q) ||
+      String(r.actorName || '').toLowerCase().includes(q)
+    );
+  });
+
+  const pageSize = Math.max(5, Math.min(100, Number(params.pageSize) || 15));
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.max(1, Math.min(totalPages, Number(params.page) || 1));
+  const start = (page - 1) * pageSize;
+
+  return {
+    items: filtered.slice(start, start + pageSize),
+    total,
+    page,
+    pageSize,
+    stats: {
+      totalChecks: allRecords.length,
+      uniqueGroups: uniqueSet.size,
+      successCount,
+      failedCount,
+      privilegedSeenCount,
+      lastCheckedAt: allRecords[0]?.checkedAt || null,
+      lastGroupName: allRecords[0]?.samAccountName || allRecords[0]?.cn || allRecords[0]?.queryTarget || null,
+    },
+  };
+}
+
+export async function deleteHelpdeskGroupHistoryFromDb(
+  id: string,
+  actorAliases?: string[]
+): Promise<{ deleted: boolean; forbidden?: boolean }> {
+  const actorSet = normalizeActorMatchSet(actorAliases);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool && actorSet) {
+    try {
+      await ensureHelpdeskGroupHistoryTable();
+      const chk = await pool.query(`SELECT data FROM helpdesk_group_history WHERE id = $1`, [id]);
+      if (chk.rows.length > 0) {
+        const rec = typeof chk.rows[0].data === 'string' ? JSON.parse(chk.rows[0].data) : chk.rows[0].data;
+        const owner = String(rec?.actorName || '').trim().toLowerCase();
+        if (!actorSet.has(owner)) {
+          return { deleted: false, forbidden: true };
+        }
+      }
+    } catch {}
+  }
+
+  const store = loadFallbackStore();
+  const list: any[] = Array.isArray(store.helpdesk_group_history) ? store.helpdesk_group_history : [];
+  const fbMatch = list.find((h: any) => h.id === id);
+  if (fbMatch && actorSet && !actorSet.has(String(fbMatch.actorName || '').trim().toLowerCase())) {
+    return { deleted: false, forbidden: true };
+  }
+
+  const beforeLen = list.length;
+  store.helpdesk_group_history = list.filter((h: any) => h.id !== id);
+  saveFallbackStore(store);
+
+  let deletedInPg = false;
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskGroupHistoryTable();
+      const res = await pool.query(`DELETE FROM helpdesk_group_history WHERE id = $1`, [id]);
+      deletedInPg = (res.rowCount || 0) > 0;
+    } catch (e: any) {
+      console.warn('[DB] deleteHelpdeskGroupHistoryFromDb error:', e?.message || e);
+    }
+  }
+  return { deleted: deletedInPg || store.helpdesk_group_history.length < beforeLen };
+}
+
+export async function clearHelpdeskGroupHistoryFromDb(actorAliases?: string[]): Promise<number> {
+  const actorSet = normalizeActorMatchSet(actorAliases);
+  const store = loadFallbackStore();
+  const list: any[] = Array.isArray(store.helpdesk_group_history) ? store.helpdesk_group_history : [];
+  let fbRemoved = 0;
+
+  if (actorSet) {
+    store.helpdesk_group_history = list.filter((h: any) => {
+      const owned = actorSet.has(String(h?.actorName || '').trim().toLowerCase());
+      if (owned) fbRemoved++;
+      return !owned;
+    });
+  } else {
+    fbRemoved = list.length;
+    store.helpdesk_group_history = [];
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskGroupHistoryTable();
+      if (actorSet) {
+        const res = await pool.query(
+          `DELETE FROM helpdesk_group_history WHERE LOWER(COALESCE(data->>'actorName', '')) = ANY($1::text[])`,
+          [Array.from(actorSet)]
+        );
+        return Math.max(fbRemoved, res.rowCount || 0);
+      } else {
+        const res = await pool.query(`DELETE FROM helpdesk_group_history`);
+        return Math.max(fbRemoved, res.rowCount || 0);
+      }
+    } catch (e: any) {
+      console.warn('[DB] clearHelpdeskGroupHistoryFromDb error:', e?.message || e);
     }
   }
   return fbRemoved;
