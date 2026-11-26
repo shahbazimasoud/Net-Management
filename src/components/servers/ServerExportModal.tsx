@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Download,
@@ -65,8 +65,16 @@ export const ServerExportModal: React.FC<ServerExportModalProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successCount, setSuccessCount] = useState<number | null>(null);
+  const [isMinimized, setIsMinimized] = useState(false);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) {
+      setIsMinimized(false);
+      undockModal('modal-server-export');
+    }
+  }, [isOpen, undockModal]);
+
+  if (!isOpen || isMinimized) return null;
 
   // Determine targeted servers
   const targetServerList =
@@ -87,21 +95,24 @@ export const ServerExportModal: React.FC<ServerExportModalProps> = ({
 
   // Minimize handler adhering to Rule 5 & 7
   const handleMinimize = () => {
+    setIsMinimized(true);
     dockModal({
       id: 'modal-server-export',
       labelEn: `Export Servers (${serversToExport.length})`,
       labelFa: `خروجی سرورها (${serversToExport.length})`,
       badge: format.toUpperCase(),
       category: 'device',
+      keepCurrentTab: true,
       onRestore: () => {
+        setIsMinimized(false);
         undockModal('modal-server-export');
       },
       onClose: () => {
+        setIsMinimized(false);
         undockModal('modal-server-export');
         onClose();
       },
     });
-    onClose();
   };
 
   const handleExecuteExport = async () => {

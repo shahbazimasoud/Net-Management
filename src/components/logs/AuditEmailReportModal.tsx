@@ -236,10 +236,11 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
   initialSmtpStatus,
 }) => {
   const { isEn, isRtl } = useLanguage();
-  const { dockModal } = useModalDock();
+  const { dockModal, undockModal } = useModalDock();
 
   // Window states
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [activeTab, setActiveTab] = useState<'config' | 'preview'>(initialMode);
   const [configSubTab, setConfigSubTab] = useState<'schedule' | 'portal' | 'server_fleet'>('schedule');
 
@@ -449,17 +450,31 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
     }
   }, [isOpen, reportToEdit, initialSmtpStatus?.configured, initialSmtpStatus?.host]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      setIsMinimized(false);
+      undockModal('audit-email-report-modal');
+    }
+  }, [isOpen, undockModal]);
+
   // Handle minimization to dock
   const handleMinimize = () => {
+    setIsMinimized(true);
     dockModal({
       id: 'audit-email-report-modal',
       labelEn: 'Audit Email Reports',
       labelFa: 'گزارش‌گیری ایمیل ممیزی',
       category: 'system',
-      onRestore: () => {},
-      onClose,
+      onRestore: () => {
+        setIsMinimized(false);
+        undockModal('audit-email-report-modal');
+      },
+      onClose: () => {
+        setIsMinimized(false);
+        undockModal('audit-email-report-modal');
+        onClose();
+      },
     });
-    onClose();
   };
 
   // Add recipient
@@ -726,7 +741,7 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || isMinimized) return null;
 
   const renderChannelIcon = (type: string) => {
     switch (type) {

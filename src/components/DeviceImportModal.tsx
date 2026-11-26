@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Upload,
@@ -89,8 +89,16 @@ export const DeviceImportModal: React.FC<DeviceImportModalProps> = ({
     message?: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isMinimized, setIsMinimized] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsMinimized(false);
+      undockModal('modal-device-import');
+    }
+  }, [isOpen, undockModal]);
 
   // Check RBAC Authorization for Device Import
   const isImportPermitted =
@@ -101,10 +109,11 @@ export const DeviceImportModal: React.FC<DeviceImportModalProps> = ({
         effectivePolicy.defaultDevicePermissions?.import_devices === true ||
         effectivePolicy.id === 'policy-super-admin'));
 
-  if (!isOpen) return null;
+  if (!isOpen || isMinimized) return null;
 
   // Minimize handler adhering to Rule 5 & 7
   const handleMinimize = () => {
+    setIsMinimized(true);
     dockModal({
       id: 'modal-device-import',
       labelEn: `Import Equipment (${parsedDevices.length || 'Ready'})`,
@@ -112,14 +121,15 @@ export const DeviceImportModal: React.FC<DeviceImportModalProps> = ({
       badge: 'IMPORT',
       category: 'device',
       onRestore: () => {
+        setIsMinimized(false);
         undockModal('modal-device-import');
       },
       onClose: () => {
+        setIsMinimized(false);
         undockModal('modal-device-import');
         onClose();
       },
     });
-    onClose();
   };
 
   // Helper to parse CSV string into objects

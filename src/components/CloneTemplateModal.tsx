@@ -73,6 +73,7 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'editor' | 'variables' | 'preview'>('editor');
   const [saving, setSaving] = useState(false);
@@ -159,31 +160,43 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
   };
 
   const handleClose = () => {
+    setIsMinimized(false);
     undockModal('clone-template-modal');
     onClose();
   };
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsMinimized(false);
+      undockModal('clone-template-modal');
+    }
+  }, [isOpen, undockModal]);
 
   const handleMinimize = () => {
     if (onMinimize) {
       onMinimize();
       return;
     }
+    setIsMinimized(true);
     dockModal({
       id: 'clone-template-modal',
       labelEn: `Clone: ${sourceTemplate?.name || 'Template'}`,
       labelFa: `کلون: ${sourceTemplate?.name || 'الگو'}`,
       badge: 'Clone',
       category: 'config',
-      onRestore: () => {},
+      onRestore: () => {
+        setIsMinimized(false);
+        undockModal('clone-template-modal');
+      },
       onClose: () => {
+        setIsMinimized(false);
         undockModal('clone-template-modal');
         onClose();
       },
     });
-    onClose();
   };
 
-  if (!isOpen || !sourceTemplate) return null;
+  if (!isOpen || !sourceTemplate || isMinimized) return null;
 
   // Insert variable tag into command textarea
   const insertVarTag = (varName: string) => {

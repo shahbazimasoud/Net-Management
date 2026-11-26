@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Download,
@@ -60,9 +60,18 @@ export const DeviceExportModal: React.FC<DeviceExportModalProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successCount, setSuccessCount] = useState<number | null>(null);
+  const [isMinimized, setIsMinimized] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsMinimized(false);
+      undockModal('modal-device-export');
+    }
+  }, [isOpen, undockModal]);
 
   // Minimize handler adhering to Rule 5 & 7
   const handleMinimize = () => {
+    setIsMinimized(true);
     dockModal({
       id: 'modal-device-export',
       labelEn: `Export Devices (${devicesToExport.length})`,
@@ -70,17 +79,18 @@ export const DeviceExportModal: React.FC<DeviceExportModalProps> = ({
       badge: format.toUpperCase(),
       category: 'device',
       onRestore: () => {
+        setIsMinimized(false);
         undockModal('modal-device-export');
       },
       onClose: () => {
+        setIsMinimized(false);
         undockModal('modal-device-export');
         onClose();
       },
     });
-    onClose();
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || isMinimized) return null;
 
   // Determine which devices are targeted
   const targetDeviceList =

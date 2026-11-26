@@ -329,6 +329,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   // Backdrop dismiss safety locks for Chromium event dispatching
   const mouseDownOnBackdropRef = useRef<boolean>(false);
   const [preventBackdropClose, setPreventBackdropClose] = useState<boolean>(true);
+  const [isMinimized, setIsMinimized] = useState<boolean>(false);
 
   const handleBackdropMouseDown = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
@@ -492,9 +493,17 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
 
   // Close handler with undock
   const handleClose = () => {
+    setIsMinimized(false);
     undockModal('apply-template-modal');
     onClose();
   };
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsMinimized(false);
+      undockModal('apply-template-modal');
+    }
+  }, [isOpen, undockModal]);
 
   // Universal Minimize handler with ToolsDock registration
   const handleMinimize = () => {
@@ -504,6 +513,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     }
     const currentTmpl = templates.find((t) => t.id === selectedTemplateId);
     const tmplName = currentTmpl?.name || (isEn ? 'Config Template' : 'الگوی کانفیگ');
+    setIsMinimized(true);
     dockModal({
       id: 'apply-template-modal',
       labelEn: `Apply Template (${tmplName})`,
@@ -511,14 +521,15 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
       badge: currentTmpl?.vendor === 'mikrotik' ? 'MikroTik' : currentTmpl?.vendor === 'cisco' ? 'Cisco' : 'CLI',
       category: 'config',
       onRestore: () => {
-        // Handled by parent or dock
+        setIsMinimized(false);
+        undockModal('apply-template-modal');
       },
       onClose: () => {
+        setIsMinimized(false);
         undockModal('apply-template-modal');
         onClose();
       },
     });
-    onClose();
   };
 
   // Keyboard Escape listener
@@ -1357,7 +1368,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || isMinimized) return null;
 
   return createPortal(
     <div

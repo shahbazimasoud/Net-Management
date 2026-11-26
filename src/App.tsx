@@ -92,6 +92,7 @@ import {
 } from './services/auditLogger';
 import { useLanguage } from './i18n';
 import { useAuth } from './context/AuthContext';
+import { useModalDock } from './context/ModalDockContext';
 import { LoginPage } from './components/login/LoginPage';
 import { NetworkSocketLoader } from './components/common/NetworkSocketLoader';
 import {
@@ -133,7 +134,47 @@ import { ManageChannelMembersModal } from './components/comms/ManageChannelMembe
 export default function App() {
   const { t, isRtl, isEn, language, setLanguage } = useLanguage();
   const { isAuthenticated, isLoading: isAuthLoading, user, effectivePolicy: authEffectivePolicy, logout } = useAuth();
+  const {
+    dockedModals,
+    restoreAllModals,
+    closeAllModals,
+    setActiveTabContext,
+    registerTabNavigator,
+  } = useModalDock();
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [hasVisitedRemoteServers, setHasVisitedRemoteServers] = useState(false);
+  const [lastRemoteFilter, setLastRemoteFilter] = useState<'all' | 'linux' | 'windows' | 'tags'>('all');
+
+  useEffect(() => {
+    setActiveTabContext(activeTab);
+    if (
+      activeTab === 'remote-servers' ||
+      activeTab === 'remote-linux' ||
+      activeTab === 'remote-windows' ||
+      activeTab === 'remote-tags'
+    ) {
+      setHasVisitedRemoteServers(true);
+      setLastRemoteFilter(
+        activeTab === 'remote-linux'
+          ? 'linux'
+          : activeTab === 'remote-windows'
+          ? 'windows'
+          : activeTab === 'remote-tags'
+          ? 'tags'
+          : 'all'
+      );
+    }
+  }, [activeTab, setActiveTabContext]);
+
+  useEffect(() => {
+    registerTabNavigator((tab) => setActiveTab(tab as ActiveTab));
+  }, [registerTabNavigator]);
+
+  const hasDockedForTabs = useCallback(
+    (tabs: ActiveTab[]) => dockedModals.some((m) => !!m.ownerTab && tabs.includes(m.ownerTab as ActiveTab)),
+    [dockedModals]
+  );
+
   const [devices, setDevices] = useState<Device[]>([]);
   const [topology, setTopology] = useState<TopologyData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -986,8 +1027,9 @@ export default function App() {
     setIsDiscoveryModalOpen(false);
     setIsBulkConfigOpen(false);
     setBulkConfigDevices([]);
+    closeAllModals();
     handleClearAttention();
-  }, [handleClearAttention]);
+  }, [closeAllModals, handleClearAttention]);
 
   const handleRestoreAllMinimized = useCallback(() => {
     const modalIds = minimizedModals.map((m) => m.id);
@@ -1001,8 +1043,9 @@ export default function App() {
       }
     }
     setActiveTools((prev) => prev.map((t) => ({ ...t, isMinimized: false })));
+    restoreAllModals();
     handleClearAttention();
-  }, [minimizedModals, handleClearAttention]);
+  }, [minimizedModals, effectivePolicy, restoreAllModals, handleClearAttention]);
 
   const isModalMinimized = useCallback(
     (id: StandardModalId) => minimizedModals.some((m) => m.id === id),
@@ -1932,99 +1975,113 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'devices' && (
-            <DeviceListView
-              devices={authorizedDevices}
-              onOpenAddModal={handleOpenAddModal}
-              onPingDevice={handlePingDevice}
-              onDeleteDevice={handleDeleteDevice}
-              onEditDevice={handleOpenEditDevice}
-              onInspectPorts={handleInspectPorts}
-              onConnectTerminal={openTerminal}
-              onApplyTemplate={handleOpenApplyTemplate}
-              onWriteMemory={handleWriteMemory}
-              onRefreshAll={handleRefreshAll}
-              isRefreshing={isRefreshing}
-              isLightMode={isLightMode}
-              onOpenBulkConfig={(selected) => {
-                if (effectivePolicy && effectivePolicy.canBulkConfigureDevices === false) {
-                  return;
-                }
-                setBulkConfigDevices(selected);
-                setIsBulkConfigOpen(true);
-              }}
-            />
+          {(activeTab === 'devices' || hasDockedForTabs(['devices'])) && (
+            <div className={activeTab === 'devices' ? 'contents' : 'hidden'}>
+              <DeviceListView
+                devices={authorizedDevices}
+                onOpenAddModal={handleOpenAddModal}
+                onPingDevice={handlePingDevice}
+                onDeleteDevice={handleDeleteDevice}
+                onEditDevice={handleOpenEditDevice}
+                onInspectPorts={handleInspectPorts}
+                onConnectTerminal={openTerminal}
+                onApplyTemplate={handleOpenApplyTemplate}
+                onWriteMemory={handleWriteMemory}
+                onRefreshAll={handleRefreshAll}
+                isRefreshing={isRefreshing}
+                isLightMode={isLightMode}
+                onOpenBulkConfig={(selected) => {
+                  if (effectivePolicy && effectivePolicy.canBulkConfigureDevices === false) {
+                    return;
+                  }
+                  setBulkConfigDevices(selected);
+                  setIsBulkConfigOpen(true);
+                }}
+              />
+            </div>
           )}
 
-          {activeTab === 'templates' && (
-            <TemplateManagementView
-              devices={authorizedDevices}
-              effectivePolicy={effectivePolicy}
-              onDeviceUpdated={loadData}
-              onOpenTerminal={openTerminal}
-              isLightMode={isLightMode}
-            />
+          {(activeTab === 'templates' || hasDockedForTabs(['templates'])) && (
+            <div className={activeTab === 'templates' ? 'contents' : 'hidden'}>
+              <TemplateManagementView
+                devices={authorizedDevices}
+                effectivePolicy={effectivePolicy}
+                onDeviceUpdated={loadData}
+                onOpenTerminal={openTerminal}
+                isLightMode={isLightMode}
+              />
+            </div>
           )}
 
-          {activeTab === 'schematic' && (
-            <SchematicTopologyView
-              topology={authorizedTopology || topology}
-              inventoryDevices={authorizedDevices}
-              loading={loading}
-              onRefresh={loadData}
-              onScanCdpLldp={handleRunScan}
-              onOpenDiscoveryModal={handleOpenDiscoveryModal}
-              isScanning={isScanning}
-              onInspectDevice={handleInspectPorts}
-              onInspectPorts={handleInspectPorts}
-              onConnectTerminal={openTerminal}
-              isFullMode={isTopologyFullscreen}
-              onToggleFullMode={toggleTopologyFullscreen}
-              panelTheme={panelTheme}
-            />
+          {(activeTab === 'schematic' || hasDockedForTabs(['schematic'])) && (
+            <div className={activeTab === 'schematic' ? 'contents' : 'hidden'}>
+              <SchematicTopologyView
+                topology={authorizedTopology || topology}
+                inventoryDevices={authorizedDevices}
+                loading={loading}
+                onRefresh={loadData}
+                onScanCdpLldp={handleRunScan}
+                onOpenDiscoveryModal={handleOpenDiscoveryModal}
+                isScanning={isScanning}
+                onInspectDevice={handleInspectPorts}
+                onInspectPorts={handleInspectPorts}
+                onConnectTerminal={openTerminal}
+                isFullMode={isTopologyFullscreen}
+                onToggleFullMode={toggleTopologyFullscreen}
+                panelTheme={panelTheme}
+              />
+            </div>
           )}
 
-          {activeTab === 'ports' && <PortManagementView devices={authorizedDevices} onConnectTerminal={openTerminal} />}
+          {(activeTab === 'ports' || hasDockedForTabs(['ports'])) && (
+            <div className={activeTab === 'ports' ? 'contents' : 'hidden'}>
+              <PortManagementView devices={authorizedDevices} onConnectTerminal={openTerminal} />
+            </div>
+          )}
 
           {activeTab === 'scanner' && (
             <CdpLldpScannerView onNavigateToTopology={() => setActiveTab('schematic')} />
           )}
 
-          {activeTab === 'logs' && (
-            <AuditLogsView
-              isLightMode={isLightMode}
-              effectivePolicy={effectivePolicy}
-              currentUser={user}
-              onNavigateToRetentionSettings={() => setActiveTab('settings-log-retention')}
-              onNavigateToRecordingSettings={() => setActiveTab('settings-session-recording')}
-              initialSection={focusedAuditSection}
-              initialServerFilter={focusedAuditServerId}
-              initialApprovalRequestId={focusedAuditApprovalId}
-              onConsumeInitialFilter={() => {
-                setFocusedAuditSection(null);
-                setFocusedAuditServerId('');
-              }}
-            />
+          {(activeTab === 'logs' || hasDockedForTabs(['logs'])) && (
+            <div className={activeTab === 'logs' ? 'contents' : 'hidden'}>
+              <AuditLogsView
+                isLightMode={isLightMode}
+                effectivePolicy={effectivePolicy}
+                currentUser={user}
+                onNavigateToRetentionSettings={() => setActiveTab('settings-log-retention')}
+                onNavigateToRecordingSettings={() => setActiveTab('settings-session-recording')}
+                initialSection={focusedAuditSection}
+                initialServerFilter={focusedAuditServerId}
+                initialApprovalRequestId={focusedAuditApprovalId}
+                onConsumeInitialFilter={() => {
+                  setFocusedAuditSection(null);
+                  setFocusedAuditServerId('');
+                }}
+              />
+            </div>
           )}
 
-          {activeTab === 'communications' && (
-            <CommunicationsCenterView
-              isLightMode={isLightMode}
-              onNavigateToTab={(tab) => setActiveTab(tab)}
-              onOpenNotificationSettings={openNotificationSettings}
-              onUnreadCountSync={(cnt) => setUnreadCommsCount(cnt)}
-              liveRevision={commsLiveRevision}
-              initialSelectedId={focusedCommsNotificationId}
-              onConsumeInitialSelectedId={() => setFocusedCommsNotificationId(null)}
-              initialViewMode={focusedCommsViewMode}
-              initialApprovalId={focusedApprovalId}
-              initialChannelId={focusedCommsChannelId}
-              onConsumeInitialApprovalView={() => {
-                setFocusedCommsViewMode(null);
-                setFocusedApprovalId(null);
-                setFocusedCommsChannelId(null);
-              }}
-            />
+          {(activeTab === 'communications' || hasDockedForTabs(['communications'])) && (
+            <div className={activeTab === 'communications' ? 'contents' : 'hidden'}>
+              <CommunicationsCenterView
+                isLightMode={isLightMode}
+                onNavigateToTab={(tab) => setActiveTab(tab)}
+                onOpenNotificationSettings={openNotificationSettings}
+                onUnreadCountSync={(cnt) => setUnreadCommsCount(cnt)}
+                liveRevision={commsLiveRevision}
+                initialSelectedId={focusedCommsNotificationId}
+                onConsumeInitialSelectedId={() => setFocusedCommsNotificationId(null)}
+                initialViewMode={focusedCommsViewMode}
+                initialApprovalId={focusedApprovalId}
+                initialChannelId={focusedCommsChannelId}
+                onConsumeInitialApprovalView={() => {
+                  setFocusedCommsViewMode(null);
+                  setFocusedApprovalId(null);
+                  setFocusedCommsChannelId(null);
+                }}
+              />
+            </div>
           )}
 
           {activeTab === 'profile-security' && (
@@ -2036,63 +2093,76 @@ export default function App() {
             />
           )}
 
-          {(activeTab === 'remote-servers' ||
+          {(hasVisitedRemoteServers ||
+            activeTab === 'remote-servers' ||
             activeTab === 'remote-linux' ||
             activeTab === 'remote-windows' ||
-            activeTab === 'remote-tags') && (
-            <RemoteServersView
-              initialFilter={
-                activeTab === 'remote-linux'
-                  ? 'linux'
-                  : activeTab === 'remote-windows'
-                  ? 'windows'
-                  : activeTab === 'remote-tags'
-                  ? 'tags'
-                  : 'all'
+            activeTab === 'remote-tags' ||
+            hasDockedForTabs(['remote-servers', 'remote-linux', 'remote-windows', 'remote-tags'])) && (
+            <div
+              className={
+                activeTab === 'remote-servers' ||
+                activeTab === 'remote-linux' ||
+                activeTab === 'remote-windows' ||
+                activeTab === 'remote-tags'
+                  ? 'contents'
+                  : 'hidden'
               }
-              isLightMode={isLightMode}
-              isEn={isEn}
-              effectivePolicy={effectivePolicy}
-              onOpenServerRecordings={openServerRecordings}
-            />
+            >
+              <RemoteServersView
+                initialFilter={lastRemoteFilter}
+                isLightMode={isLightMode}
+                isEn={isEn}
+                effectivePolicy={effectivePolicy}
+                onOpenServerRecordings={openServerRecordings}
+              />
+            </div>
           )}
 
-          {activeTab === 'licenses' && (
-            <LicensesView
-              devices={authorizedDevices}
-              isLightMode={isLightMode}
-              isEn={isEn}
-              effectivePolicy={effectivePolicy}
-              onOpenTerminal={openTerminal}
-            />
+          {(activeTab === 'licenses' || hasDockedForTabs(['licenses'])) && (
+            <div className={activeTab === 'licenses' ? 'contents' : 'hidden'}>
+              <LicensesView
+                devices={authorizedDevices}
+                isLightMode={isLightMode}
+                isEn={isEn}
+                effectivePolicy={effectivePolicy}
+                onOpenTerminal={openTerminal}
+              />
+            </div>
           )}
 
-          {activeTab === 'contracts' && (
-            <ContractsView
-              devices={authorizedDevices}
-              isLightMode={isLightMode}
-              isEn={isEn}
-              effectivePolicy={effectivePolicy}
-              onNavigateToLicenses={() => setActiveTab('licenses')}
-            />
+          {(activeTab === 'contracts' || hasDockedForTabs(['contracts'])) && (
+            <div className={activeTab === 'contracts' ? 'contents' : 'hidden'}>
+              <ContractsView
+                devices={authorizedDevices}
+                isLightMode={isLightMode}
+                isEn={isEn}
+                effectivePolicy={effectivePolicy}
+                onNavigateToLicenses={() => setActiveTab('licenses')}
+              />
+            </div>
           )}
 
-          {activeTab === 'ssl-certificates' && (
-            <SslCertificatesView
-              isLightMode={isLightMode}
-              isEn={isEn}
-              effectivePolicy={effectivePolicy}
-              currentUser={user}
-            />
+          {(activeTab === 'ssl-certificates' || hasDockedForTabs(['ssl-certificates'])) && (
+            <div className={activeTab === 'ssl-certificates' ? 'contents' : 'hidden'}>
+              <SslCertificatesView
+                isLightMode={isLightMode}
+                isEn={isEn}
+                effectivePolicy={effectivePolicy}
+                currentUser={user}
+              />
+            </div>
           )}
 
-          {activeTab === 'helpdesk' && (
-            <HelpDeskView
-              isLightMode={isLightMode}
-              isEn={isEn}
-              effectivePolicy={effectivePolicy}
-              currentUser={user}
-            />
+          {(activeTab === 'helpdesk' || hasDockedForTabs(['helpdesk'])) && (
+            <div className={activeTab === 'helpdesk' ? 'contents' : 'hidden'}>
+              <HelpDeskView
+                isLightMode={isLightMode}
+                isEn={isEn}
+                effectivePolicy={effectivePolicy}
+                currentUser={user}
+              />
+            </div>
           )}
 
           {activeTab === 'helpdesk-users' && (
@@ -2202,32 +2272,44 @@ export default function App() {
           {(activeTab === 'settings-groups' ||
             activeTab === 'settings-users' ||
             activeTab === 'settings-rbac' ||
-            activeTab === 'settings-backup') && isSuperAdmin && (
-            <SettingsView
-              devices={devices}
-              isLightMode={isLightMode}
-              onNavigateToLdapSettings={() => setActiveTab('settings-ldap')}
-              activeSubTab={
-                activeTab === 'settings-users'
-                  ? 'users'
-                  : activeTab === 'settings-rbac'
-                  ? 'rbac'
-                  : activeTab === 'settings-backup'
-                  ? 'backup'
-                  : 'groups'
+            activeTab === 'settings-backup' ||
+            hasDockedForTabs(['settings-groups', 'settings-users', 'settings-rbac', 'settings-backup'])) && isSuperAdmin && (
+            <div
+              className={
+                activeTab === 'settings-groups' ||
+                activeTab === 'settings-users' ||
+                activeTab === 'settings-rbac' ||
+                activeTab === 'settings-backup'
+                  ? 'contents'
+                  : 'hidden'
               }
-              onSelectSubTab={(sub) => {
-                const targetMap: Record<string, ActiveTab> = {
-                  groups: 'settings-groups',
-                  users: 'settings-users',
-                  rbac: 'settings-rbac',
-                  backup: 'settings-backup',
-                  alerts: 'settings-alerts',
-                };
-                setActiveTab(targetMap[sub] || 'settings-groups');
-              }}
-              onRefreshAllData={loadData}
-            />
+            >
+              <SettingsView
+                devices={devices}
+                isLightMode={isLightMode}
+                onNavigateToLdapSettings={() => setActiveTab('settings-ldap')}
+                activeSubTab={
+                  activeTab === 'settings-users'
+                    ? 'users'
+                    : activeTab === 'settings-rbac'
+                    ? 'rbac'
+                    : activeTab === 'settings-backup'
+                    ? 'backup'
+                    : 'groups'
+                }
+                onSelectSubTab={(sub) => {
+                  const targetMap: Record<string, ActiveTab> = {
+                    groups: 'settings-groups',
+                    users: 'settings-users',
+                    rbac: 'settings-rbac',
+                    backup: 'settings-backup',
+                    alerts: 'settings-alerts',
+                  };
+                  setActiveTab(targetMap[sub] || 'settings-groups');
+                }}
+                onRefreshAllData={loadData}
+              />
+            </div>
           )}
         </main>
       </div>

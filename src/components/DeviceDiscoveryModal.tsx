@@ -183,6 +183,14 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
 
   // ToolsDock context
   const { dockModal, undockModal } = useModalDock();
+  const [isMinimized, setIsMinimized] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsMinimized(false);
+      undockModal('device_discovery');
+    }
+  }, [isOpen, undockModal]);
 
   // =========================================================================
   // Phase 3: Onboarding & Enrollment Modal States
@@ -257,6 +265,11 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
 
   // Handle minimize to ToolsDock
   const handleMinimize = () => {
+    if (onMinimize) {
+      onMinimize();
+      return;
+    }
+    setIsMinimized(true);
     dockModal({
       id: 'device_discovery',
       labelEn: 'Device Discovery',
@@ -264,15 +277,16 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
       category: 'device',
       badge: isScanning ? 'SCAN' : `${discoveredDevices.length}`,
       onRestore: () => {
+        setIsMinimized(false);
         undockModal('device_discovery');
       },
       onClose: () => {
+        setIsMinimized(false);
         handleAbortScan();
         undockModal('device_discovery');
         onClose();
       },
     });
-    if (onMinimize) onMinimize();
   };
 
   // Toggle standard port
@@ -776,7 +790,7 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
     );
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || isMinimized) return null;
 
   return createPortal(
     <div

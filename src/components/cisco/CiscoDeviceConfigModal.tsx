@@ -259,6 +259,7 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
 
   const [activeTab, setActiveTab] = useState<CiscoConfigTabId>('vty');
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [configState, setConfigState] = useState<any>(null);
@@ -326,29 +327,57 @@ export const CiscoDeviceConfigModal: React.FC<CiscoDeviceConfigModalProps> = ({
     }
   };
 
+  useEffect(() => {
+    if (!isOpen) {
+      setIsMinimized(false);
+      undockModal(`cisco-config-${device.id}`);
+    }
+  }, [isOpen, device.id, undockModal]);
+
   // Handle Minimize
   const handleInternalMinimize = () => {
+    const dockId = `cisco-config-${device.id}`;
+    if (onMinimize && onRestore) {
+      dockModal({
+        id: dockId,
+        labelEn: `Cisco Config: ${device.name || device.ip}`,
+        labelFa: `پیکربندی سیسکو: ${device.name || device.ip}`,
+        badge: device.ip,
+        category: 'config',
+        onRestore: () => {
+          undockModal(dockId);
+          onRestore();
+        },
+        onClose: () => {
+          undockModal(dockId);
+          onClose();
+        },
+      });
+      onMinimize();
+      return;
+    }
+
+    setIsMinimized(true);
     dockModal({
-      id: `cisco-config-${device.id}`,
+      id: dockId,
       labelEn: `Cisco Config: ${device.name || device.ip}`,
       labelFa: `پیکربندی سیسکو: ${device.name || device.ip}`,
       badge: device.ip,
       category: 'config',
       onRestore: () => {
+        setIsMinimized(false);
+        undockModal(dockId);
         if (onRestore) onRestore();
       },
       onClose: () => {
+        setIsMinimized(false);
+        undockModal(dockId);
         onClose();
       },
     });
-    if (onMinimize) {
-      onMinimize();
-    } else {
-      onClose();
-    }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || isMinimized) return null;
 
   const currentTabDef = TABS.find((t) => t.id === activeTab) || TABS[0];
   const isTabPermitted = isDeviceActionPermitted(effectivePolicy, device.id, currentTabDef.actionKey);

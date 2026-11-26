@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.496.4';
+export const APP_VERSION = '1.496.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.496.5',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'رفع کامل بسته‌شدن مودال سرورهای ریموت و تمام مودال‌های مینیمایزشده هنگام بازیابی (Restore)',
+    title_en: 'Fix Remote Server & All Minimized Modals Closing Instead of Restoring from ToolsDock',
+    changes: [
+      'رفع ریشه‌ای بسته‌شدن مودال‌های صفحه Remote Servers (از جمله ریموت دسکتاپ RDP/VNC، ترمینال لینوکس، مانیتور سرور، کاوشگر فایل، مدیریت سرویس‌ها و مدیریت دسته‌بندی‌ها) هنگام مینیمایز و جابجایی بین تب‌ها: حفظ پایدار مانت `RemoteServersView` و تمام ویوهای دارای مودال مینیمایزشده در `App.tsx`، رندر تمام مودال‌های سرور ریموت از طریق Portal (`ManageServerCategoriesModal` و `RestartServerModal`) و ثبت پرچم `keepCurrentTab` جهت بازیابی فوری روی هر تب فعال بدون قطع سشن یا ناپدید شدن پنجره.',
+      'ارتقای `ModalDockContext` با ردیابی خودکار تب مالک (`ownerTab`)، مدیریت ایمن مبتنی بر `useRef` بدون Stale Closure، پشتیبانی کامل از `restoreAllModals` و یکپارچه‌سازی دکمه‌های «بازیابی همه / Restore All» و «بستن همه / Close All» در نوار داک `ToolsDock` برای تمامی مودال‌های ثبت‌شده.',
+      'بازبینی جامع تمام ۶۶ نقطه مینیمایز (`dockModal`) در کل پروژه و اصلاح ۱۳ مودالی که هنگام مینیمایز `onClose()` فراخوانی می‌کردند یا `onRestore` خالی داشتند (`ServerExportModal`، `ServerImportModal`، `DeviceExportModal`، `DeviceImportModal`، `AuditEmailReportModal`، `ApplyTemplateModal`، `AssignPhysicalPlacementModal`، `CloneTemplateModal`، `DeviceDiscoveryModal`، `SchematicExportModal`، `SchematicTopologyView` مودال جانمایی، `CiscoDeviceConfigModal` و `AccessPolicyModal`) به همراه حفظ وضعیت `ServerDiscoveryModal` هنگام مینیمایز.'
+    ],
+    changes_en: [
+      'Fixed Remote Servers modals (in-browser RDP/VNC desktop, Linux SSH terminal, server monitor, SFTP file explorer, service managers, categories, and power control) vanishing/closing on Restore after switching tabs: kept `RemoteServersView` and any view owning docked modals mounted in `App.tsx`, ported `ManageServerCategoriesModal` and `RestartServerModal` via `createPortal(..., document.body)`, and enabled `keepCurrentTab` so Remote Server modals restore cleanly over any active view without dropping sessions.',
+      'Upgraded `ModalDockContext` with automatic `ownerTab` tracking, ref-backed non-stale handlers, `restoreAllModals()`, and automatic owner-tab navigation for non-portal view-scoped modals, and wired `App.tsx` Restore All / Close All dock actions to include `ModalDockContext`.',
+      'Audited all 66 `dockModal` call sites across the codebase and fixed all 13 modals that previously called `onClose()` on minimize or had empty/no-op `onRestore` callbacks (`ServerExportModal`, `ServerImportModal`, `DeviceExportModal`, `DeviceImportModal`, `AuditEmailReportModal`, `ApplyTemplateModal`, `AssignPhysicalPlacementModal`, `CloneTemplateModal`, `DeviceDiscoveryModal`, `SchematicExportModal`, `SchematicTopologyView` relocate modal, `CiscoDeviceConfigModal`, and `AccessPolicyModal`), plus preserved `ServerDiscoveryModal` scan state across minimize.'
+    ]
+  },
   {
     version: '1.496.4',
     releaseDate: '2026-11-26',

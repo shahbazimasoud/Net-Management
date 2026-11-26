@@ -78,6 +78,7 @@ export const SchematicExportModal: React.FC<SchematicExportModalProps> = ({
 }) => {
   const { dockModal, undockModal } = useModalDock();
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [exportMode, setExportMode] = useState<SchematicExportMode>(activeViewMode);
   const [includeVlanTable, setIncludeVlanTable] = useState(true);
   const [includePortVlanDirectory, setIncludePortVlanDirectory] = useState(true);
@@ -93,6 +94,10 @@ export const SchematicExportModal: React.FC<SchematicExportModalProps> = ({
       setExportLightTheme(isLightMode);
       setErrorMsg(null);
       setSuccessMsg(null);
+      setIsMinimized(false);
+      undockModal('modal-schematic-export');
+    } else {
+      setIsMinimized(false);
       undockModal('modal-schematic-export');
     }
   }, [isOpen, activeViewMode, isLightMode, undockModal]);
@@ -103,6 +108,7 @@ export const SchematicExportModal: React.FC<SchematicExportModalProps> = ({
   );
 
   const handleMinimize = () => {
+    setIsMinimized(true);
     dockModal({
       id: 'modal-schematic-export',
       labelEn: `Export Schematic: ${mapName}`,
@@ -110,15 +116,16 @@ export const SchematicExportModal: React.FC<SchematicExportModalProps> = ({
       badge: 'HTML',
       category: 'tools',
       onRestore: () => {
+        setIsMinimized(false);
         undockModal('modal-schematic-export');
         if (onRestore) onRestore();
       },
       onClose: () => {
+        setIsMinimized(false);
         undockModal('modal-schematic-export');
         onClose();
       },
     });
-    onClose();
   };
 
   const handleExport = async () => {
@@ -179,7 +186,7 @@ export const SchematicExportModal: React.FC<SchematicExportModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || isMinimized) return null;
 
   const isRtl = !isEn;
 

@@ -9439,13 +9439,14 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    const savedDevice = relocateDevice;
                     dockModal({
-                      id: `relocate_device_${relocateDevice.id}`,
-                      labelEn: `Relocate: ${relocateDevice.name}`,
-                      labelFa: `جانمایی: ${relocateDevice.name}`,
+                      id: `relocate_device_${savedDevice.id}`,
+                      labelEn: `Relocate: ${savedDevice.name}`,
+                      labelFa: `جانمایی: ${savedDevice.name}`,
                       category: 'device',
                       onRestore: () => {
-                        // modal remains in state
+                        setRelocateDevice(savedDevice);
                       },
                       onClose: () => {
                         setRelocateDevice(null);

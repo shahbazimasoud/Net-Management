@@ -1276,24 +1276,36 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     });
   }, []);
 
+  const [isMinimized, setIsMinimized] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsMinimized(false);
+    }
+  }, [isOpen]);
+
   const handleMinimize = () => {
     if (!draftPolicy) return;
     if (onMinimize) {
       onMinimize();
       return;
     }
+    const dockId = `access-policy-${draftPolicy.id || 'new'}`;
+    setIsMinimized(true);
     dockModal({
-      id: `access-policy-${draftPolicy.id || 'new'}`,
+      id: dockId,
       labelEn: isCreating ? 'New Access Policy' : `Policy: ${draftPolicy.name || 'Edit'}`,
       labelFa: isCreating ? 'تعریف پالیسی دسترسی' : `پالیسی: ${draftPolicy.name || 'ویرایش'}`,
       badge: 'RBAC',
       category: 'config',
-      onRestore: () => {},
+      onRestore: () => {
+        setIsMinimized(false);
+      },
       onClose: () => {
+        setIsMinimized(false);
         onClose();
       },
     });
-    onClose();
   };
 
   const approvalCounts = useMemo(
@@ -2514,7 +2526,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     );
   }, [draftPolicy]);
 
-  if (!isOpen || !draftPolicy) return null;
+  if (!isOpen || !draftPolicy || isMinimized) return null;
 
   return createPortal(
     <>

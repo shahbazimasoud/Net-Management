@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Upload,
@@ -71,8 +71,16 @@ export const ServerImportModal: React.FC<ServerImportModalProps> = ({
     message?: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isMinimized, setIsMinimized] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsMinimized(false);
+      undockModal('modal-server-import');
+    }
+  }, [isOpen, undockModal]);
 
   // Check RBAC Authorization for Server Import
   const isImportPermitted =
@@ -83,25 +91,28 @@ export const ServerImportModal: React.FC<ServerImportModalProps> = ({
         effectivePolicy.defaultServerPermissions?.import_servers === true ||
         effectivePolicy.id === 'policy-super-admin'));
 
-  if (!isOpen) return null;
+  if (!isOpen || isMinimized) return null;
 
   // Minimize handler adhering to Rule 5 & 7
   const handleMinimize = () => {
+    setIsMinimized(true);
     dockModal({
       id: 'modal-server-import',
       labelEn: `Import Servers (${parsedServers.length || 'Ready'})`,
       labelFa: `ورود سرورها (${parsedServers.length || 'آماده'})`,
       badge: 'IMPORT',
       category: 'device',
+      keepCurrentTab: true,
       onRestore: () => {
+        setIsMinimized(false);
         undockModal('modal-server-import');
       },
       onClose: () => {
+        setIsMinimized(false);
         undockModal('modal-server-import');
         onClose();
       },
     });
-    onClose();
   };
 
   // Helper to parse CSV string into objects

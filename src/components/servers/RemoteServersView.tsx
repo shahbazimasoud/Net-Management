@@ -1620,6 +1620,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         labelFa: `ترمینال ${terminalServer.name}`,
         badge: terminalShell.toUpperCase(),
         category: 'terminal',
+        keepCurrentTab: true,
         onRestore: () => setIsTerminalModalOpen(true),
         onClose: () => {
           setIsTerminalModalOpen(false);
@@ -1634,16 +1635,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const handleMinimizeMonitor = () => {
     setIsMonitorModalOpen(false);
     if (monitorServer) {
+      const targetId = monitorServer.id;
       dockModal({
-        id: `linux_mon_${monitorServer.id}`,
+        id: `linux_mon_${targetId}`,
         labelEn: `${monitorServer.name} - Server Management`,
         labelFa: `مدیریت سرور ${monitorServer.name}`,
         badge: 'LIVE',
         category: 'tools',
+        keepCurrentTab: true,
         onRestore: () => setIsMonitorModalOpen(true),
         onClose: () => {
           setIsMonitorModalOpen(false);
-          undockModal(`linux_mon_${monitorServer.id}`);
+          setMonitorServer(null);
+          undockModal(`linux_mon_${targetId}`);
         },
       });
     }
@@ -1652,16 +1656,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const handleMinimizeFileExplorer = () => {
     setIsFileExplorerModalOpen(false);
     if (fileExplorerServer) {
+      const targetId = fileExplorerServer.id;
       dockModal({
-        id: `linux_fs_${fileExplorerServer.id}`,
+        id: `linux_fs_${targetId}`,
         labelEn: `${fileExplorerServer.name} - File Explorer`,
         labelFa: `کاوشگر فایل ${fileExplorerServer.name}`,
         badge: 'SFTP',
         category: 'tools',
+        keepCurrentTab: true,
         onRestore: () => setIsFileExplorerModalOpen(true),
         onClose: () => {
           setIsFileExplorerModalOpen(false);
-          undockModal(`linux_fs_${fileExplorerServer.id}`);
+          setFileExplorerServer(null);
+          undockModal(`linux_fs_${targetId}`);
         },
       });
     }
@@ -1670,16 +1677,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const handleMinimizeNginxManagement = () => {
     setIsNginxModalOpen(false);
     if (nginxModalServer) {
+      const targetId = nginxModalServer.id;
       dockModal({
-        id: `nginx_mgmt_${nginxModalServer.id}`,
+        id: `nginx_mgmt_${targetId}`,
         labelEn: `${nginxModalServer.name} - Nginx Management`,
         labelFa: `مدیریت Nginx ${nginxModalServer.name}`,
         badge: 'NGINX',
         category: 'tools',
+        keepCurrentTab: true,
         onRestore: () => setIsNginxModalOpen(true),
         onClose: () => {
           setIsNginxModalOpen(false);
-          undockModal(`nginx_mgmt_${nginxModalServer.id}`);
+          setNginxModalServer(null);
+          undockModal(`nginx_mgmt_${targetId}`);
         },
       });
     }
@@ -1688,16 +1698,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const handleMinimizeApacheManagement = () => {
     setIsApacheModalOpen(false);
     if (apacheModalServer) {
+      const targetId = apacheModalServer.id;
       dockModal({
-        id: `apache_mgmt_${apacheModalServer.id}`,
+        id: `apache_mgmt_${targetId}`,
         labelEn: `${apacheModalServer.name} - Apache Management`,
         labelFa: `مدیریت Apache ${apacheModalServer.name}`,
         badge: 'HTTPD',
         category: 'tools',
+        keepCurrentTab: true,
         onRestore: () => setIsApacheModalOpen(true),
         onClose: () => {
           setIsApacheModalOpen(false);
-          undockModal(`apache_mgmt_${apacheModalServer.id}`);
+          setApacheModalServer(null);
+          undockModal(`apache_mgmt_${targetId}`);
         },
       });
     }
@@ -1706,16 +1719,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const handleMinimizePostgresManagement = () => {
     setIsPostgresModalOpen(false);
     if (postgresModalServer) {
+      const targetId = postgresModalServer.id;
       dockModal({
-        id: `postgres_mgmt_${postgresModalServer.id}`,
+        id: `postgres_mgmt_${targetId}`,
         labelEn: `${postgresModalServer.name} - PostgreSQL Management`,
         labelFa: `مدیریت PostgreSQL ${postgresModalServer.name}`,
         badge: 'PGSQL',
         category: 'tools',
+        keepCurrentTab: true,
         onRestore: () => setIsPostgresModalOpen(true),
         onClose: () => {
           setIsPostgresModalOpen(false);
-          undockModal(`postgres_mgmt_${postgresModalServer.id}`);
+          setPostgresModalServer(null);
+          undockModal(`postgres_mgmt_${targetId}`);
         },
       });
     }
@@ -1724,16 +1740,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const handleMinimizeMysqlManagement = () => {
     setIsMysqlModalOpen(false);
     if (mysqlModalServer) {
+      const targetId = mysqlModalServer.id;
       dockModal({
-        id: `mysql_mgmt_${mysqlModalServer.id}`,
+        id: `mysql_mgmt_${targetId}`,
         labelEn: `${mysqlModalServer.name} - MySQL Management`,
         labelFa: `مدیریت MySQL ${mysqlModalServer.name}`,
         badge: 'MYSQL',
         category: 'tools',
+        keepCurrentTab: true,
         onRestore: () => setIsMysqlModalOpen(true),
         onClose: () => {
           setIsMysqlModalOpen(false);
-          undockModal(`mysql_mgmt_${mysqlModalServer.id}`);
+          setMysqlModalServer(null);
+          undockModal(`mysql_mgmt_${targetId}`);
         },
       });
     }
@@ -1742,16 +1761,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const handleMinimizeWindowsRemote = () => {
     setIsWindowsModalOpen(false);
     if (windowsModalServer) {
+      const targetId = windowsModalServer.id;
       dockModal({
-        id: `win_remote_${windowsModalServer.id}`,
+        id: `win_remote_${targetId}`,
         labelEn: `${windowsModalServer.name} Remote`,
         labelFa: `ریموت ${windowsModalServer.name}`,
         badge: 'RDP',
         category: 'device',
+        keepCurrentTab: true,
         onRestore: () => setIsWindowsModalOpen(true),
         onClose: () => {
           setIsWindowsModalOpen(false);
-          undockModal(`win_remote_${windowsModalServer.id}`);
+          setWindowsModalServer(null);
+          undockModal(`win_remote_${targetId}`);
         },
       });
     }
@@ -1768,6 +1790,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       labelFa: `ریموت ${targetServer.name} (${protocol.toUpperCase()})`,
       badge: protocol.toUpperCase(),
       category: 'device',
+      keepCurrentTab: true,
       onRestore: () => {
         setInBrowserSessions((prev) =>
           prev.map((s) => (s.server.id === targetId ? { ...s, isOpen: true } : s))
@@ -1787,6 +1810,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       labelEn: serverToEdit ? `Edit ${serverToEdit.name}` : 'Add Server',
       labelFa: serverToEdit ? `ویرایش ${serverToEdit.name}` : 'افزودن سرور',
       category: 'config',
+      keepCurrentTab: true,
       onRestore: () => setIsAddEditModalOpen(true),
       onClose: () => {
         setIsAddEditModalOpen(false);
@@ -1799,10 +1823,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     setIsCategoriesModalOpen(false);
     dockModal({
       id: 'manage_server_categories',
-      labelEn: isEn ? 'Categories' : 'دسته‌بندی‌ها',
+      labelEn: 'Server Categories',
       labelFa: 'دسته‌بندی‌های سرور',
       badge: 'CATEGORIES',
       category: 'config',
+      keepCurrentTab: true,
       onRestore: () => setIsCategoriesModalOpen(true),
       onClose: () => {
         setIsCategoriesModalOpen(false);
@@ -1814,17 +1839,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const handleMinimizeOnDemand = () => {
     setIsOnDemandModalOpen(false);
     if (onDemandServer) {
+      const targetId = onDemandServer.id;
       dockModal({
-        id: `ondemand_auth_${onDemandServer.id}`,
+        id: `ondemand_auth_${targetId}`,
         labelEn: `${onDemandServer.name} Auth`,
         labelFa: `احراز ${onDemandServer.name}`,
         badge: 'AUTH',
         category: 'system',
+        keepCurrentTab: true,
         onRestore: () => setIsOnDemandModalOpen(true),
         onClose: () => {
           setIsOnDemandModalOpen(false);
           setOnDemandServer(null);
-          undockModal(`ondemand_auth_${onDemandServer.id}`);
+          undockModal(`ondemand_auth_${targetId}`);
         },
       });
     }
@@ -1835,10 +1862,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     setIsBulkConfigOpen(false);
     dockModal({
       id: 'bulk_server_config_modal',
-      labelEn: isEn ? 'Bulk Linux Config' : 'پیکربندی گروهی لینوکس',
+      labelEn: 'Bulk Linux Config',
       labelFa: 'پیکربندی گروهی سرورهای لینوکس',
       badge: 'BULK',
       category: 'tools',
+      keepCurrentTab: true,
       onRestore: () => {
         if (!canBulkConfigureServers) return;
         setIsBulkConfigOpen(true);
@@ -1854,10 +1882,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     setIsDiscoveryModalOpen(false);
     dockModal({
       id: 'server_fleet_discovery_modal',
-      labelEn: isEn ? 'Server Discovery' : 'دیسکاوری سرورها',
+      labelEn: 'Server Discovery',
       labelFa: 'شناسایی و پویش سرورهای شبکه',
       badge: 'DISCOVERY',
       category: 'tools',
+      keepCurrentTab: true,
       onRestore: () => setIsDiscoveryModalOpen(true),
       onClose: () => {
         setIsDiscoveryModalOpen(false);
@@ -4904,19 +4933,17 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       )}
 
       {/* 19. Server Discovery & Fleet Scanner Modal */}
-      {isDiscoveryModalOpen && (
-        <ServerDiscoveryModal
-          isOpen={isDiscoveryModalOpen}
-          onClose={() => {
-            setIsDiscoveryModalOpen(false);
-            undockModal('server_fleet_discovery_modal');
-          }}
-          onMinimize={handleMinimizeDiscovery}
-          onServerAdded={loadFleet}
-          isLightMode={isLightMode}
-          isEn={isEn}
-        />
-      )}
+      <ServerDiscoveryModal
+        isOpen={isDiscoveryModalOpen}
+        onClose={() => {
+          setIsDiscoveryModalOpen(false);
+          undockModal('server_fleet_discovery_modal');
+        }}
+        onMinimize={handleMinimizeDiscovery}
+        onServerAdded={loadFleet}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
 
       {/* 20. Remote Server Fleet Export Modal (Single & Batch with Strict Granular RBAC) */}
       <ServerExportModal

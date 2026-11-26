@@ -63,6 +63,7 @@ export const AssignPhysicalPlacementModal: React.FC<AssignPhysicalPlacementModal
   const { isEn, t } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'unassigned' | 'placed'>('all');
   const [selectedFloor, setSelectedFloor] = useState<string>(
@@ -87,6 +88,13 @@ export const AssignPhysicalPlacementModal: React.FC<AssignPhysicalPlacementModal
   // Clean up dock on modal close or unmount
   const modalDockId = 'assign-placement-modal';
 
+  React.useEffect(() => {
+    if (!isOpen) {
+      setIsMinimized(false);
+      undockModal(modalDockId);
+    }
+  }, [isOpen, undockModal]);
+
   const handleMinimize = () => {
     if (!target) return;
     const destTitleEn = target.rack
@@ -104,6 +112,7 @@ export const AssignPhysicalPlacementModal: React.FC<AssignPhysicalPlacementModal
       ? `طبقه: ${target.floor}`
       : `ساختمان: ${target.building}`;
 
+    setIsMinimized(true);
     dockModal({
       id: modalDockId,
       labelEn: `Assign Device (${destTitleEn})`,
@@ -111,14 +120,15 @@ export const AssignPhysicalPlacementModal: React.FC<AssignPhysicalPlacementModal
       badge: target.building,
       category: 'device',
       onRestore: () => {
-        // Will be restored
+        setIsMinimized(false);
+        undockModal(modalDockId);
       },
       onClose: () => {
+        setIsMinimized(false);
         undockModal(modalDockId);
         onClose();
       },
     });
-    onClose();
   };
 
   // Filter devices from inventory
@@ -139,7 +149,7 @@ export const AssignPhysicalPlacementModal: React.FC<AssignPhysicalPlacementModal
     });
   }, [inventoryDevices, searchQuery, filterType]);
 
-  if (!isOpen || !target) return null;
+  if (!isOpen || !target || isMinimized) return null;
 
   const handleDeviceSelect = async (dev: TopologyNode) => {
     if (!target.building || !selectedFloor) return;

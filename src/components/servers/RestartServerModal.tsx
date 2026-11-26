@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   RotateCcw,
   Power,
@@ -240,6 +241,7 @@ export const RestartServerModal: React.FC<RestartServerModalProps> = ({
       labelFa: isBulk ? `${actionLabelFa}: ${targetServers.length} سرور` : `${actionLabelFa}: ${singleServer?.name}`,
       badge: isBulk ? `${targetServers.length} Fleet` : singleServer?.os_type === 'linux' ? 'Linux' : 'Windows',
       category: 'system',
+      keepCurrentTab: true,
       onRestore: () => {
         setIsMinimized(false);
         undockModal(modalId);
@@ -497,12 +499,12 @@ export const RestartServerModal: React.FC<RestartServerModalProps> = ({
   const isRestart = actionType === 'restart';
   const themeColor = isRestart ? 'amber' : 'rose';
 
-  return (
-    <div className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+  return createPortal(
+    <div className="fixed top-0 left-0 right-0 bottom-8 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
       <div
         className={`flex flex-col border shadow-2xl transition-all duration-200 overflow-hidden ${
           isMaximized
-            ? 'fixed top-0 left-0 right-0 bottom-8 z-50 p-0 w-full h-full max-w-none max-h-full rounded-none border-none'
+            ? 'fixed top-0 left-0 right-0 bottom-8 z-[9999] p-0 w-full h-full max-w-none max-h-full rounded-none border-none'
             : 'w-full max-w-2xl rounded-2xl max-h-[92vh]'
         } ${isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'}`}
       >
@@ -1199,6 +1201,7 @@ export const RestartServerModal: React.FC<RestartServerModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
