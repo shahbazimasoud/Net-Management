@@ -177,9 +177,32 @@ function extractNextGuacInstruction(buffer: string): { instruction: string; rema
 }
 
 /**
+ * Advance `codePointCount` Unicode code points starting at `start`.
+ * Returns the UTF-16 index after the element value, or -1 if `str` ends early.
+ */
+function advanceGuacCodePoints(str: string, start: number, codePointCount: number): number {
+  let idx = start;
+  let remaining = codePointCount;
+  const strLen = str.length;
+  while (remaining > 0 && idx < strLen) {
+    const code = str.charCodeAt(idx);
+    idx +=
+      code >= 0xd800 &&
+      code <= 0xdbff &&
+      idx + 1 < strLen &&
+      (str.charCodeAt(idx + 1) & 0xfc00) === 0xdc00
+        ? 2
+        : 1;
+    remaining--;
+  }
+  return remaining === 0 ? idx : -1;
+}
+
+/**
  * High-throughput O(N) streaming scanner for Guacamole instructions.
  * Parses all complete `;`-terminated instructions from `buffer` using a moving offset
- * without O(N^2) intermediate string slicing, and returns only the unparsed tail.
+ * without O(N^2) intermediate string slicing, handles both Unicode code-point lengths (guacd)
+ * and UTF-16 lengths (guacamole-common-js), and returns only the unparsed tail.
  */
 export function consumeGuacInstructions(
   buffer: string,
@@ -192,19 +215,37 @@ export function consumeGuacInstructions(
     const parts: string[] = [];
     let pos = instrStart;
     let completed = false;
+    let desynced = false;
 
     while (pos < bufLen) {
       const dot = buffer.indexOf('.', pos);
       if (dot === -1) break;
-      const len = parseInt(buffer.substring(pos, dot), 10);
+      const lenStr = buffer.substring(pos, dot);
+      if (!/^\d+$/.test(lenStr)) {
+        desynced = true;
+        break;
+      }
+      const len = parseInt(lenStr, 10);
       if (isNaN(len) || len < 0) {
-        return '';
+        desynced = true;
+        break;
       }
       const valStart = dot + 1;
-      const valEnd = valStart + len;
-      if (valEnd >= bufLen) {
+      const cpEnd = advanceGuacCodePoints(buffer, valStart, len);
+      const utf16End = valStart + len;
+
+      let valEnd = -1;
+      if (cpEnd !== -1 && cpEnd < bufLen && (buffer[cpEnd] === ';' || buffer[cpEnd] === ',')) {
+        valEnd = cpEnd;
+      } else if (utf16End < bufLen && (buffer[utf16End] === ';' || buffer[utf16End] === ',')) {
+        valEnd = utf16End;
+      } else if (cpEnd === -1 || cpEnd >= bufLen || utf16End >= bufLen) {
         break; // Incomplete instruction payload/terminator
+      } else {
+        desynced = true;
+        break;
       }
+
       parts.push(buffer.substring(valStart, valEnd));
       const terminator = buffer[valEnd];
       if (terminator === ';') {
@@ -214,11 +255,19 @@ export function consumeGuacInstructions(
         instrStart = nextStart;
         completed = true;
         break;
-      } else if (terminator === ',') {
-        pos = valEnd + 1;
       } else {
+        pos = valEnd + 1;
+      }
+    }
+
+    if (desynced) {
+      const nextSemi = buffer.indexOf(';', instrStart);
+      if (nextSemi === -1) {
         return '';
       }
+      console.warn('[RemoteDesktop] Resynced malformed Guacamole instruction fragment');
+      instrStart = nextSemi + 1;
+      continue;
     }
 
     if (!completed) {
@@ -1066,9 +1115,8 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       }
     }
     const targetSecurity = normalizeRdpSecurity(rdp_security || security || serverRecord.rdp_security || 'any');
-    const rawColorDepth = String(colorDepth || color_depth || '16').trim();
-    const targetColorDepth: '16' | '24' | '32' =
-      rawColorDepth === '32' ? '32' : rawColorDepth === '24' ? '24' : '16';
+    const rawColorDepth = String(colorDepth || color_depth || '32').trim();
+    const targetColorDepth: '24' | '32' = rawColorDepth === '24' ? '24' : '32';
     const rawPerfMode = String(performanceMode || performance_mode || 'performance').trim().toLowerCase();
     const targetPerformanceMode: 'performance' | 'balanced' | 'quality' =
       rawPerfMode === 'quality' ? 'quality' : rawPerfMode === 'balanced' ? 'balanced' : 'performance';
@@ -1687,6 +1735,48 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     let lastGuacdNopAt = Date.now();
     let errorSent = false;
 
+    const WS_BACKPRESSURE_HIGH_WATER = 768 * 1024;
+    const WS_BACKPRESSURE_LOW_WATER = 192 * 1024;
+    let guacdPausedForBackpressure = false;
+    let backpressureTimer: NodeJS.Timeout | null = null;
+
+    const clearBackpressureState = () => {
+      if (backpressureTimer) {
+        clearInterval(backpressureTimer);
+        backpressureTimer = null;
+      }
+      if (guacdPausedForBackpressure && !guacdSocket.destroyed) {
+        guacdPausedForBackpressure = false;
+        try {
+          guacdSocket.resume();
+        } catch {}
+      }
+    };
+
+    const enforceWsBackpressure = () => {
+      if (clientWs.readyState !== WebSocket.OPEN) {
+        clearBackpressureState();
+        return;
+      }
+      if (!guacdPausedForBackpressure && clientWs.bufferedAmount > WS_BACKPRESSURE_HIGH_WATER) {
+        guacdPausedForBackpressure = true;
+        try {
+          guacdSocket.pause();
+        } catch {}
+        if (!backpressureTimer) {
+          backpressureTimer = setInterval(() => {
+            if (
+              clientWs.readyState !== WebSocket.OPEN ||
+              guacdSocket.destroyed ||
+              clientWs.bufferedAmount <= WS_BACKPRESSURE_LOW_WATER
+            ) {
+              clearBackpressureState();
+            }
+          }, 15);
+        }
+      }
+    };
+
     // Periodic keepalive so minimized / backgrounded RDP sessions never drop
     const keepaliveInterval = setInterval(() => {
       if (handshakeState === 'READY') {
@@ -1751,7 +1841,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             const paramNames = parsed.slice(1);
             const normCreds = normalizeRdpCredentials(config.username, config.domain);
             const effectiveSecurity = normalizeRdpSecurity(config.security);
-            const effectiveColorDepth = config.colorDepth || '16';
+            const effectiveColorDepth = config.colorDepth === '24' ? '24' : '32';
             const perfMode = config.performanceMode || 'performance';
             const isQuality = perfMode === 'quality';
             const passwordVal = config.password || '';
@@ -1760,8 +1850,9 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             const dpiStr = String(config.dpi || 96);
 
             // Parameter names MUST match guacd's hyphenated args list exactly (e.g., "ignore-cert", "color-depth").
-            // Disabling FreeRDP offscreen & glyph caching prevents persistent window-drag trails/ghosting artifacts
-            // while disabling animations/wallpapers/composition eliminates RDP lag.
+            // Always keep 32-bit color depth, DWM desktop composition, and full-window-drag enabled:
+            // 16-bit color depth & disabled composition/full-window-drag trigger FreeRDP2 GDI alpha=0
+            // transparent/black block corruption and unimplemented XOR wireframe drag trails on Windows Server.
             const params: Record<string, string> = {
               hostname: String(config.serverIp || '').trim(),
               port: String(config.port || (config.protocol === 'rdp' ? 3389 : 5900)),
@@ -1775,6 +1866,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
               'disable-paste': 'false',
               'normalize-clipboard': 'preserve',
               'resize-method': 'display-update',
+              'disable-audio': 'true',
               'enable-audio-input': 'false',
               'enable-printing': 'false',
               'enable-drive': 'false',
@@ -1784,8 +1876,8 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
               'enable-wallpaper': isQuality ? 'true' : 'false',
               'enable-theming': isQuality ? 'true' : 'false',
               'enable-font-smoothing': 'true',
-              'enable-full-window-drag': isQuality ? 'true' : 'false',
-              'enable-desktop-composition': isQuality ? 'true' : 'false',
+              'enable-full-window-drag': 'true',
+              'enable-desktop-composition': 'true',
               'enable-menu-animations': 'false',
               'force-lossless': 'false',
               width: widthStr,
@@ -1835,9 +1927,15 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             );
 
             guacdSocket.write(encodeGuacInstruction('size', widthStr, heightStr, dpiStr));
-            guacdSocket.write(encodeGuacInstruction('audio', 'audio/L16'));
+            guacdSocket.write(encodeGuacInstruction('audio'));
             guacdSocket.write(encodeGuacInstruction('video'));
-            guacdSocket.write(encodeGuacInstruction('image', 'image/png', 'image/jpeg', 'image/webp'));
+            // Default 'performance' avoids libwebp CPU encoding bottleneck on guacd (fast SIMD JPEG + crisp UI PNG),
+            // while 'balanced' / 'quality' also permit WebP for bandwidth-constrained WAN links.
+            if (perfMode === 'performance') {
+              guacdSocket.write(encodeGuacInstruction('image', 'image/jpeg', 'image/png'));
+            } else {
+              guacdSocket.write(encodeGuacInstruction('image', 'image/png', 'image/jpeg', 'image/webp'));
+            }
             guacdSocket.write(encodeGuacInstruction('connect', ...connectValues));
             handshakeState = 'CONNECTING';
           }
@@ -1959,6 +2057,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       });
 
       flushReadyBatch();
+      enforceWsBackpressure();
     });
 
     // Handle user inputs (mouse, keys, clipboard) and internal tunnel pings from client
@@ -1993,6 +2092,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
     guacdSocket.on('error', (err: Error) => {
       clearInterval(keepaliveInterval);
+      clearBackpressureState();
       console.warn(`[RemoteDesktop] guacd TCP socket error for session ${config.id}:`, err.message);
       logSessionFailed(`Gateway TCP socket error with guacd: ${err.message}`, `guacd socket error: ${err.message}`);
       if (clientWs.readyState === WebSocket.OPEN && !errorSent) {
@@ -2009,6 +2109,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
     guacdSocket.on('close', () => {
       clearInterval(keepaliveInterval);
+      clearBackpressureState();
       const isEstablished = handshakeState === 'READY';
       if (isEstablished) {
         logSessionClosed('SERVER_CLOSED', 'Target remote server closed the connection');
@@ -2062,6 +2163,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
     clientWs.on('close', () => {
       clearInterval(keepaliveInterval);
+      clearBackpressureState();
       if (activeSession.unregisterJitSession) {
         try {
           activeSession.unregisterJitSession();

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.496.1';
+export const APP_VERSION = '1.496.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.496.2',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'رفع ریشه‌ای سفید/سیاه‌شدن صفحه ریموت دسکتاپ در تم روشن، خرابی رندر ۱۶-بیت و گلوگاه کدک WebP',
+    title_en: 'Fix RDP Light-Mode Bleed-Through, 16-bit Alpha/Black-Box Corruption, XOR Drag Trails & WebP CPU Bottleneck',
+    changes: [
+      'رفع کامل سفید شدن/شفاف شدن بخش‌های خالی دسکتاپ و تسک‌بار در تم روشن (`Light Mode`) با مستثنی کردن کلاس جدید `.guac-rdp-stage` از قانون بازنویسی `.bg-black` در `src/index.css` و تثبیت پس‌زمینه `#000000` روی کانتینر ریموت دسکتاپ و پخش‌کننده ویدیو/ضبط نشست.',
+      'حذف کامل رنگ ۱۶-بیتی (`color-depth=16`) و جایگزینی اجباری با رندر ۳۲-بیتی (`color-depth=32`) به همراه فعال‌سازی `enable-desktop-composition=true` و `enable-full-window-drag=true` جهت رفع باگ FreeRDP2 (پاک شدن رنگ پس‌زمینه با `alpha=0` و مربع سیاه GDI و خط‌های سیمی XOR حین جابجایی پنجره روی ویندوز سرور).',
+      'حذف گلوگاه CPU کدک `libwebp` در حالت پیش‌فرض (`Fast 32-bit Low-CPU`) با استفاده انحصاری از `image/jpeg` + `image/png`، حذف سربار جریان `audio/L16` در حالت بی‌صدا، افزودن کنترل فشار معکوس (`WebSocket bufferedAmount backpressure`) روی سوکت `guacd`، پشتیبانی از طول یونیکد چندبایتی (Surrogate Pair) در `consumeGuacInstructions` و بازمحاسبه خودکار مقیاس پس از `connected`.'
+    ],
+    changes_en: [
+      'Resolved Light-Mode `#f1f5f9` bleed-through across Windows RDP desktop/taskbar regions by excluding `.guac-rdp-stage` from `.theme-light` `.bg-black` overrides in `src/index.css` and enforcing `#000000` backdrop on live RDP stages and session recording players.',
+      'Replaced legacy `color-depth=16` (which triggered FreeRDP2 GDI `alpha=0` transparent `cfill` erasure and uninitialized black-box tiles) with mandatory `color-depth=32` plus `enable-desktop-composition=true` and `enable-full-window-drag=true` to eliminate XOR wireframe drag-line trails on Windows Server.',
+      'Eliminated `guacd` `libwebp` CPU encoding bottlenecks in default `Fast (32-bit Low-CPU)` mode (`image/jpeg,image/png`), removed idle `audio/L16` stream overhead, added `clientWs.bufferedAmount` backpressure (`pause`/`resume`) on `guacdSocket`, fixed Unicode surrogate-pair framing in `consumeGuacInstructions`, cleaned up dead `Guacamole.Position.prototype` mutation, and added immediate `requestAnimationFrame` display rescaling upon connection.'
+    ]
+  },
   {
     version: '1.496.1',
     releaseDate: '2026-11-26',

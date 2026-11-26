@@ -1523,10 +1523,15 @@
   color: #ffffff !important;
 }
 
-.theme-light :where(.bg-black, .bg-black\/40, .bg-black\/50, .bg-black\/60, .bg-black\/70, .bg-black\/80, .bg-black\/90):not(:where([class*="fixed"], [class*="backdrop"], [class*="inset-0"], pre, .cisco-terminal-screen, .switch-faceplate-chassis, .switch-faceplate-chassis *, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .template-code-preview)) {
+.theme-light :where(.bg-black, .bg-black\/40, .bg-black\/50, .bg-black\/60, .bg-black\/70, .bg-black\/80, .bg-black\/90):not(:where([class*="fixed"], [class*="backdrop"], [class*="inset-0"], pre, .cisco-terminal-screen, .switch-faceplate-chassis, .switch-faceplate-chassis *, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .guac-rdp-stage, .template-code-preview)) {
   background-color: #f1f5f9 !important;
   border-color: #cbd5e1 !important;
   color: #0f172a !important;
+}
+
+.guac-rdp-stage,
+.theme-light .guac-rdp-stage {
+  background-color: #000000 !important;
 }
 
 .theme-light .bg-black\/40:focus,
@@ -1552,19 +1557,19 @@
 }
 
 /* Light Theme Overrides for ALL Slate / Gray / Zinc Dark Backgrounds */
-.theme-light :where([class*="bg-slate-950"], [class*="bg-gray-950"], [class*="bg-zinc-950"]):not(:where([class*="inset-0"], [data-modal-backdrop="true"], .modal-backdrop-blur, .modal-glass-backdrop, [id$="-modal-overlay"], pre, .xterm, .xterm-terminal-container, .cisco-terminal-screen, .cisco-terminal-screen *, .switch-faceplate-chassis, .switch-faceplate-chassis *, .switch-faceplate-grid, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .template-code-preview, .login-showcase-panel, .login-showcase-panel *)) {
+.theme-light :where([class*="bg-slate-950"], [class*="bg-gray-950"], [class*="bg-zinc-950"]):not(:where([class*="inset-0"], [data-modal-backdrop="true"], .modal-backdrop-blur, .modal-glass-backdrop, [id$="-modal-overlay"], pre, .xterm, .xterm-terminal-container, .cisco-terminal-screen, .cisco-terminal-screen *, .switch-faceplate-chassis, .switch-faceplate-chassis *, .switch-faceplate-grid, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .guac-rdp-stage, .template-code-preview, .login-showcase-panel, .login-showcase-panel *)) {
   background-color: #ffffff !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
 }
 
-.theme-light :where([class*="bg-slate-900"], [class*="bg-gray-900"], [class*="bg-zinc-900"]):not(:where([class*="inset-0"], [data-modal-backdrop="true"], .modal-backdrop-blur, .modal-glass-backdrop, [id$="-modal-overlay"], pre, .xterm, .xterm-terminal-container, .cisco-terminal-screen, .cisco-terminal-screen *, .switch-faceplate-chassis, .switch-faceplate-chassis *, .switch-faceplate-grid, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .template-code-preview)) {
+.theme-light :where([class*="bg-slate-900"], [class*="bg-gray-900"], [class*="bg-zinc-900"]):not(:where([class*="inset-0"], [data-modal-backdrop="true"], .modal-backdrop-blur, .modal-glass-backdrop, [id$="-modal-overlay"], pre, .xterm, .xterm-terminal-container, .cisco-terminal-screen, .cisco-terminal-screen *, .switch-faceplate-chassis, .switch-faceplate-chassis *, .switch-faceplate-grid, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .guac-rdp-stage, .template-code-preview)) {
   background-color: #f8fafc !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
 }
 
-.theme-light :where([class*="bg-slate-850"], [class*="bg-slate-800"], [class*="bg-slate-700"], [class*="bg-gray-800"], [class*="bg-zinc-800"]):not(:where(pre, .xterm, .xterm-terminal-container, .cisco-terminal-screen, .cisco-terminal-screen *, .switch-faceplate-chassis, .switch-faceplate-chassis *, .switch-faceplate-grid, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .template-code-preview)) {
+.theme-light :where([class*="bg-slate-850"], [class*="bg-slate-800"], [class*="bg-slate-700"], [class*="bg-gray-800"], [class*="bg-zinc-800"]):not(:where(pre, .xterm, .xterm-terminal-container, .cisco-terminal-screen, .cisco-terminal-screen *, .switch-faceplate-chassis, .switch-faceplate-chassis *, .switch-faceplate-grid, .rack-cabinet-dark, .rack-cabinet-dark *, .tower-cabinet-dark, .tower-cabinet-dark *, .dark-terminal-box, .guac-rdp-stage, .template-code-preview)) {
   background-color: #f1f5f9 !important;
   color: #1e293b !important;
   border-color: #cbd5e1 !important;

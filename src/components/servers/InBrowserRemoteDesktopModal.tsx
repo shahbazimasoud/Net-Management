@@ -447,7 +447,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
     // Enforce LTR top-left origin and isolate compositor layer so dirty-rect repaints never smear
     displayElem.dir = 'ltr';
+    displayElem.classList.add('guac-rdp-stage');
     displayElem.style.direction = 'ltr';
+    displayElem.style.backgroundColor = '#000000';
     displayElem.style.position = 'relative';
     displayElem.style.margin = '0';
     displayElem.style.padding = '0';
@@ -462,6 +464,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       innerDisplay.style.transformOrigin = '0 0';
       (innerDisplay.style as any).webkitTransformOrigin = '0 0';
       innerDisplay.style.backfaceVisibility = 'hidden';
+      innerDisplay.style.imageRendering = 'auto';
     }
 
     const displayWidth = display.getWidth();
@@ -472,6 +475,12 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     }
 
     if (scalingMode === 'native') {
+      if (innerDisplay) {
+        innerDisplay.style.transform = '';
+        (innerDisplay.style as any).webkitTransform = '';
+      }
+      displayElem.style.width = '';
+      displayElem.style.height = '';
       display.scale(1.0);
       cachedDisplayMetricsRef.current.dirty = true;
       return;
@@ -493,6 +502,12 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       displayElem.style.width = `${displayWidth * scaleX}px`;
       displayElem.style.height = `${displayHeight * scaleY}px`;
     } else {
+      if (innerDisplay) {
+        innerDisplay.style.transform = '';
+        (innerDisplay.style as any).webkitTransform = '';
+      }
+      displayElem.style.width = '';
+      displayElem.style.height = '';
       const scale = Math.max(0.1, Math.min(containerWidth / displayWidth, containerHeight / displayHeight));
       display.scale(scale);
     }
@@ -503,9 +518,13 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   useEffect(() => {
     updateDisplayScaleRef.current = updateDisplayScale;
     updateDisplayScale();
+    const rafId = requestAnimationFrame(() => updateDisplayScale());
     const t = setTimeout(updateDisplayScale, 60);
-    return () => clearTimeout(t);
-  }, [updateDisplayScale, isMaximized, isMonitorFullscreen, showDiagnostics]);
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(t);
+    };
+  }, [updateDisplayScale, isMaximized, isMonitorFullscreen, showDiagnostics, connectionStatus]);
 
   // Window resize & ResizeObserver listener to auto-scale display
   useEffect(() => {
@@ -573,7 +592,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
       const displayElem = display.getElement() as HTMLElement;
       displayElem.dir = 'ltr';
+      displayElem.classList.add('guac-rdp-stage');
       displayElem.style.direction = 'ltr';
+      displayElem.style.backgroundColor = '#000000';
       displayElem.style.position = 'relative';
       displayElem.style.margin = '0';
       displayElem.style.padding = '0';
@@ -592,6 +613,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         innerDisplay.style.transformOrigin = '0 0';
         (innerDisplay.style as any).webkitTransformOrigin = '0 0';
         innerDisplay.style.backfaceVisibility = 'hidden';
+        innerDisplay.style.imageRendering = 'auto';
       }
 
       // Immediately re-scale whenever guacd resizes the remote desktop layer
@@ -759,18 +781,6 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         }
         return metrics;
       };
-
-      if (Guacamole.Position && Guacamole.Position.prototype) {
-        Guacamole.Position.prototype.fromClientPosition = function (
-          element: HTMLElement,
-          clientX: number,
-          clientY: number
-        ) {
-          const rect = element === displayElem ? getCachedDisplayRect() : element.getBoundingClientRect();
-          this.x = clientX - rect.left;
-          this.y = clientY - rect.top;
-        };
-      }
 
       const mouse: any = new Guacamole.Mouse(displayElem);
       guacMouseRef.current = mouse;
@@ -1043,7 +1053,8 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       const effectivePassword = customPasswordRef.current || sessionPasswordRef.current;
       const preflightTicketId = (curServer as any)?.approval_request_id;
       const activePreset = qualityPresetRef.current;
-      const colorDepth = activePreset === 'high' ? '32' : '16';
+      // Always request 32-bit True Color so FreeRDP2 uses full ARGB8888 surfaces without 16-bit alpha=0 corruption.
+      const colorDepth = '32';
       const performanceMode =
         activePreset === 'high' ? 'quality' : activePreset === 'balanced' ? 'balanced' : 'performance';
 
@@ -1708,8 +1719,8 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
               }}
               title={
                 isEn
-                  ? 'Graphics speed vs color quality (Fast 16-bit eliminates drag lag)'
-                  : 'تنظیم سرعت تصویر در برابر کیفیت رنگ (حالت سریع ۱۶-بیت لگ را به حداقل می‌رساند)'
+                  ? 'Graphics encoding vs desktop effects (Fast mode uses low-CPU JPEG+PNG with full 32-bit rendering)'
+                  : 'تنظیم کدک تصویر و افکت‌های دسکتاپ (حالت سریع با رندر ۳۲-بیتی کامل و کمترین مصرف CPU)'
               }
               className={`text-xs px-2 py-1 rounded border font-mono ${
                 isLightMode
@@ -1717,9 +1728,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                   : 'bg-slate-800 border-slate-700 text-slate-200'
               }`}
             >
-              <option value="fast">{isEn ? 'Fast (16-bit)' : 'سریع (16-bit)'}</option>
-              <option value="balanced">{isEn ? 'Balanced' : 'متعادل'}</option>
-              <option value="high">{isEn ? 'True Color (32-bit)' : 'کیفیت بالا (32-bit)'}</option>
+              <option value="fast">{isEn ? 'Fast (32-bit Low-CPU)' : 'سریع (32-bit کم‌مصرف)'}</option>
+              <option value="balanced">{isEn ? 'Bandwidth Saver (WebP)' : 'بهینه پهنای باند (WebP)'}</option>
+              <option value="high">{isEn ? 'Full Visuals (Wallpaper)' : 'کیفیت کامل (والپیپر)'}</option>
             </select>
 
             {/* Resolution Selector */}
@@ -1871,7 +1882,8 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         {/* Remote Desktop Canvas Viewport Container */}
         <div
           dir="ltr"
-          className={`flex-1 relative bg-black flex items-center justify-center overflow-hidden cursor-default ${
+          style={{ backgroundColor: '#000000' }}
+          className={`flex-1 relative bg-black dark-terminal-box guac-rdp-stage flex items-center justify-center overflow-hidden cursor-default ${
             isMonitorFullscreen ? 'p-0' : 'p-1'
           }`}
           onClick={() => {
@@ -2049,9 +2061,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                         }}
                         className="text-[11px] px-1.5 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 font-mono"
                       >
-                        <option value="fast">{isEn ? 'Fast 16b' : 'سریع 16b'}</option>
-                        <option value="balanced">{isEn ? 'Balanced' : 'متعادل'}</option>
-                        <option value="high">{isEn ? '32-bit' : '32-bit'}</option>
+                        <option value="fast">{isEn ? 'Fast 32b' : 'سریع 32b'}</option>
+                        <option value="balanced">{isEn ? 'WebP' : 'WebP بهینه'}</option>
+                        <option value="high">{isEn ? 'Full Visuals' : 'کیفیت کامل'}</option>
                       </select>
 
                       <select
@@ -2198,6 +2210,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             ref={displayContainerRef}
             dir="ltr"
             tabIndex={0}
+            style={{ backgroundColor: '#000000' }}
             onClick={() => {
               if (!showClipboardModal && !showConfirmClose) {
                 displayContainerRef.current?.focus();
@@ -2213,7 +2226,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                 pushTextToRemoteClipboard(pasted);
               }
             }}
-            className={`w-full h-full flex focus:outline-none ${
+            className={`w-full h-full flex focus:outline-none bg-black dark-terminal-box guac-rdp-stage ${
               scalingMode === 'native'
                 ? 'overflow-auto items-start justify-start'
                 : 'overflow-hidden items-center justify-center'

@@ -1103,7 +1103,11 @@ export const SessionRecordingPlayerModal: React.FC<SessionRecordingPlayerModalPr
             </>
           ) : rdpMode === 'video' && hasPlayableVideo ? (
             /* RDP / VNC HTML5 MP4/WebM Range Video Player */
-            <div className="flex-1 flex flex-col bg-black min-h-0" dir="ltr">
+            <div
+              className="flex-1 flex flex-col bg-black dark-terminal-box guac-rdp-stage min-h-0"
+              style={{ backgroundColor: '#000000' }}
+              dir="ltr"
+            >
               <div className="flex-1 min-h-0 flex items-center justify-center p-2">
                 <video
                   ref={videoRef}
@@ -1156,7 +1160,8 @@ export const SessionRecordingPlayerModal: React.FC<SessionRecordingPlayerModalPr
               <div
                 ref={guacContainerRef}
                 dir="ltr"
-                className="flex-1 min-h-0 flex items-center justify-center overflow-hidden p-2"
+                style={{ backgroundColor: '#000000' }}
+                className="flex-1 min-h-0 flex items-center justify-center overflow-hidden p-2 bg-black dark-terminal-box guac-rdp-stage"
               />
               <div className={`px-4 py-2.5 border-t flex flex-wrap items-center gap-3 shrink-0 ${headerBar}`} dir="ltr">
                 <button
