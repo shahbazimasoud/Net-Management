@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.487.0';
+export const APP_VERSION = '1.487.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.487.1',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'رفع کامل باگ عدم نمایش اطلاعات در بخش وضعیت قفل اکانت (Account Lockout Status) و تجمیع زنده بین دامین کنترلرها',
+    title_en: 'Fix Account Lockout Status Empty Telemetry via PDC Discovery, Multi-DC BadPwd Aggregation & Security Event Log Audit',
+    changes: [
+      'اولویت‌دهی خودکار به PDC Emulator (`_ldap._tcp.pdc._msdcs`) و بررسی موازی تمام دامین کنترلرها جهت تجمیع دقیق فیلدهای غیرهمسان‌سازی‌شده (`badPwdCount`، `badPasswordTime` و `lastLogon`) و جلوگیری از نمایش مقادیر صفر/خالی به دلیل رندوم بودن DNS دامین کنترلر.',
+      'تشخیص دقیق وضعیت‌های `locked`، `auto_expired_pending_clear` (قفل منقضی‌شده در انتظار اولین لاگین) و `unlocked` به همراه نمایش تایمر بازشدن خودکار و جزئیات آستانه پالیسی قفل.',
+      'افزودن جدول زنده وضعیت دامین کنترلرها (`Multi-DC Breakdown`) و خواندن تاریخچه ۷ روزه رویدادهای Security Event Log (`4740` قفل‌شدن + نام سیستم مبدأ، `4767` رفع قفل، `4771` و `4625`) مستقیماً درون کارت Account Lockout Status.'
+    ],
+    changes_en: [
+      'Added automatic PDC Emulator SRV resolution (`_ldap._tcp.pdc._msdcs`) and parallel multi-DC LDAP polling to aggregate non-replicated `badPwdCount`, `badPasswordTime`, and `lastLogon` across all Domain Controllers instead of showing zeros from a single DNS round-robin DC.',
+      'Added accurate evaluation for `locked`, `auto_expired_pending_clear` (auto-unlocked duration elapsed), and `unlocked` states plus auto-unlock countdown timer and inline policy readiness summary.',
+      'Added per-DC Lockout & BadPwd breakdown cards plus live 7-day Windows Security Event Log inspection (`4740` Lockout with Caller PC, `4767` Unlock, `4771`/`4625` Failed Auth) directly inside the Account Lockout Status card.'
+    ]
+  },
   {
     version: '1.487.0',
     releaseDate: '2026-11-25',

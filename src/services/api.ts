@@ -2914,6 +2914,30 @@ export interface HelpdeskUserMailboxInfo {
   deliverToMailboxAndForward?: boolean;
 }
 
+export interface HelpdeskUserDcLockoutEntry {
+  dcHost: string;
+  isPdc: boolean;
+  reachable: boolean;
+  accountLocked: boolean;
+  lockoutTimeRaw: string;
+  lockedAt: string | null;
+  badPwdCount: number;
+  badPasswordTime: string | null;
+  lastLogon: string | null;
+}
+
+export interface HelpdeskUserLockoutEventEntry {
+  eventId: number;
+  eventType: 'locked_out' | 'unlocked' | 'bad_password' | 'logon_failed';
+  timestamp: string;
+  dcHost: string;
+  callerComputer?: string;
+  sourceIp?: string;
+  actor?: string;
+  subStatus?: string;
+  message?: string;
+}
+
 export interface HelpdeskUserInspectionData {
   found: boolean;
   collectedAt: string;
@@ -2924,6 +2948,7 @@ export interface HelpdeskUserInspectionData {
     port: number;
     domainName: string;
     baseDn: string;
+    pdcEmulator?: string;
   };
   profile: {
     samAccountName: string;
@@ -2965,10 +2990,14 @@ export interface HelpdeskUserInspectionData {
   security: {
     accountEnabled: boolean;
     accountLocked: boolean;
+    lockoutState?: 'locked' | 'auto_expired_pending_clear' | 'unlocked';
     lockoutTimeRaw: string;
     lockedAt: string | null;
+    lockoutExpiresAt?: string | null;
+    lockoutRemainingMinutes?: number | null;
     lockoutSourceNote?: string;
     badPwdCount: number;
+    badPwdSourceDc?: string;
     badPasswordTime: string | null;
     passwordLastSet: string | null;
     passwordAgeDays: number | null;
@@ -2995,6 +3024,11 @@ export interface HelpdeskUserInspectionData {
       lockoutDurationMinutes: number | null;
       lockoutObservationWindowMinutes: number | null;
     };
+    dcLockoutBreakdown?: HelpdeskUserDcLockoutEntry[];
+    lockoutEventsStatus?: 'available' | 'empty' | 'unavailable';
+    lockoutEventsNote?: string;
+    lockoutEventsNoteFa?: string;
+    lockoutEvents?: HelpdeskUserLockoutEventEntry[];
   };
   groups: Array<{ cn: string; dn: string; isPrimary?: boolean }>;
   mailbox: HelpdeskUserMailboxInfo;

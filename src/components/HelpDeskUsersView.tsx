@@ -2213,147 +2213,408 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
                       ? isLightMode
                         ? 'bg-rose-50/60 border-rose-300 shadow-sm'
                         : 'bg-rose-950/25 border-rose-500/45'
+                      : data.security.lockoutState === 'auto_expired_pending_clear'
+                      ? isLightMode
+                        ? 'bg-amber-50/60 border-amber-300 shadow-sm'
+                        : 'bg-amber-950/25 border-amber-500/45'
                       : surfaceBg
                   }`}
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-11 h-11 rounded-xl border flex items-center justify-center shrink-0 ${
-                          data.security.accountLocked
-                            ? 'bg-rose-500/15 border-rose-500/35 text-rose-500'
-                            : 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
-                        }`}
-                      >
-                        {data.security.accountLocked ? (
-                          <Lock className="w-5 h-5" />
-                        ) : (
-                          <Unlock className="w-5 h-5" />
-                        )}
-                      </div>
-                      <div>
-                        <h3 className={`text-sm font-bold ${textPrimary}`}>
-                          {data.security.accountLocked
-                            ? isEn
-                              ? 'Account is Currently LOCKED OUT'
-                              : 'وضعیت اکانت: قفل شده (Locked Out)'
-                            : isEn
-                            ? 'Account Lockout Status: Unlocked (Normal)'
-                            : 'وضعیت اکانت: باز و بدون قفل (Unlocked)'}
-                        </h3>
-                        <p className={`text-xs mt-0.5 ${textMuted}`}>
-                          {data.security.accountLocked
-                            ? isEn
-                              ? `Locked at ${formatDateDisplay(data.security.lockedAt, true)} · Failed logins: ${data.security.badPwdCount}`
-                              : `زمان قفل شدن: ${formatDateDisplay(data.security.lockedAt, false)} · تلاش ناموفق: ${data.security.badPwdCount}`
-                            : isEn
-                            ? 'No active lockout timer on this domain account.'
-                            : 'در حال حاضر هیچ قفل امنیتی روی این اکانت دامین فعال نیست.'}
-                        </p>
-                      </div>
-                    </div>
+                  {(() => {
+                    const thresh = data.security.domainPolicy.lockoutThreshold;
+                    const durMin = data.security.domainPolicy.lockoutDurationMinutes;
+                    const obsMin = data.security.domainPolicy.lockoutObservationWindowMinutes;
+                    const dcList = data.security.dcLockoutBreakdown || [];
+                    const lockEvents = data.security.lockoutEvents || [];
+                    const latestLockEvt = lockEvents.find((ev) => ev.eventId === 4740);
+                    const isExpiredPendingClear = data.security.lockoutState === 'auto_expired_pending_clear';
 
-                    {/* Two-step Unlock Action */}
-                    {canUnlockAccount && (data.security.accountLocked || data.security.badPwdCount > 0) && (
-                      <div className="flex items-center gap-2 shrink-0">
-                        {!confirmUnlock ? (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmUnlock(true)}
-                            disabled={ram.unlocking}
-                            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition cursor-pointer ${
-                              data.security.accountLocked
-                                ? 'bg-rose-600 hover:bg-rose-500 text-white'
-                                : isLightMode
-                                ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
-                                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-                            }`}
-                          >
-                            <Unlock className="w-3.5 h-3.5" />
-                            <span>
-                              {data.security.accountLocked
-                                ? isEn
-                                  ? 'Unlock User Account'
-                                  : 'خارج کردن از حالت قفل (Unlock)'
-                                : isEn
-                                ? 'Reset Lockout State'
-                                : 'بازنشانی شمارنده قفل'}
-                            </span>
-                          </button>
-                        ) : (
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              disabled={ram.unlocking}
-                              onClick={async () => {
-                                await runHelpdeskUserUnlock();
-                                setConfirmUnlock(false);
-                              }}
-                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-xs font-bold transition cursor-pointer"
-                            >
-                              {ram.unlocking ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <Check className="w-3.5 h-3.5" />
-                              )}
-                              <span>
-                                {ram.unlocking
-                                  ? isEn
-                                    ? 'Unlocking...'
-                                    : 'در حال باز کردن...'
-                                  : isEn
-                                  ? 'Confirm Unlock'
-                                  : 'تایید رفع قفل'}
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              disabled={ram.unlocking}
-                              onClick={() => setConfirmUnlock(false)}
-                              className={`px-2.5 py-2 rounded-lg border text-xs font-medium cursor-pointer ${
-                                isLightMode
-                                  ? 'bg-white border-slate-300 text-slate-700'
-                                  : 'bg-slate-900 border-slate-700 text-slate-300'
+                    return (
+                      <>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-11 h-11 rounded-xl border flex items-center justify-center shrink-0 ${
+                                data.security.accountLocked
+                                  ? 'bg-rose-500/15 border-rose-500/35 text-rose-500'
+                                  : isExpiredPendingClear
+                                  ? 'bg-amber-500/15 border-amber-500/35 text-amber-500'
+                                  : 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
                               }`}
                             >
-                              {isEn ? 'Cancel' : 'انصراف'}
-                            </button>
+                              {data.security.accountLocked ? (
+                                <Lock className="w-5 h-5" />
+                              ) : isExpiredPendingClear ? (
+                                <Clock className="w-5 h-5" />
+                              ) : (
+                                <Unlock className="w-5 h-5" />
+                              )}
+                            </div>
+                            <div>
+                              <h3 className={`text-sm font-bold ${textPrimary}`}>
+                                {data.security.accountLocked
+                                  ? isEn
+                                    ? 'Account is Currently LOCKED OUT'
+                                    : 'وضعیت اکانت: قفل شده (Locked Out)'
+                                  : isExpiredPendingClear
+                                  ? isEn
+                                    ? 'Lockout Duration Elapsed (Pending Next Logon Clear)'
+                                    : 'زمان قفل به پایان رسیده (در انتظار اولین ورود موفق)'
+                                  : isEn
+                                  ? 'Account Lockout Status: Unlocked (Normal)'
+                                  : 'وضعیت اکانت: باز و بدون قفل (Unlocked)'}
+                              </h3>
+                              <p className={`text-xs mt-0.5 ${textMuted}`}>
+                                {data.security.accountLocked
+                                  ? isEn
+                                    ? `Locked at ${formatDateDisplay(data.security.lockedAt, true)} · Failed logins: ${data.security.badPwdCount}${
+                                        data.security.lockoutRemainingMinutes !== null && data.security.lockoutRemainingMinutes !== undefined
+                                          ? ` · Auto-unlocks in ~${data.security.lockoutRemainingMinutes}m`
+                                          : ' · Requires Admin Unlock'
+                                      }`
+                                    : `زمان قفل شدن: ${formatDateDisplay(data.security.lockedAt, false)} · تلاش ناموفق: ${data.security.badPwdCount}${
+                                        data.security.lockoutRemainingMinutes !== null && data.security.lockoutRemainingMinutes !== undefined
+                                          ? ` · بازشدن خودکار تا حدود ${data.security.lockoutRemainingMinutes} دقیقه`
+                                          : ' · نیازمند باز کردن توسط ادمین'
+                                      }`
+                                  : isExpiredPendingClear
+                                  ? isEn
+                                    ? `Previous lockout at ${formatDateDisplay(data.security.lockedAt, true)} expired automatically; user can sign in or admin can clear timer now.`
+                                    : `قفل قبلی در ${formatDateDisplay(data.security.lockedAt, false)} منقضی شده است؛ کاربر می‌تواند لاگین کند یا تایمر را بازنشانی کنید.`
+                                  : thresh === 0
+                                  ? isEn
+                                    ? `Lockout policy is disabled on this domain (Threshold = 0) · Checked ${Math.max(1, dcList.length)} DC(s)`
+                                    : `قفل شدن خودکار در پالیسی این دامین غیرفعال است (آستانه = ۰) · بررسی‌شده روی ${Math.max(1, dcList.length)} دامین کنترلر`
+                                  : thresh !== null
+                                  ? isEn
+                                    ? `Policy: locks after ${thresh} bad attempts (${durMin !== null ? `${durMin}m duration` : 'until admin unlock'}) · Checked ${Math.max(1, dcList.length)} DC(s)`
+                                    : `پالیسی فعال: قفل پس از ${thresh} رمز اشتباه (${durMin !== null ? `مدت قفل ${durMin} دقیقه` : 'تا بازشدن توسط ادمین'}) · بررسی‌شده روی ${Math.max(1, dcList.length)} DC`
+                                  : isEn
+                                  ? `No active lockout on this account · Queried ${Math.max(1, dcList.length)} Domain Controller(s)`
+                                  : `در حال حاضر قفل فعالی روی این اکانت وجود ندارد · بررسی‌شده روی ${Math.max(1, dcList.length)} دامین کنترلر`}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Two-step Unlock Action */}
+                          {canUnlockAccount &&
+                            (data.security.accountLocked ||
+                              isExpiredPendingClear ||
+                              data.security.badPwdCount > 0) && (
+                              <div className="flex items-center gap-2 shrink-0">
+                                {!confirmUnlock ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmUnlock(true)}
+                                    disabled={ram.unlocking}
+                                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                      data.security.accountLocked
+                                        ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                                        : isLightMode
+                                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300'
+                                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                                    }`}
+                                  >
+                                    <Unlock className="w-3.5 h-3.5" />
+                                    <span>
+                                      {data.security.accountLocked
+                                        ? isEn
+                                          ? 'Unlock User Account'
+                                          : 'خارج کردن از حالت قفل (Unlock)'
+                                        : isEn
+                                        ? 'Clear Lockout Counter'
+                                        : 'پاک‌سازی تایمر و شمارنده قفل'}
+                                    </span>
+                                  </button>
+                                ) : (
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      disabled={ram.unlocking}
+                                      onClick={async () => {
+                                        await runHelpdeskUserUnlock();
+                                        setConfirmUnlock(false);
+                                      }}
+                                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-xs font-bold transition cursor-pointer"
+                                    >
+                                      {ram.unlocking ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      ) : (
+                                        <Check className="w-3.5 h-3.5" />
+                                      )}
+                                      <span>
+                                        {ram.unlocking
+                                          ? isEn
+                                            ? 'Unlocking...'
+                                            : 'در حال باز کردن...'
+                                          : isEn
+                                          ? 'Confirm Unlock'
+                                          : 'تایید رفع قفل'}
+                                      </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={ram.unlocking}
+                                      onClick={() => setConfirmUnlock(false)}
+                                      className={`px-2.5 py-2 rounded-lg border text-xs font-medium cursor-pointer ${
+                                        isLightMode
+                                          ? 'bg-white border-slate-300 text-slate-700'
+                                          : 'bg-slate-900 border-slate-700 text-slate-300'
+                                      }`}
+                                    >
+                                      {isEn ? 'Cancel' : 'انصراف'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                        </div>
+
+                        {/* Lockout & Bad Password Telemetry Grid */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className={`rounded-lg border p-3 ${subSurfaceBg}`}>
+                            <div className={`text-[11px] mb-1 ${textMuted}`}>
+                              {isEn ? 'Bad Password Count' : 'تعداد رمز اشتباه (کل DCها)'}
+                            </div>
+                            <div className={`text-sm font-mono font-bold tabular-nums ${textPrimary}`}>
+                              {data.security.badPwdCount}
+                              {thresh !== null && thresh > 0
+                                ? ` / ${thresh}`
+                                : thresh === 0
+                                ? isEn
+                                  ? ' (No Limit)'
+                                  : ' (بدون سقف)'
+                                : ''}
+                            </div>
+                            {data.security.badPwdSourceDc && (
+                              <div className={`text-[10px] font-mono truncate mt-0.5 ${textMuted}`} dir="ltr">
+                                @ {data.security.badPwdSourceDc}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className={`rounded-lg border p-3 ${subSurfaceBg}`}>
+                            <div className={`text-[11px] mb-1 ${textMuted}`}>
+                              {isEn ? 'Last Bad Password' : 'آخرین تلاش ناموفق'}
+                            </div>
+                            <div className={`text-xs font-mono font-semibold ${textPrimary}`}>
+                              {data.security.badPasswordTime
+                                ? formatDateDisplay(data.security.badPasswordTime, isEn)
+                                : isEn
+                                ? 'None recorded'
+                                : 'ثبت نشده'}
+                            </div>
+                          </div>
+
+                          <div className={`rounded-lg border p-3 ${subSurfaceBg}`}>
+                            <div className={`text-[11px] mb-1 ${textMuted}`}>
+                              {data.security.lockedAt
+                                ? isEn
+                                  ? 'Lockout Timestamp'
+                                  : 'زمان دقیق قفل شدن'
+                                : latestLockEvt
+                                ? isEn
+                                  ? 'Last Lockout (Event 4740)'
+                                  : 'آخرین قفل ثبت‌شده (4740)'
+                                : isEn
+                                ? 'Lockout Timestamp'
+                                : 'زمان دقیق قفل شدن'}
+                            </div>
+                            <div className={`text-xs font-mono font-semibold ${textPrimary}`}>
+                              {data.security.lockedAt
+                                ? formatDateDisplay(data.security.lockedAt, isEn)
+                                : latestLockEvt
+                                ? formatDateDisplay(latestLockEvt.timestamp, isEn)
+                                : isEn
+                                ? 'Not locked'
+                                : 'قفل نشده'}
+                            </div>
+                            {!data.security.lockedAt && latestLockEvt?.callerComputer && (
+                              <div className={`text-[10px] font-mono truncate mt-0.5 ${textMuted}`} dir="ltr">
+                                {isEn ? 'From:' : 'از:'} {latestLockEvt.callerComputer}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className={`rounded-lg border p-3 ${subSurfaceBg}`}>
+                            <div className={`text-[11px] mb-1 ${textMuted}`}>
+                              {data.security.accountLocked
+                                ? isEn
+                                  ? 'Auto-Unlock Timer'
+                                  : 'تایمر بازشدن خودکار'
+                                : isEn
+                                ? 'Policy Threshold / Reset'
+                                : 'آستانه قفل / ریست'}
+                            </div>
+                            <div className={`text-xs font-mono font-semibold ${textPrimary}`}>
+                              {data.security.accountLocked
+                                ? data.security.lockoutExpiresAt
+                                  ? `${formatDateDisplay(data.security.lockoutExpiresAt, isEn)} (~${data.security.lockoutRemainingMinutes ?? 0}m)`
+                                  : isEn
+                                  ? 'Until Admin Unlock'
+                                  : 'تا بازشدن توسط ادمین'
+                                : thresh === 0
+                                ? isEn
+                                  ? 'Lockout Disabled (0)'
+                                  : 'غیرفعال (آستانه ۰)'
+                                : thresh !== null
+                                ? `${thresh} ${isEn ? 'tries' : 'بار'} · ${durMin !== null ? `${durMin}m` : 'Admin'} / ${obsMin !== null ? `${obsMin}m` : '-'}`
+                                : isEn
+                                ? 'Default Domain Policy'
+                                : 'پالیسی پیش‌فرض دامین'}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Multi-DC Replication & Per-DC Counter Breakdown */}
+                        {dcList.length > 0 && (
+                          <div className={`rounded-lg border p-3 space-y-2 ${subSurfaceBg}`}>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className={`text-[11px] font-semibold flex items-center gap-1.5 ${textSecondary}`}>
+                                <Server className="w-3.5 h-3.5 text-teal-500" />
+                                {isEn
+                                  ? `Live Multi-DC Check (${dcList.length} Domain Controller${dcList.length > 1 ? 's' : ''})`
+                                  : `بررسی هم‌زمان روی دامین کنترلرها (${dcList.length} سرور DC)`}
+                              </span>
+                              {data.connectionInfo.pdcEmulator && (
+                                <span className={`text-[10px] font-mono ${textMuted}`} dir="ltr">
+                                  PDC: {data.connectionInfo.pdcEmulator}
+                                </span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {dcList.map((dc) => (
+                                <div
+                                  key={dc.dcHost}
+                                  className={`px-2.5 py-2 rounded border text-[11px] flex items-center justify-between gap-2 ${
+                                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                                  }`}
+                                >
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={`font-mono font-semibold truncate ${textPrimary}`} dir="ltr">
+                                        {dc.dcHost}
+                                      </span>
+                                      {dc.isPdc && (
+                                        <span className="px-1 py-0.5 rounded bg-sky-500/15 text-sky-500 text-[9px] font-bold">
+                                          PDC
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className={`text-[10px] ${textMuted}`}>
+                                      {isEn ? 'BadPwd:' : 'رمز اشتباه:'}{' '}
+                                      <strong className={dc.badPwdCount > 0 ? 'text-amber-500' : textPrimary}>
+                                        {dc.badPwdCount}
+                                      </strong>
+                                      {dc.badPasswordTime
+                                        ? ` · ${formatDateDisplay(dc.badPasswordTime, isEn)}`
+                                        : ''}
+                                    </div>
+                                  </div>
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 ${
+                                      dc.accountLocked
+                                        ? 'bg-rose-500/15 text-rose-500'
+                                        : 'bg-emerald-500/15 text-emerald-500'
+                                    }`}
+                                  >
+                                    {dc.accountLocked
+                                      ? isEn
+                                        ? 'Locked'
+                                        : 'قفل'
+                                      : isEn
+                                      ? 'Unlocked'
+                                      : 'باز'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         )}
-                      </div>
-                    )}
-                  </div>
 
-                  {/* Lockout & Bad Password Counters */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    <div className={`rounded-lg border p-3 ${subSurfaceBg}`}>
-                      <div className={`text-[11px] mb-1 ${textMuted}`}>
-                        {isEn ? 'Bad Password Count' : 'تعداد رمز اشتباه (BadPwd)'}
-                      </div>
-                      <div className={`text-sm font-mono font-bold tabular-nums ${textPrimary}`}>
-                        {data.security.badPwdCount}
-                        {data.security.domainPolicy.lockoutThreshold
-                          ? ` / ${data.security.domainPolicy.lockoutThreshold}`
-                          : ''}
-                      </div>
-                    </div>
-                    <div className={`rounded-lg border p-3 ${subSurfaceBg}`}>
-                      <div className={`text-[11px] mb-1 ${textMuted}`}>
-                        {isEn ? 'Last Bad Password' : 'آخرین تلاش ناموفق'}
-                      </div>
-                      <div className={`text-xs font-mono ${textPrimary}`}>
-                        {formatDateDisplay(data.security.badPasswordTime, isEn)}
-                      </div>
-                    </div>
-                    <div className={`rounded-lg border p-3 ${subSurfaceBg}`}>
-                      <div className={`text-[11px] mb-1 ${textMuted}`}>
-                        {isEn ? 'Lockout Timestamp' : 'زمان دقیق قفل شدن'}
-                      </div>
-                      <div className={`text-xs font-mono ${textPrimary}`}>
-                        {data.security.lockedAt ? formatDateDisplay(data.security.lockedAt, isEn) : '-'}
-                      </div>
-                    </div>
-                  </div>
+                        {/* Recent Lockout, Unlock & Caller Source Events (Security Event Log 4740 / 4767 / 4771 / 4625) */}
+                        <div className={`rounded-lg border p-3 space-y-2 ${subSurfaceBg}`}>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className={`text-[11px] font-semibold flex items-center gap-1.5 ${textSecondary}`}>
+                              <Activity className="w-3.5 h-3.5 text-indigo-500" />
+                              {isEn
+                                ? 'Recent Lockout & Failed Auth Events (Event ID 4740 / 4767 / 4771 / 4625)'
+                                : 'رویدادهای اخیر قفل، رفع قفل و رمز اشتباه (Event ID 4740 / 4767 / 4771 / 4625)'}
+                            </span>
+                            <span className={`text-[10px] ${textMuted}`}>
+                              {isEn ? 'Last 7 days' : '۷ روز گذشته'}
+                            </span>
+                          </div>
+
+                          {lockEvents.length > 0 ? (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-[11px] text-start border-collapse">
+                                <thead>
+                                  <tr className={`border-b ${isLightMode ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>
+                                    <th className="py-1.5 px-2 font-medium text-start">{isEn ? 'Event' : 'رویداد'}</th>
+                                    <th className="py-1.5 px-2 font-medium text-start">{isEn ? 'Time' : 'زمان'}</th>
+                                    <th className="py-1.5 px-2 font-medium text-start">{isEn ? 'Caller PC / IP' : 'سیستم / IP مبدأ'}</th>
+                                    <th className="py-1.5 px-2 font-medium text-start">{isEn ? 'DC / Actor' : 'دامین کنترلر / عامل'}</th>
+                                  </tr>
+                                </thead>
+                                <tbody className={`divide-y ${isLightMode ? 'divide-slate-200/70' : 'divide-slate-800/70'}`}>
+                                  {lockEvents.slice(0, 8).map((ev, idx) => (
+                                    <tr key={`${ev.eventId}-${ev.timestamp}-${idx}`}>
+                                      <td className="py-1.5 px-2 whitespace-nowrap">
+                                        <span
+                                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono text-[10px] font-bold ${
+                                            ev.eventId === 4740
+                                              ? 'bg-rose-500/15 text-rose-500'
+                                              : ev.eventId === 4767
+                                              ? 'bg-emerald-500/15 text-emerald-500'
+                                              : 'bg-amber-500/15 text-amber-500'
+                                          }`}
+                                        >
+                                          {ev.eventId} ·{' '}
+                                          {ev.eventId === 4740
+                                            ? isEn
+                                              ? 'Locked'
+                                              : 'قفل شد'
+                                            : ev.eventId === 4767
+                                            ? isEn
+                                              ? 'Unlocked'
+                                              : 'رفع قفل'
+                                            : ev.eventId === 4771
+                                            ? isEn
+                                              ? 'Pre-Auth Fail'
+                                              : 'رمز اشتباه'
+                                            : isEn
+                                            ? 'Logon Fail'
+                                            : 'ورود ناموفق'}
+                                        </span>
+                                      </td>
+                                      <td className={`py-1.5 px-2 font-mono whitespace-nowrap ${textPrimary}`}>
+                                        {formatDateDisplay(ev.timestamp, isEn)}
+                                      </td>
+                                      <td className={`py-1.5 px-2 font-mono ${textSecondary}`} dir="ltr">
+                                        {[ev.callerComputer, ev.sourceIp].filter(Boolean).join(' · ') || '-'}
+                                      </td>
+                                      <td className={`py-1.5 px-2 font-mono ${textMuted}`} dir="ltr">
+                                        {ev.actor ? `${ev.dcHost} (${ev.actor})` : ev.dcHost}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <p className={`text-[11px] leading-relaxed ${textMuted}`}>
+                              {isEn
+                                ? data.security.lockoutEventsNote ||
+                                  'No lockout or failed authentication events recorded in Security Event Log.'
+                                : data.security.lockoutEventsNoteFa ||
+                                  'رویداد قفل یا تلاش ناموفقی در لاگ امنیتی دامین کنترلر ثبت نشده است.'}
+                            </p>
+                          )}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Account Lifecycle & Logon Activity */}

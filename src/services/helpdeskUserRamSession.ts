@@ -558,8 +558,11 @@ export async function runHelpdeskUserUnlock(): Promise<void> {
               security: {
                 ...prev.userData.security,
                 accountLocked: false,
+                lockoutState: 'unlocked' as const,
                 lockoutTimeRaw: '0',
                 lockedAt: null,
+                lockoutExpiresAt: null,
+                lockoutRemainingMinutes: null,
               },
             }
           : prev.userData;

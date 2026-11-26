@@ -94,6 +94,30 @@ export interface HelpdeskUserMailboxInfo {
   deliverToMailboxAndForward?: boolean;
 }
 
+export interface HelpdeskUserDcLockoutEntry {
+  dcHost: string;
+  isPdc: boolean;
+  reachable: boolean;
+  accountLocked: boolean;
+  lockoutTimeRaw: string;
+  lockedAt: string | null;
+  badPwdCount: number;
+  badPasswordTime: string | null;
+  lastLogon: string | null;
+}
+
+export interface HelpdeskUserLockoutEventEntry {
+  eventId: number;
+  eventType: 'locked_out' | 'unlocked' | 'bad_password' | 'logon_failed';
+  timestamp: string;
+  dcHost: string;
+  callerComputer?: string;
+  sourceIp?: string;
+  actor?: string;
+  subStatus?: string;
+  message?: string;
+}
+
 export interface HelpdeskUserInspectionResult {
   found: boolean;
   collectedAt: string;
@@ -104,6 +128,7 @@ export interface HelpdeskUserInspectionResult {
     port: number;
     domainName: string;
     baseDn: string;
+    pdcEmulator?: string;
   };
   profile: {
     samAccountName: string;
@@ -145,10 +170,14 @@ export interface HelpdeskUserInspectionResult {
   security: {
     accountEnabled: boolean;
     accountLocked: boolean;
+    lockoutState: 'locked' | 'auto_expired_pending_clear' | 'unlocked';
     lockoutTimeRaw: string;
     lockedAt: string | null;
+    lockoutExpiresAt: string | null;
+    lockoutRemainingMinutes: number | null;
     lockoutSourceNote?: string;
     badPwdCount: number;
+    badPwdSourceDc?: string;
     badPasswordTime: string | null;
     passwordLastSet: string | null;
     passwordAgeDays: number | null;
@@ -165,6 +194,11 @@ export interface HelpdeskUserInspectionResult {
     userAccountControl: number;
     uacFlags: string[];
     domainPolicy: HelpdeskUserDomainPolicy;
+    dcLockoutBreakdown?: HelpdeskUserDcLockoutEntry[];
+    lockoutEventsStatus?: 'available' | 'empty' | 'unavailable';
+    lockoutEventsNote?: string;
+    lockoutEventsNoteFa?: string;
+    lockoutEvents?: HelpdeskUserLockoutEventEntry[];
   };
   groups: HelpdeskUserGroupEntry[];
   mailbox: HelpdeskUserMailboxInfo;
@@ -528,12 +562,13 @@ function probePort(host: string, port: number, useTls: boolean, timeoutMs = 2500
   });
 }
 
-async function discoverDcHosts(params: {
+async function discoverDcHostsWithPdc(params: {
   explicitDc?: string;
   adConfig?: any;
   domainHints: string[];
-}): Promise<string[]> {
+}): Promise<{ candidates: string[]; pdcHost: string }> {
   const candidates: string[] = [];
+  let pdcHost = '';
   const pushUnique = (h?: string) => {
     const clean = String(h || '').trim().replace(/\.$/, '');
     if (!clean) return;
@@ -552,6 +587,21 @@ async function discoverDcHosts(params: {
   for (const dom of params.domainHints) {
     const cleanDom = String(dom || '').trim();
     if (!cleanDom || !cleanDom.includes('.')) continue;
+
+    // 1. Discover PDC Emulator first (authoritative for account lockouts, Event 4740, and unlocks)
+    try {
+      const pdcSrv = await Promise.race([
+        dns.promises.resolveSrv(`_ldap._tcp.pdc._msdcs.${cleanDom}`),
+        new Promise<dns.SrvRecord[]>((r) => setTimeout(() => r([]), 2200)),
+      ]);
+      if (pdcSrv[0]?.name) {
+        const cleanPdc = String(pdcSrv[0].name).trim().replace(/\.$/, '');
+        if (!pdcHost && cleanPdc) pdcHost = cleanPdc;
+        pushUnique(cleanPdc);
+      }
+    } catch {}
+
+    // 2. Discover all Domain Controllers for multi-DC non-replicated attribute aggregation (badPwdCount/lastLogon)
     try {
       const srv = await Promise.race([
         dns.promises.resolveSrv(`_ldap._tcp.dc._msdcs.${cleanDom}`),
@@ -566,7 +616,7 @@ async function discoverDcHosts(params: {
     pushUnique(cleanDom);
   }
 
-  return candidates;
+  return { candidates, pdcHost };
 }
 
 interface ActiveLdapSession {
@@ -1396,7 +1446,16 @@ try { $archGuidSet = ($res.Properties['msexcharchiveguid'].Count -gt 0) } catch 
   const uac = Number(raw.uac || 0);
   const uacComp = Number(raw.uacComputed || 0);
   const lockoutFt = filetimeToIso(raw.lockoutTime);
-  const isLocked = (uacComp & 0x10) !== 0 || (!lockoutFt.isZero && !lockoutFt.isNever && Boolean(lockoutFt.iso));
+  const lockDurMin = adDurationToMinutes(raw.polLockoutDuration);
+  const lockObsMin = adDurationToMinutes(raw.polLockoutObs);
+  const lockEval = evaluateLockoutState({
+    uac,
+    uacComputed: uacComp,
+    hasUacComputed: raw.uacComputed !== undefined && raw.uacComputed !== null && raw.uacComputed !== '',
+    lockoutFt,
+    lockoutDurationMinutes: lockDurMin,
+  });
+  const isLocked = lockEval.accountLocked;
   const pwdLastFt = filetimeToIso(raw.pwdLastSet);
   const pwdExpiryFt = filetimeToIso(raw.pwdExpiryComputed);
   const badPwdFt = filetimeToIso(raw.badPasswordTime);
@@ -1405,8 +1464,6 @@ try { $archGuidSet = ($res.Properties['msexcharchiveguid'].Count -gt 0) } catch 
 
   const maxPwdAgeDays = adDurationToMinutes(raw.polMaxPwdAge);
   const minPwdAgeDays = adDurationToMinutes(raw.polMinPwdAge);
-  const lockDurMin = adDurationToMinutes(raw.polLockoutDuration);
-  const lockObsMin = adDurationToMinutes(raw.polLockoutObs);
 
   const passwordNeverExpires = (uac & 0x10000) !== 0;
   let computedExpiryIso = pwdExpiryFt.iso;
@@ -1515,9 +1572,13 @@ try { $archGuidSet = ($res.Properties['msexcharchiveguid'].Count -gt 0) } catch 
     security: {
       accountEnabled: (uac & 0x2) === 0,
       accountLocked: isLocked,
+      lockoutState: lockEval.lockoutState,
       lockoutTimeRaw: String(raw.lockoutTime || '0'),
       lockedAt: lockoutFt.iso,
+      lockoutExpiresAt: lockEval.lockoutExpiresAt,
+      lockoutRemainingMinutes: lockEval.lockoutRemainingMinutes,
       badPwdCount: Number(raw.badPwdCount || 0),
+      badPwdSourceDc: Number(raw.badPwdCount || 0) > 0 ? params.host : undefined,
       badPasswordTime: badPwdFt.iso,
       passwordLastSet: pwdLastFt.iso,
       passwordAgeDays: pwdLastFt.iso
@@ -1545,6 +1606,19 @@ try { $archGuidSet = ($res.Properties['msexcharchiveguid'].Count -gt 0) } catch 
         lockoutDurationMinutes: lockDurMin,
         lockoutObservationWindowMinutes: lockObsMin,
       },
+      dcLockoutBreakdown: [
+        {
+          dcHost: params.host,
+          isPdc: false,
+          reachable: true,
+          accountLocked: isLocked,
+          lockoutTimeRaw: String(raw.lockoutTime || '0'),
+          lockedAt: lockoutFt.iso,
+          badPwdCount: Number(raw.badPwdCount || 0),
+          badPasswordTime: badPwdFt.iso,
+          lastLogon: lastLogonFt.iso,
+        },
+      ],
     },
     groups,
     mailbox: {
@@ -1786,6 +1860,306 @@ async function enrichLiveMailboxStats(params: {
   };
 }
 
+function evaluateLockoutState(params: {
+  uac: number;
+  uacComputed: number;
+  hasUacComputed: boolean;
+  lockoutFt: { iso: string | null; isNever: boolean; isZero: boolean };
+  lockoutDurationMinutes: number | null;
+}): {
+  accountLocked: boolean;
+  lockoutState: 'locked' | 'auto_expired_pending_clear' | 'unlocked';
+  lockoutExpiresAt: string | null;
+  lockoutRemainingMinutes: number | null;
+} {
+  const lockedByUacComp = (params.uacComputed & 0x10) !== 0;
+  const lockedByUac = (params.uac & 0x10) !== 0;
+  const hasLockoutTime =
+    !params.lockoutFt.isZero && !params.lockoutFt.isNever && Boolean(params.lockoutFt.iso);
+
+  let lockoutExpiresAt: string | null = null;
+  let lockoutRemainingMinutes: number | null = null;
+  if (hasLockoutTime && params.lockoutFt.iso && params.lockoutDurationMinutes && params.lockoutDurationMinutes > 0) {
+    const expMs = new Date(params.lockoutFt.iso).getTime() + params.lockoutDurationMinutes * 60000;
+    lockoutExpiresAt = new Date(expMs).toISOString();
+    lockoutRemainingMinutes = Math.max(0, Math.ceil((expMs - Date.now()) / 60000));
+  }
+
+  if (lockedByUacComp || lockedByUac) {
+    return {
+      accountLocked: true,
+      lockoutState: 'locked',
+      lockoutExpiresAt,
+      lockoutRemainingMinutes,
+    };
+  }
+
+  if (hasLockoutTime) {
+    // If AD computed bit explicitly says 0, or computed duration elapsed, the lockout timer expired (AD clears lockoutTime upon next logon)
+    if (params.hasUacComputed) {
+      return {
+        accountLocked: false,
+        lockoutState: 'auto_expired_pending_clear',
+        lockoutExpiresAt,
+        lockoutRemainingMinutes: 0,
+      };
+    }
+    if (lockoutExpiresAt && new Date(lockoutExpiresAt).getTime() <= Date.now()) {
+      return {
+        accountLocked: false,
+        lockoutState: 'auto_expired_pending_clear',
+        lockoutExpiresAt,
+        lockoutRemainingMinutes: 0,
+      };
+    }
+    return {
+      accountLocked: true,
+      lockoutState: 'locked',
+      lockoutExpiresAt,
+      lockoutRemainingMinutes,
+    };
+  }
+
+  return {
+    accountLocked: false,
+    lockoutState: 'unlocked',
+    lockoutExpiresAt: null,
+    lockoutRemainingMinutes: null,
+  };
+}
+
+async function querySingleDcLockoutAttributes(params: {
+  dcHost: string;
+  isPdc: boolean;
+  userDn: string;
+  adminUsername: string;
+  adminPassword: string;
+  domainHints: string[];
+  adConfig: any;
+  ldapProtocol?: LdapTransportProtocol;
+}): Promise<HelpdeskUserDcLockoutEntry> {
+  try {
+    const { session } = await openAuthenticatedLdapSession({
+      input: {
+        targetUsername: 'probe',
+        adminUsername: params.adminUsername,
+        adminPassword: params.adminPassword,
+        domainController: params.dcHost,
+        ldapProtocol: params.ldapProtocol || 'auto',
+      },
+      adConfig: params.adConfig,
+      dcCandidates: [params.dcHost],
+      domainHints: params.domainHints,
+    });
+    if (!session) {
+      return {
+        dcHost: params.dcHost,
+        isPdc: params.isPdc,
+        reachable: false,
+        accountLocked: false,
+        lockoutTimeRaw: '0',
+        lockedAt: null,
+        badPwdCount: 0,
+        badPasswordTime: null,
+        lastLogon: null,
+      };
+    }
+    try {
+      const rows = await ldapSearchEntries(session.client, params.userDn, {
+        scope: 'base',
+        filter: '(objectClass=*)',
+        attributes: [
+          'lockoutTime',
+          'badPwdCount',
+          'badPasswordTime',
+          'lastLogon',
+          'userAccountControl',
+          'msDS-User-Account-Control-Computed',
+        ],
+      });
+      const attrs = rows[0]?.attrs || {};
+      const lockRaw = getFirstAttr(attrs, 'lockoutTime') || '0';
+      const lockFt = filetimeToIso(lockRaw);
+      const uac = Number(getFirstAttr(attrs, 'userAccountControl') || 0);
+      const compStr = getFirstAttr(attrs, 'msDS-User-Account-Control-Computed');
+      const uacComp = Number(compStr || 0);
+      const badPwdFt = filetimeToIso(getFirstAttr(attrs, 'badPasswordTime'));
+      const lastLogonFt = filetimeToIso(getFirstAttr(attrs, 'lastLogon'));
+      const evalRes = evaluateLockoutState({
+        uac,
+        uacComputed: uacComp,
+        hasUacComputed: compStr !== '',
+        lockoutFt: lockFt,
+        lockoutDurationMinutes: null,
+      });
+
+      return {
+        dcHost: params.dcHost,
+        isPdc: params.isPdc,
+        reachable: true,
+        accountLocked: evalRes.accountLocked,
+        lockoutTimeRaw: lockRaw,
+        lockedAt: lockFt.iso,
+        badPwdCount: Number(getFirstAttr(attrs, 'badPwdCount') || 0),
+        badPasswordTime: badPwdFt.iso,
+        lastLogon: lastLogonFt.iso,
+      };
+    } finally {
+      session.close();
+    }
+  } catch {
+    return {
+      dcHost: params.dcHost,
+      isPdc: params.isPdc,
+      reachable: false,
+      accountLocked: false,
+      lockoutTimeRaw: '0',
+      lockedAt: null,
+      badPwdCount: 0,
+      badPasswordTime: null,
+      lastLogon: null,
+    };
+  }
+}
+
+async function collectUserLockoutSecurityEvents(params: {
+  dcHosts: string[];
+  samAccountName: string;
+  adminUsername: string;
+  adminPassword: string;
+  winrmProtocol?: HelpdeskProtocol;
+}): Promise<{
+  status: 'available' | 'empty' | 'unavailable';
+  note?: string;
+  noteFa?: string;
+  events: HelpdeskUserLockoutEventEntry[];
+}> {
+  const uniqueHosts = dedupeStrings(params.dcHosts).slice(0, 2);
+  if (uniqueHosts.length === 0) {
+    return {
+      status: 'unavailable',
+      note: 'No Domain Controller candidate available for Security Event Log inspection.',
+      noteFa: 'هیچ دامین کنترلری برای بررسی رویدادهای Security Event Log در دسترس نبود.',
+      events: [],
+    };
+  }
+
+  const samB64 = Buffer.from(params.samAccountName, 'utf8').toString('base64');
+  const psScript = `
+$ErrorActionPreference = 'Stop'
+$targetSam = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${samB64}')).Trim().ToLower()
+$since = (Get-Date).AddDays(-7)
+$out = @()
+
+try {
+  $evts = Get-WinEvent -FilterHashtable @{ LogName='Security'; Id=4740,4767,4771,4625; StartTime=$since } -MaxEvents 400 -ErrorAction Stop
+  foreach ($e in $evts) {
+    $xml = [xml]$e.ToXml()
+    $data = @{}
+    foreach ($d in $xml.Event.EventData.Data) {
+      if ($d.Name) { $data[$d.Name] = [string]$d.'#text' }
+    }
+    $tUser = ([string]($data['TargetUserName'])).Trim().ToLower()
+    $tShort = if ($tUser.Contains('\\')) { $tUser.Split('\\')[-1] } elseif ($tUser.Contains('@')) { $tUser.Split('@')[0] } else { $tUser }
+    if ($tShort -ne $targetSam) { continue }
+
+    $caller = ''
+    if ($e.Id -eq 4740) { $caller = [string]$data['TargetDomainName'] }
+    elseif ($e.Id -eq 4625) { $caller = [string]$data['WorkstationName'] }
+
+    $ip = ''
+    if ($data['IpAddress'] -and $data['IpAddress'] -ne '-' -and $data['IpAddress'] -ne '::1' -and $data['IpAddress'] -ne '127.0.0.1') {
+      $ip = [string]$data['IpAddress']
+    } elseif ($e.Id -eq 4771 -and $data['IpAddress']) {
+      $ip = ([string]$data['IpAddress']) -replace '^::ffff:', ''
+    }
+
+    $actor = ''
+    if ($e.Id -eq 4767) { $actor = [string]$data['SubjectUserName'] }
+
+    $sub = ''
+    if ($data['SubStatus']) { $sub = [string]$data['SubStatus'] }
+    elseif ($data['Status']) { $sub = [string]$data['Status'] }
+
+    $evtType = switch ($e.Id) {
+      4740 { 'locked_out' }
+      4767 { 'unlocked' }
+      4771 { 'bad_password' }
+      default { 'logon_failed' }
+    }
+
+    $out += [PSCustomObject]@{
+      eventId = [int]$e.Id
+      eventType = $evtType
+      timestamp = $e.TimeCreated.ToUniversalTime().ToString('o')
+      dcHost = [string]$e.MachineName
+      callerComputer = $caller
+      sourceIp = $ip
+      actor = $actor
+      subStatus = $sub
+    }
+    if ($out.Count -ge 15) { break }
+  }
+  [PSCustomObject]@{ ok = $true; events = $out } | ConvertTo-Json -Depth 4 -Compress
+} catch {
+  [PSCustomObject]@{ ok = $false; error = [string]$_.Exception.Message; events = @() } | ConvertTo-Json -Compress
+}
+`;
+
+  let lastErr = '';
+  for (const host of uniqueHosts) {
+    try {
+      const execRes = await executeHelpdeskPowerShell(
+        {
+          targetIp: host,
+          protocol: params.winrmProtocol || 'auto',
+          username: params.adminUsername,
+          password: params.adminPassword,
+          timeoutMs: 9000,
+        },
+        psScript
+      );
+      const trimmed = execRes.stdout.trim();
+      const sIdx = trimmed.indexOf('{');
+      const eIdx = trimmed.lastIndexOf('}');
+      if (sIdx === -1 || eIdx < sIdx) continue;
+      const parsed = JSON.parse(trimmed.slice(sIdx, eIdx + 1));
+      if (!parsed.ok) {
+        lastErr = String(parsed.error || 'Security log access denied');
+        continue;
+      }
+      const events: HelpdeskUserLockoutEventEntry[] = Array.isArray(parsed.events) ? parsed.events : [];
+      if (events.length === 0) {
+        return {
+          status: 'empty',
+          note: `Queried Windows Security Log on ${host} (last 7 days): 0 lockout (4740), unlock (4767), or failed auth (4771/4625) events found for ${params.samAccountName}.`,
+          noteFa: `لاگ امنیتی ویندوز روی دامین کنترلر ${host} (۷ روز گذشته) بررسی شد: هیچ رویداد قفل (4740)، رفع قفل (4767) یا رمز اشتباه (4771/4625) برای کاربر ${params.samAccountName} ثبت نشده است.`,
+          events: [],
+        };
+      }
+      return {
+        status: 'available',
+        note: `Retrieved ${events.length} Security Event(s) from ${host} (last 7 days).`,
+        noteFa: `${events.length} رویداد امنیتی قفل/ورود از دامین کنترلر ${host} (۷ روز گذشته) دریافت شد.`,
+        events,
+      };
+    } catch (err: any) {
+      lastErr = `${host}: ${err?.message || err}`;
+    }
+  }
+
+  return {
+    status: 'unavailable',
+    note: lastErr
+      ? `WinRM Security Event Log check skipped/unavailable (${lastErr}). Showing live multi-DC AD attributes.`
+      : 'WinRM Security Event Log unavailable; showing live Active Directory attributes.',
+    noteFa: lastErr
+      ? `خواندن Security Event Log از طریق WinRM روی دامین کنترلر در دسترس نبود (${lastErr})؛ مقادیر زنده از Active Directory نمایش داده می‌شوند.`
+      : 'دسترسی WinRM به Security Event Log برقرار نشد؛ اطلاعات زنده از دایرکتوری نمایش داده می‌شود.',
+    events: [],
+  };
+}
+
 export async function inspectTargetDomainUser(
   input: HelpdeskUserInspectInput
 ): Promise<HelpdeskUserInspectionResult> {
@@ -1808,7 +2182,7 @@ export async function inspectTargetDomainUser(
     adConfig?.domain,
   ]);
 
-  const dcCandidates = await discoverDcHosts({
+  const { candidates: dcCandidates, pdcHost } = await discoverDcHostsWithPdc({
     explicitDc,
     adConfig,
     domainHints,
@@ -1840,6 +2214,19 @@ export async function inspectTargetDomainUser(
           host: fallbackHost,
           winrmProtocol: input.winrmProtocol,
         });
+        const evRes = await collectUserLockoutSecurityEvents({
+          dcHosts: pdcHost ? [pdcHost, fallbackHost] : [fallbackHost],
+          samAccountName: winrmRes.profile.samAccountName,
+          adminUsername,
+          adminPassword,
+          winrmProtocol: input.winrmProtocol,
+        }).catch(() => null);
+        if (evRes) {
+          winrmRes.security.lockoutEventsStatus = evRes.status;
+          winrmRes.security.lockoutEventsNote = evRes.note;
+          winrmRes.security.lockoutEventsNoteFa = evRes.noteFa;
+          winrmRes.security.lockoutEvents = evRes.events;
+        }
         if (input.includeMailbox !== false && winrmRes.mailbox.hasMailbox) {
           const { defaultMailHost, candidates } = buildPrioritizedExchangeCandidates({
             explicitExch,
@@ -2075,21 +2462,102 @@ export async function inspectTargetDomainUser(
 
     // Security & Lockout & Password calculations
     const uac = Number(getFirstAttr(attrs, 'userAccountControl') || 0);
-    const uacComputed = Number(getFirstAttr(attrs, 'msDS-User-Account-Control-Computed') || 0);
+    const uacComputedStr = getFirstAttr(attrs, 'msDS-User-Account-Control-Computed');
+    const uacComputed = Number(uacComputedStr || 0);
     const lockoutRaw = getFirstAttr(attrs, 'lockoutTime') || '0';
     const lockoutFt = filetimeToIso(lockoutRaw);
-    const accountLocked =
-      (uacComputed & 0x10) !== 0 ||
-      (uac & 0x10) !== 0 ||
-      (!lockoutFt.isZero && !lockoutFt.isNever && Boolean(lockoutFt.iso));
+    const primaryLockEval = evaluateLockoutState({
+      uac,
+      uacComputed,
+      hasUacComputed: uacComputedStr !== '',
+      lockoutFt,
+      lockoutDurationMinutes: domainPolicy.lockoutDurationMinutes,
+    });
 
     const pwdLastFt = filetimeToIso(getFirstAttr(attrs, 'pwdLastSet'));
     const pwdExpiryComputedFt = filetimeToIso(getFirstAttr(attrs, 'msDS-UserPasswordExpiryTimeComputed'));
     const badPwdFt = filetimeToIso(getFirstAttr(attrs, 'badPasswordTime'));
     const accExpiresFt = filetimeToIso(getFirstAttr(attrs, 'accountExpires'));
-    const lastLogonFt = filetimeToIso(
-      getFirstAttr(attrs, 'lastLogon') || getFirstAttr(attrs, 'lastLogonTimestamp')
-    );
+    const lastLogonDirectFt = filetimeToIso(getFirstAttr(attrs, 'lastLogon'));
+    const lastLogonTsFt = filetimeToIso(getFirstAttr(attrs, 'lastLogonTimestamp'));
+
+    const primaryIsPdc =
+      Boolean(pdcHost) &&
+      (session.host.toLowerCase() === pdcHost.toLowerCase() ||
+        session.host.split('.')[0].toLowerCase() === pdcHost.split('.')[0].toLowerCase());
+
+    const primaryDcEntry: HelpdeskUserDcLockoutEntry = {
+      dcHost: session.host,
+      isPdc: primaryIsPdc,
+      reachable: true,
+      accountLocked: primaryLockEval.accountLocked,
+      lockoutTimeRaw: lockoutRaw,
+      lockedAt: lockoutFt.iso,
+      badPwdCount: Number(getFirstAttr(attrs, 'badPwdCount') || 0),
+      badPasswordTime: badPwdFt.iso,
+      lastLogon: lastLogonDirectFt.iso,
+    };
+
+    // Multi-DC non-replicated telemetry + Security Event Log in parallel (non-blocking)
+    const otherDcs = dcCandidates
+      .filter((h) => h.toLowerCase() !== session.host.toLowerCase() && h.toLowerCase() !== session.domainName.toLowerCase())
+      .slice(0, 4);
+
+    const [otherDcResults, secEventsResult] = await Promise.all([
+      Promise.all(
+        otherDcs.map((h) =>
+          querySingleDcLockoutAttributes({
+            dcHost: h,
+            isPdc:
+              Boolean(pdcHost) &&
+              (h.toLowerCase() === pdcHost.toLowerCase() ||
+                h.split('.')[0].toLowerCase() === pdcHost.split('.')[0].toLowerCase()),
+            userDn,
+            adminUsername,
+            adminPassword,
+            domainHints,
+            adConfig,
+            ldapProtocol: input.ldapProtocol,
+          })
+        )
+      ),
+      collectUserLockoutSecurityEvents({
+        dcHosts: pdcHost ? [pdcHost, session.host] : [session.host],
+        samAccountName: sam,
+        adminUsername,
+        adminPassword,
+        winrmProtocol: input.winrmProtocol,
+      }),
+    ]);
+
+    const dcLockoutBreakdown = [primaryDcEntry, ...otherDcResults.filter((d) => d.reachable)];
+    const totalBadPwdCount = dcLockoutBreakdown.reduce((sum, d) => sum + (Number(d.badPwdCount) || 0), 0);
+    const highestBadPwdDc = dcLockoutBreakdown
+      .slice()
+      .sort((a, b) => b.badPwdCount - a.badPwdCount)[0];
+    const newestBadPwdEntry = dcLockoutBreakdown
+      .filter((d) => d.badPasswordTime)
+      .sort((a, b) => new Date(b.badPasswordTime!).getTime() - new Date(a.badPasswordTime!).getTime())[0];
+    const newestLogonEntry = dcLockoutBreakdown
+      .filter((d) => d.lastLogon)
+      .sort((a, b) => new Date(b.lastLogon!).getTime() - new Date(a.lastLogon!).getTime())[0];
+    const lockedDcEntry = dcLockoutBreakdown.find((d) => d.accountLocked) || dcLockoutBreakdown.find((d) => d.lockedAt);
+
+    const effectiveLockedAt = lockoutFt.iso || lockedDcEntry?.lockedAt || null;
+    const effectiveLockRaw =
+      lockoutRaw !== '0' ? lockoutRaw : lockedDcEntry?.lockoutTimeRaw || '0';
+    const effectiveAccountLocked =
+      primaryLockEval.accountLocked || Boolean(dcLockoutBreakdown.some((d) => d.accountLocked));
+    const effectiveLockEval = evaluateLockoutState({
+      uac: effectiveAccountLocked ? uac | 0x10 : uac,
+      uacComputed: effectiveAccountLocked ? uacComputed | 0x10 : uacComputed,
+      hasUacComputed: uacComputedStr !== '',
+      lockoutFt: effectiveLockedAt
+        ? { iso: effectiveLockedAt, isNever: false, isZero: false }
+        : lockoutFt,
+      lockoutDurationMinutes: domainPolicy.lockoutDurationMinutes,
+    });
+    const bestLastLogonIso = newestLogonEntry?.lastLogon || lastLogonDirectFt.iso || lastLogonTsFt.iso;
 
     const passwordNeverExpires = (uac & 0x10000) !== 0 || pwdExpiryComputedFt.isNever;
     let passwordExpiresAt: string | null = passwordNeverExpires ? null : pwdExpiryComputedFt.iso;
@@ -2262,6 +2730,7 @@ export async function inspectTargetDomainUser(
         port: session.port,
         domainName: session.domainName,
         baseDn: session.defaultNamingContext,
+        pdcEmulator: pdcHost || undefined,
       },
       profile: {
         samAccountName: sam,
@@ -2302,11 +2771,16 @@ export async function inspectTargetDomainUser(
       },
       security: {
         accountEnabled: (uac & 0x2) === 0,
-        accountLocked,
-        lockoutTimeRaw: lockoutRaw,
-        lockedAt: lockoutFt.iso,
-        badPwdCount: Number(getFirstAttr(attrs, 'badPwdCount') || 0),
-        badPasswordTime: badPwdFt.iso,
+        accountLocked: effectiveAccountLocked,
+        lockoutState: effectiveLockEval.lockoutState,
+        lockoutTimeRaw: effectiveLockRaw,
+        lockedAt: effectiveLockedAt,
+        lockoutExpiresAt: effectiveLockEval.lockoutExpiresAt,
+        lockoutRemainingMinutes: effectiveLockEval.lockoutRemainingMinutes,
+        badPwdCount: totalBadPwdCount,
+        badPwdSourceDc:
+          highestBadPwdDc && highestBadPwdDc.badPwdCount > 0 ? highestBadPwdDc.dcHost : undefined,
+        badPasswordTime: newestBadPwdEntry?.badPasswordTime || badPwdFt.iso,
         passwordLastSet: pwdLastFt.iso,
         passwordAgeDays,
         passwordExpiresAt,
@@ -2320,11 +2794,16 @@ export async function inspectTargetDomainUser(
           !accExpiresFt.isNever &&
           !accExpiresFt.isZero &&
           Boolean(accExpiresFt.iso && new Date(accExpiresFt.iso).getTime() <= Date.now()),
-        lastLogon: lastLogonFt.iso,
+        lastLogon: bestLastLogonIso,
         logonCount: Number(getFirstAttr(attrs, 'logonCount') || 0),
         userAccountControl: uac,
         uacFlags: decodeUacFlags(uac),
         domainPolicy,
+        dcLockoutBreakdown,
+        lockoutEventsStatus: secEventsResult.status,
+        lockoutEventsNote: secEventsResult.note,
+        lockoutEventsNoteFa: secEventsResult.noteFa,
+        lockoutEvents: secEventsResult.events,
       },
       groups,
       mailbox,
