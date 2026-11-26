@@ -152,6 +152,27 @@ function escapeHtml(raw: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
+function extractOuPathFromDn(dn: string): string {
+  const trimmed = String(dn || '').trim();
+  if (!trimmed) return '-';
+  if (/^RID:\d+$/i.test(trimmed)) return 'Builtin / Primary RID';
+  const parts = trimmed
+    .split(/(?<!\\),/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const ous = parts
+    .filter((p) => /^OU=/i.test(p))
+    .map((p) => p.replace(/^OU=/i, '').replace(/\\,/g, ','))
+    .reverse();
+  if (ous.length > 0) return ous.join(' / ');
+  const nonDcContainers = parts
+    .slice(1)
+    .filter((p) => !/^DC=/i.test(p))
+    .map((p) => p.replace(/^[A-Za-z]+=/, '').replace(/\\,/g, ','))
+    .reverse();
+  return nonDcContainers.length > 0 ? nonDcContainers.join(' / ') : 'Domain Root';
+}
+
 const PRIVILEGED_AD_GROUP_NAMES = new Set([
   'domain admins',
   'enterprise admins',
@@ -178,6 +199,7 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [confirmUnlock, setConfirmUnlock] = useState(false);
   const [groupSearch, setGroupSearch] = useState('');
+  const [reportGroupSearch, setReportGroupSearch] = useState('');
   const [reinspectBanner, setReinspectBanner] = useState<{ targetUsername: string } | null>(null);
 
   // Check History state (backed by PostgreSQL helpdesk_user_history)
@@ -712,6 +734,128 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
     };
   }, [data, pwdDaysRemaining]);
 
+  const filteredReportGroups = useMemo(() => {
+    if (!data?.groups) return [];
+    const q = reportGroupSearch.trim().toLowerCase();
+    if (!q) return data.groups;
+    return data.groups.filter(
+      (g) =>
+        g.cn.toLowerCase().includes(q) ||
+        g.dn.toLowerCase().includes(q) ||
+        extractOuPathFromDn(g.dn).toLowerCase().includes(q)
+    );
+  }, [data?.groups, reportGroupSearch]);
+
+  const reportLogonProfileSummary = useMemo(() => {
+    if (!data) return null;
+    const lp = data.logonAndProfile;
+    const allowedWs = lp?.allowedWorkstations || [];
+    const restrictedWs = lp?.workstationRestrictionMode === 'restricted' && allowedWs.length > 0;
+    const wsLogonBlockedByAd =
+      !data.security.accountEnabled ||
+      data.security.accountExpired ||
+      lp?.logonHoursAllowedHoursCount === 0;
+
+    const workstationLocalLogonLabel = wsLogonBlockedByAd
+      ? isEn
+        ? 'Blocked by Account State'
+        : 'مسدود توسط وضعیت اکانت'
+      : restrictedWs
+      ? isEn
+        ? `Permitted on ${allowedWs.length} Listed PC(s)`
+        : `مجاز روی ${allowedWs.length} سیستم لیست‌شده`
+      : isEn
+      ? 'Permitted (Standard AD)'
+      : 'مجاز (استاندارد دامین)';
+
+    const dcRights = lp?.dcInteractiveRights;
+    const dcLocalLogonLabel =
+      dcRights?.status === 'available'
+        ? dcRights.allowLocalOnDc
+          ? isEn
+            ? `Allowed (${dcRights.dcHost})`
+            : `مجاز روی DC (${dcRights.dcHost})`
+          : dcRights.denyLocalOnDc
+          ? isEn
+            ? `Denied (${dcRights.dcHost})`
+            : `ممنوع صریح روی DC (${dcRights.dcHost})`
+          : isEn
+          ? `Not Granted (${dcRights.dcHost})`
+          : `بدون مجوز روی DC (${dcRights.dcHost})`
+        : isEn
+        ? 'WinRM Unavailable'
+        : 'WinRM در دسترس نبود';
+
+    const dcRdpLogonLabel =
+      dcRights?.status === 'available'
+        ? dcRights.allowRdpOnDc
+          ? isEn
+            ? 'Allowed'
+            : 'مجاز'
+          : dcRights.denyRdpOnDc
+          ? isEn
+            ? 'Denied'
+            : 'ممنوع'
+          : isEn
+          ? 'Not Granted'
+          : 'بدون مجوز'
+        : isEn
+        ? 'WinRM Unavailable'
+        : 'WinRM در دسترس نبود';
+
+    const profileModeLabel =
+      lp?.profileType === 'roaming'
+        ? isEn
+          ? 'Roaming Profile'
+          : 'پروفایل شبکه (Roaming)'
+        : isEn
+        ? 'Local Profile'
+        : 'پروفایل لوکال (Local Profile)';
+
+    const profilePathLabel =
+      lp?.profilePath ||
+      (isEn
+        ? `%SystemDrive%\\Users\\${data.profile.samAccountName} (Local)`
+        : `لوکال روی سیستم (%SystemDrive%\\Users\\${data.profile.samAccountName})`);
+
+    const homeFolderLabel = lp?.homeDirectory
+      ? `${lp.homeDrive ? `${lp.homeDrive} -> ` : ''}${lp.homeDirectory}`
+      : isEn
+      ? 'Not configured'
+      : 'تنظیم نشده';
+
+    const logonScriptLabel = lp?.scriptPath || (isEn ? 'None' : 'ندارد');
+
+    const allowedWorkstationsLabel = restrictedWs
+      ? allowedWs.join(', ')
+      : isEn
+      ? 'All Domain Workstations (Unrestricted)'
+      : 'همه سیستم‌های دامین (بدون محدودیت)';
+
+    const logonHoursLabel = lp
+      ? isEn
+        ? lp.logonHoursSummaryEn
+        : lp.logonHoursSummaryFa
+      : isEn
+      ? '24/7 Permitted (No restriction)'
+      : '۲۴ ساعته مجاز (بدون محدودیت)';
+
+    return {
+      restrictedWs,
+      allowedWs,
+      wsLogonBlockedByAd,
+      workstationLocalLogonLabel,
+      dcLocalLogonLabel,
+      dcRdpLogonLabel,
+      profileModeLabel,
+      profilePathLabel,
+      homeFolderLabel,
+      logonScriptLabel,
+      allowedWorkstationsLabel,
+      logonHoursLabel,
+    };
+  }, [data, isEn]);
+
   const buildTicketSummaryText = (): string => {
     if (!data) return '';
     const pwdLabel = data.security.passwordNeverExpires
@@ -748,35 +892,69 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
       ? 'No Mailbox'
       : 'بدون میل‌باکس';
 
+    const allGroupsFormatted =
+      data.groups.length > 0
+        ? data.groups
+            .map((g, idx) => {
+              const tags: string[] = [];
+              if (g.isPrimary) tags.push(isEn ? 'Primary' : 'اصلی');
+              if (PRIVILEGED_AD_GROUP_NAMES.has(g.cn.trim().toLowerCase())) {
+                tags.push(isEn ? 'Admin' : 'مدیریتی');
+              }
+              return `  ${idx + 1}. ${g.cn}${tags.length > 0 ? ` [${tags.join(', ')}]` : ''} — ${g.dn}`;
+            })
+            .join('\n')
+        : isEn
+        ? '  (None)'
+        : '  (موردی ثبت نشده)';
+
+    const lpSummary = reportLogonProfileSummary;
+
     if (isEn) {
       return [
-        `=== AD User Support Dossier (${data.profile.samAccountName}) ===`,
+        `=== AD User Management Dossier (${data.profile.samAccountName}) ===`,
         `Full Name: ${data.profile.displayName || '-'}`,
         `Role / Dept: ${[data.profile.jobTitle, data.profile.department, data.profile.company].filter(Boolean).join(' · ') || '-'}`,
         `UPN / Domain: ${data.profile.userPrincipalName || '-'} (${data.connectionInfo.domainName})`,
+        `OU Path: ${data.profile.organizationalUnit || '-'}`,
+        `Direct Manager: ${data.profile.manager?.displayName || '-'}`,
         `Email: ${data.contact.primaryEmail || '-'}`,
-        `Extensions: ${data.contact.internalPhones.join(', ') || '-'}`,
-        `Mobiles: ${data.contact.mobileNumbers.join(', ') || '-'}`,
+        `Extensions: ${data.contact.internalPhones.join(', ') || '-'} | Mobiles: ${data.contact.mobileNumbers.join(', ') || '-'}`,
         `Account State: ${data.security.accountEnabled ? 'Enabled' : 'Disabled'} | Lockout: ${data.security.accountLocked ? 'LOCKED' : 'Unlocked'} (BadPwd: ${data.security.badPwdCount})`,
         `Password Last Set: ${formatDateDisplay(data.security.passwordLastSet, true)} | Status: ${pwdLabel}`,
+        `Authorized Workstations (Log On To): ${lpSummary?.allowedWorkstationsLabel || 'All Domain Workstations'}`,
+        `Local Logon: ${lpSummary?.workstationLocalLogonLabel || '-'} | DC Local: ${lpSummary?.dcLocalLogonLabel || '-'} | DC RDP: ${lpSummary?.dcRdpLogonLabel || '-'}`,
+        `Windows Profile: ${lpSummary?.profileModeLabel || 'Local Profile'} -> ${lpSummary?.profilePathLabel || '-'}`,
+        `Home Folder: ${lpSummary?.homeFolderLabel || '-'} | Logon Script: ${lpSummary?.logonScriptLabel || 'None'}`,
+        `Logon Hours: ${lpSummary?.logonHoursLabel || '24/7'}`,
         `Mailbox Usage: ${mbxLabel} | DB: ${data.mailbox.databaseName || '-'}`,
-        `AD Groups (${data.groups.length}): ${data.groups.slice(0, 12).map((g) => g.cn).join(', ')}${data.groups.length > 12 ? ' ...' : ''}`,
+        `Health Score: ${reportSummary ? `${reportSummary.score}/100 (${reportSummary.grade.toUpperCase()})` : '-'}`,
+        `All AD Group Memberships (${data.groups.length}):`,
+        allGroupsFormatted,
         `Collected: ${formatDateDisplay(data.collectedAt, true)} via ${data.connectionInfo.domainController}`,
       ].join('\n');
     }
 
     return [
-      `=== گزارش پشتیبانی کاربر دامین (${data.profile.samAccountName}) ===`,
+      `=== گزارش مدیریتی جامع کاربر دامین (${data.profile.samAccountName}) ===`,
       `نام کامل: ${data.profile.displayName || '-'}`,
       `سمت / دپارتمان: ${[data.profile.jobTitle, data.profile.department, data.profile.company].filter(Boolean).join(' · ') || '-'}`,
       `نام کاربری / دامین: ${data.profile.userPrincipalName || '-'} (${data.connectionInfo.domainName})`,
+      `مسیر سازمانی (OU): ${data.profile.organizationalUnit || '-'}`,
+      `مدیر مستقیم: ${data.profile.manager?.displayName || '-'}`,
       `ایمیل اصلی: ${data.contact.primaryEmail || '-'}`,
-      `شماره داخلی: ${data.contact.internalPhones.join('، ') || '-'}`,
-      `موبایل‌ها: ${data.contact.mobileNumbers.join('، ') || '-'}`,
+      `شماره داخلی: ${data.contact.internalPhones.join('، ') || '-'} | موبایل‌ها: ${data.contact.mobileNumbers.join('، ') || '-'}`,
       `وضعیت حساب: ${data.security.accountEnabled ? 'فعال' : 'غیرفعال'} | قفل اکانت: ${data.security.accountLocked ? 'قفل شده' : 'باز'} (رمز اشتباه: ${data.security.badPwdCount})`,
       `آخرین تغییر رمز: ${formatDateDisplay(data.security.passwordLastSet, false)} | وضعیت رمز: ${pwdLabel}`,
+      `سیستم‌های مجاز ورود (Log On To): ${lpSummary?.allowedWorkstationsLabel || 'همه سیستم‌های دامین'}`,
+      `لاگان لوکال سیستم: ${lpSummary?.workstationLocalLogonLabel || '-'} | لاگان لوکال DC: ${lpSummary?.dcLocalLogonLabel || '-'} | RDP روی DC: ${lpSummary?.dcRdpLogonLabel || '-'}`,
+      `پروفایل ویندوز: ${lpSummary?.profileModeLabel || 'پروفایل لوکال'} -> ${lpSummary?.profilePathLabel || '-'}`,
+      `پوشه خانگی: ${lpSummary?.homeFolderLabel || '-'} | اسکریپت ورود: ${lpSummary?.logonScriptLabel || 'ندارد'}`,
+      `ساعات مجاز ورود: ${lpSummary?.logonHoursLabel || '۲۴ ساعته'}`,
       `حجم میل‌باکس: ${mbxLabel} | دیتابیس: ${data.mailbox.databaseName || '-'}`,
-      `تعداد گروه‌های AD (${data.groups.length}): ${data.groups.slice(0, 12).map((g) => g.cn).join('، ')}${data.groups.length > 12 ? ' ...' : ''}`,
+      `امتیاز سلامت حساب: ${reportSummary ? `${reportSummary.score}/100` : '-'}`,
+      `تمامی گروه‌های اکتیو دایرکتوری (${data.groups.length} گروه):`,
+      allGroupsFormatted,
       `زمان گزارش: ${formatDateDisplay(data.collectedAt, false)} از دامین کنترلر ${data.connectionInfo.domainController}`,
     ].join('\n');
   };
@@ -784,8 +962,10 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
   const handleDownloadUserCsvReport = () => {
     if (!data) return;
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lpSummary = reportLogonProfileSummary;
     const rows: Array<[string, string]> = [
       ['Report Generated At', formatDateDisplay(data.collectedAt, isEn)],
+      ['Health Score', reportSummary ? `${reportSummary.score}/100` : 'N/A'],
       ['SamAccountName', data.profile.samAccountName],
       ['Display Name', data.profile.displayName],
       ['First Name', data.profile.firstName],
@@ -812,6 +992,15 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
       ['Password Expired', String(data.security.passwordExpired)],
       ['Last Domain Logon', formatDateDisplay(data.security.lastLogon, isEn)],
       ['Logon Count', String(data.security.logonCount)],
+      ['Authorized Workstations (Log On To)', lpSummary?.allowedWorkstationsLabel || 'All Domain Workstations'],
+      ['Workstation Local Logon Status', lpSummary?.workstationLocalLogonLabel || 'N/A'],
+      ['DC Local Logon Policy (SeInteractiveLogonRight)', lpSummary?.dcLocalLogonLabel || 'WinRM Unavailable'],
+      ['DC RDP Logon Policy (SeRemoteInteractiveLogonRight)', lpSummary?.dcRdpLogonLabel || 'WinRM Unavailable'],
+      ['Windows Profile Mode', lpSummary?.profileModeLabel || 'Local Profile'],
+      ['Windows Profile Path', lpSummary?.profilePathLabel || 'Local'],
+      ['Home Folder', lpSummary?.homeFolderLabel || 'Not configured'],
+      ['Logon Script', lpSummary?.logonScriptLabel || 'None'],
+      ['Allowed Logon Hours', lpSummary?.logonHoursLabel || '24/7 Permitted'],
       ['Has Mailbox', String(data.mailbox.hasMailbox)],
       ['Mailbox Database', data.mailbox.databaseName],
       ['Mailbox Server', data.mailbox.exchangeHostUsed || data.mailbox.serverName],
@@ -820,14 +1009,48 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
       ['Mailbox Usage %', data.mailbox.usedPercent !== null ? `${data.mailbox.usedPercent}%` : 'N/A'],
       ['Mailbox Items', data.mailbox.itemCount !== null ? String(data.mailbox.itemCount) : 'N/A'],
       ['AD Groups Count', String(data.groups.length)],
-      ['AD Groups', data.groups.map((g) => g.cn).join('; ')],
+      ['All AD Groups', data.groups.map((g) => g.cn).join('; ')],
     ];
     const csv = '\uFEFF' + ['Field,Value', ...rows.map(([k, v]) => `${esc(k)},${esc(v)}`)].join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ad_user_report_${data.profile.samAccountName || 'user'}.csv`;
+    a.download = `ad_user_management_report_${data.profile.samAccountName || 'user'}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadUserGroupsCsv = () => {
+    if (!data) return;
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const headers = [
+      'Target Username',
+      'Group Name (CN)',
+      'Membership Type',
+      'Privilege Classification',
+      'Organizational Unit (OU)',
+      'Distinguished Name (DN)',
+    ];
+    const rows = data.groups.map((grp) => {
+      const isPriv = PRIVILEGED_AD_GROUP_NAMES.has(grp.cn.trim().toLowerCase());
+      return [
+        data.profile.samAccountName,
+        grp.cn,
+        grp.isPrimary ? 'Primary Group' : 'Direct Member',
+        isPriv ? 'Privileged / Administrative' : 'Standard',
+        extractOuPathFromDn(grp.dn),
+        grp.dn,
+      ]
+        .map(esc)
+        .join(',');
+    });
+    const csv = '\uFEFF' + [headers.map(esc).join(','), ...rows].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ad_user_groups_${data.profile.samAccountName || 'user'}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -859,12 +1082,25 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
     const dir = isEn ? 'ltr' : 'rtl';
     const lang = isEn ? 'en' : 'fa';
     const title = isEn
-      ? `AD User Support Dossier — ${data.profile.displayName || data.profile.samAccountName}`
-      : `گزارش جامع پشتیبانی کاربر دامین — ${data.profile.displayName || data.profile.samAccountName}`;
+      ? `AD User Management Dossier — ${data.profile.displayName || data.profile.samAccountName}`
+      : `گزارش مدیریتی کاربر دامین — ${data.profile.displayName || data.profile.samAccountName}`;
 
-    const groupBadges = data.groups
-      .map((g) => `<span class="badge">${escapeHtml(g.cn)}</span>`)
-      .join(' ');
+    const lpSummary = reportLogonProfileSummary;
+    const groupTableRows = data.groups
+      .map((g, idx) => {
+        const isPriv = PRIVILEGED_AD_GROUP_NAMES.has(g.cn.trim().toLowerCase());
+        return `
+        <tr>
+          <td>${idx + 1}</td>
+          <td><strong>${escapeHtml(g.cn)}</strong></td>
+          <td>${escapeHtml(g.isPrimary ? (isEn ? 'Primary Group' : 'گروه اصلی') : isEn ? 'Member' : 'عضو')}</td>
+          <td>${escapeHtml(isPriv ? (isEn ? 'Privileged' : 'مدیریتی') : isEn ? 'Standard' : 'عادی')}</td>
+          <td>${escapeHtml(extractOuPathFromDn(g.dn))}</td>
+          <td dir="ltr"><code>${escapeHtml(g.dn)}</code></td>
+        </tr>`;
+      })
+      .join('');
+
     const aliasRows = data.contact.emailAliases
       .map(
         (a) =>
@@ -889,7 +1125,7 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
   <style>
     * { box-sizing: border-box; }
     body { font-family: system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 28px; line-height: 1.55; }
-    .sheet { max-width: 980px; margin: 0 auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(15,23,42,0.06); }
+    .sheet { max-width: 1060px; margin: 0 auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(15,23,42,0.06); }
     .hero { background: linear-gradient(135deg, #0f172a 0%, #0f766e 100%); color: #ffffff; padding: 26px 30px; display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; }
     .hero h1 { margin: 0 0 6px 0; font-size: 20px; }
     .hero p { margin: 0; opacity: 0.85; font-size: 12px; }
@@ -902,8 +1138,10 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
     .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 13px; }
     .card .k { font-size: 11px; color: #64748b; margin-bottom: 4px; }
     .card .v { font-size: 13px; font-weight: 600; word-break: break-word; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-    .badge { display: inline-block; padding: 3px 9px; margin: 2px; border-radius: 999px; background: #f1f5f9; border: 1px solid #cbd5e1; font-size: 11px; font-family: monospace; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+    th, td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: start; vertical-align: top; }
+    th { background: #f1f5f9; font-weight: 700; color: #334155; }
     .finding { padding: 10px 14px; border-radius: 10px; margin-bottom: 8px; border: 1px solid #e2e8f0; }
     .finding.critical { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
     .finding.warning { background: #fffbeb; border-color: #fde68a; color: #92400e; }
@@ -945,7 +1183,19 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
     </div>
 
     <div class="section">
-      <h2>${escapeHtml(isEn ? '2. Security, Lockout & Password Lifecycle' : '۲. امنیت، وضعیت قفل و عمر رمز عبور')}</h2>
+      <h2>${escapeHtml(isEn ? '2. Local Logon Rights, Workstations & Windows Profile' : '۲. لاگان لوکال، سیستم‌های مجاز و پروفایل ویندوز')}</h2>
+      <div class="grid">
+        <div class="card"><div class="k">${escapeHtml(isEn ? 'Authorized Workstations (Log On To)' : 'سیستم‌های مجاز ورود')}</div><div class="v" dir="ltr">${escapeHtml(lpSummary?.allowedWorkstationsLabel || '-')}</div></div>
+        <div class="card"><div class="k">${escapeHtml(isEn ? 'Workstation Local Logon' : 'لاگان لوکال روی سیستم‌ها')}</div><div class="v">${escapeHtml(lpSummary?.workstationLocalLogonLabel || '-')}</div></div>
+        <div class="card"><div class="k">${escapeHtml(isEn ? 'DC Local Logon / RDP' : 'پالیسی DC (لوکال / RDP)')}</div><div class="v">${escapeHtml(`${lpSummary?.dcLocalLogonLabel || '-'} | RDP: ${lpSummary?.dcRdpLogonLabel || '-'}`)}</div></div>
+        <div class="card"><div class="k">${escapeHtml(isEn ? 'Windows Profile Mode & Path' : 'نوع و مسیر پروفایل ویندوز')}</div><div class="v">${escapeHtml(`${lpSummary?.profileModeLabel || '-'} — ${lpSummary?.profilePathLabel || '-'}`)}</div></div>
+        <div class="card"><div class="k">${escapeHtml(isEn ? 'Home Folder / Script' : 'پوشه خانگی و اسکریپت')}</div><div class="v" dir="ltr">${escapeHtml(`${lpSummary?.homeFolderLabel || '-'} | ${lpSummary?.logonScriptLabel || '-'}`)}</div></div>
+        <div class="card"><div class="k">${escapeHtml(isEn ? 'Allowed Logon Hours' : 'ساعات مجاز لاگین')}</div><div class="v">${escapeHtml(lpSummary?.logonHoursLabel || '-')}</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>${escapeHtml(isEn ? '3. Security, Lockout & Password Lifecycle' : '۳. امنیت، وضعیت قفل و عمر رمز عبور')}</h2>
       <div class="grid">
         <div class="card"><div class="k">${escapeHtml(isEn ? 'Account Status' : 'فعال بودن اکانت')}</div><div class="v">${escapeHtml(data.security.accountEnabled ? (isEn ? 'Enabled' : 'فعال') : (isEn ? 'Disabled' : 'غیرفعال'))}</div></div>
         <div class="card"><div class="k">${escapeHtml(isEn ? 'Lockout Status' : 'وضعیت قفل (Lockout)')}</div><div class="v">${escapeHtml(data.security.accountLocked ? (isEn ? 'LOCKED OUT' : 'قفل شده') : (isEn ? 'Unlocked' : 'باز'))}</div></div>
@@ -957,7 +1207,7 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
     </div>
 
     <div class="section">
-      <h2>${escapeHtml(isEn ? '3. Exchange Mailbox & Storage Usage' : '۳. وضعیت میل‌باکس و فضای مصرفی Exchange')}</h2>
+      <h2>${escapeHtml(isEn ? '4. Exchange Mailbox & Storage Usage' : '۴. وضعیت میل‌باکس و فضای مصرفی Exchange')}</h2>
       <div class="grid">
         <div class="card"><div class="k">${escapeHtml(isEn ? 'Used Space' : 'فضای استفاده‌شده')}</div><div class="v">${escapeHtml(data.mailbox.totalUsedBytes !== null ? formatBytesHuman(data.mailbox.totalUsedBytes, isEn) : (isEn ? 'Unavailable' : 'نامشخص'))}</div></div>
         <div class="card"><div class="k">${escapeHtml(isEn ? 'Effective Quota' : 'سقف سهمیه مجاز')}</div><div class="v">${escapeHtml(data.mailbox.isUnlimitedQuota ? 'Unlimited' : formatBytesHuman(data.mailbox.effectiveQuotaBytes, isEn))}</div></div>
@@ -967,13 +1217,29 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
     </div>
 
     <div class="section">
-      <h2>${escapeHtml(isEn ? '4. Findings & Support Recommendations' : '۴. تحلیل و توصیه‌های پشتیبانی')}</h2>
+      <h2>${escapeHtml(isEn ? '5. Findings & Support Recommendations' : '۵. تحلیل و توصیه‌های پشتیبانی')}</h2>
       ${findingRows}
     </div>
 
     <div class="section">
-      <h2>${escapeHtml(isEn ? `5. AD Group Memberships (${data.groups.length})` : `۵. عضویت گروه‌های اکتیو دایرکتوری (${data.groups.length})`)}</h2>
-      <div>${groupBadges || escapeHtml(isEn ? 'None' : 'موردی ثبت نشده')}</div>
+      <h2>${escapeHtml(isEn ? `6. Complete AD Group Memberships (${data.groups.length})` : `۶. فهرست کامل گروه‌های اکتیو دایرکتوری (${data.groups.length})`)}</h2>
+      ${
+        groupTableRows
+          ? `<table>
+               <thead>
+                 <tr>
+                   <th>#</th>
+                   <th>${escapeHtml(isEn ? 'Group Name (CN)' : 'نام گروه (CN)')}</th>
+                   <th>${escapeHtml(isEn ? 'Membership' : 'نوع عضویت')}</th>
+                   <th>${escapeHtml(isEn ? 'Privilege' : 'سطح')}</th>
+                   <th>${escapeHtml(isEn ? 'OU Path' : 'مسیر OU')}</th>
+                   <th>${escapeHtml(isEn ? 'Distinguished Name (DN)' : 'مسیر کامل DN')}</th>
+                 </tr>
+               </thead>
+               <tbody>${groupTableRows}</tbody>
+             </table>`
+          : `<p>${escapeHtml(isEn ? 'No AD groups found.' : 'گروهی ثبت نشده است.')}</p>`
+      }
     </div>
 
     <div class="footer">
@@ -1032,8 +1298,8 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
     },
     {
       id: 'reports',
-      labelEn: 'User Reports & Health Brief',
-      labelFa: 'گزارش‌ها و تحلیل سلامت کاربر',
+      labelEn: 'Management Reports',
+      labelFa: 'گزارش‌های مدیریتی',
       icon: BarChart3,
     },
     {
@@ -1849,8 +2115,8 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
                   : 'مشاهده عضویت گروه‌های اکتیو دایرکتوری و واحد سازمانی کاربر'
                 : ram.activeSubTab === 'reports'
                 ? isEn
-                  ? 'User Support Diagnostic Reports & Printable Dossier'
-                  : 'تولید گزارش تحلیلی، چک‌لیست وضعیت سلامت و خروجی چاپی/CSV/HTML کاربر'
+                  ? 'Management Reports — All AD Group Memberships, User Dossier & Exports'
+                  : 'گزارش‌های مدیریتی — لیست کامل گروه‌های AD، داده‌های جامع کاربر و خروجی گزارش‌ها'
                 : isEn
                 ? 'Exchange Mailbox Capacity & Live Usage Statistics'
                 : 'مشاهده حجم کل میل‌باکس، فضای استفاده‌شده و سهمیه‌های سرور Exchange'}
@@ -4039,7 +4305,7 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
             </div>
           )}
           {/* ================================================================
-              TAB 5: USER REPORTS & HEALTH BRIEF
+              TAB 5: MANAGEMENT REPORTS (ALL AD GROUPS, DOSSIER & EXPORTS)
               ================================================================ */}
           {ram.activeSubTab === 'reports' && reportSummary && (
             <div className="space-y-5">
@@ -4066,9 +4332,29 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className={`text-base font-bold ${textPrimary}`}>
                           {isEn
-                            ? `Support Diagnostic Dossier — ${data.profile.displayName || data.profile.samAccountName}`
-                            : `گزارش جامع پشتیبانی و سلامت حساب — ${data.profile.displayName || data.profile.samAccountName}`}
+                            ? `Management Reports — ${data.profile.displayName || data.profile.samAccountName}`
+                            : `گزارش‌های مدیریتی — ${data.profile.displayName || data.profile.samAccountName}`}
                         </h2>
+                        <FieldInfoTooltip
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                          fieldName={isEn ? 'Management Reports' : 'گزارش‌های مدیریتی کاربر'}
+                          whatIsIt={
+                            isEn
+                              ? 'Consolidated management dossier displaying all AD group memberships, workstations/local logon policy, Windows profile configuration, security lifecycle, mailbox usage, and multi-format export tools.'
+                              : 'گزارش جامع مدیریتی شامل تمامی گروه‌های اکتیو دایرکتوری عضو، سیستم‌های مجاز ورود و لاگان لوکال، وضعیت پروفایل ویندوز، امنیت حساب، حجم میل‌باکس و خروجی‌های آماده چاپ و فایل.'
+                          }
+                          whyNeeded={
+                            isEn
+                              ? 'Allows managers and HelpDesk leads to audit complete user privileges, verify compliance, and export clean HTML, Full CSV, Groups-only CSV, or JSON reports.'
+                              : 'به مدیران و سرپرستان هلپ‌دسک امکان می‌دهد تمام مجوزها و گروه‌های کاربر را یکجا ممیزی کنند و گزارش استاندارد به فرمت HTML، CSV کامل، CSV گروه‌ها یا JSON تهیه نمایند.'
+                          }
+                          example={
+                            isEn
+                              ? 'Export Groups CSV -> all Domain/Security groups with OU paths & privilege tags.'
+                              : 'خروجی CSV گروه‌ها -> تمامی گروه‌های دامین همراه با مسیر OU و برچسب دسترسی مدیریتی.'
+                          }
+                        />
                         <span
                           className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${
                             reportSummary.grade === 'healthy'
@@ -4120,7 +4406,21 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
                       }`}
                     >
                       <Download className="w-3.5 h-3.5 text-sky-500" />
-                      <span>{isEn ? 'Export CSV' : 'خروجی CSV'}</span>
+                      <span>{isEn ? 'Export Full CSV' : 'خروجی CSV کامل'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={data.groups.length === 0}
+                      onClick={() => handleDownloadUserGroupsCsv()}
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition cursor-pointer disabled:opacity-50 ${
+                        isLightMode
+                          ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
+                          : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-100'
+                      }`}
+                    >
+                      <FolderTree className="w-3.5 h-3.5 text-teal-500" />
+                      <span>{isEn ? 'Export Groups CSV' : 'خروجی CSV گروه‌ها'}</span>
                     </button>
 
                     <button
@@ -4370,6 +4670,57 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
                 </div>
               </div>
 
+              {/* Logon, Workstations & Windows Profile Quick Snapshot Strip */}
+              {reportLogonProfileSummary && (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                  <div className={`rounded-xl border p-4 space-y-1.5 ${surfaceBg}`}>
+                    <div className={`text-[11px] font-semibold flex items-center gap-1.5 ${textMuted}`}>
+                      <Monitor className="w-3.5 h-3.5 text-sky-500" />
+                      <span>{isEn ? 'Authorized Computers' : 'سیستم‌های مجاز ورود'}</span>
+                    </div>
+                    <div className={`text-xs font-bold break-words ${textPrimary}`} dir="ltr">
+                      {reportLogonProfileSummary.allowedWorkstationsLabel}
+                    </div>
+                  </div>
+
+                  <div className={`rounded-xl border p-4 space-y-1.5 ${surfaceBg}`}>
+                    <div className={`text-[11px] font-semibold flex items-center gap-1.5 ${textMuted}`}>
+                      <ShieldCheck className="w-3.5 h-3.5 text-teal-500" />
+                      <span>{isEn ? 'Local Logon & DC Policy' : 'لاگان لوکال و پالیسی DC'}</span>
+                    </div>
+                    <div className={`text-xs font-semibold ${textPrimary}`}>
+                      {reportLogonProfileSummary.workstationLocalLogonLabel}
+                    </div>
+                    <div className={`text-[11px] ${textMuted}`}>
+                      DC: {reportLogonProfileSummary.dcLocalLogonLabel}
+                    </div>
+                  </div>
+
+                  <div className={`rounded-xl border p-4 space-y-1.5 ${surfaceBg}`}>
+                    <div className={`text-[11px] font-semibold flex items-center gap-1.5 ${textMuted}`}>
+                      <FolderOpen className="w-3.5 h-3.5 text-indigo-500" />
+                      <span>{isEn ? 'Windows Profile & Home' : 'پروفایل ویندوز و پوشه خانگی'}</span>
+                    </div>
+                    <div className={`text-xs font-bold ${textPrimary}`}>
+                      {reportLogonProfileSummary.profileModeLabel}
+                    </div>
+                    <div className={`text-[11px] font-mono truncate ${textMuted}`} dir="ltr" title={reportLogonProfileSummary.profilePathLabel}>
+                      {reportLogonProfileSummary.profilePathLabel}
+                    </div>
+                  </div>
+
+                  <div className={`rounded-xl border p-4 space-y-1.5 ${surfaceBg}`}>
+                    <div className={`text-[11px] font-semibold flex items-center gap-1.5 ${textMuted}`}>
+                      <Clock className="w-3.5 h-3.5 text-amber-500" />
+                      <span>{isEn ? 'Allowed Logon Hours' : 'ساعات مجاز ورود'}</span>
+                    </div>
+                    <div className={`text-xs font-semibold leading-relaxed ${textPrimary}`}>
+                      {reportLogonProfileSummary.logonHoursLabel}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Actionable Findings + Structured Executive Report Table */}
               <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
                 <div className={`xl:col-span-5 rounded-xl border p-5 space-y-3 ${surfaceBg}`}>
@@ -4479,8 +4830,28 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
                               '-',
                           },
                           {
+                            k: isEn ? 'Authorized Computers (Log On To)' : 'سیستم‌های مجاز برای ورود',
+                            v: reportLogonProfileSummary?.allowedWorkstationsLabel || '-',
+                          },
+                          {
+                            k: isEn ? 'Local Logon & DC Policy' : 'لاگان لوکال و سیاست DC',
+                            v: reportLogonProfileSummary
+                              ? `${reportLogonProfileSummary.workstationLocalLogonLabel} · DC Local: ${reportLogonProfileSummary.dcLocalLogonLabel} · DC RDP: ${reportLogonProfileSummary.dcRdpLogonLabel}`
+                              : '-',
+                          },
+                          {
+                            k: isEn ? 'Windows Profile & Home Folder' : 'پروفایل ویندوز و پوشه خانگی',
+                            v: reportLogonProfileSummary
+                              ? `${reportLogonProfileSummary.profileModeLabel} (${reportLogonProfileSummary.profilePathLabel}) · ${isEn ? 'Home' : 'خانگی'}: ${reportLogonProfileSummary.homeFolderLabel}`
+                              : '-',
+                          },
+                          {
+                            k: isEn ? 'Allowed Logon Hours' : 'ساعات مجاز ورود',
+                            v: reportLogonProfileSummary?.logonHoursLabel || '-',
+                          },
+                          {
                             k: isEn ? 'Password Last Changed / Expiry' : 'تغییر و انقضای رمز عبور',
-                            v: `${formatDateDisplay(data.security.passwordLastSet, isEn)} → ${
+                            v: `${formatDateDisplay(data.security.passwordLastSet, isEn)} -> ${
                               data.security.passwordNeverExpires
                                 ? isEn
                                   ? 'Never Expires'
@@ -4534,6 +4905,241 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
                     </table>
                   </div>
                 </div>
+              </div>
+
+              {/* Complete Active Directory Group Memberships Directory & Export */}
+              <div className={`rounded-xl border p-5 space-y-4 ${surfaceBg}`}>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <FolderTree className="w-4 h-4 text-teal-500 shrink-0" />
+                    <h3 className={`text-sm font-bold ${textPrimary}`}>
+                      {isEn
+                        ? 'Complete Active Directory Group Memberships'
+                        : 'فهرست کامل گروه‌های اکتیو دایرکتوری کاربر'}
+                    </h3>
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-xs font-mono font-bold ${
+                        isLightMode ? 'bg-teal-50 text-teal-700' : 'bg-teal-500/15 text-teal-400'
+                      }`}
+                    >
+                      {data.groups.length}
+                    </span>
+                    {reportSummary.privilegedGroups.length > 0 && (
+                      <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-500/15 text-amber-500">
+                        {isEn
+                          ? `${reportSummary.privilegedGroups.length} Privileged`
+                          : `${reportSummary.privilegedGroups.length} گروه مدیریتی`}
+                      </span>
+                    )}
+                    <FieldInfoTooltip
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                      fieldName={isEn ? 'Complete User AD Groups' : 'فهرست کامل گروه‌های عضو کاربر'}
+                      whatIsIt={
+                        isEn
+                          ? 'Lists every Active Directory security and distribution group this user belongs to, including Primary Group, privilege sensitivity, OU path, and Distinguished Name.'
+                          : 'تمامی گروه‌های امنیتی و توزیعی اکتیو دایرکتوری که این کاربر در آن‌ها عضویت دارد را همراه با گروه اصلی، برچسب دسترسی مدیریتی، مسیر OU و DN کامل نمایش می‌دهد.'
+                      }
+                      whyNeeded={
+                        isEn
+                          ? 'Centralizes full access auditing inside Management Reports with dedicated CSV export and one-click drilldown into Group Details.'
+                          : 'ممیزی کامل سطح دسترسی کاربر را در خود تب گزارش‌های مدیریتی متمرکز می‌کند و امکان خروجی CSV مستقل یا مشاهده جزئیات هر گروه را فراهم می‌سازد.'
+                      }
+                      example={
+                        isEn
+                          ? 'Search "Admin" or click Export Groups CSV to archive all group memberships.'
+                          : 'عبارت دلخواه را جستجو کنید یا دکمه «خروجی CSV گروه‌ها» را برای دریافت لیست کامل بزنید.'
+                      }
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative w-full sm:w-64">
+                      <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 start-3 ${textMuted}`} />
+                      <input
+                        type="text"
+                        value={reportGroupSearch}
+                        onChange={(e) => setReportGroupSearch(e.target.value)}
+                        placeholder={isEn ? 'Filter by group, OU or DN...' : 'فیلتر بر اساس نام گروه، OU یا DN...'}
+                        className={`w-full ps-8 pe-7 py-1.5 rounded-lg border text-xs outline-none transition ${inputCls}`}
+                      />
+                      {reportGroupSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setReportGroupSearch('')}
+                          aria-label={isEn ? 'Clear search' : 'پاک کردن فیلتر'}
+                          className={`absolute top-1/2 -translate-y-1/2 end-2 p-0.5 rounded hover:bg-slate-500/15 cursor-pointer ${textMuted}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={data.groups.length === 0}
+                      onClick={() => handleDownloadUserGroupsCsv()}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer disabled:opacity-50 ${
+                        isLightMode
+                          ? 'bg-slate-50 hover:bg-slate-100 border-slate-300 text-slate-800'
+                          : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-100'
+                      }`}
+                    >
+                      <Download className="w-3.5 h-3.5 text-teal-500" />
+                      <span>{isEn ? 'Export Groups CSV' : 'خروجی CSV گروه‌ها'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {filteredReportGroups.length > 0 ? (
+                  <div className="overflow-auto max-h-[440px] rounded-xl border border-slate-200 dark:border-slate-800">
+                    <table className="w-full text-xs border-collapse">
+                      <thead
+                        className={`sticky top-0 z-10 ${
+                          isLightMode ? 'bg-slate-100 text-slate-700' : 'bg-slate-950 text-slate-300'
+                        }`}
+                      >
+                        <tr>
+                          <th className="py-2.5 px-3 text-start font-semibold w-10">#</th>
+                          <th className="py-2.5 px-3 text-start font-semibold">
+                            {isEn ? 'Group Name (CN)' : 'نام گروه (CN)'}
+                          </th>
+                          <th className="py-2.5 px-3 text-start font-semibold">
+                            {isEn ? 'Organizational Unit (OU)' : 'مسیر سازمانی (OU)'}
+                          </th>
+                          <th className="py-2.5 px-3 text-start font-semibold">
+                            {isEn ? 'Distinguished Name (DN)' : 'مسیر کامل (DN)'}
+                          </th>
+                          {canOpenGroupHelpdesk && (
+                            <th className="py-2.5 px-3 text-end font-semibold w-36">
+                              {isEn ? 'Action' : 'عملیات'}
+                            </th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className={`divide-y ${isLightMode ? 'divide-slate-100' : 'divide-slate-800/80'}`}>
+                        {filteredReportGroups.map((grp, idx) => {
+                          const isPrivileged = PRIVILEGED_AD_GROUP_NAMES.has(grp.cn.trim().toLowerCase());
+                          const inspectTarget = resolveInspectableGroupTarget(grp);
+                          const ouLabel = extractOuPathFromDn(grp.dn);
+                          return (
+                            <tr
+                              key={`${grp.dn}-rep-${idx}`}
+                              className={isLightMode ? 'hover:bg-slate-50/90' : 'hover:bg-slate-800/40'}
+                            >
+                              <td className={`py-2.5 px-3 font-mono text-[11px] ${textMuted}`}>{idx + 1}</td>
+                              <td className="py-2.5 px-3">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className={`font-bold ${textPrimary}`}>{grp.cn}</span>
+                                  {grp.isPrimary && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-teal-500/15 text-teal-500">
+                                      {isEn ? 'Primary' : 'اصلی'}
+                                    </span>
+                                  )}
+                                  {isPrivileged && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-500">
+                                      {isEn ? 'Privileged' : 'مدیریتی'}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className={`py-2.5 px-3 ${textSecondary}`}>{ouLabel}</td>
+                              <td className="py-2.5 px-3">
+                                <div className="flex items-center gap-1.5 max-w-md">
+                                  <span className={`font-mono text-[11px] break-all ${textMuted}`} dir="ltr">
+                                    {grp.dn}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(grp.dn, `rep-grp-dn-${idx}`)}
+                                    title={isEn ? 'Copy DN' : 'کپی DN'}
+                                    className={`p-1 rounded hover:bg-teal-500/15 shrink-0 cursor-pointer ${textMuted}`}
+                                  >
+                                    {copiedKey === `rep-grp-dn-${idx}` ? (
+                                      <Check className="w-3 h-3 text-emerald-500" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                  </button>
+                                </div>
+                              </td>
+                              {canOpenGroupHelpdesk && (
+                                <td className="py-2.5 px-3 text-end">
+                                  {inspectTarget && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleInspectGroupInHelpdesk(grp)}
+                                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                                        isLightMode
+                                          ? 'bg-teal-50 hover:bg-teal-100 border-teal-200 text-teal-700'
+                                          : 'bg-teal-500/10 hover:bg-teal-500/20 border-teal-500/30 text-teal-400'
+                                      }`}
+                                    >
+                                      <span>{isEn ? 'Group Details' : 'جزئیات گروه'}</span>
+                                      <ArrowUpRight className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className={`text-xs py-6 text-center rounded-xl border ${subSurfaceBg} ${textMuted}`}>
+                    {data.groups.length === 0
+                      ? isEn
+                        ? 'This user has no recorded Active Directory group memberships.'
+                        : 'هیچ گروه اکتیو دایرکتوری برای این کاربر ثبت نشده است.'
+                      : isEn
+                      ? 'No AD groups matched your filter.'
+                      : 'هیچ گروهی با عبارت جستجوشده یافت نشد.'}
+                  </div>
+                )}
+              </div>
+
+              {/* Ticket-Ready Plain-Text Management Dossier Preview */}
+              <div className={`rounded-xl border p-5 space-y-3 ${surfaceBg}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <ClipboardCopy className="w-4 h-4 text-teal-500" />
+                    <span className={textPrimary}>
+                      {isEn ? 'Ticket-Ready Management Dossier Preview' : 'پیش‌نمایش متنی گزارش مدیریتی (آماده کپی در تیکت)'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(buildTicketSummaryText(), 'ticket-summary-preview')}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                      isLightMode
+                        ? 'bg-slate-50 hover:bg-slate-100 border-slate-300 text-slate-800'
+                        : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-100'
+                    }`}
+                  >
+                    {copiedKey === 'ticket-summary-preview' ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    ) : (
+                      <ClipboardCopy className="w-3.5 h-3.5 text-teal-500" />
+                    )}
+                    <span>
+                      {copiedKey === 'ticket-summary-preview'
+                        ? isEn
+                          ? 'Copied'
+                          : 'کپی شد'
+                        : isEn
+                        ? 'Copy Full Brief'
+                        : 'کپی متن کامل گزارش'}
+                    </span>
+                  </button>
+                </div>
+
+                <pre
+                  className={`rounded-xl border p-4 text-xs font-mono whitespace-pre-wrap leading-relaxed max-h-80 overflow-auto ${subSurfaceBg} ${textPrimary}`}
+                >
+                  {buildTicketSummaryText()}
+                </pre>
               </div>
             </div>
           )}

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.491.0';
+export const APP_VERSION = '1.492.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.492.0',
+    releaseDate: '2026-11-26',
+    type: 'minor',
+    title: 'ارتقای تب پنجم صفحه پشتیبانی کاربران به Management Reports (گزارش‌های مدیریتی) با نمایش تمام گروه‌ها و خروجی جامع',
+    title_en: 'Upgrade AD User HelpDesk Reports Tab to Management Reports with Full Group Memberships & Multi-Format Exports',
+    changes: [
+      'تغییر نام و ارتقای تب پنجم صفحه پشتیبانی کاربران اکتیو دایرکتوری به «گزارش‌های مدیریتی (Management Reports)» همراه با راهنمای سه‌بخشی Info.',
+      'نمایش جدول کامل تمام گروه‌های اکتیو دایرکتوری عضو کاربر (`AD Groups`) در خود تب گزارش‌های مدیریتی با قابلیت جستجو بر اساس نام گروه/OU/DN، برچسب گروه اصلی و مدیریتی، مسیر سازمانی (OU)، کپی DN و دکمه «جزئیات گروه».',
+      'تکمیل گزارش متنی تیکت، خروجی HTML و جدول خلاصه کاربر با اطلاعات کامل لاگان لوکال، سیستم‌های مجاز ورود (`Log On To`)، پروفایل ویندوز، پوشه خانگی، ساعات ورود و تمام گروه‌ها؛ همراه با افزودن دکمه مستقل «خروجی CSV گروه‌ها (`Export Groups CSV`)» و پیش‌نمایش متنی گزارش.'
+    ],
+    changes_en: [
+      'Upgraded Tab 5 in Active Directory & User Support HelpDesk to `Management Reports` with a 3-part FieldInfoTooltip.',
+      'Added a searchable Complete Active Directory Group Memberships table directly inside Management Reports showing every group CN, Primary/Privileged badges, extracted OU path, copyable DN, and RBAC-guarded `Group Details` navigation.',
+      'Enriched the Management Dossier brief, HTML dossier table, Full CSV, and Structured Summary Sheet with workstation restrictions, local/DC logon policy, Windows profile/home details, and all AD groups, plus a dedicated `Export Groups CSV` export and live text preview.'
+    ]
+  },
   {
     version: '1.491.0',
     releaseDate: '2026-11-26',
