@@ -141,7 +141,6 @@ import {
 import {
   searchDomainGroups,
   inspectTargetDomainGroup,
-  manageDomainGroupMember,
   HelpdeskGroupInspectInput,
   HelpdeskGroupSearchInput,
 } from './helpdeskGroupService';
@@ -11808,7 +11807,7 @@ apiRouter.post('/helpdesk/group/inspect', async (req: Request, res: Response) =>
   }
 });
 
-// POST /helpdesk/group/member-action - Add or remove a member from an AD group (guarded by exception policy & write rate limit)
+// POST /helpdesk/group/member-action - Group membership modification is disabled (read-only Group Membership Directory)
 apiRouter.post('/helpdesk/group/member-action', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'actions');
   if (!auth.ok) {
@@ -11817,130 +11816,16 @@ apiRouter.post('/helpdesk/group/member-action', async (req: Request, res: Respon
   if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
     return res.status(403).json({
       success: false,
-      error: 'Access denied: Your policy does not permit Active Directory group management.',
-      errorFa: 'عدم دسترسی: پالیسی شما فاقد مجوز مدیریت اعضای گروه‌های دامین است.',
+      error: 'Access denied: Your policy does not permit Active Directory group inspection.',
+      errorFa: 'عدم دسترسی: پالیسی شما فاقد مجوز بررسی گروه‌های دامین است.',
     });
   }
 
-  const input = extractHelpdeskGroupInputFromBody(req.body);
-  if (req.body?.action === 'remove_member') {
-    return res.status(403).json({
-      success: false,
-      error: 'Member removal is disabled in Group Membership Directory by policy.',
-      errorFa: 'امکان حذف عضو از گروه در بخش Group Membership Directory غیرفعال است.',
-    });
-  }
-  const action = 'add_member' as const;
-  const memberIdentifier = String(req.body?.memberIdentifier || '').trim();
-
-  if (!input.targetGroup || !memberIdentifier || !input.adminUsername || !input.adminPassword) {
-    return res.status(400).json({
-      success: false,
-      error: 'Target group, member identifier, and ephemeral domain admin credentials are required.',
-      errorFa: 'نام گروه، نام عضو هدف و اطلاعات ادمین دامین الزامی است.',
-    });
-  }
-
-  const rlAction: HelpdeskWriteAction = 'ad_group_member_add';
-  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, input.targetGroup, rlAction);
-  if (!rl.allowed) {
-    await logHelpdeskRateLimitAudit({
-      actorName: auth.actorName,
-      actorRole: auth.actorRole,
-      clientIp: auth.clientIp,
-      targetIp: input.targetGroup,
-      actionName: rlAction,
-      rl,
-    });
-    return res.status(429).json({
-      success: false,
-      error: rl.reason,
-      errorFa: rl.reasonFa,
-      rateLimit: rl.status,
-    });
-  }
-
-  try {
-    const data = await manageDomainGroupMember({
-      ...input,
-      action,
-      memberIdentifier,
-    });
-    await addHelpdeskGroupHistoryInDb({
-      queryTarget: input.targetGroup,
-      samAccountName: data.groupSamAccountName,
-      cn: data.groupCn,
-      distinguishedName: data.groupDn,
-      organizationalUnit: '',
-      groupScope: 'Unknown',
-      groupCategory: 'Security',
-      domainName: '',
-      domainController: data.domainController,
-      methodUsed:
-        data.methodUsed === 'ldaps_modify'
-          ? 'ldaps'
-          : data.methodUsed === 'ldap_modify'
-          ? 'ldap'
-          : 'winrm_adsi',
-      portUsed: data.methodUsed === 'ldaps_modify' ? 636 : data.methodUsed === 'ldap_modify' ? 389 : 5985,
-      memberCount: null,
-      nestedGroupCount: null,
-      parentGroupCount: null,
-      isPrivileged: false,
-      adminCount: false,
-      whenCreated: null,
-      creatorDisplay: '',
-      status: data.success ? 'success' : 'failed',
-      actionType: action,
-      actionTargetMember: data.memberSamAccountName,
-      actorName: auth.actorName,
-      actorRole: auth.actorRole,
-    }).catch(() => {});
-
-    await addPortalAuditLog({
-      category: 'helpdesk',
-      action: 'helpdesk_group_member_add',
-      title: `افزودن عضو (${data.memberSamAccountName}) به گروه (${data.groupCn})`,
-      title_en: `HelpDesk AD Group Add Member (${data.memberSamAccountName} -> ${data.groupCn})`,
-      description: data.messageFa,
-      description_en: data.message,
-      userName: auth.actorName,
-      userRole: auth.actorRole,
-      status: 'success',
-      severity: 'info',
-      targetName: data.groupSamAccountName,
-      clientIp: auth.clientIp,
-      metadata: {
-        groupDn: data.groupDn,
-        memberDn: data.memberDn,
-        domainController: data.domainController,
-        methodUsed: data.methodUsed,
-        action,
-      },
-    }).catch(() => {});
-
-    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
-  } catch (err: any) {
-    const msg = String(err?.message || 'Failed to update AD group membership');
-    await logHelpdeskErrorAudit({
-      actorName: auth.actorName,
-      actorRole: auth.actorRole,
-      clientIp: auth.clientIp,
-      action: 'helpdesk_group_member_action_failed',
-      title: `خطا در تغییر عضویت گروه ${input.targetGroup}`,
-      title_en: `HelpDesk AD Group Membership Update Failed: ${input.targetGroup}`,
-      targetIp: input.domainController || input.targetGroup,
-      errorMsg: msg,
-      metadata: { targetGroup: input.targetGroup, memberIdentifier, action },
-    });
-    return res.status(err?.blockedByException ? 403 : /invalid|required|not found|itself/i.test(msg) ? 400 : 502).json({
-      success: false,
-      error: msg,
-      errorFa: err?.reasonFa || msg,
-      blockedByException: Boolean(err?.blockedByException),
-      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
-    });
-  }
+  return res.status(403).json({
+    success: false,
+    error: 'Group membership modification (Add/Remove Member) is disabled in Group Membership Directory.',
+    errorFa: 'امکان افزودن یا حذف عضو در بخش Group Membership Directory غیرفعال است.',
+  });
 });
 
 // GET /helpdesk/group/history - Paginated AD group check history (scoped per operator unless Super Admin or canViewAllHelpdeskHistory)

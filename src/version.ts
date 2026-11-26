@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.489.1';
+export const APP_VERSION = '1.489.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.489.2',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'حذف دکمه و امکان افزودن عضو (Add Member) از بخش Group Membership Directory و تبدیل آن به حالت تماماً خواندنی',
+    title_en: 'Remove Add Member Controls & Enforce Read-Only Group Membership Directory',
+    changes: [
+      'حذف کامل فیلد ورودی و دکمه `Add Member` از بخش `Group Membership Directory` در صفحه `Active Directory & Group Support HelpDesk`.',
+      'تثبیت حالت تماماً خواندنی و ممیزی در مسیر بک‌اند `POST /api/helpdesk/group/member-action` (بازگشت پاسخ `403`) و پاک‌سازی منطق تغییر عضویت غیرفعال.'
+    ],
+    changes_en: [
+      'Completely removed the `Add Member` input, action button, and action result banners from `Group Membership Directory` in `Active Directory & Group Support HelpDesk`.',
+      'Enforced read-only inspection on backend route `POST /api/helpdesk/group/member-action` (`403`) and cleaned up obsolete member mutation handlers.'
+    ]
+  },
   {
     version: '1.489.1',
     releaseDate: '2026-11-26',

@@ -9,7 +9,6 @@ import {
   Calendar,
   Clock,
   UserCheck,
-  UserPlus,
   Building2,
   Mail,
   Server,
@@ -57,7 +56,6 @@ import {
   hasActiveHelpdeskGroupAuth,
   runHelpdeskGroupSearch,
   runHelpdeskGroupInspect,
-  runHelpdeskGroupMemberAction,
 } from '../services/helpdeskGroupRamSession';
 import {
   HelpdeskGroupHistoryItem,
@@ -145,7 +143,6 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
     'all' | 'users' | 'groups' | 'computers' | 'primary' | 'inherited'
   >('all');
   const [memberSearch, setMemberSearch] = useState('');
-  const [newMemberInput, setNewMemberInput] = useState('');
 
   // ACL filter
   const [aclSearch, setAclSearch] = useState('');
@@ -181,9 +178,6 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
     hasFull ||
     (effectivePolicy?.canViewHelpdesk === true &&
       effectivePolicy?.canInspectHelpdeskDomainUsers === true);
-  const canModifyMembers =
-    hasFull ||
-    (canInspectGroups && effectivePolicy?.canExecuteHelpdeskActions === true);
   const canViewAllHistory =
     hasFull ||
     (canInspectGroups && effectivePolicy?.canViewAllHelpdeskHistory === true);
@@ -1729,7 +1723,7 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
       {/* =================================================================== */}
       {data && ram.activeSubTab === 'members' && (
         <div className="space-y-6">
-          {/* Member Stats + Add New Member Control */}
+          {/* Member Stats */}
           <div className={`rounded-xl border p-5 space-y-4 ${surfaceBg}`}>
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               <div>
@@ -1743,55 +1737,7 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                     : `${data.membershipSummary.directUsersCount} کاربر، ${data.membershipSummary.directGroupsCount} زیرگروه تو در تو، ${data.membershipSummary.directComputersCount} کامپیوتر و ${data.membershipSummary.totalPrimaryGroupMembers} عضو Primary Group.`}
                 </p>
               </div>
-
-              {canModifyMembers && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    dir="ltr"
-                    value={newMemberInput}
-                    onChange={(e) => setNewMemberInput(e.target.value)}
-                    placeholder={
-                      isEn ? 'Username or Group CN to add...' : 'نام کاربر یا گروه برای افزودن...'
-                    }
-                    className={`w-60 px-3 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
-                  />
-                  <button
-                    type="button"
-                    disabled={ram.memberActionLoading || !newMemberInput.trim()}
-                    onClick={async () => {
-                      const ok = await runHelpdeskGroupMemberAction({
-                        action: 'add_member',
-                        memberIdentifier: newMemberInput,
-                      });
-                      if (ok) setNewMemberInput('');
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                  >
-                    {ram.memberActionLoading ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <UserPlus className="w-3.5 h-3.5" />
-                    )}
-                    <span>{isEn ? 'Add Member' : 'افزودن عضو'}</span>
-                  </button>
-                </div>
-              )}
             </div>
-
-            {ram.memberActionError && (
-              <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-500 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{ram.memberActionError}</span>
-              </div>
-            )}
-
-            {ram.memberActionResult && (
-              <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-500 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>{isEn ? ram.memberActionResult.message : ram.memberActionResult.messageFa}</span>
-              </div>
-            )}
 
             {/* Category Filter Chips + Search */}
             <div className="flex flex-wrap items-center justify-between gap-3">
