@@ -16,11 +16,32 @@ export type HelpdeskGroupSubTab =
   | 'reports'
   | 'history';
 
+export interface DelegatedAuthMetadata {
+  active: boolean;
+  source: 'helpdesk-users';
+  adminUsername: string;
+  grantedAt: number;
+  expiresAt: number;
+}
+
+interface DelegatedCredentialVault {
+  ownerUserId: string;
+  adminUsername: string;
+  adminPassword: string; // Sealed strictly inside module closure RAM; NEVER copied into React snapshot or DOM
+  grantedAt: number;
+  expiresAt: number;
+}
+
+const DELEGATED_CREDENTIAL_TTL_MS = 30 * 60 * 1000; // 30 minutes strict RAM TTL
+let delegatedVault: DelegatedCredentialVault | null = null;
+
 export interface HelpdeskGroupRamState {
   ownerUserId: string | null;
   targetGroup: string;
   adminUsername: string;
   adminPassword: string;
+  delegatedAuth: DelegatedAuthMetadata | null;
+  pendingCredentialPromptGroup: string | null;
   domainController: string;
   ldapProtocol: 'auto' | 'ldaps' | 'ldap';
   winrmProtocol: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
@@ -58,6 +79,8 @@ const createInitialState = (ownerUserId: string | null = null): HelpdeskGroupRam
   targetGroup: '',
   adminUsername: '',
   adminPassword: '',
+  delegatedAuth: null,
+  pendingCredentialPromptGroup: null,
   domainController: '',
   ldapProtocol: 'auto',
   winrmProtocol: 'auto',
@@ -104,16 +127,88 @@ export function getHelpdeskGroupRamSnapshot(): HelpdeskGroupRamState {
   return ramState;
 }
 
+export function revokeDelegatedGroupCredential(): void {
+  const hadDelegated = delegatedVault !== null || ramState.delegatedAuth !== null;
+  delegatedVault = null;
+  if (hadDelegated) {
+    ramState = { ...ramState, delegatedAuth: null };
+    notify();
+  }
+}
+
+export function hasActiveHelpdeskGroupAuth(state: HelpdeskGroupRamState = ramState): boolean {
+  if (!state.adminUsername.trim()) return false;
+  if (state.adminPassword) return true;
+  if (
+    state.delegatedAuth?.active &&
+    delegatedVault &&
+    delegatedVault.ownerUserId === (state.ownerUserId || '') &&
+    delegatedVault.adminUsername.toLowerCase() === state.adminUsername.trim().toLowerCase() &&
+    Date.now() <= delegatedVault.expiresAt
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function resolveEffectiveGroupCredentials():
+  | { ok: true; adminUsername: string; adminPassword: string }
+  | { ok: false; expired: boolean } {
+  const username = ramState.adminUsername.trim();
+  if (!username) {
+    return { ok: false, expired: false };
+  }
+  if (ramState.adminPassword) {
+    return { ok: true, adminUsername: username, adminPassword: ramState.adminPassword };
+  }
+  if (delegatedVault) {
+    if (Date.now() > delegatedVault.expiresAt) {
+      delegatedVault = null;
+      ramState = { ...ramState, delegatedAuth: null };
+      notify();
+      return { ok: false, expired: true };
+    }
+    if (
+      delegatedVault.ownerUserId === (ramState.ownerUserId || '') &&
+      delegatedVault.adminUsername.toLowerCase() === username.toLowerCase() &&
+      delegatedVault.adminPassword
+    ) {
+      return {
+        ok: true,
+        adminUsername: delegatedVault.adminUsername,
+        adminPassword: delegatedVault.adminPassword,
+      };
+    }
+  }
+  return { ok: false, expired: false };
+}
+
 export function patchHelpdeskGroupRamSnapshot(
   patch: Partial<HelpdeskGroupRamState> | ((prev: HelpdeskGroupRamState) => Partial<HelpdeskGroupRamState>)
 ) {
   const nextPatch = typeof patch === 'function' ? patch(ramState) : patch;
-  ramState = { ...ramState, ...nextPatch };
+  let nextState = { ...ramState, ...nextPatch };
+
+  // Any manual password entry or username change immediately revokes the sealed delegated session
+  if ('adminPassword' in nextPatch && nextPatch.adminPassword) {
+    delegatedVault = null;
+    nextState = { ...nextState, delegatedAuth: null, pendingCredentialPromptGroup: null };
+  } else if (
+    'adminUsername' in nextPatch &&
+    delegatedVault &&
+    String(nextPatch.adminUsername || '').trim().toLowerCase() !== delegatedVault.adminUsername.toLowerCase()
+  ) {
+    delegatedVault = null;
+    nextState = { ...nextState, delegatedAuth: null };
+  }
+
+  ramState = nextState;
   notify();
 }
 
 export function bindHelpdeskGroupRamOwner(userId: string | null) {
   if (ramState.ownerUserId !== null && ramState.ownerUserId !== userId) {
+    delegatedVault = null;
     ramState = createInitialState(userId);
     notify();
   } else if (ramState.ownerUserId === null && userId !== null) {
@@ -123,21 +218,100 @@ export function bindHelpdeskGroupRamOwner(userId: string | null) {
 }
 
 export function wipeHelpdeskGroupRamSession() {
+  delegatedVault = null;
   const currentOwner = ramState.ownerUserId;
   ramState = createInitialState(currentOwner);
   notify();
 }
 
 export function wipeHelpdeskGroupRamOnLogout() {
+  delegatedVault = null;
   ramState = createInitialState(null);
   notify();
 }
 
+export function handoffGroupInspectionFromUserSession(params: {
+  ownerUserId: string | null;
+  targetGroup: string;
+  adminUsername: string;
+  adminPassword: string;
+  domainController?: string;
+  ldapProtocol?: 'auto' | 'ldaps' | 'ldap';
+  winrmProtocol?: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
+}): { canAutoInspect: boolean } {
+  const cleanTarget = String(params.targetGroup || '').trim();
+  const cleanUser = String(params.adminUsername || '').trim();
+  const cleanOwner = params.ownerUserId ? String(params.ownerUserId) : '';
+  const hasSecret = Boolean(cleanUser && params.adminPassword);
+
+  if (params.ownerUserId !== undefined) {
+    bindHelpdeskGroupRamOwner(params.ownerUserId);
+  }
+
+  if (hasSecret && cleanOwner) {
+    const now = Date.now();
+    const expiresAt = now + DELEGATED_CREDENTIAL_TTL_MS;
+    delegatedVault = {
+      ownerUserId: cleanOwner,
+      adminUsername: cleanUser,
+      adminPassword: params.adminPassword,
+      grantedAt: now,
+      expiresAt,
+    };
+    ramState = {
+      ...ramState,
+      targetGroup: cleanTarget,
+      adminUsername: cleanUser,
+      adminPassword: '', // Never mirror delegated password into React state or DOM input value
+      delegatedAuth: {
+        active: true,
+        source: 'helpdesk-users',
+        adminUsername: cleanUser,
+        grantedAt: now,
+        expiresAt,
+      },
+      pendingCredentialPromptGroup: null,
+      domainController: String(params.domainController || '').trim(),
+      ldapProtocol: params.ldapProtocol || 'auto',
+      winrmProtocol: params.winrmProtocol || 'auto',
+      activeSubTab: 'overview',
+      groupData: null,
+      error: null,
+      memberActionError: null,
+      memberActionResult: null,
+    };
+    notify();
+    return { canAutoInspect: true };
+  }
+
+  delegatedVault = null;
+  ramState = {
+    ...ramState,
+    targetGroup: cleanTarget,
+    adminUsername: cleanUser || ramState.adminUsername,
+    adminPassword: '',
+    delegatedAuth: null,
+    pendingCredentialPromptGroup: cleanTarget || null,
+    domainController: String(params.domainController || '').trim() || ramState.domainController,
+    ldapProtocol: params.ldapProtocol || ramState.ldapProtocol,
+    winrmProtocol: params.winrmProtocol || ramState.winrmProtocol,
+    activeSubTab: 'overview',
+    groupData: null,
+    error: null,
+  };
+  notify();
+  return { canAutoInspect: false };
+}
+
 export async function runHelpdeskGroupSearch(queryOverride?: string): Promise<void> {
   const snap = ramState;
-  if (!snap.adminUsername.trim() || !snap.adminPassword) {
+  const creds = resolveEffectiveGroupCredentials();
+  if (!creds.ok) {
+    const isExpired = 'expired' in creds && creds.expired;
     patchHelpdeskGroupRamSnapshot({
-      searchError: 'Privileged domain username & password are required first.',
+      searchError: isExpired
+        ? 'Delegated RAM session expired after 30 minutes for security. Please re-enter domain password.'
+        : 'Privileged domain username & password are required first.',
     });
     return;
   }
@@ -150,8 +324,8 @@ export async function runHelpdeskGroupSearch(queryOverride?: string): Promise<vo
   try {
     const res = await searchHelpdeskDomainGroups({
       query: (queryOverride !== undefined ? queryOverride : snap.targetGroup).trim(),
-      adminUsername: snap.adminUsername.trim(),
-      adminPassword: snap.adminPassword,
+      adminUsername: creds.adminUsername,
+      adminPassword: creds.adminPassword,
       domainController: snap.domainController.trim() || undefined,
       ldapProtocol: snap.ldapProtocol,
       limit: 50,
@@ -176,12 +350,24 @@ export async function runHelpdeskGroupSearch(queryOverride?: string): Promise<vo
 export async function runHelpdeskGroupInspect(overrideTargetGroup?: string): Promise<void> {
   const snap = ramState;
   const target = (overrideTargetGroup ?? snap.targetGroup).trim();
-  if (!target || !snap.adminUsername.trim() || !snap.adminPassword) {
+  const creds = resolveEffectiveGroupCredentials();
+  if (!target || !creds.ok) {
+    if (target && !creds.ok) {
+      const isExpired = 'expired' in creds && creds.expired;
+      patchHelpdeskGroupRamSnapshot({
+        targetGroup: target,
+        pendingCredentialPromptGroup: target,
+        error: isExpired
+          ? 'Delegated RAM credential expired after 30 minutes. Please enter your domain password above.'
+          : snap.error,
+      });
+    }
     return;
   }
 
   patchHelpdeskGroupRamSnapshot({
     targetGroup: target,
+    pendingCredentialPromptGroup: null,
     loading: true,
     error: null,
     memberActionResult: null,
@@ -191,8 +377,8 @@ export async function runHelpdeskGroupInspect(overrideTargetGroup?: string): Pro
   try {
     const res = await inspectHelpdeskTargetGroup({
       targetGroup: target,
-      adminUsername: snap.adminUsername.trim(),
-      adminPassword: snap.adminPassword,
+      adminUsername: creds.adminUsername,
+      adminPassword: creds.adminPassword,
       domainController: snap.domainController.trim() || undefined,
       ldapProtocol: snap.ldapProtocol,
       winrmProtocol: snap.winrmProtocol,
@@ -240,7 +426,8 @@ export async function runHelpdeskGroupMemberAction(params: {
 }): Promise<boolean> {
   const snap = ramState;
   const target = (snap.groupData?.identity.distinguishedName || snap.targetGroup).trim();
-  if (!target || !params.memberIdentifier.trim() || !snap.adminUsername.trim() || !snap.adminPassword) {
+  const creds = resolveEffectiveGroupCredentials();
+  if (!target || !params.memberIdentifier.trim() || !creds.ok) {
     return false;
   }
 
@@ -255,8 +442,8 @@ export async function runHelpdeskGroupMemberAction(params: {
       targetGroup: target,
       action: params.action,
       memberIdentifier: params.memberIdentifier.trim(),
-      adminUsername: snap.adminUsername.trim(),
-      adminPassword: snap.adminPassword,
+      adminUsername: creds.adminUsername,
+      adminPassword: creds.adminPassword,
       domainController: snap.domainController.trim() || undefined,
       ldapProtocol: snap.ldapProtocol,
       winrmProtocol: snap.winrmProtocol,
@@ -272,8 +459,8 @@ export async function runHelpdeskGroupMemberAction(params: {
     try {
       const refreshed = await inspectHelpdeskTargetGroup({
         targetGroup: target,
-        adminUsername: snap.adminUsername.trim(),
-        adminPassword: snap.adminPassword,
+        adminUsername: creds.adminUsername,
+        adminPassword: creds.adminPassword,
         domainController: snap.domainController.trim() || undefined,
         ldapProtocol: snap.ldapProtocol,
         winrmProtocol: snap.winrmProtocol,

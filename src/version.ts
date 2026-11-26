@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.488.1';
+export const APP_VERSION = '1.489.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.489.0',
+    releaseDate: '2026-11-26',
+    type: 'minor',
+    title: 'افزودن دکمه مشاهده جزئیات گروه در صفحه پشتیبانی کاربر با انتقال امن و مخفی اعتبارنامه در حافظه موقت (RAM) به صفحه گروه‌ها',
+    title_en: 'Add AD Group Details Deep-Link from User Support HelpDesk with Sealed RAM-Only Credential Handoff to Group Support HelpDesk',
+    changes: [
+      'افزودن دکمه «جزئیات گروه» (با کنترل سطح دسترسی RBAC) روی هر گروه در بخش `Active Directory Group Memberships` صفحه پشتیبانی کاربران جهت هدایت مستقیم به صفحه `Active Directory & Group Support HelpDesk` و لود خودکار تمام تب‌های گروه.',
+      'پیاده‌سازی مکانیزم امن انتقال اعتبارنامه موقت دامین در حافظه بسته ماژول (`DelegatedCredentialVault` در RAM): رمز عبور هرگز در `localStorage`، `sessionStorage`، آدرس URL یا فیلد متنی DOM کپی نمی‌شود، دکمه نمایش رمز (`Eye`) روی نشست منتقل‌شده قفل می‌ماند، به کاربر لاگین‌شده و نام کاربری ادمین مقید است، دارای انقضای خودکار ۳۰ دقیقه‌ای است و با Wipe یا خروج فوراً پاک می‌شود.'
+    ],
+    changes_en: [
+      'Added an RBAC-guarded "Group Details" action button to each entry in `Active Directory Group Memberships` on `Active Directory & User Support HelpDesk` to jump straight into `Active Directory & Group Support HelpDesk` and inspect all tabs for that group.',
+      'Implemented a sealed, module-private RAM-only delegated credential handoff (`DelegatedCredentialVault`): never persisted to browser storage or URLs, never mirrored into DOM input values, blocks Eye-icon plaintext reveal, binds strictly to `ownerUserId` and `adminUsername` with a 30-minute TTL, and auto-wipes on manual clear, session wipe, or logout.'
+    ]
+  },
   {
     version: '1.488.1',
     releaseDate: '2026-11-26',

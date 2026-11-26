@@ -54,6 +54,8 @@ import {
   patchHelpdeskGroupRamSnapshot,
   bindHelpdeskGroupRamOwner,
   wipeHelpdeskGroupRamSession,
+  revokeDelegatedGroupCredential,
+  hasActiveHelpdeskGroupAuth,
   runHelpdeskGroupSearch,
   runHelpdeskGroupInspect,
   runHelpdeskGroupMemberAction,
@@ -205,6 +207,24 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
       });
   }, [canViewAllHistory]);
 
+  const isDelegatedSession = Boolean(ram.delegatedAuth?.active) && !ram.adminPassword;
+  const canUseCurrentCreds = hasActiveHelpdeskGroupAuth(ram);
+
+  useEffect(() => {
+    if (isDelegatedSession && showPassword) {
+      setShowPassword(false);
+    }
+  }, [isDelegatedSession, showPassword]);
+
+  useEffect(() => {
+    if (ram.pendingCredentialPromptGroup && !canUseCurrentCreds) {
+      setReinspectBanner({ targetGroup: ram.pendingCredentialPromptGroup });
+      setTimeout(() => {
+        passwordInputRef.current?.focus();
+      }, 60);
+    }
+  }, [ram.pendingCredentialPromptGroup, canUseCurrentCreds]);
+
   useEffect(() => {
     setConfirmRemoveDn(null);
   }, [ram.groupData?.identity.distinguishedName]);
@@ -307,7 +327,7 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
       targetGroup,
       ...(dcHint ? { domainController: dcHint } : {}),
     });
-    if (ram.adminUsername.trim() && ram.adminPassword) {
+    if (canUseCurrentCreds) {
       setReinspectBanner(null);
       patchHelpdeskGroupRamSnapshot({ activeSubTab: 'overview' });
       runHelpdeskGroupInspect(targetGroup);
@@ -799,22 +819,52 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
             <div className="relative">
               <input
                 ref={passwordInputRef}
-                type={showPassword ? 'text' : 'password'}
+                type={showPassword && !isDelegatedSession ? 'text' : 'password'}
                 dir="ltr"
                 autoComplete="new-password"
                 value={ram.adminPassword}
                 onChange={(e) => patchHelpdeskGroupRamSnapshot({ adminPassword: e.target.value })}
-                placeholder="••••••••••••"
+                placeholder={
+                  isDelegatedSession
+                    ? isEn
+                      ? '•••••••• (RAM session protected)'
+                      : '•••••••• (نشست امن موقت)'
+                    : '••••••••••••'
+                }
                 className={`w-full min-w-0 px-3 py-2 rounded-lg border text-xs font-mono outline-none transition pe-9 ${inputCls}`}
-                required
+                required={!isDelegatedSession}
               />
               <button
                 type="button"
-                onClick={() => setShowPassword((p) => !p)}
-                className={`absolute top-1/2 -translate-y-1/2 end-2.5 p-1 ${textMuted} hover:text-teal-500 cursor-pointer`}
+                disabled={isDelegatedSession}
+                onClick={() => {
+                  if (!isDelegatedSession) setShowPassword((p) => !p);
+                }}
+                title={
+                  isDelegatedSession
+                    ? isEn
+                      ? 'Delegated password is sealed in RAM and cannot be revealed here'
+                      : 'رمز منتقل‌شده از صفحه کاربر به صورت امن در RAM قفل شده و قابل نمایش نیست'
+                    : showPassword
+                    ? isEn
+                      ? 'Hide password'
+                      : 'مخفی کردن رمز'
+                    : isEn
+                    ? 'Show password'
+                    : 'نمایش رمز'
+                }
+                className={`absolute top-1/2 -translate-y-1/2 end-2.5 p-1 ${
+                  isDelegatedSession
+                    ? 'opacity-40 cursor-not-allowed text-teal-500'
+                    : `${textMuted} hover:text-teal-500 cursor-pointer`
+                }`}
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
-                {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                {showPassword && !isDelegatedSession ? (
+                  <EyeOff className="w-3.5 h-3.5" />
+                ) : (
+                  <Eye className="w-3.5 h-3.5" />
+                )}
               </button>
             </div>
           </div>
@@ -852,6 +902,40 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Delegated RAM-Only Credential Security Strip */}
+        {isDelegatedSession && ram.delegatedAuth && (
+          <div
+            className={`rounded-lg border px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px] ${
+              isLightMode
+                ? 'bg-teal-50 border-teal-200 text-teal-800'
+                : 'bg-teal-500/10 border-teal-500/30 text-teal-300'
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <ShieldCheck className="w-4 h-4 text-teal-500 shrink-0" />
+              <span className="truncate">
+                {isEn
+                  ? `Using sealed RAM-only session from User HelpDesk (${ram.delegatedAuth.adminUsername}) — password stays hidden & auto-wipes in 30m or on logout.`
+                  : `استفاده از نشست امن موقت صفحه کاربر (${ram.delegatedAuth.adminUsername}) — رمز عبور در RAM مخفی می‌ماند و با خروج یا انقضای ۳۰ دقیقه‌ای پاک می‌شود.`}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                revokeDelegatedGroupCredential();
+                setTimeout(() => passwordInputRef.current?.focus(), 40);
+              }}
+              className={`shrink-0 px-2.5 py-1 rounded-md border text-[11px] font-medium transition cursor-pointer ${
+                isLightMode
+                  ? 'bg-white hover:bg-slate-50 border-teal-300 text-teal-800'
+                  : 'bg-slate-900/80 hover:bg-slate-800 border-teal-500/40 text-teal-300'
+              }`}
+            >
+              {isEn ? 'Clear / Enter Different Password' : 'لغو / وارد کردن رمز جدید'}
+            </button>
+          </div>
+        )}
 
         {/* AD Group Directory Browser / Quick Finder */}
         {showGroupBrowser && (
@@ -891,7 +975,7 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
               />
               <button
                 type="button"
-                disabled={ram.searchingGroups || !ram.adminUsername.trim() || !ram.adminPassword}
+                disabled={ram.searchingGroups || !canUseCurrentCreds}
                 onClick={handleSearchDirectoryGroups}
                 className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
               >

@@ -45,11 +45,13 @@ import {
   RotateCcw,
   BarChart3,
   Activity,
+  ArrowUpRight,
   X,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
 import { isUserDomainAdmin, isUserSuperAdmin } from '../utils/rbac';
+import { isTabAllowed } from '../services/settingsStorage';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { TimeoutAntivirusHint } from './helpdesk/TimeoutAntivirusHint';
 import {
@@ -66,6 +68,10 @@ import {
   runHelpdeskUserUnlock,
 } from '../services/helpdeskUserRamSession';
 import {
+  handoffGroupInspectionFromUserSession,
+  runHelpdeskGroupInspect,
+} from '../services/helpdeskGroupRamSession';
+import {
   HelpdeskUserHistoryItem,
   HelpdeskUserHistoryResponse,
   fetchHelpdeskStatus,
@@ -80,6 +86,7 @@ interface HelpDeskUsersViewProps {
   effectivePolicy?: AccessPolicy | null;
   currentUser?: AuthUser | null;
   onNavigateToEndpointHelpdesk?: () => void;
+  onNavigateToGroupHelpdesk?: () => void;
 }
 
 function formatBytesHuman(bytes: number | null | undefined, isEn: boolean): string {
@@ -157,6 +164,7 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
   effectivePolicy,
   currentUser,
   onNavigateToEndpointHelpdesk,
+  onNavigateToGroupHelpdesk,
 }) => {
   const ram = useSyncExternalStore(subscribeHelpdeskUserRam, getHelpdeskUserRamSnapshot);
   const passwordInputRef = useRef<HTMLInputElement | null>(null);
@@ -202,6 +210,53 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
   const canViewAllHistory =
     hasFull ||
     (canInspectUsers && effectivePolicy?.canViewAllHelpdeskHistory === true);
+  const canOpenGroupHelpdesk =
+    Boolean(onNavigateToGroupHelpdesk) &&
+    canInspectUsers &&
+    (!effectivePolicy || isTabAllowed('helpdesk-groups', effectivePolicy, currentUser));
+
+  const resolveInspectableGroupTarget = (grp: { cn: string; dn: string }): string | null => {
+    const dn = String(grp.dn || '').trim();
+    if (/^(?:CN|OU)=/i.test(dn) && /DC=/i.test(dn)) {
+      return dn;
+    }
+    const ridMatch = dn.match(/^RID:(\d+)$/i);
+    if (ridMatch) {
+      const wellKnown: Record<string, string> = {
+        '512': 'Domain Admins',
+        '513': 'Domain Users',
+        '514': 'Domain Guests',
+        '515': 'Domain Computers',
+        '516': 'Domain Controllers',
+      };
+      return wellKnown[ridMatch[1]] || null;
+    }
+    const cn = String(grp.cn || '').trim();
+    return cn || null;
+  };
+
+  const handleInspectGroupInHelpdesk = (grp: { cn: string; dn: string }) => {
+    if (!canOpenGroupHelpdesk || !onNavigateToGroupHelpdesk) return;
+    const targetGroup = resolveInspectableGroupTarget(grp);
+    if (!targetGroup) return;
+
+    const ownerUserId = currentUser?.id || currentUser?.username || ram.ownerUserId || null;
+    const { canAutoInspect } = handoffGroupInspectionFromUserSession({
+      ownerUserId,
+      targetGroup,
+      adminUsername: ram.adminUsername,
+      adminPassword: ram.adminPassword,
+      domainController:
+        ram.domainController.trim() || ram.userData?.connectionInfo?.domainController || '',
+      ldapProtocol: ram.ldapProtocol,
+      winrmProtocol: ram.winrmProtocol,
+    });
+
+    onNavigateToGroupHelpdesk();
+    if (canAutoInspect) {
+      void runHelpdeskGroupInspect(targetGroup);
+    }
+  };
 
   // Fetch HelpDesk RBAC/rate-limit status on mount
   useEffect(() => {
@@ -3332,26 +3387,49 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
 
               {filteredGroups.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-[520px] overflow-y-auto pe-1">
-                  {filteredGroups.map((grp, idx) => (
-                    <div
-                      key={`${grp.dn}-${idx}`}
-                      className={`rounded-lg border p-3 flex items-start justify-between gap-2 ${subSurfaceBg}`}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs font-bold truncate ${textPrimary}`}>{grp.cn}</span>
-                          {grp.isPrimary && (
-                            <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-teal-500/15 text-teal-500 shrink-0">
-                              {isEn ? 'Primary Group' : 'گروه اصلی'}
-                            </span>
-                          )}
+                  {filteredGroups.map((grp, idx) => {
+                    const inspectTarget = resolveInspectableGroupTarget(grp);
+                    return (
+                      <div
+                        key={`${grp.dn}-${idx}`}
+                        className={`rounded-lg border p-3 flex items-start justify-between gap-3 ${subSurfaceBg}`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-bold truncate ${textPrimary}`}>{grp.cn}</span>
+                            {grp.isPrimary && (
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-teal-500/15 text-teal-500 shrink-0">
+                                {isEn ? 'Primary Group' : 'گروه اصلی'}
+                              </span>
+                            )}
+                          </div>
+                          <div className={`text-[11px] font-mono break-all mt-0.5 ${textMuted}`} dir="ltr">
+                            {grp.dn}
+                          </div>
                         </div>
-                        <div className={`text-[11px] font-mono break-all mt-0.5 ${textMuted}`} dir="ltr">
-                          {grp.dn}
-                        </div>
+
+                        {canOpenGroupHelpdesk && inspectTarget && (
+                          <button
+                            type="button"
+                            onClick={() => handleInspectGroupInHelpdesk(grp)}
+                            title={
+                              isEn
+                                ? `Inspect "${grp.cn}" details in AD Group Support HelpDesk using current session`
+                                : `مشاهده جزئیات کامل گروه «${grp.cn}» در صفحه پشتیبانی گروه‌های دامین`
+                            }
+                            className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                              isLightMode
+                                ? 'bg-teal-50 hover:bg-teal-100 border-teal-200 text-teal-700'
+                                : 'bg-teal-500/10 hover:bg-teal-500/20 border-teal-500/30 text-teal-400'
+                            }`}
+                          >
+                            <span>{isEn ? 'Group Details' : 'جزئیات گروه'}</span>
+                            <ArrowUpRight className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className={`text-xs py-6 text-center ${textMuted}`}>

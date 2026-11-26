@@ -7,6 +7,7 @@ import {
   unlockHelpdeskTargetUser,
 } from './api';
 import { loadActiveDirectoryConfig } from './settingsStorage';
+import { revokeDelegatedGroupCredential } from './helpdeskGroupRamSession';
 
 export type HelpdeskUserSubTab =
   | 'overview'
@@ -251,6 +252,7 @@ export function bindHelpdeskUserRamOwner(userId: string | null | undefined): voi
   const normalized = userId ? String(userId) : null;
   if (ramState.ownerUserId && ramState.ownerUserId !== normalized) {
     activeRunToken += 1;
+    revokeDelegatedGroupCredential();
     ramState = createInitialHelpdeskUserRamState();
     ramState.ownerUserId = normalized;
     notifyListeners();
@@ -283,6 +285,7 @@ export function stopHelpdeskUserPrefetch(): void {
 
 export function wipeHelpdeskUserRamSession(): void {
   activeRunToken += 1;
+  revokeDelegatedGroupCredential();
   const owner = ramState.ownerUserId;
   ramState = {
     ...createInitialHelpdeskUserRamState(),
@@ -293,6 +296,7 @@ export function wipeHelpdeskUserRamSession(): void {
 
 export function wipeHelpdeskUserRamOnLogout(): void {
   activeRunToken += 1;
+  revokeDelegatedGroupCredential();
   ramState = createInitialHelpdeskUserRamState();
   notifyListeners();
 }
