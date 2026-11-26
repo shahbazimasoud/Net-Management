@@ -8,6 +8,7 @@ import {
   manageHelpdeskGroupMember,
   searchHelpdeskDomainGroups,
 } from './api';
+import { revokeDelegatedUserCredential } from './helpdeskUserRamSession';
 
 export type HelpdeskGroupSubTab =
   | 'overview'
@@ -183,6 +184,18 @@ function resolveEffectiveGroupCredentials():
   return { ok: false, expired: false };
 }
 
+export function exportGroupCredentialForUserHandoff(): {
+  adminUsername: string;
+  adminPassword: string;
+} | null {
+  const creds = resolveEffectiveGroupCredentials();
+  if (!creds.ok) return null;
+  return {
+    adminUsername: creds.adminUsername,
+    adminPassword: creds.adminPassword,
+  };
+}
+
 export function patchHelpdeskGroupRamSnapshot(
   patch: Partial<HelpdeskGroupRamState> | ((prev: HelpdeskGroupRamState) => Partial<HelpdeskGroupRamState>)
 ) {
@@ -209,6 +222,7 @@ export function patchHelpdeskGroupRamSnapshot(
 export function bindHelpdeskGroupRamOwner(userId: string | null) {
   if (ramState.ownerUserId !== null && ramState.ownerUserId !== userId) {
     delegatedVault = null;
+    revokeDelegatedUserCredential();
     ramState = createInitialState(userId);
     notify();
   } else if (ramState.ownerUserId === null && userId !== null) {
@@ -219,6 +233,7 @@ export function bindHelpdeskGroupRamOwner(userId: string | null) {
 
 export function wipeHelpdeskGroupRamSession() {
   delegatedVault = null;
+  revokeDelegatedUserCredential();
   const currentOwner = ramState.ownerUserId;
   ramState = createInitialState(currentOwner);
   notify();
@@ -226,6 +241,7 @@ export function wipeHelpdeskGroupRamSession() {
 
 export function wipeHelpdeskGroupRamOnLogout() {
   delegatedVault = null;
+  revokeDelegatedUserCredential();
   ramState = createInitialState(null);
   notify();
 }

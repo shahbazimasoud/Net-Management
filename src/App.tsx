@@ -2113,6 +2113,7 @@ export default function App() {
               effectivePolicy={effectivePolicy}
               currentUser={user}
               onNavigateToEndpointHelpdesk={() => setActiveTab('helpdesk')}
+              onNavigateToUserHelpdesk={() => setActiveTab('helpdesk-users')}
             />
           )}
 

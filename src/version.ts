@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.489.2';
+export const APP_VERSION = '1.490.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.490.0',
+    releaseDate: '2026-11-26',
+    type: 'minor',
+    title: 'افزودن دکمه User Details در لیست اعضای گروه و انتقال امن اعتبارنامه در RAM به صفحه پشتیبانی کاربران',
+    title_en: 'Add User Details Deep-Link in Group Membership Directory with Sealed RAM-Only Credential Handoff',
+    changes: [
+      'افزودن دکمه `User Details` (با کنترل دسترسی RBAC) برای هر عضو کاربر در بخش `Group Membership Directory` صفحه پشتیبانی گروه‌ها جهت هدایت مستقیم به صفحه `Active Directory & User Support HelpDesk` و استعلام خودکار تمام تب‌های کاربر.',
+      'تکمیل مکانیزم دوطرفه انتقال اعتبارنامه امن و مخفی در حافظه بسته ماژول (`DelegatedUserCredentialVault` در RAM): رمز عبور هرگز در storage، URL یا DOM کپی نمی‌شود، دکمه نمایش رمز (`Eye`) روی نشست منتقل‌شده قفل می‌ماند، به کاربر و نشست ادمین مقید است، پس از ۳۰ دقیقه یا هنگام Wipe/خروج فوراً پاک می‌شود و جابه‌جایی مجدد بین صفحه کاربر و گروه نیز بدون افشای رمز انجام می‌گیرد.'
+    ],
+    changes_en: [
+      'Added an RBAC-guarded `User Details` button on user rows in `Group Membership Directory` (`Active Directory & Group Support HelpDesk`) that navigates straight to `Active Directory & User Support HelpDesk` and loads all user tabs automatically.',
+      'Implemented the reverse sealed module-private RAM credential vault (`DelegatedUserCredentialVault`): plaintext passwords are never stored in browser storage, URLs, or DOM input values, the Eye reveal toggle stays locked, sessions are bound to `ownerUserId` & `adminUsername` with a 30-minute TTL, and chained User/Group hops preserve delegated RAM state while auto-wiping on clear/logout.'
+    ]
+  },
   {
     version: '1.489.2',
     releaseDate: '2026-11-26',

@@ -63,6 +63,9 @@ import {
   wipeHelpdeskUserRamSession,
   stopHelpdeskUserPrefetch,
   resolveHintedExchangeHost,
+  revokeDelegatedUserCredential,
+  hasActiveHelpdeskUserAuth,
+  exportUserCredentialForGroupHandoff,
   runHelpdeskUserInspect,
   runHelpdeskUserMailboxRefresh,
   runHelpdeskUserUnlock,
@@ -241,11 +244,12 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
     if (!targetGroup) return;
 
     const ownerUserId = currentUser?.id || currentUser?.username || ram.ownerUserId || null;
+    const creds = exportUserCredentialForGroupHandoff();
     const { canAutoInspect } = handoffGroupInspectionFromUserSession({
       ownerUserId,
       targetGroup,
-      adminUsername: ram.adminUsername,
-      adminPassword: ram.adminPassword,
+      adminUsername: creds?.adminUsername || ram.adminUsername,
+      adminPassword: creds?.adminPassword || '',
       domainController:
         ram.domainController.trim() || ram.userData?.connectionInfo?.domainController || '',
       ldapProtocol: ram.ldapProtocol,
@@ -257,6 +261,24 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
       void runHelpdeskGroupInspect(targetGroup);
     }
   };
+
+  const isDelegatedSession = Boolean(ram.delegatedAuth?.active) && !ram.adminPassword;
+  const canUseCurrentCreds = hasActiveHelpdeskUserAuth(ram);
+
+  useEffect(() => {
+    if (isDelegatedSession && showPassword) {
+      setShowPassword(false);
+    }
+  }, [isDelegatedSession, showPassword]);
+
+  useEffect(() => {
+    if (ram.pendingCredentialPromptUser && !canUseCurrentCreds) {
+      setReinspectBanner({ targetUsername: ram.pendingCredentialPromptUser });
+      setTimeout(() => {
+        passwordInputRef.current?.focus();
+      }, 60);
+    }
+  }, [ram.pendingCredentialPromptUser, canUseCurrentCreds]);
 
   // Fetch HelpDesk RBAC/rate-limit status on mount
   useEffect(() => {
@@ -381,7 +403,7 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
       activeSubTab: 'overview',
       error: null,
     });
-    if (ram.adminUsername.trim() && ram.adminPassword) {
+    if (canUseCurrentCreds) {
       setReinspectBanner(null);
       await runHelpdeskUserInspect(targetToQuery);
     } else {
@@ -1166,22 +1188,52 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
             <div className="relative">
               <input
                 ref={passwordInputRef}
-                type={showPassword ? 'text' : 'password'}
+                type={showPassword && !isDelegatedSession ? 'text' : 'password'}
                 dir="ltr"
                 autoComplete="new-password"
                 value={ram.adminPassword}
                 onChange={(e) => patchHelpdeskUserRamSnapshot({ adminPassword: e.target.value })}
-                placeholder="••••••••••••"
+                placeholder={
+                  isDelegatedSession
+                    ? isEn
+                      ? '•••••••• (RAM session protected)'
+                      : '•••••••• (نشست امن موقت)'
+                    : '••••••••••••'
+                }
                 className={`w-full min-w-0 px-3 py-2 rounded-lg border text-xs font-mono outline-none transition pe-9 ${inputCls}`}
-                required
+                required={!isDelegatedSession}
               />
               <button
                 type="button"
-                onClick={() => setShowPassword((p) => !p)}
-                className={`absolute top-1/2 -translate-y-1/2 end-2.5 p-1 ${textMuted} hover:text-teal-500 cursor-pointer`}
+                disabled={isDelegatedSession}
+                onClick={() => {
+                  if (!isDelegatedSession) setShowPassword((p) => !p);
+                }}
+                title={
+                  isDelegatedSession
+                    ? isEn
+                      ? 'Delegated password is sealed in RAM and cannot be revealed here'
+                      : 'رمز منتقل‌شده از صفحه گروه به صورت امن در RAM قفل شده و قابل نمایش نیست'
+                    : showPassword
+                    ? isEn
+                      ? 'Hide password'
+                      : 'مخفی کردن رمز'
+                    : isEn
+                    ? 'Show password'
+                    : 'نمایش رمز'
+                }
+                className={`absolute top-1/2 -translate-y-1/2 end-2.5 p-1 ${
+                  isDelegatedSession
+                    ? 'opacity-40 cursor-not-allowed text-teal-500'
+                    : `${textMuted} hover:text-teal-500 cursor-pointer`
+                }`}
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
-                {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                {showPassword && !isDelegatedSession ? (
+                  <EyeOff className="w-3.5 h-3.5" />
+                ) : (
+                  <Eye className="w-3.5 h-3.5" />
+                )}
               </button>
             </div>
           </div>
@@ -1219,6 +1271,40 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Delegated RAM-Only Credential Security Strip */}
+        {isDelegatedSession && ram.delegatedAuth && (
+          <div
+            className={`rounded-lg border px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px] ${
+              isLightMode
+                ? 'bg-teal-50 border-teal-200 text-teal-800'
+                : 'bg-teal-500/10 border-teal-500/30 text-teal-300'
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <ShieldCheck className="w-4 h-4 text-teal-500 shrink-0" />
+              <span className="truncate">
+                {isEn
+                  ? `Using sealed RAM-only session from Group HelpDesk (${ram.delegatedAuth.adminUsername}) — password stays hidden & auto-wipes in 30m or on logout.`
+                  : `استفاده از نشست امن موقت صفحه گروه‌ها (${ram.delegatedAuth.adminUsername}) — رمز عبور در RAM مخفی می‌ماند و با خروج یا انقضای ۳۰ دقیقه‌ای پاک می‌شود.`}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                revokeDelegatedUserCredential();
+                setTimeout(() => passwordInputRef.current?.focus(), 40);
+              }}
+              className={`shrink-0 px-2.5 py-1 rounded-md border text-[11px] font-medium transition cursor-pointer ${
+                isLightMode
+                  ? 'bg-white hover:bg-slate-50 border-teal-300 text-teal-800'
+                  : 'bg-slate-900/80 hover:bg-slate-800 border-teal-500/40 text-teal-300'
+              }`}
+            >
+              {isEn ? 'Clear / Enter Different Password' : 'لغو / وارد کردن رمز جدید'}
+            </button>
+          </div>
+        )}
 
         {ram.prefetchProgress?.active && (
           <div

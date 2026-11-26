@@ -1,7 +1,7 @@
 {
   "name": "nettopology",
   "private": true,
-  "version": "1.489.2",
+  "version": "1.490.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",

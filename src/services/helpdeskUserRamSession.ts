@@ -26,11 +26,32 @@ export interface HelpdeskUserPrefetchProgress {
   labelFa: string;
 }
 
+export interface DelegatedUserAuthMetadata {
+  active: boolean;
+  source: 'helpdesk-groups';
+  adminUsername: string;
+  grantedAt: number;
+  expiresAt: number;
+}
+
+interface DelegatedUserCredentialVault {
+  ownerUserId: string;
+  adminUsername: string;
+  adminPassword: string; // Sealed strictly inside module closure RAM; NEVER copied into React snapshot or DOM
+  grantedAt: number;
+  expiresAt: number;
+}
+
+const DELEGATED_USER_CREDENTIAL_TTL_MS = 30 * 60 * 1000; // 30 minutes strict RAM TTL
+let delegatedUserVault: DelegatedUserCredentialVault | null = null;
+
 export interface HelpdeskUserRamState {
   ownerUserId: string | null;
   targetUsername: string;
   adminUsername: string;
   adminPassword: string;
+  delegatedAuth: DelegatedUserAuthMetadata | null;
+  pendingCredentialPromptUser: string | null;
   domainController: string;
   ldapProtocol: 'auto' | 'ldaps' | 'ldap';
   exchangeServer: string;
@@ -176,6 +197,8 @@ function createInitialHelpdeskUserRamState(): HelpdeskUserRamState {
     targetUsername: '',
     adminUsername: '',
     adminPassword: '',
+    delegatedAuth: null,
+    pendingCredentialPromptUser: null,
     domainController: '',
     ldapProtocol: 'auto',
     exchangeServer: defaultExch,
@@ -228,6 +251,74 @@ export function subscribeHelpdeskUserRam(listener: () => void): () => void {
   };
 }
 
+export function revokeDelegatedUserCredential(): void {
+  const hadDelegated = delegatedUserVault !== null || ramState.delegatedAuth !== null;
+  delegatedUserVault = null;
+  if (hadDelegated) {
+    ramState = { ...ramState, delegatedAuth: null };
+    notifyListeners();
+  }
+}
+
+export function hasActiveHelpdeskUserAuth(state: HelpdeskUserRamState = ramState): boolean {
+  if (!state.adminUsername.trim()) return false;
+  if (state.adminPassword) return true;
+  if (
+    state.delegatedAuth?.active &&
+    delegatedUserVault &&
+    delegatedUserVault.ownerUserId === (state.ownerUserId || '') &&
+    delegatedUserVault.adminUsername.toLowerCase() === state.adminUsername.trim().toLowerCase() &&
+    Date.now() <= delegatedUserVault.expiresAt
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function resolveEffectiveUserCredentials():
+  | { ok: true; adminUsername: string; adminPassword: string }
+  | { ok: false; expired: boolean } {
+  const username = ramState.adminUsername.trim();
+  if (!username) {
+    return { ok: false, expired: false };
+  }
+  if (ramState.adminPassword) {
+    return { ok: true, adminUsername: username, adminPassword: ramState.adminPassword };
+  }
+  if (delegatedUserVault) {
+    if (Date.now() > delegatedUserVault.expiresAt) {
+      delegatedUserVault = null;
+      ramState = { ...ramState, delegatedAuth: null };
+      notifyListeners();
+      return { ok: false, expired: true };
+    }
+    if (
+      delegatedUserVault.ownerUserId === (ramState.ownerUserId || '') &&
+      delegatedUserVault.adminUsername.toLowerCase() === username.toLowerCase() &&
+      delegatedUserVault.adminPassword
+    ) {
+      return {
+        ok: true,
+        adminUsername: delegatedUserVault.adminUsername,
+        adminPassword: delegatedUserVault.adminPassword,
+      };
+    }
+  }
+  return { ok: false, expired: false };
+}
+
+export function exportUserCredentialForGroupHandoff(): {
+  adminUsername: string;
+  adminPassword: string;
+} | null {
+  const creds = resolveEffectiveUserCredentials();
+  if (!creds.ok) return null;
+  return {
+    adminUsername: creds.adminUsername,
+    adminPassword: creds.adminPassword,
+  };
+}
+
 export function patchHelpdeskUserRamSnapshot(
   patch:
     | Partial<HelpdeskUserRamState>
@@ -235,6 +326,20 @@ export function patchHelpdeskUserRamSnapshot(
 ): void {
   const delta = typeof patch === 'function' ? patch(ramState) : patch;
   let next = { ...ramState, ...delta };
+
+  // Manual password entry or changing admin username immediately revokes sealed delegated session
+  if ('adminPassword' in delta && delta.adminPassword) {
+    delegatedUserVault = null;
+    next = { ...next, delegatedAuth: null, pendingCredentialPromptUser: null };
+  } else if (
+    'adminUsername' in delta &&
+    delegatedUserVault &&
+    String(delta.adminUsername || '').trim().toLowerCase() !==
+      delegatedUserVault.adminUsername.toLowerCase()
+  ) {
+    delegatedUserVault = null;
+    next = { ...next, delegatedAuth: null };
+  }
 
   // Keep exchangeServer auto-synced to mail.<domain> unless user edited it manually
   if (!next.exchangeServerEditedManually && !('exchangeServer' in delta)) {
@@ -252,6 +357,7 @@ export function bindHelpdeskUserRamOwner(userId: string | null | undefined): voi
   const normalized = userId ? String(userId) : null;
   if (ramState.ownerUserId && ramState.ownerUserId !== normalized) {
     activeRunToken += 1;
+    delegatedUserVault = null;
     revokeDelegatedGroupCredential();
     ramState = createInitialHelpdeskUserRamState();
     ramState.ownerUserId = normalized;
@@ -285,6 +391,7 @@ export function stopHelpdeskUserPrefetch(): void {
 
 export function wipeHelpdeskUserRamSession(): void {
   activeRunToken += 1;
+  delegatedUserVault = null;
   revokeDelegatedGroupCredential();
   const owner = ramState.ownerUserId;
   ramState = {
@@ -296,29 +403,145 @@ export function wipeHelpdeskUserRamSession(): void {
 
 export function wipeHelpdeskUserRamOnLogout(): void {
   activeRunToken += 1;
+  delegatedUserVault = null;
   revokeDelegatedGroupCredential();
   ramState = createInitialHelpdeskUserRamState();
   notifyListeners();
+}
+
+export function handoffUserInspectionFromGroupSession(params: {
+  ownerUserId: string | null;
+  targetUsername: string;
+  adminUsername: string;
+  adminPassword: string;
+  domainController?: string;
+  ldapProtocol?: 'auto' | 'ldaps' | 'ldap';
+  winrmProtocol?: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
+}): { canAutoInspect: boolean } {
+  const cleanTarget = String(params.targetUsername || '').trim();
+  const cleanUser = String(params.adminUsername || '').trim();
+  const cleanOwner = params.ownerUserId ? String(params.ownerUserId) : '';
+  const hasSecret = Boolean(cleanUser && params.adminPassword);
+
+  if (params.ownerUserId !== undefined) {
+    bindHelpdeskUserRamOwner(params.ownerUserId);
+  }
+
+  activeRunToken += 1;
+
+  if (hasSecret && cleanOwner) {
+    const now = Date.now();
+    const expiresAt = now + DELEGATED_USER_CREDENTIAL_TTL_MS;
+    delegatedUserVault = {
+      ownerUserId: cleanOwner,
+      adminUsername: cleanUser,
+      adminPassword: params.adminPassword,
+      grantedAt: now,
+      expiresAt,
+    };
+
+    const nextBase: HelpdeskUserRamState = {
+      ...ramState,
+      targetUsername: cleanTarget,
+      adminUsername: cleanUser,
+      adminPassword: '', // Never mirror delegated password into React state or DOM input value
+      delegatedAuth: {
+        active: true,
+        source: 'helpdesk-groups',
+        adminUsername: cleanUser,
+        grantedAt: now,
+        expiresAt,
+      },
+      pendingCredentialPromptUser: null,
+      domainController: String(params.domainController || '').trim() || ramState.domainController,
+      ldapProtocol: params.ldapProtocol || 'auto',
+      winrmProtocol: params.winrmProtocol || 'auto',
+      activeSubTab: 'overview',
+      userData: null,
+      overviewLoaded: false,
+      securityLoaded: false,
+      groupsLoaded: false,
+      mailboxLoaded: false,
+      loading: false,
+      loadingOverview: false,
+      loadingSecurity: false,
+      loadingGroups: false,
+      mailboxLoading: false,
+      prefetchProgress: null,
+      error: null,
+      mailboxError: null,
+      unlockError: null,
+      unlockResult: null,
+    };
+    const hinted = resolveHintedExchangeHost(nextBase);
+    ramState = {
+      ...nextBase,
+      exchangeServer:
+        nextBase.exchangeServerEditedManually && nextBase.exchangeServer.trim()
+          ? nextBase.exchangeServer.trim()
+          : hinted || nextBase.exchangeServer,
+    };
+    notifyListeners();
+    return { canAutoInspect: true };
+  }
+
+  delegatedUserVault = null;
+  const fallbackBase: HelpdeskUserRamState = {
+    ...ramState,
+    targetUsername: cleanTarget,
+    adminUsername: cleanUser || ramState.adminUsername,
+    adminPassword: '',
+    delegatedAuth: null,
+    pendingCredentialPromptUser: cleanTarget || null,
+    domainController: String(params.domainController || '').trim() || ramState.domainController,
+    ldapProtocol: params.ldapProtocol || ramState.ldapProtocol,
+    winrmProtocol: params.winrmProtocol || ramState.winrmProtocol,
+    activeSubTab: 'overview',
+    userData: null,
+    overviewLoaded: false,
+    securityLoaded: false,
+    groupsLoaded: false,
+    mailboxLoaded: false,
+    error: null,
+    mailboxError: null,
+    unlockError: null,
+    unlockResult: null,
+  };
+  const hinted = resolveHintedExchangeHost(fallbackBase);
+  ramState = {
+    ...fallbackBase,
+    exchangeServer:
+      fallbackBase.exchangeServerEditedManually && fallbackBase.exchangeServer.trim()
+        ? fallbackBase.exchangeServer.trim()
+        : hinted || fallbackBase.exchangeServer,
+  };
+  notifyListeners();
+  return { canAutoInspect: false };
 }
 
 function buildUserRequestPayload(
   overrideTarget?: string,
   includeMailbox = false,
   extra?: Partial<HelpdeskTargetUserRequestPayload>
-): HelpdeskTargetUserRequestPayload {
+): { payload: HelpdeskTargetUserRequestPayload; hasAuth: boolean; expired: boolean } {
   const s = ramState;
+  const creds = resolveEffectiveUserCredentials();
   const effectiveExchange =
     s.exchangeServer.trim() || resolveHintedExchangeHost(s) || undefined;
   return {
-    targetUsername: (overrideTarget ?? s.targetUsername).trim(),
-    adminUsername: s.adminUsername.trim(),
-    adminPassword: s.adminPassword,
-    domainController: s.domainController.trim() || undefined,
-    ldapProtocol: s.ldapProtocol,
-    exchangeServer: effectiveExchange,
-    winrmProtocol: s.winrmProtocol,
-    includeMailbox,
-    ...extra,
+    hasAuth: creds.ok,
+    expired: !creds.ok && 'expired' in creds && creds.expired,
+    payload: {
+      targetUsername: (overrideTarget ?? s.targetUsername).trim(),
+      adminUsername: creds.ok ? creds.adminUsername : s.adminUsername.trim(),
+      adminPassword: creds.ok ? creds.adminPassword : '',
+      domainController: s.domainController.trim() || undefined,
+      ldapProtocol: s.ldapProtocol,
+      exchangeServer: effectiveExchange,
+      winrmProtocol: s.winrmProtocol,
+      includeMailbox,
+      ...extra,
+    },
   };
 }
 
@@ -330,12 +553,20 @@ export async function runHelpdeskUserInspect(
   if (overrideTarget !== undefined) {
     patchHelpdeskUserRamSnapshot({ targetUsername: overrideTarget });
   }
-  const initialPayload = buildUserRequestPayload(overrideTarget, false);
-  if (
-    !initialPayload.targetUsername ||
-    !initialPayload.adminUsername ||
-    !initialPayload.adminPassword
-  ) {
+  const built = buildUserRequestPayload(overrideTarget, false);
+  const initialPayload = built.payload;
+  if (!initialPayload.targetUsername || !built.hasAuth) {
+    if (initialPayload.targetUsername && !built.hasAuth) {
+      patchHelpdeskUserRamSnapshot({
+        pendingCredentialPromptUser: initialPayload.targetUsername,
+        ...(built.expired
+          ? {
+              error:
+                'Delegated RAM credential expired after 30 minutes. Please enter your domain password above.',
+            }
+          : {}),
+      });
+    }
     return null;
   }
 
@@ -345,6 +576,7 @@ export async function runHelpdeskUserInspect(
 
   // Step 1/4: Tab 1 — Profile, Role & Contact Info (plus fast AD lookup)
   patchHelpdeskUserRamSnapshot({
+    pendingCredentialPromptUser: null,
     loading: true,
     loadingOverview: true,
     loadingSecurity: false,
@@ -478,12 +710,12 @@ export async function runHelpdeskUserInspect(
   });
 
   try {
-    const mbxPayload = buildUserRequestPayload(
+    const mbxBuilt = buildUserRequestPayload(
       data.profile.samAccountName,
       true,
       inspectHistoryId ? { historyId: inspectHistoryId } : undefined
     );
-    const mbxRes = await refreshHelpdeskTargetMailbox(mbxPayload);
+    const mbxRes = await refreshHelpdeskTargetMailbox(mbxBuilt.payload);
     if (!isCancelled()) {
       patchHelpdeskUserRamSnapshot((prev) => ({
         mailboxLoading: false,
@@ -508,12 +740,12 @@ export async function runHelpdeskUserInspect(
 }
 
 export async function runHelpdeskUserMailboxRefresh(): Promise<HelpdeskUserMailboxInfo | null> {
-  const payload = buildUserRequestPayload(
+  const built = buildUserRequestPayload(
     undefined,
     true,
     ramState.lastHistoryId ? { historyId: ramState.lastHistoryId } : undefined
   );
-  if (!payload.targetUsername || !payload.adminUsername || !payload.adminPassword) {
+  if (!built.payload.targetUsername || !built.hasAuth) {
     return null;
   }
 
@@ -523,7 +755,7 @@ export async function runHelpdeskUserMailboxRefresh(): Promise<HelpdeskUserMailb
   });
 
   try {
-    const res = await refreshHelpdeskTargetMailbox(payload);
+    const res = await refreshHelpdeskTargetMailbox(built.payload);
     patchHelpdeskUserRamSnapshot((prev) => ({
       mailboxLoading: false,
       mailboxLoaded: true,
@@ -541,8 +773,8 @@ export async function runHelpdeskUserMailboxRefresh(): Promise<HelpdeskUserMailb
 }
 
 export async function runHelpdeskUserUnlock(): Promise<void> {
-  const payload = buildUserRequestPayload(undefined, false);
-  if (!payload.targetUsername || !payload.adminUsername || !payload.adminPassword) {
+  const built = buildUserRequestPayload(undefined, false);
+  if (!built.payload.targetUsername || !built.hasAuth) {
     return;
   }
 
@@ -553,7 +785,7 @@ export async function runHelpdeskUserUnlock(): Promise<void> {
   });
 
   try {
-    const res = await unlockHelpdeskTargetUser(payload);
+    const res = await unlockHelpdeskTargetUser(built.payload);
     patchHelpdeskUserRamSnapshot((prev) => {
       const updatedUserData =
         prev.userData && res.data.unlocked

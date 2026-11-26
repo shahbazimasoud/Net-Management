@@ -43,6 +43,7 @@ import {
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
 import { isUserDomainAdmin, isUserSuperAdmin } from '../utils/rbac';
+import { isTabAllowed } from '../services/settingsStorage';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { TimeoutAntivirusHint } from './helpdesk/TimeoutAntivirusHint';
 import {
@@ -54,9 +55,14 @@ import {
   wipeHelpdeskGroupRamSession,
   revokeDelegatedGroupCredential,
   hasActiveHelpdeskGroupAuth,
+  exportGroupCredentialForUserHandoff,
   runHelpdeskGroupSearch,
   runHelpdeskGroupInspect,
 } from '../services/helpdeskGroupRamSession';
+import {
+  handoffUserInspectionFromGroupSession,
+  runHelpdeskUserInspect,
+} from '../services/helpdeskUserRamSession';
 import {
   HelpdeskGroupHistoryItem,
   HelpdeskGroupHistoryResponse,
@@ -73,6 +79,7 @@ interface HelpDeskGroupsViewProps {
   effectivePolicy?: AccessPolicy | null;
   currentUser?: AuthUser | null;
   onNavigateToEndpointHelpdesk?: () => void;
+  onNavigateToUserHelpdesk?: () => void;
 }
 
 function formatDateDisplay(iso: string | null | undefined, isEn: boolean): string {
@@ -127,6 +134,7 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
   effectivePolicy,
   currentUser,
   onNavigateToEndpointHelpdesk,
+  onNavigateToUserHelpdesk,
 }) => {
   const ram = useSyncExternalStore(subscribeHelpdeskGroupRam, getHelpdeskGroupRamSnapshot);
   const passwordInputRef = useRef<HTMLInputElement | null>(null);
@@ -181,6 +189,34 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
   const canViewAllHistory =
     hasFull ||
     (canInspectGroups && effectivePolicy?.canViewAllHelpdeskHistory === true);
+  const canOpenUserHelpdesk =
+    Boolean(onNavigateToUserHelpdesk) &&
+    canInspectGroups &&
+    (!effectivePolicy || isTabAllowed('helpdesk-users', effectivePolicy, currentUser));
+
+  const handleInspectUserInHelpdesk = (member: HelpdeskGroupMemberEntry) => {
+    if (!canOpenUserHelpdesk || !onNavigateToUserHelpdesk) return;
+    const targetUsername = (member.samAccountName || member.email || member.dn || '').trim();
+    if (!targetUsername) return;
+
+    const ownerUserId = currentUser?.id || currentUser?.username || ram.ownerUserId || null;
+    const creds = exportGroupCredentialForUserHandoff();
+    const { canAutoInspect } = handoffUserInspectionFromGroupSession({
+      ownerUserId,
+      targetUsername,
+      adminUsername: creds?.adminUsername || ram.adminUsername,
+      adminPassword: creds?.adminPassword || '',
+      domainController:
+        ram.domainController.trim() || ram.groupData?.connectionInfo?.domainController || '',
+      ldapProtocol: ram.ldapProtocol,
+      winrmProtocol: ram.winrmProtocol,
+    });
+
+    onNavigateToUserHelpdesk();
+    if (canAutoInspect) {
+      void runHelpdeskUserInspect(targetUsername);
+    }
+  };
 
   useEffect(() => {
     fetchHelpdeskStatus()
@@ -1899,6 +1935,26 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 text-[11px] font-medium cursor-pointer"
                             >
                               <span>{isEn ? 'Inspect Group' : 'بررسی زیرگروه'}</span>
+                              <ArrowUpRight className="w-3 h-3" />
+                            </button>
+                          ) : m.objectType === 'user' &&
+                            canOpenUserHelpdesk &&
+                            Boolean(m.samAccountName || m.email || m.dn) ? (
+                            <button
+                              type="button"
+                              onClick={() => handleInspectUserInHelpdesk(m)}
+                              title={
+                                isEn
+                                  ? `Inspect "${m.displayName || m.samAccountName}" in Active Directory & User Support HelpDesk`
+                                  : `مشاهده جزئیات کامل کاربر «${m.displayName || m.samAccountName}» در صفحه پشتیبانی کاربران دامین`
+                              }
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer ${
+                                isLightMode
+                                  ? 'bg-teal-50 hover:bg-teal-100 border-teal-200 text-teal-700'
+                                  : 'bg-teal-500/15 hover:bg-teal-500/25 border-teal-500/30 text-teal-400'
+                              }`}
+                            >
+                              <span>User Details</span>
                               <ArrowUpRight className="w-3 h-3" />
                             </button>
                           ) : (
