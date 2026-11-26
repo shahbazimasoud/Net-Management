@@ -86,13 +86,11 @@ import {
   SslCertificateItem,
   ActionAccessDecision,
   ApprovalWorkflowStageConfig,
-  HelpdeskExceptionRule,
 } from '../../types';
 import { useLanguage } from '../../i18n';
 import { useModalDock } from '../../context/ModalDockContext';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ApprovalChainBuilder } from './ApprovalChainBuilder';
-import { HelpdeskExceptionsModal } from '../helpdesk/HelpdeskExceptionsModal';
 import {
   SERVER_ACTIONS_CATALOG,
   DEVICE_ACTIONS_CATALOG,
@@ -107,7 +105,6 @@ import {
 import {
   fetchActiveDirectoryConfig,
   fetchContractsApi,
-  fetchHelpdeskExceptions,
   fetchLicensesApi,
   fetchSslCertificatesApi,
 } from '../../services/api';
@@ -181,7 +178,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   const [sslCertsSearch, setSslCertsSearch] = useState('');
   const [isLoadingContractsLicenses, setIsLoadingContractsLicenses] = useState(false);
 
-  // Tab: HelpDesk Scope & Rules inputs & Global Exceptions Modal state
+  // Tab: HelpDesk Scope & Rules inputs
   const [hdAllowedIpInput, setHdAllowedIpInput] = useState('');
   const [hdBlockedIpInput, setHdBlockedIpInput] = useState('');
   const [hdAllowedGroupInput, setHdAllowedGroupInput] = useState('');
@@ -190,9 +187,6 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   const [hdBlockedUserInput, setHdBlockedUserInput] = useState('');
   const [hdBlockedLocalUserInput, setHdBlockedLocalUserInput] = useState('');
   const [hdCatalogSearch, setHdCatalogSearch] = useState('');
-  const [isExceptionsModalOpen, setIsExceptionsModalOpen] = useState(false);
-  const [globalExceptionsCount, setGlobalExceptionsCount] = useState(0);
-  const [canManageGlobalExceptions, setCanManageGlobalExceptions] = useState(true);
 
   const [draftPolicy, setDraftPolicy] = useState<AccessPolicy | null>(() => {
     if (!initialPolicy) return null;
@@ -910,18 +904,17 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     }
   }, [isOpen, initialPolicy]);
 
-  // Fetch authentic live Contracts, Licenses, SSL Certificates & Global HelpDesk Exceptions from backend on modal open
+  // Fetch authentic live Contracts, Licenses & SSL Certificates from backend on modal open
   useEffect(() => {
     if (!isOpen) return;
     let isCancelled = false;
     const fetchLiveItems = async () => {
       try {
         setIsLoadingContractsLicenses(true);
-        const [cntRes, licRes, sslRes, hdExcRes] = await Promise.all([
+        const [cntRes, licRes, sslRes] = await Promise.all([
           fetchContractsApi().catch(() => ({ contracts: [] })),
           fetchLicensesApi().catch(() => ({ licenses: [] })),
           fetchSslCertificatesApi().catch(() => ({ certificates: [] })),
-          fetchHelpdeskExceptions().catch(() => null),
         ]);
         if (!isCancelled) {
           if (Array.isArray(cntRes?.contracts)) {
@@ -932,12 +925,6 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           }
           if (Array.isArray(sslRes?.certificates)) {
             setSslCertsList(sslRes.certificates);
-          }
-          if (hdExcRes && Array.isArray(hdExcRes.rules)) {
-            setGlobalExceptionsCount(hdExcRes.rules.filter((r) => r.enabled).length);
-            if (typeof hdExcRes.canManage === 'boolean') {
-              setCanManageGlobalExceptions(hdExcRes.canManage);
-            }
           }
         }
       } catch (err) {
@@ -2524,25 +2511,6 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       (draftPolicy.targetHelpdeskAdScope === 'selected' ? 1 : 0)
     );
   }, [draftPolicy]);
-
-  const handleMinimizeExceptionsModal = () => {
-    dockModal({
-      id: 'modal-helpdesk-exceptions',
-      labelEn: 'Global HelpDesk Exceptions',
-      labelFa: 'استثنائات و مسدودسازی سراسری هلپ‌دسک',
-      badge: globalExceptionsCount > 0 ? String(globalExceptionsCount) : undefined,
-      category: 'tools',
-      onRestore: () => {
-        undockModal('modal-helpdesk-exceptions');
-        setIsExceptionsModalOpen(true);
-      },
-      onClose: () => {
-        undockModal('modal-helpdesk-exceptions');
-        setIsExceptionsModalOpen(false);
-      },
-    });
-    setIsExceptionsModalOpen(false);
-  };
 
   if (!isOpen || !draftPolicy) return null;
 
@@ -9112,7 +9080,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         </div>
                         <div className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                           {isEn
-                            ? 'Technicians can check any IP/host except those in the Blocked list or Global Blocklist.'
+                            ? 'Technicians can check any IP/host except those in the Blocked list below.'
                             : 'کارشناسان می‌توانند تمام سیستم‌ها را بررسی کنند مگر آدرس‌هایی که در لیست مسدود زیر قرار دارند.'}
                         </div>
                       </div>
@@ -10018,72 +9986,6 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                   </div>
                 </div>
 
-                {/* -------- Section 3: Organization-Wide Global Blocklist Manager (HelpdeskExceptionsModal) -------- */}
-                <div
-                  className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                    isLightMode
-                      ? 'bg-slate-50 border-slate-200'
-                      : 'bg-slate-950/70 border-white/10'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div
-                      className={`p-2 rounded-xl border shrink-0 ${
-                        isLightMode
-                          ? 'bg-rose-50 border-rose-200 text-rose-600'
-                          : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
-                      }`}
-                    >
-                      <ShieldBan className="w-4 h-4" />
-                    </div>
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                          {isEn
-                            ? 'Organization-Wide Global HelpDesk Exceptions & Blocklist'
-                            : 'فهرست سراسری استثنائات و مسدودسازی هلپ‌دسک (برای تمام پالیسی‌ها)'}
-                        </h4>
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-mono border ${
-                            globalExceptionsCount > 0
-                              ? isLightMode
-                                ? 'bg-rose-50 border-rose-200 text-rose-700'
-                                : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
-                              : isLightMode
-                              ? 'bg-slate-100 border-slate-200 text-slate-600'
-                              : 'bg-slate-800 border-slate-700 text-slate-400'
-                          }`}
-                        >
-                          {isEn
-                            ? `${globalExceptionsCount} active global rule(s)`
-                            : `${globalExceptionsCount} قانون سراسری فعال`}
-                        </span>
-                      </div>
-                      <p className={`text-[11px] ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
-                        {isEn
-                          ? 'Rules managed here apply organization-wide across all HelpDesk sessions and are hidden from technicians on Endpoint HelpDesk.'
-                          : 'قوانین این بخش به صورت سراسری در کل سازمان و برای تمام نشست‌های هلپ‌دسک اعمال می‌شوند و در صفحه کاربران/تکنسین‌ها نمایش داده نمی‌شوند.'}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      undockModal('modal-helpdesk-exceptions');
-                      setIsExceptionsModalOpen(true);
-                    }}
-                    className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition cursor-pointer shrink-0 ${
-                      isLightMode
-                        ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-700 shadow-xs'
-                        : 'bg-rose-600/85 hover:bg-rose-500 text-white border-rose-400/30 shadow-sm'
-                    }`}
-                  >
-                    <ShieldBan className="w-3.5 h-3.5" />
-                    <span>
-                      {isEn ? 'Manage Global Exceptions' : 'مدیریت استثنائات سراسری'}
-                    </span>
-                  </button>
-                </div>
               </div>
             )}
 
@@ -10505,22 +10407,6 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         </div>
       )}
 
-      {/* Nested Organization-Wide HelpDesk Exceptions Manager (Admin Access Policy Portal) */}
-      <HelpdeskExceptionsModal
-        isOpen={isExceptionsModalOpen}
-        onClose={() => {
-          undockModal('modal-helpdesk-exceptions');
-          setIsExceptionsModalOpen(false);
-        }}
-        onMinimize={handleMinimizeExceptionsModal}
-        isLightMode={Boolean(isLightMode)}
-        isEn={isEn}
-        canManage={canManageGlobalExceptions}
-        overlayZIndexClass="z-[99995]"
-        onRulesChanged={(updatedRules: HelpdeskExceptionRule[]) => {
-          setGlobalExceptionsCount(updatedRules.filter((r) => r.enabled).length);
-        }}
-      />
     </>,
     document.body
   );

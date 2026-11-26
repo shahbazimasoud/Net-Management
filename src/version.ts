@@ -10,9 +10,22 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.495.0';
+export const APP_VERSION = '1.495.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.495.1',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'حذف بخش اضافی استثنائات سراسری هلپ‌دسک از تب محدوده و قوانین هلپ‌دسک در Access Policy',
+    title_en: 'Remove Redundant Organization-Wide Global HelpDesk Exceptions Card from Access Policy HelpDesk Scope Tab',
+    changes: [
+      'حذف بخش اضافی «فهرست سراسری استثنائات و مسدودسازی هلپ‌دسک» (Organization-Wide Global HelpDesk Exceptions & Blocklist) و مودال تودرتوی آن از انتهای تب «محدوده و قوانین هلپ‌دسک» در پنجره Access Policy، زیرا تمام قوانین IP/CIDR/رنج، کاربران و گروه‌های AD و حساب‌های لوکال به صورت مستقیم در همان تب مدیریت می‌شوند.'
+    ],
+    changes_en: [
+      'Removed the redundant "Organization-Wide Global HelpDesk Exceptions & Blocklist" card, button, and nested modal from the Access Policy "HelpDesk Scope & Rules" tab since all IP/CIDR/range, AD user/group, and local account allowlists and blocklists are already configured directly inside that tab.'
+    ]
+  },
   {
     version: '1.495.0',
     releaseDate: '2026-11-26',
