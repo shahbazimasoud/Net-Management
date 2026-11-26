@@ -267,7 +267,7 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
     setEditSpeed(selectedPort.speed || 'auto');
   }, [selectedPort]);
 
-  if (!isOpen || !device) return null;
+  if (!device) return null;
 
   // Execute confirmed RouterOS updates
   const handleExecuteConfirmedCli = async () => {
@@ -1747,9 +1747,14 @@ ${ports.map((p) => `add bridge=bridge1 interface=${p.port_id} pvid=${p.vlan || 1
 
   return (
     <div
-      className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs animate-in fade-in duration-200 ${
-        isMaximized ? 'p-0' : 'p-2 sm:p-4'
-      }`}
+      aria-hidden={!isOpen}
+      className={
+        !isOpen
+          ? 'fixed -top-[20000px] -left-[20000px] w-[1024px] h-[768px] opacity-0 pointer-events-none invisible -z-50 overflow-hidden flex items-center justify-center'
+          : `fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs animate-in fade-in duration-200 ${
+              isMaximized ? 'p-0' : 'p-2 sm:p-4'
+            }`
+      }
     >
       {innerContent}
     </div>

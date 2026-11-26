@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.496.3';
+export const APP_VERSION = '1.496.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.496.4',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'حفظ پایدار سشن‌های زنده SSH/Telnet در ترمینال‌های سیسکو، میکروتیک، لینوکس و پایش زنده پورت هنگام مینیمایز و بازیابی',
+    title_en: 'Preserve Live SSH/Telnet Sessions Across Minimize & Restore in Cisco, MikroTik, Linux Terminals & Port Live Watch',
+    changes: [
+      'رفع قطع و اتصال مجدد سشن در مودال‌های ترمینال سیسکو (`CiscoTerminalModal`)، میکروتیک (`MikroTikTerminalModal`) و فضای چندترمینال (`MultiTerminalWorkspace`): حذف قطع سوکت وب‌سوکت و فراخوانی `DELETE /api/devices/:id/terminal` هنگام مینیمایز، مخفی‌سازی خارج از صفحه (Offscreen) به جای حذف از DOM جهت حفظ کامل بافر `xterm` و سشن زنده، تداوم پینگ KeepAlive هر ۲۰ ثانیه و بستن سشن منحصراً با کلیک دکمه Close یا بستن تب از داک.',
+      'رفع قطع سشن‌های SSH در ترمینال سرور لینوکس (`LinuxTerminalModal`) هنگام مینیمایز: حذف افکت بستن سوکت‌ها در حالت `!isOpen`، حفظ تمام پنل‌ها و بافر ترمینال به صورت مخفی در پس‌زمینه همراه با پینگ KeepAlive، پاک‌سازی ایمن فوکوس حین مینیمایز، بازتنظیم خودکار اندازه و فوکوس هنگام بازیابی (Restore) و بستن قطعی سوکت‌ها هنگام زدن دکمه Close روی مودال یا تب داک.',
+      'حفظ وضعیت و اتصال زنده پایش پورت (`PortInspectorModal` / `MultiPortWorkspace` / `MikroTikDeviceManageModal`) هنگام مینیمایز تا وب‌سوکت `terminal monitor` بدون نیاز به برقراری مجدد اتصال تا زمان بستن صریح پنجره پایدار بماند.'
+    ],
+    changes_en: [
+      'Fixed SSH/Telnet session drop and reconnect on minimize/restore in `CiscoTerminalModal`, `MikroTikTerminalModal`, and `MultiTerminalWorkspace`: stopped closing the WebSocket or calling `DELETE /api/devices/:id/terminal` when minimized, kept xterm mounted offscreen to preserve scrollback and live sessions with 20s keepalive pings, and restricted teardown strictly to explicit Close, pane/dock close, device switch, or unmount.',
+      'Fixed `LinuxTerminalModal` killing all SSH pane WebSockets on minimize: removed the `!isOpen` socket-teardown effect, kept split panes and xterm buffers mounted offscreen with 20s keepalive pings, blurred hidden terminals so keystrokes never leak, automatically refit and focused panes on restore, and wired ToolsDock close (`X`) in `RemoteServersView` to clear `terminalServer` and cleanly terminate background SSH sessions.',
+      'Preserved live SSH port-watch WebSocket sessions and state in `MultiPortWorkspace`, `PortInspectorModal`, and `MikroTikDeviceManageModal` across minimize/restore until explicitly closed.'
+    ]
+  },
   {
     version: '1.496.3',
     releaseDate: '2026-11-26',

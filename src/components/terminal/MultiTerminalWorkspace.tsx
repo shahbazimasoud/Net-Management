@@ -66,7 +66,7 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
     });
   };
 
-  if (!isOpen || activeTerminalDevices.length === 0) {
+  if (activeTerminalDevices.length === 0) {
     return null;
   }
 
@@ -133,7 +133,7 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
       return (
         <MikroTikTerminalModal
           device={singleDevice}
-          isOpen={true}
+          isOpen={isOpen}
           onClose={onClose}
           onMinimize={onMinimize}
           onDeviceUpdated={onDeviceUpdated}
@@ -148,7 +148,7 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
     return (
       <CiscoTerminalModal
         device={singleDevice}
-        isOpen={true}
+        isOpen={isOpen}
         onClose={onClose}
         onMinimize={onMinimize}
         onDeviceUpdated={onDeviceUpdated}
@@ -175,12 +175,17 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
 
   return (
     <div
-      className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex flex-col ${
-        isFullscreen ? 'p-0' : 'p-1 sm:p-2.5'
-      } bg-slate-950/90 backdrop-blur-md animate-in fade-in duration-200 overflow-hidden`}
+      aria-hidden={!isOpen}
+      className={
+        !isOpen
+          ? 'fixed -top-[20000px] -left-[20000px] w-[1280px] h-[800px] opacity-0 pointer-events-none invisible -z-50 overflow-hidden flex flex-col'
+          : `fixed top-0 left-0 right-0 bottom-8 z-50 flex flex-col ${
+              isFullscreen ? 'p-0' : 'p-1 sm:p-2.5'
+            } bg-slate-950/90 backdrop-blur-md animate-in fade-in duration-200 overflow-hidden`
+      }
       dir={isEn ? 'ltr' : 'rtl'}
       onClick={(e) => {
-        if (e.target === e.currentTarget && !preventBackdropClose) {
+        if (isOpen && e.target === e.currentTarget && !preventBackdropClose) {
           onClose();
         }
       }}
@@ -417,7 +422,7 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
                 isMikroTik ? (
                   <MikroTikTerminalModal
                     device={dev}
-                    isOpen={true}
+                    isOpen={isOpen}
                     onClose={() => handleClosePane(index)}
                     onDeviceUpdated={onDeviceUpdated}
                     isLightMode={isLightMode}
@@ -433,7 +438,7 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
                 ) : (
                   <CiscoTerminalModal
                     device={dev}
-                    isOpen={true}
+                    isOpen={isOpen}
                     onClose={() => handleClosePane(index)}
                     onDeviceUpdated={onDeviceUpdated}
                     isLightMode={isLightMode}

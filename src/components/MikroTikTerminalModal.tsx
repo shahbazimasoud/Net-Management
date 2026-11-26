@@ -132,10 +132,41 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
   const deviceRef = useRef<Device | null>(device);
   deviceRef.current = device;
   const activeSessionIdRef = useRef<string | null>(null);
+  const activeSessionKeyRef = useRef<string | null>(null);
+  const activeConnDevIdRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const terminalScreenRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XtermTerminalHandle | null>(null);
   const textDecoderRef = useRef<TextDecoder | null>(null);
+
+  const cleanupTerminalSession = useCallback(() => {
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+    if (wsRef.current) {
+      const sock = wsRef.current;
+      wsRef.current = null;
+      try {
+        if (sock.readyState === WebSocket.OPEN) {
+          sock.send(JSON.stringify({ type: 'close' }));
+        }
+        sock.close();
+      } catch {}
+    }
+    const devIdToClose = activeConnDevIdRef.current;
+    if (devIdToClose) {
+      fetch(`/api/devices/${devIdToClose}/terminal`, { method: 'DELETE' }).catch(() => {});
+    }
+    activeSessionKeyRef.current = null;
+    activeConnDevIdRef.current = null;
+    activeSessionIdRef.current = null;
+  }, []);
+
+  const handleCloseModal = () => {
+    cleanupTerminalSession();
+    onClose();
+  };
 
   // --------------------------------------------------------------------------
   // 0ms Local Predictive Echo & Instant Backspace Reconciliation Engine
@@ -548,11 +579,43 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
     }
   };
 
-  // Initialize terminal session (Persistent Real SSH / Telnet WebSocket)
+  // Initialize terminal session once per device; preserve live SSH / Telnet WebSocket across minimize & restore
   useEffect(() => {
-    if (!device || !isOpen) return;
+    if (!device) {
+      cleanupTerminalSession();
+      return;
+    }
+
+    if (!isOpen) {
+      // Minimized: blur xterm so hidden terminal never intercepts keystrokes, but KEEP live SSH socket alive
+      try {
+        xtermRef.current?.getTerminal()?.blur();
+      } catch {}
+      return;
+    }
+
+    const sessionKey = `${device.id}`;
+    const existingWs = wsRef.current;
+    const hasLiveSocket =
+      activeSessionKeyRef.current === sessionKey &&
+      existingWs &&
+      (existingWs.readyState === WebSocket.OPEN || existingWs.readyState === WebSocket.CONNECTING);
+
+    if (hasLiveSocket) {
+      const focusTimer = setTimeout(() => {
+        xtermRef.current?.fit();
+        xtermRef.current?.focus();
+      }, 60);
+      return () => clearTimeout(focusTimer);
+    }
+
+    if (activeSessionKeyRef.current && activeSessionKeyRef.current !== sessionKey) {
+      cleanupTerminalSession();
+    }
 
     const curDev = device;
+    activeSessionKeyRef.current = sessionKey;
+    activeConnDevIdRef.current = curDev.id;
     setSshSessionMode('connecting');
     setSshLatency(null);
 
@@ -571,8 +634,6 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
     setLines(banner);
     setInput('');
     setTimeout(() => inputRef.current?.focus(), 150);
-
-    let isSubscribed = true;
 
     // Connect to real hardware via interactive WebSocket streaming with keepalive
     try {
@@ -631,6 +692,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
       textDecoderRef.current = textDecoder;
 
       ws.onopen = () => {
+        if (wsRef.current !== ws) return;
         xtermRef.current?.fit();
         const term = xtermRef.current?.getTerminal();
         const cols = term?.cols || 120;
@@ -650,7 +712,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
       };
 
       ws.onmessage = async (event) => {
-        if (!isSubscribed) return;
+        if (wsRef.current !== ws) return;
         let text = '';
         if (event.data instanceof ArrayBuffer) {
           text = textDecoder.decode(event.data, { stream: true });
@@ -703,45 +765,43 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
       };
 
       ws.onerror = () => {
+        if (wsRef.current !== ws) return;
         xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'SOCKET ERROR' : 'خطای سوکت'}]\x1b[0m ${isEn ? 'WebSocket connection encountered an error' : 'خطا در برقراری ارتباط وب‌سوکت'}\r\n`);
       };
 
       ws.onclose = (ev) => {
+        if (wsRef.current !== ws) return;
         if (pingIntervalRef.current) {
           clearInterval(pingIntervalRef.current);
           pingIntervalRef.current = null;
         }
-        if (isSubscribed) {
-          setSshSessionMode((prev) => (prev === 'real_ssh' ? 'failed' : prev));
-          if (!ev.wasClean) {
-            const reason = ev.reason ? `: ${ev.reason}` : '';
-            xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'CONNECTION CLOSED' : 'اتصال بسته شد'}]\x1b[0m (${ev.code}${reason})\r\n`);
-          }
+        wsRef.current = null;
+        activeSessionKeyRef.current = null;
+        setSshSessionMode((prev) => (prev === 'real_ssh' ? 'failed' : prev));
+        if (!ev.wasClean) {
+          const reason = ev.reason ? `: ${ev.reason}` : '';
+          xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'CONNECTION CLOSED' : 'اتصال بسته شد'}]\x1b[0m (${ev.code}${reason})\r\n`);
         }
       };
     } catch (err: any) {
+      activeSessionKeyRef.current = null;
       setSshSessionMode('failed');
       xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'CONNECTION FAILED' : 'شکست اتصال'}]\x1b[0m ${err?.message || 'Error'}\r\n`);
     }
 
-    setTimeout(() => xtermRef.current?.focus(), 150);
+    const focusTimer = setTimeout(() => xtermRef.current?.focus(), 150);
 
     return () => {
-      isSubscribed = false;
-      if (pingIntervalRef.current) {
-        clearInterval(pingIntervalRef.current);
-        pingIntervalRef.current = null;
-      }
-      if (wsRef.current) {
-        try {
-          wsRef.current.send(JSON.stringify({ type: 'close' }));
-          wsRef.current.close();
-        } catch {}
-        wsRef.current = null;
-      }
-      fetch(`/api/devices/${curDev.id}/terminal`, { method: 'DELETE' }).catch(() => {});
+      clearTimeout(focusTimer);
     };
-  }, [device?.id, isOpen]);
+  }, [device?.id, isOpen, cleanupTerminalSession]);
+
+  // Teardown SSH / Telnet WebSocket ONLY when component truly unmounts (explicit close)
+  useEffect(() => {
+    return () => {
+      cleanupTerminalSession();
+    };
+  }, [cleanupTerminalSession]);
 
   // Trigger fit and send resize on modal open, restore, or maximize/fullscreen changes
   useEffect(() => {
@@ -761,7 +821,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [lines]);
 
-  if (!isOpen || !device) return null;
+  if (!device) return null;
 
   const handleSendCommand = async (cmdToRun?: string) => {
     const rawCmd = (cmdToRun !== undefined ? cmdToRun : input).trim();
@@ -1185,9 +1245,10 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
             <button
               onClick={() => {
                 if (isEmbedded && onClosePane) {
+                  cleanupTerminalSession();
                   onClosePane();
                 } else {
-                  onClose();
+                  handleCloseModal();
                 }
               }}
               className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
@@ -1562,16 +1623,21 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
 
   return (
     <div
+      aria-hidden={!isOpen}
       onClick={(e) => {
-        if (e.target === e.currentTarget && !preventBackdropClose) {
-          onClose();
+        if (isOpen && e.target === e.currentTarget && !preventBackdropClose) {
+          handleCloseModal();
         }
       }}
-      className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center ${
-        isFullScreen ? 'p-0' : 'p-2 sm:p-4'
-      } backdrop-blur-xs animate-in fade-in duration-200 ${
-        isLightMode ? 'bg-slate-900/50' : 'bg-black/85'
-      }`}
+      className={
+        !isOpen
+          ? 'fixed -top-[20000px] -left-[20000px] w-[1024px] h-[768px] opacity-0 pointer-events-none invisible -z-50 overflow-hidden flex items-center justify-center'
+          : `fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center ${
+              isFullScreen ? 'p-0' : 'p-2 sm:p-4'
+            } backdrop-blur-xs animate-in fade-in duration-200 ${
+              isLightMode ? 'bg-slate-900/50' : 'bg-black/85'
+            }`
+      }
     >
       {modalContent}
     </div>

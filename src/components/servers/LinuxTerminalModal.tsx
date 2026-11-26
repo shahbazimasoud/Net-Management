@@ -1627,39 +1627,76 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     [server, initialShell, sessionPassword, sendResize, isEn, getTextDecoder, resetPaneLineBuffer]
   );
 
-  // Close sockets when modal is closed or unmounted
-  useEffect(() => {
-    if (!isOpen) {
-      lastConnectedServerIdRef.current = null;
-      prevIsOpenRef.current = false;
-      Object.values(wsRefs.current).forEach((ws) => {
-        try {
-          ws?.close();
-        } catch {}
-      });
-      wsRefs.current = {};
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    return () => {
-      // Unmount cleanup
-      Object.values(wsRefs.current).forEach((ws) => {
-        try {
-          ws?.close();
-        } catch {}
-      });
-      wsRefs.current = {};
-    };
+  // Close all active pane SSH WebSockets (called ONLY on explicit Close, server cleared/switched, or unmount)
+  const closeAllPaneSockets = useCallback(() => {
+    lastConnectedServerIdRef.current = null;
+    prevIsOpenRef.current = false;
+    Object.values(wsRefs.current).forEach((ws) => {
+      try {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'close' }));
+        }
+        ws?.close();
+      } catch {}
+    });
+    wsRefs.current = {};
   }, []);
 
-  // Lifecycle & Connection on modal open or server change
+  // Periodic WebSocket keepalive ping (every 20s) so minimized SSH sessions stay alive
+  useEffect(() => {
+    const keepaliveTimer = setInterval(() => {
+      Object.values(wsRefs.current).forEach((ws) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          } catch {}
+        }
+      });
+    }, 20000);
+    return () => clearInterval(keepaliveTimer);
+  }, []);
+
+  // Teardown sockets ONLY when component truly unmounts
+  useEffect(() => {
+    return () => {
+      closeAllPaneSockets();
+    };
+  }, [closeAllPaneSockets]);
+
+  // Teardown sockets when server is explicitly cleared (e.g., closed from modal X or ToolsDock X)
+  useEffect(() => {
+    if (!server) {
+      closeAllPaneSockets();
+      setPanes([]);
+    }
+  }, [server, closeAllPaneSockets]);
+
+  // When minimized (!isOpen), blur active terminal so hidden panes never steal keystrokes (KEEP SSH sockets alive!)
+  useEffect(() => {
+    if (!isOpen) {
+      try {
+        if (activePaneId) {
+          xtermRefs.current[activePaneId]?.getTerminal()?.blur();
+        }
+      } catch {}
+    }
+  }, [isOpen, activePaneId]);
+
+  // Lifecycle & Connection on initial open or server switch (preserving live sessions across minimize/restore)
   useEffect(() => {
     if (isOpen && server && server.id) {
       const isNewServer = lastConnectedServerIdRef.current !== server.id;
-      const isReopeningFromClosed = !prevIsOpenRef.current || !lastConnectedServerIdRef.current;
+      const hasAnyLivePane =
+        !isNewServer &&
+        panes.length > 0 &&
+        Object.values(wsRefs.current).some(
+          (ws) => ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)
+        );
 
-      if (isNewServer || isReopeningFromClosed) {
+      if (isNewServer || (!hasAnyLivePane && panes.length === 0)) {
+        if (isNewServer && lastConnectedServerIdRef.current) {
+          closeAllPaneSockets();
+        }
         lastConnectedServerIdRef.current = server.id;
         prevIsOpenRef.current = true;
 
@@ -1695,18 +1732,12 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         return () => {
           clearTimeout(timer);
         };
-      } else if (!prevIsOpenRef.current) {
+      } else {
+        // Restoring from minimize: keep all open SSH sockets & xterm scrollback completely untouched
         prevIsOpenRef.current = true;
-        // Restoring from minimize: reconnect active sockets if disconnected
-        panes.forEach((p) => {
-          const paneServer = resolveValidServer(p.server, server);
-          if (!wsRefs.current[p.id] || wsRefs.current[p.id]?.readyState !== WebSocket.OPEN) {
-            connectPaneSession(p.id, p.selectedShell, p.ephemeralPassword, paneServer);
-          }
-        });
       }
     }
-  }, [isOpen, server?.id, initialShell, sessionPassword, connectPaneSession]);
+  }, [isOpen, server?.id, initialShell, sessionPassword, connectPaneSession, closeAllPaneSockets]);
 
   // Trigger fit and send resize on modal open, restore, or maximize changes
   useEffect(() => {
@@ -2541,7 +2572,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     });
   }, [selectedCategory, snippetSearch]);
 
-  if (!isOpen || !server) return null;
+  if (!server) return null;
 
   // Grid classes according to layout mode & panes count
   const getGridClasses = () => {
@@ -2556,9 +2587,14 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
   return createPortal(
     <div
-      className={`fixed top-0 left-0 right-0 bottom-8 z-[9999] flex flex-col items-center justify-center ${
-        isMaximized ? 'p-0' : 'p-2 sm:p-4 bg-black/80 backdrop-blur-sm'
-      }`}
+      aria-hidden={!isOpen}
+      className={
+        !isOpen
+          ? 'fixed -top-[20000px] -left-[20000px] w-[1024px] h-[768px] opacity-0 pointer-events-none invisible -z-50 overflow-hidden flex flex-col items-center justify-center'
+          : `fixed top-0 left-0 right-0 bottom-8 z-[9999] flex flex-col items-center justify-center ${
+              isMaximized ? 'p-0' : 'p-2 sm:p-4 bg-black/80 backdrop-blur-sm'
+            }`
+      }
       dir={isEn ? 'ltr' : 'rtl'}
     >
       <div

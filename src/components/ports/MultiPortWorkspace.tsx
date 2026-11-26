@@ -58,7 +58,7 @@ export const MultiPortWorkspace: React.FC<MultiPortWorkspaceProps> = ({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
 
-  if (!isOpen || activePortDevices.length === 0) {
+  if (activePortDevices.length === 0) {
     return null;
   }
 
@@ -141,7 +141,7 @@ export const MultiPortWorkspace: React.FC<MultiPortWorkspaceProps> = ({
       return (
         <MikroTikDeviceManageModal
           device={singleDevice}
-          isOpen={true}
+          isOpen={isOpen}
           onClose={onClose}
           onMinimize={onMinimize}
           onPortUpdated={onPortUpdated}
@@ -156,7 +156,7 @@ export const MultiPortWorkspace: React.FC<MultiPortWorkspaceProps> = ({
     return (
       <PortInspectorModal
         device={singleDevice}
-        isOpen={true}
+        isOpen={isOpen}
         onClose={onClose}
         onMinimize={onMinimize}
         onPortUpdated={onPortUpdated}
@@ -185,13 +185,18 @@ export const MultiPortWorkspace: React.FC<MultiPortWorkspaceProps> = ({
 
   return (
     <div
-      className={`fixed top-0 left-0 right-0 bottom-8 z-[9999] flex flex-col ${
-        isFullscreen ? 'p-0' : 'p-1 sm:p-2.5'
-      } ${
-        isLightMode
-          ? 'bg-slate-200/90 text-slate-900'
-          : 'bg-slate-950/90 text-slate-100'
-      } backdrop-blur-md animate-in fade-in duration-200 overflow-hidden`}
+      aria-hidden={!isOpen}
+      className={
+        !isOpen
+          ? 'fixed -top-[20000px] -left-[20000px] w-[1280px] h-[800px] opacity-0 pointer-events-none invisible -z-50 overflow-hidden flex flex-col'
+          : `fixed top-0 left-0 right-0 bottom-8 z-[9999] flex flex-col ${
+              isFullscreen ? 'p-0' : 'p-1 sm:p-2.5'
+            } ${
+              isLightMode
+                ? 'bg-slate-200/90 text-slate-900'
+                : 'bg-slate-950/90 text-slate-100'
+            } backdrop-blur-md animate-in fade-in duration-200 overflow-hidden`
+      }
       dir={isEn ? 'ltr' : 'rtl'}
     >
       {/* Global Multi-Port Top Navigation Bar */}
@@ -514,7 +519,7 @@ export const MultiPortWorkspace: React.FC<MultiPortWorkspaceProps> = ({
                     {isMikro ? (
                       <MikroTikDeviceManageModal
                         device={device}
-                        isOpen={true}
+                        isOpen={isOpen}
                         isEmbedded={true}
                         onClose={() => handleClosePane(index)}
                         onPortUpdated={onPortUpdated}
@@ -525,7 +530,7 @@ export const MultiPortWorkspace: React.FC<MultiPortWorkspaceProps> = ({
                     ) : (
                       <PortInspectorModal
                         device={device}
-                        isOpen={true}
+                        isOpen={isOpen}
                         isEmbedded={true}
                         onClose={() => handleClosePane(index)}
                         onPortUpdated={onPortUpdated}

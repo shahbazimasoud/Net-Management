@@ -1397,10 +1397,10 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   }, []);
 
   useEffect(() => {
-    if (!isOpen) {
+    if (!device) {
       stopLiveWatch();
     }
-  }, [isOpen]);
+  }, [device?.id]);
 
 
 
@@ -1956,7 +1956,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     }
   };
 
-  if (!isOpen || !device) return null;
+  if (!device) return null;
 
   const filteredPorts = ports.filter((p) => {
     if (filterMode === 'up' && p.status !== 'up') return false;
@@ -3909,9 +3909,14 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
 
   return (
     <div
-      className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center modal-backdrop-blur overflow-y-auto ${
-        isMaximized ? 'p-0' : 'p-2 sm:p-4'
-      }`}
+      aria-hidden={!isOpen}
+      className={
+        !isOpen
+          ? 'fixed -top-[20000px] -left-[20000px] w-[1024px] h-[768px] opacity-0 pointer-events-none invisible -z-50 overflow-hidden flex items-center justify-center'
+          : `fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center modal-backdrop-blur overflow-y-auto ${
+              isMaximized ? 'p-0' : 'p-2 sm:p-4'
+            }`
+      }
       data-modal-backdrop="true"
     >
       {innerContent}

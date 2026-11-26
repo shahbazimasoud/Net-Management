@@ -1613,8 +1613,9 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const handleMinimizeLinuxTerminal = () => {
     setIsTerminalModalOpen(false);
     if (terminalServer) {
+      const targetId = terminalServer.id;
       dockModal({
-        id: `linux_term_${terminalServer.id}`,
+        id: `linux_term_${targetId}`,
         labelEn: `${terminalServer.name} Terminal`,
         labelFa: `ترمینال ${terminalServer.name}`,
         badge: terminalShell.toUpperCase(),
@@ -1622,7 +1623,9 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         onRestore: () => setIsTerminalModalOpen(true),
         onClose: () => {
           setIsTerminalModalOpen(false);
-          undockModal(`linux_term_${terminalServer.id}`);
+          setEphemeralTerminalPassword(undefined);
+          setTerminalServer(null);
+          undockModal(`linux_term_${targetId}`);
         },
       });
     }

@@ -252,6 +252,8 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const historyDropdownRef = useRef<HTMLDivElement>(null);
   const activeSessionIdRef = useRef<string | null>(null);
+  const activeSessionKeyRef = useRef<string | null>(null);
+  const activeConnDevIdRef = useRef<string | null>(null);
   const draftInputRef = useRef<string>('');
   const wsRef = useRef<WebSocket | null>(null);
   const [livePrompt, setLivePrompt] = useState<string>('');
@@ -493,24 +495,45 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     });
   };
 
-  const handleCloseModal = () => {
-    if (wsRef.current) {
-      try {
-        wsRef.current.close();
-      } catch {}
-      wsRef.current = null;
+  const cleanupTerminalSession = useCallback(() => {
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
     }
-    if (device) {
-      const connProtocol = (device.connection_protocol || device.connection?.protocol || 'ssh').toLowerCase();
-      const targetHost = device.ssh_host || device.ip;
-      const sshPort = device.ssh_port || (connProtocol === 'telnet' ? 23 : 22);
+    if (wsRef.current) {
+      const sock = wsRef.current;
+      wsRef.current = null;
+      try {
+        if (sock.readyState === WebSocket.OPEN) {
+          sock.send(JSON.stringify({ type: 'close' }));
+        }
+        sock.close();
+      } catch {}
+    }
+    const devIdToClose = activeConnDevIdRef.current || activeDevIdRef.current;
+    if (devIdToClose) {
+      fetch(`/api/devices/${devIdToClose}/terminal`, { method: 'DELETE' }).catch(() => {});
+    }
+    activeSessionKeyRef.current = null;
+    activeConnDevIdRef.current = null;
+    activeSessionIdRef.current = null;
+    activeDevIdRef.current = null;
+  }, []);
+
+  const handleCloseModal = () => {
+    const curDev = deviceRef.current;
+    const sessionId = activeSessionIdRef.current || undefined;
+    cleanupTerminalSession();
+    if (curDev) {
+      const connProtocol = (curDev.connection_protocol || curDev.connection?.protocol || 'ssh').toLowerCase();
+      const targetHost = curDev.ssh_host || curDev.ip;
+      const sshPort = curDev.ssh_port || (connProtocol === 'telnet' ? 23 : 22);
       sshDisconnect({
-        sessionId: activeSessionIdRef.current || undefined,
-        deviceId: device.id,
+        sessionId,
+        deviceId: curDev.id,
         host: targetHost,
         port: sshPort,
       }).catch(() => {});
-      activeSessionIdRef.current = null;
     }
     onClose();
   };
@@ -758,241 +781,275 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     }
   };
 
-  // Initialize terminal session (Persistent WebSocket with SSH KeepAlive)
+  // Initialize terminal session once per device; preserve live SSH/Telnet WebSocket across minimize & restore
   useEffect(() => {
-    if (isOpen && device) {
-      const curDev = device;
-      activeDevIdRef.current = curDev.id;
-      const foundInAll = allDevices?.find((d) => d.id === curDev.id || (d.name && d.name.toLowerCase() === curDev.name?.toLowerCase()));
-      // Preserve active in-memory credentials from curDev over sanitized allDevices
-      const fullDev = foundInAll ? { ...foundInAll, ...curDev } : curDev;
-      const connProtocol = (curDev?.connection_protocol || curDev?.connection?.protocol || fullDev?.connection_protocol || fullDev?.connection?.protocol || 'ssh').toLowerCase() as 'ssh' | 'telnet';
-      const devHost = (curDev?.name || fullDev?.name || 'SWITCH').toUpperCase();
-      const targetHost = (
-        curDev?.ssh_host ||
-        curDev?.connection?.host ||
-        curDev?.ip ||
-        (curDev?.connection as any)?.ip ||
-        fullDev?.ssh_host ||
-        fullDev?.connection?.host ||
-        fullDev?.ip ||
-        ''
-      ).trim();
-      const sshPort = Number(
-        curDev?.ssh_port ||
-        curDev?.connection?.port ||
-        fullDev?.ssh_port ||
-        fullDev?.connection?.port ||
-        (connProtocol === 'telnet' ? 23 : 22)
-      );
-      const sshUser = (
-        curDev?.ssh_username ||
-        curDev?.connection?.username ||
-        fullDev?.ssh_username ||
-        fullDev?.connection?.username ||
-        'admin'
-      ).trim();
+    if (!device) {
+      cleanupTerminalSession();
+      return;
+    }
 
-      setHostname(devHost);
-      initialInterfaceNavigatedRef.current = false;
-      if (effectiveInitialPort) {
-        setCliMode('INTERFACE_CONFIG');
-        setCurrentInterface(effectiveInitialPort);
-        setSelectedPortIds([effectiveInitialPort]);
-        setLivePrompt(`${devHost}(config-if)#`);
-      } else {
-        setCliMode('USER_EXEC');
-        setCurrentInterface('');
-        setSelectedPort(null);
-        setSelectedPortIds([]);
-      }
-      setHasUnsavedChanges(!!curDev.has_unsaved_changes);
-      setSshSessionMode('connecting');
-      setSshLatency(null);
-      loadPortsAndVlans(curDev.id, effectiveInitialPort);
-
-      const hostDisplay = targetHost || (isEn ? 'No IP Configured' : 'بدون آی‌پی');
-      const protoUpper = (connProtocol || 'ssh').toUpperCase();
-      const initialSystemLines: TerminalLine[] = [
-        {
-          id: 'sys-init-1',
-          type: 'system',
-          text: isEn
-            ? `[${protoUpper} CLIENT v2.5] Initiating persistent direct ${protoUpper} socket connection to ${curDev?.name || 'Device'} (${hostDisplay}:${sshPort})...`
-            : `[کلاینت ${protoUpper} نسخه ۲.۵] برقراری ارتباط سوکت مستقیم و پایدار ${protoUpper} با ${curDev?.name || 'تجهیز'} (${hostDisplay}:${sshPort})...`,
-        },
-        {
-          id: 'sys-init-2',
-          type: 'system',
-          text: `[CREDENTIALS] Target User: '${sshUser}' | Target Host: '${targetHost || (isEn ? 'Unassigned' : 'تنظیم نشده')}' | Protocol: ${protoUpper}`,
-        },
-      ];
-      if (effectiveInitialPort) {
-        initialSystemLines.push({
-          id: 'sys-init-int',
-          type: 'system',
-          text: isEn
-            ? `[INTERFACE DIRECT ACCESS] Configured session for interface ${effectiveInitialPort}. Interface mode active.`
-            : `[دسترسی مستقیم اینترفیس] محیط کنسول برای پورت ${effectiveInitialPort} آماده شد. مد پیکربندی اینترفیس فعال است.`,
-        });
-      }
-      setLines(initialSystemLines);
-
-      // Connect interactive WebSocket tunnel with device parameters
+    if (!isOpen) {
+      // Minimized: blur xterm so hidden terminal never intercepts keystrokes, but KEEP live SSH socket alive
       try {
-        const pass = curDev?.ssh_password || (curDev?.connection as any)?.password || fullDev?.ssh_password || (fullDev?.connection as any)?.password || '';
-        const enablePass = curDev?.enable_password || fullDev?.enable_password || '';
-        const devPlatform = curDev?.platform || fullDev?.platform || curDev?.type || fullDev?.type || '';
+        xtermRef.current?.getTerminal()?.blur();
+      } catch {}
+      return;
+    }
 
-        const devSshVersion = curDev?.ssh_version || (curDev as any)?.sshVersion || fullDev?.ssh_version || (fullDev as any)?.sshVersion;
+    const sessionKey = `${device.id}::${effectiveInitialPort || ''}`;
+    const existingWs = wsRef.current;
+    const hasLiveSocket =
+      activeSessionKeyRef.current === sessionKey &&
+      existingWs &&
+      (existingWs.readyState === WebSocket.OPEN || existingWs.readyState === WebSocket.CONNECTING);
 
-        const wsUrl = getTerminalWebSocketUrl(curDev.id, connProtocol, 'Super Admin', {
-          ip: targetHost || curDev.ip,
-          ssh_host: targetHost || curDev.ssh_host,
-          ssh_port: sshPort,
-          ssh_username: sshUser,
-          ssh_password: pass,
-          enable_password: enablePass,
-          platform: devPlatform,
-          ssh_version: devSshVersion,
-          approval_request_id: (curDev as any)?.approval_request_id,
-        });
-        const ws = new WebSocket(wsUrl);
-        ws.binaryType = 'arraybuffer';
-        wsRef.current = ws;
+    if (hasLiveSocket) {
+      // Restoring from minimize with an active session: keep connection & scrollback intact
+      const focusTimer = setTimeout(() => {
+        xtermRef.current?.fit();
+        xtermRef.current?.focus();
+      }, 60);
+      return () => clearTimeout(focusTimer);
+    }
 
-        const textDecoder = textDecoderRef.current || new TextDecoder('utf-8');
-        textDecoderRef.current = textDecoder;
+    // Switching device/port or reconnecting after disconnect: tear down any prior session first
+    if (activeSessionKeyRef.current && activeSessionKeyRef.current !== sessionKey) {
+      cleanupTerminalSession();
+    }
 
-        ws.onopen = () => {
-          xtermRef.current?.fit();
-          const term = xtermRef.current?.getTerminal();
-          const cols = term?.cols || 120;
-          const rows = term?.rows || 36;
-          try {
-            ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-          } catch {}
+    const curDev = device;
+    activeSessionKeyRef.current = sessionKey;
+    activeConnDevIdRef.current = curDev.id;
+    activeDevIdRef.current = curDev.id;
+    const foundInAll = allDevices?.find((d) => d.id === curDev.id || (d.name && d.name.toLowerCase() === curDev.name?.toLowerCase()));
+    // Preserve active in-memory credentials from curDev over sanitized allDevices
+    const fullDev = foundInAll ? { ...foundInAll, ...curDev } : curDev;
+    const connProtocol = (curDev?.connection_protocol || curDev?.connection?.protocol || fullDev?.connection_protocol || fullDev?.connection?.protocol || 'ssh').toLowerCase() as 'ssh' | 'telnet';
+    const devHost = (curDev?.name || fullDev?.name || 'SWITCH').toUpperCase();
+    const targetHost = (
+      curDev?.ssh_host ||
+      curDev?.connection?.host ||
+      curDev?.ip ||
+      (curDev?.connection as any)?.ip ||
+      fullDev?.ssh_host ||
+      fullDev?.connection?.host ||
+      fullDev?.ip ||
+      ''
+    ).trim();
+    const sshPort = Number(
+      curDev?.ssh_port ||
+      curDev?.connection?.port ||
+      fullDev?.ssh_port ||
+      fullDev?.connection?.port ||
+      (connProtocol === 'telnet' ? 23 : 22)
+    );
+    const sshUser = (
+      curDev?.ssh_username ||
+      curDev?.connection?.username ||
+      fullDev?.ssh_username ||
+      fullDev?.connection?.username ||
+      'admin'
+    ).trim();
 
-          // Setup periodic keepalive ping every 20s to ensure tunnel does not drop while modal is open
-          if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-          pingIntervalRef.current = setInterval(() => {
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-              try {
-                wsRef.current.send(JSON.stringify({ type: 'ping' }));
-              } catch {}
-            }
-          }, 20000);
-        };
+    setHostname(devHost);
+    initialInterfaceNavigatedRef.current = false;
+    if (effectiveInitialPort) {
+      setCliMode('INTERFACE_CONFIG');
+      setCurrentInterface(effectiveInitialPort);
+      setSelectedPortIds([effectiveInitialPort]);
+      setLivePrompt(`${devHost}(config-if)#`);
+    } else {
+      setCliMode('USER_EXEC');
+      setCurrentInterface('');
+      setSelectedPort(null);
+      setSelectedPortIds([]);
+    }
+    setHasUnsavedChanges(!!curDev.has_unsaved_changes);
+    setSshSessionMode('connecting');
+    setSshLatency(null);
+    loadPortsAndVlans(curDev.id, effectiveInitialPort);
 
-        ws.onmessage = async (event) => {
-          let text = '';
-          if (event.data instanceof ArrayBuffer) {
-            text = textDecoder.decode(event.data, { stream: true });
-          } else if (typeof event.data === 'string') {
+    const hostDisplay = targetHost || (isEn ? 'No IP Configured' : 'بدون آی‌پی');
+    const protoUpper = (connProtocol || 'ssh').toUpperCase();
+    const initialSystemLines: TerminalLine[] = [
+      {
+        id: 'sys-init-1',
+        type: 'system',
+        text: isEn
+          ? `[${protoUpper} CLIENT v2.5] Initiating persistent direct ${protoUpper} socket connection to ${curDev?.name || 'Device'} (${hostDisplay}:${sshPort})...`
+          : `[کلاینت ${protoUpper} نسخه ۲.۵] برقراری ارتباط سوکت مستقیم و پایدار ${protoUpper} با ${curDev?.name || 'تجهیز'} (${hostDisplay}:${sshPort})...`,
+      },
+      {
+        id: 'sys-init-2',
+        type: 'system',
+        text: `[CREDENTIALS] Target User: '${sshUser}' | Target Host: '${targetHost || (isEn ? 'Unassigned' : 'تنظیم نشده')}' | Protocol: ${protoUpper}`,
+      },
+    ];
+    if (effectiveInitialPort) {
+      initialSystemLines.push({
+        id: 'sys-init-int',
+        type: 'system',
+        text: isEn
+          ? `[INTERFACE DIRECT ACCESS] Configured session for interface ${effectiveInitialPort}. Interface mode active.`
+          : `[دسترسی مستقیم اینترفیس] محیط کنسول برای پورت ${effectiveInitialPort} آماده شد. مد پیکربندی اینترفیس فعال است.`,
+      });
+    }
+    setLines(initialSystemLines);
+
+    // Connect interactive WebSocket tunnel with device parameters
+    try {
+      const pass = curDev?.ssh_password || (curDev?.connection as any)?.password || fullDev?.ssh_password || (fullDev?.connection as any)?.password || '';
+      const enablePass = curDev?.enable_password || fullDev?.enable_password || '';
+      const devPlatform = curDev?.platform || fullDev?.platform || curDev?.type || fullDev?.type || '';
+
+      const devSshVersion = curDev?.ssh_version || (curDev as any)?.sshVersion || fullDev?.ssh_version || (fullDev as any)?.sshVersion;
+
+      const wsUrl = getTerminalWebSocketUrl(curDev.id, connProtocol, 'Super Admin', {
+        ip: targetHost || curDev.ip,
+        ssh_host: targetHost || curDev.ssh_host,
+        ssh_port: sshPort,
+        ssh_username: sshUser,
+        ssh_password: pass,
+        enable_password: enablePass,
+        platform: devPlatform,
+        ssh_version: devSshVersion,
+        approval_request_id: (curDev as any)?.approval_request_id,
+      });
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
+
+      const textDecoder = textDecoderRef.current || new TextDecoder('utf-8');
+      textDecoderRef.current = textDecoder;
+
+      ws.onopen = () => {
+        if (wsRef.current !== ws) return;
+        xtermRef.current?.fit();
+        const term = xtermRef.current?.getTerminal();
+        const cols = term?.cols || 120;
+        const rows = term?.rows || 36;
+        try {
+          ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+        } catch {}
+
+        // Setup periodic keepalive ping every 20s to ensure tunnel stays alive even while minimized
+        if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = setInterval(() => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             try {
-              const msg = JSON.parse(event.data);
-              if (msg.type === 'pong') {
-                return;
-              }
-              if (msg.type === 'data' && msg.data) {
-                const reconciled = reconcileIncomingText(msg.data);
-                if (reconciled) {
-                  xtermRef.current?.write(reconciled);
-                  parseAndApplyLinkState(reconciled);
-                }
-                return;
-              } else if (msg.type === 'status') {
-                if (msg.status === 'connected') {
-                  setSshSessionMode('real_ssh');
-                  setSshLatency(msg.latency_ms || 2.2);
-                  setTimeout(() => sendResize(), 100);
-                  if (effectiveInitialPort && !initialInterfaceNavigatedRef.current) {
-                    initialInterfaceNavigatedRef.current = true;
-                    setTimeout(() => {
-                      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                        console.log(`[CiscoTerminal] Auto-navigating to interface ${effectiveInitialPort}`);
-                        wsRef.current.send(JSON.stringify({
-                          type: 'input',
-                          data: `enable\rconfigure terminal\rinterface ${effectiveInitialPort}\r`,
-                        }));
-                      }
-                    }, 400);
-                  }
-                  return;
-                } else if (msg.status === 'failed' || msg.status === 'disconnected') {
-                  setSshSessionMode('failed');
-                  const failText = msg.error || msg.message || (isEn ? 'Disconnected from device' : 'ارتباط با تجهیز قطع شد');
-                  xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'DISCONNECTED' : 'قطع ارتباط'}]\x1b[0m ${failText}\r\n`);
-                  return;
-                }
-              } else if (msg.type === 'error') {
-                setSshSessionMode('failed');
-                const errText = msg.error || msg.message || (isEn ? 'Connection error' : 'خطای ارتباط');
-                xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'ERROR' : 'خطا'}]\x1b[0m ${errText}\r\n`);
-                return;
-              }
-            } catch {
-              text = event.data;
-            }
-          } else if (typeof Blob !== 'undefined' && event.data instanceof Blob) {
-            try {
-              const buf = await event.data.arrayBuffer();
-              text = textDecoder.decode(buf, { stream: true });
+              wsRef.current.send(JSON.stringify({ type: 'ping' }));
             } catch {}
           }
+        }, 20000);
+      };
 
-          if (text) {
-            const reconciled = reconcileIncomingText(text);
-            if (reconciled) {
-              xtermRef.current?.write(reconciled);
-              parseAndApplyLinkState(reconciled);
+      ws.onmessage = async (event) => {
+        if (wsRef.current !== ws) return;
+        let text = '';
+        if (event.data instanceof ArrayBuffer) {
+          text = textDecoder.decode(event.data, { stream: true });
+        } else if (typeof event.data === 'string') {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'pong') {
+              return;
             }
+            if (msg.type === 'data' && msg.data) {
+              const reconciled = reconcileIncomingText(msg.data);
+              if (reconciled) {
+                xtermRef.current?.write(reconciled);
+                parseAndApplyLinkState(reconciled);
+              }
+              return;
+            } else if (msg.type === 'status') {
+              if (msg.status === 'connected') {
+                setSshSessionMode('real_ssh');
+                setSshLatency(msg.latency_ms || 2.2);
+                setTimeout(() => sendResize(), 100);
+                if (effectiveInitialPort && !initialInterfaceNavigatedRef.current) {
+                  initialInterfaceNavigatedRef.current = true;
+                  setTimeout(() => {
+                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                      console.log(`[CiscoTerminal] Auto-navigating to interface ${effectiveInitialPort}`);
+                      wsRef.current.send(JSON.stringify({
+                        type: 'input',
+                        data: `enable\rconfigure terminal\rinterface ${effectiveInitialPort}\r`,
+                      }));
+                    }
+                  }, 400);
+                }
+                return;
+              } else if (msg.status === 'failed' || msg.status === 'disconnected') {
+                setSshSessionMode('failed');
+                const failText = msg.error || msg.message || (isEn ? 'Disconnected from device' : 'ارتباط با تجهیز قطع شد');
+                xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'DISCONNECTED' : 'قطع ارتباط'}]\x1b[0m ${failText}\r\n`);
+                return;
+              }
+            } else if (msg.type === 'error') {
+              setSshSessionMode('failed');
+              const errText = msg.error || msg.message || (isEn ? 'Connection error' : 'خطای ارتباط');
+              xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'ERROR' : 'خطا'}]\x1b[0m ${errText}\r\n`);
+              return;
+            }
+          } catch {
+            text = event.data;
           }
-        };
+        } else if (typeof Blob !== 'undefined' && event.data instanceof Blob) {
+          try {
+            const buf = await event.data.arrayBuffer();
+            text = textDecoder.decode(buf, { stream: true });
+          } catch {}
+        }
 
-        ws.onerror = () => {
-          xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'SOCKET ERROR' : 'خطای سوکت'}]\x1b[0m ${isEn ? 'WebSocket connection encountered an error' : 'خطا در ارتباط وب‌سوکت'}\r\n`);
-        };
-
-        ws.onclose = (ev) => {
-          if (pingIntervalRef.current) {
-            clearInterval(pingIntervalRef.current);
-            pingIntervalRef.current = null;
+        if (text) {
+          const reconciled = reconcileIncomingText(text);
+          if (reconciled) {
+            xtermRef.current?.write(reconciled);
+            parseAndApplyLinkState(reconciled);
           }
-          setSshSessionMode((prev) => (prev === 'real_ssh' ? 'failed' : prev));
-          if (!ev.wasClean) {
-            const reason = ev.reason ? `: ${ev.reason}` : '';
-            xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'CONNECTION CLOSED' : 'اتصال بسته شد'}]\x1b[0m (${ev.code}${reason})\r\n`);
-          }
-        };
-      } catch (err: any) {
-        setSshSessionMode('failed');
-        xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'CONNECTION FAILED' : 'شکست اتصال'}]\x1b[0m ${err?.message || 'Error'}\r\n`);
-      }
+        }
+      };
 
-      const timer = setTimeout(() => {
-        xtermRef.current?.focus();
-      }, 150);
+      ws.onerror = () => {
+        if (wsRef.current !== ws) return;
+        xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'SOCKET ERROR' : 'خطای سوکت'}]\x1b[0m ${isEn ? 'WebSocket connection encountered an error' : 'خطا در ارتباط وب‌سوکت'}\r\n`);
+      };
 
-      return () => {
-        clearTimeout(timer);
+      ws.onclose = (ev) => {
+        if (wsRef.current !== ws) return;
         if (pingIntervalRef.current) {
           clearInterval(pingIntervalRef.current);
           pingIntervalRef.current = null;
         }
-        if (wsRef.current) {
-          try {
-            wsRef.current.send(JSON.stringify({ type: 'close' }));
-            wsRef.current.close();
-          } catch {}
-          wsRef.current = null;
+        wsRef.current = null;
+        activeSessionKeyRef.current = null;
+        setSshSessionMode((prev) => (prev === 'real_ssh' ? 'failed' : prev));
+        if (!ev.wasClean) {
+          const reason = ev.reason ? `: ${ev.reason}` : '';
+          xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'CONNECTION CLOSED' : 'اتصال بسته شد'}]\x1b[0m (${ev.code}${reason})\r\n`);
         }
-        fetch(`/api/devices/${curDev.id}/terminal`, { method: 'DELETE' }).catch(() => {});
-        activeSessionIdRef.current = null;
-        activeDevIdRef.current = null;
       };
+    } catch (err: any) {
+      activeSessionKeyRef.current = null;
+      setSshSessionMode('failed');
+      xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'CONNECTION FAILED' : 'شکست اتصال'}]\x1b[0m ${err?.message || 'Error'}\r\n`);
     }
-  }, [isOpen, device?.id, propInitialPort, device?.initial_port]);
+
+    const timer = setTimeout(() => {
+      xtermRef.current?.focus();
+    }, 150);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [isOpen, device?.id, propInitialPort, device?.initial_port, cleanupTerminalSession]);
+
+  // Teardown SSH/Telnet WebSocket ONLY when component truly unmounts (explicit close)
+  useEffect(() => {
+    return () => {
+      cleanupTerminalSession();
+    };
+  }, [cleanupTerminalSession]);
 
   // Trigger fit and send resize on modal open, restore, or maximize/fullscreen changes
   useEffect(() => {
@@ -1046,7 +1103,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     }
   };
 
-  if (!isOpen || !device) return null;
+  if (!device) return null;
 
   const isMikroTik =
     device.platform === 'mikrotik_routeros' ||
@@ -2236,6 +2293,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
             <button
               onClick={() => {
                 if (isEmbedded && onClosePane) {
+                  cleanupTerminalSession();
                   onClosePane();
                 } else {
                   handleCloseModal();
@@ -2615,20 +2673,25 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     return (
       <>
         <div
-          className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center ${
-            isFullscreen ? 'p-0' : 'p-2 sm:p-4'
-          } modal-backdrop-blur overflow-y-auto`}
+          aria-hidden={!isOpen}
+          className={
+            !isOpen
+              ? 'fixed -top-[20000px] -left-[20000px] w-[1024px] h-[768px] opacity-0 pointer-events-none invisible -z-50 overflow-hidden flex items-center justify-center'
+              : `fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center ${
+                  isFullscreen ? 'p-0' : 'p-2 sm:p-4'
+                } modal-backdrop-blur overflow-y-auto`
+          }
           data-modal-backdrop="true"
           dir={isEn ? 'ltr' : 'rtl'}
           onClick={(e) => {
-            if (e.target === e.currentTarget && !preventBackdropClose) {
+            if (isOpen && e.target === e.currentTarget && !preventBackdropClose) {
               handleCloseModal();
             }
           }}
         >
           {terminalWindow}
         </div>
-        {writeConfirmModal}
+        {isOpen && writeConfirmModal}
       </>
     );
   };
