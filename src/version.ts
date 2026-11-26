@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.496.0';
+export const APP_VERSION = '1.496.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.496.1',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'رفع کامل لگ ریموت دسکتاپ ویندوز و حذف آثار حرکت پنجره‌ها (Window Drag Trails) در Guacamole RDP',
+    title_en: 'Eliminate Windows RDP Lag and Window-Drag Ghosting Artifacts in Guacamole Gateway & Client',
+    changes: [
+      'رفع ریشه‌ای باقی‌ماندن آثار حرکت پنجره‌ها در اتصال RDP ویندوز با ارسال صریح پارامترهای `disable-offscreen-caching=true` و `disable-glyph-caching=true` به `guacd` (رفع باگ همگام‌سازی سطوح آف‌اسکرین در FreeRDP2) و غیرفعال‌سازی افکت‌های سنگین دسکتاپ ویندوز (`enable-wallpaper`, `enable-theming`, `enable-desktop-composition`, `enable-menu-animations`, `enable-full-window-drag`).',
+      'حذف کامل لگ و گلوگاه انتقال تصویر در `server/remoteDesktopGateway.ts` با فعال‌سازی `TCP_NODELAY` روی سوکت `guacd` و ارتقای WebSocket، غیرفعال‌سازی `perMessageDeflate` برای فریم‌های تصویری، جایگزینی پارسر قبلی با اسکنر خطی O(N) بدون کپی بافر (`consumeGuacInstructions`) و تجمیع هوشمند دستورات در مرز `sync`.',
+      'بهینه‌سازی کامل رندرینگ و ورودی ماوس در `InBrowserRemoteDesktopModal.tsx`: کش کردن ابعاد نمایشگر جهت جلوگیری از Layout Reflow در هر حرکت ماوس، تجمیع حرکت‌های ماوس با `requestAnimationFrame` (~۵۰ هرتز با حفظ واکنش فوری کلیک و اسکرول)، ایزولاسیون لایه GPU بوم (`isolation: isolate`) و حذف `backdrop-blur-md` حین اتصال فعال، افزودن انتخابگر حالت سرعت/رنگ (`Fast 16-bit` پیش‌فرض / `Balanced` / `32-bit`) و جایگزینی تاخیر ثابت با اندازه‌گیری واقعی شبکه و فریم.'
+    ],
+    changes_en: [
+      'Resolved persistent window-drag trails and surface ghosting artifacts in Windows RDP sessions by explicitly configuring `disable-offscreen-caching=true` and `disable-glyph-caching=true` on `guacd` (eliminating FreeRDP2 offscreen surface invalidation glitches) and disabling heavy Windows desktop animations, wallpaper, theming, composition, and full-window-drag over the tunnel.',
+      'Eliminated RDP tunnel latency and stutter in `server/remoteDesktopGateway.ts` by enabling `TCP_NODELAY` on both the `guacd` TCP socket and WebSocket upgrade socket, setting `perMessageDeflate: false` on the Guacamole WebSocket server, replacing O(N^2) buffer slicing with an O(N) streaming scanner (`consumeGuacInstructions`), and batching frame instructions cleanly at `sync` boundaries.',
+      'Optimized `InBrowserRemoteDesktopModal.tsx` responsiveness and rendering fidelity: cached display bounding metrics to eliminate per-pixel layout reflows, coalesced high-frequency mouse moves via `requestAnimationFrame` while flushing clicks/wheel immediately, isolated canvas compositing without full-screen `backdrop-blur-md` during active sessions, replaced static latency display with real TCP/Guacamole frame lag metrics, and added a graphics preset selector (`Fast 16-bit` default / `Balanced` / `True Color 32-bit`).'
+    ]
+  },
   {
     version: '1.496.0',
     releaseDate: '2026-11-26',

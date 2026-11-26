@@ -43,6 +43,7 @@ interface InBrowserRemoteDesktopModalProps {
 }
 
 type ScalingMode = 'fit' | 'fill' | 'native';
+type QualityPreset = 'fast' | 'balanced' | 'high';
 
 interface StructuredGuacErrorPayload {
   category?: string;
@@ -134,7 +135,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [activeDurationSec, setActiveDurationSec] = useState<number>(0);
-  const [latencyMs, setLatencyMs] = useState<number>(12);
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [guacdSetupInfo, setGuacdSetupInfo] = useState<any>(null);
 
   // 1-Click Auto Installer States
@@ -143,9 +144,10 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const [installSuccess, setInstallSuccess] = useState<boolean | null>(null);
   const [cmdCopied, setCmdCopied] = useState(false);
 
-  // Display Settings
+  // Display & Performance Settings
   const [scalingMode, setScalingMode] = useState<ScalingMode>('fit');
   const [displayResolution, setDisplayResolution] = useState<'1920x1080' | '1600x900' | '1280x720'>('1920x1080');
+  const [qualityPreset, setQualityPreset] = useState<QualityPreset>('fast');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [showClipboardModal, setShowClipboardModal] = useState(false);
   const [clipboardText, setClipboardText] = useState('');
@@ -168,6 +170,15 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const updateDisplayScaleRef = useRef<() => void>(() => {});
   const activeSessionKeyRef = useRef<string | null>(null);
   const isOpenRef = useRef<boolean>(isOpen);
+  const connectedResolutionRef = useRef<string | null>(null);
+  const mouseMoveRafRef = useRef<number | null>(null);
+  const cachedDisplayMetricsRef = useRef<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    dirty: boolean;
+  }>({ left: 0, top: 0, width: 0, height: 0, dirty: true });
   const [idleRemainingSec, setIdleRemainingSec] = useState<number>(900); // 15 minutes = 900s
 
   const isRdp = protocol === 'rdp' || server?.os_type === 'windows';
@@ -181,6 +192,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const isRdpRef = useRef<boolean>(isRdp);
   const defaultPortRef = useRef<number>(defaultPort);
   const displayResolutionRef = useRef(displayResolution);
+  const qualityPresetRef = useRef<QualityPreset>(qualityPreset);
   const customPasswordRef = useRef(customPassword);
   const sessionPasswordRef = useRef(sessionPassword);
 
@@ -190,6 +202,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   isRdpRef.current = isRdp;
   defaultPortRef.current = defaultPort;
   displayResolutionRef.current = displayResolution;
+  qualityPresetRef.current = qualityPreset;
   customPasswordRef.current = customPassword;
   sessionPasswordRef.current = sessionPassword;
 
@@ -361,10 +374,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     window.addEventListener('touchend', onTouchEnd);
   };
 
-  // Register user activity on interaction
+  // Register user activity without forcing synchronous React re-renders on high-frequency mouse moves
   const registerActivity = useCallback(() => {
     lastActivityRef.current = Date.now();
-    setIdleRemainingSec(900);
   }, []);
 
   // Teardown and cleanup existing connection
@@ -373,6 +385,12 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       clearTimeout(connectTimeoutRef.current);
       connectTimeoutRef.current = null;
     }
+    if (mouseMoveRafRef.current !== null) {
+      cancelAnimationFrame(mouseMoveRafRef.current);
+      mouseMoveRafRef.current = null;
+    }
+    connectedResolutionRef.current = null;
+    cachedDisplayMetricsRef.current.dirty = true;
     if (guacKeyboardRef.current) {
       try {
         guacKeyboardRef.current.onkeydown = null;
@@ -417,7 +435,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     }
   }, []);
 
-  // Update scaling of Guacamole display
+  // Update scaling of Guacamole display cleanly without conflicting CSS dimensions or subpixel tearing
   const updateDisplayScale = useCallback(() => {
     if (!guacClientRef.current || !displayContainerRef.current) return;
     const display = guacClientRef.current.getDisplay();
@@ -427,13 +445,14 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     if (!displayElem) return;
     const innerDisplay = displayElem.firstElementChild as HTMLElement | null;
 
-    // Enforce LTR top-left origin so RTL panel mode never shifts the canvas or cursor
+    // Enforce LTR top-left origin and isolate compositor layer so dirty-rect repaints never smear
     displayElem.dir = 'ltr';
     displayElem.style.direction = 'ltr';
     displayElem.style.position = 'relative';
     displayElem.style.margin = '0';
     displayElem.style.padding = '0';
     displayElem.style.overflow = 'hidden';
+    displayElem.style.isolation = 'isolate';
     if (innerDisplay) {
       innerDisplay.dir = 'ltr';
       innerDisplay.style.direction = 'ltr';
@@ -442,19 +461,19 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       innerDisplay.style.margin = '0';
       innerDisplay.style.transformOrigin = '0 0';
       (innerDisplay.style as any).webkitTransformOrigin = '0 0';
+      innerDisplay.style.backfaceVisibility = 'hidden';
     }
 
     const displayWidth = display.getWidth();
     const displayHeight = display.getHeight();
-    if (displayWidth <= 0 || displayHeight <= 0) return;
+    if (displayWidth <= 0 || displayHeight <= 0) {
+      cachedDisplayMetricsRef.current.dirty = true;
+      return;
+    }
 
     if (scalingMode === 'native') {
       display.scale(1.0);
-      if (innerDisplay) {
-        innerDisplay.style.transform = 'scale(1, 1)';
-      }
-      displayElem.style.width = `${displayWidth}px`;
-      displayElem.style.height = `${displayHeight}px`;
+      cachedDisplayMetricsRef.current.dirty = true;
       return;
     }
 
@@ -471,18 +490,14 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         innerDisplay.style.transform = `scale(${scaleX}, ${scaleY})`;
         (innerDisplay.style as any).webkitTransform = `scale(${scaleX}, ${scaleY})`;
       }
-      displayElem.style.width = `${Math.round(displayWidth * scaleX)}px`;
-      displayElem.style.height = `${Math.round(displayHeight * scaleY)}px`;
+      displayElem.style.width = `${displayWidth * scaleX}px`;
+      displayElem.style.height = `${displayHeight * scaleY}px`;
     } else {
       const scale = Math.max(0.1, Math.min(containerWidth / displayWidth, containerHeight / displayHeight));
       display.scale(scale);
-      if (innerDisplay) {
-        innerDisplay.style.transform = `scale(${scale}, ${scale})`;
-        (innerDisplay.style as any).webkitTransform = `scale(${scale}, ${scale})`;
-      }
-      displayElem.style.width = `${Math.round(displayWidth * scale)}px`;
-      displayElem.style.height = `${Math.round(displayHeight * scale)}px`;
     }
+
+    cachedDisplayMetricsRef.current.dirty = true;
   }, [scalingMode, isMonitorFullscreen]);
 
   useEffect(() => {
@@ -549,6 +564,13 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
       // Attach client display element to the DOM container
       const display = client.getDisplay();
+      display.statisticWindow = 2500;
+      display.onstatistics = (stats: any) => {
+        if (stats && Number.isFinite(stats.processingLag)) {
+          setLatencyMs(Math.max(1, Math.round(stats.processingLag)));
+        }
+      };
+
       const displayElem = display.getElement() as HTMLElement;
       displayElem.dir = 'ltr';
       displayElem.style.direction = 'ltr';
@@ -557,6 +579,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       displayElem.style.padding = '0';
       displayElem.style.outline = 'none';
       displayElem.style.overflow = 'hidden';
+      displayElem.style.isolation = 'isolate';
       displayElem.tabIndex = 0;
 
       const innerDisplay = displayElem.firstElementChild as HTMLElement | null;
@@ -568,10 +591,12 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         innerDisplay.style.margin = '0';
         innerDisplay.style.transformOrigin = '0 0';
         (innerDisplay.style as any).webkitTransformOrigin = '0 0';
+        innerDisplay.style.backfaceVisibility = 'hidden';
       }
 
       // Immediately re-scale whenever guacd resizes the remote desktop layer
       display.onresize = () => {
+        cachedDisplayMetricsRef.current.dirty = true;
         updateDisplayScaleRef.current();
       };
 
@@ -721,14 +746,27 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         }
       };
 
-      // Mouse input handling with exact 1:1 viewport-to-remote coordinate mapping
+      // Mouse input handling with cached bounding rect + rAF coalescing (prevents 240Hz move flooding & layout thrashing)
+      const getCachedDisplayRect = () => {
+        const metrics = cachedDisplayMetricsRef.current;
+        if (metrics.dirty || metrics.width <= 0 || metrics.height <= 0) {
+          const r = displayElem.getBoundingClientRect();
+          metrics.left = r.left;
+          metrics.top = r.top;
+          metrics.width = r.width;
+          metrics.height = r.height;
+          metrics.dirty = false;
+        }
+        return metrics;
+      };
+
       if (Guacamole.Position && Guacamole.Position.prototype) {
         Guacamole.Position.prototype.fromClientPosition = function (
           element: HTMLElement,
           clientX: number,
           clientY: number
         ) {
-          const rect = element.getBoundingClientRect();
+          const rect = element === displayElem ? getCachedDisplayRect() : element.getBoundingClientRect();
           this.x = clientX - rect.left;
           this.y = clientY - rect.top;
         };
@@ -738,7 +776,8 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       guacMouseRef.current = mouse;
 
       const syncMousePosFromEvent = (e: MouseEvent) => {
-        const rect = displayElem.getBoundingClientRect();
+        cachedDisplayMetricsRef.current.dirty = true;
+        const rect = getCachedDisplayRect();
         if (mouse && mouse.currentState) {
           mouse.currentState.x = e.clientX - rect.left;
           mouse.currentState.y = e.clientY - rect.top;
@@ -747,9 +786,15 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       displayElem.addEventListener('mousedown', syncMousePosFromEvent, true);
       displayElem.addEventListener('mouseup', syncMousePosFromEvent, true);
 
-      const sendScaledMouseState = (mouseState: any) => {
+      let lastSentX = -1;
+      let lastSentY = -1;
+      let lastSentButtons = -1;
+      let lastMoveSentAt = 0;
+      let pendingMouseState: any = null;
+
+      const sendScaledMouseState = (mouseState: any, forceSend = false) => {
         if (!isOpenRef.current) return;
-        const rect = displayElem.getBoundingClientRect();
+        const rect = getCachedDisplayRect();
         const dw = display.getWidth();
         const dh = display.getHeight();
         if (rect.width <= 0 || rect.height <= 0 || dw <= 0 || dh <= 0) {
@@ -758,11 +803,27 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         }
         const scaleX = dw / rect.width;
         const scaleY = dh / rect.height;
-        const clampedX = Math.max(0, Math.min(dw - 1, mouseState.x * scaleX));
-        const clampedY = Math.max(0, Math.min(dh - 1, mouseState.y * scaleY));
+        const rx = Math.round(Math.max(0, Math.min(dw - 1, mouseState.x * scaleX)));
+        const ry = Math.round(Math.max(0, Math.min(dh - 1, mouseState.y * scaleY)));
+        const buttonMask =
+          (mouseState.left ? 1 : 0) |
+          (mouseState.middle ? 2 : 0) |
+          (mouseState.right ? 4 : 0) |
+          (mouseState.up ? 8 : 0) |
+          (mouseState.down ? 16 : 0);
+
+        if (!forceSend && rx === lastSentX && ry === lastSentY && buttonMask === lastSentButtons) {
+          return;
+        }
+
+        lastSentX = rx;
+        lastSentY = ry;
+        lastSentButtons = buttonMask;
+        lastMoveSentAt = performance.now();
+
         const scaledState = new Guacamole.Mouse.State({
-          x: clampedX,
-          y: clampedY,
+          x: rx,
+          y: ry,
           left: mouseState.left,
           middle: mouseState.middle,
           right: mouseState.right,
@@ -772,18 +833,57 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         client.sendMouseState(scaledState, false);
       };
 
+      const flushPendingMove = () => {
+        mouseMoveRafRef.current = null;
+        if (!pendingMouseState) return;
+        const now = performance.now();
+        // Enforce ~20ms minimum interval (~50Hz max) on pointer moves so Windows RDP never queues drag repaints
+        if (now - lastMoveSentAt < 20) {
+          mouseMoveRafRef.current = requestAnimationFrame(flushPendingMove);
+          return;
+        }
+        const stateToSend = pendingMouseState;
+        pendingMouseState = null;
+        sendScaledMouseState(stateToSend, false);
+      };
+
       mouse.onmousedown = (mouseState: any) => {
         if (!isOpenRef.current) return;
         registerActivity();
+        if (mouseMoveRafRef.current !== null) {
+          cancelAnimationFrame(mouseMoveRafRef.current);
+          mouseMoveRafRef.current = null;
+        }
+        pendingMouseState = null;
         if (displayContainerRef.current && document.activeElement !== displayContainerRef.current) {
           displayContainerRef.current.focus();
         }
-        sendScaledMouseState(mouseState);
+        sendScaledMouseState(mouseState, true);
       };
-      mouse.onmouseup = mouse.onmousemove = (mouseState: any) => {
+
+      mouse.onmouseup = (mouseState: any) => {
         if (!isOpenRef.current) return;
         registerActivity();
-        sendScaledMouseState(mouseState);
+        if (mouseMoveRafRef.current !== null) {
+          cancelAnimationFrame(mouseMoveRafRef.current);
+          mouseMoveRafRef.current = null;
+        }
+        pendingMouseState = null;
+        sendScaledMouseState(mouseState, true);
+      };
+
+      mouse.onmousemove = (mouseState: any) => {
+        if (!isOpenRef.current) return;
+        registerActivity();
+        // Immediate flush for wheel scroll events if present
+        if (mouseState.up || mouseState.down) {
+          sendScaledMouseState(mouseState, true);
+          return;
+        }
+        pendingMouseState = mouseState;
+        if (mouseMoveRafRef.current === null) {
+          mouseMoveRafRef.current = requestAnimationFrame(flushPendingMove);
+        }
       };
 
       // Keyboard input handling:
@@ -910,6 +1010,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       if (valRes && valRes.ok) {
         const valData = await valRes.json();
         setTargetValidationInfo(valData);
+        if (typeof valData.latencyMs === 'number' && Number.isFinite(valData.latencyMs)) {
+          setLatencyMs(Math.max(1, Math.round(valData.latencyMs)));
+        }
         if (valData.reachable === false) {
           setConnectionStatus('error');
           const errMsg = curIsEn
@@ -939,6 +1042,13 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       // 3. Request single-use connection token
       const effectivePassword = customPasswordRef.current || sessionPasswordRef.current;
       const preflightTicketId = (curServer as any)?.approval_request_id;
+      const activePreset = qualityPresetRef.current;
+      const colorDepth = activePreset === 'high' ? '32' : '16';
+      const performanceMode =
+        activePreset === 'high' ? 'quality' : activePreset === 'balanced' ? 'balanced' : 'performance';
+
+      connectedResolutionRef.current = displayResolutionRef.current;
+
       const resp = await fetch('/api/remote-desktop/token', {
         method: 'POST',
         headers: {
@@ -952,6 +1062,8 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           width,
           height,
           dpi: 96,
+          colorDepth,
+          performanceMode,
           ...(effectivePassword ? { sessionPassword: effectivePassword } : {}),
         }),
       });
@@ -1061,11 +1173,16 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     };
   }, [cleanupConnection]);
 
-  // Dynamically request remote display resize if user changes resolution while connected
+  // Dynamically request remote display resize ONLY if resolution changed after connecting
   useEffect(() => {
-    if (guacClientRef.current && connectionStatus === 'connected') {
+    if (
+      guacClientRef.current &&
+      connectionStatus === 'connected' &&
+      connectedResolutionRef.current !== displayResolution
+    ) {
       const [w, h] = displayResolution.split('x').map(Number);
       if (w > 0 && h > 0) {
+        connectedResolutionRef.current = displayResolution;
         try {
           guacClientRef.current.sendSize(w, h);
           setTimeout(() => updateDisplayScaleRef.current(), 120);
@@ -1297,6 +1414,8 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           ? 'inset-0 z-[999998] p-0 m-0 bg-black'
           : isMaximized
           ? 'z-[9999] top-0 left-0 right-0 bottom-8 p-0'
+          : connectionStatus === 'connected'
+          ? 'z-[9999] top-0 left-0 right-0 bottom-8 p-3 md:p-6 bg-black/85'
           : 'z-[9999] top-0 left-0 right-0 bottom-8 p-3 md:p-6 bg-black/80 backdrop-blur-md'
       }`}
       dir={isEn ? 'ltr' : 'rtl'}
@@ -1304,7 +1423,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       onKeyDown={registerActivity}
     >
       <div
-        className={`flex flex-col overflow-hidden transition-all duration-200 shadow-2xl ${
+        className={`flex flex-col overflow-hidden ${
+          connectionStatus === 'connected' ? 'transition-colors' : 'transition-all duration-200'
+        } shadow-2xl ${
           isMonitorFullscreen || isMaximized
             ? 'w-full h-full rounded-none border-none'
             : 'w-full max-w-6xl h-[92vh] rounded-2xl border'
@@ -1382,7 +1503,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
               </span>
               <span className="flex items-center gap-1 text-slate-400">
                 <Activity className="w-3.5 h-3.5 text-emerald-400" />
-                {latencyMs}ms
+                {latencyMs !== null ? `${latencyMs}ms` : '--'}
               </span>
               <span
                 className={`text-[10px] px-1.5 py-0.5 rounded border ${
@@ -1576,11 +1697,38 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
           {/* Right Toolbar Controls (Scaling, Clipboard, Diagnostics, Reconnect) */}
           <div className="flex items-center gap-2">
+            {/* Performance / Color Depth Preset */}
+            <select
+              value={qualityPreset}
+              onChange={(e) => {
+                const next = e.target.value as QualityPreset;
+                qualityPresetRef.current = next;
+                setQualityPreset(next);
+                setTimeout(initiateConnection, 80);
+              }}
+              title={
+                isEn
+                  ? 'Graphics speed vs color quality (Fast 16-bit eliminates drag lag)'
+                  : 'تنظیم سرعت تصویر در برابر کیفیت رنگ (حالت سریع ۱۶-بیت لگ را به حداقل می‌رساند)'
+              }
+              className={`text-xs px-2 py-1 rounded border font-mono ${
+                isLightMode
+                  ? 'bg-white border-slate-300 text-slate-800'
+                  : 'bg-slate-800 border-slate-700 text-slate-200'
+              }`}
+            >
+              <option value="fast">{isEn ? 'Fast (16-bit)' : 'سریع (16-bit)'}</option>
+              <option value="balanced">{isEn ? 'Balanced' : 'متعادل'}</option>
+              <option value="high">{isEn ? 'True Color (32-bit)' : 'کیفیت بالا (32-bit)'}</option>
+            </select>
+
             {/* Resolution Selector */}
             <select
               value={displayResolution}
               onChange={(e) => {
-                setDisplayResolution(e.target.value as any);
+                const nextRes = e.target.value as '1920x1080' | '1600x900' | '1280x720';
+                displayResolutionRef.current = nextRes;
+                setDisplayResolution(nextRes);
                 setTimeout(initiateConnection, 100);
               }}
               className={`text-xs px-2 py-1 rounded border font-mono ${
@@ -1890,18 +2038,37 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                       </button>
                     </div>
 
-                    <select
-                      value={displayResolution}
-                      onChange={(e) => {
-                        setDisplayResolution(e.target.value as any);
-                        setTimeout(initiateConnection, 100);
-                      }}
-                      className="text-[11px] px-2 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 font-mono"
-                    >
-                      <option value="1920x1080">1920×1080</option>
-                      <option value="1600x900">1600×900</option>
-                      <option value="1280x720">1280×720</option>
-                    </select>
+                    <div className="flex items-center gap-1">
+                      <select
+                        value={qualityPreset}
+                        onChange={(e) => {
+                          const next = e.target.value as QualityPreset;
+                          qualityPresetRef.current = next;
+                          setQualityPreset(next);
+                          setTimeout(initiateConnection, 80);
+                        }}
+                        className="text-[11px] px-1.5 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 font-mono"
+                      >
+                        <option value="fast">{isEn ? 'Fast 16b' : 'سریع 16b'}</option>
+                        <option value="balanced">{isEn ? 'Balanced' : 'متعادل'}</option>
+                        <option value="high">{isEn ? '32-bit' : '32-bit'}</option>
+                      </select>
+
+                      <select
+                        value={displayResolution}
+                        onChange={(e) => {
+                          const nextRes = e.target.value as '1920x1080' | '1600x900' | '1280x720';
+                          displayResolutionRef.current = nextRes;
+                          setDisplayResolution(nextRes);
+                          setTimeout(initiateConnection, 100);
+                        }}
+                        className="text-[11px] px-2 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 font-mono"
+                      >
+                        <option value="1920x1080">1920×1080</option>
+                        <option value="1600x900">1600×900</option>
+                        <option value="1280x720">1280×720</option>
+                      </select>
+                    </div>
                   </div>
 
                   {/* Special Keys Row */}
@@ -2036,6 +2203,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                 displayContainerRef.current?.focus();
               }
             }}
+            onScroll={() => {
+              cachedDisplayMetricsRef.current.dirty = true;
+            }}
             onPaste={(e) => {
               const pasted = e.clipboardData?.getData('text/plain');
               if (pasted) {
@@ -2043,9 +2213,11 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                 pushTextToRemoteClipboard(pasted);
               }
             }}
-            className={`w-full h-full flex items-center justify-center overflow-hidden focus:outline-none ${
-              connectionStatus !== 'connected' ? 'hidden' : ''
-            }`}
+            className={`w-full h-full flex focus:outline-none ${
+              scalingMode === 'native'
+                ? 'overflow-auto items-start justify-start'
+                : 'overflow-hidden items-center justify-center'
+            } ${connectionStatus !== 'connected' ? 'hidden' : ''}`}
           />
 
           {/* Gateway Offline View: 1-Click Auto Installer & Service Setup */}

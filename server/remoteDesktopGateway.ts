@@ -78,6 +78,8 @@ interface RemoteSessionConfig {
   password?: string;
   domain?: string;
   security?: string;
+  colorDepth?: '16' | '24' | '32';
+  performanceMode?: 'performance' | 'balanced' | 'quality';
   initialProgram?: string;
   width: number;
   height: number;
@@ -172,6 +174,59 @@ function extractNextGuacInstruction(buffer: string): { instruction: string; rema
     }
   }
   return null;
+}
+
+/**
+ * High-throughput O(N) streaming scanner for Guacamole instructions.
+ * Parses all complete `;`-terminated instructions from `buffer` using a moving offset
+ * without O(N^2) intermediate string slicing, and returns only the unparsed tail.
+ */
+export function consumeGuacInstructions(
+  buffer: string,
+  onInstruction: (rawWithSemi: string, parts: string[], opcode: string) => void
+): string {
+  const bufLen = buffer.length;
+  let instrStart = 0;
+
+  while (instrStart < bufLen) {
+    const parts: string[] = [];
+    let pos = instrStart;
+    let completed = false;
+
+    while (pos < bufLen) {
+      const dot = buffer.indexOf('.', pos);
+      if (dot === -1) break;
+      const len = parseInt(buffer.substring(pos, dot), 10);
+      if (isNaN(len) || len < 0) {
+        return '';
+      }
+      const valStart = dot + 1;
+      const valEnd = valStart + len;
+      if (valEnd >= bufLen) {
+        break; // Incomplete instruction payload/terminator
+      }
+      parts.push(buffer.substring(valStart, valEnd));
+      const terminator = buffer[valEnd];
+      if (terminator === ';') {
+        const nextStart = valEnd + 1;
+        const rawWithSemi = buffer.substring(instrStart, nextStart);
+        onInstruction(rawWithSemi, parts, parts[0] || '');
+        instrStart = nextStart;
+        completed = true;
+        break;
+      } else if (terminator === ',') {
+        pos = valEnd + 1;
+      } else {
+        return '';
+      }
+    }
+
+    if (!completed) {
+      break;
+    }
+  }
+
+  return instrStart === 0 ? buffer : instrStart >= bufLen ? '' : buffer.substring(instrStart);
 }
 
 /**
@@ -843,7 +898,20 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
 
     const userRole = user ? user.role : 'Operator';
 
-    const { serverId, protocol = 'rdp', width = 1920, height = 1080, dpi = 96, sessionPassword, rdp_security, security } = req.body;
+    const {
+      serverId,
+      protocol = 'rdp',
+      width = 1920,
+      height = 1080,
+      dpi = 96,
+      sessionPassword,
+      rdp_security,
+      security,
+      colorDepth,
+      color_depth,
+      performanceMode,
+      performance_mode,
+    } = req.body;
 
     if (!serverId) {
       return res.status(400).json({ error: 'Missing required parameter: serverId' });
@@ -998,6 +1066,12 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       }
     }
     const targetSecurity = normalizeRdpSecurity(rdp_security || security || serverRecord.rdp_security || 'any');
+    const rawColorDepth = String(colorDepth || color_depth || '16').trim();
+    const targetColorDepth: '16' | '24' | '32' =
+      rawColorDepth === '32' ? '32' : rawColorDepth === '24' ? '24' : '16';
+    const rawPerfMode = String(performanceMode || performance_mode || 'performance').trim().toLowerCase();
+    const targetPerformanceMode: 'performance' | 'balanced' | 'quality' =
+      rawPerfMode === 'quality' ? 'quality' : rawPerfMode === 'balanced' ? 'balanced' : 'performance';
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const sessionId = `rdp-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
@@ -1018,6 +1092,8 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       password: targetPassword,
       domain: targetDomain,
       security: targetSecurity,
+      colorDepth: targetColorDepth,
+      performanceMode: targetPerformanceMode,
       width: Math.max(800, Math.min(width, 3840)),
       height: Math.max(600, Math.min(height, 2160)),
       dpi: Math.max(72, Math.min(dpi, 192)),
@@ -1257,9 +1333,10 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     }
   }, 15000);
 
-  // WebSocket Server for Guacamole Protocol Tunnel
+  // WebSocket Server for Guacamole Protocol Tunnel (disable perMessageDeflate to avoid re-compressing image frames)
   const wss = new WebSocketServer({
     noServer: true,
+    perMessageDeflate: false,
     handleProtocols: (protocols) => {
       if (protocols.has('guacamole')) {
         return 'guacamole';
@@ -1271,6 +1348,9 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
   server.on('upgrade', (req, socket, head) => {
     const url = req.url || '';
     if (url.startsWith('/ws/guacamole') || url.startsWith('/api/remote-desktop/tunnel')) {
+      try {
+        (socket as net.Socket).setNoDelay?.(true);
+      } catch {}
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit('connection', ws, req);
       });
@@ -1593,8 +1673,11 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       return;
     }
 
-    // Connect to native guacd daemon via TCP
+    // Connect to native guacd daemon via TCP with TCP_NODELAY enabled to eliminate Nagle/sync stalls
     const guacdSocket = new net.Socket();
+    try {
+      guacdSocket.setNoDelay(true);
+    } catch {}
     activeSession.socket = guacdSocket;
     const guacdDecoder = new StringDecoder('utf8');
 
@@ -1621,6 +1704,9 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     }, 5000);
 
     guacdSocket.connect(guacdPort, guacdHost, () => {
+      try {
+        guacdSocket.setNoDelay(true);
+      } catch {}
       activeSession.guacdConnected = true;
       console.log(`[RemoteDesktop] Connected to guacd for session ${config.id} (${config.protocol})`);
       // 1. Send select instruction
@@ -1630,16 +1716,22 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     guacdSocket.on('data', (chunk: Buffer) => {
       guacBuffer += guacdDecoder.write(chunk);
 
-      while (true) {
-        const next = extractNextGuacInstruction(guacBuffer);
-        if (!next) break;
+      const READY_BATCH_MAX_CHARS = 131072; // 128KB batch ceiling per WebSocket frame
+      let readyBatch: string[] = [];
+      let readyBatchChars = 0;
 
-        guacBuffer = next.remaining;
-        const instructionStr = next.instruction;
-        const parsed = next.parts;
-        const opcode = parsed[0];
+      const flushReadyBatch = () => {
+        if (readyBatch.length === 0) return;
+        if (clientWs.readyState === WebSocket.OPEN) {
+          clientWs.send(readyBatch.join(''));
+        }
+        readyBatch = [];
+        readyBatchChars = 0;
+      };
 
+      guacBuffer = consumeGuacInstructions(guacBuffer, (rawWithSemi, parsed, opcode) => {
         if (opcode === 'error') {
+          flushReadyBatch();
           const rawErrMsg = parsed[1] || 'Remote server connection error';
           const rawErrCode = parsed[2] || '516';
           console.error(
@@ -1651,7 +1743,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             const structured = parseStructuredGuacError(rawErrMsg, config.serverIp, config.port, config.domain);
             clientWs.send(encodeGuacInstruction('error', JSON.stringify(structured), structured.code || rawErrCode));
           }
-          continue;
+          return;
         }
 
         if (handshakeState === 'SELECT') {
@@ -1659,12 +1751,17 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             const paramNames = parsed.slice(1);
             const normCreds = normalizeRdpCredentials(config.username, config.domain);
             const effectiveSecurity = normalizeRdpSecurity(config.security);
+            const effectiveColorDepth = config.colorDepth || '16';
+            const perfMode = config.performanceMode || 'performance';
+            const isQuality = perfMode === 'quality';
             const passwordVal = config.password || '';
             const widthStr = String(config.width || 1024);
             const heightStr = String(config.height || 768);
             const dpiStr = String(config.dpi || 96);
 
-            // Parameter names MUST match guacd's hyphenated args list exactly (e.g., "ignore-cert", "color-depth")
+            // Parameter names MUST match guacd's hyphenated args list exactly (e.g., "ignore-cert", "color-depth").
+            // Disabling FreeRDP offscreen & glyph caching prevents persistent window-drag trails/ghosting artifacts
+            // while disabling animations/wallpapers/composition eliminates RDP lag.
             const params: Record<string, string> = {
               hostname: String(config.serverIp || '').trim(),
               port: String(config.port || (config.protocol === 'rdp' ? 3389 : 5900)),
@@ -1681,10 +1778,20 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
               'enable-audio-input': 'false',
               'enable-printing': 'false',
               'enable-drive': 'false',
+              'disable-bitmap-caching': 'false',
+              'disable-offscreen-caching': 'true',
+              'disable-glyph-caching': 'true',
+              'enable-wallpaper': isQuality ? 'true' : 'false',
+              'enable-theming': isQuality ? 'true' : 'false',
+              'enable-font-smoothing': 'true',
+              'enable-full-window-drag': isQuality ? 'true' : 'false',
+              'enable-desktop-composition': isQuality ? 'true' : 'false',
+              'enable-menu-animations': 'false',
+              'force-lossless': 'false',
               width: widthStr,
               height: heightStr,
               dpi: dpiStr,
-              'color-depth': '24',
+              'color-depth': effectiveColorDepth,
               ...(config.initialProgram ? { 'initial-program': config.initialProgram } : {}),
             };
 
@@ -1721,7 +1828,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             console.log(
               `[RemoteDesktop] Guacamole connect debug for session ${config.id}: ` +
                 `ignore-cert="${ignoreCertSentVal}" (argIndex=${ignoreCertIdx}) | ` +
-                `security="${effectiveSecurity}" | ` +
+                `security="${effectiveSecurity}" | colorDepth="${effectiveColorDepth}" | perf="${perfMode}" | ` +
                 `passwordEmpty=${isPasswordEmpty} | ` +
                 `matchedArgs=${JSON.stringify(matchedArgs)} | ` +
                 `emptyArgs=${JSON.stringify(emptyArgs)}`
@@ -1734,16 +1841,17 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             guacdSocket.write(encodeGuacInstruction('connect', ...connectValues));
             handshakeState = 'CONNECTING';
           }
-        } else if (handshakeState === 'CONNECTING') {
+          return;
+        }
+
+        if (handshakeState === 'CONNECTING') {
           if (opcode === 'ready') {
             const guacSessionUuid = parsed[1] || config.id;
             console.log(`[RemoteDesktop] guacd session ready: ${guacSessionUuid}`);
             logSessionEstablished();
             // Send Guacamole internal tunnel initialization instruction to browser client (opcode "", param: session UUID)
             if (clientWs.readyState === WebSocket.OPEN) {
-              clientWs.send(encodeGuacInstruction('', guacSessionUuid));
-              // Also forward the ready instruction
-              clientWs.send(instructionStr + ';');
+              clientWs.send(encodeGuacInstruction('', guacSessionUuid) + rawWithSemi);
             }
             handshakeState = 'READY';
             // Zero-disruption passive session recording:
@@ -1751,7 +1859,6 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             // so layer-0 "size" and the initial full-screen desktop keyframe are NEVER lost while
             // createGuacSessionRecorder resolves PostgreSQL settings & opens the write stream asynchronously.
             const pendingRecInstructions: string[] = [];
-            const MAX_PENDING_REC_BYTES = 12 * 1024 * 1024;
             (activeSession as any)._pendingRecInstructions = pendingRecInstructions;
             (activeSession as any)._pendingRecBytes = 0;
             (activeSession as any)._pendingRecInitActive = true;
@@ -1821,31 +1928,37 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
                 (activeSession as any)._pendingRecBytes = 0;
               });
           }
-        } else {
-          // handshakeState === 'READY'
-          // Forward all Guacamole instructions directly to client WebSocket
-          if (clientWs.readyState === WebSocket.OPEN) {
-            clientWs.send(instructionStr + ';');
-          }
-          // Passive non-blocking wire-tap (never throws or delays live stream)
-          const rec: GuacRecorderHandle | undefined = (activeSession as any)._sessionRecorder;
-          if (rec) {
-            try {
-              rec.writeInstruction(instructionStr + ';');
-            } catch {}
-          } else if ((activeSession as any)._pendingRecInitActive) {
-            const buf: string[] | null | undefined = (activeSession as any)._pendingRecInstructions;
-            if (buf) {
-              const rawInst = instructionStr + ';';
-              const curBytes = Number((activeSession as any)._pendingRecBytes || 0);
-              if (curBytes + rawInst.length <= 12 * 1024 * 1024) {
-                buf.push(rawInst);
-                (activeSession as any)._pendingRecBytes = curBytes + rawInst.length;
-              }
+          return;
+        }
+
+        // handshakeState === 'READY'
+        // Batch all instructions within a chunk/frame into combined WebSocket frames
+        // and flush immediately at frame boundaries ("sync") or 128KB ceiling.
+        readyBatch.push(rawWithSemi);
+        readyBatchChars += rawWithSemi.length;
+        if (opcode === 'sync' || readyBatchChars >= READY_BATCH_MAX_CHARS) {
+          flushReadyBatch();
+        }
+
+        // Passive non-blocking wire-tap (never throws or delays live stream)
+        const rec: GuacRecorderHandle | undefined = (activeSession as any)._sessionRecorder;
+        if (rec) {
+          try {
+            rec.writeInstruction(rawWithSemi);
+          } catch {}
+        } else if ((activeSession as any)._pendingRecInitActive) {
+          const buf: string[] | null | undefined = (activeSession as any)._pendingRecInstructions;
+          if (buf) {
+            const curBytes = Number((activeSession as any)._pendingRecBytes || 0);
+            if (curBytes + rawWithSemi.length <= 12 * 1024 * 1024) {
+              buf.push(rawWithSemi);
+              (activeSession as any)._pendingRecBytes = curBytes + rawWithSemi.length;
             }
           }
         }
-      }
+      });
+
+      flushReadyBatch();
     });
 
     // Handle user inputs (mouse, keys, clipboard) and internal tunnel pings from client
@@ -1853,13 +1966,9 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       activeSession.lastActivity = Date.now();
       clientBuffer += msg.toString();
 
-      while (true) {
-        const next = extractNextGuacInstruction(clientBuffer);
-        if (!next) break;
-        clientBuffer = next.remaining;
-        const parsed = next.parts;
-        const opcode = parsed[0];
+      const forwardBatch: string[] = [];
 
+      clientBuffer = consumeGuacInstructions(clientBuffer, (rawWithSemi, parsed, opcode) => {
         // Guacamole.WebSocketTunnel sends internal ping: 0.,4.ping,<len>.<timestamp>;
         // We MUST echo it back to clientWs to prevent client-side 15s receiveTimeout,
         // and send a standard "nop" to guacd rather than an invalid empty opcode.
@@ -1868,16 +1977,17 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             clientWs.send(encodeGuacInstruction('', 'ping', parsed[2] || String(Date.now())));
           }
           if (handshakeState === 'READY' && guacdSocket.writable && Date.now() - lastGuacdNopAt > 3000) {
-            guacdSocket.write(encodeGuacInstruction('nop'));
+            forwardBatch.push(encodeGuacInstruction('nop'));
             lastGuacdNopAt = Date.now();
           }
-          continue;
+          return;
         }
 
-        // Forward standard Guacamole instruction to guacd
-        if (guacdSocket.writable) {
-          guacdSocket.write(next.instruction + ';');
-        }
+        forwardBatch.push(rawWithSemi);
+      });
+
+      if (forwardBatch.length > 0 && guacdSocket.writable) {
+        guacdSocket.write(forwardBatch.join(''));
       }
     });
 
