@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.496.6';
+export const APP_VERSION = '1.497.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.497.0',
+    releaseDate: '2026-11-26',
+    type: 'minor',
+    title: 'بازطراحی چیدمان تب‌های Agentless Endpoint HelpDesk، فچ هم‌زمان یوزر پروفایل، وضعیت آنتی‌ویروس نصب‌شده و ارسال پیام فوری به کاربر جاری',
+    title_en: 'Reorganize Agentless Endpoint HelpDesk Tabs, Concurrent User Profiles Prefetch, Installed AV Posture & Quick User Announcement',
+    changes: [
+      'بازچینی چیدمان تب‌های Agentless Endpoint HelpDesk (`HelpDeskView.tsx` و `helpdeskRamSession.ts`): انتقال تب `ورود کاربران، نشست و پاور` (`logins`) به جایگاه تب دوم، انتقال `سرویس‌ها و استارت‌آپ` (`services_startup`) دقیقاً پیش از `دیاگنوستیگ`، قرارگیری `دیاگنوستیگ` پیش از `WSUS / Updates` با کادر رنگی متمایز و نقطه نارنجی چرخان روی لبه کادر (`helpdeskDiagDotOrbit` در `index.css`) و انتقال تب `آپدیت ویندوز، WSUS و مشخصات سیستم` به جایگاه ماقبل آخر (دقیقاً پیش از `تاریخچه اتصالات`).',
+      'اجرای غیرمسدودکننده و هم‌زمان دریافت داده‌های تب `یوزر پروفایل` (`concurrent: true` در `runHelpdeskSequentialConnect`) تا محاسبه طولانی حجم پروفایل‌های کاربران مانع دریافت فوری تب‌های بعدی (`Hardware`، `Network`، `Printers` و ...) نشود.',
+      'ارتقای بخش `وضعیت آنتی‌ویروس و فایروال سیستم` در تب `Health & Safe Process Control` (`server/helpdeskService.ts` و `HelpDeskView.tsx`): شناسایی و نمایش وضعیت واقعی آنتی‌ویروس‌های جانبی نصب‌شده در کنار Windows Defender (از طریق `SecurityCenter2`، سرویس‌های ویندوز و systemd لینوکس بدون داده ساختگی) به همراه دکمه هدایت مستقیم به تب `فایروال و آنتی‌ویروس`.',
+      'افزودن نوار ارسال پیام فوری (Announcement) برای کاربر جاری سیستم در بخش پایینی کادر `On-Demand Target Workstation Session` با کنترل دسترسی دقیق RBAC (`canSendHelpdeskMessage` یا سوپرادمین) و ثبت خودکار در لاگ‌های Audit هلپ‌دسک.'
+    ],
+    changes_en: [
+      'Reordered Agentless Endpoint HelpDesk workspace tabs (`HelpDeskView.tsx` & `helpdeskRamSession.ts`): moved `User Logins, Sessions & Power` (`logins`) to position #2, placed `Services & startup` directly before `Diagnostics`, positioned `Diagnostics` directly before `Updates, WSUS & System Info` with a colored border frame and smoothly orbiting orange perimeter dot (`index.css`), and moved `Updates, WSUS & System Info` to second-to-last directly before `Connection History`.',
+      'Made `User Profiles` prefetch non-blocking (`concurrent: true` in `runHelpdeskSequentialConnect`) so slow profile disk-footprint scans run concurrently in the background while subsequent tabs immediately fetch without stalling.',
+      'Enhanced `Antivirus & Firewall Posture` in `Health & Safe Process Control` (`server/helpdeskService.ts` & `HelpDeskView.tsx`) to report real installed 3rd-party antivirus status (via Windows `SecurityCenter2`, AV services, and Linux systemd units) alongside Windows Defender—with zero mock data—and added a direct navigation button to the `Firewall & Antivirus` tab.',
+      'Added an RBAC-gated (`canSendHelpdeskMessage` or Super Admin) Quick Announcement message bar at the bottom of the `On-Demand Target Workstation Session` card targeting the active logged-in workstation user.'
+    ]
+  },
   {
     version: '1.496.6',
     releaseDate: '2026-11-26',

@@ -415,7 +415,31 @@ export function bindHelpdeskRamOwner(userId: string | null | undefined): void {
 export function stopHelpdeskPrefetch(): void {
   activeRunId += 1;
   if (ramState.prefetchProgress) {
-    ramState = { ...ramState, prefetchProgress: null };
+    ramState = {
+      ...ramState,
+      prefetchProgress: null,
+      loadingHealth: false,
+      loadingShares: false,
+      loadingTempScan: false,
+      loadingVirtualMemory: false,
+      loadingUserProfiles: false,
+      loadingHardware: false,
+      loadingNetwork: false,
+      loadingPrinters: false,
+      loadingEvents: false,
+      loadingLogons: false,
+      loadingSysInfo: false,
+      loadingUpdateStatus: false,
+      loadingPrograms: false,
+      loadingServicesStartup: false,
+      loadingMsconfigEnv: false,
+      loadingRegionFonts: false,
+      loadingSecurityAv: false,
+      loadingGpo: false,
+      loadingDomainUser: false,
+      loadingDiskHealth: false,
+      loadingBattery: false,
+    };
     emitChange();
   }
 }
@@ -560,6 +584,7 @@ export async function runHelpdeskSequentialConnect(options: {
     id: HelpdeskSubTab;
     labelEn: string;
     labelFa: string;
+    concurrent?: boolean;
     run: () => Promise<boolean>;
   }> = [
     {
@@ -588,6 +613,41 @@ export async function runHelpdeskSequentialConnect(options: {
             });
           }
           return false;
+        }
+        return true;
+      },
+    },
+    {
+      id: 'logins',
+      labelEn: 'User Logins, Sessions & Power',
+      labelFa: 'ورود کاربران، نشست و پاور',
+      run: async () => {
+        patchHelpdeskRamSnapshot({ loadingLogons: true, logonsError: null });
+        try {
+          const res = await fetchHelpdeskEndpointLogons({
+            ...payload,
+            hoursBack: logonsHoursBack,
+            maxEvents: 350,
+          });
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              logonsData: res.data,
+              loadingLogons: false,
+              ...(res.rateLimit ? { rateLimit: res.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              logonsData: null,
+              loadingLogons: false,
+              logonsError:
+                err?.message ||
+                (isEn
+                  ? 'Failed to inspect workstation user logins & active sessions.'
+                  : 'خطا در دریافت گزارش ورود کاربران و نشست‌های فعال سیستم.'),
+            });
+          }
         }
         return true;
       },
@@ -676,6 +736,7 @@ export async function runHelpdeskSequentialConnect(options: {
       id: 'user_profiles',
       labelEn: 'User Profiles & Disk Footprint',
       labelFa: 'پروفایل‌های کاربران و حجم دیسک',
+      concurrent: true,
       run: async () => {
         patchHelpdeskRamSnapshot({ loadingUserProfiles: true, userProfilesError: null });
         try {
@@ -835,100 +896,6 @@ export async function runHelpdeskSequentialConnect(options: {
         ]
       : []),
     {
-      id: 'logins',
-      labelEn: 'User Logins, Sessions & Power',
-      labelFa: 'ورود کاربران، نشست و پاور',
-      run: async () => {
-        patchHelpdeskRamSnapshot({ loadingLogons: true, logonsError: null });
-        try {
-          const res = await fetchHelpdeskEndpointLogons({
-            ...payload,
-            hoursBack: logonsHoursBack,
-            maxEvents: 350,
-          });
-          if (!isCancelled()) {
-            patchHelpdeskRamSnapshot({
-              logonsData: res.data,
-              loadingLogons: false,
-              ...(res.rateLimit ? { rateLimit: res.rateLimit } : {}),
-            });
-          }
-        } catch (err: any) {
-          if (!isCancelled()) {
-            patchHelpdeskRamSnapshot({
-              logonsData: null,
-              loadingLogons: false,
-              logonsError:
-                err?.message ||
-                (isEn
-                  ? 'Failed to inspect workstation user logins & active sessions.'
-                  : 'خطا در دریافت گزارش ورود کاربران و نشست‌های فعال سیستم.'),
-            });
-          }
-        }
-        return true;
-      },
-    },
-    {
-      id: 'updates',
-      labelEn: 'Updates, WSUS & System Info',
-      labelFa: 'آپدیت ویندوز، WSUS و مشخصات سیستم',
-      run: async () => {
-        patchHelpdeskRamSnapshot({ loadingSysInfo: true, sysInfoError: null });
-        try {
-          const sysRes = await fetchHelpdeskSystemInfo(payload);
-          if (!isCancelled()) {
-            patchHelpdeskRamSnapshot({
-              sysInfoData: sysRes.data,
-              loadingSysInfo: false,
-              ...(sysRes.rateLimit ? { rateLimit: sysRes.rateLimit } : {}),
-            });
-          }
-        } catch (err: any) {
-          if (!isCancelled()) {
-            patchHelpdeskRamSnapshot({
-              sysInfoData: null,
-              loadingSysInfo: false,
-              sysInfoError:
-                err?.message ||
-                (isEn
-                  ? 'Failed to collect detailed system info and updates.'
-                  : 'خطا در دریافت مشخصات سیستم و لیست آپدیت‌ها.'),
-            });
-          }
-        }
-        if (isCancelled()) return true;
-        patchHelpdeskRamSnapshot({ loadingUpdateStatus: true, updateStatusError: null });
-        try {
-          const updRes = await fetchHelpdeskUpdateStatus({
-            ...payload,
-            sourceMode: 'auto',
-            withOnlineScan: true,
-          });
-          if (!isCancelled()) {
-            patchHelpdeskRamSnapshot({
-              updateStatusData: updRes.data,
-              loadingUpdateStatus: false,
-              ...(updRes.rateLimit ? { rateLimit: updRes.rateLimit } : {}),
-            });
-          }
-        } catch (err: any) {
-          if (!isCancelled()) {
-            patchHelpdeskRamSnapshot({
-              updateStatusData: null,
-              loadingUpdateStatus: false,
-              updateStatusError:
-                err?.message ||
-                (isEn
-                  ? 'Failed to inspect Windows Update & WSUS policy.'
-                  : 'خطا در بررسی وضعیت Windows Update و پالیسی WSUS.'),
-            });
-          }
-        }
-        return true;
-      },
-    },
-    {
       id: 'programs',
       labelEn: 'Add / Remove Programs',
       labelFa: 'برنامه‌های نصب‌شده (Add / Remove)',
@@ -953,65 +920,6 @@ export async function runHelpdeskSequentialConnect(options: {
                 (isEn
                   ? 'Failed to inspect installed applications.'
                   : 'خطا در دریافت لیست برنامه‌های نصب‌شده سیستم کاربر.'),
-            });
-          }
-        }
-        return true;
-      },
-    },
-    {
-      id: 'services_startup',
-      labelEn: 'Services, Startup, MSConfig & Env Vars',
-      labelFa: 'سرویس‌ها، استارت‌آپ، MSConfig و متغیرهای محیطی',
-      run: async () => {
-        patchHelpdeskRamSnapshot({
-          loadingServicesStartup: true,
-          servicesStartupError: null,
-          loadingMsconfigEnv: true,
-          msconfigEnvError: null,
-        });
-        try {
-          const svcRes = await fetchHelpdeskServicesAndStartup(payload);
-          if (!isCancelled()) {
-            patchHelpdeskRamSnapshot({
-              servicesStartupData: svcRes.data,
-              loadingServicesStartup: false,
-              ...(svcRes.rateLimit ? { rateLimit: svcRes.rateLimit } : {}),
-            });
-          }
-        } catch (err: any) {
-          if (!isCancelled()) {
-            patchHelpdeskRamSnapshot({
-              servicesStartupData: null,
-              loadingServicesStartup: false,
-              servicesStartupError:
-                err?.message ||
-                (isEn
-                  ? 'Failed to inspect Windows services and startup programs.'
-                  : 'خطا در دریافت لیست سرویس‌ها و برنامه‌های استارت‌آپ سیستم کاربر.'),
-            });
-          }
-        }
-        if (isCancelled()) return true;
-        try {
-          const msRes = await fetchHelpdeskMsconfigAndEnv(payload);
-          if (!isCancelled()) {
-            patchHelpdeskRamSnapshot({
-              msconfigEnvData: msRes.data,
-              loadingMsconfigEnv: false,
-              ...(msRes.rateLimit ? { rateLimit: msRes.rateLimit } : {}),
-            });
-          }
-        } catch (err: any) {
-          if (!isCancelled()) {
-            patchHelpdeskRamSnapshot({
-              msconfigEnvData: null,
-              loadingMsconfigEnv: false,
-              msconfigEnvError:
-                (isEn ? err?.message : err?.errorFa || err?.message) ||
-                (isEn
-                  ? 'Failed to inspect MSConfig boot options and environment variables.'
-                  : 'خطا در دریافت تنظیمات MSConfig و متغیرهای محیطی سیستم کاربر.'),
             });
           }
         }
@@ -1204,7 +1112,133 @@ export async function runHelpdeskSequentialConnect(options: {
         return true;
       },
     },
+    {
+      id: 'services_startup',
+      labelEn: 'Services, Startup, MSConfig & Env Vars',
+      labelFa: 'سرویس‌ها، استارت‌آپ، MSConfig و متغیرهای محیطی',
+      run: async () => {
+        patchHelpdeskRamSnapshot({
+          loadingServicesStartup: true,
+          servicesStartupError: null,
+          loadingMsconfigEnv: true,
+          msconfigEnvError: null,
+        });
+        try {
+          const svcRes = await fetchHelpdeskServicesAndStartup(payload);
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              servicesStartupData: svcRes.data,
+              loadingServicesStartup: false,
+              ...(svcRes.rateLimit ? { rateLimit: svcRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              servicesStartupData: null,
+              loadingServicesStartup: false,
+              servicesStartupError:
+                err?.message ||
+                (isEn
+                  ? 'Failed to inspect Windows services and startup programs.'
+                  : 'خطا در دریافت لیست سرویس‌ها و برنامه‌های استارت‌آپ سیستم کاربر.'),
+            });
+          }
+        }
+        if (isCancelled()) return true;
+        try {
+          const msRes = await fetchHelpdeskMsconfigAndEnv(payload);
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              msconfigEnvData: msRes.data,
+              loadingMsconfigEnv: false,
+              ...(msRes.rateLimit ? { rateLimit: msRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              msconfigEnvData: null,
+              loadingMsconfigEnv: false,
+              msconfigEnvError:
+                (isEn ? err?.message : err?.errorFa || err?.message) ||
+                (isEn
+                  ? 'Failed to inspect MSConfig boot options and environment variables.'
+                  : 'خطا در دریافت تنظیمات MSConfig و متغیرهای محیطی سیستم کاربر.'),
+            });
+          }
+        }
+        return true;
+      },
+    },
+    {
+      id: 'updates',
+      labelEn: 'Updates, WSUS & System Info',
+      labelFa: 'آپدیت ویندوز، WSUS و مشخصات سیستم',
+      run: async () => {
+        patchHelpdeskRamSnapshot({ loadingSysInfo: true, sysInfoError: null });
+        try {
+          const sysRes = await fetchHelpdeskSystemInfo(payload);
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              sysInfoData: sysRes.data,
+              loadingSysInfo: false,
+              ...(sysRes.rateLimit ? { rateLimit: sysRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              sysInfoData: null,
+              loadingSysInfo: false,
+              sysInfoError:
+                err?.message ||
+                (isEn
+                  ? 'Failed to collect detailed system info and updates.'
+                  : 'خطا در دریافت مشخصات سیستم و لیست آپدیت‌ها.'),
+            });
+          }
+        }
+        if (isCancelled()) return true;
+        patchHelpdeskRamSnapshot({ loadingUpdateStatus: true, updateStatusError: null });
+        try {
+          const updRes = await fetchHelpdeskUpdateStatus({
+            ...payload,
+            sourceMode: 'auto',
+            withOnlineScan: true,
+          });
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              updateStatusData: updRes.data,
+              loadingUpdateStatus: false,
+              ...(updRes.rateLimit ? { rateLimit: updRes.rateLimit } : {}),
+            });
+          }
+        } catch (err: any) {
+          if (!isCancelled()) {
+            patchHelpdeskRamSnapshot({
+              updateStatusData: null,
+              loadingUpdateStatus: false,
+              updateStatusError:
+                err?.message ||
+                (isEn
+                  ? 'Failed to inspect Windows Update & WSUS policy.'
+                  : 'خطا در بررسی وضعیت Windows Update و پالیسی WSUS.'),
+            });
+          }
+        }
+        return true;
+      },
+    },
   ];
+
+  const backgroundTasks: Array<{
+    id: HelpdeskSubTab;
+    labelEn: string;
+    labelFa: string;
+    settled: boolean;
+    promise: Promise<boolean>;
+  }> = [];
 
   for (let i = 0; i < steps.length; i++) {
     if (isCancelled()) return false;
@@ -1219,6 +1253,25 @@ export async function runHelpdeskSequentialConnect(options: {
         labelFa: st.labelFa,
       },
     });
+    if (st.concurrent) {
+      // Launch long-running step (e.g. User Profiles disk scan) concurrently in the background
+      // so subsequent tabs continue fetching immediately without stalling.
+      const bgEntry = {
+        id: st.id,
+        labelEn: st.labelEn,
+        labelFa: st.labelFa,
+        settled: false,
+        promise: Promise.resolve(true),
+      };
+      bgEntry.promise = st
+        .run()
+        .catch(() => true)
+        .finally(() => {
+          bgEntry.settled = true;
+        });
+      backgroundTasks.push(bgEntry);
+      continue;
+    }
     const ok = await st.run();
     if (isCancelled()) return false;
     // If Tab 1 initial auth/connectivity failed, stop so we do not trigger AD account lockout retries
@@ -1227,6 +1280,21 @@ export async function runHelpdeskSequentialConnect(options: {
       notifyAuditUpdated();
       return false;
     }
+  }
+
+  const pendingBg = backgroundTasks.filter((t) => !t.settled);
+  if (pendingBg.length > 0 && !isCancelled()) {
+    patchHelpdeskRamSnapshot({
+      prefetchProgress: {
+        active: true,
+        step: steps.length,
+        total: steps.length,
+        currentTab: pendingBg[0].id,
+        labelEn: pendingBg[0].labelEn,
+        labelFa: pendingBg[0].labelFa,
+      },
+    });
+    await Promise.allSettled(pendingBg.map((t) => t.promise));
   }
 
   if (!isCancelled()) {

@@ -3469,3 +3469,49 @@ body.is-canvas-dragging .schematic-canvas * {
   opacity: 1 !important;
   mix-blend-mode: normal !important;
 }
+
+/* HelpDesk Diagnostics Tab Orbiting Orange Perimeter Dot */
+@keyframes helpdeskDiagDotOrbit {
+  0% {
+    top: 0%;
+    left: 0%;
+  }
+  35% {
+    top: 0%;
+    left: 100%;
+  }
+  50% {
+    top: 100%;
+    left: 100%;
+  }
+  85% {
+    top: 100%;
+    left: 0%;
+  }
+  100% {
+    top: 0%;
+    left: 0%;
+  }
+}
+
+.helpdesk-diag-orbit-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background-color: #f97316 !important;
+  box-shadow: 0 0 6px rgba(249, 115, 22, 0.9), 0 0 10px rgba(251, 146, 60, 0.65);
+  transform: translate(-50%, -50%);
+  animation: helpdeskDiagDotOrbit 4.2s linear infinite;
+  pointer-events: none;
+  will-change: top, left;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .helpdesk-diag-orbit-dot {
+    animation: none;
+    top: 0%;
+    left: 100%;
+  }
+}
+

@@ -182,6 +182,18 @@ export interface HelpdeskHealthResult {
     firewallDomain: boolean | null;
     firewallPrivate: boolean | null;
     firewallPublic: boolean | null;
+    antivirusProducts?: Array<{
+      id: string;
+      name: string;
+      vendor: string;
+      isDefender: boolean;
+      enabled: boolean | null;
+      serviceRunning: boolean | null;
+      realTimeProtection: boolean | null;
+      definitionsUpToDate: boolean | null;
+      signatureUpdated: string;
+      isPassiveMode: boolean;
+    }>;
   };
   totalProcessCount: number;
   processes: HelpdeskProcessItem[];
@@ -1574,14 +1586,137 @@ $primaryIp = if ($nic -and $nic.IPAddress) { ($nic.IPAddress | Where-Object { $_
 $macAddr = if ($nic) { [string]$nic.MACAddress } else { '' }
 
 $avName = 'Windows Defender'; $avEnabled = $null; $rtp = $null; $sigDate = ''
+$defMpObj = $null
 try {
   $mp = Get-MpComputerStatus
   if ($mp) {
+    $defMpObj = $mp
     $avEnabled = [bool]$mp.AntivirusEnabled
     $rtp = [bool]$mp.RealTimeProtectionEnabled
     if ($mp.AntivirusSignatureLastUpdated) { $sigDate = $mp.AntivirusSignatureLastUpdated.ToString('yyyy-MM-dd HH:mm') }
   }
 } catch {}
+
+$avProducts = @()
+$scAvItems = @()
+try {
+  $rawSc = @(Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName AntiVirusProduct -ErrorAction Stop)
+  foreach ($item in $rawSc) {
+    $dn = ([string]$item.displayName).Trim()
+    if (-not $dn) { continue }
+    $st = 0
+    try { $st = [int64]$item.productState } catch {}
+    $scAvItems += [PSCustomObject]@{
+      displayName = $dn
+      enabled = (($st -band 0x1000) -ne 0)
+      upToDate = (($st -band 0x00F0) -eq 0)
+    }
+  }
+} catch {}
+
+$allSvcLite = @()
+try { $allSvcLite = @(Get-Service -ErrorAction SilentlyContinue) } catch {}
+
+$avCatalogLite = @(
+  @{ Id = 'eset'; Vendor = 'ESET'; SvcPats = @('^ekrn$', '^ekrnEpfw$', '^egui$', '^ESET'); DispPats = @('ESET', 'NOD32') },
+  @{ Id = 'symantec'; Vendor = 'Symantec / Broadcom'; SvcPats = @('^SepMasterService$', '^Smc$', '^SNAC$', '^SymEFASI$'); DispPats = @('Symantec Endpoint', 'Symantec', 'Norton') },
+  @{ Id = 'mcafee'; Vendor = 'McAfee / Trellix'; SvcPats = @('^mfemms$', '^mfevtp$', '^masvc$', '^macmnsvc$', '^McShield$', '^Trellix'); DispPats = @('McAfee', 'Trellix') },
+  @{ Id = 'kaspersky'; Vendor = 'Kaspersky'; SvcPats = @('^AVP', '^klnagent$', '^KSDE'); DispPats = @('Kaspersky') },
+  @{ Id = 'bitdefender'; Vendor = 'Bitdefender'; SvcPats = @('^epsecurityservice$', '^VSSERV$', '^EPIntegrationService$', '^bdredline$', '^EPProtectedService$'); DispPats = @('Bitdefender') },
+  @{ Id = 'crowdstrike'; Vendor = 'CrowdStrike'; SvcPats = @('^CSFalconService$'); DispPats = @('CrowdStrike', 'Falcon') },
+  @{ Id = 'sentinelone'; Vendor = 'SentinelOne'; SvcPats = @('^SentinelAgent$', '^SentinelStaticEngine$', '^SentinelOne'); DispPats = @('SentinelOne', 'Sentinel Agent') },
+  @{ Id = 'sophos'; Vendor = 'Sophos'; SvcPats = @('^SAVService$', '^Sophos Health Service$', '^Sophos Endpoint Defense Service$', '^SntpService$'); DispPats = @('Sophos') },
+  @{ Id = 'trendmicro'; Vendor = 'Trend Micro'; SvcPats = @('^ntrtscan$', '^tmlisten$', '^TMBMSRV$', '^ds_agent$'); DispPats = @('Trend Micro', 'Apex One', 'Deep Security') },
+  @{ Id = 'malwarebytes'; Vendor = 'Malwarebytes'; SvcPats = @('^MBAMService$'); DispPats = @('Malwarebytes') },
+  @{ Id = 'avast'; Vendor = 'Avast'; SvcPats = @('^avast! Antivirus$', '^aswBcc$'); DispPats = @('Avast') },
+  @{ Id = 'avg'; Vendor = 'AVG'; SvcPats = @('^AVG Antivirus$', '^avgBcc$'); DispPats = @('AVG') },
+  @{ Id = 'cortex_xdr'; Vendor = 'Palo Alto Cortex XDR'; SvcPats = @('^cyserver$', '^Traps$'); DispPats = @('Cortex XDR', 'Traps') }
+)
+
+$matchedScMap = @{}
+foreach ($kv in $avCatalogLite) {
+  $mSvcs = @()
+  foreach ($sv in $allSvcLite) {
+    $sn = [string]$sv.Name; $sd = [string]$sv.DisplayName
+    $hit = $false
+    foreach ($p in $kv.SvcPats) { if ($sn -match $p) { $hit = $true; break } }
+    if (-not $hit -and $sd) {
+      foreach ($dp in $kv.DispPats) {
+        if ($sd -match [regex]::Escape($dp) -and $sn -notmatch '^WinDefend$|^WdNisSvc$|^Sense$') { $hit = $true; break }
+      }
+    }
+    if ($hit) { $mSvcs += $sv }
+  }
+  $mSc = $null
+  foreach ($sc in $scAvItems) {
+    if ($sc.displayName -match 'Windows Defender|Microsoft Defender') { continue }
+    foreach ($dp in $kv.DispPats) {
+      if ($sc.displayName -match [regex]::Escape($dp)) {
+        $mSc = $sc
+        $matchedScMap[$sc.displayName.ToLowerInvariant()] = $true
+        break
+      }
+    }
+    if ($mSc) { break }
+  }
+  if ($mSvcs.Count -eq 0 -and $null -eq $mSc) { continue }
+  $svcRun = (@($mSvcs | Where-Object { $_.Status -eq 'Running' })).Count -gt 0
+  $isEn3 = if ($null -ne $mSc) { if ($mSvcs.Count -gt 0) { $mSc.enabled -and $svcRun } else { $mSc.enabled } } else { $svcRun }
+  $pName = if ($mSc) { $mSc.displayName } elseif ($mSvcs.Count -gt 0 -and $mSvcs[0].DisplayName) { [string]$mSvcs[0].DisplayName } else { $kv.Vendor }
+  $avProducts += [PSCustomObject]@{
+    id = $kv.Id
+    name = $pName
+    vendor = $kv.Vendor
+    isDefender = $false
+    enabled = [bool]$isEn3
+    serviceRunning = [bool]$svcRun
+    realTimeProtection = [bool]$isEn3
+    definitionsUpToDate = if ($mSc) { [bool]$mSc.upToDate } else { $null }
+    signatureUpdated = ''
+    isPassiveMode = $false
+  }
+}
+
+foreach ($sc in $scAvItems) {
+  if ($sc.displayName -match 'Windows Defender|Microsoft Defender') { continue }
+  if ($matchedScMap.ContainsKey($sc.displayName.ToLowerInvariant())) { continue }
+  $slug = ($sc.displayName.ToLowerInvariant() -replace '[^a-z0-9]+', '_').Trim('_')
+  if (-not $slug) { $slug = 'third_party_av' }
+  $avProducts += [PSCustomObject]@{
+    id = $slug
+    name = $sc.displayName
+    vendor = $sc.displayName
+    isDefender = $false
+    enabled = [bool]$sc.enabled
+    serviceRunning = [bool]$sc.enabled
+    realTimeProtection = [bool]$sc.enabled
+    definitionsUpToDate = [bool]$sc.upToDate
+    signatureUpdated = ''
+    isPassiveMode = $false
+  }
+}
+
+$defSvcLite = $allSvcLite | Where-Object { $_.Name -ieq 'WinDefend' } | Select-Object -First 1
+$defScLite = $scAvItems | Where-Object { $_.displayName -match 'Windows Defender|Microsoft Defender' } | Select-Object -First 1
+if ($defMpObj -or $defSvcLite -or $defScLite) {
+  $hasActive3p = (@($avProducts | Where-Object { $_.enabled })).Count -gt 0
+  $defMode = if ($defMpObj) { [string]$defMpObj.AMRunningMode } else { '' }
+  $defPassive = ($defMode -match 'Passive') -or ($hasActive3p -and ($rtp -ne $true))
+  $defSvcRunning = if ($defSvcLite) { $defSvcLite.Status -eq 'Running' } elseif ($defMpObj) { [bool]$defMpObj.AMServiceEnabled } else { $false }
+  $defEnabledBool = if ($defMpObj) { [bool]$defMpObj.RealTimeProtectionEnabled -and [bool]$defMpObj.AMServiceEnabled } elseif ($defScLite) { [bool]$defScLite.enabled } else { $defSvcRunning }
+  $avProducts += [PSCustomObject]@{
+    id = 'microsoft_defender'
+    name = 'Windows Defender'
+    vendor = 'Microsoft'
+    isDefender = $true
+    enabled = [bool]$defEnabledBool
+    serviceRunning = [bool]$defSvcRunning
+    realTimeProtection = if ($null -ne $rtp) { [bool]$rtp } else { [bool]$defEnabledBool }
+    definitionsUpToDate = if ($defScLite) { [bool]$defScLite.upToDate } else { $null }
+    signatureUpdated = $sigDate
+    isPassiveMode = [bool]$defPassive
+  }
+}
 
 $fwDom = $null; $fwPriv = $null; $fwPub = $null
 try {
@@ -1812,6 +1947,7 @@ $out = [PSCustomObject]@{
     firewallDomain = $fwDom
     firewallPrivate = $fwPriv
     firewallPublic = $fwPub
+    antivirusProducts = $avProducts
   }
   totalProcessCount = [int]$totalProcCount
   processes = $topProcs
@@ -2018,6 +2154,36 @@ if not audio_devices:
                 "status": "OK",
             })
 
+# Detect installed Linux antivirus / EDR agents
+linux_av_products = []
+av_catalog_linux = [
+    ("clamav", "ClamAV", "ClamAV Daemon", ["clamav-daemon", "clamd@scan", "clamd"]),
+    ("crowdstrike", "CrowdStrike", "CrowdStrike Falcon Sensor", ["falcon-sensor"]),
+    ("sentinelone", "SentinelOne", "SentinelOne Agent", ["sentinelagent", "sentinelone"]),
+    ("sophos", "Sophos", "Sophos Anti-Virus for Linux", ["sav-protect", "savd"]),
+    ("eset", "ESET", "ESET Server Security", ["esets", "efs"]),
+    ("kaspersky", "Kaspersky", "Kaspersky Endpoint Security", ["kesl", "kesl-supervisor"]),
+]
+for av_id, av_vendor, av_pname, units in av_catalog_linux:
+    for u in units:
+        if run(f"systemctl show {u} --property=LoadState --value 2>/dev/null") == "loaded":
+            act = run(f"systemctl is-active {u} 2>/dev/null") == "active"
+            linux_av_products.append({
+                "id": av_id,
+                "name": av_pname,
+                "vendor": av_vendor,
+                "isDefender": False,
+                "enabled": act,
+                "serviceRunning": act,
+                "realTimeProtection": act,
+                "definitionsUpToDate": None,
+                "signatureUpdated": "",
+                "isPassiveMode": False,
+            })
+            break
+
+primary_linux_av = linux_av_products[0] if linux_av_products else None
+
 print(json.dumps({
     "hostname": hostname,
     "osName": os_name,
@@ -2031,13 +2197,14 @@ print(json.dumps({
     "memory": {"usedPercent": mem_pct, "usedGb": used_gb, "totalGb": total_gb, "freeGb": free_gb},
     "disks": disks,
     "security": {
-        "antivirusName": "Linux Security / ClamAV",
-        "antivirusEnabled": None,
-        "realTimeProtection": None,
+        "antivirusName": primary_linux_av["name"] if primary_linux_av else "Linux Security / ClamAV",
+        "antivirusEnabled": primary_linux_av["enabled"] if primary_linux_av else None,
+        "realTimeProtection": primary_linux_av["realTimeProtection"] if primary_linux_av else None,
         "signatureUpdated": "",
         "firewallDomain": ufw_active,
         "firewallPrivate": ufw_active,
-        "firewallPublic": ufw_active
+        "firewallPublic": ufw_active,
+        "antivirusProducts": linux_av_products
     },
     "totalProcessCount": total_procs,
     "processes": procs,
@@ -2155,6 +2322,24 @@ export async function collectEndpointHealth(input: HelpdeskTargetInput): Promise
         typeof parsed.security?.firewallPrivate === 'boolean' ? parsed.security.firewallPrivate : null,
       firewallPublic:
         typeof parsed.security?.firewallPublic === 'boolean' ? parsed.security.firewallPublic : null,
+      antivirusProducts: (
+        Array.isArray(parsed.security?.antivirusProducts)
+          ? parsed.security.antivirusProducts
+          : parsed.security?.antivirusProducts
+          ? [parsed.security.antivirusProducts]
+          : []
+      ).map((item: any) => ({
+        id: String(item?.id || 'av'),
+        name: String(item?.name || 'Antivirus'),
+        vendor: String(item?.vendor || item?.name || 'Antivirus'),
+        isDefender: Boolean(item?.isDefender),
+        enabled: typeof item?.enabled === 'boolean' ? item.enabled : null,
+        serviceRunning: typeof item?.serviceRunning === 'boolean' ? item.serviceRunning : null,
+        realTimeProtection: typeof item?.realTimeProtection === 'boolean' ? item.realTimeProtection : null,
+        definitionsUpToDate: typeof item?.definitionsUpToDate === 'boolean' ? item.definitionsUpToDate : null,
+        signatureUpdated: String(item?.signatureUpdated || ''),
+        isPassiveMode: Boolean(item?.isPassiveMode),
+      })),
     },
     totalProcessCount: Number(parsed.totalProcessCount) || rawProcs.length,
     processes: rawProcs.map((p: any) => {

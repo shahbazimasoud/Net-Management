@@ -89,6 +89,7 @@ import {
   MessageSquare,
   Send,
   Bug,
+  Megaphone,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -809,6 +810,13 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [endpointMsgResult, setEndpointMsgResult] = useState<any | null>(null);
   const [endpointMsgError, setEndpointMsgError] = useState<string | null>(null);
 
+  // Quick Announcement Bar inside On-Demand Target Workstation Session card (targets current user, strict RBAC)
+  const [announcementTitle, setAnnouncementTitle] = useState<string>('IT HelpDesk Announcement');
+  const [announcementBody, setAnnouncementBody] = useState<string>('');
+  const [announcementSending, setAnnouncementSending] = useState<boolean>(false);
+  const [announcementResult, setAnnouncementResult] = useState<any | null>(null);
+  const [announcementError, setAnnouncementError] = useState<string | null>(null);
+
   // Laptop Battery Health & Cycle Count Report
   const batteryData = ram.batteryData;
   const setBatteryData = setRamField('batteryData');
@@ -1017,6 +1025,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setEndpointMsgBody('');
     setEndpointMsgResult(null);
     setEndpointMsgError(null);
+    setAnnouncementBody('');
+    setAnnouncementResult(null);
+    setAnnouncementError(null);
     setEventDiagnosticFocus('all');
     setBsodReasonFilter('all');
     setShowVpnCustomPass(false);
@@ -3101,6 +3112,77 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
+  const handleSendQuickAnnouncement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSendEndpointMessage) {
+      setAnnouncementError(
+        isEn
+          ? 'Access denied: Sending workstation announcements requires explicit RBAC permission (canSendHelpdeskMessage) or Super Admin role.'
+          : 'عدم دسترسی: ارسال پیام انانسمنت به کاربر جاری نیازمند مجوز صریح RBAC (ارسال پیام روی سیستم کاربر) یا نقش سوپرادمین است.'
+      );
+      return;
+    }
+    const payload = buildPayload();
+    if (!payload) {
+      setAnnouncementError(
+        isEn
+          ? 'Enter Target IP, Session Username, and Ephemeral Password above before sending an announcement.'
+          : 'ابتدا آدرس IP، نام کاربری نشست و رمز عبور موقت را در کادر بالا وارد کنید.'
+      );
+      return;
+    }
+    const cleanBody = announcementBody.trim();
+    if (!cleanBody) {
+      setAnnouncementError(
+        isEn ? 'Enter an announcement message to send.' : 'متن پیام انانسمنت را برای ارسال وارد کنید.'
+      );
+      return;
+    }
+
+    // Auto-target current active logged-in user (falling back to * if not yet detected)
+    const activeRowUser = Array.isArray(logonsData?.activeSessions)
+      ? logonsData.activeSessions.find(
+          (s: any) => String(s?.state || '').toLowerCase() === 'active' && String(s?.sessionId) !== '0' && s?.username
+        )?.username
+      : '';
+    const currentTargetUser = String(
+      activeSessionSummary?.loggedInUser ||
+        healthData?.loggedInUser ||
+        gpoData?.loggedInUser ||
+        logonsData?.loggedInUser ||
+        activeRowUser ||
+        '*'
+    ).trim();
+
+    setAnnouncementSending(true);
+    setAnnouncementError(null);
+    setAnnouncementResult(null);
+    try {
+      const res = await sendHelpdeskEndpointMessage({
+        ...payload,
+        message: cleanBody,
+        title: announcementTitle.trim() || (isEn ? 'IT HelpDesk Announcement' : 'اطلاعیه واحد پشتیبانی IT'),
+        recipient: currentTargetUser || '*',
+        displaySeconds: 45,
+      });
+      setAnnouncementResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      if (res.data?.success) {
+        setAnnouncementBody('');
+      }
+    } catch (err: any) {
+      setAnnouncementError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? 'Failed to deliver announcement to the current workstation user.'
+            : 'ارسال پیام انانسمنت به کاربر جاری سیستم ناموفق بود.')
+      );
+    } finally {
+      setAnnouncementSending(false);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
   const handleInspectBattery = async () => {
     const payload = buildPayload();
     if (!payload) return;
@@ -4754,10 +4836,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       </div>
 
       {/* On-Demand Single-Host Connection Bar (Zero Pre-Populated Endpoint List!) */}
-      <form
-        onSubmit={handleConnectCurrentTab}
+      <div
         className={`rounded-xl border p-4 sm:p-5 space-y-4 overflow-hidden ${surfaceBg}`}
       >
+        <form onSubmit={handleConnectCurrentTab} className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm font-semibold min-w-0">
             <Server className="w-4 h-4 text-sky-500 shrink-0" />
@@ -5002,6 +5084,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             </div>
           </div>
         )}
+        </form>
 
         {/* Persistent Active Workstation Summary Strip (always visible across all sub-tabs once connected) */}
         {activeSessionSummary && (
@@ -5129,7 +5212,191 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             )}
           </div>
         )}
-      </form>
+
+        {/* Quick Workstation Announcement Sender to Current Logged-In User (Strict RBAC: canSendHelpdeskMessage or Super Admin) */}
+        {(() => {
+          const activeSessionRow = Array.isArray(logonsData?.activeSessions)
+            ? logonsData.activeSessions.find(
+                (s: any) =>
+                  String(s?.state || '').toLowerCase() === 'active' &&
+                  String(s?.sessionId) !== '0' &&
+                  s?.username
+              )
+            : null;
+          const resolvedCurrentUser = String(
+            activeSessionSummary?.loggedInUser ||
+              healthData?.loggedInUser ||
+              gpoData?.loggedInUser ||
+              logonsData?.loggedInUser ||
+              activeSessionRow?.username ||
+              ''
+          ).trim();
+          const hasCredentialsReady = Boolean(targetIp.trim() && username.trim() && password);
+
+          return (
+            <div
+              className={`pt-3.5 border-t space-y-2.5 ${
+                isLightMode ? 'border-slate-200' : 'border-slate-800'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                  <Megaphone className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <span className={`text-xs font-bold ${textPrimary}`}>
+                    {isEn
+                      ? 'Send Announcement to Current Workstation User'
+                      : 'ارسال پیام فوری (Announcement) به کاربر جاری سیستم'}
+                  </span>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Workstation Announcement' : 'ارسال پیام فوری به کاربر'}
+                    whatIsIt={
+                      isEn
+                        ? 'Pushes an instant on-screen announcement popup directly to the currently logged-in desktop user on this workstation.'
+                        : 'یک پنجره اعلان فوری (Announcement) را مستقیماً روی صفحه نمایش کاربر جاری لاگین‌شده در همین سیستم ارسال و نمایش می‌دهد.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Lets helpdesk engineers warn or notify the active user right from the session header before maintenance or support actions. Strictly governed by RBAC.'
+                        : 'به کارشناس پشتیبانی امکان می‌دهد پیش از اقدامات تعمیراتی یا پشتیبانی بدون خروج از تب فعلی، سریع به کاربر جاری پیام بدهد؛ این دسترسی کاملاً توسط RBAC کنترل می‌شود.'
+                    }
+                    example={
+                      isEn
+                        ? 'Recipient: CORP\\ali · Message: "IT Support: Please save open files before scheduled update."'
+                        : 'مخاطب: کاربر جاری · پیام: «پشتیبانی IT: لطفاً فایل‌های باز را ذخیره کنید.»'
+                    }
+                  />
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-mono ${subSurfaceBg}`}
+                    dir="ltr"
+                  >
+                    <User className="w-3 h-3 text-teal-500 shrink-0" />
+                    <span className={textMuted}>{isEn ? 'Target:' : 'مخاطب:'}</span>
+                    <span className={`font-semibold ${textPrimary}`}>
+                      {resolvedCurrentUser || (isEn ? 'Active Session (*)' : 'نشست فعال (*)')}
+                    </span>
+                  </span>
+                </div>
+
+                {!canSendEndpointMessage ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 text-[11px] font-semibold text-amber-500 whitespace-nowrap">
+                    <Lock className="w-3 h-3 shrink-0" />
+                    <span>
+                      {isEn
+                        ? 'RBAC Locked (canSendHelpdeskMessage)'
+                        : 'قفل RBAC (نیازمند مجوز ارسال پیام)'}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-[11px] font-semibold text-emerald-500 whitespace-nowrap">
+                    <CheckCircle2 className="w-3 h-3 shrink-0" />
+                    <span>{isEn ? 'RBAC Authorized' : 'مجاز (RBAC)'}</span>
+                  </span>
+                )}
+              </div>
+
+              <form onSubmit={handleSendQuickAnnouncement} className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+                <div className="md:col-span-3 min-w-0">
+                  <input
+                    type="text"
+                    maxLength={80}
+                    disabled={!canSendEndpointMessage || announcementSending}
+                    value={announcementTitle}
+                    onChange={(e) => setAnnouncementTitle(e.target.value)}
+                    placeholder={isEn ? 'Announcement Title' : 'عنوان پیام'}
+                    aria-label={isEn ? 'Announcement Title' : 'عنوان پیام انانسمنت'}
+                    className={`w-full min-w-0 px-3 py-1.5 rounded-lg border text-xs outline-none transition disabled:opacity-50 ${inputCls}`}
+                  />
+                </div>
+                <div className="md:col-span-7 min-w-0">
+                  <input
+                    type="text"
+                    maxLength={500}
+                    disabled={!canSendEndpointMessage || announcementSending}
+                    value={announcementBody}
+                    onChange={(e) => setAnnouncementBody(e.target.value)}
+                    placeholder={
+                      !canSendEndpointMessage
+                        ? isEn
+                          ? 'Locked: Grant "HelpDesk & Servers: Send Interactive Message" in Access Policy or sign in as Super Admin.'
+                          : 'غیرفعال: برای ارسال پیام باید مجوز RBAC مربوطه در Access Policy فعال باشد یا سوپرادمین باشید.'
+                        : isEn
+                        ? 'Write a quick announcement message to display on the current user screen...'
+                        : 'متن پیام انانسمنت را برای نمایش فوری روی صفحه کاربر جاری بنویسید...'
+                    }
+                    aria-label={isEn ? 'Announcement message' : 'متن پیام انانسمنت'}
+                    className={`w-full min-w-0 px-3 py-1.5 rounded-lg border text-xs outline-none transition disabled:opacity-50 ${inputCls}`}
+                  />
+                </div>
+                <div className="md:col-span-2 min-w-0">
+                  <button
+                    type="submit"
+                    disabled={
+                      !canSendEndpointMessage ||
+                      !hasCredentialsReady ||
+                      announcementSending ||
+                      !announcementBody.trim()
+                    }
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-45 text-white text-xs font-semibold transition whitespace-nowrap cursor-pointer"
+                  >
+                    {announcementSending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                    ) : !canSendEndpointMessage ? (
+                      <Lock className="w-3.5 h-3.5 shrink-0" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5 shrink-0" />
+                    )}
+                    <span>{isEn ? 'Send' : 'ارسال پیام'}</span>
+                  </button>
+                </div>
+              </form>
+
+              {announcementError && (
+                <div className="px-3 py-2 rounded-lg border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span className="break-words">{announcementError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAnnouncementError(null)}
+                    className="opacity-70 hover:opacity-100 cursor-pointer shrink-0"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {announcementResult && (
+                <div
+                  className={`px-3 py-2 rounded-lg border text-xs flex items-center justify-between gap-2 font-semibold ${
+                    announcementResult.success
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+                      : 'border-rose-500/40 bg-rose-500/10 text-rose-500'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {announcementResult.success ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    )}
+                    <span>{isEn ? announcementResult.message : announcementResult.messageFa}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAnnouncementResult(null)}
+                    className="opacity-70 hover:opacity-100 cursor-pointer shrink-0"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
 
       {/* Segmented Workspace Navigation Tabs (Unified Teal Active Theme) */}
       <div
@@ -5145,6 +5412,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'سلامت سیستم و کنترل پروسس‌ها',
           },
           {
+            id: 'logins' as HelpdeskSubTab,
+            icon: History,
+            labelEn: 'User Logins, Sessions & Power',
+            labelFa: 'ورود کاربران، نشست و پاور',
+          },
+          {
             id: 'disks_shares' as HelpdeskSubTab,
             icon: HardDrive,
             labelEn: 'Disk, Drives & Shared Folders',
@@ -5155,12 +5428,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             icon: Users,
             labelEn: 'User Profiles',
             labelFa: 'یوزر پروفایل',
-          },
-          {
-            id: 'diagnostics' as HelpdeskSubTab,
-            icon: Stethoscope,
-            labelEn: 'Diagnostics',
-            labelFa: 'دیاگنوستیگ (Diagnostics)',
           },
           {
             id: 'hardware' as HelpdeskSubTab,
@@ -5187,28 +5454,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'Event Viewer (تحلیل خطاها)',
           },
           {
-            id: 'logins' as HelpdeskSubTab,
-            icon: History,
-            labelEn: 'User Logins, Sessions & Power',
-            labelFa: 'ورود کاربران، نشست و پاور',
-          },
-          {
-            id: 'updates' as HelpdeskSubTab,
-            icon: Download,
-            labelEn: 'Updates, WSUS & System Info',
-            labelFa: 'آپدیت ویندوز، WSUS و مشخصات سیستم',
-          },
-          {
             id: 'programs' as HelpdeskSubTab,
             icon: PackageCheck,
             labelEn: 'Add / Remove Programs',
             labelFa: 'برنامه‌های نصب‌شده (Add/Remove)',
-          },
-          {
-            id: 'services_startup' as HelpdeskSubTab,
-            icon: Cog,
-            labelEn: 'Services & startup',
-            labelFa: 'سرویس‌ها و استارت‌آپ (Services & startup)',
           },
           {
             id: 'region_fonts' as HelpdeskSubTab,
@@ -5233,6 +5482,24 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             icon: BatteryCharging,
             labelEn: 'Battery Health',
             labelFa: 'گزارش سلامت باتری',
+          },
+          {
+            id: 'services_startup' as HelpdeskSubTab,
+            icon: Cog,
+            labelEn: 'Services & startup',
+            labelFa: 'سرویس‌ها و استارت‌آپ (Services & startup)',
+          },
+          {
+            id: 'diagnostics' as HelpdeskSubTab,
+            icon: Stethoscope,
+            labelEn: 'Diagnostics',
+            labelFa: 'دیاگنوستیگ (Diagnostics)',
+          },
+          {
+            id: 'updates' as HelpdeskSubTab,
+            icon: Download,
+            labelEn: 'Updates, WSUS & System Info',
+            labelFa: 'آپدیت ویندوز، WSUS و مشخصات سیستم',
           },
           {
             id: 'history' as HelpdeskSubTab,
@@ -5282,6 +5549,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'history' && Boolean(historyStats?.totalConnections));
           const hasSecurityDisableAlert =
             tab.id === 'security_av' && securityAvDisabledInSession.length > 0;
+          const isDiagnosticsTab = tab.id === 'diagnostics';
 
           return (
             <button
@@ -5328,7 +5596,13 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 }
               }}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition whitespace-nowrap cursor-pointer ${
-                hasSecurityDisableAlert
+                isDiagnosticsTab
+                  ? active
+                    ? 'relative overflow-visible bg-amber-600 text-white border border-amber-400 shadow-sm'
+                    : isLightMode
+                    ? 'relative overflow-visible border border-amber-500/80 bg-amber-50/75 text-amber-800 hover:bg-amber-100/85 hover:text-amber-950'
+                    : 'relative overflow-visible border border-amber-500/75 bg-amber-950/35 text-amber-200 hover:bg-amber-950/60 hover:text-white'
+                  : hasSecurityDisableAlert
                   ? active
                     ? 'bg-rose-600 text-white shadow-sm'
                     : isLightMode
@@ -5341,12 +5615,27 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
               }`}
             >
+              {isDiagnosticsTab && (
+                <span aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-lg">
+                  <span className="helpdesk-diag-orbit-dot" />
+                </span>
+              )}
               {isFetchingThisTab ? (
-                <Loader2 className={`w-3.5 h-3.5 animate-spin ${active ? 'text-white' : 'text-teal-500'}`} />
+                <Loader2
+                  className={`w-3.5 h-3.5 animate-spin ${
+                    active ? 'text-white' : isDiagnosticsTab ? 'text-amber-500' : 'text-teal-500'
+                  }`}
+                />
               ) : (
                 <Icon
                   className={`w-3.5 h-3.5 ${
-                    active ? 'text-white' : hasSecurityDisableAlert ? 'text-rose-500' : ''
+                    active
+                      ? 'text-white'
+                      : hasSecurityDisableAlert
+                      ? 'text-rose-500'
+                      : isDiagnosticsTab
+                      ? 'text-amber-500'
+                      : ''
                   }`}
                 />
               )}
@@ -5649,71 +5938,253 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                 </div>
 
                 {/* Endpoint Security Posture */}
-                <div className={`pt-4 border-t ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
-                  <div className="space-y-3">
-                    <div className={`text-xs font-bold flex items-center gap-2 ${textPrimary}`}>
-                      <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                      <span>{isEn ? 'Antivirus & Firewall Posture' : 'وضعیت آنتی‌ویروس و فایروال سیستم'}</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                      <div className={`p-3 rounded-lg border ${subSurfaceBg}`}>
-                        <div className={textMuted}>{healthData.security?.antivirusName || 'Antivirus'}</div>
-                        <div className={`mt-1 font-bold flex items-center gap-1.5 ${
-                          healthData.security?.antivirusEnabled === true
-                            ? 'text-emerald-500'
-                            : healthData.security?.antivirusEnabled === false
-                            ? 'text-rose-500'
-                            : textMuted
-                        }`}>
-                          {healthData.security?.antivirusEnabled === true ? (
-                            <>
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>{isEn ? 'Enabled' : 'فعال'}</span>
-                            </>
-                          ) : healthData.security?.antivirusEnabled === false ? (
-                            <>
-                              <AlertTriangle className="w-3.5 h-3.5" />
-                              <span>{isEn ? 'Disabled' : 'غیرفعال'}</span>
-                            </>
-                          ) : (
-                            <span>{isEn ? 'N/A' : 'نامشخص'}</span>
-                          )}
-                        </div>
-                        {healthData.security?.signatureUpdated && (
-                          <div className={`text-[11px] font-mono mt-1 ${textMuted}`}>
-                            {isEn ? 'Sig' : 'آپدیت'}: {healthData.security.signatureUpdated}
-                          </div>
-                        )}
-                      </div>
+                {(() => {
+                  const detailedProducts = Array.isArray(securityAvData?.antivirus?.products)
+                    ? securityAvData.antivirus.products
+                    : [];
+                  const healthProducts = Array.isArray(healthData.security?.antivirusProducts)
+                    ? healthData.security.antivirusProducts
+                    : [];
 
-                      <div className={`p-3 rounded-lg border ${subSurfaceBg}`}>
-                        <div className={textMuted}>{isEn ? 'Windows / Host Firewall' : 'فایروال سیستم'}</div>
-                        <div className="mt-1.5 space-y-1 font-mono text-[11px]">
-                          {[
-                            { k: 'Domain', v: healthData.security?.firewallDomain },
-                            { k: 'Private', v: healthData.security?.firewallPrivate },
-                            { k: 'Public', v: healthData.security?.firewallPublic },
-                          ].map((fw) => (
-                            <div key={fw.k} className="flex items-center justify-between">
-                              <span className={textMuted}>{fw.k}</span>
-                              <span
-                                className={
-                                  fw.v === true
-                                    ? 'text-emerald-500 font-semibold'
-                                    : fw.v === false
-                                    ? 'text-rose-500 font-semibold'
-                                    : textMuted
-                                }
-                              >
-                                {fw.v === true ? 'ON' : fw.v === false ? 'OFF' : 'N/A'}
+                  const unifiedAvList: Array<{
+                    id: string;
+                    name: string;
+                    vendor: string;
+                    isDefender: boolean;
+                    enabled: boolean | null;
+                    serviceRunning: boolean | null;
+                    definitionsUpToDate: boolean | null;
+                    signatureUpdated: string;
+                    isPassiveMode: boolean;
+                  }> =
+                    detailedProducts.length > 0
+                      ? detailedProducts.map((p: any) => ({
+                          id: String(p.id || p.productName || 'av'),
+                          name: String(p.productName || p.vendor || 'Antivirus'),
+                          vendor: String(p.vendor || p.productName || ''),
+                          isDefender: Boolean(p.isMicrosoftDefender),
+                          enabled: typeof p.enabled === 'boolean' ? p.enabled : null,
+                          serviceRunning: typeof p.serviceRunning === 'boolean' ? p.serviceRunning : null,
+                          definitionsUpToDate:
+                            typeof p.definitionsUpToDate === 'boolean' ? p.definitionsUpToDate : null,
+                          signatureUpdated:
+                            String(p.details?.antivirusSignatureLastUpdated || '') ||
+                            (p.isMicrosoftDefender ? String(healthData.security?.signatureUpdated || '') : ''),
+                          isPassiveMode: Boolean(p.isPassiveMode),
+                        }))
+                      : healthProducts.length > 0
+                      ? healthProducts
+                      : [
+                          {
+                            id: 'primary_av',
+                            name: healthData.security?.antivirusName || 'Windows Defender',
+                            vendor: 'Microsoft',
+                            isDefender:
+                              !healthData.security?.antivirusName ||
+                              /defender/i.test(String(healthData.security?.antivirusName || '')),
+                            enabled:
+                              typeof healthData.security?.antivirusEnabled === 'boolean'
+                                ? healthData.security.antivirusEnabled
+                                : null,
+                            serviceRunning: null,
+                            definitionsUpToDate: null,
+                            signatureUpdated: String(healthData.security?.signatureUpdated || ''),
+                            isPassiveMode: false,
+                          },
+                        ];
+
+                  const defenderAv = unifiedAvList.find((a) => a.isDefender) || null;
+                  const thirdPartyAvs = unifiedAvList.filter((a) => !a.isDefender);
+
+                  return (
+                    <div className={`pt-4 border-t ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className={`text-xs font-bold flex items-center gap-2 ${textPrimary}`}>
+                            <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                            <span>{isEn ? 'Antivirus & Firewall Posture' : 'وضعیت آنتی‌ویروس و فایروال سیستم'}</span>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={!canRunDiagnostics}
+                            onClick={handleGoToSecurityAv}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition whitespace-nowrap cursor-pointer disabled:opacity-45 ${
+                              isLightMode
+                                ? 'bg-teal-50 border-teal-200 text-teal-800 hover:bg-teal-100'
+                                : 'bg-teal-950/40 border-teal-500/40 text-teal-200 hover:bg-teal-900/50'
+                            }`}
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5 text-teal-500 shrink-0" />
+                            <span>
+                              {isEn ? 'Open Antivirus & Firewall Tab' : 'مشاهده و مدیریت در تب آنتی‌ویروس'}
+                            </span>
+                            {isEn ? (
+                              <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                            ) : (
+                              <ChevronLeft className="w-3.5 h-3.5 shrink-0" />
+                            )}
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 text-xs">
+                          {/* Windows Defender + Installed 3rd-Party Antivirus Card */}
+                          <div className={`lg:col-span-7 p-3.5 rounded-lg border space-y-2.5 ${subSurfaceBg}`}>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className={`font-semibold ${textMuted}`}>
+                                {isEn ? 'Antivirus Protection Status' : 'وضعیت آنتی‌ویروس‌های سیستم'}
+                              </span>
+                              <span className={`text-[11px] font-mono ${textMuted}`}>
+                                {isEn
+                                  ? `${unifiedAvList.length} detected`
+                                  : `${unifiedAvList.length} مورد شناسایی‌شده`}
                               </span>
                             </div>
-                          ))}
+
+                            <div className="space-y-2">
+                              {defenderAv && (
+                                <div
+                                  className={`p-2.5 rounded-lg border flex flex-wrap items-center justify-between gap-2 ${
+                                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                                  }`}
+                                >
+                                  <div className="min-w-0">
+                                    <div className={`font-semibold ${textPrimary}`}>{defenderAv.name}</div>
+                                    {defenderAv.signatureUpdated && (
+                                      <div className={`text-[11px] font-mono mt-0.5 ${textMuted}`}>
+                                        {isEn ? 'Sig' : 'آپدیت'}: {defenderAv.signatureUpdated}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 font-bold whitespace-nowrap">
+                                    {defenderAv.isPassiveMode ? (
+                                      <span className="inline-flex items-center gap-1 text-amber-500">
+                                        <Shield className="w-3.5 h-3.5 shrink-0" />
+                                        <span>{isEn ? 'Passive (3rd-Party Active)' : 'غیرفعالِ خودکار (تحت آنتی‌ویروس جانبی)'}</span>
+                                      </span>
+                                    ) : defenderAv.enabled === true ? (
+                                      <span className="inline-flex items-center gap-1 text-emerald-500">
+                                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                        <span>{isEn ? 'Enabled' : 'فعال'}</span>
+                                      </span>
+                                    ) : defenderAv.enabled === false ? (
+                                      <span className="inline-flex items-center gap-1 text-rose-500">
+                                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                        <span>{isEn ? 'Disabled' : 'غیرفعال'}</span>
+                                      </span>
+                                    ) : (
+                                      <span className={textMuted}>{isEn ? 'N/A' : 'نامشخص'}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {thirdPartyAvs.length > 0 ? (
+                                thirdPartyAvs.map((av) => (
+                                  <div
+                                    key={av.id}
+                                    className={`p-2.5 rounded-lg border flex flex-wrap items-center justify-between gap-2 ${
+                                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                                    }`}
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className={`font-semibold ${textPrimary}`}>{av.name}</span>
+                                        <span
+                                          className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${
+                                            isLightMode
+                                              ? 'bg-sky-50 border-sky-200 text-sky-700'
+                                              : 'bg-sky-950/50 border-sky-500/30 text-sky-300'
+                                          }`}
+                                        >
+                                          {isEn ? 'Installed AV' : 'نصب‌شده'}
+                                        </span>
+                                      </div>
+                                      <div className={`text-[11px] mt-0.5 flex flex-wrap items-center gap-2 ${textMuted}`}>
+                                        {av.vendor && av.vendor !== av.name && <span>{av.vendor}</span>}
+                                        {av.serviceRunning !== null && (
+                                          <span className="font-mono">
+                                            {isEn
+                                              ? `Service: ${av.serviceRunning ? 'Running' : 'Stopped'}`
+                                              : `سرویس: ${av.serviceRunning ? 'در حال اجرا' : 'متوقف'}`}
+                                          </span>
+                                        )}
+                                        {av.definitionsUpToDate !== null && (
+                                          <span
+                                            className={`font-mono ${
+                                              av.definitionsUpToDate ? 'text-emerald-500' : 'text-amber-500'
+                                            }`}
+                                          >
+                                            {av.definitionsUpToDate
+                                              ? isEn
+                                                ? 'Defs: Up to Date'
+                                                : 'امضا: بروز'
+                                              : isEn
+                                              ? 'Defs: Outdated'
+                                              : 'امضا: نیازمند آپدیت'}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 font-bold whitespace-nowrap">
+                                      {av.enabled === true ? (
+                                        <span className="inline-flex items-center gap-1 text-emerald-500">
+                                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                          <span>{isEn ? 'Enabled' : 'فعال'}</span>
+                                        </span>
+                                      ) : av.enabled === false ? (
+                                        <span className="inline-flex items-center gap-1 text-rose-500">
+                                          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                          <span>{isEn ? 'Disabled' : 'غیرفعال'}</span>
+                                        </span>
+                                      ) : (
+                                        <span className={textMuted}>{isEn ? 'N/A' : 'نامشخص'}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className={`text-[11px] px-1 ${textMuted}`}>
+                                  {isEn
+                                    ? 'No third-party antivirus product detected on this endpoint.'
+                                    : 'آنتی‌ویروس جانبی دیگری روی این سیستم نصب نشده است.'}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Host Firewall Card */}
+                          <div className={`lg:col-span-5 p-3.5 rounded-lg border ${subSurfaceBg}`}>
+                            <div className={`font-semibold ${textMuted}`}>
+                              {isEn ? 'Windows / Host Firewall' : 'فایروال سیستم'}
+                            </div>
+                            <div className="mt-2 space-y-1.5 font-mono text-[11px]">
+                              {[
+                                { k: 'Domain', v: healthData.security?.firewallDomain },
+                                { k: 'Private', v: healthData.security?.firewallPrivate },
+                                { k: 'Public', v: healthData.security?.firewallPublic },
+                              ].map((fw) => (
+                                <div key={fw.k} className="flex items-center justify-between">
+                                  <span className={textMuted}>{fw.k}</span>
+                                  <span
+                                    className={
+                                      fw.v === true
+                                        ? 'text-emerald-500 font-semibold'
+                                        : fw.v === false
+                                        ? 'text-rose-500 font-semibold'
+                                        : textMuted
+                                    }
+                                  >
+                                    {fw.v === true ? 'ON' : fw.v === false ? 'OFF' : 'N/A'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </div>
+                  );
+                })()}
                 {/* Graphics (GPU / VRAM) & Audio Hardware Telemetry (Onboard vs Dedicated + Usage) */}
                 <div className={`pt-4 mt-4 border-t space-y-4 ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
