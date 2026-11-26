@@ -1577,10 +1577,10 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
         </div>
       )}
 
-      {/* Segmented Workspace Navigation Tabs (Always Visible Before & After Connecting — Matching Agentless Endpoint HelpDesk) */}
+      {/* Segmented Workspace Navigation Tabs (Always Visible — Unified Teal Active Theme Matching Group HelpDesk) */}
       <div
-        className={`flex flex-wrap items-center gap-1 p-1 rounded-xl border ${
-          isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-900 border-slate-800'
+        className={`flex flex-wrap items-center gap-1.5 p-1.5 rounded-xl border ${
+          isLightMode ? 'bg-slate-100/90 border-slate-200' : 'bg-slate-900/90 border-slate-800'
         }`}
       >
         {subTabs.map((tab) => {
@@ -1619,36 +1619,42 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
               className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition whitespace-nowrap cursor-pointer ${
                 hasAlertDot
                   ? active
-                    ? isLightMode
-                      ? 'bg-rose-50 text-rose-700 border border-rose-300 shadow-xs'
-                      : 'bg-rose-950/60 text-rose-200 border border-rose-500/50 shadow-xs'
+                    ? 'bg-rose-600 text-white shadow-sm'
                     : isLightMode
-                    ? 'bg-rose-50/70 text-rose-700 border border-rose-200 hover:bg-rose-100'
-                    : 'bg-rose-950/35 text-rose-300 border border-rose-500/35 hover:bg-rose-950/60'
+                    ? 'bg-rose-50/80 text-rose-700 border border-rose-200 hover:bg-rose-100'
+                    : 'bg-rose-950/40 text-rose-300 border border-rose-500/40 hover:bg-rose-950/65'
                   : active
-                  ? isLightMode
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'bg-slate-800 text-white shadow-xs'
+                  ? 'bg-teal-600 text-white shadow-sm'
                   : isLightMode
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-slate-100'
+                  ? 'text-slate-600 hover:bg-white hover:text-slate-900'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
               }`}
             >
               {isFetchingThisTab ? (
-                <Loader2 className="w-3.5 h-3.5 text-sky-500 animate-spin" />
+                <Loader2 className={`w-3.5 h-3.5 animate-spin ${active ? 'text-white' : 'text-teal-500'}`} />
               ) : (
                 <Icon
                   className={`w-3.5 h-3.5 ${
-                    hasAlertDot ? 'text-rose-500' : active ? 'text-sky-500' : ''
+                    active ? 'text-white' : hasAlertDot ? 'text-rose-500' : ''
                   }`}
                 />
               )}
               <span>{isEn ? tab.labelEn : tab.labelFa}</span>
               {!isFetchingThisTab && hasAlertDot ? (
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                <span
+                  className={`w-2 h-2 rounded-full animate-pulse shrink-0 ${
+                    active ? 'bg-white' : 'bg-rose-500'
+                  }`}
+                />
               ) : (
                 !isFetchingThisTab &&
-                hasTabData && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                hasTabData && (
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      active ? 'bg-emerald-300 ring-1 ring-white/40' : 'bg-emerald-500'
+                    }`}
+                  />
+                )
               )}
             </button>
           );

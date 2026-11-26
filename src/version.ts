@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.488.0';
+export const APP_VERSION = '1.488.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.488.1',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'یکسان‌سازی رنگ‌بندی و استایل تب‌های فعال در صفحات هلپ‌دسک سیستم و کاربر مطابق با صفحه گروه‌های دامین',
+    title_en: 'Unify Active Tab Teal Styling Across Endpoint HelpDesk & User Support HelpDesk to Match Group Support View',
+    changes: [
+      'یکسان‌سازی استایل نوار تب‌ها و رنگ فعال `bg-teal-600 text-white` در صفحات `Agentless Endpoint HelpDesk` و `Active Directory & User Support HelpDesk` با صفحه `Active Directory & Group Support HelpDesk`.',
+      'بهبود کنتراست آیکون، نشانگر بارگذاری و نقطه وضعیت داده‌دار/هشدار روی تب فعال در هر دو تم روشن و تیره.'
+    ],
+    changes_en: [
+      'Unified tab strip container spacing and active tab highlight (`bg-teal-600 text-white shadow-sm`) across `Agentless Endpoint HelpDesk` and `Active Directory & User Support HelpDesk` to match `Active Directory & Group Support HelpDesk`.',
+      'Updated active-tab icon, spinner, loaded-data indicator dot, and alert state contrast for both Light and Dark themes.'
+    ]
+  },
   {
     version: '1.488.0',
     releaseDate: '2026-11-26',
