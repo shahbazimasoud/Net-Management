@@ -3,7 +3,18 @@ import tls from 'tls';
 import dns from 'dns';
 import ldap from 'ldapjs';
 import { getActiveDirectoryConfig, HelpdeskExceptionRecord, listHelpdeskExceptionsFromDb } from './db';
-import { executeHelpdeskPowerShell, HelpdeskProtocol } from './helpdeskService';
+import {
+  executeHelpdeskPowerShell,
+  HelpdeskPolicyScopeRules,
+  HelpdeskProtocol,
+  matchAdGroupPatternList,
+  matchUserPatternList,
+} from './helpdeskService';
+
+export interface HelpdeskAdPolicyContext {
+  policy?: HelpdeskPolicyScopeRules | null;
+  hasFullAccess?: boolean;
+}
 
 // ============================================================================
 // 1. TYPES & INTERFACES
@@ -2570,7 +2581,8 @@ export interface HelpdeskUserSearchHit {
 }
 
 export async function searchDomainUsers(
-  input: HelpdeskUserSearchInput
+  input: HelpdeskUserSearchInput,
+  policyContext?: HelpdeskAdPolicyContext
 ): Promise<{
   domainController: string;
   domainName: string;
@@ -2582,6 +2594,23 @@ export async function searchDomainUsers(
   const adminPassword = String(input.adminPassword || '');
   if (!adminUsername || !adminPassword) {
     throw new Error('Privileged domain username and password are required to search Active Directory users.');
+  }
+
+  // Fast exit if policy restricts AD scope to 'selected' with empty allowlists
+  if (
+    policyContext &&
+    !policyContext.hasFullAccess &&
+    policyContext.policy?.targetHelpdeskAdScope === 'selected' &&
+    (policyContext.policy.allowedHelpdeskAdUsers || []).length === 0 &&
+    (policyContext.policy.allowedHelpdeskAdGroups || []).length === 0
+  ) {
+    return {
+      domainController: String(input.domainController || ''),
+      domainName: '',
+      method: 'ldaps',
+      port: 636,
+      users: [],
+    };
   }
 
   const explicitDc = validateSafeHostOrIp(input.domainController, 'Domain Controller');
@@ -2636,16 +2665,18 @@ export async function searchDomainUsers(
           'department',
           'title',
           'mail',
+          'memberOf',
+          'primaryGroupID',
           'userAccountControl',
           'lockoutTime',
           'msDS-User-Account-Control-Computed',
           'whenCreated',
         ],
-        sizeLimit: limit,
-        paged: { pageSize: Math.min(limit, 100) },
+        sizeLimit: Math.min(250, limit * 2),
+        paged: { pageSize: Math.min(250, limit * 2) },
       });
 
-      const users: HelpdeskUserSearchHit[] = rows
+      const mapped = rows
         .map((r) => {
           const sam = getFirstAttr(r.attrs, 'sAMAccountName');
           if (!sam) return null;
@@ -2658,25 +2689,41 @@ export async function searchDomainUsers(
           const accountEnabled = (uac & 0x2) === 0;
           const accountLocked =
             (uacComp & 0x10) !== 0 || (lockRaw !== '' && lockRaw !== '0');
+          const groupEntries: HelpdeskUserGroupEntry[] = getAllAttrs(r.attrs, 'memberOf').map((gDn) => ({
+            cn: extractCnFromDn(gDn),
+            dn: gDn,
+          }));
+          if (getFirstAttr(r.attrs, 'primaryGroupID') === '513') {
+            groupEntries.unshift({
+              cn: 'Domain Users',
+              dn: `CN=Domain Users,CN=Users,${session.defaultNamingContext}`,
+              isPrimary: true,
+            });
+          }
 
           return {
-            samAccountName: sam,
-            userPrincipalName: getFirstAttr(r.attrs, 'userPrincipalName'),
-            displayName,
-            cn,
-            distinguishedName: dn,
-            organizationalUnit: extractOuBreadcrumb(dn),
-            department: getFirstAttr(r.attrs, 'department'),
-            jobTitle: getFirstAttr(r.attrs, 'title'),
-            email: getFirstAttr(r.attrs, 'mail'),
-            accountEnabled,
-            accountLocked,
-            whenCreated: adGeneralizedTimeToIso(getFirstAttr(r.attrs, 'whenCreated')),
+            hit: {
+              samAccountName: sam,
+              userPrincipalName: getFirstAttr(r.attrs, 'userPrincipalName'),
+              displayName,
+              cn,
+              distinguishedName: dn,
+              organizationalUnit: extractOuBreadcrumb(dn),
+              department: getFirstAttr(r.attrs, 'department'),
+              jobTitle: getFirstAttr(r.attrs, 'title'),
+              email: getFirstAttr(r.attrs, 'mail'),
+              accountEnabled,
+              accountLocked,
+              whenCreated: adGeneralizedTimeToIso(getFirstAttr(r.attrs, 'whenCreated')),
+            } as HelpdeskUserSearchHit,
+            groups: groupEntries,
           };
         })
-        .filter((u): u is HelpdeskUserSearchHit => Boolean(u));
+        .filter((u): u is { hit: HelpdeskUserSearchHit; groups: HelpdeskUserGroupEntry[] } => Boolean(u));
 
-      users.sort((a, b) => {
+      const filtered = await filterDomainUserSearchHits(mapped, session.domainName, policyContext);
+
+      filtered.sort((a, b) => {
         if (a.accountLocked !== b.accountLocked) return a.accountLocked ? -1 : 1;
         return (a.displayName || a.samAccountName).localeCompare(b.displayName || b.samAccountName);
       });
@@ -2686,7 +2733,7 @@ export async function searchDomainUsers(
         domainName: session.domainName,
         method: session.useSsl ? 'ldaps' : 'ldap',
         port: session.port,
-        users: users.slice(0, limit),
+        users: filtered.slice(0, limit),
       };
     } finally {
       session.close();
@@ -2709,7 +2756,7 @@ $ds = New-Object System.DirectoryServices.DirectorySearcher([ADSI]"LDAP://$defau
 $ds.Filter = '${ldapFilter}'
 $ds.PageSize = ${limit}
 $ds.SizeLimit = ${limit}
-@('sAMAccountName','userPrincipalName','displayName','cn','distinguishedName','department','title','mail','userAccountControl','lockoutTime','whenCreated') | ForEach-Object { [void]$ds.PropertiesToLoad.Add($_) }
+@('sAMAccountName','userPrincipalName','displayName','cn','distinguishedName','department','title','mail','memberOf','primaryGroupID','userAccountControl','lockoutTime','whenCreated') | ForEach-Object { [void]$ds.PropertiesToLoad.Add($_) }
 $hits = @()
 foreach ($r in $ds.FindAll()) {
   $p = $r.Properties
@@ -2718,6 +2765,9 @@ foreach ($r in $ds.FindAll()) {
   $uac = if ($p['useraccountcontrol'].Count -gt 0) { [int]$p['useraccountcontrol'][0] } else { 0 }
   $lt = if ($p['lockouttime'].Count -gt 0) { [string]$p['lockouttime'][0] } else { '0' }
   $wc = if ($p['whencreated'].Count -gt 0) { [datetime]$p['whencreated'][0] } else { $null }
+  $moList = @()
+  if ($p['memberof']) { foreach ($mo in $p['memberof']) { $moList += [string]$mo } }
+  $pgId = if ($p['primarygroupid'].Count -gt 0) { [string]$p['primarygroupid'][0] } else { '' }
   $hits += [PSCustomObject]@{
     samAccountName = $sam
     userPrincipalName = if ($p['userprincipalname'].Count -gt 0) { [string]$p['userprincipalname'][0] } else { '' }
@@ -2727,6 +2777,8 @@ foreach ($r in $ds.FindAll()) {
     department = if ($p['department'].Count -gt 0) { [string]$p['department'][0] } else { '' }
     jobTitle = if ($p['title'].Count -gt 0) { [string]$p['title'][0] } else { '' }
     email = if ($p['mail'].Count -gt 0) { [string]$p['mail'][0] } else { '' }
+    memberOf = $moList
+    primaryGroupId = $pgId
     accountEnabled = (($uac -band 2) -eq 0)
     accountLocked = ($lt -ne '' -and $lt -ne '0')
     whenCreated = if ($wc) { $wc.ToUniversalTime().ToString('o') } else { $null }
@@ -2757,32 +2809,55 @@ foreach ($r in $ds.FindAll()) {
         : parsed?.users
         ? [parsed.users]
         : [];
-      const users: HelpdeskUserSearchHit[] = rawUsers
-        .map((u) => ({
-          samAccountName: String(u.samAccountName || ''),
-          userPrincipalName: String(u.userPrincipalName || ''),
-          displayName: String(u.displayName || u.samAccountName || ''),
-          cn: String(u.cn || u.samAccountName || ''),
-          distinguishedName: String(u.distinguishedName || ''),
-          organizationalUnit: extractOuBreadcrumb(String(u.distinguishedName || '')),
-          department: String(u.department || ''),
-          jobTitle: String(u.jobTitle || ''),
-          email: String(u.email || ''),
-          accountEnabled: u.accountEnabled !== false,
-          accountLocked: Boolean(u.accountLocked),
-          whenCreated: u.whenCreated ? String(u.whenCreated) : null,
-        }))
-        .filter((u) => Boolean(u.samAccountName));
-      users.sort((a, b) => {
+      const winrmDomain = dnToDomainName(String(parsed?.defaultNc || '')) || domainHints[0] || fallbackHost;
+      const mapped = rawUsers
+        .map((u) => {
+          const sam = String(u.samAccountName || '');
+          if (!sam) return null;
+          const groupEntries: HelpdeskUserGroupEntry[] = (Array.isArray(u.memberOf) ? u.memberOf : []).map(
+            (gDn: any) => ({
+              cn: extractCnFromDn(String(gDn || '')),
+              dn: String(gDn || ''),
+            })
+          );
+          if (String(u.primaryGroupId || '') === '513' && parsed?.defaultNc) {
+            groupEntries.unshift({
+              cn: 'Domain Users',
+              dn: `CN=Domain Users,CN=Users,${String(parsed.defaultNc)}`,
+              isPrimary: true,
+            });
+          }
+          return {
+            hit: {
+              samAccountName: sam,
+              userPrincipalName: String(u.userPrincipalName || ''),
+              displayName: String(u.displayName || sam),
+              cn: String(u.cn || sam),
+              distinguishedName: String(u.distinguishedName || ''),
+              organizationalUnit: extractOuBreadcrumb(String(u.distinguishedName || '')),
+              department: String(u.department || ''),
+              jobTitle: String(u.jobTitle || ''),
+              email: String(u.email || ''),
+              accountEnabled: u.accountEnabled !== false,
+              accountLocked: Boolean(u.accountLocked),
+              whenCreated: u.whenCreated ? String(u.whenCreated) : null,
+            } as HelpdeskUserSearchHit,
+            groups: groupEntries,
+          };
+        })
+        .filter((x): x is { hit: HelpdeskUserSearchHit; groups: HelpdeskUserGroupEntry[] } => Boolean(x));
+
+      const filtered = await filterDomainUserSearchHits(mapped, winrmDomain, policyContext);
+      filtered.sort((a, b) => {
         if (a.accountLocked !== b.accountLocked) return a.accountLocked ? -1 : 1;
         return (a.displayName || a.samAccountName).localeCompare(b.displayName || b.samAccountName);
       });
       return {
         domainController: fallbackHost,
-        domainName: dnToDomainName(String(parsed?.defaultNc || '')) || domainHints[0] || fallbackHost,
+        domainName: winrmDomain,
         method: 'winrm_adsi',
         port: execRes.portUsed,
-        users: users.slice(0, limit),
+        users: filtered.slice(0, limit),
       };
     }
   }
@@ -2793,7 +2868,8 @@ foreach ($r in $ds.FindAll()) {
 }
 
 export async function inspectTargetDomainUser(
-  input: HelpdeskUserInspectInput
+  input: HelpdeskUserInspectInput,
+  policyContext?: HelpdeskAdPolicyContext
 ): Promise<HelpdeskUserInspectionResult> {
   const cleanTarget = sanitizeAndValidateTargetUsername(input.targetUsername);
   const adminUsername = String(input.adminUsername || '').trim();
@@ -2802,11 +2878,20 @@ export async function inspectTargetDomainUser(
     throw new Error('Privileged domain username and password are required to query Active Directory.');
   }
 
+  const targetParts = splitUsernameParts(cleanTarget);
+  // Pre-connect policy guard (blocks explicitly denylisted users or empty AD allowlist before contacting AD)
+  const preCheck = await checkDomainUserPreConnectPolicy(cleanTarget, targetParts.domain, policyContext);
+  if (preCheck.blocked) {
+    const err: any = new Error(preCheck.reasonEn);
+    err.reasonFa = preCheck.reasonFa;
+    err.blockedByException = true;
+    throw err;
+  }
+
   const explicitDc = validateSafeHostOrIp(input.domainController, 'Domain Controller');
   const explicitExch = validateSafeHostOrIp(input.exchangeServer, 'Exchange Server');
   const adConfig = await getActiveDirectoryConfig().catch(() => null);
 
-  const targetParts = splitUsernameParts(cleanTarget);
   const adminParts = splitUsernameParts(adminUsername);
   const domainHints = dedupeStrings([
     adminParts.domain,
@@ -2854,6 +2939,22 @@ export async function inspectTargetDomainUser(
         ]);
         delete (winrmRaw as any)._tokenGroupSids;
         const winrmRes: HelpdeskUserInspectionResult = winrmRaw;
+        const winrmPolicyErr = await checkDomainUserExceptionPolicy({
+          samAccountName: winrmRes.profile.samAccountName,
+          userPrincipalName: winrmRes.profile.userPrincipalName,
+          distinguishedName: winrmRes.profile.distinguishedName,
+          domainName: winrmRes.connectionInfo.domainName,
+          groups: winrmRes.groups,
+          policyContext,
+          actionLabel: 'Inspection',
+          actionLabelFa: 'بررسی کاربر',
+        });
+        if (winrmPolicyErr.blocked) {
+          const err: any = new Error(winrmPolicyErr.reasonEn);
+          err.reasonFa = winrmPolicyErr.reasonFa;
+          err.blockedByException = true;
+          throw err;
+        }
         const [evRes, dcRightsRes] = await Promise.all([
           collectUserLockoutSecurityEvents({
             dcHosts: pdcHost ? [pdcHost, fallbackHost] : [fallbackHost],
@@ -2913,6 +3014,7 @@ export async function inspectTargetDomainUser(
         }
         return winrmRes;
       } catch (winrmErr: any) {
+        if (winrmErr?.blockedByException) throw winrmErr;
         errors.push(`WinRM ADSI fallback (${fallbackHost}): ${winrmErr?.message || winrmErr}`);
       }
     }
@@ -3268,6 +3370,24 @@ export async function inspectTargetDomainUser(
       });
     }
 
+    // Enforce Global HelpDesk Exceptions & Access Policy AD scope before Exchange/returning data
+    const ldapPolicyErr = await checkDomainUserExceptionPolicy({
+      samAccountName: sam,
+      userPrincipalName: upn,
+      distinguishedName: userDn,
+      domainName: session.domainName,
+      groups,
+      policyContext,
+      actionLabel: 'Inspection',
+      actionLabelFa: 'بررسی کاربر',
+    });
+    if (ldapPolicyErr.blocked) {
+      const err: any = new Error(ldapPolicyErr.reasonEn);
+      err.reasonFa = ldapPolicyErr.reasonFa;
+      err.blockedByException = true;
+      throw err;
+    }
+
     // Exchange AD Mailbox & Database Inspection
     const homeMdbDn = getFirstAttr(attrs, 'homeMDB');
     const mbxGuid = parseBinaryGuid(bufs['msexchmailboxguid']?.[0]);
@@ -3497,9 +3617,10 @@ function uacCompHasExpired(uacComp: number): boolean {
 }
 
 export async function inspectTargetDomainMailbox(
-  input: HelpdeskUserMailboxInput
+  input: HelpdeskUserMailboxInput,
+  policyContext?: HelpdeskAdPolicyContext
 ): Promise<HelpdeskUserMailboxInfo> {
-  const full = await inspectTargetDomainUser({ ...input, includeMailbox: true });
+  const full = await inspectTargetDomainUser({ ...input, includeMailbox: true }, policyContext);
   return full.mailbox;
 }
 
@@ -3512,17 +3633,171 @@ function normalizeDomainCmp(d: string): string {
   return clean.includes('.') ? clean.split('.')[0] : clean;
 }
 
+function buildUserIdentityCandidates(params: {
+  samAccountName: string;
+  userPrincipalName?: string;
+  distinguishedName?: string;
+  domainName?: string;
+}): string[] {
+  const sam = String(params.samAccountName || '').trim();
+  const upn = String(params.userPrincipalName || '').trim();
+  const dn = String(params.distinguishedName || '').trim();
+  const domFull = String(params.domainName || '').trim();
+  const domShort = normalizeDomainCmp(domFull);
+  return dedupeStrings([
+    sam,
+    upn,
+    dn,
+    domShort && sam ? `${domShort}\\${sam}` : '',
+    domFull && sam ? `${domFull}\\${sam}` : '',
+  ]);
+}
+
+async function checkDomainUserPreConnectPolicy(
+  rawTarget: string,
+  targetDomain: string,
+  policyContext?: HelpdeskAdPolicyContext
+): Promise<{ blocked: boolean; reasonEn?: string; reasonFa?: string }> {
+  const pol = policyContext && !policyContext.hasFullAccess ? policyContext.policy : null;
+  if (
+    pol &&
+    pol.targetHelpdeskAdScope === 'selected' &&
+    (pol.allowedHelpdeskAdUsers || []).length === 0 &&
+    (pol.allowedHelpdeskAdGroups || []).length === 0
+  ) {
+    return {
+      blocked: true,
+      reasonEn:
+        'Access blocked by RBAC HelpDesk Policy: AD scope is set to Selected Only, but no AD groups or users are permitted.',
+      reasonFa:
+        'دسترسی توسط پالیسی هلپ‌دسک مسدود شد: محدوده اکتیو دایرکتوری روی «فقط موارد مجاز» است اما هیچ گروه یا کاربری مجاز تعریف نشده است.',
+    };
+  }
+
+  const allRules = await listHelpdeskExceptionsFromDb().catch(() => [] as HelpdeskExceptionRecord[]);
+  const enabled = allRules.filter((r) => r && r.enabled && r.ruleType === 'ad_user');
+  const clean = String(rawTarget || '').trim();
+  const parts = splitUsernameParts(clean);
+  const domShort = normalizeDomainCmp(targetDomain || parts.domain);
+
+  for (const rule of enabled) {
+    const rv = String(rule.targetValue || '').trim().toLowerCase();
+    const rvParts = splitUsernameParts(rv);
+    const rDom = normalizeDomainCmp(rule.domainName || rvParts.domain);
+    if (rDom && domShort && rDom !== domShort) continue;
+    if (rvParts.sam === parts.sam.toLowerCase() || rv === clean.toLowerCase()) {
+      return {
+        blocked: true,
+        reasonEn: `Blocked by HelpDesk exception policy: user "${clean}" matches excluded AD user rule "${rule.targetValue}".`,
+        reasonFa: `دسترسی توسط قانون استثنائات هلپ‌دسک مسدود شد: کاربر «${clean}» مشمول قانون مسدودسازی «${rule.targetValue}» است.`,
+      };
+    }
+  }
+
+  if (pol && (pol.blockedHelpdeskAdUsers || []).length > 0) {
+    const matched = matchUserPatternList(
+      pol.blockedHelpdeskAdUsers || [],
+      buildUserIdentityCandidates({ samAccountName: parts.sam, userPrincipalName: clean, domainName: targetDomain }),
+      targetDomain,
+      false
+    );
+    if (matched) {
+      return {
+        blocked: true,
+        reasonEn: `Blocked by RBAC HelpDesk Policy: user "${clean}" matches restricted AD user rule "${matched.pattern}".`,
+        reasonFa: `دسترسی توسط پالیسی هلپ‌دسک مسدود شد: کاربر «${clean}» در لیست مسدودشده «${matched.pattern}» قرار دارد.`,
+      };
+    }
+  }
+
+  return { blocked: false };
+}
+
+async function filterDomainUserSearchHits(
+  entries: Array<{ hit: HelpdeskUserSearchHit; groups: HelpdeskUserGroupEntry[] }>,
+  domainName: string,
+  policyContext?: HelpdeskAdPolicyContext
+): Promise<HelpdeskUserSearchHit[]> {
+  const allRules = await listHelpdeskExceptionsFromDb().catch(() => [] as HelpdeskExceptionRecord[]);
+  const enabledUserRules = allRules.filter((r) => r && r.enabled && r.ruleType === 'ad_user');
+  const enabledGroupRules = allRules.filter((r) => r && r.enabled && r.ruleType === 'ad_group');
+  const domShort = normalizeDomainCmp(domainName);
+  const pol = policyContext && !policyContext.hasFullAccess ? policyContext.policy : null;
+  const blockedUsers = pol?.blockedHelpdeskAdUsers || [];
+  const blockedGroups = pol?.blockedHelpdeskAdGroups || [];
+  const adSelectedOnly = pol?.targetHelpdeskAdScope === 'selected';
+  const allowedUsers = pol?.allowedHelpdeskAdUsers || [];
+  const allowedGroups = pol?.allowedHelpdeskAdGroups || [];
+
+  const result: HelpdeskUserSearchHit[] = [];
+  for (const item of entries) {
+    const h = item.hit;
+    const samL = h.samAccountName.toLowerCase();
+    const upnL = (h.userPrincipalName || '').toLowerCase();
+
+    // Global AD user block
+    let blocked = enabledUserRules.some((rule) => {
+      const rv = String(rule.targetValue || '').trim().toLowerCase();
+      const rvParts = splitUsernameParts(rv);
+      const rDom = normalizeDomainCmp(rule.domainName || rvParts.domain);
+      if (rDom && domShort && rDom !== domShort) return false;
+      return rvParts.sam === samL || (upnL && rv === upnL) || rv === samL;
+    });
+    if (blocked) continue;
+
+    // Global AD group block
+    blocked = enabledGroupRules.some((rule) => {
+      const rv = String(rule.targetValue || '').trim().toLowerCase();
+      const rCn = rv.includes('cn=') ? extractCnFromDn(rv).toLowerCase() : rv.includes('\\') ? rv.split('\\').pop()! : rv;
+      const rDom = normalizeDomainCmp(rule.domainName);
+      if (rDom && domShort && rDom !== domShort) return false;
+      return item.groups.some((g) => g.cn.toLowerCase() === rCn || g.dn.toLowerCase() === rv);
+    });
+    if (blocked) continue;
+
+    const candidates = buildUserIdentityCandidates({
+      samAccountName: h.samAccountName,
+      userPrincipalName: h.userPrincipalName,
+      distinguishedName: h.distinguishedName,
+      domainName,
+    });
+    const groupEntries = item.groups.map((g) => ({ cn: g.cn, sam: g.cn, dn: g.dn }));
+
+    if (blockedUsers.length > 0 && matchUserPatternList(blockedUsers, candidates, domainName, false)) {
+      continue;
+    }
+    if (blockedGroups.length > 0 && matchAdGroupPatternList(blockedGroups, groupEntries, domainName)) {
+      continue;
+    }
+
+    if (adSelectedOnly) {
+      const userAllowed = allowedUsers.length > 0 && Boolean(matchUserPatternList(allowedUsers, candidates, domainName, false));
+      const groupAllowed = allowedGroups.length > 0 && Boolean(matchAdGroupPatternList(allowedGroups, groupEntries, domainName));
+      if (!userAllowed && !groupAllowed) continue;
+    }
+
+    result.push(h);
+  }
+  return result;
+}
+
 async function checkDomainUserExceptionPolicy(params: {
   samAccountName: string;
   userPrincipalName: string;
+  distinguishedName?: string;
   domainName: string;
   groups: HelpdeskUserGroupEntry[];
+  policyContext?: HelpdeskAdPolicyContext;
+  actionLabel?: string;
+  actionLabelFa?: string;
 }): Promise<{ blocked: boolean; reasonEn?: string; reasonFa?: string; rule?: HelpdeskExceptionRecord }> {
   const allRules = await listHelpdeskExceptionsFromDb().catch(() => [] as HelpdeskExceptionRecord[]);
   const enabled = allRules.filter((r) => r && r.enabled);
   const samLower = params.samAccountName.toLowerCase();
   const upnLower = params.userPrincipalName.toLowerCase();
   const domShort = normalizeDomainCmp(params.domainName);
+  const actEn = params.actionLabel || 'Unlock';
+  const actFa = params.actionLabelFa || 'عملیات';
 
   for (const rule of enabled) {
     if (rule.ruleType === 'ad_user') {
@@ -3530,17 +3805,19 @@ async function checkDomainUserExceptionPolicy(params: {
       const rvParts = splitUsernameParts(rv);
       const rDom = normalizeDomainCmp(rule.domainName || rvParts.domain);
       if (rDom && domShort && rDom !== domShort) continue;
-      if (rvParts.sam === samLower || rv === upnLower || rv === samLower) {
+      if (rvParts.sam === samLower || (upnLower && rv === upnLower) || rv === samLower) {
         return {
           blocked: true,
           rule,
-          reasonEn: `Unlock blocked by HelpDesk exception policy: user "${params.samAccountName}" matches excluded AD user rule "${rule.targetValue}".`,
-          reasonFa: `رفع قفل توسط قانون استثنائات هلپ‌دسک مسدود شد: کاربر «${params.samAccountName}» مشمول قانون مسدودسازی «${rule.targetValue}» است.`,
+          reasonEn: `${actEn} blocked by HelpDesk exception policy: user "${params.samAccountName}" matches excluded AD user rule "${rule.targetValue}".`,
+          reasonFa: `${actFa} توسط قانون استثنائات هلپ‌دسک مسدود شد: کاربر «${params.samAccountName}» مشمول قانون مسدودسازی «${rule.targetValue}» است.`,
         };
       }
     } else if (rule.ruleType === 'ad_group') {
       const rv = String(rule.targetValue || '').trim().toLowerCase();
       const rCn = rv.includes('cn=') ? extractCnFromDn(rv).toLowerCase() : rv.includes('\\') ? rv.split('\\').pop()! : rv;
+      const rDom = normalizeDomainCmp(rule.domainName);
+      if (rDom && domShort && rDom !== domShort) continue;
       const matchedGroup = params.groups.find(
         (g) => g.cn.toLowerCase() === rCn || g.dn.toLowerCase() === rv
       );
@@ -3548,8 +3825,59 @@ async function checkDomainUserExceptionPolicy(params: {
         return {
           blocked: true,
           rule,
-          reasonEn: `Unlock blocked by HelpDesk exception policy: user belongs to excluded AD group "${matchedGroup.cn}".`,
-          reasonFa: `رفع قفل توسط قانون استثنائات هلپ‌دسک مسدود شد: کاربر عضو گروه مسدودشده «${matchedGroup.cn}» است.`,
+          reasonEn: `${actEn} blocked by HelpDesk exception policy: user belongs to excluded AD group "${matchedGroup.cn}".`,
+          reasonFa: `${actFa} توسط قانون استثنائات هلپ‌دسک مسدود شد: کاربر عضو گروه مسدودشده «${matchedGroup.cn}» است.`,
+        };
+      }
+    }
+  }
+
+  const pol = params.policyContext && !params.policyContext.hasFullAccess ? params.policyContext.policy : null;
+  if (pol) {
+    const candidates = buildUserIdentityCandidates({
+      samAccountName: params.samAccountName,
+      userPrincipalName: params.userPrincipalName,
+      distinguishedName: params.distinguishedName,
+      domainName: params.domainName,
+    });
+    const groupEntries = params.groups.map((g) => ({ cn: g.cn, sam: g.cn, dn: g.dn }));
+
+    if ((pol.blockedHelpdeskAdUsers || []).length > 0) {
+      const m = matchUserPatternList(pol.blockedHelpdeskAdUsers || [], candidates, params.domainName, false);
+      if (m) {
+        return {
+          blocked: true,
+          reasonEn: `${actEn} blocked by RBAC HelpDesk Policy: user "${params.samAccountName}" matches restricted AD user rule "${m.pattern}".`,
+          reasonFa: `${actFa} توسط پالیسی هلپ‌دسک مسدود شد: کاربر «${params.samAccountName}» مشمول قانون مسدودسازی «${m.pattern}» است.`,
+        };
+      }
+    }
+
+    if ((pol.blockedHelpdeskAdGroups || []).length > 0) {
+      const m = matchAdGroupPatternList(pol.blockedHelpdeskAdGroups || [], groupEntries, params.domainName);
+      if (m) {
+        return {
+          blocked: true,
+          reasonEn: `${actEn} blocked by RBAC HelpDesk Policy: user belongs to restricted AD group "${m.matchedGroup}" (rule: "${m.pattern}").`,
+          reasonFa: `${actFa} توسط پالیسی هلپ‌دسک مسدود شد: کاربر عضو گروه مسدودشده «${m.matchedGroup}» (قانون «${m.pattern}») است.`,
+        };
+      }
+    }
+
+    if (pol.targetHelpdeskAdScope === 'selected') {
+      const allowedUsers = pol.allowedHelpdeskAdUsers || [];
+      const allowedGroups = pol.allowedHelpdeskAdGroups || [];
+      const userAllowed =
+        allowedUsers.length > 0 &&
+        Boolean(matchUserPatternList(allowedUsers, candidates, params.domainName, false));
+      const groupAllowed =
+        allowedGroups.length > 0 &&
+        Boolean(matchAdGroupPatternList(allowedGroups, groupEntries, params.domainName));
+      if (!userAllowed && !groupAllowed) {
+        return {
+          blocked: true,
+          reasonEn: `${actEn} blocked by RBAC HelpDesk Policy: user "${params.samAccountName}" is outside your policy's permitted AD users/groups scope.`,
+          reasonFa: `${actFa} توسط پالیسی هلپ‌دسک مسدود شد: کاربر «${params.samAccountName}» در محدوده کاربران و گروه‌های مجاز پالیسی شما قرار ندارد.`,
         };
       }
     }
@@ -3559,14 +3887,19 @@ async function checkDomainUserExceptionPolicy(params: {
 }
 
 export async function unlockTargetDomainUser(
-  input: HelpdeskUserUnlockInput
+  input: HelpdeskUserUnlockInput,
+  policyContext?: HelpdeskAdPolicyContext
 ): Promise<HelpdeskUserUnlockResult> {
-  const inspected = await inspectTargetDomainUser({ ...input, includeMailbox: false });
+  const inspected = await inspectTargetDomainUser({ ...input, includeMailbox: false }, policyContext);
   const exc = await checkDomainUserExceptionPolicy({
     samAccountName: inspected.profile.samAccountName,
     userPrincipalName: inspected.profile.userPrincipalName,
+    distinguishedName: inspected.profile.distinguishedName,
     domainName: inspected.connectionInfo.domainName,
     groups: inspected.groups,
+    policyContext,
+    actionLabel: 'Unlock',
+    actionLabelFa: 'رفع قفل',
   });
   if (exc.blocked) {
     const err: any = new Error(exc.reasonEn);

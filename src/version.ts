@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.494.0';
+export const APP_VERSION = '1.495.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.495.0',
+    releaseDate: '2026-11-26',
+    type: 'minor',
+    title: 'انتقال مدیریت استثنائات هلپ‌دسک به تب جدید Access Policy و اعمال محدودسازی هدف‌محور برای هر ۳ صفحه هلپ‌دسک',
+    title_en: 'Move HelpDesk Exceptions to Dedicated Access Policy Tab and Enforce Per-Policy Target Scope Across All 3 HelpDesk Pages',
+    changes: [
+      'حذف دکمه و مدال `HelpDesk Connection Exceptions & Blocklist` از صفحه `Agentless Endpoint HelpDesk` (حفظ پیام هشدار فقط‌خواندنی در صورت مسدود بودن هدف) تا اپراتورها در محیط عملیات دسترسی ویرایش قوانین مسدودسازی را نداشته باشند.',
+      'افزودن تب مستقل `محدوده و قوانین هلپ‌دسک` (`HelpDesk Scope & Rules`) در پنجره `Access Policy` با تنظیمات پیش‌فرض باز (همه مجاز و لیست‌ها خالی) شامل: محدوده IP/CIDR/رنج IP/نام میزبان مجاز یا مسدود، لیست کاربران محلی مسدود، محدوده گروه‌ها و کاربران مجاز/مسدود اکتیو دایرکتوری، و مدیریت متمرکز استثنائات سراسری هلپ‌دسک (`HelpdeskExceptionsModal`).',
+      'اجرای قطعی و سمت سرور قوانین پالیسی و استثنائات سراسری بر روی هر ۳ صفحه هلپ‌دسک (`Agentless Endpoint HelpDesk`، `AD User Support HelpDesk` و `AD Group Support HelpDesk`) در جستجوها، بررسی‌ها، ایمیل باکس، رفع قفل و هویت‌یابی کلاینت.'
+    ],
+    changes_en: [
+      'Removed `Exceptions & Blocklist` configuration button, banner shortcut, and modal trigger from `Agentless Endpoint HelpDesk` while retaining the read-only blocked alert banner.',
+      'Added dedicated `HelpDesk Scope & Rules` tab inside `Access Policy` defaulting to open/unrestricted (`all` + empty blocklists), supporting allowed/blocked IP/CIDR/IP-range/hostname targets, blocked local accounts, allowed/blocked AD groups & AD users, and centralized Global HelpDesk Exceptions management.',
+      'Enforced authoritative PostgreSQL policy target scopes and global blocklist rules server-side across all 3 HelpDesk modules (`Agentless Endpoint HelpDesk`, `AD User Support HelpDesk`, and `AD Group Support HelpDesk`), including searches, inspections, mailbox lookups, unlocks, and pre/post-probe host verification.'
+    ]
+  },
   {
     version: '1.494.0',
     releaseDate: '2026-11-26',

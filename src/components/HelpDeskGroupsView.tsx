@@ -1060,7 +1060,7 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
 
             {ram.searchError && (
               <div className="text-xs text-rose-500 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
-                {ram.searchError}
+                {isEn ? ram.searchError : ram.searchErrorFa || ram.searchError}
               </div>
             )}
 
@@ -1215,19 +1215,29 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="space-y-1">
               <div className="font-semibold">
-                {isEn ? 'Active Directory Group Inspection Error' : 'خطا در استعلام گروه دامین'}
+                {ram.blockedByException
+                  ? isEn
+                    ? 'Target Group Blocked by HelpDesk RBAC / Exception Policy'
+                    : 'گروه هدف توسط پالیسی یا قانون استثنائات هلپ‌دسک مسدود شده است'
+                  : isEn
+                  ? 'Active Directory Group Inspection Error'
+                  : 'خطا در استعلام گروه دامین'}
               </div>
-              <div className="font-mono break-all opacity-90">{ram.error}</div>
+              <div className="break-words opacity-90">
+                {isEn ? ram.error : ram.errorFa || ram.error}
+              </div>
             </div>
           </div>
-          <TimeoutAntivirusHint
-            errorText={ram.error}
-            isEn={isEn}
-            isLightMode={isLightMode}
-            canViewSecurityAv={Boolean(onNavigateToEndpointHelpdesk)}
-            canControlAntivirus={hasFull || Boolean(effectivePolicy?.canExecuteHelpdeskActions)}
-            onGoToAntivirus={onNavigateToEndpointHelpdesk}
-          />
+          {!ram.blockedByException && (
+            <TimeoutAntivirusHint
+              errorText={ram.error}
+              isEn={isEn}
+              isLightMode={isLightMode}
+              canViewSecurityAv={Boolean(onNavigateToEndpointHelpdesk)}
+              canControlAntivirus={hasFull || Boolean(effectivePolicy?.canExecuteHelpdeskActions)}
+              onGoToAntivirus={onNavigateToEndpointHelpdesk}
+            />
+          )}
         </div>
       )}
 

@@ -19,7 +19,7 @@ import {
   wrapSpnegoNegTokenResp,
   runDomainAdminSmbRpcPowerShell,
 } from './helpdeskSmbRpcTransport';
-import { HelpdeskExceptionRecord, listHelpdeskExceptionsFromDb } from './db';
+import { HelpdeskExceptionRecord, HelpdeskExceptionRuleType, listHelpdeskExceptionsFromDb } from './db';
 
 export type HelpdeskProtocol = 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
 export type HelpdeskResolvedProtocol = 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
@@ -18543,6 +18543,194 @@ function matchesUserIdentityRule(
   return null;
 }
 
+export interface HelpdeskPolicyScopeRules {
+  targetHelpdeskIpScope?: 'all' | 'selected';
+  allowedHelpdeskIps?: string[];
+  blockedHelpdeskIps?: string[];
+  targetHelpdeskAdScope?: 'all' | 'selected';
+  allowedHelpdeskAdGroups?: string[];
+  allowedHelpdeskAdUsers?: string[];
+  blockedHelpdeskAdUsers?: string[];
+  blockedHelpdeskAdGroups?: string[];
+  blockedHelpdeskLocalUsers?: string[];
+}
+
+function normalizePatternList(raw?: string[]): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .flatMap((entry) =>
+      String(entry || '')
+        .split(/[\r\n,;]+/)
+        .map((s) => s.trim())
+    )
+    .filter(Boolean);
+}
+
+export function isIpLiteralTarget(val: string): boolean {
+  const clean = String(val || '').trim();
+  return parseIpv4ToUint32(clean) !== null || expandIpv6ToBigInt(clean) !== null;
+}
+
+function isPureIpOrRangePattern(patternRaw: string): boolean {
+  const pattern = String(patternRaw || '').trim();
+  if (!pattern) return false;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2}$/.test(pattern)) return true;
+  if (pattern.includes(':') && pattern.includes('/')) return true;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}\s*-\s*(?:\d{1,3}(?:\.\d{1,3}){3}|\d{1,3})$/.test(pattern)) return true;
+  if (parseIpv4ToUint32(pattern) !== null || expandIpv6ToBigInt(pattern) !== null) return true;
+  if (/^[\d.*?]+$/.test(pattern)) return true;
+  return false;
+}
+
+export function matchIpOrHostPatternList(
+  patterns: string[],
+  candidateIps: string[],
+  candidateHostnames: string[]
+): string | null {
+  for (const pat of normalizePatternList(patterns)) {
+    if (matchesSingleIpPattern(pat, candidateIps, candidateHostnames)) {
+      return pat;
+    }
+  }
+  return null;
+}
+
+export function matchUserPatternList(
+  patterns: string[],
+  candidates: string[],
+  endpointDomain = '',
+  requireDomainForAdUser = false
+): { pattern: string; matchedUser: string } | null {
+  for (const pat of normalizePatternList(patterns)) {
+    const pClean = pat.trim();
+    const pLower = pClean.toLowerCase();
+    const hasGlob = pClean.includes('*') || pClean.includes('?');
+    const patCnMatch = pClean.match(/^(?:CN|UID)=([^,]+)/i);
+    const normalizedPat = patCnMatch?.[1] ? patCnMatch[1].trim() : pClean;
+
+    if (hasGlob) {
+      for (const cand of candidates) {
+        const cRaw = String(cand || '').trim();
+        if (!cRaw) continue;
+        const cKeys = extractIdentityKeys(cRaw);
+        if (requireDomainForAdUser) {
+          const cDomain = cKeys.domain || endpointDomain;
+          if (!cDomain) continue;
+        }
+        if (
+          matchesGlobPattern(normalizedPat, cRaw) ||
+          (cKeys.sam && matchesGlobPattern(normalizedPat, cKeys.sam))
+        ) {
+          return { pattern: pat, matchedUser: cRaw };
+        }
+      }
+      continue;
+    }
+
+    const syntheticRule: HelpdeskExceptionRecord = {
+      id: 'policy-user-rule',
+      ruleType: requireDomainForAdUser ? 'ad_user' : 'local_user',
+      targetValue: normalizedPat,
+      domainName: '',
+      description: '',
+      enabled: true,
+      createdBy: 'policy',
+      createdByRole: 'policy',
+      createdAt: '',
+      updatedAt: '',
+    };
+    const m = matchesUserIdentityRule(syntheticRule, candidates, endpointDomain, requireDomainForAdUser);
+    if (m) return { pattern: pat, matchedUser: m };
+
+    // Direct UPN / DN equality fallback
+    for (const cand of candidates) {
+      const cRaw = String(cand || '').trim();
+      if (!cRaw) continue;
+      if (cRaw.toLowerCase() === pLower) {
+        return { pattern: pat, matchedUser: cRaw };
+      }
+    }
+  }
+  return null;
+}
+
+export function matchAdGroupPatternList(
+  patterns: string[],
+  groupEntries: Array<string | { cn?: string; sam?: string; dn?: string }>,
+  domainHint = ''
+): { pattern: string; matchedGroup: string } | null {
+  const normalizedGroups = groupEntries
+    .map((g) => {
+      if (typeof g === 'string') {
+        const keys = extractAdGroupKeys(g);
+        return { raw: g.trim(), cn: keys.cn, sam: keys.cn, dn: keys.lower.includes('=') ? keys.lower : '', dom: keys.domain };
+      }
+      const cn = String(g.cn || '').trim();
+      const sam = String(g.sam || '').trim();
+      const dn = String(g.dn || '').trim();
+      const dnKeys = extractAdGroupKeys(dn || cn || sam);
+      return {
+        raw: cn || sam || dn,
+        cn: (cn || dnKeys.cn).toLowerCase(),
+        sam: (sam || cn || dnKeys.cn).toLowerCase(),
+        dn: dn.toLowerCase(),
+        dom: dnKeys.domain,
+      };
+    })
+    .filter((g) => Boolean(g.raw));
+
+  for (const pat of normalizePatternList(patterns)) {
+    const pTrim = pat.trim();
+    const pKeys = extractAdGroupKeys(pTrim);
+    const hasGlob = pTrim.includes('*') || pTrim.includes('?');
+
+    for (const g of normalizedGroups) {
+      if (hasGlob) {
+        const pPat = pKeys.cn || pTrim.toLowerCase();
+        if (
+          (g.cn && matchesGlobPattern(pPat, g.cn)) ||
+          (g.sam && matchesGlobPattern(pPat, g.sam)) ||
+          (g.raw && matchesGlobPattern(pTrim, g.raw))
+        ) {
+          return { pattern: pat, matchedGroup: g.raw };
+        }
+        continue;
+      }
+
+      if (
+        (pKeys.cn && (g.cn === pKeys.cn || g.sam === pKeys.cn)) ||
+        (pKeys.lower && (g.dn === pKeys.lower || g.cn === pKeys.lower || g.sam === pKeys.lower))
+      ) {
+        if (pKeys.domain) {
+          const gDom = g.dom || domainHint;
+          if (gDom && !domainNamesMatch(pKeys.domain, gDom)) continue;
+        }
+        return { pattern: pat, matchedGroup: g.raw };
+      }
+    }
+  }
+  return null;
+}
+
+function buildPolicyExceptionRecord(
+  id: string,
+  ruleType: HelpdeskExceptionRuleType,
+  targetValue: string
+): HelpdeskExceptionRecord {
+  return {
+    id,
+    ruleType,
+    targetValue,
+    domainName: '',
+    description: 'Enforced by Access Policy HelpDesk target rules',
+    enabled: true,
+    createdBy: 'AccessPolicy',
+    createdByRole: 'RBAC',
+    createdAt: '',
+    updatedAt: '',
+  };
+}
+
 function extractAdGroupKeys(raw: string): { lower: string; cn: string; domain: string } {
   const clean = String(raw || '').trim();
   const lower = clean.toLowerCase();
@@ -18858,11 +19046,37 @@ export async function inspectEndpointIdentityForExceptions(
 
 export async function verifyHelpdeskTargetNotBlocked(
   input: HelpdeskTargetInput,
-  options?: { forceRefreshIdentity?: boolean }
+  options?: {
+    forceRefreshIdentity?: boolean;
+    policy?: HelpdeskPolicyScopeRules | null;
+    hasFullAccess?: boolean;
+  }
 ): Promise<HelpdeskExceptionCheckResult> {
   const allRules = await listHelpdeskExceptionsFromDb();
   const enabledRules = allRules.filter((r) => r && r.enabled);
-  if (enabledRules.length === 0) {
+  const policy = !options?.hasFullAccess ? options?.policy || null : null;
+
+  const policyIpScope: 'all' | 'selected' = policy?.targetHelpdeskIpScope === 'selected' ? 'selected' : 'all';
+  const policyAllowedIps = normalizePatternList(policy?.allowedHelpdeskIps);
+  const policyBlockedIps = normalizePatternList(policy?.blockedHelpdeskIps);
+  const policyAdScope: 'all' | 'selected' = policy?.targetHelpdeskAdScope === 'selected' ? 'selected' : 'all';
+  const policyAllowedAdGroups = normalizePatternList(policy?.allowedHelpdeskAdGroups);
+  const policyAllowedAdUsers = normalizePatternList(policy?.allowedHelpdeskAdUsers);
+  const policyBlockedAdUsers = normalizePatternList(policy?.blockedHelpdeskAdUsers);
+  const policyBlockedAdGroups = normalizePatternList(policy?.blockedHelpdeskAdGroups);
+  const policyBlockedLocalUsers = normalizePatternList(policy?.blockedHelpdeskLocalUsers);
+
+  const hasPolicyScopeOrBlocks = Boolean(
+    policy &&
+      (policyIpScope === 'selected' ||
+        policyBlockedIps.length > 0 ||
+        policyAdScope === 'selected' ||
+        policyBlockedAdUsers.length > 0 ||
+        policyBlockedAdGroups.length > 0 ||
+        policyBlockedLocalUsers.length > 0)
+  );
+
+  if (enabledRules.length === 0 && !hasPolicyScopeOrBlocks) {
     return { blocked: false };
   }
 
@@ -18874,7 +19088,7 @@ export async function verifyHelpdeskTargetNotBlocked(
   const adGroupRules = enabledRules.filter((r) => r.ruleType === 'ad_group');
 
   // Phase 1: Immediate Pre-Network Checks (IP / CIDR / Range / Hostname & Session Credentials)
-  const targetIsIpLiteral = parseIpv4ToUint32(targetHost) !== null || expandIpv6ToBigInt(targetHost) !== null;
+  const targetIsIpLiteral = isIpLiteralTarget(targetHost);
   for (const rule of ipRules) {
     if (
       matchIpRule(
@@ -18892,6 +19106,82 @@ export async function verifyHelpdeskTargetNotBlocked(
         reasonFa: `اتصال توسط قانون استثنائات هلپ‌دسک مسدود شد: آدرس «${targetHost}» مشمول قانون مسدودسازی «${rule.targetValue}» است.`,
       };
     }
+  }
+
+  // Policy IP / Host Blocklist Pre-Connect Check
+  if (policy && policyBlockedIps.length > 0 && targetHost) {
+    const blockedIpPat = matchIpOrHostPatternList(
+      policyBlockedIps,
+      targetIsIpLiteral ? [targetHost] : [],
+      targetIsIpLiteral ? [] : [targetHost]
+    );
+    if (blockedIpPat) {
+      return {
+        blocked: true,
+        phase: 'pre_connect',
+        rule: buildPolicyExceptionRecord('policy-ip-block', 'ip', blockedIpPat),
+        matchedValue: targetHost,
+        reasonEn: `Connection blocked by your Access Policy HelpDesk blocklist: target "${targetHost}" matches denied IP/range/host rule "${blockedIpPat}".`,
+        reasonFa: `اتصال توسط قانون مسدودسازی هلپ‌دسک در پالیسی دسترسی شما مسدود شد: آدرس «${targetHost}» با الگوی مسدودشده «${blockedIpPat}» مطابقت دارد.`,
+      };
+    }
+  }
+
+  // Policy IP Allowlist Pre-Connect Check
+  let preConnectIpAllowMatched = true;
+  if (policy && policyIpScope === 'selected') {
+    if (policyAllowedIps.length === 0) {
+      return {
+        blocked: true,
+        phase: 'pre_connect',
+        rule: buildPolicyExceptionRecord('policy-ip-allowlist-empty', 'ip', 'none'),
+        matchedValue: targetHost || 'none',
+        reasonEn: 'Access denied: Your Access Policy restricts HelpDesk IP scope to selected targets, but no allowed IPs or ranges are configured.',
+        reasonFa: 'عدم دسترسی: پالیسی دسترسی شما محدوده آی‌پی‌های هلپ‌دسک را به موارد مجاز محدود کرده اما هیچ آی‌پی یا رنج مجازی تعریف نشده است.',
+      };
+    }
+    const matchedAllowedPre = targetHost
+      ? matchIpOrHostPatternList(
+          policyAllowedIps,
+          targetIsIpLiteral ? [targetHost] : [],
+          targetIsIpLiteral ? [] : [targetHost]
+        )
+      : null;
+    if (!matchedAllowedPre) {
+      preConnectIpAllowMatched = false;
+      const hasHostnameAllowPattern = policyAllowedIps.some((p) => !isPureIpOrRangePattern(p));
+      const hasIpAllowPattern = policyAllowedIps.some((p) => isPureIpOrRangePattern(p));
+      if (
+        (targetIsIpLiteral && !hasHostnameAllowPattern) ||
+        (!targetIsIpLiteral && !hasIpAllowPattern)
+      ) {
+        return {
+          blocked: true,
+          phase: 'pre_connect',
+          rule: buildPolicyExceptionRecord('policy-ip-scope', 'ip', policyAllowedIps.join(', ')),
+          matchedValue: targetHost,
+          reasonEn: `Access denied by Access Policy HelpDesk scope: target "${targetHost}" is outside your permitted IP addresses / CIDR ranges (${policyAllowedIps.slice(0, 5).join(', ')}${policyAllowedIps.length > 5 ? ', ...' : ''}).`,
+          reasonFa: `عدم دسترسی طبق محدوده هلپ‌دسک پالیسی شما: آدرس «${targetHost}» خارج از رنج‌ها و آی‌پی‌های مجاز تعریف‌شده است.`,
+        };
+      }
+    }
+  }
+
+  // Policy AD Allowlist Empty Check
+  if (
+    policy &&
+    policyAdScope === 'selected' &&
+    policyAllowedAdGroups.length === 0 &&
+    policyAllowedAdUsers.length === 0
+  ) {
+    return {
+      blocked: true,
+      phase: 'pre_connect',
+      rule: buildPolicyExceptionRecord('policy-ad-allowlist-empty', 'ad_group', 'none'),
+      matchedValue: targetHost || 'none',
+      reasonEn: 'Access denied: Your Access Policy restricts HelpDesk to specific AD users/groups, but the allowlist is empty.',
+      reasonFa: 'عدم دسترسی: پالیسی دسترسی شما هلپ‌دسک را به کاربران/گروه‌های خاص اکتیو دایرکتوری محدود کرده اما لیست مجاز خالی است.',
+    };
   }
 
   if (sessionUsername) {
@@ -18921,17 +19211,53 @@ export async function verifyHelpdeskTargetNotBlocked(
         };
       }
     }
+    if (policy && policyBlockedLocalUsers.length > 0) {
+      const mLocal = matchUserPatternList(policyBlockedLocalUsers, [sessionUsername], '', false);
+      if (mLocal) {
+        return {
+          blocked: true,
+          phase: 'pre_connect',
+          rule: buildPolicyExceptionRecord('policy-local-user-block', 'local_user', mLocal.pattern),
+          matchedValue: mLocal.matchedUser,
+          reasonEn: `Connection blocked by Access Policy: session user "${mLocal.matchedUser}" matches denied local account "${mLocal.pattern}".`,
+          reasonFa: `اتصال توسط پالیسی دسترسی مسدود شد: کاربر «${mLocal.matchedUser}» مشمول قانون مسدودسازی کاربر لوکال «${mLocal.pattern}» است.`,
+        };
+      }
+    }
+    if (policy && policyBlockedAdUsers.length > 0) {
+      const mAd = matchUserPatternList(policyBlockedAdUsers, [sessionUsername], '', true);
+      if (mAd) {
+        return {
+          blocked: true,
+          phase: 'pre_connect',
+          rule: buildPolicyExceptionRecord('policy-ad-user-block', 'ad_user', mAd.pattern),
+          matchedValue: mAd.matchedUser,
+          reasonEn: `Connection blocked by Access Policy: domain account "${mAd.matchedUser}" matches denied AD user rule "${mAd.pattern}".`,
+          reasonFa: `اتصال توسط پالیسی دسترسی مسدود شد: اکانت دامین «${mAd.matchedUser}» مشمول قانون مسدودسازی کاربر دامین «${mAd.pattern}» است.`,
+        };
+      }
+    }
   }
 
   // Phase 2: Inspect Target Endpoint Users, Hostname/IPs, and Active Directory Groups if needed
   const hasHostnameIpRule = ipRules.some(
     (r) => parseIpv4ToUint32(r.targetValue) === null && expandIpv6ToBigInt(r.targetValue) === null
   );
+  const policyNeedsProbe = Boolean(
+    policy &&
+      (policyBlockedLocalUsers.length > 0 ||
+        policyBlockedAdUsers.length > 0 ||
+        policyBlockedAdGroups.length > 0 ||
+        policyAdScope === 'selected' ||
+        policyBlockedIps.some((p) => !isPureIpOrRangePattern(p)) ||
+        (policyIpScope === 'selected' && !preConnectIpAllowMatched))
+  );
   const needsProbe =
     localUserRules.length > 0 ||
     adUserRules.length > 0 ||
     adGroupRules.length > 0 ||
-    hasHostnameIpRule;
+    hasHostnameIpRule ||
+    policyNeedsProbe;
 
   if (!needsProbe || !targetHost || !sessionUsername || !input.password) {
     return { blocked: false };
@@ -18965,6 +19291,45 @@ export async function verifyHelpdeskTargetNotBlocked(
     }
   }
 
+  // Policy IP Blocklist & Allowlist post-probe verification
+  if (policy && policyBlockedIps.length > 0) {
+    const blockedIpPost = matchIpOrHostPatternList(
+      policyBlockedIps,
+      [targetHost, ...snapshot.primaryIps],
+      [snapshot.hostname, snapshot.fqdn].filter(Boolean)
+    );
+    if (blockedIpPost) {
+      return {
+        blocked: true,
+        phase: 'endpoint_probe',
+        rule: buildPolicyExceptionRecord('policy-ip-block', 'ip', blockedIpPost),
+        matchedValue: snapshot.hostname || targetHost,
+        snapshot,
+        reasonEn: `Connection blocked by Access Policy: endpoint "${snapshot.hostname || targetHost}" (${snapshot.primaryIps[0] || targetHost}) matches denied IP/host rule "${blockedIpPost}".`,
+        reasonFa: `اتصال توسط پالیسی دسترسی مسدود شد: سیستم «${snapshot.hostname || targetHost}» با قانون مسدودسازی آدرس «${blockedIpPost}» مطابقت دارد.`,
+      };
+    }
+  }
+
+  if (policy && policyIpScope === 'selected') {
+    const allowedIpPost = matchIpOrHostPatternList(
+      policyAllowedIps,
+      [targetHost, ...snapshot.primaryIps],
+      [snapshot.hostname, snapshot.fqdn].filter(Boolean)
+    );
+    if (!allowedIpPost) {
+      return {
+        blocked: true,
+        phase: 'endpoint_probe',
+        rule: buildPolicyExceptionRecord('policy-ip-scope', 'ip', policyAllowedIps.join(', ')),
+        matchedValue: snapshot.hostname || targetHost,
+        snapshot,
+        reasonEn: `Access denied by Access Policy HelpDesk scope: endpoint "${snapshot.hostname || targetHost}" (${snapshot.primaryIps[0] || targetHost}) is outside your permitted IP/subnet/host list.`,
+        reasonFa: `عدم دسترسی طبق محدوده هلپ‌دسک پالیسی شما: سیستم «${snapshot.hostname || targetHost}» در لیست آی‌پی‌ها، رنج‌ها یا هاست‌های مجاز پالیسی شما نیست.`,
+      };
+    }
+  }
+
   // Check Local User rules against endpoint active users & enabled local accounts
   const localCandidates = Array.from(
     new Set([...snapshot.localUsers, ...snapshot.loggedInUsers, sessionUsername].filter(Boolean))
@@ -18980,6 +19345,21 @@ export async function verifyHelpdeskTargetNotBlocked(
         snapshot,
         reasonEn: `Connection blocked by HelpDesk exception policy: endpoint "${snapshot.hostname || targetHost}" belongs to / contains excluded local user "${m}".`,
         reasonFa: `اتصال توسط قانون استثنائات هلپ‌دسک مسدود شد: سیستم «${snapshot.hostname || targetHost}» دارای کاربر محلی مستثنی‌شده «${m}» است.`,
+      };
+    }
+  }
+
+  if (policy && policyBlockedLocalUsers.length > 0) {
+    const mLocalPost = matchUserPatternList(policyBlockedLocalUsers, localCandidates, '', false);
+    if (mLocalPost) {
+      return {
+        blocked: true,
+        phase: 'endpoint_probe',
+        rule: buildPolicyExceptionRecord('policy-local-user-block', 'local_user', mLocalPost.pattern),
+        matchedValue: mLocalPost.matchedUser,
+        snapshot,
+        reasonEn: `Connection blocked by Access Policy: endpoint "${snapshot.hostname || targetHost}" contains denied local account "${mLocalPost.matchedUser}".`,
+        reasonFa: `اتصال توسط پالیسی دسترسی مسدود شد: سیستم «${snapshot.hostname || targetHost}» شامل کاربر لوکال مسدودشده «${mLocalPost.matchedUser}» است.`,
       };
     }
   }
@@ -19010,6 +19390,21 @@ export async function verifyHelpdeskTargetNotBlocked(
     }
   }
 
+  if (policy && policyBlockedAdUsers.length > 0) {
+    const mAdUserPost = matchUserPatternList(policyBlockedAdUsers, adUserCandidates, snapshot.domain, true);
+    if (mAdUserPost) {
+      return {
+        blocked: true,
+        phase: 'endpoint_probe',
+        rule: buildPolicyExceptionRecord('policy-ad-user-block', 'ad_user', mAdUserPost.pattern),
+        matchedValue: mAdUserPost.matchedUser,
+        snapshot,
+        reasonEn: `Connection blocked by Access Policy: workstation "${snapshot.hostname || targetHost}" is associated with denied AD user "${mAdUserPost.matchedUser}".`,
+        reasonFa: `اتصال توسط پالیسی دسترسی مسدود شد: سیستم «${snapshot.hostname || targetHost}» به کاربر دامین مسدودشده «${mAdUserPost.matchedUser}» متصل است.`,
+      };
+    }
+  }
+
   // Check AD Group rules against AD group memberships of target workstation's user / connecting user
   for (const rule of adGroupRules) {
     const m = matchesAdGroupRule(rule, snapshot.adGroups, snapshot.domain);
@@ -19022,6 +19417,47 @@ export async function verifyHelpdeskTargetNotBlocked(
         snapshot,
         reasonEn: `Connection blocked by HelpDesk exception policy: workstation "${snapshot.hostname || targetHost}" user belongs to excluded Active Directory group "${m}".`,
         reasonFa: `اتصال توسط قانون استثنائات هلپ‌دسک مسدود شد: کاربر سیستم «${snapshot.hostname || targetHost}» عضو گروه اکتیو دایرکتوری مسدودشده «${m}» است.`,
+      };
+    }
+  }
+
+  if (policy && policyBlockedAdGroups.length > 0) {
+    const mAdGrpPost = matchAdGroupPatternList(policyBlockedAdGroups, snapshot.adGroups, snapshot.domain);
+    if (mAdGrpPost) {
+      return {
+        blocked: true,
+        phase: 'endpoint_probe',
+        rule: buildPolicyExceptionRecord('policy-ad-group-block', 'ad_group', mAdGrpPost.pattern),
+        matchedValue: mAdGrpPost.matchedGroup,
+        snapshot,
+        reasonEn: `Connection blocked by Access Policy: workstation "${snapshot.hostname || targetHost}" user belongs to denied AD group "${mAdGrpPost.matchedGroup}".`,
+        reasonFa: `اتصال توسط پالیسی دسترسی مسدود شد: کاربر سیستم «${snapshot.hostname || targetHost}» عضو گروه مسدودشده «${mAdGrpPost.matchedGroup}» است.`,
+      };
+    }
+  }
+
+  if (policy && policyAdScope === 'selected') {
+    const matchedAllowedAdUser =
+      policyAllowedAdUsers.length > 0
+        ? matchUserPatternList(policyAllowedAdUsers, adUserCandidates, snapshot.domain, true)
+        : null;
+    const matchedAllowedAdGroup =
+      policyAllowedAdGroups.length > 0
+        ? matchAdGroupPatternList(policyAllowedAdGroups, snapshot.adGroups, snapshot.domain)
+        : null;
+    if (!matchedAllowedAdUser && !matchedAllowedAdGroup) {
+      return {
+        blocked: true,
+        phase: 'endpoint_probe',
+        rule: buildPolicyExceptionRecord(
+          'policy-ad-scope',
+          policyAllowedAdGroups.length > 0 ? 'ad_group' : 'ad_user',
+          [...policyAllowedAdGroups, ...policyAllowedAdUsers].join(', ')
+        ),
+        matchedValue: adUserCandidates[0] || snapshot.hostname || targetHost,
+        snapshot,
+        reasonEn: `Access denied by Access Policy HelpDesk scope: active account / groups on "${snapshot.hostname || targetHost}" do not belong to your allowed AD users or groups.`,
+        reasonFa: `عدم دسترسی طبق محدوده هلپ‌دسک پالیسی شما: کاربر فعال یا گروه‌های دامین روی سیستم «${snapshot.hostname || targetHost}» جزو کاربران یا گروه‌های مجاز تعریف‌شده نیستند.`,
       };
     }
   }

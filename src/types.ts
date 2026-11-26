@@ -1081,6 +1081,17 @@ export interface AccessPolicy {
   canSendHelpdeskMessage?: boolean;
   canViewAllHelpdeskHistory?: boolean;
 
+  // 8c. HelpDesk Target Scope & Allow/Block Rules (All 3 HelpDesk Pages; empty / 'all' = permitted)
+  targetHelpdeskIpScope?: 'all' | 'selected';
+  allowedHelpdeskIps?: string[];
+  blockedHelpdeskIps?: string[];
+  targetHelpdeskAdScope?: 'all' | 'selected';
+  allowedHelpdeskAdGroups?: string[];
+  allowedHelpdeskAdUsers?: string[];
+  blockedHelpdeskAdUsers?: string[];
+  blockedHelpdeskAdGroups?: string[];
+  blockedHelpdeskLocalUsers?: string[];
+
   // 9. Communications, Notifications, Profile Security & Two-Step Approvals (RBAC)
   canViewCommunications?: boolean;
   canSendCommunications?: boolean;

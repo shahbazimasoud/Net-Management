@@ -54,6 +54,7 @@ export interface HelpdeskExceptionsModalProps {
   activeJeaConfigName?: string;
   activeLoggedInUser?: string;
   onRulesChanged?: (rules: HelpdeskExceptionRule[]) => void;
+  overlayZIndexClass?: string;
 }
 
 const RULE_TYPE_META: Record<
@@ -121,6 +122,7 @@ export const HelpdeskExceptionsModal: React.FC<HelpdeskExceptionsModalProps> = (
   activeJeaConfigName = '',
   activeLoggedInUser = '',
   onRulesChanged,
+  overlayZIndexClass = 'z-[9999]',
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -539,7 +541,7 @@ export const HelpdeskExceptionsModal: React.FC<HelpdeskExceptionsModalProps> = (
     <>
       <div
         dir={isEn ? 'ltr' : 'rtl'}
-        className={`fixed top-0 left-0 right-0 bottom-8 z-[9999] flex items-center justify-center ${
+        className={`fixed top-0 left-0 right-0 bottom-8 ${overlayZIndexClass} flex items-center justify-center ${
           isMaximized ? 'p-0' : 'p-3 sm:p-5'
         } ${isLightMode ? 'bg-slate-900/45' : 'bg-black/70'} backdrop-blur-sm`}
         onClick={(e) => {

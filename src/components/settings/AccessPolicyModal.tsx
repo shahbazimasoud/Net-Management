@@ -66,6 +66,9 @@ import {
   Megaphone,
   Send,
   Video,
+  Headphones,
+  ShieldBan,
+  UserX,
 } from 'lucide-react';
 import {
   AccessPolicy,
@@ -83,11 +86,13 @@ import {
   SslCertificateItem,
   ActionAccessDecision,
   ApprovalWorkflowStageConfig,
+  HelpdeskExceptionRule,
 } from '../../types';
 import { useLanguage } from '../../i18n';
 import { useModalDock } from '../../context/ModalDockContext';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ApprovalChainBuilder } from './ApprovalChainBuilder';
+import { HelpdeskExceptionsModal } from '../helpdesk/HelpdeskExceptionsModal';
 import {
   SERVER_ACTIONS_CATALOG,
   DEVICE_ACTIONS_CATALOG,
@@ -99,12 +104,19 @@ import {
   evaluateDeviceActionDecision,
   countPolicyApprovalRules,
 } from '../../utils/rbac';
-import { fetchActiveDirectoryConfig, fetchContractsApi, fetchLicensesApi, fetchSslCertificatesApi } from '../../services/api';
+import {
+  fetchActiveDirectoryConfig,
+  fetchContractsApi,
+  fetchHelpdeskExceptions,
+  fetchLicensesApi,
+  fetchSslCertificatesApi,
+} from '../../services/api';
 
 export type PolicyModalTab =
   | 'identity'
   | 'navigation'
   | 'contracts_licenses'
+  | 'helpdesk'
   | 'servers'
   | 'global'
   | 'matrix'
@@ -148,7 +160,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   liveLicenses = [],
 }) => {
   const { isRtl, isEn } = useLanguage();
-  const { dockModal } = useModalDock();
+  const { dockModal, undockModal } = useModalDock();
 
   const isLightMode =
     propIsLightMode ??
@@ -168,6 +180,19 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   const [licensesSearch, setLicensesSearch] = useState('');
   const [sslCertsSearch, setSslCertsSearch] = useState('');
   const [isLoadingContractsLicenses, setIsLoadingContractsLicenses] = useState(false);
+
+  // Tab: HelpDesk Scope & Rules inputs & Global Exceptions Modal state
+  const [hdAllowedIpInput, setHdAllowedIpInput] = useState('');
+  const [hdBlockedIpInput, setHdBlockedIpInput] = useState('');
+  const [hdAllowedGroupInput, setHdAllowedGroupInput] = useState('');
+  const [hdAllowedUserInput, setHdAllowedUserInput] = useState('');
+  const [hdBlockedGroupInput, setHdBlockedGroupInput] = useState('');
+  const [hdBlockedUserInput, setHdBlockedUserInput] = useState('');
+  const [hdBlockedLocalUserInput, setHdBlockedLocalUserInput] = useState('');
+  const [hdCatalogSearch, setHdCatalogSearch] = useState('');
+  const [isExceptionsModalOpen, setIsExceptionsModalOpen] = useState(false);
+  const [globalExceptionsCount, setGlobalExceptionsCount] = useState(0);
+  const [canManageGlobalExceptions, setCanManageGlobalExceptions] = useState(true);
 
   const [draftPolicy, setDraftPolicy] = useState<AccessPolicy | null>(() => {
     if (!initialPolicy) return null;
@@ -267,6 +292,25 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canViewAllHelpdeskHistory:
         initialPolicy.canViewAllHelpdeskHistory ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      targetHelpdeskIpScope: initialPolicy.targetHelpdeskIpScope === 'selected' ? 'selected' : 'all',
+      allowedHelpdeskIps: Array.isArray(initialPolicy.allowedHelpdeskIps) ? initialPolicy.allowedHelpdeskIps : [],
+      blockedHelpdeskIps: Array.isArray(initialPolicy.blockedHelpdeskIps) ? initialPolicy.blockedHelpdeskIps : [],
+      targetHelpdeskAdScope: initialPolicy.targetHelpdeskAdScope === 'selected' ? 'selected' : 'all',
+      allowedHelpdeskAdGroups: Array.isArray(initialPolicy.allowedHelpdeskAdGroups)
+        ? initialPolicy.allowedHelpdeskAdGroups
+        : [],
+      allowedHelpdeskAdUsers: Array.isArray(initialPolicy.allowedHelpdeskAdUsers)
+        ? initialPolicy.allowedHelpdeskAdUsers
+        : [],
+      blockedHelpdeskAdUsers: Array.isArray(initialPolicy.blockedHelpdeskAdUsers)
+        ? initialPolicy.blockedHelpdeskAdUsers
+        : [],
+      blockedHelpdeskAdGroups: Array.isArray(initialPolicy.blockedHelpdeskAdGroups)
+        ? initialPolicy.blockedHelpdeskAdGroups
+        : [],
+      blockedHelpdeskLocalUsers: Array.isArray(initialPolicy.blockedHelpdeskLocalUsers)
+        ? initialPolicy.blockedHelpdeskLocalUsers
+        : [],
       canViewCommunications: initialPolicy.canViewCommunications ?? true,
       canSendCommunications: initialPolicy.canSendCommunications ?? true,
       canSendAnnouncements:
@@ -722,6 +766,25 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canViewAllHelpdeskHistory:
           initialPolicy.canViewAllHelpdeskHistory ??
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        targetHelpdeskIpScope: initialPolicy.targetHelpdeskIpScope === 'selected' ? 'selected' : 'all',
+        allowedHelpdeskIps: Array.isArray(initialPolicy.allowedHelpdeskIps) ? initialPolicy.allowedHelpdeskIps : [],
+        blockedHelpdeskIps: Array.isArray(initialPolicy.blockedHelpdeskIps) ? initialPolicy.blockedHelpdeskIps : [],
+        targetHelpdeskAdScope: initialPolicy.targetHelpdeskAdScope === 'selected' ? 'selected' : 'all',
+        allowedHelpdeskAdGroups: Array.isArray(initialPolicy.allowedHelpdeskAdGroups)
+          ? initialPolicy.allowedHelpdeskAdGroups
+          : [],
+        allowedHelpdeskAdUsers: Array.isArray(initialPolicy.allowedHelpdeskAdUsers)
+          ? initialPolicy.allowedHelpdeskAdUsers
+          : [],
+        blockedHelpdeskAdUsers: Array.isArray(initialPolicy.blockedHelpdeskAdUsers)
+          ? initialPolicy.blockedHelpdeskAdUsers
+          : [],
+        blockedHelpdeskAdGroups: Array.isArray(initialPolicy.blockedHelpdeskAdGroups)
+          ? initialPolicy.blockedHelpdeskAdGroups
+          : [],
+        blockedHelpdeskLocalUsers: Array.isArray(initialPolicy.blockedHelpdeskLocalUsers)
+          ? initialPolicy.blockedHelpdeskLocalUsers
+          : [],
         canViewCommunications: initialPolicy.canViewCommunications ?? true,
         canSendCommunications: initialPolicy.canSendCommunications ?? true,
         canSendAnnouncements:
@@ -836,20 +899,29 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       setContractsSearch('');
       setLicensesSearch('');
       setSslCertsSearch('');
+      setHdAllowedIpInput('');
+      setHdBlockedIpInput('');
+      setHdAllowedGroupInput('');
+      setHdAllowedUserInput('');
+      setHdBlockedGroupInput('');
+      setHdBlockedUserInput('');
+      setHdBlockedLocalUserInput('');
+      setHdCatalogSearch('');
     }
   }, [isOpen, initialPolicy]);
 
-  // Fetch authentic live Contracts, Licenses, and SSL Certificates from backend on modal open
+  // Fetch authentic live Contracts, Licenses, SSL Certificates & Global HelpDesk Exceptions from backend on modal open
   useEffect(() => {
     if (!isOpen) return;
     let isCancelled = false;
     const fetchLiveItems = async () => {
       try {
         setIsLoadingContractsLicenses(true);
-        const [cntRes, licRes, sslRes] = await Promise.all([
+        const [cntRes, licRes, sslRes, hdExcRes] = await Promise.all([
           fetchContractsApi().catch(() => ({ contracts: [] })),
           fetchLicensesApi().catch(() => ({ licenses: [] })),
           fetchSslCertificatesApi().catch(() => ({ certificates: [] })),
+          fetchHelpdeskExceptions().catch(() => null),
         ]);
         if (!isCancelled) {
           if (Array.isArray(cntRes?.contracts)) {
@@ -860,6 +932,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           }
           if (Array.isArray(sslRes?.certificates)) {
             setSslCertsList(sslRes.certificates);
+          }
+          if (hdExcRes && Array.isArray(hdExcRes.rules)) {
+            setGlobalExceptionsCount(hdExcRes.rules.filter((r) => r.enabled).length);
+            if (typeof hdExcRes.canManage === 'boolean') {
+              setCanManageGlobalExceptions(hdExcRes.canManage);
+            }
           }
         }
       } catch (err) {
@@ -1803,6 +1881,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       color: 'text-emerald-400',
     },
     {
+      id: 'helpdesk',
+      labelEn: 'HelpDesk Scope & Rules',
+      labelFa: 'محدوده و قوانین هلپ‌دسک',
+      icon: Headphones,
+      color: 'text-teal-400',
+    },
+    {
       id: 'servers',
       labelEn: 'Linux & Servers',
       labelFa: 'ناوگان سرورها',
@@ -2383,6 +2468,82 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     [matrixFilteredDevices]
   );
 
+  type HelpdeskListField =
+    | 'allowedHelpdeskIps'
+    | 'blockedHelpdeskIps'
+    | 'allowedHelpdeskAdGroups'
+    | 'allowedHelpdeskAdUsers'
+    | 'blockedHelpdeskAdUsers'
+    | 'blockedHelpdeskAdGroups'
+    | 'blockedHelpdeskLocalUsers';
+
+  const addHelpdeskListItems = useCallback((field: HelpdeskListField, rawText: string) => {
+    const tokens = String(rawText || '')
+      .split(/[\r\n,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (tokens.length === 0) return;
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      const current = Array.isArray(prev[field]) ? ([...prev[field]!] as string[]) : [];
+      const existingLower = new Set(current.map((x) => x.toLowerCase()));
+      tokens.forEach((tok) => {
+        if (!existingLower.has(tok.toLowerCase())) {
+          existingLower.add(tok.toLowerCase());
+          current.push(tok);
+        }
+      });
+      return { ...prev, [field]: current };
+    });
+  }, []);
+
+  const removeHelpdeskListItem = useCallback((field: HelpdeskListField, idx: number) => {
+    setDraftPolicy((prev) => {
+      if (!prev) return prev;
+      const current = Array.isArray(prev[field]) ? [...prev[field]!] : [];
+      current.splice(idx, 1);
+      return { ...prev, [field]: current };
+    });
+  }, []);
+
+  const clearHelpdeskListField = useCallback((field: HelpdeskListField) => {
+    setDraftPolicy((prev) => (prev ? { ...prev, [field]: [] } : prev));
+  }, []);
+
+  const helpdeskRulesBadgeCount = useMemo(() => {
+    if (!draftPolicy) return 0;
+    return (
+      (draftPolicy.allowedHelpdeskIps?.length || 0) +
+      (draftPolicy.blockedHelpdeskIps?.length || 0) +
+      (draftPolicy.allowedHelpdeskAdGroups?.length || 0) +
+      (draftPolicy.allowedHelpdeskAdUsers?.length || 0) +
+      (draftPolicy.blockedHelpdeskAdUsers?.length || 0) +
+      (draftPolicy.blockedHelpdeskAdGroups?.length || 0) +
+      (draftPolicy.blockedHelpdeskLocalUsers?.length || 0) +
+      (draftPolicy.targetHelpdeskIpScope === 'selected' ? 1 : 0) +
+      (draftPolicy.targetHelpdeskAdScope === 'selected' ? 1 : 0)
+    );
+  }, [draftPolicy]);
+
+  const handleMinimizeExceptionsModal = () => {
+    dockModal({
+      id: 'modal-helpdesk-exceptions',
+      labelEn: 'Global HelpDesk Exceptions',
+      labelFa: 'استثنائات و مسدودسازی سراسری هلپ‌دسک',
+      badge: globalExceptionsCount > 0 ? String(globalExceptionsCount) : undefined,
+      category: 'tools',
+      onRestore: () => {
+        undockModal('modal-helpdesk-exceptions');
+        setIsExceptionsModalOpen(true);
+      },
+      onClose: () => {
+        undockModal('modal-helpdesk-exceptions');
+        setIsExceptionsModalOpen(false);
+      },
+    });
+    setIsExceptionsModalOpen(false);
+  };
+
   if (!isOpen || !draftPolicy) return null;
 
   return createPortal(
@@ -2562,6 +2723,17 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                   }`}
                 />
                 <span>{isEn ? tab.labelEn : tab.labelFa}</span>
+                {tab.id === 'helpdesk' && helpdeskRulesBadgeCount > 0 && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums font-bold ${
+                      isLightMode
+                        ? 'bg-teal-100 text-teal-800'
+                        : 'bg-teal-500/20 text-teal-300'
+                    }`}
+                  >
+                    {helpdeskRulesBadgeCount}
+                  </span>
+                )}
                 {tab.id === 'approvals' && (approvalCounts.totalCount > 0 || stageCount > 0) && (
                   <span
                     className={`px-1.5 py-0.2 rounded text-[10px] font-mono tabular-nums font-bold ${
@@ -8843,6 +9015,1079 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
               )}
 
             {/* ========================================================================= */}
+            {/* TAB: HelpDesk Target Scope & Exception Rules                              */}
+            {/* ========================================================================= */}
+            {activeTab === 'helpdesk' && (
+              <div className="space-y-5 animate-fadeIn">
+                {/* Intro Guidance Banner */}
+                <div
+                  className={`p-3.5 rounded-xl border flex items-start gap-3 ${
+                    isLightMode
+                      ? 'bg-teal-50/80 border-teal-200 text-teal-950'
+                      : 'bg-teal-950/30 border-teal-500/25 text-teal-100'
+                  }`}
+                >
+                  <Headphones className="w-4 h-4 text-teal-500 shrink-0 mt-0.5" />
+                  <div className="text-xs leading-relaxed space-y-1">
+                    <p className="font-bold">
+                      {isEn
+                        ? 'Unified HelpDesk Target Governance (Endpoint, AD Users & AD Groups)'
+                        : 'مدیریت یکپارچه محدوده دسترسی و آدرس‌های مجاز/مسدود در هر ۳ صفحه هلپ‌دسک'}
+                    </p>
+                    <p className={`text-[11px] ${isLightMode ? 'text-teal-900/90' : 'text-teal-200/85'}`}>
+                      {isEn
+                        ? 'By default all fields below are empty and set to "Allow All" so HelpDesk technicians can inspect any permitted target. Configure IP/Subnet/Range or AD Group/User rules here to enforce strict allowlists or blocklists across Agentless Endpoint HelpDesk, AD User Support HelpDesk, and AD Group Support HelpDesk.'
+                        : 'به صورت پیش‌فرض تمام فیلدهای زیر خالی و روی حالت «همه مجاز» قرار دارند تا عملکرد هلپ‌دسک محدود نشود. با تعریف رنج/IP یا گروه/کاربر در اینجا، محدودیت‌ها همزمان روی هر سه صفحه (هلپ‌دسک سیستم کاربران، پشتیبانی کاربران AD و پشتیبانی گروه‌های AD) اعمال می‌شوند.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* -------- Section 1: Endpoint IP / CIDR / Range / Hostname Rules -------- */}
+                <div
+                  className={`p-4 rounded-xl border space-y-4 ${
+                    isLightMode
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950/60 border-white/10'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-sky-500" />
+                      <h4 className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                        {isEn
+                          ? '1. Workstations, IP Addresses, Subnets (CIDR) & IP Ranges'
+                          : '۱. محدوده سیستم‌ها، آدرس‌های IP، ساب‌نت‌ها (CIDR) و رنج‌های IP'}
+                      </h4>
+                      <FieldInfoTooltip
+                        title={isEn ? 'Endpoint IP / Subnet / Range Rules' : 'قوانین محدوده IP و ساب‌نت سیستم‌ها'}
+                        whatIsIt={
+                          isEn
+                            ? 'Controls which workstations (by IP, CIDR subnet, start-end IP range, or hostname/wildcard) operators under this policy can connect to in Agentless Endpoint HelpDesk.'
+                            : 'تعیین می‌کند کارشناسان این پالیسی به کدام آدرس‌های IP، رنج یا ساب‌نت بتوانند در صفحه هلپ‌دسک متصل شوند و کدام آدرس‌ها مسدود باشند.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Allows scoping branch/team support technicians to their own subnet while protecting servers, VIP endpoints, or management VLANs. Blocklist is checked both pre-connect and against resolved endpoint NIC IPs.'
+                            : 'امکان محدودسازی کارشناسان هر شعبه/تیم به رنج IP واحد خودشان و مسدودسازی قطعی دسترسی به سرورها، VLANهای مدیریتی یا سیستم‌های مدیران را فراهم می‌کند.'
+                        }
+                        practicalExample="10.10.20.0/24, 192.168.5.10-192.168.5.80, 172.16.1.5, ws-fin-*"
+                        isEn={isEn}
+                        isLightMode={Boolean(isLightMode)}
+                      />
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/25 font-semibold">
+                      {draftPolicy.targetHelpdeskIpScope === 'selected'
+                        ? `${isEn ? 'Allowlist Only' : 'فقط موارد مجاز'}: ${(draftPolicy.allowedHelpdeskIps || []).length}`
+                        : isEn
+                        ? 'Scope: All IPs Permitted'
+                        : 'دامنه: همه آدرس‌ها مجاز'}
+                    </span>
+                  </div>
+
+                  {/* Scope Mode Radio Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label
+                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition select-none ${
+                        (draftPolicy.targetHelpdeskIpScope || 'all') === 'all'
+                          ? isLightMode
+                            ? 'bg-sky-50 border-sky-300 shadow-xs'
+                            : 'bg-sky-500/10 border-sky-500/40 text-white'
+                          : isLightMode
+                          ? 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                          : 'bg-white/5 border-white/5 hover:border-white/10'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetHelpdeskIpScope"
+                        checked={(draftPolicy.targetHelpdeskIpScope || 'all') === 'all'}
+                        onChange={() =>
+                          setDraftPolicy({ ...draftPolicy, targetHelpdeskIpScope: 'all' })
+                        }
+                        className="mt-0.5 accent-sky-500"
+                      />
+                      <div>
+                        <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                          {isEn ? 'All Endpoints & IPs Allowed (Default)' : 'همه سیستم‌ها و IPها مجاز (پیش‌فرض)'}
+                        </div>
+                        <div className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                          {isEn
+                            ? 'Technicians can check any IP/host except those in the Blocked list or Global Blocklist.'
+                            : 'کارشناسان می‌توانند تمام سیستم‌ها را بررسی کنند مگر آدرس‌هایی که در لیست مسدود زیر قرار دارند.'}
+                        </div>
+                      </div>
+                    </label>
+
+                    <label
+                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition select-none ${
+                        draftPolicy.targetHelpdeskIpScope === 'selected'
+                          ? isLightMode
+                            ? 'bg-teal-50 border-teal-300 shadow-xs'
+                            : 'bg-teal-500/10 border-teal-500/40 text-white'
+                          : isLightMode
+                          ? 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                          : 'bg-white/5 border-white/5 hover:border-white/10'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetHelpdeskIpScope"
+                        checked={draftPolicy.targetHelpdeskIpScope === 'selected'}
+                        onChange={() =>
+                          setDraftPolicy({ ...draftPolicy, targetHelpdeskIpScope: 'selected' })
+                        }
+                        className="mt-0.5 accent-teal-500"
+                      />
+                      <div>
+                        <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                          {isEn ? 'Only Specified IPs / Subnets / Ranges' : 'فقط IPها، ساب‌نت‌ها و رنج‌های مشخص‌شده'}
+                        </div>
+                        <div className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                          {isEn
+                            ? 'Strictly restricts Endpoint HelpDesk checks to addresses listed in Permitted IPs below.'
+                            : 'امکان بررسی در صفحه هلپ‌دسک را منحصراً به آدرس‌ها و رنج‌های مجاز تعریف‌شده محدود می‌کند.'}
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Permitted IPs builder (shown when selected) */}
+                  {draftPolicy.targetHelpdeskIpScope === 'selected' && (
+                    <div
+                      className={`p-3.5 rounded-xl border space-y-2.5 ${
+                        isLightMode
+                          ? 'bg-teal-50/50 border-teal-200'
+                          : 'bg-teal-950/20 border-teal-500/30'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`text-xs font-bold ${isLightMode ? 'text-teal-900' : 'text-teal-200'}`}>
+                          {isEn
+                            ? 'Permitted IPs, CIDR Subnets, IP Ranges & Hostname Patterns'
+                            : 'آدرس‌های IP، ساب‌نت‌های CIDR، رنج IP و الگوهای نام سیستم مجاز'}
+                        </span>
+                        {(draftPolicy.allowedHelpdeskIps || []).length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => clearHelpdeskListField('allowedHelpdeskIps')}
+                            className="text-[11px] font-semibold text-rose-500 hover:underline flex items-center gap-1 cursor-pointer"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            <span>{isEn ? 'Clear' : 'پاک کردن'}</span>
+                          </button>
+                        )}
+                      </div>
+                      {(draftPolicy.allowedHelpdeskIps || []).length === 0 && (
+                        <div
+                          className={`p-2 rounded-lg border text-[11px] flex items-center gap-2 ${
+                            isLightMode
+                              ? 'bg-amber-50 border-amber-300 text-amber-900'
+                              : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                          }`}
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          <span>
+                            {isEn
+                              ? 'Allowlist is currently empty while "Selected Only" is active — all Endpoint HelpDesk checks will be blocked until at least one IP, CIDR, range, or hostname is added.'
+                              : 'حالت «فقط موارد مجاز» فعال است اما لیست مجاز خالی است؛ تا زمانی که حداقل یک IP، ساب‌نت یا رنج اضافه نشود تمام اتصالات هلپ‌دسک مسدود خواهند بود.'}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          dir="ltr"
+                          value={hdAllowedIpInput}
+                          onChange={(e) => setHdAllowedIpInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              addHelpdeskListItems('allowedHelpdeskIps', hdAllowedIpInput);
+                              setHdAllowedIpInput('');
+                            }
+                          }}
+                          placeholder="e.g. 10.10.20.0/24, 192.168.1.10-192.168.1.50, 172.16.0.15, ws-fin-*"
+                          className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-mono ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                              : 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-500'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            addHelpdeskListItems('allowedHelpdeskIps', hdAllowedIpInput);
+                            setHdAllowedIpInput('');
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold flex items-center gap-1 cursor-pointer shrink-0"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Add' : 'افزودن'}</span>
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(draftPolicy.allowedHelpdeskIps || []).map((item, idx) => (
+                          <span
+                            key={`${item}-${idx}`}
+                            dir="ltr"
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-mono ${
+                              isLightMode
+                                ? 'bg-white border-teal-300 text-teal-800'
+                                : 'bg-teal-500/15 border-teal-500/35 text-teal-200'
+                            }`}
+                          >
+                            <span>{item}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeHelpdeskListItem('allowedHelpdeskIps', idx)}
+                              className="hover:text-rose-500 cursor-pointer"
+                              aria-label="Remove"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Blocked IPs / Subnets / Ranges (Always available) */}
+                  <div
+                    className={`p-3.5 rounded-xl border space-y-2.5 ${
+                      isLightMode
+                        ? 'bg-rose-50/50 border-rose-200'
+                        : 'bg-rose-950/15 border-rose-500/25'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <ShieldBan className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                        <span className={`text-xs font-bold ${isLightMode ? 'text-rose-900' : 'text-rose-200'}`}>
+                          {isEn
+                            ? 'Blocked IPs, Subnets (CIDR), IP Ranges & Hostnames (Leave empty for none)'
+                            : 'آدرس‌های IP، ساب‌نت‌ها، رنج‌های IP و نام‌های سیستم مسدودشده (پیش‌فرض خالی)'}
+                        </span>
+                      </div>
+                      {(draftPolicy.blockedHelpdeskIps || []).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => clearHelpdeskListField('blockedHelpdeskIps')}
+                          className="text-[11px] font-semibold text-rose-500 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>{isEn ? 'Clear All' : 'پاک کردن همه'}</span>
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={hdBlockedIpInput}
+                        onChange={(e) => setHdBlockedIpInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            addHelpdeskListItems('blockedHelpdeskIps', hdBlockedIpInput);
+                            setHdBlockedIpInput('');
+                          }
+                        }}
+                        placeholder="e.g. 10.0.0.10, 192.168.99.0/24, 10.5.1.1-10.5.1.20, dc01*"
+                        className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-mono ${
+                          isLightMode
+                            ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                            : 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-500'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          addHelpdeskListItems('blockedHelpdeskIps', hdBlockedIpInput);
+                          setHdBlockedIpInput('');
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-1 cursor-pointer shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Block' : 'مسدود کردن'}</span>
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(draftPolicy.blockedHelpdeskIps || []).length === 0 ? (
+                        <span className={`text-[11px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {isEn
+                            ? 'Empty (no per-policy IP/range exclusions configured).'
+                            : 'خالی (هیچ آدرس یا رنج مسدودی برای این پالیسی ثبت نشده است).'}
+                        </span>
+                      ) : (
+                        (draftPolicy.blockedHelpdeskIps || []).map((item, idx) => (
+                          <span
+                            key={`${item}-${idx}`}
+                            dir="ltr"
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-mono ${
+                              isLightMode
+                                ? 'bg-white border-rose-300 text-rose-800'
+                                : 'bg-rose-500/15 border-rose-500/35 text-rose-200'
+                            }`}
+                          >
+                            <span>{item}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeHelpdeskListItem('blockedHelpdeskIps', idx)}
+                              className="hover:text-rose-500 cursor-pointer"
+                              aria-label="Remove"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* -------- Section 2: AD Groups, AD Users & Local Users (All 3 Pages) -------- */}
+                <div
+                  className={`p-4 rounded-xl border space-y-4 ${
+                    isLightMode
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950/60 border-white/10'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-indigo-500" />
+                      <h4 className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                        {isEn
+                          ? '2. Active Directory Groups, Domain Users & Local Accounts (All 3 HelpDesk Pages)'
+                          : '۲. گروه‌ها و کاربران اکتیو دایرکتوری و حساب‌های لوکال (اعمال روی هر ۳ صفحه هلپ‌دسک)'}
+                      </h4>
+                      <FieldInfoTooltip
+                        title={isEn ? 'AD Group, AD User & Local Account Rules' : 'قوانین گروه، کاربر دامین و کاربر محلی'}
+                        whatIsIt={
+                          isEn
+                            ? 'Restricts which AD groups, AD user accounts, and local workstation accounts can be queried, inspected, unlocked, or managed across all 3 HelpDesk pages.'
+                            : 'محدودسازی و مسدودسازی بررسی، مشاهده پروفایل، وضعیت گروه یا رفع قفل کاربران/گروه‌های اکتیو دایرکتوری و کاربران لوکال در هر ۳ صفحه هلپ‌دسک.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Protects Domain Admins, Executive OUs/groups, and service accounts from HelpDesk inspection or unlocks, or scopes support teams to support only specific departments/AD groups.'
+                            : 'از دسترسی کارشناسان به اکانت مدیران، گروه‌های Domain Admins و کاربران حساس جلوگیری کرده یا هر کارشناس را فقط محدود به بررسی گروه‌های دامین مشخصی می‌کند.'
+                        }
+                        practicalExample="Sales_Users, Finance_Dept, j.doe, CORP\\helpdesk_vip, *"
+                        isEn={isEn}
+                        isLightMode={Boolean(isLightMode)}
+                      />
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/25 font-semibold">
+                      {draftPolicy.targetHelpdeskAdScope === 'selected'
+                        ? `${isEn ? 'AD Allowlist' : 'AD فقط مجاز'}: ${(draftPolicy.allowedHelpdeskAdGroups || []).length}G / ${(draftPolicy.allowedHelpdeskAdUsers || []).length}U`
+                        : isEn
+                        ? 'AD Scope: All Permitted'
+                        : 'دامنه AD: همه مجاز'}
+                    </span>
+                  </div>
+
+                  {/* AD Allowlist Mode Radio */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label
+                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition select-none ${
+                        (draftPolicy.targetHelpdeskAdScope || 'all') === 'all'
+                          ? isLightMode
+                            ? 'bg-indigo-50 border-indigo-300 shadow-xs'
+                            : 'bg-indigo-500/10 border-indigo-500/40 text-white'
+                          : isLightMode
+                          ? 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                          : 'bg-white/5 border-white/5 hover:border-white/10'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetHelpdeskAdScope"
+                        checked={(draftPolicy.targetHelpdeskAdScope || 'all') === 'all'}
+                        onChange={() =>
+                          setDraftPolicy({ ...draftPolicy, targetHelpdeskAdScope: 'all' })
+                        }
+                        className="mt-0.5 accent-indigo-500"
+                      />
+                      <div>
+                        <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                          {isEn ? 'All AD Groups & Users Allowed (Default)' : 'همه گروه‌ها و کاربران AD مجاز (پیش‌فرض)'}
+                        </div>
+                        <div className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                          {isEn
+                            ? 'Operators can check any AD user/group or endpoint unless explicitly listed in Blocked rules.'
+                            : 'تمام کاربران و گروه‌های دامین قابل بررسی هستند مگر مواردی که در لیست مسدود زیر یا استثنائات سراسری ثبت شوند.'}
+                        </div>
+                      </div>
+                    </label>
+
+                    <label
+                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition select-none ${
+                        draftPolicy.targetHelpdeskAdScope === 'selected'
+                          ? isLightMode
+                            ? 'bg-teal-50 border-teal-300 shadow-xs'
+                            : 'bg-teal-500/10 border-teal-500/40 text-white'
+                          : isLightMode
+                          ? 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                          : 'bg-white/5 border-white/5 hover:border-white/10'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetHelpdeskAdScope"
+                        checked={draftPolicy.targetHelpdeskAdScope === 'selected'}
+                        onChange={() =>
+                          setDraftPolicy({ ...draftPolicy, targetHelpdeskAdScope: 'selected' })
+                        }
+                        className="mt-0.5 accent-teal-500"
+                      />
+                      <div>
+                        <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                          {isEn ? 'Only Specified AD Groups / AD Users' : 'فقط گروه‌ها و کاربران AD مشخص‌شده'}
+                        </div>
+                        <div className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                          {isEn
+                            ? 'Across all 3 HelpDesk pages, operators can only inspect users/endpoints/groups matching the allowlists below.'
+                            : 'در هر ۳ صفحه هلپ‌دسک، کارشناس فقط امکان بررسی گروه‌ها، کاربران یا سیستم‌های متعلق به لیست مجاز زیر را دارد.'}
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Quick AD Catalog Picker Search (shows synced AD groups/users for 1-click adding!) */}
+                  {(effectiveAdConfig.syncedGroups.length > 0 || effectiveAdConfig.syncedUsers.length > 0) && (
+                    <div
+                      className={`p-3 rounded-xl border space-y-2 ${
+                        isLightMode
+                          ? 'bg-slate-50 border-slate-200'
+                          : 'bg-slate-900/70 border-slate-800'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className={`text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                          {isEn
+                            ? 'Quick Pick from Synced Active Directory Catalog:'
+                            : 'انتخاب سریع از فهرست همگام‌شده اکتیو دایرکتوری:'}
+                        </span>
+                        <div className="relative w-full sm:w-64">
+                          <Search className="w-3.5 h-3.5 absolute left-2.5 rtl:left-auto rtl:right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            value={hdCatalogSearch}
+                            onChange={(e) => setHdCatalogSearch(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                              }
+                            }}
+                            placeholder={isEn ? 'Filter synced AD groups/users...' : 'فیلتر گروه یا کاربر AD...'}
+                            className={`w-full pl-8 pr-3 rtl:pl-3 rtl:pr-8 py-1 rounded-lg border text-xs ${
+                              isLightMode
+                                ? 'bg-white border-slate-300 text-slate-900'
+                                : 'bg-slate-950 border-slate-700 text-slate-100'
+                            }`}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-36 overflow-y-auto">
+                        {/* Quick AD Groups */}
+                        <div className="space-y-1">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            {isEn ? 'AD Groups (Click to Block / Allow)' : 'گروه‌های AD (کلیک برای افزودن)'}
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {effectiveAdConfig.syncedGroups
+                              .filter((g) => {
+                                const q = hdCatalogSearch.trim().toLowerCase();
+                                if (!q) return true;
+                                return (
+                                  String(g.cn || '').toLowerCase().includes(q) ||
+                                  String(g.sAMAccountName || '').toLowerCase().includes(q)
+                                );
+                              })
+                              .slice(0, 18)
+                              .map((g, idx) => {
+                                const gName = g.cn || g.sAMAccountName || g.displayName || '';
+                                if (!gName) return null;
+                                return (
+                                  <div
+                                    key={`hd-qgrp-${idx}-${gName}`}
+                                    className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] ${
+                                      isLightMode
+                                        ? 'bg-white border-slate-200 text-slate-800'
+                                        : 'bg-slate-950 border-slate-700 text-slate-200'
+                                    }`}
+                                  >
+                                    <span className="font-medium truncate max-w-[130px]">{gName}</span>
+                                    {draftPolicy.targetHelpdeskAdScope === 'selected' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => addHelpdeskListItems('allowedHelpdeskAdGroups', gName)}
+                                        className="px-1 rounded bg-teal-500/20 text-teal-400 hover:bg-teal-500/30 font-bold cursor-pointer"
+                                        title={isEn ? 'Add to Allowed Groups' : 'افزودن به گروه‌های مجاز'}
+                                      >
+                                        +{isEn ? 'Allow' : 'مجاز'}
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => addHelpdeskListItems('blockedHelpdeskAdGroups', gName)}
+                                      className="px-1 rounded bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 font-bold cursor-pointer"
+                                      title={isEn ? 'Add to Blocked Groups' : 'افزودن به گروه‌های مسدود'}
+                                    >
+                                      {isEn ? 'Block' : 'مسدود'}
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </div>
+
+                        {/* Quick AD Users */}
+                        <div className="space-y-1">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            {isEn ? 'AD Users (Click to Block / Allow)' : 'کاربران AD (کلیک برای افزودن)'}
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {effectiveAdConfig.syncedUsers
+                              .filter((u) => {
+                                const q = hdCatalogSearch.trim().toLowerCase();
+                                if (!q) return true;
+                                return (
+                                  String(u.samAccountName || '').toLowerCase().includes(q) ||
+                                  String(u.displayName || '').toLowerCase().includes(q)
+                                );
+                              })
+                              .slice(0, 18)
+                              .map((u, idx) => {
+                                const uName = u.samAccountName || u.userPrincipalName || u.displayName || '';
+                                if (!uName) return null;
+                                return (
+                                  <div
+                                    key={`hd-qusr-${idx}-${uName}`}
+                                    className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] ${
+                                      isLightMode
+                                        ? 'bg-white border-slate-200 text-slate-800'
+                                        : 'bg-slate-950 border-slate-700 text-slate-200'
+                                    }`}
+                                  >
+                                    <span className="font-mono truncate max-w-[130px]">{uName}</span>
+                                    {draftPolicy.targetHelpdeskAdScope === 'selected' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => addHelpdeskListItems('allowedHelpdeskAdUsers', uName)}
+                                        className="px-1 rounded bg-teal-500/20 text-teal-400 hover:bg-teal-500/30 font-bold cursor-pointer"
+                                        title={isEn ? 'Add to Allowed Users' : 'افزودن به کاربران مجاز'}
+                                      >
+                                        +{isEn ? 'Allow' : 'مجاز'}
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => addHelpdeskListItems('blockedHelpdeskAdUsers', uName)}
+                                      className="px-1 rounded bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 font-bold cursor-pointer"
+                                      title={isEn ? 'Add to Blocked Users' : 'افزودن به کاربران مسدود'}
+                                    >
+                                      {isEn ? 'Block' : 'مسدود'}
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Permitted AD Groups & AD Users (shown when targetHelpdeskAdScope === 'selected') */}
+                  {draftPolicy.targetHelpdeskAdScope === 'selected' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {/* Allowed AD Groups */}
+                      <div
+                        className={`p-3.5 rounded-xl border space-y-2.5 ${
+                          isLightMode
+                            ? 'bg-teal-50/50 border-teal-200'
+                            : 'bg-teal-950/20 border-teal-500/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-xs font-bold ${isLightMode ? 'text-teal-900' : 'text-teal-200'}`}>
+                            {isEn ? 'Permitted AD Security Groups' : 'گروه‌های اکتیو دایرکتوری مجاز'}
+                          </span>
+                          {(draftPolicy.allowedHelpdeskAdGroups || []).length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => clearHelpdeskListField('allowedHelpdeskAdGroups')}
+                              className="text-[11px] font-semibold text-rose-500 hover:underline cursor-pointer"
+                            >
+                              {isEn ? 'Clear' : 'پاک کردن'}
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={hdAllowedGroupInput}
+                            onChange={(e) => setHdAllowedGroupInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                addHelpdeskListItems('allowedHelpdeskAdGroups', hdAllowedGroupInput);
+                                setHdAllowedGroupInput('');
+                              }
+                            }}
+                            placeholder={isEn ? 'e.g. Sales_Team, Branch1_Users, IT-*' : 'مثال: Sales_Team, Branch1_Users'}
+                            className={`flex-1 px-3 py-1.5 rounded-lg border text-xs ${
+                              isLightMode
+                                ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                                : 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-500'
+                            }`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              addHelpdeskListItems('allowedHelpdeskAdGroups', hdAllowedGroupInput);
+                              setHdAllowedGroupInput('');
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold cursor-pointer shrink-0"
+                          >
+                            {isEn ? 'Add' : 'افزودن'}
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(draftPolicy.allowedHelpdeskAdGroups || []).map((item, idx) => (
+                            <span
+                              key={`${item}-${idx}`}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs ${
+                                isLightMode
+                                  ? 'bg-white border-teal-300 text-teal-800'
+                                  : 'bg-teal-500/15 border-teal-500/35 text-teal-200'
+                              }`}
+                            >
+                              <span>{item}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeHelpdeskListItem('allowedHelpdeskAdGroups', idx)}
+                                className="hover:text-rose-500 cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Allowed AD Users */}
+                      <div
+                        className={`p-3.5 rounded-xl border space-y-2.5 ${
+                          isLightMode
+                            ? 'bg-teal-50/50 border-teal-200'
+                            : 'bg-teal-950/20 border-teal-500/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-xs font-bold ${isLightMode ? 'text-teal-900' : 'text-teal-200'}`}>
+                            {isEn ? 'Permitted Individual AD Users' : 'کاربران اکتیو دایرکتوری مجاز (اختیاری)'}
+                          </span>
+                          {(draftPolicy.allowedHelpdeskAdUsers || []).length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => clearHelpdeskListField('allowedHelpdeskAdUsers')}
+                              className="text-[11px] font-semibold text-rose-500 hover:underline cursor-pointer"
+                            >
+                              {isEn ? 'Clear' : 'پاک کردن'}
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            dir="ltr"
+                            value={hdAllowedUserInput}
+                            onChange={(e) => setHdAllowedUserInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                addHelpdeskListItems('allowedHelpdeskAdUsers', hdAllowedUserInput);
+                                setHdAllowedUserInput('');
+                              }
+                            }}
+                            placeholder="e.g. a.rezaei, CORP\\helpdesk_test, branch-*"
+                            className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-mono ${
+                              isLightMode
+                                ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                                : 'bg-slate-950 border-slate-700 text-white placeholder:text-slate-500'
+                            }`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              addHelpdeskListItems('allowedHelpdeskAdUsers', hdAllowedUserInput);
+                              setHdAllowedUserInput('');
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold cursor-pointer shrink-0"
+                          >
+                            {isEn ? 'Add' : 'افزودن'}
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(draftPolicy.allowedHelpdeskAdUsers || []).map((item, idx) => (
+                            <span
+                              key={`${item}-${idx}`}
+                              dir="ltr"
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-mono ${
+                                isLightMode
+                                  ? 'bg-white border-teal-300 text-teal-800'
+                                  : 'bg-teal-500/15 border-teal-500/35 text-teal-200'
+                              }`}
+                            >
+                              <span>{item}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeHelpdeskListItem('allowedHelpdeskAdUsers', idx)}
+                                className="hover:text-rose-500 cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Blocked AD Groups, AD Users & Local Accounts */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                    {/* Blocked AD Groups */}
+                    <div
+                      className={`p-3.5 rounded-xl border space-y-2.5 ${
+                        isLightMode
+                          ? 'bg-rose-50/40 border-rose-200'
+                          : 'bg-rose-950/15 border-rose-500/25'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`text-xs font-bold flex items-center gap-1.5 ${isLightMode ? 'text-rose-900' : 'text-rose-200'}`}>
+                          <Users className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                          <span>{isEn ? 'Blocked AD Groups' : 'گروه‌های AD مسدودشده'}</span>
+                        </span>
+                        {(draftPolicy.blockedHelpdeskAdGroups || []).length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => clearHelpdeskListField('blockedHelpdeskAdGroups')}
+                            className="text-[11px] font-semibold text-rose-500 hover:underline cursor-pointer"
+                          >
+                            {isEn ? 'Clear' : 'پاک'}
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          value={hdBlockedGroupInput}
+                          onChange={(e) => setHdBlockedGroupInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              addHelpdeskListItems('blockedHelpdeskAdGroups', hdBlockedGroupInput);
+                              setHdBlockedGroupInput('');
+                            }
+                          }}
+                          placeholder="e.g. Domain Admins, VIP_Board"
+                          className={`flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border text-xs ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-900'
+                              : 'bg-slate-950 border-slate-700 text-white'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            addHelpdeskListItems('blockedHelpdeskAdGroups', hdBlockedGroupInput);
+                            setHdBlockedGroupInput('');
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold cursor-pointer shrink-0"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(draftPolicy.blockedHelpdeskAdGroups || []).length === 0 ? (
+                          <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Empty' : 'خالی'}
+                          </span>
+                        ) : (
+                          (draftPolicy.blockedHelpdeskAdGroups || []).map((item, idx) => (
+                            <span
+                              key={`${item}-${idx}`}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] ${
+                                isLightMode
+                                  ? 'bg-white border-rose-300 text-rose-800'
+                                  : 'bg-rose-500/15 border-rose-500/35 text-rose-200'
+                              }`}
+                            >
+                              <span>{item}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeHelpdeskListItem('blockedHelpdeskAdGroups', idx)}
+                                className="hover:text-rose-500 cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Blocked AD Users */}
+                    <div
+                      className={`p-3.5 rounded-xl border space-y-2.5 ${
+                        isLightMode
+                          ? 'bg-rose-50/40 border-rose-200'
+                          : 'bg-rose-950/15 border-rose-500/25'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`text-xs font-bold flex items-center gap-1.5 ${isLightMode ? 'text-rose-900' : 'text-rose-200'}`}>
+                          <UserX className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                          <span>{isEn ? 'Blocked AD Users' : 'کاربران AD مسدودشده'}</span>
+                        </span>
+                        {(draftPolicy.blockedHelpdeskAdUsers || []).length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => clearHelpdeskListField('blockedHelpdeskAdUsers')}
+                            className="text-[11px] font-semibold text-rose-500 hover:underline cursor-pointer"
+                          >
+                            {isEn ? 'Clear' : 'پاک'}
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          dir="ltr"
+                          value={hdBlockedUserInput}
+                          onChange={(e) => setHdBlockedUserInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              addHelpdeskListItems('blockedHelpdeskAdUsers', hdBlockedUserInput);
+                              setHdBlockedUserInput('');
+                            }
+                          }}
+                          placeholder="e.g. ceo.user, CORP\\admin_*"
+                          className={`flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border text-xs font-mono ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-900'
+                              : 'bg-slate-950 border-slate-700 text-white'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            addHelpdeskListItems('blockedHelpdeskAdUsers', hdBlockedUserInput);
+                            setHdBlockedUserInput('');
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold cursor-pointer shrink-0"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(draftPolicy.blockedHelpdeskAdUsers || []).length === 0 ? (
+                          <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Empty' : 'خالی'}
+                          </span>
+                        ) : (
+                          (draftPolicy.blockedHelpdeskAdUsers || []).map((item, idx) => (
+                            <span
+                              key={`${item}-${idx}`}
+                              dir="ltr"
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-mono ${
+                                isLightMode
+                                  ? 'bg-white border-rose-300 text-rose-800'
+                                  : 'bg-rose-500/15 border-rose-500/35 text-rose-200'
+                              }`}
+                            >
+                              <span>{item}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeHelpdeskListItem('blockedHelpdeskAdUsers', idx)}
+                                className="hover:text-rose-500 cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Blocked Local Users */}
+                    <div
+                      className={`p-3.5 rounded-xl border space-y-2.5 ${
+                        isLightMode
+                          ? 'bg-amber-50/50 border-amber-200'
+                          : 'bg-amber-950/15 border-amber-500/25'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`text-xs font-bold flex items-center gap-1.5 ${isLightMode ? 'text-amber-900' : 'text-amber-200'}`}>
+                          <Lock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          <span>{isEn ? 'Blocked Local Users' : 'کاربران لوکال مسدودشده'}</span>
+                        </span>
+                        {(draftPolicy.blockedHelpdeskLocalUsers || []).length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => clearHelpdeskListField('blockedHelpdeskLocalUsers')}
+                            className="text-[11px] font-semibold text-rose-500 hover:underline cursor-pointer"
+                          >
+                            {isEn ? 'Clear' : 'پاک'}
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          dir="ltr"
+                          value={hdBlockedLocalUserInput}
+                          onChange={(e) => setHdBlockedLocalUserInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              addHelpdeskListItems('blockedHelpdeskLocalUsers', hdBlockedLocalUserInput);
+                              setHdBlockedLocalUserInput('');
+                            }
+                          }}
+                          placeholder="e.g. ceo_local, LocalSecAdmin"
+                          className={`flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border text-xs font-mono ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-900'
+                              : 'bg-slate-950 border-slate-700 text-white'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            addHelpdeskListItems('blockedHelpdeskLocalUsers', hdBlockedLocalUserInput);
+                            setHdBlockedLocalUserInput('');
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold cursor-pointer shrink-0"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(draftPolicy.blockedHelpdeskLocalUsers || []).length === 0 ? (
+                          <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? 'Empty' : 'خالی'}
+                          </span>
+                        ) : (
+                          (draftPolicy.blockedHelpdeskLocalUsers || []).map((item, idx) => (
+                            <span
+                              key={`${item}-${idx}`}
+                              dir="ltr"
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-mono ${
+                                isLightMode
+                                  ? 'bg-white border-amber-300 text-amber-900'
+                                  : 'bg-amber-500/15 border-amber-500/35 text-amber-200'
+                              }`}
+                            >
+                              <span>{item}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeHelpdeskListItem('blockedHelpdeskLocalUsers', idx)}
+                                className="hover:text-rose-500 cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* -------- Section 3: Organization-Wide Global Blocklist Manager (HelpdeskExceptionsModal) -------- */}
+                <div
+                  className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    isLightMode
+                      ? 'bg-slate-50 border-slate-200'
+                      : 'bg-slate-950/70 border-white/10'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`p-2 rounded-xl border shrink-0 ${
+                        isLightMode
+                          ? 'bg-rose-50 border-rose-200 text-rose-600'
+                          : 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                      }`}
+                    >
+                      <ShieldBan className="w-4 h-4" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                          {isEn
+                            ? 'Organization-Wide Global HelpDesk Exceptions & Blocklist'
+                            : 'فهرست سراسری استثنائات و مسدودسازی هلپ‌دسک (برای تمام پالیسی‌ها)'}
+                        </h4>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-mono border ${
+                            globalExceptionsCount > 0
+                              ? isLightMode
+                                ? 'bg-rose-50 border-rose-200 text-rose-700'
+                                : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                              : isLightMode
+                              ? 'bg-slate-100 border-slate-200 text-slate-600'
+                              : 'bg-slate-800 border-slate-700 text-slate-400'
+                          }`}
+                        >
+                          {isEn
+                            ? `${globalExceptionsCount} active global rule(s)`
+                            : `${globalExceptionsCount} قانون سراسری فعال`}
+                        </span>
+                      </div>
+                      <p className={`text-[11px] ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                        {isEn
+                          ? 'Rules managed here apply organization-wide across all HelpDesk sessions and are hidden from technicians on Endpoint HelpDesk.'
+                          : 'قوانین این بخش به صورت سراسری در کل سازمان و برای تمام نشست‌های هلپ‌دسک اعمال می‌شوند و در صفحه کاربران/تکنسین‌ها نمایش داده نمی‌شوند.'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      undockModal('modal-helpdesk-exceptions');
+                      setIsExceptionsModalOpen(true);
+                    }}
+                    className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition cursor-pointer shrink-0 ${
+                      isLightMode
+                        ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-700 shadow-xs'
+                        : 'bg-rose-600/85 hover:bg-rose-500 text-white border-rose-400/30 shadow-sm'
+                    }`}
+                  >
+                    <ShieldBan className="w-3.5 h-3.5" />
+                    <span>
+                      {isEn ? 'Manage Global Exceptions' : 'مدیریت استثنائات سراسری'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
             {/* TAB 7: Multi-Stage Approval Workflow Chain Builder                        */}
             {/* ========================================================================= */}
             {activeTab === 'approvals' && (
@@ -9259,6 +10504,23 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Nested Organization-Wide HelpDesk Exceptions Manager (Admin Access Policy Portal) */}
+      <HelpdeskExceptionsModal
+        isOpen={isExceptionsModalOpen}
+        onClose={() => {
+          undockModal('modal-helpdesk-exceptions');
+          setIsExceptionsModalOpen(false);
+        }}
+        onMinimize={handleMinimizeExceptionsModal}
+        isLightMode={Boolean(isLightMode)}
+        isEn={isEn}
+        canManage={canManageGlobalExceptions}
+        overlayZIndexClass="z-[99995]"
+        onRulesChanged={(updatedRules: HelpdeskExceptionRule[]) => {
+          setGlobalExceptionsCount(updatedRules.filter((r) => r.enabled).length);
+        }}
+      />
     </>,
     document.body
   );

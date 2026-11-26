@@ -8153,6 +8153,8 @@ async function resolveHelpdeskAuth(
     try {
       const excCheck = await verifyHelpdeskTargetNotBlocked(target, {
         forceRefreshIdentity: reqPath === '/helpdesk/health' || reqPath === '/helpdesk/diagnostics/run',
+        policy: effectivePolicy || null,
+        hasFullAccess: hasFullHelpdeskAccess,
       });
       if (excCheck.blocked) {
         await addPortalAuditLog({
@@ -8259,6 +8261,7 @@ async function resolveHelpdeskAuth(
     actorRole,
     clientIp,
     hasFullHelpdeskAccess,
+    effectivePolicy: effectivePolicy || null,
     permissions: {
       canViewHelpdesk: canView,
       canViewHelpdeskUsers: canAdUsers,
@@ -8407,9 +8410,20 @@ apiRouter.get('/helpdesk/status', async (req: Request, res: Response) => {
 // GET /helpdesk/exceptions - List HelpDesk blocked IP/User/AD Group rules + synced AD catalog
 apiRouter.get('/helpdesk/exceptions', async (req: Request, res: Response) => {
   try {
-    const auth = await resolveHelpdeskAuth(req, 'view');
+    const auth = await resolveHelpdeskAuth(req, 'status');
     if (!auth.ok) {
       return sendHelpdeskAuthFailure(res, auth);
+    }
+    if (
+      !auth.hasFullHelpdeskAccess &&
+      !auth.permissions.canManageHelpdeskExceptions &&
+      !auth.permissions.canViewHelpdesk
+    ) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Insufficient permissions to view HelpDesk exception rules.',
+        errorFa: 'عدم دسترسی: مجوز مشاهده قوانین استثنائات هلپ‌دسک برای پالیسی شما فعال نیست.',
+      });
     }
     const [rules, adConfig] = await Promise.all([
       listHelpdeskExceptionsFromDb(),
@@ -11282,14 +11296,18 @@ apiRouter.post('/helpdesk/user/search', async (req: Request, res: Response) => {
   }
 
   try {
-    const data = await searchDomainUsers(input);
+    const data = await searchDomainUsers(input, {
+      policy: auth.effectivePolicy,
+      hasFullAccess: auth.hasFullHelpdeskAccess,
+    });
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'AD user search failed');
-    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+    return res.status(err?.blockedByException ? 403 : /invalid|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
-      errorFa: msg,
+      errorFa: err?.reasonFa || msg,
+      blockedByException: Boolean(err?.blockedByException),
     });
   }
 });
@@ -11310,7 +11328,10 @@ apiRouter.post('/helpdesk/user/inspect', async (req: Request, res: Response) => 
   }
 
   try {
-    const data = await inspectTargetDomainUser(input);
+    const data = await inspectTargetDomainUser(input, {
+      policy: auth.effectivePolicy,
+      hasFullAccess: auth.hasFullHelpdeskAccess,
+    });
     const skipHistory = req.body?.skipHistory === true;
     let historyId: string | undefined;
     if (!skipHistory) {
@@ -11407,10 +11428,11 @@ apiRouter.post('/helpdesk/user/inspect', async (req: Request, res: Response) => 
       errorMsg: msg,
       metadata: { targetUsername: input.targetUsername, domainController: input.domainController || '' },
     });
-    return res.status(/invalid|required/i.test(msg) ? 400 : /not found/i.test(msg) ? 404 : 502).json({
+    return res.status(err?.blockedByException ? 403 : /invalid|required/i.test(msg) ? 400 : /not found/i.test(msg) ? 404 : 502).json({
       success: false,
       error: msg,
-      errorFa: msg,
+      errorFa: err?.reasonFa || msg,
+      blockedByException: Boolean(err?.blockedByException),
     });
   }
 });
@@ -11431,7 +11453,10 @@ apiRouter.post('/helpdesk/user/mailbox', async (req: Request, res: Response) => 
   }
 
   try {
-    const data = await inspectTargetDomainMailbox(input);
+    const data = await inspectTargetDomainMailbox(input, {
+      policy: auth.effectivePolicy,
+      hasFullAccess: auth.hasFullHelpdeskAccess,
+    });
     const historyId = typeof req.body?.historyId === 'string' ? req.body.historyId.trim() : '';
     if (historyId) {
       const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
@@ -11455,10 +11480,11 @@ apiRouter.post('/helpdesk/user/mailbox', async (req: Request, res: Response) => 
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'Exchange mailbox query failed');
-    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+    return res.status(err?.blockedByException ? 403 : /invalid|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
-      errorFa: msg,
+      errorFa: err?.reasonFa || msg,
+      blockedByException: Boolean(err?.blockedByException),
     });
   }
 });
@@ -11498,7 +11524,10 @@ apiRouter.post('/helpdesk/user/unlock', async (req: Request, res: Response) => {
   }
 
   try {
-    const data = await unlockTargetDomainUser(input);
+    const data = await unlockTargetDomainUser(input, {
+      policy: auth.effectivePolicy,
+      hasFullAccess: auth.hasFullHelpdeskAccess,
+    });
     await addHelpdeskUserHistoryInDb({
       queryTarget: input.targetUsername,
       samAccountName: data.samAccountName,
@@ -11767,14 +11796,18 @@ apiRouter.post('/helpdesk/group/search', async (req: Request, res: Response) => 
   }
 
   try {
-    const data = await searchDomainGroups(input);
+    const data = await searchDomainGroups(input, {
+      policy: auth.effectivePolicy,
+      hasFullAccess: auth.hasFullHelpdeskAccess,
+    });
     return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
   } catch (err: any) {
     const msg = String(err?.message || 'AD group search failed');
-    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+    return res.status(err?.blockedByException ? 403 : /invalid|required/i.test(msg) ? 400 : 502).json({
       success: false,
       error: msg,
-      errorFa: msg,
+      errorFa: err?.reasonFa || msg,
+      blockedByException: Boolean(err?.blockedByException),
     });
   }
 });
@@ -11795,7 +11828,10 @@ apiRouter.post('/helpdesk/group/inspect', async (req: Request, res: Response) =>
   }
 
   try {
-    const data = await inspectTargetDomainGroup(input);
+    const data = await inspectTargetDomainGroup(input, {
+      policy: auth.effectivePolicy,
+      hasFullAccess: auth.hasFullHelpdeskAccess,
+    });
     const skipHistory = req.body?.skipHistory === true;
     let historyId: string | undefined;
     if (!skipHistory) {
@@ -11897,10 +11933,11 @@ apiRouter.post('/helpdesk/group/inspect', async (req: Request, res: Response) =>
       errorMsg: msg,
       metadata: { targetGroup: input.targetGroup, domainController: input.domainController || '' },
     });
-    return res.status(/invalid|required/i.test(msg) ? 400 : /not found/i.test(msg) ? 404 : 502).json({
+    return res.status(err?.blockedByException ? 403 : /invalid|required/i.test(msg) ? 400 : /not found/i.test(msg) ? 404 : 502).json({
       success: false,
       error: msg,
-      errorFa: msg,
+      errorFa: err?.reasonFa || msg,
+      blockedByException: Boolean(err?.blockedByException),
     });
   }
 });

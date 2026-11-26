@@ -90,7 +90,7 @@ import {
   Send,
   Bug,
 } from 'lucide-react';
-import { AccessPolicy, HelpdeskExceptionRule } from '../types';
+import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
 import { isUserSuperAdmin, isUserDomainAdmin } from '../utils/rbac';
 import {
@@ -155,7 +155,6 @@ import {
   fetchHelpdeskBatteryReport,
   renameHelpdeskComputer,
   runHelpdeskDiagnosticsSuite,
-  fetchHelpdeskExceptions,
   fetchHelpdeskUserProfiles,
   manageHelpdeskUserProfile,
   HelpdeskProfileActionType,
@@ -193,7 +192,6 @@ import { RegionFontsTab } from './helpdesk/RegionFontsTab';
 import { FirewallAntivirusTab } from './helpdesk/FirewallAntivirusTab';
 import { DiagnosticsTab } from './helpdesk/DiagnosticsTab';
 import { DiagnosticsConfigModal } from './helpdesk/DiagnosticsConfigModal';
-import { HelpdeskExceptionsModal } from './helpdesk/HelpdeskExceptionsModal';
 import { TimeoutAntivirusHint } from './helpdesk/TimeoutAntivirusHint';
 import { UserProfilesTab } from './helpdesk/UserProfilesTab';
 import { VirtualMemorySection } from './helpdesk/VirtualMemorySection';
@@ -338,14 +336,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const canPowerControl = Boolean(
     hasElevatedHelpdesk || (canExecuteActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true)
   );
-  const [serverCanManageExceptions, setServerCanManageExceptions] = useState<boolean | null>(null);
-  const canManageExceptions =
-    serverCanManageExceptions !== null
-      ? serverCanManageExceptions
-      : Boolean(
-          hasElevatedHelpdesk ||
-            (effectivePolicy?.canViewHelpdesk !== false && effectivePolicy?.canManageHelpdeskExceptions === true)
-        );
   const [serverCanSendEndpointMessage, setServerCanSendEndpointMessage] = useState<boolean | null>(null);
   const canSendEndpointMessage =
     serverCanSendEndpointMessage !== null
@@ -401,12 +391,10 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const jeaTemplates = ram.jeaTemplates;
   const setJeaTemplates = setRamField('jeaTemplates');
 
-  // JEA / GPO Hardening Modal & Exceptions Blocklist Modal (Universal Modal Rule 7)
+  // JEA / GPO Hardening Modal (Universal Modal Rule 7)
   const [isJeaModalOpen, setIsJeaModalOpen] = useState(false);
   const [isJeaModalMaximized, setIsJeaModalMaximized] = useState(false);
   const [copiedJeaKey, setCopiedJeaKey] = useState<string | null>(null);
-  const [isExceptionsModalOpen, setIsExceptionsModalOpen] = useState(false);
-  const [activeExceptionCount, setActiveExceptionCount] = useState<number>(0);
 
   // Module 1: Health & Processes state (backed by RAM store)
   const healthData = ram.healthData;
@@ -871,24 +859,11 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         if (!mounted) return;
         if (res.rateLimit) setRateLimit(res.rateLimit);
         if (res.jeaTemplates) setJeaTemplates(res.jeaTemplates);
-        if (typeof res.permissions?.canManageHelpdeskExceptions === 'boolean') {
-          setServerCanManageExceptions(res.permissions.canManageHelpdeskExceptions);
-        }
         if (typeof res.permissions?.canSendHelpdeskMessage === 'boolean') {
           setServerCanSendEndpointMessage(res.permissions.canSendHelpdeskMessage);
         }
         if (typeof res.permissions?.canViewAllHelpdeskHistory === 'boolean') {
           setHistoryScope(res.permissions.canViewAllHelpdeskHistory ? 'all' : 'own');
-        }
-      })
-      .catch(() => {});
-    fetchHelpdeskExceptions()
-      .then((res) => {
-        if (!mounted) return;
-        const activeCount = Array.isArray(res.rules) ? res.rules.filter((r) => r.enabled).length : 0;
-        setActiveExceptionCount(activeCount);
-        if (typeof res.canManage === 'boolean') {
-          setServerCanManageExceptions(res.canManage);
         }
       })
       .catch(() => {});
@@ -4666,25 +4641,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setIsJeaModalOpen(false);
   };
 
-  const handleMinimizeExceptionsModal = () => {
-    dockModal({
-      id: 'modal-helpdesk-exceptions',
-      labelEn: 'HelpDesk Connection Exceptions',
-      labelFa: 'استثنائات و مسدودسازی هلپ‌دسک',
-      badge: activeExceptionCount > 0 ? String(activeExceptionCount) : undefined,
-      category: 'tools',
-      onRestore: () => {
-        undockModal('modal-helpdesk-exceptions');
-        setIsExceptionsModalOpen(true);
-      },
-      onClose: () => {
-        undockModal('modal-helpdesk-exceptions');
-        setIsExceptionsModalOpen(false);
-      },
-    });
-    setIsExceptionsModalOpen(false);
-  };
-
   // Surface styling tokens (60-30-10 discipline, single-level hairline elevation)
   const surfaceBg = isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/75 border-slate-800';
   const subSurfaceBg = isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800';
@@ -4781,33 +4737,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
               </span>
             </div>
           )}
-
-          <button
-            type="button"
-            onClick={() => {
-              undockModal('modal-helpdesk-exceptions');
-              setIsExceptionsModalOpen(true);
-            }}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg border text-xs font-semibold transition whitespace-nowrap cursor-pointer ${
-              isLightMode
-                ? 'bg-white hover:bg-rose-50 text-slate-800 border-slate-300 hover:border-rose-300'
-                : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700 hover:border-rose-500/40'
-            }`}
-          >
-            <ShieldBan className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-            <span>{isEn ? 'Exceptions & Blocklist' : 'استثنائات و مسدودسازی'}</span>
-            {activeExceptionCount > 0 && (
-              <span
-                className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-                  isLightMode
-                    ? 'bg-rose-100 text-rose-700'
-                    : 'bg-rose-500/20 text-rose-300'
-                }`}
-              >
-                {activeExceptionCount}
-              </span>
-            )}
-          </button>
 
           <button
             type="button"
@@ -5481,22 +5410,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                   )}
                 </div>
               </div>
-              {healthBlockedByException && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    undockModal('modal-helpdesk-exceptions');
-                    setIsExceptionsModalOpen(true);
-                  }}
-                  className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold shrink-0 cursor-pointer ${
-                    isLightMode
-                      ? 'bg-white border-rose-300 text-rose-700 hover:bg-rose-50'
-                      : 'bg-slate-900 border-rose-500/40 text-rose-200 hover:bg-slate-800'
-                  }`}
-                >
-                  {isEn ? 'View Exceptions' : 'مشاهده قوانین استثنائات'}
-                </button>
-              )}
             </div>
           )}
 
@@ -16550,29 +16463,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         onChangeSelectedChecks={setDiagnosticsSelectedChecks}
         onStartRun={(checks) => handleRunDiagnosticsSuite(checks)}
         running={loadingDiagnostics}
-      />
-
-      {/* HelpDesk Connection Exceptions / Blocklist Modal */}
-      <HelpdeskExceptionsModal
-        isOpen={isExceptionsModalOpen}
-        onClose={() => {
-          undockModal('modal-helpdesk-exceptions');
-          setIsExceptionsModalOpen(false);
-        }}
-        onMinimize={handleMinimizeExceptionsModal}
-        isLightMode={isLightMode}
-        isEn={isEn}
-        canManage={canManageExceptions}
-        activeTargetIp={targetIp.trim()}
-        activeProtocol={protocol}
-        activeCustomPort={customPort}
-        activeUsername={username.trim()}
-        activePassword={password}
-        activeJeaConfigName={jeaConfigName}
-        activeLoggedInUser={healthData?.loggedInUser || ''}
-        onRulesChanged={(updatedRules: HelpdeskExceptionRule[]) => {
-          setActiveExceptionCount(updatedRules.filter((r) => r.enabled).length);
-        }}
       />
     </div>
   );

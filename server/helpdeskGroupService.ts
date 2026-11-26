@@ -1,8 +1,14 @@
 import ldap from 'ldapjs';
 import { getActiveDirectoryConfig, HelpdeskExceptionRecord, listHelpdeskExceptionsFromDb } from './db';
-import { executeHelpdeskPowerShell, HelpdeskProtocol } from './helpdeskService';
+import {
+  executeHelpdeskPowerShell,
+  HelpdeskProtocol,
+  matchAdGroupPatternList,
+  matchUserPatternList,
+} from './helpdeskService';
 import {
   ActiveLdapSession,
+  HelpdeskAdPolicyContext,
   LdapTransportProtocol,
   adGeneralizedTimeToIso,
   dedupeStrings,
@@ -1614,7 +1620,8 @@ function buildPlainLanguagePermissions(params: {
 // ============================================================================
 
 export async function searchDomainGroups(
-  input: HelpdeskGroupSearchInput
+  input: HelpdeskGroupSearchInput,
+  policyContext?: HelpdeskAdPolicyContext
 ): Promise<{
   domainController: string;
   domainName: string;
@@ -1627,6 +1634,23 @@ export async function searchDomainGroups(
   if (!adminUsername || !adminPassword) {
     throw new Error('Privileged domain username and password are required.');
   }
+
+  // Fast exit if RBAC HelpDesk Policy restricts AD scope to Selected Only with no allowed groups
+  if (
+    policyContext &&
+    !policyContext.hasFullAccess &&
+    policyContext.policy?.targetHelpdeskAdScope === 'selected' &&
+    (policyContext.policy.allowedHelpdeskAdGroups || []).length === 0
+  ) {
+    return {
+      domainController: String(input.domainController || ''),
+      domainName: '',
+      method: 'ldaps',
+      port: 636,
+      groups: [],
+    };
+  }
+
   const safeDc = validateSafeHostOrIp(input.domainController, 'Domain Controller');
   const query = String(input.query || '').trim();
   const limit = Math.max(5, Math.min(100, Number(input.limit) || 40));
@@ -1677,11 +1701,11 @@ export async function searchDomainGroups(
         'distinguishedName',
         'objectSid',
       ],
-      sizeLimit: limit,
-      paged: { pageSize: Math.min(limit, 100) },
+      sizeLimit: Math.min(250, limit * 2),
+      paged: { pageSize: Math.min(250, limit * 2) },
     });
 
-    const groups: HelpdeskGroupSearchHit[] = rows.map((r) => {
+    const mappedGroups: HelpdeskGroupSearchHit[] = rows.map((r) => {
       const cn = getFirstAttr(r.attrs, 'cn');
       const sam = getFirstAttr(r.attrs, 'sAMAccountName') || cn;
       const decoded = decodeGroupType(getFirstAttr(r.attrs, 'groupType'));
@@ -1710,6 +1734,39 @@ export async function searchDomainGroups(
       };
     });
 
+    const allRules = await listHelpdeskExceptionsFromDb().catch(() => [] as HelpdeskExceptionRecord[]);
+    const enabledGroupRules = allRules.filter((r) => r && r.enabled && r.ruleType === 'ad_group');
+    const domShort = normalizeDomainCmp(session.domainName);
+    const pol = policyContext && !policyContext.hasFullAccess ? policyContext.policy : null;
+    const blockedGroups = pol?.blockedHelpdeskAdGroups || [];
+    const adSelectedOnly = pol?.targetHelpdeskAdScope === 'selected';
+    const allowedGroups = pol?.allowedHelpdeskAdGroups || [];
+
+    const groups = mappedGroups.filter((g) => {
+      const gCnL = g.cn.toLowerCase();
+      const gSamL = g.samAccountName.toLowerCase();
+      const gDnL = g.distinguishedName.toLowerCase();
+      const hitGlobal = enabledGroupRules.some((rule) => {
+        const rv = String(rule.targetValue || '').trim().toLowerCase();
+        const rCn = rv.includes('cn=') ? extractCnFromDn(rv).toLowerCase() : rv.includes('\\') ? rv.split('\\').pop()! : rv;
+        const rDom = normalizeDomainCmp(rule.domainName);
+        if (rDom && domShort && rDom !== domShort) return false;
+        return gCnL === rCn || gSamL === rCn || gDnL === rv;
+      });
+      if (hitGlobal) return false;
+
+      const entryObj = [{ cn: g.cn, sam: g.samAccountName, dn: g.distinguishedName }];
+      if (blockedGroups.length > 0 && matchAdGroupPatternList(blockedGroups, entryObj, session.domainName)) {
+        return false;
+      }
+      if (adSelectedOnly) {
+        if (allowedGroups.length === 0 || !matchAdGroupPatternList(allowedGroups, entryObj, session.domainName)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
     groups.sort((a, b) => {
       if (a.isPrivileged !== b.isPrivileged) return a.isPrivileged ? -1 : 1;
       return a.cn.localeCompare(b.cn);
@@ -1728,7 +1785,8 @@ export async function searchDomainGroups(
 }
 
 export async function inspectTargetDomainGroup(
-  input: HelpdeskGroupInspectInput
+  input: HelpdeskGroupInspectInput,
+  policyContext?: HelpdeskAdPolicyContext
 ): Promise<HelpdeskGroupInspectionResult> {
   const cleanTarget = sanitizeAndValidateTargetGroup(input.targetGroup);
   const adminUsername = String(input.adminUsername || '').trim();
@@ -1736,6 +1794,24 @@ export async function inspectTargetDomainGroup(
   if (!adminUsername || !adminPassword) {
     throw new Error('Privileged domain username and password are required.');
   }
+
+  // Pre-connect policy guard (blocks empty allowlist or explicit group block before binding)
+  const preGroupCheck = await enforceDomainGroupPolicyAndExceptions({
+    groupCn: cleanTarget.includes('=') ? extractCnFromDn(cleanTarget) : cleanTarget,
+    groupSam: cleanTarget.includes('\\') ? cleanTarget.split('\\').pop()! : cleanTarget,
+    groupDn: /^(?:CN|OU)=/i.test(cleanTarget) ? cleanTarget : '',
+    domainName: '',
+    policyContext,
+    actionLabel: 'Group Inspection',
+    actionLabelFa: 'بررسی گروه',
+  });
+  if (preGroupCheck.blocked) {
+    const err: any = new Error(preGroupCheck.reasonEn);
+    err.reasonFa = preGroupCheck.reasonFa;
+    err.blockedByException = true;
+    throw err;
+  }
+
   const safeDc = validateSafeHostOrIp(input.domainController, 'Domain Controller');
 
   const { adConfig, dcCandidates, pdcHost, domainHints } = await resolveDomainHintsForGroup({
@@ -1886,6 +1962,23 @@ export async function inspectTargetDomainGroup(
     const ouSegments = organizationalUnit && organizationalUnit !== '-'
       ? organizationalUnit.split(' / ').filter(Boolean)
       : [];
+
+    // Enforce Global HelpDesk Exceptions & Access Policy AD Group Scope immediately upon resolution
+    const resolvedGroupCheck = await enforceDomainGroupPolicyAndExceptions({
+      groupCn: cn,
+      groupSam: sam,
+      groupDn,
+      domainName: session.domainName,
+      policyContext,
+      actionLabel: 'Group Inspection',
+      actionLabelFa: 'بررسی گروه',
+    });
+    if (resolvedGroupCheck.blocked) {
+      const err: any = new Error(resolvedGroupCheck.reasonEn);
+      err.reasonFa = resolvedGroupCheck.reasonFa;
+      err.blockedByException = true;
+      throw err;
+    }
 
     // 1) Collect all Direct Member DNs (including range retrieval if >1500)
     const directRes = await collectAllDirectMemberDns(session, groupDn, entry, 1000);
@@ -2351,6 +2444,80 @@ export async function inspectTargetDomainGroup(
   }
 }
 
+async function enforceDomainGroupPolicyAndExceptions(params: {
+  groupCn: string;
+  groupSam: string;
+  groupDn: string;
+  domainName: string;
+  policyContext?: HelpdeskAdPolicyContext;
+  actionLabel?: string;
+  actionLabelFa?: string;
+}): Promise<{ blocked: boolean; reasonEn?: string; reasonFa?: string }> {
+  const pol = params.policyContext && !params.policyContext.hasFullAccess ? params.policyContext.policy : null;
+  const actEn = params.actionLabel || 'Group Inspection';
+  const actFa = params.actionLabelFa || 'عملیات گروه';
+
+  if (
+    pol &&
+    pol.targetHelpdeskAdScope === 'selected' &&
+    (pol.allowedHelpdeskAdGroups || []).length === 0
+  ) {
+    return {
+      blocked: true,
+      reasonEn: `${actEn} blocked by RBAC HelpDesk Policy: AD scope is set to Selected Only, but no AD groups are permitted.`,
+      reasonFa: `${actFa} توسط پالیسی هلپ‌دسک مسدود شد: محدوده اکتیو دایرکتوری روی «فقط موارد مجاز» است اما هیچ گروهی مجاز تعریف نشده است.`,
+    };
+  }
+
+  const allRules = await listHelpdeskExceptionsFromDb().catch(() => [] as HelpdeskExceptionRecord[]);
+  const enabled = allRules.filter((r) => r && r.enabled && r.ruleType === 'ad_group');
+  const domShort = normalizeDomainCmp(params.domainName);
+  const gCnL = params.groupCn.toLowerCase();
+  const gSamL = params.groupSam.toLowerCase();
+  const gDnL = params.groupDn.toLowerCase();
+
+  for (const rule of enabled) {
+    const rv = String(rule.targetValue || '').trim().toLowerCase();
+    const rCn = rv.includes('cn=') ? extractCnFromDn(rv).toLowerCase() : rv.includes('\\') ? rv.split('\\').pop()! : rv;
+    const rDom = normalizeDomainCmp(rule.domainName);
+    if (rDom && domShort && rDom !== domShort) continue;
+    if (gCnL === rCn || gSamL === rCn || (gDnL && gDnL === rv)) {
+      return {
+        blocked: true,
+        reasonEn: `${actEn} blocked by HelpDesk exception policy: target group "${params.groupCn}" matches excluded AD group rule "${rule.targetValue}".`,
+        reasonFa: `${actFa} توسط قانون استثنائات هلپ‌دسک مسدود شد: گروه «${params.groupCn}» در لیست مسدودشده «${rule.targetValue}» قرار دارد.`,
+      };
+    }
+  }
+
+  if (pol) {
+    const entryObj = [{ cn: params.groupCn, sam: params.groupSam, dn: params.groupDn }];
+    if ((pol.blockedHelpdeskAdGroups || []).length > 0) {
+      const m = matchAdGroupPatternList(pol.blockedHelpdeskAdGroups || [], entryObj, params.domainName);
+      if (m) {
+        return {
+          blocked: true,
+          reasonEn: `${actEn} blocked by RBAC HelpDesk Policy: group "${params.groupCn}" matches restricted AD group rule "${m.pattern}".`,
+          reasonFa: `${actFa} توسط پالیسی هلپ‌دسک مسدود شد: گروه «${params.groupCn}» مشمول قانون مسدودسازی «${m.pattern}» است.`,
+        };
+      }
+    }
+
+    if (pol.targetHelpdeskAdScope === 'selected') {
+      const allowed = pol.allowedHelpdeskAdGroups || [];
+      if (!matchAdGroupPatternList(allowed, entryObj, params.domainName)) {
+        return {
+          blocked: true,
+          reasonEn: `${actEn} blocked by RBAC HelpDesk Policy: group "${params.groupCn}" is outside your policy's permitted AD groups scope.`,
+          reasonFa: `${actFa} توسط پالیسی هلپ‌دسک مسدود شد: گروه «${params.groupCn}» در محدوده گروه‌های مجاز پالیسی شما قرار ندارد.`,
+        };
+      }
+    }
+  }
+
+  return { blocked: false };
+}
+
 // Check HelpDesk Exceptions against both the target group and the target member
 async function checkGroupActionExceptionPolicy(params: {
   groupCn: string;
@@ -2361,13 +2528,22 @@ async function checkGroupActionExceptionPolicy(params: {
   memberDn: string;
   memberGroupDns: string[];
   domainName: string;
+  policyContext?: HelpdeskAdPolicyContext;
 }): Promise<{ blocked: boolean; reasonEn?: string; reasonFa?: string }> {
+  const grpCheck = await enforceDomainGroupPolicyAndExceptions({
+    groupCn: params.groupCn,
+    groupSam: params.groupSam,
+    groupDn: params.groupDn,
+    domainName: params.domainName,
+    policyContext: params.policyContext,
+    actionLabel: 'Action',
+    actionLabelFa: 'عملیات',
+  });
+  if (grpCheck.blocked) return grpCheck;
+
   const allRules = await listHelpdeskExceptionsFromDb().catch(() => [] as HelpdeskExceptionRecord[]);
   const enabled = allRules.filter((r) => r && r.enabled);
   const domShort = normalizeDomainCmp(params.domainName);
-  const gCnL = params.groupCn.toLowerCase();
-  const gSamL = params.groupSam.toLowerCase();
-  const gDnL = params.groupDn.toLowerCase();
   const mSamL = params.memberSam.toLowerCase();
   const mUpnL = params.memberUpn.toLowerCase();
 
@@ -2378,13 +2554,6 @@ async function checkGroupActionExceptionPolicy(params: {
       const rDom = normalizeDomainCmp(rule.domainName);
       if (rDom && domShort && rDom !== domShort) continue;
 
-      if (gCnL === rCn || gSamL === rCn || gDnL === rv) {
-        return {
-          blocked: true,
-          reasonEn: `Action blocked by HelpDesk exception policy: target group "${params.groupCn}" matches excluded AD group rule "${rule.targetValue}".`,
-          reasonFa: `عملیات توسط قانون استثنائات هلپ‌دسک مسدود شد: گروه «${params.groupCn}» در لیست مسدودشده «${rule.targetValue}» قرار دارد.`,
-        };
-      }
       if (
         params.memberGroupDns.some(
           (mg) => extractCnFromDn(mg).toLowerCase() === rCn || mg.toLowerCase() === rv
@@ -2401,7 +2570,7 @@ async function checkGroupActionExceptionPolicy(params: {
       const rvParts = splitUsernameParts(rv);
       const rDom = normalizeDomainCmp(rule.domainName || rvParts.domain);
       if (rDom && domShort && rDom !== domShort) continue;
-      if (rvParts.sam === mSamL || rv === mUpnL || rv === mSamL) {
+      if (rvParts.sam === mSamL || (mUpnL && rv === mUpnL) || rv === mSamL) {
         return {
           blocked: true,
           reasonEn: `Action blocked by HelpDesk exception policy: member "${params.memberSam}" matches excluded AD user rule "${rule.targetValue}".`,
@@ -2410,11 +2579,39 @@ async function checkGroupActionExceptionPolicy(params: {
       }
     }
   }
+
+  const pol = params.policyContext && !params.policyContext.hasFullAccess ? params.policyContext.policy : null;
+  if (pol) {
+    const memberCands = dedupeStrings([params.memberSam, params.memberUpn, params.memberDn]);
+    if ((pol.blockedHelpdeskAdUsers || []).length > 0) {
+      const m = matchUserPatternList(pol.blockedHelpdeskAdUsers || [], memberCands, params.domainName, false);
+      if (m) {
+        return {
+          blocked: true,
+          reasonEn: `Action blocked by RBAC HelpDesk Policy: member "${params.memberSam}" matches restricted AD user rule "${m.pattern}".`,
+          reasonFa: `عملیات توسط پالیسی هلپ‌دسک مسدود شد: کاربر «${params.memberSam}» مشمول قانون مسدودسازی «${m.pattern}» است.`,
+        };
+      }
+    }
+    const mgObjs = params.memberGroupDns.map((dn) => ({ cn: extractCnFromDn(dn), dn }));
+    if ((pol.blockedHelpdeskAdGroups || []).length > 0 && mgObjs.length > 0) {
+      const mgHit = matchAdGroupPatternList(pol.blockedHelpdeskAdGroups || [], mgObjs, params.domainName);
+      if (mgHit) {
+        return {
+          blocked: true,
+          reasonEn: `Action blocked by RBAC HelpDesk Policy: member "${params.memberSam}" belongs to restricted AD group "${mgHit.matchedGroup}".`,
+          reasonFa: `عملیات توسط پالیسی هلپ‌دسک مسدود شد: عضو «${params.memberSam}» عضو گروه مسدودشده «${mgHit.matchedGroup}» است.`,
+        };
+      }
+    }
+  }
+
   return { blocked: false };
 }
 
 export async function manageDomainGroupMember(
-  input: HelpdeskGroupMemberActionInput
+  input: HelpdeskGroupMemberActionInput,
+  policyContext?: HelpdeskAdPolicyContext
 ): Promise<HelpdeskGroupMemberActionResult> {
   const cleanGroup = sanitizeAndValidateTargetGroup(input.targetGroup);
   const cleanMember = String(input.memberIdentifier || '').trim();
@@ -2529,6 +2726,7 @@ export async function manageDomainGroupMember(
       memberDn,
       memberGroupDns,
       domainName: domName,
+      policyContext,
     });
     if (exc.blocked) {
       const err: any = new Error(exc.reasonEn);

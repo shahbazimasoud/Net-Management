@@ -1690,7 +1690,7 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
 
             {ram.searchError && (
               <div className="text-xs text-rose-500 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
-                {ram.searchError}
+                {isEn ? ram.searchError : ram.searchErrorFa || ram.searchError}
               </div>
             )}
 
@@ -2109,19 +2109,29 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
             <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
             <div className="min-w-0 flex-1 space-y-1">
               <div className="font-bold">
-                {isEn ? 'Active Directory Lookup Failed' : 'خطا در استعلام کاربر از اکتیو دایرکتوری'}
+                {ram.blockedByException
+                  ? isEn
+                    ? 'Target Blocked by HelpDesk RBAC / Exception Policy'
+                    : 'هدف توسط پالیسی یا قانون استثنائات هلپ‌دسک مسدود شده است'
+                  : isEn
+                  ? 'Active Directory Lookup Failed'
+                  : 'خطا در استعلام کاربر از اکتیو دایرکتوری'}
               </div>
-              <div className="break-words opacity-90">{ram.error}</div>
+              <div className="break-words opacity-90">
+                {isEn ? ram.error : ram.errorFa || ram.error}
+              </div>
             </div>
           </div>
-          <TimeoutAntivirusHint
-            errorText={ram.error}
-            isEn={isEn}
-            isLightMode={isLightMode}
-            canViewSecurityAv={Boolean(onNavigateToEndpointHelpdesk)}
-            canControlAntivirus={canUnlockAccount}
-            onGoToAntivirus={onNavigateToEndpointHelpdesk}
-          />
+          {!ram.blockedByException && (
+            <TimeoutAntivirusHint
+              errorText={ram.error}
+              isEn={isEn}
+              isLightMode={isLightMode}
+              canViewSecurityAv={Boolean(onNavigateToEndpointHelpdesk)}
+              canControlAntivirus={canUnlockAccount}
+              onGoToAntivirus={onNavigateToEndpointHelpdesk}
+            />
+          )}
         </div>
       )}
 
@@ -2163,7 +2173,7 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
           }`}
         >
           <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-          <span className="break-words">{ram.unlockError}</span>
+          <span className="break-words">{isEn ? ram.unlockError : ram.unlockErrorFa || ram.unlockError}</span>
         </div>
       )}
 
@@ -4139,11 +4149,14 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
                         {isEn ? 'Exchange Connection Notice' : 'گزارش اتصال به سرور Exchange'}
                       </div>
                       <div className="break-words opacity-90">
-                        {ram.mailboxError ||
-                          (isEn
-                            ? data.mailbox.exchangeStatusMessage
-                            : data.mailbox.exchangeStatusMessageFa ||
-                              data.mailbox.exchangeStatusMessage)}
+                        {ram.mailboxError
+                          ? isEn
+                            ? ram.mailboxError
+                            : ram.mailboxErrorFa || ram.mailboxError
+                          : isEn
+                          ? data.mailbox.exchangeStatusMessage
+                          : data.mailbox.exchangeStatusMessageFa ||
+                            data.mailbox.exchangeStatusMessage}
                       </div>
                     </div>
                   </div>

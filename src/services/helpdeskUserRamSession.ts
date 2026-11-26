@@ -74,18 +74,23 @@ export interface HelpdeskUserRamState {
   groupsLoaded: boolean;
   mailboxLoaded: boolean;
   error: string | null;
+  errorFa: string | null;
+  blockedByException: boolean;
   lastHistoryId: string | null;
 
   mailboxLoading: boolean;
   mailboxError: string | null;
+  mailboxErrorFa: string | null;
 
   searchingUsers: boolean;
   searchError: string | null;
+  searchErrorFa: string | null;
   searchResults: HelpdeskUserSearchHit[];
   searchMeta: { domainController: string; domainName: string } | null;
 
   unlocking: boolean;
   unlockError: string | null;
+  unlockErrorFa: string | null;
   unlockResult: {
     unlocked: boolean;
     wasLocked: boolean;
@@ -225,15 +230,20 @@ function createInitialHelpdeskUserRamState(): HelpdeskUserRamState {
     groupsLoaded: false,
     mailboxLoaded: false,
     error: null,
+    errorFa: null,
+    blockedByException: false,
     lastHistoryId: null,
     mailboxLoading: false,
     mailboxError: null,
+    mailboxErrorFa: null,
     searchingUsers: false,
     searchError: null,
+    searchErrorFa: null,
     searchResults: [],
     searchMeta: null,
     unlocking: false,
     unlockError: null,
+    unlockErrorFa: null,
     unlockResult: null,
     recentUsers: [],
   };
@@ -567,6 +577,9 @@ export async function runHelpdeskUserSearch(queryOverride?: string): Promise<voi
       searchError: isExpired
         ? 'Delegated RAM session expired after 30 minutes for security. Please re-enter domain password.'
         : 'Privileged domain username & password are required first.',
+      searchErrorFa: isExpired
+        ? 'نشست رمز تفویض‌شده در حافظه RAM پس از ۳۰ دقیقه منقضی شد. لطفاً رمز عبور دامین را دوباره وارد کنید.'
+        : 'ابتدا نام کاربری و رمز عبور ادمین دامین را وارد کنید.',
     });
     return;
   }
@@ -574,6 +587,7 @@ export async function runHelpdeskUserSearch(queryOverride?: string): Promise<voi
   patchHelpdeskUserRamSnapshot({
     searchingUsers: true,
     searchError: null,
+    searchErrorFa: null,
   });
 
   try {
@@ -599,6 +613,7 @@ export async function runHelpdeskUserSearch(queryOverride?: string): Promise<voi
     patchHelpdeskUserRamSnapshot({
       searchingUsers: false,
       searchError: err?.message || 'Failed to search Active Directory users',
+      searchErrorFa: err?.errorFa || err?.message || 'جستجوی کاربران اکتیو دایرکتوری ناموفق بود',
     });
   }
 }
@@ -643,8 +658,12 @@ export async function runHelpdeskUserInspect(
     groupsLoaded: false,
     mailboxLoaded: false,
     error: null,
+    errorFa: null,
+    blockedByException: false,
     mailboxError: null,
+    mailboxErrorFa: null,
     unlockError: null,
+    unlockErrorFa: null,
     unlockResult: null,
     prefetchProgress: {
       active: true,
@@ -701,11 +720,14 @@ export async function runHelpdeskUserInspect(
   } catch (err: any) {
     if (isCancelled()) return null;
     const msg = String(err?.message || 'Failed to inspect target domain user');
+    const msgFa = String(err?.errorFa || msg);
     patchHelpdeskUserRamSnapshot({
       loading: false,
       loadingOverview: false,
       prefetchProgress: null,
       error: msg,
+      errorFa: msgFa,
+      blockedByException: Boolean(err?.blockedByException),
     });
     return null;
   }
@@ -788,6 +810,7 @@ export async function runHelpdeskUserInspect(
         mailboxLoaded: true,
         prefetchProgress: null,
         mailboxError: String(err?.message || 'Exchange mailbox query failed'),
+        mailboxErrorFa: String(err?.errorFa || err?.message || 'خطا در استعلام میل‌باکس Exchange'),
       });
     }
   }
@@ -823,6 +846,7 @@ export async function runHelpdeskUserMailboxRefresh(): Promise<HelpdeskUserMailb
     patchHelpdeskUserRamSnapshot({
       mailboxLoading: false,
       mailboxError: String(err?.message || 'Exchange mailbox query failed'),
+      mailboxErrorFa: String(err?.errorFa || err?.message || 'خطا در استعلام میل‌باکس Exchange'),
     });
     return null;
   }
@@ -837,6 +861,7 @@ export async function runHelpdeskUserUnlock(): Promise<void> {
   patchHelpdeskUserRamSnapshot({
     unlocking: true,
     unlockError: null,
+    unlockErrorFa: null,
     unlockResult: null,
   });
 
@@ -875,6 +900,7 @@ export async function runHelpdeskUserUnlock(): Promise<void> {
     patchHelpdeskUserRamSnapshot({
       unlocking: false,
       unlockError: String(err?.message || 'Failed to unlock user account'),
+      unlockErrorFa: String(err?.errorFa || err?.message || 'خطا در رفع قفل اکانت کاربر'),
     });
   }
 }

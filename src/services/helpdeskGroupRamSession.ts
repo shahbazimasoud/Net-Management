@@ -53,10 +53,13 @@ export interface HelpdeskGroupRamState {
   groupData: HelpdeskGroupInspectionData | null;
   loading: boolean;
   error: string | null;
+  errorFa: string | null;
+  blockedByException: boolean;
   lastHistoryId: string | null;
 
   searchingGroups: boolean;
   searchError: string | null;
+  searchErrorFa: string | null;
   searchResults: HelpdeskGroupSearchHit[];
   searchMeta: { domainController: string; domainName: string } | null;
 
@@ -92,10 +95,13 @@ const createInitialState = (ownerUserId: string | null = null): HelpdeskGroupRam
   groupData: null,
   loading: false,
   error: null,
+  errorFa: null,
+  blockedByException: false,
   lastHistoryId: null,
 
   searchingGroups: false,
   searchError: null,
+  searchErrorFa: null,
   searchResults: [],
   searchMeta: null,
 
@@ -328,6 +334,9 @@ export async function runHelpdeskGroupSearch(queryOverride?: string): Promise<vo
       searchError: isExpired
         ? 'Delegated RAM session expired after 30 minutes for security. Please re-enter domain password.'
         : 'Privileged domain username & password are required first.',
+      searchErrorFa: isExpired
+        ? 'نشست رمز تفویض‌شده در حافظه RAM پس از ۳۰ دقیقه منقضی شد. لطفاً رمز عبور دامین را دوباره وارد کنید.'
+        : 'ابتدا نام کاربری و رمز عبور ادمین دامین را وارد کنید.',
     });
     return;
   }
@@ -335,6 +344,7 @@ export async function runHelpdeskGroupSearch(queryOverride?: string): Promise<vo
   patchHelpdeskGroupRamSnapshot({
     searchingGroups: true,
     searchError: null,
+    searchErrorFa: null,
   });
 
   try {
@@ -359,6 +369,7 @@ export async function runHelpdeskGroupSearch(queryOverride?: string): Promise<vo
     patchHelpdeskGroupRamSnapshot({
       searchingGroups: false,
       searchError: err?.message || 'Failed to search Active Directory groups',
+      searchErrorFa: err?.errorFa || err?.message || 'جستجوی گروه‌های اکتیو دایرکتوری ناموفق بود',
     });
   }
 }
@@ -376,6 +387,9 @@ export async function runHelpdeskGroupInspect(overrideTargetGroup?: string): Pro
         error: isExpired
           ? 'Delegated RAM credential expired after 30 minutes. Please enter your domain password above.'
           : snap.error,
+        errorFa: isExpired
+          ? 'نشست رمز تفویض‌شده در حافظه RAM پس از ۳۰ دقیقه منقضی شد. لطفاً رمز عبور دامین را دوباره وارد کنید.'
+          : snap.errorFa,
       });
     }
     return;
@@ -386,6 +400,8 @@ export async function runHelpdeskGroupInspect(overrideTargetGroup?: string): Pro
     pendingCredentialPromptGroup: null,
     loading: true,
     error: null,
+    errorFa: null,
+    blockedByException: false,
     memberActionResult: null,
     memberActionError: null,
   });
@@ -432,6 +448,8 @@ export async function runHelpdeskGroupInspect(overrideTargetGroup?: string): Pro
     patchHelpdeskGroupRamSnapshot({
       loading: false,
       error: err?.message || 'Active Directory group inspection failed',
+      errorFa: err?.errorFa || err?.message || 'استعلام گروه اکتیو دایرکتوری ناموفق بود',
+      blockedByException: Boolean(err?.blockedByException),
     });
   }
 }

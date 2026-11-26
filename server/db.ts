@@ -669,6 +669,15 @@ export const DEFAULT_ACCESS_POLICIES = [
     canManageHelpdeskExceptions: false,
     canSendHelpdeskMessage: false,
     canViewAllHelpdeskHistory: false,
+    targetHelpdeskIpScope: 'all',
+    allowedHelpdeskIps: [],
+    blockedHelpdeskIps: [],
+    targetHelpdeskAdScope: 'all',
+    allowedHelpdeskAdGroups: [],
+    allowedHelpdeskAdUsers: [],
+    blockedHelpdeskAdUsers: [],
+    blockedHelpdeskAdGroups: [],
+    blockedHelpdeskLocalUsers: [],
     // Device & Port Actions
     terminalAccess: 'none',
     canToggleAdminStatus: false,
@@ -774,6 +783,15 @@ export const DEFAULT_ACCESS_POLICIES = [
     canManageHelpdeskExceptions: false,
     canSendHelpdeskMessage: false,
     canViewAllHelpdeskHistory: false,
+    targetHelpdeskIpScope: 'all',
+    allowedHelpdeskIps: [],
+    blockedHelpdeskIps: [],
+    targetHelpdeskAdScope: 'all',
+    allowedHelpdeskAdGroups: [],
+    allowedHelpdeskAdUsers: [],
+    blockedHelpdeskAdUsers: [],
+    blockedHelpdeskAdGroups: [],
+    blockedHelpdeskLocalUsers: [],
     // Device & Port Actions
     terminalAccess: 'view_only',
     canToggleAdminStatus: false,
@@ -879,6 +897,15 @@ export const DEFAULT_ACCESS_POLICIES = [
     canManageHelpdeskExceptions: true,
     canSendHelpdeskMessage: true,
     canViewAllHelpdeskHistory: true,
+    targetHelpdeskIpScope: 'all',
+    allowedHelpdeskIps: [],
+    blockedHelpdeskIps: [],
+    targetHelpdeskAdScope: 'all',
+    allowedHelpdeskAdGroups: [],
+    allowedHelpdeskAdUsers: [],
+    blockedHelpdeskAdUsers: [],
+    blockedHelpdeskAdGroups: [],
+    blockedHelpdeskLocalUsers: [],
     // Device & Port Actions
     terminalAccess: 'full',
     canToggleAdminStatus: true,
@@ -2031,6 +2058,18 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
           isSuper ||
           isHelpdesk ||
           (Boolean(pData.canViewHelpdeskUsers) && Boolean(pData.canExecuteHelpdeskActions));
+        changed = true;
+      }
+      if (pData.targetHelpdeskIpScope === undefined) {
+        pData.targetHelpdeskIpScope = 'all';
+        pData.allowedHelpdeskIps = Array.isArray(pData.allowedHelpdeskIps) ? pData.allowedHelpdeskIps : [];
+        pData.blockedHelpdeskIps = Array.isArray(pData.blockedHelpdeskIps) ? pData.blockedHelpdeskIps : [];
+        pData.targetHelpdeskAdScope = 'all';
+        pData.allowedHelpdeskAdGroups = Array.isArray(pData.allowedHelpdeskAdGroups) ? pData.allowedHelpdeskAdGroups : [];
+        pData.allowedHelpdeskAdUsers = Array.isArray(pData.allowedHelpdeskAdUsers) ? pData.allowedHelpdeskAdUsers : [];
+        pData.blockedHelpdeskAdUsers = Array.isArray(pData.blockedHelpdeskAdUsers) ? pData.blockedHelpdeskAdUsers : [];
+        pData.blockedHelpdeskAdGroups = Array.isArray(pData.blockedHelpdeskAdGroups) ? pData.blockedHelpdeskAdGroups : [];
+        pData.blockedHelpdeskLocalUsers = Array.isArray(pData.blockedHelpdeskLocalUsers) ? pData.blockedHelpdeskLocalUsers : [];
         changed = true;
       }
       if (changed) {
@@ -5246,6 +5285,15 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canManageHelpdeskExceptions: false,
       canSendHelpdeskMessage: false,
       canViewAllHelpdeskHistory: false,
+      targetHelpdeskIpScope: 'all',
+      allowedHelpdeskIps: [],
+      blockedHelpdeskIps: [],
+      targetHelpdeskAdScope: 'all',
+      allowedHelpdeskAdGroups: [],
+      allowedHelpdeskAdUsers: [],
+      blockedHelpdeskAdUsers: [],
+      blockedHelpdeskAdGroups: [],
+      blockedHelpdeskLocalUsers: [],
       canCheckUpdate: false,
       canPerformUpdate: false,
       canBulkConfigureDevices: false,
@@ -5529,6 +5577,15 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       defaultDeviceApprovalRules: pol.defaultDeviceApprovalRules || {},
       perDeviceApprovalRules: pol.perDeviceApprovalRules || {},
       approvalWorkflowStages: Array.isArray(pol.approvalWorkflowStages) ? pol.approvalWorkflowStages : [],
+      targetHelpdeskIpScope: pol.targetHelpdeskIpScope === 'selected' ? 'selected' : 'all',
+      allowedHelpdeskIps: Array.isArray(pol.allowedHelpdeskIps) ? pol.allowedHelpdeskIps : [],
+      blockedHelpdeskIps: Array.isArray(pol.blockedHelpdeskIps) ? pol.blockedHelpdeskIps : [],
+      targetHelpdeskAdScope: pol.targetHelpdeskAdScope === 'selected' ? 'selected' : 'all',
+      allowedHelpdeskAdGroups: Array.isArray(pol.allowedHelpdeskAdGroups) ? pol.allowedHelpdeskAdGroups : [],
+      allowedHelpdeskAdUsers: Array.isArray(pol.allowedHelpdeskAdUsers) ? pol.allowedHelpdeskAdUsers : [],
+      blockedHelpdeskAdUsers: Array.isArray(pol.blockedHelpdeskAdUsers) ? pol.blockedHelpdeskAdUsers : [],
+      blockedHelpdeskAdGroups: Array.isArray(pol.blockedHelpdeskAdGroups) ? pol.blockedHelpdeskAdGroups : [],
+      blockedHelpdeskLocalUsers: Array.isArray(pol.blockedHelpdeskLocalUsers) ? pol.blockedHelpdeskLocalUsers : [],
     };
   };
 
@@ -5613,6 +5670,15 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canManageHelpdeskExceptions: true,
       canSendHelpdeskMessage: true,
       canViewAllHelpdeskHistory: true,
+      targetHelpdeskIpScope: 'all',
+      allowedHelpdeskIps: [],
+      blockedHelpdeskIps: [],
+      targetHelpdeskAdScope: 'all',
+      allowedHelpdeskAdGroups: [],
+      allowedHelpdeskAdUsers: [],
+      blockedHelpdeskAdUsers: [],
+      blockedHelpdeskAdGroups: [],
+      blockedHelpdeskLocalUsers: [],
       terminalAccess: 'full',
       canToggleAdminStatus: true,
       canChangeVlan: true,
@@ -5750,6 +5816,15 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canManageHelpdeskExceptions: false,
     canSendHelpdeskMessage: false,
     canViewAllHelpdeskHistory: false,
+    targetHelpdeskIpScope: 'all',
+    allowedHelpdeskIps: [],
+    blockedHelpdeskIps: [],
+    targetHelpdeskAdScope: 'all',
+    allowedHelpdeskAdGroups: [],
+    allowedHelpdeskAdUsers: [],
+    blockedHelpdeskAdUsers: [],
+    blockedHelpdeskAdGroups: [],
+    blockedHelpdeskLocalUsers: [],
     terminalAccess: 'none',
     canToggleAdminStatus: false,
     canChangeVlan: false,
