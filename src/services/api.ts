@@ -3032,6 +3032,34 @@ export interface HelpdeskUserInspectionData {
   };
   groups: Array<{ cn: string; dn: string; isPrimary?: boolean }>;
   mailbox: HelpdeskUserMailboxInfo;
+  logonAndProfile?: {
+    userWorkstationsRaw: string;
+    allowedWorkstations: string[];
+    workstationRestrictionMode: 'unrestricted' | 'restricted';
+    profilePath: string;
+    profileType: 'roaming' | 'local';
+    scriptPath: string;
+    homeDirectory: string;
+    homeDrive: string;
+    logonHoursMode: 'unrestricted_24_7' | 'restricted' | 'unknown';
+    logonHoursAllowedHoursCount: number | null;
+    logonHoursSummaryEn: string;
+    logonHoursSummaryFa: string;
+    dcInteractiveRights: {
+      status: 'available' | 'unavailable';
+      dcHost: string;
+      allowLocalOnDc: boolean | null;
+      denyLocalOnDc: boolean | null;
+      allowRdpOnDc: boolean | null;
+      denyRdpOnDc: boolean | null;
+      matchedAllowLocalTrustees: string[];
+      matchedDenyLocalTrustees: string[];
+      matchedAllowRdpTrustees: string[];
+      matchedDenyRdpTrustees: string[];
+      noteEn: string;
+      noteFa: string;
+    };
+  };
 }
 
 export async function inspectHelpdeskTargetUser(

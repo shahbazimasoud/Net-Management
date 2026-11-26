@@ -46,6 +46,9 @@ import {
   BarChart3,
   Activity,
   ArrowUpRight,
+  Monitor,
+  FolderOpen,
+  Terminal,
   X,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
@@ -2344,6 +2347,517 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
                   )}
                 </div>
               </div>
+
+              {/* Full-Width Section: Local Logon Rights, Permitted Workstations & Windows Profile */}
+              {(() => {
+                const lp = data.logonAndProfile;
+                const dcRights = lp?.dcInteractiveRights;
+                const allowedWs = lp?.allowedWorkstations || [];
+                const restrictedWs = lp?.workstationRestrictionMode === 'restricted' && allowedWs.length > 0;
+                const smartcardRequired = data.security.uacFlags.includes('SMARTCARD_REQUIRED');
+                const notDelegated = data.security.uacFlags.includes('NOT_DELEGATED');
+                const wsLogonBlockedByAd =
+                  !data.security.accountEnabled ||
+                  data.security.accountExpired ||
+                  lp?.logonHoursAllowedHoursCount === 0;
+
+                return (
+                  <div className={`xl:col-span-12 rounded-xl border p-5 space-y-5 ${surfaceBg}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-sm font-semibold">
+                        <Monitor className="w-4 h-4 text-teal-500 shrink-0" />
+                        <span className={textPrimary}>
+                          {isEn
+                            ? 'Local Logon Rights, Permitted Workstations & Windows Profile'
+                            : 'دسترسی لاگان لوکال، سیستم‌های مجاز ورود و مسیر پروفایل ویندوز'}
+                        </span>
+                        <FieldInfoTooltip
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                          fieldName={
+                            isEn
+                              ? 'Local Logon, Permitted Workstations & Profile'
+                              : 'لاگان لوکال، سیستم‌های مجاز و پروفایل'
+                          }
+                          whatIsIt={
+                            isEn
+                              ? 'Displays AD workstation restrictions (userWorkstations), Windows User Profile type (Local vs Roaming), home/script paths, weekly Logon Hours, and live Domain Controller User Rights Assignment.'
+                              : 'تنظیمات سیستم‌های مجاز برای لاگین (userWorkstations)، نوع پروفایل ویندوز (لوکال یا Roaming)، مسیر درایو خانگی و اسکریپت، ساعات مجاز ورود و مجوز ورود محلی روی دامین کنترلر را نمایش می‌دهد.'
+                          }
+                          whyNeeded={
+                            isEn
+                              ? 'Helps HelpDesk diagnose why a user cannot sign into a specific PC ("your account is configured to prevent you from using this PC"), confirm whether profiles roam or stay local, and verify local logon policies.'
+                              : 'به کارشناسان هلپ‌دسک کمک می‌کند علت خطای عدم اجازه ورود کاربر روی یک سیستم خاص، محل ذخیره پروفایل (لوکال روی سیستم یا شبکه)، ساعات مجاز ورود و مجوز لاگان لوکال را سریع بررسی کنند.'
+                          }
+                          example={
+                            isEn
+                              ? 'Log On To: All Computers or PC-FIN-01,SRV-APP02 · Profile: Local Profile (%SystemDrive%\\Users\\j.doe)'
+                              : 'سیستم‌های مجاز: همه سیستم‌ها یا PC-FIN-01 · پروفایل: پروفایل لوکال (Local Profile)'
+                          }
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                        <span
+                          className={`px-2 py-0.5 rounded font-semibold ${
+                            lp?.profileType === 'roaming'
+                              ? 'bg-sky-500/15 text-sky-500'
+                              : 'bg-teal-500/15 text-teal-500'
+                          }`}
+                        >
+                          {lp?.profileType === 'roaming'
+                            ? isEn
+                              ? 'Roaming Profile'
+                              : 'پروفایل شبکه (Roaming)'
+                            : isEn
+                            ? 'Local Profile'
+                            : 'پروفایل لوکال (Local Profile)'}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded font-semibold ${
+                            restrictedWs
+                              ? 'bg-amber-500/15 text-amber-500'
+                              : 'bg-emerald-500/15 text-emerald-500'
+                          }`}
+                        >
+                          {restrictedWs
+                            ? isEn
+                              ? `${allowedWs.length} Authorized Workstation(s)`
+                              : `محدود به ${allowedWs.length} سیستم مجاز`
+                            : isEn
+                            ? 'All Workstations Permitted'
+                            : 'مجاز در همه سیستم‌های دامین'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      {/* Card 1: Authorized Computers / Workstations (Log On To) */}
+                      <div className={`rounded-lg border p-4 space-y-3 ${subSurfaceBg}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-xs font-bold flex items-center gap-1.5 ${textPrimary}`}>
+                            <Monitor className="w-3.5 h-3.5 text-sky-500" />
+                            <span>
+                              {isEn
+                                ? 'Authorized Computers (Log On To)'
+                                : 'سیستم‌های مجاز برای ورود (Log On To)'}
+                            </span>
+                          </span>
+                          <FieldInfoTooltip
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                            fieldName={isEn ? 'AD userWorkstations Attribute' : 'فیلد سیستم‌های مجاز AD'}
+                            whatIsIt={
+                              isEn
+                                ? 'Active Directory userWorkstations list restricting which computer names this account may sign onto.'
+                                : 'فیلد userWorkstations در اکتیو دایرکتوری که مشخص می‌کند کاربر فقط روی کدام نام سیستم‌ها اجازه لاگین دارد.'
+                            }
+                            whyNeeded={
+                              isEn
+                                ? 'If populated, logging onto any unlisted computer immediately fails with a workstation restriction error.'
+                                : 'اگر نام سیستمی در این لیست نباشد، ورود کاربر به آن سیستم بلافاصله با خطای عدم مجوز سیستم مسدود می‌شود.'
+                            }
+                            example="WS-ACC-01, RDS-HOST-02 (empty = All Computers)"
+                          />
+                        </div>
+
+                        {restrictedWs ? (
+                          <div className="space-y-2">
+                            <p className={`text-[11px] leading-relaxed ${textMuted}`}>
+                              {isEn
+                                ? `Restricted strictly to the following ${allowedWs.length} NetBIOS workstation(s):`
+                                : `ورود این کاربر فقط روی ${allowedWs.length} سیستم زیر مجاز است:`}
+                            </p>
+                            <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                              {allowedWs.map((wsName, idx) => (
+                                <button
+                                  key={`${wsName}-${idx}`}
+                                  type="button"
+                                  onClick={() => handleCopy(wsName, `ws-${idx}`)}
+                                  title={isEn ? 'Copy workstation name' : 'کپی نام سیستم'}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-mono font-semibold transition cursor-pointer ${
+                                    isLightMode
+                                      ? 'bg-white hover:bg-sky-50 border-slate-300 text-slate-800'
+                                      : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-200'
+                                  }`}
+                                  dir="ltr"
+                                >
+                                  <span>{wsName}</span>
+                                  {copiedKey === `ws-${idx}` ? (
+                                    <Check className="w-3 h-3 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="w-3 h-3 opacity-60" />
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-500/15 text-emerald-500 text-xs font-semibold">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>
+                                {isEn ? 'All Domain Workstations (Unrestricted)' : 'همه سیستم‌های دامین (بدون محدودیت)'}
+                              </span>
+                            </div>
+                            <p className={`text-[11px] leading-relaxed ${textMuted}`}>
+                              {isEn
+                                ? 'AD userWorkstations is not restricted; user can sign into any domain-joined workstation (subject to GPO & logon hours).'
+                                : 'فیلد userWorkstations محدود نشده است؛ کاربر مجاز به ورود روی تمامی سیستم‌های عضو دامین است (تابع GPO و ساعات ورود).'}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Logon Hours summary */}
+                        <div className={`pt-2.5 border-t space-y-1 ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
+                          <div className={`flex items-center justify-between text-[11px] ${textMuted}`}>
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-teal-500" />
+                              <span>{isEn ? 'Allowed Logon Hours' : 'ساعات مجاز لاگین'}</span>
+                            </span>
+                            <span
+                              className={`font-semibold ${
+                                lp?.logonHoursMode === 'restricted'
+                                  ? lp.logonHoursAllowedHoursCount === 0
+                                    ? 'text-rose-500'
+                                    : 'text-amber-500'
+                                  : 'text-emerald-500'
+                              }`}
+                            >
+                              {lp?.logonHoursMode === 'restricted'
+                                ? isEn
+                                  ? `${lp.logonHoursAllowedHoursCount ?? 0}/168h`
+                                  : `${lp.logonHoursAllowedHoursCount ?? 0} از ۱۶۸ ساعت`
+                                : isEn
+                                ? '24/7'
+                                : '۲۴ ساعته'}
+                            </span>
+                          </div>
+                          <div className={`text-[11px] leading-relaxed ${textSecondary}`}>
+                            {lp ? (isEn ? lp.logonHoursSummaryEn : lp.logonHoursSummaryFa) : '-'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card 2: Local Logon & DC Interactive Rights */}
+                      <div className={`rounded-lg border p-4 space-y-3 ${subSurfaceBg}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-xs font-bold flex items-center gap-1.5 ${textPrimary}`}>
+                            <ShieldCheck className="w-3.5 h-3.5 text-teal-500" />
+                            <span>
+                              {isEn ? 'Local & Interactive Logon Status' : 'وضعیت لاگان لوکال و تعاملی (Interactive)'}
+                            </span>
+                          </span>
+                          <FieldInfoTooltip
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                            fieldName={isEn ? 'Local & Interactive Logon' : 'لاگان لوکال (Interactive Logon)'}
+                            whatIsIt={
+                              isEn
+                                ? 'Shows both Workstation Local Logon eligibility from AD state and live Domain Controller User Rights Assignment (SeInteractiveLogonRight / SeDenyInteractiveLogonRight / RDP) via WinRM.'
+                                : 'امکان لاگین لوکال در سطح سیستم‌های کاری (Workstation) بر اساس وضعیت AD و همچنین مجوز لاگان لوکال/RDP روی دامین کنترلر از طریق WinRM را نشان می‌دهد.'
+                            }
+                            whyNeeded={
+                              isEn
+                                ? 'Standard domain users can sign in locally to domain PCs unless restricted, whereas Domain Controller local logon requires explicit DC policy membership (e.g., Administrators).'
+                                : 'کاربران عادی به‌صورت پیش‌فرض فقط روی کلاینت‌ها دسترسی لاگان لوکال دارند و ورود لوکال روی خود دامین کنترلر نیازمند مجوز SeInteractiveLogonRight در پالیسی DC است.'
+                            }
+                            example="PC Interactive: Permitted · DC Local Logon: Denied / Restricted (standard user)"
+                          />
+                        </div>
+
+                        {/* Workstation Local Logon Gate */}
+                        <div
+                          className={`rounded-md border p-2.5 space-y-1 ${
+                            isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className={textMuted}>
+                              {isEn ? 'Domain Workstation Local Logon' : 'لاگان لوکال روی سیستم‌های کاری'}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded font-semibold ${
+                                wsLogonBlockedByAd
+                                  ? 'bg-rose-500/15 text-rose-500'
+                                  : restrictedWs
+                                  ? 'bg-amber-500/15 text-amber-500'
+                                  : 'bg-emerald-500/15 text-emerald-500'
+                              }`}
+                            >
+                              {wsLogonBlockedByAd
+                                ? isEn
+                                  ? 'Blocked by Account State'
+                                  : 'مسدود توسط وضعیت اکانت'
+                                : restrictedWs
+                                ? isEn
+                                  ? 'Permitted on Listed PCs'
+                                  : 'مجاز روی سیستم‌های لیست‌شده'
+                                : isEn
+                                ? 'Permitted (Standard AD)'
+                                : 'مجاز (استاندارد دامین)'}
+                            </span>
+                          </div>
+                          {(smartcardRequired || notDelegated) && (
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {smartcardRequired && (
+                                <span className="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-400 text-[10px] font-mono">
+                                  SMARTCARD_REQUIRED
+                                </span>
+                              )}
+                              {notDelegated && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 text-[10px] font-mono">
+                                  NOT_DELEGATED
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Live DC SeInteractiveLogonRight / SeRemoteInteractiveLogonRight */}
+                        <div
+                          className={`rounded-md border p-2.5 space-y-1.5 ${
+                            isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className={textMuted}>
+                              {isEn ? 'DC Local Logon Policy' : 'پالیسی لاگان لوکال روی DC'}
+                              {dcRights?.dcHost ? ` (${dcRights.dcHost})` : ''}
+                            </span>
+                            {dcRights?.status === 'available' ? (
+                              <span
+                                className={`px-1.5 py-0.5 rounded font-semibold ${
+                                  dcRights.allowLocalOnDc
+                                    ? 'bg-emerald-500/15 text-emerald-500'
+                                    : dcRights.denyLocalOnDc
+                                    ? 'bg-rose-500/15 text-rose-500'
+                                    : 'bg-slate-500/20 text-slate-400'
+                                }`}
+                              >
+                                {dcRights.allowLocalOnDc
+                                  ? isEn
+                                    ? 'Allowed on DC'
+                                    : 'مجاز روی DC'
+                                  : dcRights.denyLocalOnDc
+                                  ? isEn
+                                    ? 'Explicitly Denied'
+                                    : 'ممنوع صریح (Deny)'
+                                  : isEn
+                                  ? 'Not Granted on DC'
+                                  : 'بدون مجوز روی DC'}
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded bg-slate-500/15 text-slate-400 font-medium">
+                                {isEn ? 'WinRM Unavailable' : 'WinRM در دسترس نبود'}
+                              </span>
+                            )}
+                          </div>
+
+                          {dcRights?.status === 'available' ? (
+                            <div className={`text-[11px] space-y-1 ${textMuted}`}>
+                              <div>
+                                {isEn ? 'DC RDP Logon:' : 'ورود RDP به DC:'}{' '}
+                                <span
+                                  className={`font-semibold ${
+                                    dcRights.allowRdpOnDc
+                                      ? 'text-emerald-500'
+                                      : dcRights.denyRdpOnDc
+                                      ? 'text-rose-500'
+                                      : textSecondary
+                                  }`}
+                                >
+                                  {dcRights.allowRdpOnDc
+                                    ? isEn
+                                      ? 'Allowed'
+                                      : 'مجاز'
+                                    : dcRights.denyRdpOnDc
+                                    ? isEn
+                                      ? 'Denied'
+                                      : 'ممنوع'
+                                    : isEn
+                                    ? 'Not Granted'
+                                    : 'بدون مجوز'}
+                                </span>
+                              </div>
+                              {dcRights.matchedAllowLocalTrustees.length > 0 && (
+                                <div className="font-mono text-[10px] break-all" dir="ltr">
+                                  Allow via: {dcRights.matchedAllowLocalTrustees.join(', ')}
+                                </div>
+                              )}
+                              {dcRights.matchedDenyLocalTrustees.length > 0 && (
+                                <div className="font-mono text-[10px] text-rose-500 break-all" dir="ltr">
+                                  Deny via: {dcRights.matchedDenyLocalTrustees.join(', ')}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className={`text-[11px] leading-relaxed ${textMuted}`}>
+                              {dcRights
+                                ? isEn
+                                  ? dcRights.noteEn
+                                  : dcRights.noteFa
+                                : isEn
+                                ? 'Re-run inspection to fetch DC User Rights Assignment telemetry.'
+                                : 'برای دریافت اطلاعات سیاست محلی DC، استعلام کاربر را مجدداً اجرا کنید.'}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Card 3: Windows User Profile, Home Folder & Logon Script */}
+                      <div className={`rounded-lg border p-4 space-y-3 ${subSurfaceBg}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-xs font-bold flex items-center gap-1.5 ${textPrimary}`}>
+                            <FolderOpen className="w-3.5 h-3.5 text-indigo-500" />
+                            <span>
+                              {isEn ? 'Profile Path, Home Folder & Script' : 'پروفایل ویندوز، پوشه خانگی و اسکریپت'}
+                            </span>
+                          </span>
+                          <FieldInfoTooltip
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                            fieldName={isEn ? 'AD Windows Profile Settings' : 'تنظیمات پروفایل ویندوز در AD'}
+                            whatIsIt={
+                              isEn
+                                ? 'Shows AD Profile Path (Roaming vs Local profile), Home Directory/Drive mapping, and Logon Script.'
+                                : 'مسیر پروفایل شبکه (یا ایجاد پروفایل لوکال روی سیستم)، مسیر درایو خانگی و اسکریپت ورود کاربر در AD را نمایش می‌دهد.'
+                            }
+                            whyNeeded={
+                              isEn
+                                ? 'Verifies whether user desktop/AppData is stored locally on the PC or loaded from a UNC file share during logon.'
+                                : 'مشخص می‌کند دسکتاپ و تنظیمات ویندوز کاربر به‌صورت لوکال روی همان سیستم ذخیره می‌شوند یا از روی شبکه (Roaming) بارگذاری می‌گردند.'
+                            }
+                            example="Profile: Local (%SystemDrive%\\Users\\j.doe) · Home: H: -> \\\\fs01\\users\\j.doe"
+                          />
+                        </div>
+
+                        <div className="space-y-2 text-xs">
+                          {/* Profile Path */}
+                          <div
+                            className={`rounded-md border p-2.5 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className={`text-[11px] ${textMuted}`}>
+                                {isEn ? 'User Profile Mode / Path' : 'نوع و مسیر پروفایل ویندوز'}
+                              </span>
+                              <span
+                                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                                  lp?.profileType === 'roaming'
+                                    ? 'bg-sky-500/15 text-sky-500'
+                                    : 'bg-teal-500/15 text-teal-500'
+                                }`}
+                              >
+                                {lp?.profileType === 'roaming'
+                                  ? isEn
+                                    ? 'Roaming'
+                                    : 'شبکه (Roaming)'
+                                  : isEn
+                                  ? 'Local'
+                                  : 'لوکال (Local)'}
+                              </span>
+                            </div>
+                            {lp?.profilePath ? (
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`font-mono text-[11px] break-all ${textPrimary}`} dir="ltr">
+                                  {lp.profilePath}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(lp.profilePath, 'prof-path')}
+                                  className={`p-1 rounded hover:bg-teal-500/15 shrink-0 cursor-pointer ${textMuted}`}
+                                >
+                                  {copiedKey === 'prof-path' ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className={`text-[11px] font-mono ${textSecondary}`} dir="ltr">
+                                {isEn
+                                  ? `%SystemDrive%\\Users\\${data.profile.samAccountName} (Local Profile)`
+                                  : `لوکال روی سیستم (%SystemDrive%\\Users\\${data.profile.samAccountName})`}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Home Folder */}
+                          <div
+                            className={`rounded-md border p-2.5 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+                            }`}
+                          >
+                            <div className={`text-[11px] mb-1 ${textMuted}`}>
+                              {isEn ? 'Home Folder (Drive & Directory)' : 'پوشه خانگی (Home Folder)'}
+                            </div>
+                            {lp?.homeDirectory ? (
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`font-mono text-[11px] break-all ${textPrimary}`} dir="ltr">
+                                  {lp.homeDrive ? `${lp.homeDrive} → ` : ''}
+                                  {lp.homeDirectory}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(lp.homeDirectory, 'home-dir')}
+                                  className={`p-1 rounded hover:bg-teal-500/15 shrink-0 cursor-pointer ${textMuted}`}
+                                >
+                                  {copiedKey === 'home-dir' ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className={`text-[11px] ${textMuted}`}>
+                                {isEn ? 'Not configured in AD' : 'تنظیم نشده است'}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Logon Script */}
+                          <div
+                            className={`rounded-md border p-2.5 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+                            }`}
+                          >
+                            <div className={`text-[11px] flex items-center gap-1 mb-1 ${textMuted}`}>
+                              <Terminal className="w-3 h-3 text-amber-500" />
+                              <span>{isEn ? 'Logon Script' : 'اسکریپت ورود (Logon Script)'}</span>
+                            </div>
+                            {lp?.scriptPath ? (
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`font-mono text-[11px] break-all ${textPrimary}`} dir="ltr">
+                                  {lp.scriptPath}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(lp.scriptPath, 'script-path')}
+                                  className={`p-1 rounded hover:bg-teal-500/15 shrink-0 cursor-pointer ${textMuted}`}
+                                >
+                                  {copiedKey === 'script-path' ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className={`text-[11px] ${textMuted}`}>
+                                {isEn ? 'None configured' : 'تنظیم نشده است'}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 

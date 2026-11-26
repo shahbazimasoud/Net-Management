@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.490.0';
+export const APP_VERSION = '1.491.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.491.0',
+    releaseDate: '2026-11-26',
+    type: 'minor',
+    title: 'نمایش دسترسی لاگان لوکال، سیستم‌های مجاز ورود (userWorkstations) و تنظیمات پروفایل ویندوز در تب پروفایل کاربر',
+    title_en: 'Display Local Logon Rights, Authorized Workstations (userWorkstations), Logon Hours & Windows Profile Paths in User Profile Tab',
+    changes: [
+      'دریافت واقعی ویژگی‌های `userWorkstations`، `profilePath`، `scriptPath`، `homeDirectory`، `homeDrive`، `logonHours` و `tokenGroups` از طریق LDAP/LDAPS و WinRM ADSI در بک‌اند.',
+      'افزودن بررسی زنده سیاست‌های `secedit` دامین کنترلر (`SeInteractiveLogonRight`، `SeDenyInteractiveLogonRight`، `SeRemoteInteractiveLogonRight`) برای تشخیص دسترسی لاگان لوکال و RDP روی DC با تطبیق SID کاربر و تمام گروه‌های عضو.',
+      'افزودن کارت جامع «دسترسی لاگان لوکال، سیستم‌های مجاز ورود و مسیر پروفایل ویندوز» در تب اول (`پروفایل سازمانی و راه‌های ارتباطی`) صفحه پشتیبانی کاربران همراه با کپی سریع، تحلیل وضعیت پروفایل لوکال/Roaming و راهنمای سه‌بخشی Info.'
+    ],
+    changes_en: [
+      'Extended AD LDAP/LDAPS and WinRM ADSI user queries to fetch `userWorkstations`, `profilePath`, `scriptPath`, `homeDirectory`, `homeDrive`, decoded 21-byte UTC `logonHours`, and `tokenGroups` SIDs.',
+      'Added live WinRM Domain Controller User Rights Assignment audit (`secedit /export /areas USER_RIGHTS`) matching user + nested group SIDs against `SeInteractiveLogonRight`, `SeDenyInteractiveLogonRight`, and `SeRemoteInteractiveLogonRight`.',
+      'Rendered a dedicated "Local Logon Rights, Permitted Workstations & Windows Profile" section inside Tab 1 (`Profile, Role & Contact Info`) with copyable workstation/profile paths, Local vs Roaming classification, logon hours summary, and 3-part FieldInfoTooltips.'
+    ]
+  },
   {
     version: '1.490.0',
     releaseDate: '2026-11-26',

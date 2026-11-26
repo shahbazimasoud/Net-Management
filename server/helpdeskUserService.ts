@@ -202,6 +202,36 @@ export interface HelpdeskUserInspectionResult {
   };
   groups: HelpdeskUserGroupEntry[];
   mailbox: HelpdeskUserMailboxInfo;
+  logonAndProfile?: HelpdeskUserLogonAndProfileInfo;
+}
+
+export interface HelpdeskUserLogonAndProfileInfo {
+  userWorkstationsRaw: string;
+  allowedWorkstations: string[];
+  workstationRestrictionMode: 'unrestricted' | 'restricted';
+  profilePath: string;
+  profileType: 'roaming' | 'local';
+  scriptPath: string;
+  homeDirectory: string;
+  homeDrive: string;
+  logonHoursMode: 'unrestricted_24_7' | 'restricted' | 'unknown';
+  logonHoursAllowedHoursCount: number | null;
+  logonHoursSummaryEn: string;
+  logonHoursSummaryFa: string;
+  dcInteractiveRights: {
+    status: 'available' | 'unavailable';
+    dcHost: string;
+    allowLocalOnDc: boolean | null;
+    denyLocalOnDc: boolean | null;
+    allowRdpOnDc: boolean | null;
+    denyRdpOnDc: boolean | null;
+    matchedAllowLocalTrustees: string[];
+    matchedDenyLocalTrustees: string[];
+    matchedAllowRdpTrustees: string[];
+    matchedDenyRdpTrustees: string[];
+    noteEn: string;
+    noteFa: string;
+  };
 }
 
 export interface HelpdeskUserUnlockResult {
@@ -1226,6 +1256,7 @@ $props = @(
   'facsimileTelephoneNumber','mail','proxyAddresses','wWWHomePage',
   'userAccountControl','msDS-User-Account-Control-Computed','pwdLastSet','msDS-UserPasswordExpiryTimeComputed',
   'lockoutTime','badPwdCount','badPasswordTime','accountExpires','lastLogon','lastLogonTimestamp','logonCount',
+  'userWorkstations','profilePath','scriptPath','homeDirectory','homeDrive','logonHours',
   'memberOf','primaryGroupID','msDS-ResultantPSO',
   'msExchMailboxGuid','msExchArchiveGUID','msExchArchiveName','homeMDB','msExchHomeServerName','mailNickname',
   'mDBUseDefaults','mDBStorageQuota','mDBOverQuotaLimit','mDBOverHardQuotaLimit','msExchArchiveQuota'
@@ -1257,9 +1288,9 @@ $maxPwdAge = if ($domEntry.Properties['maxPwdAge'] -and $domEntry.Properties['ma
   try { [string]$domEntry.InvokeGet('maxPwdAge') } catch { '' }
 } else { '' }
 
-# Fetch msDS-User-Account-Control-Computed and Expiry via DirectoryEntry RefreshCache
+# Fetch msDS-User-Account-Control-Computed, Expiry, and tokenGroups via DirectoryEntry RefreshCache
 $userDe = $res.GetDirectoryEntry()
-try { $userDe.RefreshCache(@('msDS-User-Account-Control-Computed','msDS-UserPasswordExpiryTimeComputed')) } catch {}
+try { $userDe.RefreshCache(@('msDS-User-Account-Control-Computed','msDS-UserPasswordExpiryTimeComputed','tokenGroups')) } catch {}
 $uacComputed = 0
 try { if ($userDe.Properties['msDS-User-Account-Control-Computed'].Count -gt 0) { $uacComputed = [int]$userDe.Properties['msDS-User-Account-Control-Computed'][0] } } catch {}
 $pwdExpiryRaw = ''
@@ -1267,6 +1298,16 @@ try {
   if ($userDe.Properties['msDS-UserPasswordExpiryTimeComputed'].Count -gt 0) {
     $v = $userDe.Properties['msDS-UserPasswordExpiryTimeComputed'][0]
     $pwdExpiryRaw = [string]([int64]$userDe.ConvertLargeIntegerToInt64($v))
+  }
+} catch {}
+$tokenSids = @()
+try {
+  if ($userDe.Properties['tokenGroups'].Count -gt 0) {
+    foreach ($tb in $userDe.Properties['tokenGroups']) {
+      if ($tb) {
+        $tokenSids += (New-Object System.Security.Principal.SecurityIdentifier($tb, 0)).Value
+      }
+    }
   }
 } catch {}
 
@@ -1344,6 +1385,11 @@ try {
   $pBytes = $res.Properties['thumbnailphoto'][0]
   if ($pBytes -and $pBytes.Length -le 262144) { $photoB64 = [Convert]::ToBase64String($pBytes) }
 } catch {}
+$logonHoursB64 = ''
+try {
+  $lhBytes = $res.Properties['logonhours'][0]
+  if ($lhBytes -and $lhBytes.Length -gt 0) { $logonHoursB64 = [Convert]::ToBase64String($lhBytes) }
+} catch {}
 
 $mbxGuidSet = $false
 try { $mbxGuidSet = ($res.Properties['msexchmailboxguid'].Count -gt 0) } catch {}
@@ -1401,6 +1447,13 @@ try { $archGuidSet = ($res.Properties['msexcharchiveguid'].Count -gt 0) } catch 
   lastLogon = Get-SingleProp $res 'lastLogon'
   lastLogonTimestamp = Get-SingleProp $res 'lastLogonTimestamp'
   logonCount = [int](Get-SingleProp $res 'logonCount')
+  userWorkstations = Get-SingleProp $res 'userWorkstations'
+  profilePath = Get-SingleProp $res 'profilePath'
+  scriptPath = Get-SingleProp $res 'scriptPath'
+  homeDirectory = Get-SingleProp $res 'homeDirectory'
+  homeDrive = Get-SingleProp $res 'homeDrive'
+  logonHoursB64 = $logonHoursB64
+  tokenGroupSids = $tokenSids
   memberOf = Get-MultiProp $res 'memberOf'
   primaryGroupID = Get-SingleProp $res 'primaryGroupID'
   polMaxPwdAge = if ($polRes) { Get-SingleProp $polRes 'maxPwdAge' } else { '' }
@@ -1650,7 +1703,30 @@ try { $archGuidSet = ($res.Properties['msexcharchiveguid'].Count -gt 0) } catch 
       lastLogonTime: null,
       archiveEnabled: Boolean(raw.archGuidSet),
     },
-  };
+    logonAndProfile: buildLogonAndProfileInfo({
+      userWorkstationsRaw: String(raw.userWorkstations || ''),
+      profilePath: String(raw.profilePath || ''),
+      scriptPath: String(raw.scriptPath || ''),
+      homeDirectory: String(raw.homeDirectory || ''),
+      homeDrive: String(raw.homeDrive || ''),
+      logonHoursBuf: raw.logonHoursB64 ? Buffer.from(String(raw.logonHoursB64), 'base64') : null,
+      dcInteractiveRights: {
+        status: 'unavailable',
+        dcHost: params.host,
+        allowLocalOnDc: null,
+        denyLocalOnDc: null,
+        allowRdpOnDc: null,
+        denyRdpOnDc: null,
+        matchedAllowLocalTrustees: [],
+        matchedDenyLocalTrustees: [],
+        matchedAllowRdpTrustees: [],
+        matchedDenyRdpTrustees: [],
+        noteEn: 'DC User Rights Assignment check pending.',
+        noteFa: 'بررسی مجوزهای ورود محلی دامین کنترلر در حال انجام است.',
+      },
+    }),
+    _tokenGroupSids: Array.isArray(raw.tokenGroupSids) ? raw.tokenGroupSids.map(String) : [],
+  } as HelpdeskUserInspectionResult & { _tokenGroupSids?: string[] };
 }
 
 // ============================================================================
@@ -1706,6 +1782,12 @@ const USER_LDAP_ATTRIBUTES = [
   'lastLogon',
   'lastLogonTimestamp',
   'logonCount',
+  'userWorkstations',
+  'profilePath',
+  'scriptPath',
+  'homeDirectory',
+  'homeDrive',
+  'logonHours',
   'memberOf',
   'primaryGroupID',
   'msDS-ResultantPSO',
@@ -2167,6 +2249,301 @@ try {
   };
 }
 
+function parseUserWorkstations(raw: string): {
+  userWorkstationsRaw: string;
+  allowedWorkstations: string[];
+  workstationRestrictionMode: 'unrestricted' | 'restricted';
+} {
+  const clean = String(raw || '').trim();
+  const list = dedupeStrings(
+    clean
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+  return {
+    userWorkstationsRaw: clean,
+    allowedWorkstations: list,
+    workstationRestrictionMode: list.length > 0 ? 'restricted' : 'unrestricted',
+  };
+}
+
+function decodeLogonHoursBuffer(buf?: Buffer | null): {
+  mode: 'unrestricted_24_7' | 'restricted' | 'unknown';
+  allowedHoursCount: number | null;
+  summaryEn: string;
+  summaryFa: string;
+} {
+  if (!buf || !Buffer.isBuffer(buf) || buf.length === 0) {
+    return {
+      mode: 'unrestricted_24_7',
+      allowedHoursCount: 168,
+      summaryEn: 'Unrestricted (24/7 — all 168 hours/week allowed)',
+      summaryFa: 'نامحدود (تمام ۲۴ ساعت و ۷ روز هفته مجاز است)',
+    };
+  }
+  if (buf.length < 21) {
+    return {
+      mode: 'unknown',
+      allowedHoursCount: null,
+      summaryEn: `Unrecognized AD logonHours binary length (${buf.length} bytes)`,
+      summaryFa: `ساختار باینری ساعات ورود نامعتبر (${buf.length} بایت)`,
+    };
+  }
+
+  const daysEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const daysFa = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه'];
+  let totalAllowed = 0;
+  const dayRangesEn: string[] = [];
+  const dayRangesFa: string[] = [];
+
+  for (let d = 0; d < 7; d++) {
+    const allowedHours: number[] = [];
+    for (let h = 0; h < 24; h++) {
+      const bitIndex = d * 24 + h;
+      const byteIdx = Math.floor(bitIndex / 8);
+      const bitPos = bitIndex % 8;
+      if ((buf[byteIdx] & (1 << bitPos)) !== 0) {
+        totalAllowed++;
+        allowedHours.push(h);
+      }
+    }
+    if (allowedHours.length > 0 && allowedHours.length < 24) {
+      const minH = String(allowedHours[0]).padStart(2, '0');
+      const maxH = String((allowedHours[allowedHours.length - 1] + 1) % 24).padStart(2, '0');
+      dayRangesEn.push(`${daysEn[d]} ${minH}:00-${maxH}:00`);
+      dayRangesFa.push(`${daysFa[d]} ${minH}:00-${maxH}:00`);
+    } else if (allowedHours.length === 24) {
+      dayRangesEn.push(`${daysEn[d]} Full`);
+      dayRangesFa.push(`${daysFa[d]} تمام‌وقت`);
+    }
+  }
+
+  if (totalAllowed === 168) {
+    return {
+      mode: 'unrestricted_24_7',
+      allowedHoursCount: 168,
+      summaryEn: 'Unrestricted (24/7 — 168/168 hours/week allowed)',
+      summaryFa: 'نامحدود (تمام ۲۴ ساعت و ۷ روز هفته مجاز است — ۱۶۸ از ۱۶۸ ساعت)',
+    };
+  }
+
+  if (totalAllowed === 0) {
+    return {
+      mode: 'restricted',
+      allowedHoursCount: 0,
+      summaryEn: 'Blocked by Logon Hours schedule (0/168 hours allowed)',
+      summaryFa: 'مسدود توسط جدول ساعات ورود (۰ از ۱۶۸ ساعت مجاز)',
+    };
+  }
+
+  return {
+    mode: 'restricted',
+    allowedHoursCount: totalAllowed,
+    summaryEn: `Restricted (${totalAllowed}/168 hrs/week UTC): ${dayRangesEn.join(', ')}`,
+    summaryFa: `محدودشده (${totalAllowed} از ۱۶۸ ساعت در هفته UTC): ${dayRangesFa.join('، ')}`,
+  };
+}
+
+function buildLogonAndProfileInfo(params: {
+  userWorkstationsRaw: string;
+  profilePath: string;
+  scriptPath: string;
+  homeDirectory: string;
+  homeDrive: string;
+  logonHoursBuf?: Buffer | null;
+  dcInteractiveRights: HelpdeskUserLogonAndProfileInfo['dcInteractiveRights'];
+}): HelpdeskUserLogonAndProfileInfo {
+  const ws = parseUserWorkstations(params.userWorkstationsRaw);
+  const lh = decodeLogonHoursBuffer(params.logonHoursBuf);
+  const profilePath = String(params.profilePath || '').trim();
+  const scriptPath = String(params.scriptPath || '').trim();
+  const homeDirectory = String(params.homeDirectory || '').trim();
+  const homeDrive = String(params.homeDrive || '').trim();
+
+  return {
+    userWorkstationsRaw: ws.userWorkstationsRaw,
+    allowedWorkstations: ws.allowedWorkstations,
+    workstationRestrictionMode: ws.workstationRestrictionMode,
+    profilePath,
+    profileType: profilePath ? 'roaming' : 'local',
+    scriptPath,
+    homeDirectory,
+    homeDrive,
+    logonHoursMode: lh.mode,
+    logonHoursAllowedHoursCount: lh.allowedHoursCount,
+    logonHoursSummaryEn: lh.summaryEn,
+    logonHoursSummaryFa: lh.summaryFa,
+    dcInteractiveRights: params.dcInteractiveRights,
+  };
+}
+
+async function collectDcUserLogonRights(params: {
+  dcHosts: string[];
+  targetSids: string[];
+  adminUsername: string;
+  adminPassword: string;
+  winrmProtocol?: HelpdeskProtocol;
+}): Promise<HelpdeskUserLogonAndProfileInfo['dcInteractiveRights']> {
+  const uniqueHosts = dedupeStrings(params.dcHosts).slice(0, 2);
+  const cleanSids = dedupeStrings(
+    params.targetSids.filter((s) => /^S-\d+(?:-\d+)+$/.test(String(s || '').trim()))
+  );
+
+  if (uniqueHosts.length === 0 || cleanSids.length === 0) {
+    return {
+      status: 'unavailable',
+      dcHost: uniqueHosts[0] || '',
+      allowLocalOnDc: null,
+      denyLocalOnDc: null,
+      allowRdpOnDc: null,
+      denyRdpOnDc: null,
+      matchedAllowLocalTrustees: [],
+      matchedDenyLocalTrustees: [],
+      matchedAllowRdpTrustees: [],
+      matchedDenyRdpTrustees: [],
+      noteEn: 'DC User Rights Assignment inspection skipped (no reachable DC host or SID token).',
+      noteFa: 'بررسی سطح دسترسی لاگان لوکال روی دامین کنترلر انجام نشد (عدم وجود DC یا SID).',
+    };
+  }
+
+  const sidsB64 = Buffer.from(JSON.stringify(cleanSids), 'utf8').toString('base64');
+  const psScript = `
+$ErrorActionPreference = 'Stop'
+$userSids = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
+$decoded = ([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sidsB64}')) | ConvertFrom-Json)
+foreach ($s in $decoded) { if ($s) { [void]$userSids.Add([string]$s) } }
+
+$tmpInf = Join-Path $env:TEMP ("hd_ur_" + [Guid]::NewGuid().ToString('N') + ".inf")
+try {
+  $null = & secedit.exe /export /cfg $tmpInf /areas USER_RIGHTS /quiet 2>&1
+  if (-not (Test-Path $tmpInf)) {
+    throw "secedit did not export USER_RIGHTS policy."
+  }
+  $lines = Get-Content -Path $tmpInf -Encoding Unicode -ErrorAction SilentlyContinue
+  if (-not $lines) { $lines = Get-Content -Path $tmpInf -ErrorAction SilentlyContinue }
+
+  $rights = @{}
+  foreach ($line in $lines) {
+    if ($line -match '^\\s*(SeInteractiveLogonRight|SeDenyInteractiveLogonRight|SeRemoteInteractiveLogonRight|SeDenyRemoteInteractiveLogonRight)\\s*=\\s*(.+)$') {
+      $key = $matches[1]
+      $tokens = $matches[2].Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+      $matchedNames = @()
+      foreach ($tok in $tokens) {
+        $sidVal = ''
+        $friendly = $tok
+        if ($tok.StartsWith('*')) {
+          $sidVal = $tok.Substring(1).Trim()
+          try {
+            $friendly = (New-Object System.Security.Principal.SecurityIdentifier($sidVal)).Translate([System.Security.Principal.NTAccount]).Value
+          } catch {
+            $friendly = $sidVal
+          }
+        } else {
+          try {
+            $nt = New-Object System.Security.Principal.NTAccount($tok)
+            $sidVal = $nt.Translate([System.Security.Principal.SecurityIdentifier]).Value
+          } catch {}
+        }
+        if ($sidVal -and $userSids.Contains($sidVal)) {
+          $matchedNames += $friendly
+        }
+      }
+      $rights[$key] = @($matchedNames | Select-Object -Unique)
+    }
+  }
+
+  $allowLoc = @($rights['SeInteractiveLogonRight'])
+  $denyLoc = @($rights['SeDenyInteractiveLogonRight'])
+  $allowRdp = @($rights['SeRemoteInteractiveLogonRight'])
+  $denyRdp = @($rights['SeDenyRemoteInteractiveLogonRight'])
+
+  [PSCustomObject]@{
+    ok = $true
+    dcHost = $env:COMPUTERNAME
+    allowLocal = ($allowLoc.Count -gt 0 -and $denyLoc.Count -eq 0)
+    denyLocal = ($denyLoc.Count -gt 0)
+    allowRdp = ($allowRdp.Count -gt 0 -and $denyRdp.Count -eq 0)
+    denyRdp = ($denyRdp.Count -gt 0)
+    matchedAllowLocal = $allowLoc
+    matchedDenyLocal = $denyLoc
+    matchedAllowRdp = $allowRdp
+    matchedDenyRdp = $denyRdp
+  } | ConvertTo-Json -Depth 4 -Compress
+} catch {
+  [PSCustomObject]@{ ok = $false; error = [string]$_.Exception.Message } | ConvertTo-Json -Compress
+} finally {
+  if (Test-Path $tmpInf) { Remove-Item -Path $tmpInf -Force -ErrorAction SilentlyContinue }
+}
+`;
+
+  let lastErr = '';
+  for (const host of uniqueHosts) {
+    try {
+      const execRes = await executeHelpdeskPowerShell(
+        {
+          targetIp: host,
+          protocol: params.winrmProtocol || 'auto',
+          username: params.adminUsername,
+          password: params.adminPassword,
+          timeoutMs: 8500,
+        },
+        psScript
+      );
+      const trimmed = execRes.stdout.trim();
+      const sIdx = trimmed.indexOf('{');
+      const eIdx = trimmed.lastIndexOf('}');
+      if (sIdx === -1 || eIdx < sIdx) continue;
+      const parsed: any = JSON.parse(trimmed.slice(sIdx, eIdx + 1));
+      if (!parsed.ok) {
+        lastErr = String(parsed.error || 'secedit failed');
+        continue;
+      }
+
+      const mAllowLoc: string[] = Array.isArray(parsed.matchedAllowLocal) ? parsed.matchedAllowLocal : [];
+      const mDenyLoc: string[] = Array.isArray(parsed.matchedDenyLocal) ? parsed.matchedDenyLocal : [];
+      const mAllowRdp: string[] = Array.isArray(parsed.matchedAllowRdp) ? parsed.matchedAllowRdp : [];
+      const mDenyRdp: string[] = Array.isArray(parsed.matchedDenyRdp) ? parsed.matchedDenyRdp : [];
+
+      return {
+        status: 'available',
+        dcHost: host,
+        allowLocalOnDc: Boolean(parsed.allowLocal),
+        denyLocalOnDc: Boolean(parsed.denyLocal),
+        allowRdpOnDc: Boolean(parsed.allowRdp),
+        denyRdpOnDc: Boolean(parsed.denyRdp),
+        matchedAllowLocalTrustees: mAllowLoc,
+        matchedDenyLocalTrustees: mDenyLoc,
+        matchedAllowRdpTrustees: mAllowRdp,
+        matchedDenyRdpTrustees: mDenyRdp,
+        noteEn: `Evaluated live Windows User Rights Assignment (secedit) on ${host} using user + nested tokenGroups SIDs.`,
+        noteFa: `سیاست‌های محلی دامین کنترلر ${host} (secedit USER_RIGHTS) به صورت زنده با تطبیق SID کاربر و تمام گروه‌های عضو بررسی شد.`,
+      };
+    } catch (err: any) {
+      lastErr = `${host}: ${err?.message || err}`;
+    }
+  }
+
+  return {
+    status: 'unavailable',
+    dcHost: uniqueHosts[0],
+    allowLocalOnDc: null,
+    denyLocalOnDc: null,
+    allowRdpOnDc: null,
+    denyRdpOnDc: null,
+    matchedAllowLocalTrustees: [],
+    matchedDenyLocalTrustees: [],
+    matchedAllowRdpTrustees: [],
+    matchedDenyRdpTrustees: [],
+    noteEn: lastErr
+      ? `WinRM User Rights check on ${uniqueHosts[0]} unavailable (${lastErr}). AD workstation & profile paths still apply.`
+      : `WinRM User Rights check on ${uniqueHosts[0]} unavailable; showing AD workstation & profile attributes.`,
+    noteFa: lastErr
+      ? `بررسی سیاست محلی WinRM روی ${uniqueHosts[0]} در دسترس نبود (${lastErr})؛ تنظیمات سیستم‌های مجاز و پروفایل از AD خوانده شده است.`
+      : `دسترسی WinRM به سیاست محلی دامین کنترلر برقرار نشد؛ تنظیمات پروفایل و سیستم‌های مجاز از AD نمایش داده می‌شود.`,
+  };
+}
+
 export async function inspectTargetDomainUser(
   input: HelpdeskUserInspectInput
 ): Promise<HelpdeskUserInspectionResult> {
@@ -2214,25 +2591,45 @@ export async function inspectTargetDomainUser(
     const hasBindFailure = errors.some((e) => /bind failed|invalid credentials/i.test(e));
     if (!hasBindFailure && fallbackHost) {
       try {
-        const winrmRes = await inspectUserViaWinRmAdsiFallback({
+        const winrmRaw = await inspectUserViaWinRmAdsiFallback({
           targetUsername: cleanTarget,
           adminUsername,
           adminPassword,
           host: fallbackHost,
           winrmProtocol: input.winrmProtocol,
         });
-        const evRes = await collectUserLockoutSecurityEvents({
-          dcHosts: pdcHost ? [pdcHost, fallbackHost] : [fallbackHost],
-          samAccountName: winrmRes.profile.samAccountName,
-          adminUsername,
-          adminPassword,
-          winrmProtocol: input.winrmProtocol,
-        }).catch(() => null);
+        const winrmSids = dedupeStrings([
+          winrmRaw.profile.objectSid,
+          ...(((winrmRaw as any)._tokenGroupSids as string[]) || []),
+          'S-1-5-11',
+          'S-1-1-0',
+        ]);
+        delete (winrmRaw as any)._tokenGroupSids;
+        const winrmRes: HelpdeskUserInspectionResult = winrmRaw;
+        const [evRes, dcRightsRes] = await Promise.all([
+          collectUserLockoutSecurityEvents({
+            dcHosts: pdcHost ? [pdcHost, fallbackHost] : [fallbackHost],
+            samAccountName: winrmRes.profile.samAccountName,
+            adminUsername,
+            adminPassword,
+            winrmProtocol: input.winrmProtocol,
+          }).catch(() => null),
+          collectDcUserLogonRights({
+            dcHosts: pdcHost ? [pdcHost, fallbackHost] : [fallbackHost],
+            targetSids: winrmSids,
+            adminUsername,
+            adminPassword,
+            winrmProtocol: input.winrmProtocol,
+          }).catch(() => null),
+        ]);
         if (evRes) {
           winrmRes.security.lockoutEventsStatus = evRes.status;
           winrmRes.security.lockoutEventsNote = evRes.note;
           winrmRes.security.lockoutEventsNoteFa = evRes.noteFa;
           winrmRes.security.lockoutEvents = evRes.events;
+        }
+        if (dcRightsRes && winrmRes.logonAndProfile) {
+          winrmRes.logonAndProfile.dcInteractiveRights = dcRightsRes;
         }
         if (input.includeMailbox !== false && winrmRes.mailbox.hasMailbox) {
           const { defaultMailHost, candidates } = buildPrioritizedExchangeCandidates({
@@ -2371,10 +2768,21 @@ export async function inspectTargetDomainUser(
     const managerDn = getFirstAttr(attrs, 'manager');
     const directReportDns = getAllAttrs(attrs, 'directReports').slice(0, 25);
 
-    const [managerResolved, directReportsResolved] = await Promise.all([
+    const [managerResolved, directReportsResolved, tokenGroupsRows] = await Promise.all([
       resolvePersonByDn(managerDn),
       Promise.all(directReportDns.map((d) => resolvePersonByDn(d))),
+      ldapSearchEntries(session.client, userDn, {
+        scope: 'base',
+        filter: '(objectClass=*)',
+        attributes: ['tokenGroups'],
+      }).catch(() => []),
     ]);
+
+    const userObjectSid = parseBinarySid(bufs['objectsid']?.[0]);
+    const tokenGroupSids = (tokenGroupsRows[0]?.buffers?.['tokengroups'] || [])
+      .map((b) => parseBinarySid(b))
+      .filter(Boolean);
+    const effectiveUserSids = dedupeStrings([userObjectSid, ...tokenGroupSids, 'S-1-5-11', 'S-1-1-0']);
 
     // Domain password & lockout policy (+ check Fine-Grained Password Policy if msDS-ResultantPSO is set)
     let domainPolicy: HelpdeskUserDomainPolicy = {
@@ -2510,7 +2918,7 @@ export async function inspectTargetDomainUser(
       .filter((h) => h.toLowerCase() !== session.host.toLowerCase() && h.toLowerCase() !== session.domainName.toLowerCase())
       .slice(0, 4);
 
-    const [otherDcResults, secEventsResult] = await Promise.all([
+    const [otherDcResults, secEventsResult, dcRightsResult] = await Promise.all([
       Promise.all(
         otherDcs.map((h) =>
           querySingleDcLockoutAttributes({
@@ -2531,6 +2939,13 @@ export async function inspectTargetDomainUser(
       collectUserLockoutSecurityEvents({
         dcHosts: pdcHost ? [pdcHost, session.host] : [session.host],
         samAccountName: sam,
+        adminUsername,
+        adminPassword,
+        winrmProtocol: input.winrmProtocol,
+      }),
+      collectDcUserLogonRights({
+        dcHosts: pdcHost ? [pdcHost, session.host] : [session.host],
+        targetSids: effectiveUserSids,
         adminUsername,
         adminPassword,
         winrmProtocol: input.winrmProtocol,
@@ -2814,6 +3229,15 @@ export async function inspectTargetDomainUser(
       },
       groups,
       mailbox,
+      logonAndProfile: buildLogonAndProfileInfo({
+        userWorkstationsRaw: getFirstAttr(attrs, 'userWorkstations'),
+        profilePath: getFirstAttr(attrs, 'profilePath'),
+        scriptPath: getFirstAttr(attrs, 'scriptPath'),
+        homeDirectory: getFirstAttr(attrs, 'homeDirectory'),
+        homeDrive: getFirstAttr(attrs, 'homeDrive'),
+        logonHoursBuf: bufs['logonhours']?.[0] || null,
+        dcInteractiveRights: dcRightsResult,
+      }),
     };
   } finally {
     session.close();
