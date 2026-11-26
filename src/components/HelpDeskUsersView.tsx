@@ -70,6 +70,7 @@ import {
   revokeDelegatedUserCredential,
   hasActiveHelpdeskUserAuth,
   exportUserCredentialForGroupHandoff,
+  runHelpdeskUserSearch,
   runHelpdeskUserInspect,
   runHelpdeskUserMailboxRefresh,
   runHelpdeskUserUnlock,
@@ -201,6 +202,8 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
   const [confirmUnlock, setConfirmUnlock] = useState(false);
   const [groupSearch, setGroupSearch] = useState('');
   const [reportGroupSearch, setReportGroupSearch] = useState('');
+  const [showUserBrowser, setShowUserBrowser] = useState(false);
+  const [browserQuery, setBrowserQuery] = useState('');
   const [reinspectBanner, setReinspectBanner] = useState<{ targetUsername: string } | null>(null);
 
   // Check History state (backed by PostgreSQL helpdesk_user_history)
@@ -416,6 +419,12 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
       patchHelpdeskUserRamSnapshot({ activeSubTab: 'overview' });
     }
     await runHelpdeskUserInspect(overrideTarget);
+  };
+
+  const handleSearchDirectoryUsers = async () => {
+    if (!canInspectUsers) return;
+    setShowUserBrowser(true);
+    await runHelpdeskUserSearch(browserQuery);
   };
 
   const handleInspectRelatedPerson = async (samOrDn: string) => {
@@ -1428,6 +1437,21 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
             <span aria-hidden="true">·</span>
             <button
               type="button"
+              disabled={!canInspectUsers}
+              onClick={() => setShowUserBrowser((p) => !p)}
+              className="text-sky-500 hover:underline font-medium cursor-pointer disabled:opacity-40"
+            >
+              {showUserBrowser
+                ? isEn
+                  ? 'Hide AD User Browser'
+                  : 'بستن مرورگر کاربران دامین'
+                : isEn
+                ? 'Browse / Find AD Users'
+                : 'جستجو در لیست کاربران دامین'}
+            </button>
+            <span aria-hidden="true">·</span>
+            <button
+              type="button"
               onClick={() =>
                 patchHelpdeskUserRamSnapshot((prev) => ({
                   showAdvancedConn: !prev.showAdvancedConn,
@@ -1603,6 +1627,131 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
             >
               {isEn ? 'Clear / Enter Different Password' : 'لغو / وارد کردن رمز جدید'}
             </button>
+          </div>
+        )}
+
+        {/* AD User Directory Browser / Quick Finder */}
+        {showUserBrowser && (
+          <div className={`rounded-xl border p-3.5 space-y-3 ${subSurfaceBg}`}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-semibold">
+                  <Search className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                  <span className={textPrimary}>
+                    {isEn ? 'Active Directory User Directory Finder' : 'جستجو و انتخاب کاربر از Active Directory'}
+                  </span>
+                </div>
+                <p className={`mt-1 text-[11px] ${textMuted}`}>
+                  {isEn
+                    ? 'Fill in "Privileged Domain Username" and "Domain Password (Ephemeral)" above first so the Search button is enabled.'
+                    : 'برای فعال شدن دکمه جستجو، ابتدا فیلدهای «نام کاربری دامین با سطح دسترسی» (Privileged Domain Username) و «رمز عبور دامین (موقت)» (Domain Password (Ephemeral)) را در کادر بالا تکمیل کنید.'}
+                </p>
+              </div>
+              {ram.searchMeta && (
+                <span className={`text-[11px] font-mono ${textMuted}`} dir="ltr">
+                  {ram.searchMeta.domainName} ({ram.searchMeta.domainController})
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                dir="ltr"
+                value={browserQuery}
+                onChange={(e) => setBrowserQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSearchDirectoryUsers();
+                  }
+                }}
+                placeholder={
+                  isEn
+                    ? 'Type part of username, display name, email, or department (leave empty for top 50 users)'
+                    : 'بخشی از نام کاربری، نام کامل، ایمیل یا دپارتمان را بنویسید (یا برای ۵۰ کاربر اول خالی بگذارید)'
+                }
+                className={`flex-1 min-w-[220px] px-3 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
+              />
+              <button
+                type="button"
+                disabled={!canInspectUsers || ram.searchingUsers || !canUseCurrentCreds}
+                onClick={handleSearchDirectoryUsers}
+                className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+              >
+                {ram.searchingUsers ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Search className="w-3.5 h-3.5" />
+                )}
+                <span>{isEn ? 'Search AD Users' : 'جستجوی کاربران'}</span>
+              </button>
+            </div>
+
+            {ram.searchError && (
+              <div className="text-xs text-rose-500 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
+                {ram.searchError}
+              </div>
+            )}
+
+            {ram.searchResults.length > 0 && (
+              <div className="max-h-60 overflow-y-auto divide-y divide-slate-800/30 border border-slate-700/30 rounded-lg">
+                {ram.searchResults.map((u) => (
+                  <button
+                    key={u.distinguishedName || u.samAccountName}
+                    type="button"
+                    onClick={() => {
+                      setShowUserBrowser(false);
+                      runHelpdeskUserInspect(u.samAccountName);
+                    }}
+                    className={`w-full text-start px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs transition cursor-pointer ${
+                      isLightMode ? 'hover:bg-sky-50' : 'hover:bg-slate-800/70'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`font-semibold ${textPrimary}`}>{u.displayName || u.samAccountName}</span>
+                        <span className="font-mono text-[11px] text-teal-500" dir="ltr">
+                          @{u.samAccountName}
+                        </span>
+                        {u.accountLocked && (
+                          <span className="px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-500 text-[10px] font-semibold">
+                            {isEn ? 'Locked' : 'قفل‌شده'}
+                          </span>
+                        )}
+                        {!u.accountEnabled && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 text-[10px] font-semibold">
+                            {isEn ? 'Disabled' : 'غیرفعال'}
+                          </span>
+                        )}
+                        {(u.department || u.jobTitle) && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${subSurfaceBg} ${textMuted}`}>
+                            {[u.jobTitle, u.department].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
+                      </div>
+                      <div className={`text-[11px] truncate ${textMuted}`}>
+                        {u.email ? `${u.email} · ` : ''}
+                        {u.organizationalUnit || u.distinguishedName}
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-semibold text-sky-500 shrink-0">
+                      {isEn ? 'Select & Inspect' : 'انتخاب و بررسی'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {!ram.searchingUsers &&
+              ram.searchMeta &&
+              ram.searchResults.length === 0 &&
+              !ram.searchError && (
+                <div className={`text-xs px-3 py-2 rounded-lg border ${subSurfaceBg} ${textMuted}`}>
+                  {isEn
+                    ? 'No Active Directory users matched your query.'
+                    : 'هیچ کاربری در اکتیو دایرکتوری با این عبارت یافت نشد.'}
+                </div>
+              )}
           </div>
         )}
 

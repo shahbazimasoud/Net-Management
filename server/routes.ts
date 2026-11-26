@@ -135,7 +135,9 @@ import {
   inspectTargetDomainUser,
   inspectTargetDomainMailbox,
   unlockTargetDomainUser,
+  searchDomainUsers,
   HelpdeskUserInspectInput,
+  HelpdeskUserSearchInput,
   LdapTransportProtocol,
 } from './helpdeskUserService';
 import {
@@ -11246,6 +11248,51 @@ function extractHelpdeskUserInputFromBody(body: any): HelpdeskUserInspectInput {
     includeMailbox: body?.includeMailbox !== false,
   };
 }
+
+// POST /helpdesk/user/search - Wildcard search AD domain users for quick picker/autocomplete
+apiRouter.post('/helpdesk/user/search', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'ad_user');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const rawLdap = String(req.body?.ldapProtocol || 'auto').trim().toLowerCase();
+  const rawWinrm = String(req.body?.winrmProtocol || 'auto').trim().toLowerCase();
+  const input: HelpdeskUserSearchInput = {
+    query: String(req.body?.query || '').trim(),
+    adminUsername: String(req.body?.adminUsername || '').trim(),
+    adminPassword: String(req.body?.adminPassword || ''),
+    domainController: req.body?.domainController ? String(req.body.domainController).trim() : undefined,
+    ldapProtocol: rawLdap === 'ldaps' || rawLdap === 'ldap' ? rawLdap : 'auto',
+    winrmProtocol:
+      rawWinrm === 'winrm_https' ||
+      rawWinrm === 'winrm_http' ||
+      rawWinrm === 'smb_rpc' ||
+      rawWinrm === 'ssh'
+        ? rawWinrm
+        : 'auto',
+    limit: req.body?.limit !== undefined ? Number(req.body.limit) : 50,
+  };
+
+  if (!input.adminUsername || !input.adminPassword) {
+    return res.status(400).json({
+      success: false,
+      error: 'Ephemeral domain admin username & password are required to search users.',
+      errorFa: 'نام کاربری و رمز عبور ادمین دامین جهت جستجوی کاربران الزامی است.',
+    });
+  }
+
+  try {
+    const data = await searchDomainUsers(input);
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'AD user search failed');
+    return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
 
 // POST /helpdesk/user/inspect - On-demand AD user profile, contacts, password/lockout & mailbox quota
 apiRouter.post('/helpdesk/user/inspect', async (req: Request, res: Response) => {

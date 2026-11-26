@@ -2,8 +2,10 @@ import {
   HelpdeskUserInspectionData,
   HelpdeskUserMailboxInfo,
   HelpdeskTargetUserRequestPayload,
+  HelpdeskUserSearchHit,
   inspectHelpdeskTargetUser,
   refreshHelpdeskTargetMailbox,
+  searchHelpdeskDomainUsers,
   unlockHelpdeskTargetUser,
 } from './api';
 import { loadActiveDirectoryConfig } from './settingsStorage';
@@ -76,6 +78,11 @@ export interface HelpdeskUserRamState {
 
   mailboxLoading: boolean;
   mailboxError: string | null;
+
+  searchingUsers: boolean;
+  searchError: string | null;
+  searchResults: HelpdeskUserSearchHit[];
+  searchMeta: { domainController: string; domainName: string } | null;
 
   unlocking: boolean;
   unlockError: string | null;
@@ -221,6 +228,10 @@ function createInitialHelpdeskUserRamState(): HelpdeskUserRamState {
     lastHistoryId: null,
     mailboxLoading: false,
     mailboxError: null,
+    searchingUsers: false,
+    searchError: null,
+    searchResults: [],
+    searchMeta: null,
     unlocking: false,
     unlockError: null,
     unlockResult: null,
@@ -546,6 +557,51 @@ function buildUserRequestPayload(
 }
 
 const sleepMs = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function runHelpdeskUserSearch(queryOverride?: string): Promise<void> {
+  const snap = ramState;
+  const creds = resolveEffectiveUserCredentials();
+  if (!creds.ok) {
+    const isExpired = 'expired' in creds && creds.expired;
+    patchHelpdeskUserRamSnapshot({
+      searchError: isExpired
+        ? 'Delegated RAM session expired after 30 minutes for security. Please re-enter domain password.'
+        : 'Privileged domain username & password are required first.',
+    });
+    return;
+  }
+
+  patchHelpdeskUserRamSnapshot({
+    searchingUsers: true,
+    searchError: null,
+  });
+
+  try {
+    const res = await searchHelpdeskDomainUsers({
+      query: (queryOverride !== undefined ? queryOverride : snap.targetUsername).trim(),
+      adminUsername: creds.adminUsername,
+      adminPassword: creds.adminPassword,
+      domainController: snap.domainController.trim() || undefined,
+      ldapProtocol: snap.ldapProtocol,
+      winrmProtocol: snap.winrmProtocol,
+      limit: 50,
+    });
+    patchHelpdeskUserRamSnapshot({
+      searchingUsers: false,
+      searchResults: res.data.users || [],
+      searchMeta: {
+        domainController: res.data.domainController,
+        domainName: res.data.domainName,
+      },
+      rateLimit: res.rateLimit ?? ramState.rateLimit,
+    });
+  } catch (err: any) {
+    patchHelpdeskUserRamSnapshot({
+      searchingUsers: false,
+      searchError: err?.message || 'Failed to search Active Directory users',
+    });
+  }
+}
 
 export async function runHelpdeskUserInspect(
   overrideTarget?: string

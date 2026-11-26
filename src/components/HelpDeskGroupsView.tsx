@@ -1003,12 +1003,19 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
         {/* AD Group Directory Browser / Quick Finder */}
         {showGroupBrowser && (
           <div className={`rounded-xl border p-3.5 space-y-3 ${subCardBg}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-semibold">
-                <Search className="w-3.5 h-3.5 text-sky-500" />
-                <span className={textPrimary}>
-                  {isEn ? 'Active Directory Group Directory Finder' : 'جستجو و انتخاب گروه از Active Directory'}
-                </span>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-semibold">
+                  <Search className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                  <span className={textPrimary}>
+                    {isEn ? 'Active Directory Group Directory Finder' : 'جستجو و انتخاب گروه از Active Directory'}
+                  </span>
+                </div>
+                <p className={`mt-1 text-[11px] ${textMuted}`}>
+                  {isEn
+                    ? 'Fill in "Privileged Domain Username" and "Domain Password (Ephemeral)" above first so the Search button is enabled.'
+                    : 'برای فعال شدن دکمه جستجو، ابتدا فیلدهای «نام کاربری دامین با سطح دسترسی» (Privileged Domain Username) و «رمز عبور دامین (موقت)» (Domain Password (Ephemeral)) را در کادر بالا تکمیل کنید.'}
+                </p>
               </div>
               {ram.searchMeta && (
                 <span className={`text-[11px] font-mono ${textMuted}`} dir="ltr">

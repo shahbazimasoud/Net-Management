@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.493.0';
+export const APP_VERSION = '1.494.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.494.0',
+    releaseDate: '2026-11-26',
+    type: 'minor',
+    title: 'افزودن جستجوگر کاربران اکتیو دایرکتوری (Browse / Find AD Users) و راهنمای تکمیل اطلاعات دسترسی در هر دو صفحه',
+    title_en: 'Add Browse / Find AD Users Directory Finder and Credential Prerequisite Hints Across AD HelpDesk Pages',
+    changes: [
+      'افزودن دکمه `Browse / Find AD Users` (`جستجو در لیست کاربران دامین`) در کنار پیام نشست RAM صفحه `Active Directory & User Support HelpDesk` همراه با مسیر بک‌اند `POST /api/helpdesk/user/search` (پشتیبانی از LDAPS، LDAP و فالبک WinRM/ADSI تحت کنترل دسترسی `ad_user`).',
+      'نمایش لیست کاربران پیدا شده شامل نام کامل، `@sAMAccountName`، وضعیت قفل یا غیرفعال بودن، سمت و دپارتمان، ایمیل و مسیر OU با امکان انتخاب مستقیم جهت پایش خودکار تمام تب‌ها.',
+      'افزودن توضیح راهنما زیر عنوان کادر جستجو در هر دو بخش `Active Directory User Directory Finder` و `Active Directory Group Directory Finder` مبنی بر لزوم تکمیل `Privileged Domain Username` و `Domain Password (Ephemeral)` در کادر بالا برای فعال شدن دکمه جستجو.'
+    ],
+    changes_en: [
+      'Added `Browse / Find AD Users` directory browser alongside `Domain credentials stay in RAM only` in `Active Directory & User Support HelpDesk`, backed by `POST /api/helpdesk/user/search` (LDAPS/LDAP with WinRM ADSI fallback under `ad_user` RBAC).',
+      'Displayed matched user entries with display name, `@sAMAccountName`, Locked/Disabled indicators, job title/department, email, and OU path for one-click selection and immediate inspection.',
+      'Added clear bilingual prerequisite instructions beneath the header of both `Active Directory User Directory Finder` and `Active Directory Group Directory Finder` reminding operators to fill in `Privileged Domain Username` and `Domain Password (Ephemeral)` above before Search is enabled.'
+    ]
+  },
   {
     version: '1.493.0',
     releaseDate: '2026-11-26',

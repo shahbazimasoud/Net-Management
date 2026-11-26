@@ -2544,6 +2544,254 @@ try {
   };
 }
 
+export interface HelpdeskUserSearchInput {
+  query?: string;
+  adminUsername: string;
+  adminPassword: string;
+  domainController?: string;
+  ldapProtocol?: LdapTransportProtocol;
+  winrmProtocol?: HelpdeskProtocol;
+  limit?: number;
+}
+
+export interface HelpdeskUserSearchHit {
+  samAccountName: string;
+  userPrincipalName: string;
+  displayName: string;
+  cn: string;
+  distinguishedName: string;
+  organizationalUnit: string;
+  department: string;
+  jobTitle: string;
+  email: string;
+  accountEnabled: boolean;
+  accountLocked: boolean;
+  whenCreated: string | null;
+}
+
+export async function searchDomainUsers(
+  input: HelpdeskUserSearchInput
+): Promise<{
+  domainController: string;
+  domainName: string;
+  method: 'ldaps' | 'ldap' | 'winrm_adsi';
+  port: number;
+  users: HelpdeskUserSearchHit[];
+}> {
+  const adminUsername = String(input.adminUsername || '').trim();
+  const adminPassword = String(input.adminPassword || '');
+  if (!adminUsername || !adminPassword) {
+    throw new Error('Privileged domain username and password are required to search Active Directory users.');
+  }
+
+  const explicitDc = validateSafeHostOrIp(input.domainController, 'Domain Controller');
+  const adConfig = await getActiveDirectoryConfig().catch(() => null);
+  const adminParts = splitUsernameParts(adminUsername);
+  const domainHints = dedupeStrings([adminParts.domain, adConfig?.domain]);
+
+  const { candidates: dcCandidates } = await discoverDcHostsWithPdc({
+    explicitDc,
+    adConfig,
+    domainHints,
+  });
+
+  if (dcCandidates.length === 0) {
+    throw new Error(
+      'No Domain Controller could be resolved automatically. Specify the Domain Controller host/IP in Connection Options or enter credentials with a domain suffix (e.g., admin@corp.local).'
+    );
+  }
+
+  const query = String(input.query || '').trim();
+  const limit = Math.max(5, Math.min(100, Number(input.limit) || 50));
+
+  const { session, errors } = await openAuthenticatedLdapSession({
+    input: {
+      targetUsername: adminUsername,
+      adminUsername,
+      adminPassword,
+      domainController: explicitDc,
+      ldapProtocol: input.ldapProtocol || 'auto',
+    },
+    adConfig,
+    dcCandidates,
+    domainHints,
+  });
+
+  if (session) {
+    try {
+      const escapedQ = escapeLdapFilterValue(query);
+      const filter = query
+        ? `(&(objectCategory=person)(objectClass=user)(|(sAMAccountName=*${escapedQ}*)(userPrincipalName=*${escapedQ}*)(displayName=*${escapedQ}*)(cn=*${escapedQ}*)(mail=*${escapedQ}*)(department=*${escapedQ}*)(title=*${escapedQ}*)))`
+        : '(&(objectCategory=person)(objectClass=user))';
+
+      const rows = await ldapSearchEntries(session.client, session.defaultNamingContext, {
+        scope: 'sub',
+        filter,
+        attributes: [
+          'sAMAccountName',
+          'userPrincipalName',
+          'displayName',
+          'cn',
+          'distinguishedName',
+          'department',
+          'title',
+          'mail',
+          'userAccountControl',
+          'lockoutTime',
+          'msDS-User-Account-Control-Computed',
+          'whenCreated',
+        ],
+        sizeLimit: limit,
+        paged: { pageSize: Math.min(limit, 100) },
+      });
+
+      const users: HelpdeskUserSearchHit[] = rows
+        .map((r) => {
+          const sam = getFirstAttr(r.attrs, 'sAMAccountName');
+          if (!sam) return null;
+          const dn = r.dn || getFirstAttr(r.attrs, 'distinguishedName');
+          const cn = getFirstAttr(r.attrs, 'cn') || sam;
+          const displayName = getFirstAttr(r.attrs, 'displayName') || cn || sam;
+          const uac = Number(getFirstAttr(r.attrs, 'userAccountControl') || 0);
+          const uacComp = Number(getFirstAttr(r.attrs, 'msDS-User-Account-Control-Computed') || 0);
+          const lockRaw = getFirstAttr(r.attrs, 'lockoutTime') || '0';
+          const accountEnabled = (uac & 0x2) === 0;
+          const accountLocked =
+            (uacComp & 0x10) !== 0 || (lockRaw !== '' && lockRaw !== '0');
+
+          return {
+            samAccountName: sam,
+            userPrincipalName: getFirstAttr(r.attrs, 'userPrincipalName'),
+            displayName,
+            cn,
+            distinguishedName: dn,
+            organizationalUnit: extractOuBreadcrumb(dn),
+            department: getFirstAttr(r.attrs, 'department'),
+            jobTitle: getFirstAttr(r.attrs, 'title'),
+            email: getFirstAttr(r.attrs, 'mail'),
+            accountEnabled,
+            accountLocked,
+            whenCreated: adGeneralizedTimeToIso(getFirstAttr(r.attrs, 'whenCreated')),
+          };
+        })
+        .filter((u): u is HelpdeskUserSearchHit => Boolean(u));
+
+      users.sort((a, b) => {
+        if (a.accountLocked !== b.accountLocked) return a.accountLocked ? -1 : 1;
+        return (a.displayName || a.samAccountName).localeCompare(b.displayName || b.samAccountName);
+      });
+
+      return {
+        domainController: session.host,
+        domainName: session.domainName,
+        method: session.useSsl ? 'ldaps' : 'ldap',
+        port: session.port,
+        users: users.slice(0, limit),
+      };
+    } finally {
+      session.close();
+    }
+  }
+
+  // Adaptive legacy fallback: try WinRM / SMB ADSI on first candidate DC unless LDAP returned invalid credentials
+  const fallbackHost = dcCandidates[0];
+  const hasBindFailure = errors.some((e) => /bind failed|invalid credentials/i.test(e));
+  if (!hasBindFailure && fallbackHost) {
+    const safeQ = query.replace(/[()\\*\0]/g, '').replace(/'/g, "''");
+    const ldapFilter = safeQ
+      ? `(&(objectCategory=person)(objectClass=user)(|(sAMAccountName=*${safeQ}*)(userPrincipalName=*${safeQ}*)(displayName=*${safeQ}*)(cn=*${safeQ}*)(mail=*${safeQ}*)(department=*${safeQ}*)))`
+      : '(&(objectCategory=person)(objectClass=user))';
+    const psScript = `
+$ErrorActionPreference = 'Stop'
+$rootDse = [ADSI]"LDAP://RootDSE"
+$defaultNc = [string]$rootDse.defaultNamingContext
+$ds = New-Object System.DirectoryServices.DirectorySearcher([ADSI]"LDAP://$defaultNc")
+$ds.Filter = '${ldapFilter}'
+$ds.PageSize = ${limit}
+$ds.SizeLimit = ${limit}
+@('sAMAccountName','userPrincipalName','displayName','cn','distinguishedName','department','title','mail','userAccountControl','lockoutTime','whenCreated') | ForEach-Object { [void]$ds.PropertiesToLoad.Add($_) }
+$hits = @()
+foreach ($r in $ds.FindAll()) {
+  $p = $r.Properties
+  $sam = if ($p['samaccountname'].Count -gt 0) { [string]$p['samaccountname'][0] } else { '' }
+  if (-not $sam) { continue }
+  $uac = if ($p['useraccountcontrol'].Count -gt 0) { [int]$p['useraccountcontrol'][0] } else { 0 }
+  $lt = if ($p['lockouttime'].Count -gt 0) { [string]$p['lockouttime'][0] } else { '0' }
+  $wc = if ($p['whencreated'].Count -gt 0) { [datetime]$p['whencreated'][0] } else { $null }
+  $hits += [PSCustomObject]@{
+    samAccountName = $sam
+    userPrincipalName = if ($p['userprincipalname'].Count -gt 0) { [string]$p['userprincipalname'][0] } else { '' }
+    displayName = if ($p['displayname'].Count -gt 0) { [string]$p['displayname'][0] } elseif ($p['cn'].Count -gt 0) { [string]$p['cn'][0] } else { $sam }
+    cn = if ($p['cn'].Count -gt 0) { [string]$p['cn'][0] } else { $sam }
+    distinguishedName = if ($p['distinguishedname'].Count -gt 0) { [string]$p['distinguishedname'][0] } else { '' }
+    department = if ($p['department'].Count -gt 0) { [string]$p['department'][0] } else { '' }
+    jobTitle = if ($p['title'].Count -gt 0) { [string]$p['title'][0] } else { '' }
+    email = if ($p['mail'].Count -gt 0) { [string]$p['mail'][0] } else { '' }
+    accountEnabled = (($uac -band 2) -eq 0)
+    accountLocked = ($lt -ne '' -and $lt -ne '0')
+    whenCreated = if ($wc) { $wc.ToUniversalTime().ToString('o') } else { $null }
+  }
+}
+[PSCustomObject]@{
+  defaultNc = $defaultNc
+  users = $hits
+} | ConvertTo-Json -Depth 4 -Compress
+`;
+    const execRes = await executeHelpdeskPowerShell(
+      {
+        targetIp: fallbackHost,
+        protocol: input.winrmProtocol || 'auto',
+        username: adminUsername,
+        password: adminPassword,
+        timeoutMs: 22000,
+      },
+      psScript
+    );
+    const trimmed = execRes.stdout.trim();
+    const sIdx = trimmed.indexOf('{');
+    const eIdx = trimmed.lastIndexOf('}');
+    if (sIdx !== -1 && eIdx >= sIdx) {
+      const parsed: any = JSON.parse(trimmed.slice(sIdx, eIdx + 1));
+      const rawUsers: any[] = Array.isArray(parsed?.users)
+        ? parsed.users
+        : parsed?.users
+        ? [parsed.users]
+        : [];
+      const users: HelpdeskUserSearchHit[] = rawUsers
+        .map((u) => ({
+          samAccountName: String(u.samAccountName || ''),
+          userPrincipalName: String(u.userPrincipalName || ''),
+          displayName: String(u.displayName || u.samAccountName || ''),
+          cn: String(u.cn || u.samAccountName || ''),
+          distinguishedName: String(u.distinguishedName || ''),
+          organizationalUnit: extractOuBreadcrumb(String(u.distinguishedName || '')),
+          department: String(u.department || ''),
+          jobTitle: String(u.jobTitle || ''),
+          email: String(u.email || ''),
+          accountEnabled: u.accountEnabled !== false,
+          accountLocked: Boolean(u.accountLocked),
+          whenCreated: u.whenCreated ? String(u.whenCreated) : null,
+        }))
+        .filter((u) => Boolean(u.samAccountName));
+      users.sort((a, b) => {
+        if (a.accountLocked !== b.accountLocked) return a.accountLocked ? -1 : 1;
+        return (a.displayName || a.samAccountName).localeCompare(b.displayName || b.samAccountName);
+      });
+      return {
+        domainController: fallbackHost,
+        domainName: dnToDomainName(String(parsed?.defaultNc || '')) || domainHints[0] || fallbackHost,
+        method: 'winrm_adsi',
+        port: execRes.portUsed,
+        users: users.slice(0, limit),
+      };
+    }
+  }
+
+  throw new Error(
+    `Failed to bind to Active Directory via LDAPS/LDAP: ${errors.slice(0, 4).join(' ; ')}`
+  );
+}
+
 export async function inspectTargetDomainUser(
   input: HelpdeskUserInspectInput
 ): Promise<HelpdeskUserInspectionResult> {

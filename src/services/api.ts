@@ -3065,6 +3065,50 @@ export interface HelpdeskUserInspectionData {
   };
 }
 
+export interface HelpdeskUserSearchHit {
+  samAccountName: string;
+  userPrincipalName: string;
+  displayName: string;
+  cn: string;
+  distinguishedName: string;
+  organizationalUnit: string;
+  department: string;
+  jobTitle: string;
+  email: string;
+  accountEnabled: boolean;
+  accountLocked: boolean;
+  whenCreated: string | null;
+}
+
+export async function searchHelpdeskDomainUsers(payload: {
+  query?: string;
+  adminUsername: string;
+  adminPassword: string;
+  domainController?: string;
+  ldapProtocol?: 'auto' | 'ldaps' | 'ldap';
+  winrmProtocol?: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
+  limit?: number;
+}): Promise<{
+  success: boolean;
+  data: {
+    domainController: string;
+    domainName: string;
+    method: 'ldaps' | 'ldap' | 'winrm_adsi';
+    port: number;
+    users: HelpdeskUserSearchHit[];
+  };
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/user/search`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Active Directory user search failed');
+  return res.json();
+}
+
 export async function inspectHelpdeskTargetUser(
   payload: HelpdeskTargetUserRequestPayload
 ): Promise<{
