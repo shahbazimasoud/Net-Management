@@ -184,8 +184,16 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
   const hasFull = isSuper || isDomAdmin;
   const canInspectGroups =
     hasFull ||
-    (effectivePolicy?.canViewHelpdesk === true &&
-      effectivePolicy?.canInspectHelpdeskDomainUsers === true);
+    (effectivePolicy?.canViewHelpdeskGroups !== undefined
+      ? effectivePolicy.canViewHelpdeskGroups === true
+      : effectivePolicy?.canViewHelpdesk === true &&
+        effectivePolicy?.canInspectHelpdeskDomainUsers === true);
+  const canManageGroupHistory =
+    hasFull ||
+    (canInspectGroups &&
+      (effectivePolicy?.canUnlockHelpdeskDomainUsers !== undefined
+        ? effectivePolicy.canUnlockHelpdeskDomainUsers === true
+        : effectivePolicy?.canExecuteHelpdeskActions === true));
   const canViewAllHistory =
     hasFull ||
     (canInspectGroups && effectivePolicy?.canViewAllHelpdeskHistory === true);
@@ -304,6 +312,7 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
   ]);
 
   const handleDeleteHistoryItem = async (id: string) => {
+    if (!canManageGroupHistory) return;
     setBusyHistoryId(id);
     setHistoryNotice(null);
     try {
@@ -324,6 +333,7 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
   };
 
   const handleClearHistory = async () => {
+    if (!canManageGroupHistory) return;
     setBusyHistoryId('ALL');
     setHistoryNotice(null);
     try {
@@ -347,6 +357,7 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
   };
 
   const handleReinspectFromHistory = (targetGroup: string, dcHint?: string) => {
+    if (!canInspectGroups) return;
     patchHelpdeskGroupRamSnapshot({
       targetGroup,
       ...(dcHint ? { domainController: dcHint } : {}),
@@ -372,11 +383,13 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
 
   const handleSubmitInspect = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canInspectGroups) return;
     setReinspectBanner(null);
     await runHelpdeskGroupInspect();
   };
 
   const handleSearchDirectoryGroups = async () => {
+    if (!canInspectGroups) return;
     setShowGroupBrowser(true);
     await runHelpdeskGroupSearch(browserQuery);
   };
@@ -684,6 +697,31 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
     ? data.membershipSummary.totalDirectMembers + data.membershipSummary.totalPrimaryGroupMembers
     : 0;
 
+  if (!canInspectGroups) {
+    return (
+      <div
+        className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-12"
+        dir={isEn ? 'ltr' : 'rtl'}
+      >
+        <div className={`rounded-2xl border p-8 text-center max-w-2xl mx-auto space-y-3 ${surfaceBg}`}>
+          <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-500 flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <h2 className={`text-lg font-bold ${textPrimary}`}>
+            {isEn
+              ? 'Access Denied — Active Directory & Group Support HelpDesk'
+              : 'عدم دسترسی — هلپ‌دسک پشتیبانی گروه‌های اکتیو دایرکتوری'}
+          </h2>
+          <p className={`text-xs leading-relaxed ${textMuted}`}>
+            {isEn
+              ? 'Your active RBAC policy does not grant permission to access Active Directory & Group Support HelpDesk (canViewHelpdeskGroups). Please contact your system administrator to request access.'
+              : 'پالیسی دسترسی فعلی شما فاقد مجوز ورود و استعلام در صفحه پشتیبانی گروه‌های دامین (canViewHelpdeskGroups) است. در صورت نیاز با مدیر سیستم تماس بگیرید.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6 space-y-6 pb-10"
@@ -769,8 +807,9 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
             <span aria-hidden="true">·</span>
             <button
               type="button"
+              disabled={!canInspectGroups}
               onClick={() => setShowGroupBrowser((p) => !p)}
-              className="text-sky-500 hover:underline font-medium cursor-pointer"
+              className="text-sky-500 hover:underline font-medium cursor-pointer disabled:opacity-40"
             >
               {showGroupBrowser
                 ? isEn
@@ -999,7 +1038,7 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
               />
               <button
                 type="button"
-                disabled={ram.searchingGroups || !canUseCurrentCreds}
+                disabled={!canInspectGroups || ram.searchingGroups || !canUseCurrentCreds}
                 onClick={handleSearchDirectoryGroups}
                 className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
               >
@@ -2431,34 +2470,35 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                   <span>{isEn ? 'Refresh' : 'بروزرسانی'}</span>
                 </button>
 
-                {confirmClearHistory ? (
-                  <div className="flex items-center gap-1.5">
+                {canManageGroupHistory &&
+                  (confirmClearHistory ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={busyHistoryId === 'ALL'}
+                        onClick={handleClearHistory}
+                        className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold cursor-pointer"
+                      >
+                        {isEn ? 'Confirm Clear' : 'تایید پاک‌سازی'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmClearHistory(false)}
+                        className={`px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer ${subCardBg} ${textMuted}`}
+                      >
+                        {isEn ? 'Cancel' : 'انصراف'}
+                      </button>
+                    </div>
+                  ) : (
                     <button
                       type="button"
-                      disabled={busyHistoryId === 'ALL'}
-                      onClick={handleClearHistory}
-                      className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold cursor-pointer"
+                      onClick={() => setConfirmClearHistory(true)}
+                      className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-500 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                     >
-                      {isEn ? 'Confirm Clear' : 'تایید پاک‌سازی'}
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Clear History' : 'پاک‌سازی تاریخچه'}</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmClearHistory(false)}
-                      className={`px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer ${subCardBg} ${textMuted}`}
-                    >
-                      {isEn ? 'Cancel' : 'انصراف'}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmClearHistory(true)}
-                    className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-500 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>{isEn ? 'Clear History' : 'پاک‌سازی تاریخچه'}</span>
-                  </button>
-                )}
+                  ))}
               </div>
             </div>
 
@@ -2567,21 +2607,24 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                         <td className="py-2 px-2 text-end whitespace-nowrap">
                           <button
                             type="button"
+                            disabled={!canInspectGroups}
                             onClick={() => handleReinspectFromHistory(h.samAccountName || h.queryTarget, h.domainController)}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky-500/15 hover:bg-sky-500/25 text-sky-500 text-[11px] cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky-500/15 hover:bg-sky-500/25 disabled:opacity-40 text-sky-500 text-[11px] cursor-pointer"
                           >
                             <RotateCcw className="w-3 h-3" />
                             <span>{isEn ? 'Inspect' : 'بررسی مجدد'}</span>
                           </button>
-                          <button
-                            type="button"
-                            disabled={busyHistoryId === h.id}
-                            onClick={() => handleDeleteHistoryItem(h.id)}
-                            className="inline-flex items-center ms-1.5 p-1 rounded hover:bg-rose-500/15 text-rose-500 cursor-pointer"
-                            title={isEn ? 'Delete entry' : 'حذف رکورد'}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canManageGroupHistory && (
+                            <button
+                              type="button"
+                              disabled={busyHistoryId === h.id}
+                              onClick={() => handleDeleteHistoryItem(h.id)}
+                              className="inline-flex items-center ms-1.5 p-1 rounded hover:bg-rose-500/15 text-rose-500 cursor-pointer"
+                              title={isEn ? 'Delete entry' : 'حذف رکورد'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}

@@ -1044,6 +1044,8 @@ export async function fetchHelpdeskStatus(): Promise<{
   success: boolean;
   permissions: {
     canViewHelpdesk: boolean;
+    canViewHelpdeskUsers?: boolean;
+    canViewHelpdeskGroups?: boolean;
     canRunHelpdeskDiagnostics: boolean;
     canExecuteHelpdeskActions: boolean;
     canViewHelpdeskEventViewer: boolean;
@@ -1052,6 +1054,7 @@ export async function fetchHelpdeskStatus(): Promise<{
     canRunHelpdeskGpupdate: boolean;
     canRunHelpdeskSystemRepair: boolean;
     canInspectHelpdeskDomainUsers: boolean;
+    canUnlockHelpdeskDomainUsers?: boolean;
     canPowerControlHelpdeskEndpoints: boolean;
     canManageHelpdeskExceptions: boolean;
     canSendHelpdeskMessage: boolean;

@@ -208,6 +208,20 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canViewHelpdesk:
         initialPolicy.canViewHelpdesk ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canViewHelpdeskUsers:
+        initialPolicy.canViewHelpdeskUsers ??
+        Boolean(
+          initialPolicy.id === 'policy-super-admin' ||
+            (initialPolicy.priority || 0) >= 100 ||
+            (initialPolicy.canViewHelpdesk && initialPolicy.canInspectHelpdeskDomainUsers)
+        ),
+      canViewHelpdeskGroups:
+        initialPolicy.canViewHelpdeskGroups ??
+        Boolean(
+          initialPolicy.id === 'policy-super-admin' ||
+            (initialPolicy.priority || 0) >= 100 ||
+            (initialPolicy.canViewHelpdesk && initialPolicy.canInspectHelpdeskDomainUsers)
+        ),
       canRunHelpdeskDiagnostics:
         initialPolicy.canRunHelpdeskDiagnostics ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
@@ -232,6 +246,15 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canInspectHelpdeskDomainUsers:
         initialPolicy.canInspectHelpdeskDomainUsers ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canUnlockHelpdeskDomainUsers:
+        initialPolicy.canUnlockHelpdeskDomainUsers ??
+        Boolean(
+          initialPolicy.id === 'policy-super-admin' ||
+            (initialPolicy.priority || 0) >= 100 ||
+            (initialPolicy.canViewHelpdesk &&
+              initialPolicy.canInspectHelpdeskDomainUsers &&
+              initialPolicy.canExecuteHelpdeskActions)
+        ),
       canPowerControlHelpdeskEndpoints:
         initialPolicy.canPowerControlHelpdeskEndpoints ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
@@ -640,6 +663,20 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canViewHelpdesk:
           initialPolicy.canViewHelpdesk ??
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canViewHelpdeskUsers:
+          initialPolicy.canViewHelpdeskUsers ??
+          Boolean(
+            initialPolicy.id === 'policy-super-admin' ||
+              (initialPolicy.priority || 0) >= 100 ||
+              (initialPolicy.canViewHelpdesk && initialPolicy.canInspectHelpdeskDomainUsers)
+          ),
+        canViewHelpdeskGroups:
+          initialPolicy.canViewHelpdeskGroups ??
+          Boolean(
+            initialPolicy.id === 'policy-super-admin' ||
+              (initialPolicy.priority || 0) >= 100 ||
+              (initialPolicy.canViewHelpdesk && initialPolicy.canInspectHelpdeskDomainUsers)
+          ),
         canRunHelpdeskDiagnostics:
           initialPolicy.canRunHelpdeskDiagnostics ??
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
@@ -664,11 +701,26 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canInspectHelpdeskDomainUsers:
           initialPolicy.canInspectHelpdeskDomainUsers ??
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canUnlockHelpdeskDomainUsers:
+          initialPolicy.canUnlockHelpdeskDomainUsers ??
+          Boolean(
+            initialPolicy.id === 'policy-super-admin' ||
+              (initialPolicy.priority || 0) >= 100 ||
+              (initialPolicy.canViewHelpdesk &&
+                initialPolicy.canInspectHelpdeskDomainUsers &&
+                initialPolicy.canExecuteHelpdeskActions)
+          ),
         canPowerControlHelpdeskEndpoints:
           initialPolicy.canPowerControlHelpdeskEndpoints ??
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
         canManageHelpdeskExceptions:
           initialPolicy.canManageHelpdeskExceptions ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canSendHelpdeskMessage:
+          initialPolicy.canSendHelpdeskMessage ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canViewAllHelpdeskHistory:
+          initialPolicy.canViewAllHelpdeskHistory ??
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
         canViewCommunications: initialPolicy.canViewCommunications ?? true,
         canSendCommunications: initialPolicy.canSendCommunications ?? true,
@@ -1664,6 +1716,8 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canViewLicenses: enabled,
         canViewSslCertificates: enabled,
         canViewHelpdesk: enabled,
+        canViewHelpdeskUsers: enabled,
+        canViewHelpdeskGroups: enabled,
         canViewCommunications: enabled,
         canSendCommunications: enabled,
         canSendAnnouncements: enabled,
@@ -1704,6 +1758,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canRunHelpdeskGpupdate: enabled,
         canRunHelpdeskSystemRepair: enabled,
         canInspectHelpdeskDomainUsers: enabled,
+        canUnlockHelpdeskDomainUsers: enabled,
         canPowerControlHelpdeskEndpoints: enabled,
         canManageHelpdeskExceptions: enabled,
         canSendHelpdeskMessage: enabled,
@@ -3957,6 +4012,34 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         whyNeededFa: 'جداسازی دسترسی‌ها را تضمین می‌کند تا فقط کارشناسان مجاز پشتیبانی بتوانند به سیستم کاربران متصل شوند.',
                         practicalExampleEn: 'Enable for HelpDesk Technicians, IT Support Engineers, and Administrators',
                         practicalExampleFa: 'برای کارشناسان هلپ‌دسک، تیم پشتیبانی IT و مدیران سیستم فعال شود',
+                      },
+                      {
+                        key: 'canViewHelpdeskUsers',
+                        labelEn: 'HelpDesk (AD & User Support)',
+                        labelFa: 'هلپ‌دسک: پشتیبانی کاربران اکتیو دایرکتوری (User Support)',
+                        descEn: 'Access to Active Directory & User Support HelpDesk page (AD profile, Exchange quota, history)',
+                        descFa: 'دسترسی به صفحه پشتیبانی کاربران و اکانت‌های دامین (پروفایل AD، میل‌باکس، گزارش‌ها و تاریخچه)',
+                        icon: Users,
+                        whatIsItEn: 'Controls visibility and backend authorization for the Active Directory & User Support HelpDesk page independently of endpoint workstation diagnostics.',
+                        whatIsItFa: 'مجوز مشاهده و استفاده از صفحه پشتیبانی کاربران اکتیو دایرکتوری و استعلام میل‌باکس، مستقل از دسترسی ریموت به سیستم کاربران.',
+                        whyNeededEn: 'Allows assigning AD User HelpDesk access to service-desk agents who look up user accounts and mailbox quotas without granting workstation remote control.',
+                        whyNeededFa: 'امکان تفکیک دسترسی استعلام اکانت‌های AD و ایمیل را برای اپراتورهای میز خدمت بدون نیاز به دسترسی ریموت سیستم فراهم می‌کند.',
+                        practicalExampleEn: 'Enable for Service Desk Operators, AD Support Staff, and Administrators',
+                        practicalExampleFa: 'برای کارشناسان میز خدمت، پشتیبان‌های دامین و مدیران سیستم فعال شود',
+                      },
+                      {
+                        key: 'canViewHelpdeskGroups',
+                        labelEn: 'HelpDesk (AD & Group Support)',
+                        labelFa: 'هلپ‌دسک: پشتیبانی گروه‌های اکتیو دایرکتوری (Group Support)',
+                        descEn: 'Access to Active Directory & Group Support HelpDesk page (creator, OU, members, plain ACLs)',
+                        descFa: 'دسترسی به صفحه پشتیبانی گروه‌های اکتیو دایرکتوری (سازنده، مسیر OU، اعضا و راهنمای سطح دسترسی)',
+                        icon: Users,
+                        whatIsItEn: 'Controls visibility and backend authorization for the Active Directory & Group Support HelpDesk workspace and group browser.',
+                        whatIsItFa: 'مجوز مشاهده و استعلام اطلاعات کامل گروه‌های اکتیو دایرکتوری (تاریخ ساخت، سازنده، اعضا و پرمیژن‌ها).',
+                        whyNeededEn: 'Separates AD group auditing from user/workstation support so access governance reviewers or AD operators can inspect groups under least privilege.',
+                        whyNeededFa: 'دسترسی بررسی و ممیزی گروه‌های دامین را به صورت مستقل از پشتیبانی ایستگاه‌های کاری کنترل می‌کند.',
+                        practicalExampleEn: 'Enable for AD Support Engineers, Security Auditors, and Administrators',
+                        practicalExampleFa: 'برای مهندسان AD، ممیزان امنیت و مدیران زیرساخت فعال شود',
                       },
                       {
                         key: 'canBulkConfigureDevices',
@@ -6868,6 +6951,17 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         whatFa: 'مجوز استعلام فقط‌خواندنی مشخصات اکانت‌های دامین از طریق دستور کنترل‌شده net user /domain.',
                         why: 'Allows HelpDesk technicians to diagnose locked or expired domain accounts immediately without full Domain Admin rights',
                         whyFa: 'کارشناسان هلپ‌دسک می‌توانند علت عدم ورود کاربر (قفل شدن یا انقضای رمز) و عضویت گروه‌ها را سریعاً تشخیص دهند.',
+                      },
+                      {
+                        key: 'canUnlockHelpdeskDomainUsers',
+                        labelEn: 'HelpDesk: Unlock Locked AD Accounts & Manage AD Check History',
+                        labelFa: 'هلپ‌دسک: رفع قفل اکانت دامین و مدیریت تاریخچه بررسی‌های AD',
+                        descEn: 'Allow unlocking locked Active Directory user accounts (lockoutTime=0) and deleting AD user/group check history entries',
+                        descFa: 'مجوز باز کردن قفل اکانت‌های قفل‌شده اکتیو دایرکتوری (Unlock Account) و حذف سوابق تاریخچه بررسی کاربر/گروه دامین',
+                        what: 'Authorizes write-level AD lockout release (POST /helpdesk/user/unlock) and deletion of AD user/group check history records within active RBAC scope.',
+                        whatFa: 'اجازه اجرای عملیات نوشتاری رفع قفل حساب کاربری در اکتیو دایرکتوری و مدیریت حذف سوابق تاریخچه بررسی کاربر و گروه دامین.',
+                        why: 'Keeps Active Directory & User/Group Support strictly read-only for Tier-1 viewers while allowing Tier-2 operators to release lockouts safely.',
+                        whyFa: 'به مدیران اجازه می‌دهد نمایش اطلاعات کاربر/گروه دامین را به صورت فقط‌خواندنی (Read-Only) بدهند و دسترسی رفع قفل را فقط به کارشناسان مجاز واگذار کنند.',
                       },
                       {
                         key: 'canPowerControlHelpdeskEndpoints',

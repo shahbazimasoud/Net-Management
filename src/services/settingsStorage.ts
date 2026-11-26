@@ -220,6 +220,8 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     targetSslIds: [],
     // HelpDesk RBAC
     canViewHelpdesk: true,
+    canViewHelpdeskUsers: true,
+    canViewHelpdeskGroups: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: true,
     canViewHelpdeskEventViewer: true,
@@ -228,6 +230,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canRunHelpdeskGpupdate: true,
     canRunHelpdeskSystemRepair: true,
     canInspectHelpdeskDomainUsers: true,
+    canUnlockHelpdeskDomainUsers: true,
     canPowerControlHelpdeskEndpoints: false,
     canManageHelpdeskExceptions: false,
     canSendHelpdeskMessage: false,
@@ -314,6 +317,8 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     targetSslIds: [],
     // HelpDesk RBAC (Read-Only for NOC Observer)
     canViewHelpdesk: true,
+    canViewHelpdeskUsers: false,
+    canViewHelpdeskGroups: false,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: false,
     canViewHelpdeskEventViewer: true,
@@ -322,6 +327,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canRunHelpdeskGpupdate: false,
     canRunHelpdeskSystemRepair: false,
     canInspectHelpdeskDomainUsers: false,
+    canUnlockHelpdeskDomainUsers: false,
     canPowerControlHelpdeskEndpoints: false,
     canManageHelpdeskExceptions: false,
     canSendHelpdeskMessage: false,
@@ -412,6 +418,8 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     targetSslIds: [],
     // HelpDesk RBAC
     canViewHelpdesk: true,
+    canViewHelpdeskUsers: true,
+    canViewHelpdeskGroups: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: true,
     canViewHelpdeskEventViewer: true,
@@ -420,6 +428,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canRunHelpdeskGpupdate: true,
     canRunHelpdeskSystemRepair: true,
     canInspectHelpdeskDomainUsers: true,
+    canUnlockHelpdeskDomainUsers: true,
     canPowerControlHelpdeskEndpoints: true,
     canManageHelpdeskExceptions: true,
     canSendHelpdeskMessage: true,
@@ -1402,6 +1411,8 @@ export function getEffectiveUserPolicy(
         canBatchOperate: true,
         canExportSchematic: true,
         canViewHelpdesk: true,
+        canViewHelpdeskUsers: true,
+        canViewHelpdeskGroups: true,
         canRunHelpdeskDiagnostics: true,
         canExecuteHelpdeskActions: true,
         canViewHelpdeskEventViewer: true,
@@ -1410,6 +1421,7 @@ export function getEffectiveUserPolicy(
         canRunHelpdeskGpupdate: true,
         canRunHelpdeskSystemRepair: true,
         canInspectHelpdeskDomainUsers: true,
+        canUnlockHelpdeskDomainUsers: true,
         canPowerControlHelpdeskEndpoints: true,
         canManageHelpdeskExceptions: true,
         canSendHelpdeskMessage: true,
@@ -1452,6 +1464,8 @@ export function getEffectiveUserPolicy(
     canBatchOperate: false,
     canExportSchematic: false,
     canViewHelpdesk: false,
+    canViewHelpdeskUsers: false,
+    canViewHelpdeskGroups: false,
     canRunHelpdeskDiagnostics: false,
     canExecuteHelpdeskActions: false,
     canViewHelpdeskEventViewer: false,
@@ -1460,6 +1474,7 @@ export function getEffectiveUserPolicy(
     canRunHelpdeskGpupdate: false,
     canRunHelpdeskSystemRepair: false,
     canInspectHelpdeskDomainUsers: false,
+    canUnlockHelpdeskDomainUsers: false,
     canPowerControlHelpdeskEndpoints: false,
     canManageHelpdeskExceptions: false,
     canSendHelpdeskMessage: false,
@@ -1517,10 +1532,17 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
     case 'helpdesk':
       return (policy?.canViewHelpdesk !== undefined ? Boolean(policy?.canViewHelpdesk) : false) || isUserDomainAdmin(user);
     case 'helpdesk-users':
+      return (
+        (policy?.canViewHelpdeskUsers !== undefined
+          ? Boolean(policy.canViewHelpdeskUsers)
+          : Boolean(policy?.canViewHelpdesk) && Boolean(policy?.canInspectHelpdeskDomainUsers)) ||
+        isUserDomainAdmin(user)
+      );
     case 'helpdesk-groups':
       return (
-        ((policy?.canViewHelpdesk !== undefined ? Boolean(policy?.canViewHelpdesk) : false) &&
-          (policy?.canInspectHelpdeskDomainUsers !== undefined ? Boolean(policy?.canInspectHelpdeskDomainUsers) : false)) ||
+        (policy?.canViewHelpdeskGroups !== undefined
+          ? Boolean(policy.canViewHelpdeskGroups)
+          : Boolean(policy?.canViewHelpdesk) && Boolean(policy?.canInspectHelpdeskDomainUsers)) ||
         isUserDomainAdmin(user)
       );
     case 'communications':

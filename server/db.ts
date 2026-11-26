@@ -654,6 +654,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canDeleteSslCertificates: false,
     canCheckSslCertificates: false,
     canViewHelpdesk: true,
+    canViewHelpdeskUsers: true,
+    canViewHelpdeskGroups: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: true,
     canViewHelpdeskEventViewer: true,
@@ -662,6 +664,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canRunHelpdeskGpupdate: true,
     canRunHelpdeskSystemRepair: true,
     canInspectHelpdeskDomainUsers: true,
+    canUnlockHelpdeskDomainUsers: true,
     canPowerControlHelpdeskEndpoints: false,
     canManageHelpdeskExceptions: false,
     canSendHelpdeskMessage: false,
@@ -756,6 +759,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canDeleteSslCertificates: false,
     canCheckSslCertificates: true,
     canViewHelpdesk: true,
+    canViewHelpdeskUsers: false,
+    canViewHelpdeskGroups: false,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: false,
     canViewHelpdeskEventViewer: true,
@@ -764,6 +769,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canRunHelpdeskGpupdate: false,
     canRunHelpdeskSystemRepair: false,
     canInspectHelpdeskDomainUsers: false,
+    canUnlockHelpdeskDomainUsers: false,
     canPowerControlHelpdeskEndpoints: false,
     canManageHelpdeskExceptions: false,
     canSendHelpdeskMessage: false,
@@ -858,6 +864,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canDeleteSslCertificates: true,
     canCheckSslCertificates: true,
     canViewHelpdesk: true,
+    canViewHelpdeskUsers: true,
+    canViewHelpdeskGroups: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: true,
     canViewHelpdeskEventViewer: true,
@@ -866,6 +874,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canRunHelpdeskGpupdate: true,
     canRunHelpdeskSystemRepair: true,
     canInspectHelpdeskDomainUsers: true,
+    canUnlockHelpdeskDomainUsers: true,
     canPowerControlHelpdeskEndpoints: true,
     canManageHelpdeskExceptions: true,
     canSendHelpdeskMessage: true,
@@ -1999,6 +2008,29 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
       if (pData.canViewAllHelpdeskHistory === undefined) {
         const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
         pData.canViewAllHelpdeskHistory = isSuper;
+        changed = true;
+      }
+      if (pData.canViewHelpdeskUsers === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        const isHelpdesk = r.id === 'policy-helpdesk' || r.id === 'policy-helpdesk-tech';
+        pData.canViewHelpdeskUsers =
+          isSuper || isHelpdesk || (Boolean(pData.canViewHelpdesk) && Boolean(pData.canInspectHelpdeskDomainUsers));
+        changed = true;
+      }
+      if (pData.canViewHelpdeskGroups === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        const isHelpdesk = r.id === 'policy-helpdesk' || r.id === 'policy-helpdesk-tech';
+        pData.canViewHelpdeskGroups =
+          isSuper || isHelpdesk || (Boolean(pData.canViewHelpdesk) && Boolean(pData.canInspectHelpdeskDomainUsers));
+        changed = true;
+      }
+      if (pData.canUnlockHelpdeskDomainUsers === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        const isHelpdesk = r.id === 'policy-helpdesk' || r.id === 'policy-helpdesk-tech';
+        pData.canUnlockHelpdeskDomainUsers =
+          isSuper ||
+          isHelpdesk ||
+          (Boolean(pData.canViewHelpdeskUsers) && Boolean(pData.canExecuteHelpdeskActions));
         changed = true;
       }
       if (changed) {
@@ -5199,6 +5231,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canDeleteSslCertificates: false,
       canCheckSslCertificates: false,
       canViewHelpdesk: false,
+      canViewHelpdeskUsers: false,
+      canViewHelpdeskGroups: false,
       canRunHelpdeskDiagnostics: false,
       canExecuteHelpdeskActions: false,
       canViewHelpdeskEventViewer: false,
@@ -5207,6 +5241,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canRunHelpdeskGpupdate: false,
       canRunHelpdeskSystemRepair: false,
       canInspectHelpdeskDomainUsers: false,
+      canUnlockHelpdeskDomainUsers: false,
       canPowerControlHelpdeskEndpoints: false,
       canManageHelpdeskExceptions: false,
       canSendHelpdeskMessage: false,
@@ -5563,6 +5598,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canDeleteSslCertificates: true,
       canCheckSslCertificates: true,
       canViewHelpdesk: true,
+      canViewHelpdeskUsers: true,
+      canViewHelpdeskGroups: true,
       canRunHelpdeskDiagnostics: true,
       canExecuteHelpdeskActions: true,
       canViewHelpdeskEventViewer: true,
@@ -5571,6 +5608,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canRunHelpdeskGpupdate: true,
       canRunHelpdeskSystemRepair: true,
       canInspectHelpdeskDomainUsers: true,
+      canUnlockHelpdeskDomainUsers: true,
       canPowerControlHelpdeskEndpoints: true,
       canManageHelpdeskExceptions: true,
       canSendHelpdeskMessage: true,
@@ -5697,6 +5735,8 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canDeleteSslCertificates: false,
     canCheckSslCertificates: false,
     canViewHelpdesk: false,
+    canViewHelpdeskUsers: false,
+    canViewHelpdeskGroups: false,
     canRunHelpdeskDiagnostics: false,
     canExecuteHelpdeskActions: false,
     canViewHelpdeskEventViewer: false,
@@ -5705,6 +5745,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canRunHelpdeskGpupdate: false,
     canRunHelpdeskSystemRepair: false,
     canInspectHelpdeskDomainUsers: false,
+    canUnlockHelpdeskDomainUsers: false,
     canPowerControlHelpdeskEndpoints: false,
     canManageHelpdeskExceptions: false,
     canSendHelpdeskMessage: false,

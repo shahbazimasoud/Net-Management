@@ -14,6 +14,7 @@ import {
   MapPin,
   Clock,
   ShieldCheck,
+  ShieldAlert,
   Database,
   Server,
   HardDrive,
@@ -230,11 +231,16 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
   const hasFull = isSuper || isDomAdmin;
   const canInspectUsers =
     hasFull ||
-    (effectivePolicy?.canViewHelpdesk === true &&
-      effectivePolicy?.canInspectHelpdeskDomainUsers === true);
+    (effectivePolicy?.canViewHelpdeskUsers !== undefined
+      ? effectivePolicy.canViewHelpdeskUsers === true
+      : effectivePolicy?.canViewHelpdesk === true &&
+        effectivePolicy?.canInspectHelpdeskDomainUsers === true);
   const canUnlockAccount =
     hasFull ||
-    (canInspectUsers && effectivePolicy?.canExecuteHelpdeskActions === true);
+    (canInspectUsers &&
+      (effectivePolicy?.canUnlockHelpdeskDomainUsers !== undefined
+        ? effectivePolicy.canUnlockHelpdeskDomainUsers === true
+        : effectivePolicy?.canExecuteHelpdeskActions === true));
   const canViewAllHistory =
     hasFull ||
     (canInspectUsers && effectivePolicy?.canViewAllHelpdeskHistory === true);
@@ -1311,6 +1317,31 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
   ];
 
   const NavArrow = isEn ? ChevronRight : ChevronLeft;
+
+  if (!canInspectUsers) {
+    return (
+      <div
+        className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-12"
+        dir={isEn ? 'ltr' : 'rtl'}
+      >
+        <div className={`rounded-2xl border p-8 text-center max-w-2xl mx-auto space-y-3 ${surfaceBg}`}>
+          <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-500 flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <h2 className={`text-lg font-bold ${textPrimary}`}>
+            {isEn
+              ? 'Access Denied — Active Directory & User Support HelpDesk'
+              : 'عدم دسترسی — هلپ‌دسک پشتیبانی کاربران اکتیو دایرکتوری'}
+          </h2>
+          <p className={`text-xs leading-relaxed ${textMuted}`}>
+            {isEn
+              ? 'Your active RBAC policy does not grant permission to access Active Directory & User Support HelpDesk (canViewHelpdeskUsers). Please contact your system administrator to request access.'
+              : 'پالیسی دسترسی فعلی شما فاقد مجوز ورود و استعلام در صفحه پشتیبانی کاربران دامین (canViewHelpdeskUsers) است. در صورت نیاز با مدیر سیستم تماس بگیرید.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

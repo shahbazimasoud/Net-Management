@@ -7919,6 +7919,7 @@ function isDomainAdminGroups(groups?: unknown, role?: string): boolean {
 async function resolveHelpdeskAuth(
   req: Request,
   requiredPerm:
+    | 'status'
     | 'view'
     | 'diagnostics'
     | 'actions'
@@ -7928,6 +7929,11 @@ async function resolveHelpdeskAuth(
     | 'gpupdate'
     | 'system_repair'
     | 'domain_user'
+    | 'ad_user'
+    | 'ad_user_unlock'
+    | 'ad_user_history'
+    | 'ad_group'
+    | 'ad_group_history'
     | 'power_control'
     | 'manage_exceptions'
     | 'send_message'
@@ -7964,14 +7970,43 @@ async function resolveHelpdeskAuth(
   const canGpupdate = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canRunHelpdeskGpupdate === true);
   const canSystemRepair = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canRunHelpdeskSystemRepair === true);
   const canDomainUsers = hasFullHelpdeskAccess || (canDiagnostics && effectivePolicy?.canInspectHelpdeskDomainUsers === true);
+  const canAdUsers =
+    hasFullHelpdeskAccess ||
+    (effectivePolicy?.canViewHelpdeskUsers !== undefined
+      ? effectivePolicy.canViewHelpdeskUsers === true
+      : canView && effectivePolicy?.canInspectHelpdeskDomainUsers === true);
+  const canAdGroups =
+    hasFullHelpdeskAccess ||
+    (effectivePolicy?.canViewHelpdeskGroups !== undefined
+      ? effectivePolicy.canViewHelpdeskGroups === true
+      : canView && effectivePolicy?.canInspectHelpdeskDomainUsers === true);
+  const canUnlockAdUsers =
+    hasFullHelpdeskAccess ||
+    (canAdUsers &&
+      (effectivePolicy?.canUnlockHelpdeskDomainUsers !== undefined
+        ? effectivePolicy.canUnlockHelpdeskDomainUsers === true
+        : effectivePolicy?.canExecuteHelpdeskActions === true));
+  const canManageAdUserHistory = canUnlockAdUsers;
+  const canManageAdGroupHistory =
+    hasFullHelpdeskAccess ||
+    (canAdGroups &&
+      (effectivePolicy?.canUnlockHelpdeskDomainUsers !== undefined
+        ? effectivePolicy.canUnlockHelpdeskDomainUsers === true
+        : effectivePolicy?.canExecuteHelpdeskActions === true));
+  const canStatus = hasFullHelpdeskAccess || canView || canAdUsers || canAdGroups;
   const canPowerControl = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true);
   const canManageExceptions = hasFullHelpdeskAccess || effectivePolicy?.canManageHelpdeskExceptions === true;
-  const canViewAllHistory = hasFullHelpdeskAccess || ((canDiagnostics || canDomainUsers) && effectivePolicy?.canViewAllHelpdeskHistory === true);
+  const canViewAllHistory =
+    hasFullHelpdeskAccess ||
+    ((canDiagnostics || canDomainUsers || canAdUsers || canAdGroups) &&
+      effectivePolicy?.canViewAllHelpdeskHistory === true);
   // Strict: Interactive screen messaging strictly requires explicit RBAC grant or Super Admin
   const canSendMessage = isSuperAdmin || (canView && effectivePolicy?.canSendHelpdeskMessage === true);
 
   const allowed =
-    requiredPerm === 'view'
+    requiredPerm === 'status'
+      ? canStatus
+      : requiredPerm === 'view'
       ? canView
       : requiredPerm === 'diagnostics'
       ? canDiagnostics
@@ -7989,6 +8024,16 @@ async function resolveHelpdeskAuth(
       ? canSystemRepair
       : requiredPerm === 'domain_user'
       ? canDomainUsers
+      : requiredPerm === 'ad_user'
+      ? canAdUsers
+      : requiredPerm === 'ad_user_unlock'
+      ? canUnlockAdUsers
+      : requiredPerm === 'ad_user_history'
+      ? canManageAdUserHistory
+      : requiredPerm === 'ad_group'
+      ? canAdGroups
+      : requiredPerm === 'ad_group_history'
+      ? canManageAdGroupHistory
       : requiredPerm === 'manage_exceptions'
       ? canManageExceptions
       : requiredPerm === 'send_message'
@@ -8007,12 +8052,16 @@ async function resolveHelpdeskAuth(
       userRole: actorRole,
       status: 'denied',
       severity: 'warning',
-      targetName: String(req.body?.targetIp || 'HelpDesk').slice(0, 128),
+      targetName: String(req.body?.targetIp || req.body?.targetUsername || req.body?.targetGroup || 'HelpDesk').slice(0, 128),
       clientIp,
       metadata: { requiredPerm, targetIp: String(req.body?.targetIp || '').slice(0, 128) },
     }).catch(() => {});
 
     const denialMap: Record<typeof requiredPerm, { en: string; fa: string }> = {
+      status: {
+        en: 'Access denied: Your policy does not permit accessing any HelpDesk workspace.',
+        fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز ورود به ماژول‌های هلپ‌دسک است.',
+      },
       view: {
         en: 'Access denied: Your policy does not permit accessing the HelpDesk workspace (canViewHelpdesk).',
         fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز ورود به بخش هلپ‌دسک (canViewHelpdesk) است.',
@@ -8048,6 +8097,26 @@ async function resolveHelpdeskAuth(
       domain_user: {
         en: 'Access denied: Your policy does not permit Active Directory account lookup (canInspectHelpdeskDomainUsers).',
         fa: 'عدم دسترسی: پالیسی دسترسی شما فاقد مجوز بررسی وضعیت اکانت‌های دامین (canInspectHelpdeskDomainUsers) است.',
+      },
+      ad_user: {
+        en: 'Access denied: Your policy does not permit accessing Active Directory & User Support HelpDesk (canViewHelpdeskUsers).',
+        fa: 'عدم دسترسی: پالیسی شما فاقد مجوز دسترسی به صفحه پشتیبانی کاربران اکتیو دایرکتوری (canViewHelpdeskUsers) است.',
+      },
+      ad_user_unlock: {
+        en: 'Access denied: Your policy does not permit unlocking Active Directory user accounts (canUnlockHelpdeskDomainUsers).',
+        fa: 'عدم دسترسی: پالیسی شما فاقد مجوز رفع قفل اکانت کاربران دامین (canUnlockHelpdeskDomainUsers) است.',
+      },
+      ad_user_history: {
+        en: 'Access denied: Your policy does not permit modifying AD user check history (canUnlockHelpdeskDomainUsers).',
+        fa: 'عدم دسترسی: پالیسی شما فاقد مجوز حذف یا پاک‌سازی تاریخچه بررسی کاربران دامین است.',
+      },
+      ad_group: {
+        en: 'Access denied: Your policy does not permit accessing Active Directory & Group Support HelpDesk (canViewHelpdeskGroups).',
+        fa: 'عدم دسترسی: پالیسی شما فاقد مجوز دسترسی به صفحه پشتیبانی گروه‌های اکتیو دایرکتوری (canViewHelpdeskGroups) است.',
+      },
+      ad_group_history: {
+        en: 'Access denied: Your policy does not permit modifying AD group check history (canUnlockHelpdeskDomainUsers).',
+        fa: 'عدم دسترسی: پالیسی شما فاقد مجوز حذف یا پاک‌سازی تاریخچه بررسی گروه‌های دامین است.',
       },
       power_control: {
         en: 'Access denied: Your policy does not permit remote workstation shutdown or restart (canPowerControlHelpdeskEndpoints).',
@@ -8190,6 +8259,8 @@ async function resolveHelpdeskAuth(
     hasFullHelpdeskAccess,
     permissions: {
       canViewHelpdesk: canView,
+      canViewHelpdeskUsers: canAdUsers,
+      canViewHelpdeskGroups: canAdGroups,
       canRunHelpdeskDiagnostics: canDiagnostics,
       canExecuteHelpdeskActions: canActions,
       canViewHelpdeskEventViewer: canEventViewer,
@@ -8198,6 +8269,7 @@ async function resolveHelpdeskAuth(
       canRunHelpdeskGpupdate: canGpupdate,
       canRunHelpdeskSystemRepair: canSystemRepair,
       canInspectHelpdeskDomainUsers: canDomainUsers,
+      canUnlockHelpdeskDomainUsers: canUnlockAdUsers,
       canPowerControlHelpdeskEndpoints: canPowerControl,
       canManageHelpdeskExceptions: canManageExceptions,
       canSendHelpdeskMessage: canSendMessage,
@@ -8309,7 +8381,7 @@ async function logHelpdeskRateLimitAudit(params: {
 // GET /helpdesk/status - RBAC permissions, anti-ransomware rate limit meter & JEA/GPO templates
 apiRouter.get('/helpdesk/status', async (req: Request, res: Response) => {
   try {
-    const auth = await resolveHelpdeskAuth(req, 'view');
+    const auth = await resolveHelpdeskAuth(req, 'status');
     if (!auth.ok) {
       return sendHelpdeskAuthFailure(res, auth);
     }
@@ -11177,7 +11249,7 @@ function extractHelpdeskUserInputFromBody(body: any): HelpdeskUserInspectInput {
 
 // POST /helpdesk/user/inspect - On-demand AD user profile, contacts, password/lockout & mailbox quota
 apiRouter.post('/helpdesk/user/inspect', async (req: Request, res: Response) => {
-  const auth = await resolveHelpdeskAuth(req, 'domain_user');
+  const auth = await resolveHelpdeskAuth(req, 'ad_user');
   if (!auth.ok) {
     return sendHelpdeskAuthFailure(res, auth);
   }
@@ -11298,7 +11370,7 @@ apiRouter.post('/helpdesk/user/inspect', async (req: Request, res: Response) => 
 
 // POST /helpdesk/user/mailbox - Refresh Exchange mailbox usage & quotas for target domain user
 apiRouter.post('/helpdesk/user/mailbox', async (req: Request, res: Response) => {
-  const auth = await resolveHelpdeskAuth(req, 'domain_user');
+  const auth = await resolveHelpdeskAuth(req, 'ad_user');
   if (!auth.ok) {
     return sendHelpdeskAuthFailure(res, auth);
   }
@@ -11346,16 +11418,9 @@ apiRouter.post('/helpdesk/user/mailbox', async (req: Request, res: Response) => 
 
 // POST /helpdesk/user/unlock - Unlock locked Active Directory user account (lockoutTime = 0)
 apiRouter.post('/helpdesk/user/unlock', async (req: Request, res: Response) => {
-  const auth = await resolveHelpdeskAuth(req, 'actions');
+  const auth = await resolveHelpdeskAuth(req, 'ad_user_unlock');
   if (!auth.ok) {
     return sendHelpdeskAuthFailure(res, auth);
-  }
-  if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
-    return res.status(403).json({
-      success: false,
-      error: 'Access denied: Your policy does not permit Active Directory user inspection/unlock.',
-      errorFa: 'عدم دسترسی: پالیسی شما فاقد مجوز بررسی و رفع قفل کاربران دامین است.',
-    });
   }
 
   const input = extractHelpdeskUserInputFromBody(req.body);
@@ -11466,7 +11531,7 @@ apiRouter.post('/helpdesk/user/unlock', async (req: Request, res: Response) => {
 // GET /helpdesk/user/history - Paginated Target User check history (scoped per operator unless Super Admin or canViewAllHelpdeskHistory)
 apiRouter.get('/helpdesk/user/history', async (req: Request, res: Response) => {
   try {
-    const auth = await resolveHelpdeskAuth(req, 'domain_user');
+    const auth = await resolveHelpdeskAuth(req, 'ad_user');
     if (!auth.ok) {
       return sendHelpdeskAuthFailure(res, auth);
     }
@@ -11505,16 +11570,9 @@ apiRouter.get('/helpdesk/user/history', async (req: Request, res: Response) => {
 // DELETE /helpdesk/user/history/:id - Remove single user check history entry (owner or full access)
 apiRouter.delete('/helpdesk/user/history/:id', async (req: Request, res: Response) => {
   try {
-    const auth = await resolveHelpdeskAuth(req, 'actions');
+    const auth = await resolveHelpdeskAuth(req, 'ad_user_history');
     if (!auth.ok) {
       return sendHelpdeskAuthFailure(res, auth);
-    }
-    if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
-      return res.status(403).json({
-        success: false,
-        error: 'Access denied: Insufficient permissions for user check history.',
-        errorFa: 'عدم دسترسی: مجوز مدیریت تاریخچه بررسی کاربران دامین وجود ندارد.',
-      });
     }
     const id = String(req.params.id || '').trim();
     if (!id) {
@@ -11567,16 +11625,9 @@ apiRouter.delete('/helpdesk/user/history/:id', async (req: Request, res: Respons
 // DELETE /helpdesk/user/history - Clear user check history (own records unless full access)
 apiRouter.delete('/helpdesk/user/history', async (req: Request, res: Response) => {
   try {
-    const auth = await resolveHelpdeskAuth(req, 'actions');
+    const auth = await resolveHelpdeskAuth(req, 'ad_user_history');
     if (!auth.ok) {
       return sendHelpdeskAuthFailure(res, auth);
-    }
-    if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
-      return res.status(403).json({
-        success: false,
-        error: 'Access denied: Insufficient permissions for user check history.',
-        errorFa: 'عدم دسترسی: مجوز پاک‌سازی تاریخچه بررسی کاربران دامین وجود ندارد.',
-      });
     }
     const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
     const actorAliases = canViewAll
@@ -11646,7 +11697,7 @@ function extractHelpdeskGroupInputFromBody(body: any): HelpdeskGroupInspectInput
 
 // POST /helpdesk/group/search - Wildcard search AD groups for quick picker/autocomplete
 apiRouter.post('/helpdesk/group/search', async (req: Request, res: Response) => {
-  const auth = await resolveHelpdeskAuth(req, 'domain_user');
+  const auth = await resolveHelpdeskAuth(req, 'ad_group');
   if (!auth.ok) {
     return sendHelpdeskAuthFailure(res, auth);
   }
@@ -11683,7 +11734,7 @@ apiRouter.post('/helpdesk/group/search', async (req: Request, res: Response) => 
 
 // POST /helpdesk/group/inspect - Inspect AD group creation, creator, OU, members, nested groups & human-readable permissions
 apiRouter.post('/helpdesk/group/inspect', async (req: Request, res: Response) => {
-  const auth = await resolveHelpdeskAuth(req, 'domain_user');
+  const auth = await resolveHelpdeskAuth(req, 'ad_group');
   if (!auth.ok) {
     return sendHelpdeskAuthFailure(res, auth);
   }
@@ -11809,16 +11860,9 @@ apiRouter.post('/helpdesk/group/inspect', async (req: Request, res: Response) =>
 
 // POST /helpdesk/group/member-action - Group membership modification is disabled (read-only Group Membership Directory)
 apiRouter.post('/helpdesk/group/member-action', async (req: Request, res: Response) => {
-  const auth = await resolveHelpdeskAuth(req, 'actions');
+  const auth = await resolveHelpdeskAuth(req, 'ad_group_history');
   if (!auth.ok) {
     return sendHelpdeskAuthFailure(res, auth);
-  }
-  if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
-    return res.status(403).json({
-      success: false,
-      error: 'Access denied: Your policy does not permit Active Directory group inspection.',
-      errorFa: 'عدم دسترسی: پالیسی شما فاقد مجوز بررسی گروه‌های دامین است.',
-    });
   }
 
   return res.status(403).json({
@@ -11831,7 +11875,7 @@ apiRouter.post('/helpdesk/group/member-action', async (req: Request, res: Respon
 // GET /helpdesk/group/history - Paginated AD group check history (scoped per operator unless Super Admin or canViewAllHelpdeskHistory)
 apiRouter.get('/helpdesk/group/history', async (req: Request, res: Response) => {
   try {
-    const auth = await resolveHelpdeskAuth(req, 'domain_user');
+    const auth = await resolveHelpdeskAuth(req, 'ad_group');
     if (!auth.ok) {
       return sendHelpdeskAuthFailure(res, auth);
     }
@@ -11873,16 +11917,9 @@ apiRouter.get('/helpdesk/group/history', async (req: Request, res: Response) => 
 // DELETE /helpdesk/group/history/:id - Remove single group check history entry
 apiRouter.delete('/helpdesk/group/history/:id', async (req: Request, res: Response) => {
   try {
-    const auth = await resolveHelpdeskAuth(req, 'actions');
+    const auth = await resolveHelpdeskAuth(req, 'ad_group_history');
     if (!auth.ok) {
       return sendHelpdeskAuthFailure(res, auth);
-    }
-    if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
-      return res.status(403).json({
-        success: false,
-        error: 'Access denied: Insufficient permissions for group check history.',
-        errorFa: 'عدم دسترسی: مجوز مدیریت تاریخچه بررسی گروه‌های دامین وجود ندارد.',
-      });
     }
     const id = String(req.params.id || '').trim();
     if (!id) {
@@ -11921,16 +11958,9 @@ apiRouter.delete('/helpdesk/group/history/:id', async (req: Request, res: Respon
 // DELETE /helpdesk/group/history - Clear group check history
 apiRouter.delete('/helpdesk/group/history', async (req: Request, res: Response) => {
   try {
-    const auth = await resolveHelpdeskAuth(req, 'actions');
+    const auth = await resolveHelpdeskAuth(req, 'ad_group_history');
     if (!auth.ok) {
       return sendHelpdeskAuthFailure(res, auth);
-    }
-    if (!auth.hasFullHelpdeskAccess && !auth.permissions.canInspectHelpdeskDomainUsers) {
-      return res.status(403).json({
-        success: false,
-        error: 'Access denied: Insufficient permissions for group check history.',
-        errorFa: 'عدم دسترسی: مجوز پاک‌سازی تاریخچه بررسی گروه‌های دامین وجود ندارد.',
-      });
     }
     const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
     const actorAliases = canViewAll

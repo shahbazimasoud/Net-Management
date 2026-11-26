@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.492.0';
+export const APP_VERSION = '1.493.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.493.0',
+    releaseDate: '2026-11-26',
+    type: 'minor',
+    title: 'اصلاح و تفکیک کامل کنترل دسترسی (RBAC) برای صفحات پشتیبانی کاربران و گروه‌های اکتیو دایرکتوری',
+    title_en: 'Fix & Decouple Granular PostgreSQL RBAC for Active Directory User & Group Support HelpDesk Pages',
+    changes: [
+      'رفع باگ ناهماهنگی بک‌اند و فرانت‌اند در `resolveHelpdeskAuth`: مسیرهای `/api/helpdesk/user/*` و `/api/helpdesk/group/*` و `/api/helpdesk/status` دیگر نیازمند مجوز عیب‌یابی سیستم کاربر (`canRunHelpdeskDiagnostics`) نیستند و خطای ۴۰۳ کاذب برای اپراتورهای صرفاً پشتیبانی AD برطرف شد.',
+      'افزودن ۳ مجوز مستقل در پالیسی دسترسی (PostgreSQL RBAC و صفحه `AccessPolicyModal`): دسترسی مستقل به صفحه پشتیبانی کاربران (`canViewHelpdeskUsers`)، دسترسی مستقل به صفحه پشتیبانی گروه‌ها (`canViewHelpdeskGroups`) و مجوز جداگانه رفع قفل اکانت دامین و مدیریت تاریخچه بررسی‌های AD (`canUnlockHelpdeskDomainUsers`) همراه با مایگریشن خودکار برای پالیسی‌های قبلی.',
+      'افزودن صفحه مسدودیت صریح (Access Denied Guard) در هر دو صفحه `HelpDeskUsersView` و `HelpDeskGroupsView`، محدودسازی دکمه‌های حذف/پاک‌سازی تاریخچه گروه به مجوز مدیریت، محافظت دکمه جستجوی گروه‌ها (`Browse AD Groups`) و تنظیم مسیرهای بک‌اند روی بررسی‌های دقیق `ad_user`، `ad_user_unlock`، `ad_user_history`، `ad_group` و `ad_group_history`.'
+    ],
+    changes_en: [
+      'Fixed backend/frontend RBAC mismatch in `resolveHelpdeskAuth`: `/api/helpdesk/user/*`, `/api/helpdesk/group/*`, and `/api/helpdesk/status` no longer require workstation `canRunHelpdeskDiagnostics`, preventing false HTTP 403 errors for AD-only HelpDesk operators.',
+      'Added 3 independent PostgreSQL RBAC permissions in types, DB startup migration, defaults, and `AccessPolicyModal`: `canViewHelpdeskUsers`, `canViewHelpdeskGroups`, and `canUnlockHelpdeskDomainUsers` (with seamless backwards-compatible derivation for existing policies).',
+      'Added explicit bilingual Access Denied guard panels and handler/action gating in both `HelpDeskUsersView` and `HelpDeskGroupsView` (including group browser search, re-inspect, and clear/delete history controls) backed by dedicated `ad_user`, `ad_user_unlock`, `ad_user_history`, `ad_group`, and `ad_group_history` route checks.'
+    ]
+  },
   {
     version: '1.492.0',
     releaseDate: '2026-11-26',

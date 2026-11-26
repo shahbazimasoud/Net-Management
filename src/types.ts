@@ -1063,8 +1063,10 @@ export interface AccessPolicy {
   targetSslScope?: 'all' | 'specific';
   targetSslIds?: string[];
 
-  // 8b. Agentless HelpDesk RBAC (Diagnostics, Remediation, System Repair, AD Lookup & Power Control)
+  // 8b. Agentless HelpDesk RBAC (Diagnostics, Remediation, System Repair, AD Lookup, AD User/Group Support & Power Control)
   canViewHelpdesk?: boolean;
+  canViewHelpdeskUsers?: boolean;
+  canViewHelpdeskGroups?: boolean;
   canRunHelpdeskDiagnostics?: boolean;
   canExecuteHelpdeskActions?: boolean;
   canViewHelpdeskEventViewer?: boolean;
@@ -1073,6 +1075,7 @@ export interface AccessPolicy {
   canRunHelpdeskGpupdate?: boolean;
   canRunHelpdeskSystemRepair?: boolean;
   canInspectHelpdeskDomainUsers?: boolean;
+  canUnlockHelpdeskDomainUsers?: boolean;
   canPowerControlHelpdeskEndpoints?: boolean;
   canManageHelpdeskExceptions?: boolean;
   canSendHelpdeskMessage?: boolean;
