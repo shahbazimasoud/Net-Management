@@ -136,6 +136,7 @@ export interface AccessPolicyModalProps {
   liveServerGroups?: ServerGroup[];
   liveContracts?: ContractItem[];
   liveLicenses?: LicenseItem[];
+  initialTab?: PolicyModalTab;
 }
 
 export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
@@ -155,6 +156,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   liveServerGroups = [],
   liveContracts = [],
   liveLicenses = [],
+  initialTab = 'identity',
 }) => {
   const { isRtl, isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
@@ -167,7 +169,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         localStorage.getItem('panel_theme') === 'light' ||
         localStorage.getItem('theme_mode') === 'light'));
 
-  const [activeTab, setActiveTab] = useState<PolicyModalTab>('identity');
+  const [activeTab, setActiveTab] = useState<PolicyModalTab>(initialTab || 'identity');
   const [isMaximized, setIsMaximized] = useState(false);
 
   const [contractsList, setContractsList] = useState<ContractItem[]>(liveContracts || []);
@@ -875,7 +877,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       });
       setErrorMessage(null);
       setIsMaximized(false);
-      setActiveTab('identity');
+      setActiveTab(initialTab || 'identity');
       setAdUserSearch('');
       setIsAdUserOpen(true);
       setAdGroupSearch('');
@@ -902,7 +904,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       setHdBlockedLocalUserInput('');
       setHdCatalogSearch('');
     }
-  }, [isOpen, initialPolicy]);
+  }, [isOpen, initialPolicy, initialTab]);
 
   // Fetch authentic live Contracts, Licenses & SSL Certificates from backend on modal open
   useEffect(() => {

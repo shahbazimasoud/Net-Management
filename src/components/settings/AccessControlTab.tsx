@@ -58,7 +58,13 @@ import {
   ChevronsRight,
   Copy,
   SlidersHorizontal,
-  Clock
+  Clock,
+  Headphones,
+  FileCheck,
+  FileCode2,
+  ShieldBan,
+  Compass,
+  Video
 } from 'lucide-react';
 import {
   AccessPolicy,
@@ -91,7 +97,7 @@ import {
 } from '../../utils/rbac';
 import { fetchRemoteServers } from '../../services/api';
 import { FieldInfoTooltip } from '../vpn/FieldInfoTooltip';
-import { AccessPolicyModal } from './AccessPolicyModal';
+import { AccessPolicyModal, PolicyModalTab } from './AccessPolicyModal';
 import {
   loadLocalUsers,
   loadLocalGroups,
@@ -114,11 +120,13 @@ export interface PolicyVisibleColumns {
   priority: boolean;
   scope: boolean;
   views: boolean;
+  contracts_ssl: boolean;
+  helpdesk: boolean;
+  servers: boolean;
+  global: boolean;
   cisco: boolean;
   mikrotik: boolean;
-  servers: boolean;
-  templates: boolean;
-  simulation: boolean;
+  approvals: boolean;
   actions: boolean;
 }
 
@@ -128,11 +136,13 @@ export const DEFAULT_POLICY_COLUMNS: PolicyVisibleColumns = {
   priority: true,
   scope: true,
   views: true,
+  contracts_ssl: true,
+  helpdesk: true,
+  servers: true,
+  global: true,
   cisco: true,
   mikrotik: true,
-  servers: true,
-  templates: true,
-  simulation: true,
+  approvals: true,
   actions: true,
 };
 
@@ -141,17 +151,19 @@ export const POLICY_COLUMN_ITEMS: {
   labelEn: string;
   labelFa: string;
 }[] = [
-  { key: 'policy', labelEn: 'Policy Name & Description', labelFa: 'نام و توضیحات پالیسی' },
-  { key: 'subject', labelEn: 'Subject & Identity', labelFa: 'هویت و نوع کاربر/گروه' },
-  { key: 'priority', labelEn: 'Priority Weight', labelFa: 'اولویت و وزن اعمال' },
-  { key: 'scope', labelEn: 'Target Scope', labelFa: 'محدوده تجهیزات و سرورها' },
-  { key: 'views', labelEn: 'UI Views Privileges', labelFa: 'اختیارات صفحات پنل' },
-  { key: 'cisco', labelEn: 'Cisco CLI & Ports', labelFa: 'اختیارات تجهیزات سیسکو' },
-  { key: 'mikrotik', labelEn: 'MikroTik RouterOS', labelFa: 'اختیارات تجهیزات میکروتیک' },
-  { key: 'servers', labelEn: 'Linux Server Fleet', labelFa: 'اختیارات ناوگان سرورها' },
-  { key: 'templates', labelEn: 'Templates & Disaster Recovery', labelFa: 'الگوها و پشتیبان‌گیری' },
-  { key: 'simulation', labelEn: 'Simulation Status', labelFa: 'وضعیت شبیه‌سازی نقش' },
-  { key: 'actions', labelEn: 'Quick Actions', labelFa: 'عملیات سریع' },
+  { key: 'policy', labelEn: 'Policy & Role', labelFa: 'نام و توضیحات پالیسی' },
+  { key: 'subject', labelEn: 'Identity & Members', labelFa: 'هویت و اعضا' },
+  { key: 'priority', labelEn: 'Priority', labelFa: 'اولویت' },
+  { key: 'scope', labelEn: 'Infrastructure Scope', labelFa: 'محدوده تجهیزات و سرورها' },
+  { key: 'views', labelEn: 'Navigation & Views', labelFa: 'صفحات و ابزارها' },
+  { key: 'contracts_ssl', labelEn: 'Contracts, Licenses & SSL', labelFa: 'قراردادها، لایسنس و SSL' },
+  { key: 'helpdesk', labelEn: 'HelpDesk & Target Rules', labelFa: 'هلپ‌دسک و قوانین هدف' },
+  { key: 'servers', labelEn: 'Linux & Servers', labelFa: 'ناوگان سرورها' },
+  { key: 'global', labelEn: 'Global, Templates & DR', labelFa: 'عملیات، الگوها و بکاپ' },
+  { key: 'cisco', labelEn: 'Cisco, Generic & Overrides', labelFa: 'سیسکو و استثنائات تجهیزات' },
+  { key: 'mikrotik', labelEn: 'MikroTik RouterOS', labelFa: 'میکروتیک RouterOS' },
+  { key: 'approvals', labelEn: 'Approval Chain', labelFa: 'زنجیره تایید مراحل' },
+  { key: 'actions', labelEn: 'Actions', labelFa: 'عملیات' },
 ];
 
 interface AccessControlTabProps {
@@ -185,6 +197,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     (typeof document !== 'undefined' && document.documentElement.classList.contains('light'))
   );
   const [editingPolicy, setEditingPolicy] = useState<AccessPolicy | null>(null);
+  const [editingInitialTab, setEditingInitialTab] = useState<PolicyModalTab>('identity');
   const [isCreating, setIsCreating] = useState(false);
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
   const { dockModal, undockModal } = useModalDock();
@@ -201,7 +214,16 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   const [visibleColumns, setVisibleColumns] = useState<PolicyVisibleColumns>(() => {
     try {
       const saved = localStorage.getItem('access_policies_visible_columns');
-      if (saved) return { ...DEFAULT_POLICY_COLUMNS, ...JSON.parse(saved) };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const sanitized: PolicyVisibleColumns = { ...DEFAULT_POLICY_COLUMNS };
+        (Object.keys(DEFAULT_POLICY_COLUMNS) as (keyof PolicyVisibleColumns)[]).forEach((k) => {
+          if (typeof parsed?.[k] === 'boolean') {
+            sanitized[k] = parsed[k];
+          }
+        });
+        return sanitized;
+      }
     } catch {}
     return DEFAULT_POLICY_COLUMNS;
   });
@@ -450,13 +472,15 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     const data = await refreshDatabaseData();
     const activeGroups = data?.groups && data.groups.length > 0 ? data.groups : liveLocalGroups;
     const activeDevGroups = data?.devGroups && data.devGroups.length > 0 ? data.devGroups : liveDeviceGroups;
+    setEditingInitialTab('identity');
     setEditingPolicy(getBlankPolicy(activeGroups, activeDevGroups));
     setIsCreating(true);
     setIsPolicyModalOpen(true);
   };
 
-  const handleStartEdit = (policy: AccessPolicy) => {
+  const handleStartEdit = (policy: AccessPolicy, initialTab: PolicyModalTab = 'identity') => {
     refreshDatabaseData();
+    setEditingInitialTab(initialTab);
     setEditingPolicy({
       ...policy,
       targetServerScope: policy.targetServerScope || (Array.isArray(policy.targetServerIds) && policy.targetServerIds.length > 0 ? 'specific' : 'all'),
@@ -682,11 +706,13 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       priority: true,
       scope: true,
       views: true,
+      contracts_ssl: true,
+      helpdesk: true,
+      servers: true,
+      global: true,
       cisco: true,
       mikrotik: true,
-      servers: true,
-      templates: true,
-      simulation: true,
+      approvals: true,
       actions: true,
     };
     setVisibleColumns(allTrue);
@@ -744,9 +770,12 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         const q = searchQuery.trim().toLowerCase();
         const matchName = (p.name || '').toLowerCase().includes(q);
         const matchSubject = (p.subjectName || '').toLowerCase().includes(q);
+        const matchMultiSubjects = Array.isArray(p.subjectNames)
+          ? p.subjectNames.some((s) => (s || '').toLowerCase().includes(q))
+          : false;
         const matchDesc = (p.description || '').toLowerCase().includes(q);
         const matchId = (p.id || '').toLowerCase().includes(q);
-        if (!matchName && !matchSubject && !matchDesc && !matchId) {
+        if (!matchName && !matchSubject && !matchMultiSubjects && !matchDesc && !matchId) {
           return false;
         }
       }
@@ -782,9 +811,13 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   const startIndex = totalItems === 0 ? 0 : (safePage - 1) * (itemsPerPage === -1 ? totalItems : itemsPerPage);
   const endIndex = itemsPerPage === -1 ? totalItems : Math.min(startIndex + itemsPerPage, totalItems);
 
-  // Helper renderers
-  const getPermittedViewsCount = (policy: AccessPolicy) => {
-    if ((policy.priority || 0) >= 100) return 10;
+  // Helper renderers aligned with all 8 AccessPolicyModal tabs
+  const getPermittedViewsSummary = (policy: AccessPolicy) => {
+    const isSuper = policy.id === 'policy-super-admin' || (policy.priority || 0) >= 100;
+    const total = 19;
+    if (isSuper) {
+      return { count: total, total, isSuper: true };
+    }
     let count = 0;
     if (policy.canViewDashboard !== false) count++;
     if (policy.canViewTopology !== false) count++;
@@ -795,8 +828,17 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     if (policy.canViewServers !== false) count++;
     if (policy.canViewNetworkTools !== false) count++;
     if (policy.canViewPhysicalPlacement !== false) count++;
+    if (policy.canViewLogs === true) count++;
+    if (policy.canViewContracts !== false) count++;
+    if (policy.canViewLicenses !== false) count++;
+    if (policy.canViewSslCertificates !== false) count++;
+    if (policy.canViewHelpdesk === true) count++;
+    if (policy.canViewHelpdeskUsers === true) count++;
+    if (policy.canViewHelpdeskGroups === true) count++;
+    if (policy.canViewCommunications === true) count++;
+    if (policy.canViewSessionRecordings === true) count++;
     if (policy.canViewSettings === true) count++;
-    return count;
+    return { count, total, isSuper: false };
   };
 
   const renderSubjectTypeBadge = (policy: AccessPolicy) => {
@@ -848,45 +890,99 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     );
   };
 
-  const renderScopeBadge = (policy: AccessPolicy) => {
-    if (policy.targetScope === 'all') {
-      return (
-        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${
-          isLight
-            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-            : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-        }`}>
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-          <span>{isEn ? 'All Devices' : 'تمام تجهیزات'}</span>
-        </span>
-      );
-    }
-    if (policy.targetScope === 'groups') {
-      const groupCount = (policy.targetGroupIds || []).length;
-      return (
-        <span
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${
-            isLight
-              ? 'bg-amber-100 text-amber-800 border-amber-300'
-              : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-          }`}
-          title={(policy.targetGroupIds || []).map((gid) => groups.find((g) => g.id === gid)?.name || gid).join(', ')}
-        >
-          <FolderTree className="w-3 h-3 text-amber-400" />
-          <span>{isEn ? `${groupCount} Groups` : `${groupCount} گروه`}</span>
-        </span>
-      );
-    }
-    const devCount = (policy.targetDeviceIds || []).length;
+  const renderSubjectSummary = (policy: AccessPolicy) => {
+    const names = Array.isArray(policy.subjectNames) && policy.subjectNames.length > 0
+      ? policy.subjectNames
+      : policy.subjectName
+      ? [policy.subjectName]
+      : [];
+    const primary = names[0] || '—';
+    const extraCount = Math.max(0, names.length - 1);
     return (
+      <div className="space-y-1">
+        {renderSubjectTypeBadge(policy)}
+        <div className="flex items-center gap-1.5 flex-wrap" title={names.join(', ')}>
+          <span className={`text-[11px] font-mono font-semibold truncate max-w-[150px] ${
+            isLight ? 'text-cyan-700' : 'text-cyan-300'
+          }`}>
+            {primary}
+          </span>
+          {extraCount > 0 && (
+            <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border ${
+              isLight
+                ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+            }`}>
+              +{extraCount}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderScopeBadge = (policy: AccessPolicy) => {
+    const devicePill = policy.targetScope === 'all' ? (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${
+        isLight
+          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+          : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+      }`}>
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+        <span>{isEn ? 'All Devices' : 'تمام تجهیزات'}</span>
+      </span>
+    ) : policy.targetScope === 'groups' ? (
+      <span
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${
+          isLight
+            ? 'bg-amber-100 text-amber-800 border-amber-300'
+            : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+        }`}
+        title={(policy.targetGroupIds || []).map((gid) => groups.find((g) => g.id === gid)?.name || gid).join(', ')}
+      >
+        <FolderTree className="w-3 h-3 text-amber-400" />
+        <span>{isEn ? `${(policy.targetGroupIds || []).length} Dev Grp` : `${(policy.targetGroupIds || []).length} گروه تجهیز`}</span>
+      </span>
+    ) : (
       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${
         isLight
           ? 'bg-cyan-100 text-cyan-800 border-cyan-300'
           : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
       }`}>
         <RouterIcon className="w-3 h-3 text-cyan-400" />
-        <span>{isEn ? `${devCount} Devices` : `${devCount} دستگاه`}</span>
+        <span>{isEn ? `${(policy.targetDeviceIds || []).length} Devices` : `${(policy.targetDeviceIds || []).length} دستگاه`}</span>
       </span>
+    );
+
+    const serverScope = policy.targetServerScope === 'specific'
+      ? (policy.targetServerIds || []).length
+      : null;
+
+    const serverPill = serverScope === null ? (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-mono border ${
+        isLight
+          ? 'bg-slate-100 text-slate-700 border-slate-300'
+          : 'bg-white/5 text-slate-300 border-white/10'
+      }`}>
+        <Server className="w-2.5 h-2.5 text-amber-400" />
+        <span>{isEn ? 'All Servers' : 'همه سرورها'}</span>
+      </span>
+    ) : (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9.5px] font-mono border ${
+        isLight
+          ? 'bg-amber-50 text-amber-800 border-amber-200'
+          : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+      }`}>
+        <Server className="w-2.5 h-2.5 text-amber-400" />
+        <span>{isEn ? `${serverScope} Srv` : `${serverScope} سرور`}</span>
+      </span>
+    );
+
+    return (
+      <div className="flex flex-col gap-1 items-start">
+        {devicePill}
+        {serverPill}
+      </div>
     );
   };
 
@@ -910,23 +1006,198 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   };
 
   const renderViewsBadge = (policy: AccessPolicy) => {
-    const count = getPermittedViewsCount(policy);
+    const { count, total, isSuper } = getPermittedViewsSummary(policy);
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold border ${
-        count >= 9
-          ? isLight ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-          : count >= 6
-          ? isLight ? 'bg-indigo-100 text-indigo-800 border-indigo-300' : 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
-          : isLight ? 'bg-slate-100 text-slate-700 border-slate-300' : 'bg-slate-800 text-slate-400 border-white/10'
-      }`}>
-        <LayoutDashboard className="w-3 h-3" />
-        <span>{isEn ? `${count}/10 Views` : `${count}/۱۰ بخش`}</span>
-      </span>
+      <div className="flex flex-col gap-1 items-start">
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold border ${
+          count >= 15
+            ? isLight ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+            : count >= 9
+            ? isLight ? 'bg-indigo-100 text-indigo-800 border-indigo-300' : 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+            : isLight ? 'bg-slate-100 text-slate-700 border-slate-300' : 'bg-slate-800 text-slate-400 border-white/10'
+        }`}>
+          <LayoutDashboard className="w-3 h-3" />
+          <span>{isEn ? `${count}/${total} Views` : `${count}/${total} صفحه`}</span>
+        </span>
+        <div className="flex flex-wrap gap-1">
+          {(isSuper || policy.canViewLogs) && (
+            <span className={`px-1 py-0.2 rounded text-[8.5px] font-mono ${isLight ? 'bg-slate-100 text-slate-700' : 'bg-white/10 text-slate-300'}`}>
+              Logs
+            </span>
+          )}
+          {(isSuper || policy.canViewSettings) && (
+            <span className={`px-1 py-0.2 rounded text-[8.5px] font-mono ${isLight ? 'bg-purple-100 text-purple-800' : 'bg-purple-500/20 text-purple-300'}`}>
+              Settings
+            </span>
+          )}
+          {(isSuper || policy.canPerformUpdate || policy.canCheckUpdate) && (
+            <span className={`px-1 py-0.2 rounded text-[8.5px] font-mono ${isLight ? 'bg-cyan-100 text-cyan-800' : 'bg-cyan-500/20 text-cyan-300'}`}>
+              {isSuper || policy.canPerformUpdate ? 'Upd:Full' : 'Upd:Chk'}
+            </span>
+          )}
+          {(isSuper || policy.canManageNavigationGovernance) && (
+            <span className={`px-1 py-0.2 rounded text-[8.5px] font-mono ${isLight ? 'bg-amber-100 text-amber-800' : 'bg-amber-500/20 text-amber-300'}`}>
+              NavGov
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderContractsSslBadge = (policy: AccessPolicy) => {
+    const isSuper = policy.id === 'policy-super-admin' || (policy.priority || 0) >= 100;
+    const hasContracts = isSuper || policy.canViewContracts !== false;
+    const hasLicenses = isSuper || policy.canViewLicenses !== false;
+    const hasSsl = isSuper || policy.canViewSslCertificates !== false;
+
+    if (!hasContracts && !hasLicenses && !hasSsl) {
+      return (
+        <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>
+          {isEn ? 'Restricted' : 'محدود'}
+        </span>
+      );
+    }
+
+    const cntManage = isSuper || policy.canManageContracts || policy.canAddContracts || policy.canEditContracts || policy.canDeleteContracts;
+    const licManage = isSuper || policy.canManageLicenses || policy.canAddLicenses || policy.canEditLicenses || policy.canDeleteLicenses;
+    const sslManage = isSuper || policy.canManageSslCertificates || policy.canAddSslCertificates || policy.canEditSslCertificates || policy.canDeleteSslCertificates;
+
+    const cntScope = !isSuper && policy.targetContractScope === 'specific'
+      ? `(${(policy.targetContractIds || []).length})`
+      : '';
+    const licScope = !isSuper && policy.targetLicenseScope === 'specific'
+      ? `(${(policy.targetLicenseIds || []).length})`
+      : '';
+    const sslScope = !isSuper && policy.targetSslScope === 'specific'
+      ? `(${(policy.targetSslIds || []).length})`
+      : '';
+
+    return (
+      <div className="flex flex-wrap gap-1 items-center">
+        {hasContracts && (
+          <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono border ${
+            cntManage
+              ? isLight ? 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 font-bold'
+              : isLight ? 'bg-slate-100 text-slate-700 border-slate-300' : 'bg-white/5 text-slate-300 border-white/10'
+          }`}>
+            Cnt{cntScope}:{cntManage ? 'RW' : 'R'}
+          </span>
+        )}
+        {hasLicenses && (
+          <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono border ${
+            licManage
+              ? isLight ? 'bg-indigo-100 text-indigo-800 border-indigo-300 font-bold' : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30 font-bold'
+              : isLight ? 'bg-slate-100 text-slate-700 border-slate-300' : 'bg-white/5 text-slate-300 border-white/10'
+          }`}>
+            Lic{licScope}:{licManage ? 'RW' : 'R'}
+          </span>
+        )}
+        {hasSsl && (
+          <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono border ${
+            sslManage
+              ? isLight ? 'bg-cyan-100 text-cyan-800 border-cyan-300 font-bold' : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30 font-bold'
+              : isLight ? 'bg-slate-100 text-slate-700 border-slate-300' : 'bg-white/5 text-slate-300 border-white/10'
+          }`}>
+            SSL{sslScope}:{sslManage ? 'RW' : policy.canCheckSslCertificates ? 'Chk' : 'R'}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  const renderHelpdeskBadge = (policy: AccessPolicy) => {
+    const isSuper = policy.id === 'policy-super-admin' || (policy.priority || 0) >= 100;
+    const hasEndpoint = isSuper || Boolean(policy.canViewHelpdesk);
+    const hasAdUser = isSuper || Boolean(policy.canViewHelpdeskUsers);
+    const hasAdGroup = isSuper || Boolean(policy.canViewHelpdeskGroups);
+
+    if (!hasEndpoint && !hasAdUser && !hasAdGroup) {
+      return (
+        <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>
+          {isEn ? 'Disabled' : 'غیرفعال'}
+        </span>
+      );
+    }
+
+    const ipBlkCount = (policy.blockedHelpdeskIps || []).length;
+    const ipAllowCount = policy.targetHelpdeskIpScope === 'selected' ? (policy.allowedHelpdeskIps || []).length : null;
+    const adBlkCount = (policy.blockedHelpdeskAdUsers || []).length + (policy.blockedHelpdeskAdGroups || []).length + (policy.blockedHelpdeskLocalUsers || []).length;
+    const adAllowCount = policy.targetHelpdeskAdScope === 'selected'
+      ? (policy.allowedHelpdeskAdGroups || []).length + (policy.allowedHelpdeskAdUsers || []).length
+      : null;
+
+    return (
+      <div className="flex flex-col gap-1 items-start">
+        <div className="flex flex-wrap gap-1 items-center">
+          {hasEndpoint && (
+            <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
+              isLight ? 'bg-teal-100 text-teal-800' : 'bg-teal-500/20 text-teal-300'
+            }`}>
+              EP
+            </span>
+          )}
+          {hasAdUser && (
+            <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
+              isLight ? 'bg-sky-100 text-sky-800' : 'bg-sky-500/20 text-sky-300'
+            }`}>
+              AD-U
+            </span>
+          )}
+          {hasAdGroup && (
+            <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
+              isLight ? 'bg-indigo-100 text-indigo-800' : 'bg-indigo-500/20 text-indigo-300'
+            }`}>
+              AD-G
+            </span>
+          )}
+          {(isSuper || policy.canUnlockHelpdeskDomainUsers) && (
+            <span className={`px-1 py-0.2 rounded text-[8.5px] font-mono ${
+              isLight ? 'bg-emerald-100 text-emerald-800' : 'bg-emerald-500/20 text-emerald-300'
+            }`}>
+              Unlock
+            </span>
+          )}
+          {(isSuper || policy.canPowerControlHelpdeskEndpoints) && (
+            <span className={`px-1 py-0.2 rounded text-[8.5px] font-mono ${
+              isLight ? 'bg-rose-100 text-rose-800' : 'bg-rose-500/20 text-rose-300'
+            }`}>
+              Pwr
+            </span>
+          )}
+        </div>
+        {(ipAllowCount !== null || ipBlkCount > 0 || adAllowCount !== null || adBlkCount > 0) && (
+          <div className="flex flex-wrap gap-1">
+            {ipAllowCount !== null && (
+              <span className={`px-1 py-0.2 rounded text-[8.5px] font-mono border ${
+                isLight ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+              }`}>
+                IP:{ipAllowCount}
+              </span>
+            )}
+            {adAllowCount !== null && (
+              <span className={`px-1 py-0.2 rounded text-[8.5px] font-mono border ${
+                isLight ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+              }`}>
+                AD:{adAllowCount}
+              </span>
+            )}
+            {(ipBlkCount > 0 || adBlkCount > 0) && (
+              <span className={`px-1 py-0.2 rounded text-[8.5px] font-mono border ${
+                isLight ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+              }`}>
+                Blk:{ipBlkCount + adBlkCount}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     );
   };
 
   const renderCiscoBadge = (policy: AccessPolicy) => {
-    const isNone = !policy.canChangeVlan && !policy.canTogglePortSecurity && !policy.canToggleAdminStatus && (!policy.terminalAccess || policy.terminalAccess === 'none');
+    const devOverrides = Object.keys(policy.perDevicePermissions || {}).length;
+    const isNone = !policy.canChangeVlan && !policy.canTogglePortSecurity && !policy.canToggleAdminStatus && (!policy.terminalAccess || policy.terminalAccess === 'none') && devOverrides === 0;
     if (isNone) {
       return <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>{isEn ? 'Restricted' : 'محدود'}</span>;
     }
@@ -937,9 +1208,11 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
             ? isLight ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
             : policy.terminalAccess === 'exec'
             ? isLight ? 'bg-blue-100 text-blue-800 border-blue-300' : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+            : policy.terminalAccess === 'view_only'
+            ? isLight ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
             : isLight ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-slate-800 text-slate-500 border-white/5'
         }`}>
-          {policy.terminalAccess === 'full' ? 'CLI:Full' : policy.terminalAccess === 'exec' ? 'CLI:Exec' : 'CLI:None'}
+          {policy.terminalAccess === 'full' ? 'CLI:Full' : policy.terminalAccess === 'exec' ? 'CLI:Exec' : policy.terminalAccess === 'view_only' ? 'CLI:View' : 'CLI:None'}
         </span>
         {policy.canChangeVlan && (
           <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${isLight ? 'bg-blue-100 text-blue-800' : 'bg-blue-500/20 text-blue-300'}`}>
@@ -961,12 +1234,19 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
             WR
           </span>
         )}
+        {devOverrides > 0 && (
+          <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border ${
+            isLight ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+          }`}>
+            {isEn ? `${devOverrides} Ovrd` : `${devOverrides} استثنا`}
+          </span>
+        )}
       </div>
     );
   };
 
   const renderMikrotikBadge = (policy: AccessPolicy) => {
-    const isNone = !policy.canMikrotikBridgeVlan && !policy.canMikrotikToggleInterface && !policy.canMikrotikFirewall && !policy.canMikrotikBackup && (!policy.mikrotikTerminalAccess || policy.mikrotikTerminalAccess === 'none');
+    const isNone = !policy.canMikrotikBridgeVlan && !policy.canMikrotikToggleInterface && !policy.canMikrotikFirewall && !policy.canMikrotikBackup && !policy.canMikrotikVpn && (!policy.mikrotikTerminalAccess || policy.mikrotikTerminalAccess === 'none');
     if (isNone) {
       return <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>{isEn ? 'Restricted' : 'محدود'}</span>;
     }
@@ -976,7 +1256,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
             isLight ? 'bg-rose-100 text-rose-800' : 'bg-rose-500/20 text-rose-300'
           }`}>
-            ROS-CLI
+            ROS:{policy.mikrotikTerminalAccess === 'full' ? 'Full' : 'View'}
           </span>
         )}
         {policy.canMikrotikSafeMode && (
@@ -991,6 +1271,13 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
             isLight ? 'bg-orange-100 text-orange-800' : 'bg-orange-500/20 text-orange-300'
           }`}>
             FW/NAT
+          </span>
+        )}
+        {policy.canMikrotikVpn && (
+          <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${
+            isLight ? 'bg-indigo-100 text-indigo-800' : 'bg-indigo-500/20 text-indigo-300'
+          }`}>
+            VPN
           </span>
         )}
         {policy.canMikrotikBackup && (
@@ -1013,110 +1300,144 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
 
   const renderServersBadge = (policy: AccessPolicy) => {
     const p = policy.defaultServerPermissions;
+    const totalSrvActions = SERVER_ACTIONS_CATALOG.length || 12;
+    const srvOverrides = Object.keys(policy.perServerPermissions || {}).length;
     if (!p) {
       return <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>{isEn ? 'Default' : 'پیش‌فرض'}</span>;
     }
-    const activeCount = Object.values(p).filter(Boolean).length;
+    const activeCount = SERVER_ACTIONS_CATALOG.filter((a) => Boolean(p[a.key])).length;
     return (
       <div className="flex flex-wrap gap-1 items-center">
         <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border ${
-          activeCount >= 6
+          activeCount >= 8
             ? isLight ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
             : activeCount > 0
             ? isLight ? 'bg-cyan-100 text-cyan-800 border-cyan-300' : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
             : isLight ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-slate-800 text-slate-500 border-white/5'
         }`}>
-          {activeCount}/8 Actions
+          {activeCount}/{totalSrvActions}
         </span>
         {p.terminal && <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${isLight ? 'bg-emerald-100 text-emerald-800' : 'bg-emerald-500/20 text-emerald-300'}`}>SSH</span>}
         {p.file_explorer && <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${isLight ? 'bg-blue-100 text-blue-800' : 'bg-blue-500/20 text-blue-300'}`}>SFTP</span>}
         {p.database_management && <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${isLight ? 'bg-amber-100 text-amber-800' : 'bg-amber-500/20 text-amber-300'}`}>DB</span>}
         {p.power_control && <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${isLight ? 'bg-rose-100 text-rose-800' : 'bg-rose-500/20 text-rose-300'}`}>Power</span>}
+        {policy.canViewSessionRecordings && (
+          <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${isLight ? 'bg-purple-100 text-purple-800' : 'bg-purple-500/20 text-purple-300'}`}>
+            Rec
+          </span>
+        )}
+        {srvOverrides > 0 && (
+          <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border ${
+            isLight ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+          }`}>
+            {isEn ? `${srvOverrides} Ovrd` : `${srvOverrides} استثنا`}
+          </span>
+        )}
       </div>
     );
   };
 
-  const renderApprovalSummaryPill = (policy: AccessPolicy) => {
-    const counts = countPolicyApprovalRules(policy);
-    const stageCount = Array.isArray(policy.approvalWorkflowStages)
-      ? policy.approvalWorkflowStages.length
-      : 0;
-    if (counts.totalCount === 0 && stageCount === 0) return null;
-    return (
-      <span
-        className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border ${
-          counts.totalCount > 0 && stageCount === 0
-            ? 'bg-rose-600 text-white border-rose-500'
-            : isLight
-            ? 'bg-amber-100 text-amber-900 border-amber-300'
-            : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-        }`}
-        title={
-          isEn
-            ? `${counts.totalCount} action(s) require approval across ${stageCount} stage(s)`
-            : `${counts.totalCount} اکشن نیازمند تایید در ${stageCount} مرحله`
-        }
-      >
-        <Clock className="w-2.5 h-2.5 shrink-0" />
-        <span>
-          {counts.totalCount} {isEn ? 'Appr' : 'تایید'} · {stageCount}
-          {isEn ? 'Stg' : 'م'}
-        </span>
-      </span>
-    );
-  };
-
-  const renderTemplatesBadge = (policy: AccessPolicy) => {
+  const renderGlobalTemplatesBadge = (policy: AccessPolicy) => {
+    const isSuper = policy.id === 'policy-super-admin' || (policy.priority || 0) >= 100;
     return (
       <div className="flex flex-wrap gap-1 items-center">
-        {policy.canApplyTemplates && (
+        {(isSuper || policy.canManageDevices) && (
+          <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${
+            isLight ? 'bg-indigo-100 text-indigo-800' : 'bg-indigo-500/20 text-indigo-300'
+          }`}>
+            Mgmt
+          </span>
+        )}
+        {(isSuper || policy.canBulkConfigureDevices || policy.canBulkConfigureServers || policy.canBatchOperate) && (
+          <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${
+            isLight ? 'bg-purple-100 text-purple-800' : 'bg-purple-500/20 text-purple-300'
+          }`}>
+            Bulk
+          </span>
+        )}
+        {(isSuper || policy.canApplyTemplates) && (
           <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
             isLight ? 'bg-emerald-100 text-emerald-800' : 'bg-emerald-500/20 text-emerald-300'
           }`}>
             Apply
           </span>
         )}
-        {(policy.canExportTemplates || policy.canImportTemplates) && (
+        {(isSuper || policy.canExportTemplates || policy.canImportTemplates) && (
           <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${
             isLight ? 'bg-blue-100 text-blue-800' : 'bg-blue-500/20 text-blue-300'
           }`}>
-            {policy.canExportTemplates && policy.canImportTemplates ? 'Exp+Imp' : policy.canExportTemplates ? 'Exp' : 'Imp'}
+            {(isSuper || (policy.canExportTemplates && policy.canImportTemplates)) ? 'Exp+Imp' : policy.canExportTemplates ? 'Exp' : 'Imp'}
           </span>
         )}
-        <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${
-          policy.canImportBackup
-            ? isLight ? 'bg-amber-100 text-amber-800 font-bold' : 'bg-amber-500/20 text-amber-300 font-bold'
+        {(isSuper || policy.canExportSchematic) && (
+          <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${
+            isLight ? 'bg-teal-100 text-teal-800' : 'bg-teal-500/20 text-teal-300'
+          }`}>
+            Sch
+          </span>
+        )}
+        <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono border ${
+          isSuper || policy.canImportBackup
+            ? isLight ? 'bg-amber-100 text-amber-800 border-amber-300 font-bold' : 'bg-amber-500/20 text-amber-300 border-amber-500/30 font-bold'
             : policy.canExportBackup
-            ? isLight ? 'bg-cyan-100 text-cyan-800' : 'bg-cyan-500/20 text-cyan-300'
-            : isLight ? 'text-slate-400' : 'text-slate-500'
+            ? isLight ? 'bg-cyan-100 text-cyan-800 border-cyan-300' : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+            : isLight ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-slate-800 text-slate-500 border-white/5'
         }`}>
-          DR: {policy.canImportBackup ? 'Full' : policy.canExportBackup ? 'Exp' : 'None'}
+          DR:{isSuper || policy.canImportBackup ? 'Full' : policy.canExportBackup ? 'Exp' : 'None'}
         </span>
-        {renderApprovalSummaryPill(policy)}
       </div>
     );
   };
 
-  const renderSimulationButton = (policy: AccessPolicy) => {
-    const isCurrent = policy.id === activeSimulatedPolicyId;
+  const renderApprovalsBadge = (policy: AccessPolicy) => {
+    const counts = countPolicyApprovalRules(policy);
+    const stageCount = Array.isArray(policy.approvalWorkflowStages)
+      ? policy.approvalWorkflowStages.length
+      : 0;
+    const isApprover = Boolean(policy.canApproveActions || policy.id === 'policy-super-admin' || (policy.priority || 0) >= 100);
+
+    if (counts.totalCount === 0 && stageCount === 0 && !isApprover) {
+      return (
+        <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>
+          {isEn ? 'Direct' : 'مستقیم'}
+        </span>
+      );
+    }
+
     return (
-      <button
-        type="button"
-        onClick={() => onSelectSimulatedPolicy(policy.id)}
-        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1.5 border ${
-          isCurrent
-            ? isLight
-              ? 'bg-cyan-100 border-cyan-400 text-cyan-900 font-bold shadow-sm'
-              : 'bg-cyan-500/20 border-cyan-400 text-cyan-200 font-bold shadow-sm shadow-cyan-500/20'
-            : isLight
-            ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
-            : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300 hover:text-white'
-        }`}
-        title={isCurrent ? (isEn ? 'Active Test Role' : 'نقش تستی فعال') : (isEn ? 'Switch to this role' : 'تغییر به این نقش')}
-      >
-        <span className={`w-1.5 h-1.5 rounded-full ${isCurrent ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'}`} />
-        <span>{isCurrent ? (isEn ? 'Active Test' : 'فعال در تست') : (isEn ? 'Simulate' : 'شبیه‌سازی')}</span>
-      </button>
+      <div className="flex flex-wrap gap-1 items-center">
+        {(counts.totalCount > 0 || stageCount > 0) && (
+          <span
+            className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border ${
+              counts.totalCount > 0 && stageCount === 0
+                ? 'bg-rose-600 text-white border-rose-500'
+                : isLight
+                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+            }`}
+            title={
+              isEn
+                ? `${counts.totalCount} action(s) require approval across ${stageCount} stage(s)`
+                : `${counts.totalCount} اکشن نیازمند تایید در ${stageCount} مرحله`
+            }
+          >
+            <Clock className="w-2.5 h-2.5 shrink-0" />
+            <span>
+              {counts.totalCount} {isEn ? 'Appr' : 'تایید'} · {stageCount}
+              {isEn ? 'Stg' : 'م'}
+            </span>
+          </span>
+        )}
+        {isApprover && (
+          <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border ${
+            isLight
+              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+              : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+          }`}>
+            {isEn ? 'Approver' : 'تاییدکننده'}
+          </span>
+        )}
+      </div>
     );
   };
 
@@ -1193,7 +1514,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                   ? 'bg-cyan-100 text-cyan-800 border-cyan-300 font-semibold'
                   : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
               }`}>
-                {isEn ? 'Cisco • MikroTik • Linux' : 'سیسکو • میکروتیک • لینوکس'}
+                {isEn ? 'Cisco • MikroTik • Linux • HelpDesk • SSL & Approvals' : 'سیسکو • میکروتیک • لینوکس • هلپ‌دسک • SSL و تاییدیه‌ها'}
               </span>
             </div>
             <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
@@ -1428,7 +1749,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
               <Columns3 className="w-4 h-4 text-cyan-400" />
               <span className="hidden sm:inline">{isEn ? 'Columns' : 'ستون‌ها'}</span>
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 font-bold">
-                {Object.values(visibleColumns).filter(Boolean).length}/{POLICY_COLUMN_ITEMS.length}
+                {POLICY_COLUMN_ITEMS.filter((c) => visibleColumns[c.key]).length}/{POLICY_COLUMN_ITEMS.length}
               </span>
             </button>
 
@@ -1496,7 +1817,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                       {isEn ? 'Select All' : 'انتخاب همه'}
                     </button>
                     <span className="text-slate-400 font-mono">
-                      {Object.values(visibleColumns).filter(Boolean).length}/{POLICY_COLUMN_ITEMS.length}
+                      {POLICY_COLUMN_ITEMS.filter((c) => visibleColumns[c.key]).length}/{POLICY_COLUMN_ITEMS.length}
                     </span>
                   </div>
                 </div>,
@@ -1530,70 +1851,80 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           )}
         </div>
       ) : viewMode === 'list' ? (
-        /* 1. Structured List View (DEFAULT - spatial-glass table) */
+        /* 1. Redesigned Full-Spectrum Structured List View (Covers all 8 AccessPolicyModal Tabs) */
         <div className={`rounded-2xl overflow-hidden shadow-2xl backdrop-blur-xl border ${
           isLight ? 'bg-white border-slate-200 shadow-slate-200/50' : 'spatial-glass border-white/10'
         }`}>
           <div className="overflow-x-auto min-h-[340px]">
             <table className={`w-full ${isEn ? 'text-left' : 'text-right'} text-xs border-collapse`}>
               <thead>
-                <tr className={`border-b-2 text-[11px] font-bold uppercase tracking-wider font-mono ${
+                <tr className={`border-b-2 text-[10.5px] font-bold uppercase tracking-wider font-mono whitespace-nowrap ${
                   isLight
-                    ? 'bg-slate-100 text-slate-700 border-slate-200'
-                    : 'bg-slate-950/80 text-slate-300 border-white/15'
+                    ? 'bg-slate-100/90 text-slate-700 border-slate-200'
+                    : 'bg-slate-950/90 text-slate-300 border-white/15'
                 }`}>
                   {visibleColumns.policy && (
-                    <th className={`p-3.5 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/15'}`}>
-                      {isEn ? 'Policy Name & Description' : 'نام و توضیحات پالیسی'}
+                    <th className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                      {isEn ? 'Policy & Role' : 'نام و توضیحات پالیسی'}
                     </th>
                   )}
                   {visibleColumns.subject && (
-                    <th className={`p-3.5 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/15'}`}>
-                      {isEn ? 'Subject & Identity' : 'هویت و کاربر/گروه'}
+                    <th className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                      {isEn ? 'Identity' : 'هویت و اعضا'}
                     </th>
                   )}
                   {visibleColumns.priority && (
-                    <th className={`p-3.5 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/15'}`}>
+                    <th className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
                       {isEn ? 'Priority' : 'اولویت'}
                     </th>
                   )}
                   {visibleColumns.scope && (
-                    <th className={`p-3.5 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/15'}`}>
-                      {isEn ? 'Target Scope' : 'محدوده هدف'}
+                    <th className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                      {isEn ? 'Infra Scope' : 'محدوده هدف'}
                     </th>
                   )}
                   {visibleColumns.views && (
-                    <th className={`p-3.5 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/15'}`}>
-                      {isEn ? 'UI Views' : 'صفحات پنل'}
+                    <th className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                      {isEn ? 'Nav & Views' : 'صفحات و ابزارها'}
                     </th>
                   )}
-                  {visibleColumns.cisco && (
-                    <th className={`p-3.5 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/15'}`}>
-                      {isEn ? 'Cisco Capabilities' : 'اختیارات سیسکو'}
+                  {visibleColumns.contracts_ssl && (
+                    <th className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                      {isEn ? 'Contracts & SSL' : 'قرارداد، لایسنس و SSL'}
                     </th>
                   )}
-                  {visibleColumns.mikrotik && (
-                    <th className={`p-3.5 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/15'}`}>
-                      {isEn ? 'MikroTik Capabilities' : 'اختیارات میکروتیک'}
+                  {visibleColumns.helpdesk && (
+                    <th className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                      {isEn ? 'HelpDesk Scope' : 'هلپ‌دسک و محدودیت‌ها'}
                     </th>
                   )}
                   {visibleColumns.servers && (
-                    <th className={`p-3.5 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/15'}`}>
+                    <th className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
                       {isEn ? 'Linux Fleet' : 'ناوگان سرورها'}
                     </th>
                   )}
-                  {visibleColumns.templates && (
-                    <th className={`p-3.5 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/15'}`}>
-                      {isEn ? 'Templates & DR' : 'الگوها و بکاپ'}
+                  {visibleColumns.global && (
+                    <th className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                      {isEn ? 'Global & DR' : 'عملیات و بکاپ'}
                     </th>
                   )}
-                  {visibleColumns.simulation && (
-                    <th className={`p-3.5 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/15'}`}>
-                      {isEn ? 'Test Role' : 'شبیه‌سازی'}
+                  {visibleColumns.cisco && (
+                    <th className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                      {isEn ? 'Cisco & Overrides' : 'سیسکو و استثنائات'}
+                    </th>
+                  )}
+                  {visibleColumns.mikrotik && (
+                    <th className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                      {isEn ? 'MikroTik ROS' : 'میکروتیک ROS'}
+                    </th>
+                  )}
+                  {visibleColumns.approvals && (
+                    <th className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                      {isEn ? 'Approvals' : 'زنجیره تایید'}
                     </th>
                   )}
                   {visibleColumns.actions && (
-                    <th className="p-3.5 text-center">
+                    <th className="p-3 text-center">
                       {isEn ? 'Actions' : 'عملیات'}
                     </th>
                   )}
@@ -1601,25 +1932,24 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
               </thead>
               <tbody className={`divide-y ${isLight ? 'divide-slate-200' : 'divide-white/10'}`}>
                 {paginatedPolicies.map((policy) => {
-                  const isCurrent = policy.id === activeSimulatedPolicyId;
+                  const isRoot = (policy.priority || 0) >= 100 || policy.id === 'policy-super-admin';
 
                   return (
                     <tr
                       key={policy.id}
                       className={`transition-colors ${
-                        isCurrent
-                          ? isLight
-                            ? 'bg-cyan-50/70'
-                            : 'bg-cyan-950/20'
-                          : isLight
-                          ? 'hover:bg-slate-50'
-                          : 'hover:bg-white/5'
+                        isLight ? 'hover:bg-slate-50/90' : 'hover:bg-white/[0.04]'
                       }`}
                     >
                       {visibleColumns.policy && (
-                        <td className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                        <td
+                          onClick={() => handleStartEdit(policy, 'identity')}
+                          className={`p-3 cursor-pointer ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}
+                        >
                           <div className="flex items-center gap-2.5">
-                            <div className="p-1.5 rounded-lg bg-white/5 border border-white/10 shrink-0">
+                            <div className={`p-1.5 rounded-lg border shrink-0 ${
+                              isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/5 border-white/10'
+                            }`}>
                               {policy.subjectType === 'ad_group' ? (
                                 <Users className="w-4 h-4 text-cyan-400" />
                               ) : policy.subjectType === 'ad_user' ? (
@@ -1630,18 +1960,22 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                                 <ShieldCheck className="w-4 h-4 text-indigo-400" />
                               )}
                             </div>
-                            <div>
-                              <div className="flex items-center gap-1.5">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className={`font-bold text-xs ${isLight ? 'text-slate-900' : 'text-white'}`}>
                                   {policy.name}
                                 </span>
-                                {isCurrent && (
-                                  <span className="text-[8px] font-mono px-1 py-0.2 rounded bg-indigo-500/30 text-indigo-200 border border-indigo-500/40 font-bold">
-                                    ACTIVE
+                                {policy.isBuiltin && (
+                                  <span className={`text-[8.5px] font-mono px-1.5 py-0.2 rounded border font-semibold ${
+                                    isRoot
+                                      ? isLight ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                                      : isLight ? 'bg-slate-100 text-slate-600 border-slate-300' : 'bg-white/10 text-slate-300 border-white/15'
+                                  }`}>
+                                    {isEn ? 'BUILTIN' : 'پایه'}
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[10.5px] text-slate-400 line-clamp-1 max-w-xs mt-0.5">
+                              <p className={`text-[10.5px] line-clamp-1 max-w-[220px] mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`} title={policy.description}>
                                 {policy.description}
                               </p>
                             </div>
@@ -1650,61 +1984,101 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                       )}
 
                       {visibleColumns.subject && (
-                        <td className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
-                          <div className="space-y-1">
-                            {renderSubjectTypeBadge(policy)}
-                            <div className="text-[11px] font-mono font-semibold text-cyan-400">
-                              {policy.subjectName}
-                            </div>
-                          </div>
+                        <td
+                          onClick={() => handleStartEdit(policy, 'identity')}
+                          className={`p-3 cursor-pointer ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}
+                        >
+                          {renderSubjectSummary(policy)}
                         </td>
                       )}
 
                       {visibleColumns.priority && (
-                        <td className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                        <td
+                          onClick={() => handleStartEdit(policy, 'identity')}
+                          className={`p-3 cursor-pointer whitespace-nowrap ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}
+                        >
                           {renderPriorityBadge(policy)}
                         </td>
                       )}
 
                       {visibleColumns.scope && (
-                        <td className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                        <td
+                          onClick={() => handleStartEdit(policy, 'identity')}
+                          className={`p-3 cursor-pointer ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}
+                        >
                           {renderScopeBadge(policy)}
                         </td>
                       )}
 
                       {visibleColumns.views && (
-                        <td className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                        <td
+                          onClick={() => handleStartEdit(policy, 'navigation')}
+                          className={`p-3 cursor-pointer ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}
+                        >
                           {renderViewsBadge(policy)}
                         </td>
                       )}
 
+                      {visibleColumns.contracts_ssl && (
+                        <td
+                          onClick={() => handleStartEdit(policy, 'contracts_licenses')}
+                          className={`p-3 cursor-pointer ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}
+                        >
+                          {renderContractsSslBadge(policy)}
+                        </td>
+                      )}
+
+                      {visibleColumns.helpdesk && (
+                        <td
+                          onClick={() => handleStartEdit(policy, 'helpdesk')}
+                          className={`p-3 cursor-pointer ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}
+                        >
+                          {renderHelpdeskBadge(policy)}
+                        </td>
+                      )}
+
+                      {visibleColumns.servers && (
+                        <td
+                          onClick={() => handleStartEdit(policy, 'servers')}
+                          className={`p-3 cursor-pointer ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}
+                        >
+                          {renderServersBadge(policy)}
+                        </td>
+                      )}
+
+                      {visibleColumns.global && (
+                        <td
+                          onClick={() => handleStartEdit(policy, 'global')}
+                          className={`p-3 cursor-pointer ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}
+                        >
+                          {renderGlobalTemplatesBadge(policy)}
+                        </td>
+                      )}
+
                       {visibleColumns.cisco && (
-                        <td className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                        <td
+                          onClick={() => handleStartEdit(policy, 'matrix')}
+                          className={`p-3 cursor-pointer ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}
+                        >
                           {renderCiscoBadge(policy)}
                         </td>
                       )}
 
                       {visibleColumns.mikrotik && (
-                        <td className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                        <td
+                          onClick={() => handleStartEdit(policy, 'matrix')}
+                          className={`p-3 cursor-pointer ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}
+                        >
                           {renderMikrotikBadge(policy)}
                         </td>
                       )}
 
-                      {visibleColumns.servers && (
-                        <td className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
-                          {renderServersBadge(policy)}
-                        </td>
-                      )}
-
-                      {visibleColumns.templates && (
-                        <td className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
-                          {renderTemplatesBadge(policy)}
-                        </td>
-                      )}
-
-                      {visibleColumns.simulation && (
-                        <td className={`p-3 ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
-                          {renderSimulationButton(policy)}
+                      {visibleColumns.approvals && (
+                        <td
+                          onClick={() => handleStartEdit(policy, 'approvals')}
+                          className={`p-3 cursor-pointer ${isEn ? 'border-r' : 'border-l'} ${isLight ? 'border-slate-200' : 'border-white/10'}`}
+                        >
+                          {renderApprovalsBadge(policy)}
                         </td>
                       )}
 
@@ -1728,7 +2102,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           <div className="overflow-x-auto min-h-[320px]">
             <table className={`w-full ${isEn ? 'text-left' : 'text-right'} text-xs border-collapse`}>
               <thead>
-                <tr className={`border-b text-[10px] font-mono uppercase ${
+                <tr className={`border-b text-[10px] font-mono uppercase whitespace-nowrap ${
                   isLight
                     ? 'bg-slate-100 text-slate-700 border-slate-200'
                     : 'border-white/10 bg-slate-950/80 text-slate-400'
@@ -1738,80 +2112,84 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                   {visibleColumns.priority && <th className="p-2.5">{isEn ? 'Priority' : 'اولویت'}</th>}
                   {visibleColumns.scope && <th className="p-2.5">{isEn ? 'Scope' : 'محدوده'}</th>}
                   {visibleColumns.views && <th className="p-2.5">{isEn ? 'Views' : 'صفحات'}</th>}
+                  {visibleColumns.contracts_ssl && <th className="p-2.5">{isEn ? 'Cnt/SSL' : 'قرارداد/SSL'}</th>}
+                  {visibleColumns.helpdesk && <th className="p-2.5">{isEn ? 'HelpDesk' : 'هلپ‌دسک'}</th>}
+                  {visibleColumns.servers && <th className="p-2.5">{isEn ? 'Servers' : 'سرورها'}</th>}
+                  {visibleColumns.global && <th className="p-2.5">{isEn ? 'Global/DR' : 'عملیات/DR'}</th>}
                   {visibleColumns.cisco && <th className="p-2.5">Cisco</th>}
                   {visibleColumns.mikrotik && <th className="p-2.5">MikroTik</th>}
-                  {visibleColumns.servers && <th className="p-2.5">Servers</th>}
-                  {visibleColumns.templates && <th className="p-2.5">Templates</th>}
-                  {visibleColumns.simulation && <th className="p-2.5">{isEn ? 'Sim' : 'تست'}</th>}
+                  {visibleColumns.approvals && <th className="p-2.5">{isEn ? 'Approvals' : 'تاییدیه‌ها'}</th>}
                   {visibleColumns.actions && <th className="p-2.5 text-center">{isEn ? 'Actions' : 'عملیات'}</th>}
                 </tr>
               </thead>
               <tbody className={`divide-y ${isLight ? 'divide-slate-200' : 'divide-white/10'}`}>
                 {paginatedPolicies.map((policy) => {
-                  const isCurrent = policy.id === activeSimulatedPolicyId;
-
                   return (
                     <tr
                       key={policy.id}
                       className={`transition-colors ${
-                        isCurrent
-                          ? isLight
-                            ? 'bg-cyan-50/70'
-                            : 'bg-cyan-950/20'
-                          : isLight
-                          ? 'hover:bg-slate-50'
-                          : 'hover:bg-white/5'
+                        isLight ? 'hover:bg-slate-50' : 'hover:bg-white/5'
                       }`}
                     >
                       {visibleColumns.policy && (
-                        <td className="p-2.5">
+                        <td className="p-2.5 cursor-pointer" onClick={() => handleStartEdit(policy, 'identity')}>
                           <div className="font-bold text-xs truncate max-w-[160px]">{policy.name}</div>
                           <div className="text-[10px] text-slate-400 truncate max-w-[160px]">{policy.description}</div>
                         </td>
                       )}
                       {visibleColumns.subject && (
-                        <td className="p-2.5 font-mono text-[11px]">
-                          {policy.subjectName}
+                        <td className="p-2.5 font-mono text-[11px] cursor-pointer" onClick={() => handleStartEdit(policy, 'identity')}>
+                          {renderSubjectSummary(policy)}
                         </td>
                       )}
                       {visibleColumns.priority && (
-                        <td className="p-2.5">
+                        <td className="p-2.5 cursor-pointer" onClick={() => handleStartEdit(policy, 'identity')}>
                           {renderPriorityBadge(policy)}
                         </td>
                       )}
                       {visibleColumns.scope && (
-                        <td className="p-2.5">
+                        <td className="p-2.5 cursor-pointer" onClick={() => handleStartEdit(policy, 'identity')}>
                           {renderScopeBadge(policy)}
                         </td>
                       )}
                       {visibleColumns.views && (
-                        <td className="p-2.5">
+                        <td className="p-2.5 cursor-pointer" onClick={() => handleStartEdit(policy, 'navigation')}>
                           {renderViewsBadge(policy)}
                         </td>
                       )}
+                      {visibleColumns.contracts_ssl && (
+                        <td className="p-2.5 cursor-pointer" onClick={() => handleStartEdit(policy, 'contracts_licenses')}>
+                          {renderContractsSslBadge(policy)}
+                        </td>
+                      )}
+                      {visibleColumns.helpdesk && (
+                        <td className="p-2.5 cursor-pointer" onClick={() => handleStartEdit(policy, 'helpdesk')}>
+                          {renderHelpdeskBadge(policy)}
+                        </td>
+                      )}
+                      {visibleColumns.servers && (
+                        <td className="p-2.5 cursor-pointer" onClick={() => handleStartEdit(policy, 'servers')}>
+                          {renderServersBadge(policy)}
+                        </td>
+                      )}
+                      {visibleColumns.global && (
+                        <td className="p-2.5 cursor-pointer" onClick={() => handleStartEdit(policy, 'global')}>
+                          {renderGlobalTemplatesBadge(policy)}
+                        </td>
+                      )}
                       {visibleColumns.cisco && (
-                        <td className="p-2.5">
+                        <td className="p-2.5 cursor-pointer" onClick={() => handleStartEdit(policy, 'matrix')}>
                           {renderCiscoBadge(policy)}
                         </td>
                       )}
                       {visibleColumns.mikrotik && (
-                        <td className="p-2.5">
+                        <td className="p-2.5 cursor-pointer" onClick={() => handleStartEdit(policy, 'matrix')}>
                           {renderMikrotikBadge(policy)}
                         </td>
                       )}
-                      {visibleColumns.servers && (
-                        <td className="p-2.5">
-                          {renderServersBadge(policy)}
-                        </td>
-                      )}
-                      {visibleColumns.templates && (
-                        <td className="p-2.5">
-                          {renderTemplatesBadge(policy)}
-                        </td>
-                      )}
-                      {visibleColumns.simulation && (
-                        <td className="p-2.5">
-                          {renderSimulationButton(policy)}
+                      {visibleColumns.approvals && (
+                        <td className="p-2.5 cursor-pointer" onClick={() => handleStartEdit(policy, 'approvals')}>
+                          {renderApprovalsBadge(policy)}
                         </td>
                       )}
                       {visibleColumns.actions && (
@@ -1827,28 +2205,24 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           </div>
         </div>
       ) : (
-        /* 3. Grid Cards View */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        /* 3. Redesigned Grid Cards View (Full 8-Tab Summary Matrix) */
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
           {paginatedPolicies.map((policy) => {
-            const isCurrent = policy.id === activeSimulatedPolicyId;
-
             return (
               <div
                 key={policy.id}
                 className={`p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between ${
-                  isCurrent
-                    ? isLight
-                      ? 'bg-cyan-50/70 border-cyan-400 shadow-lg shadow-cyan-500/10'
-                      : 'bg-slate-900/90 border-cyan-500/60 shadow-lg shadow-cyan-500/10'
-                    : isLight
-                    ? 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
-                    : 'bg-slate-900/60 border-white/10 hover:border-white/20'
+                  isLight
+                    ? 'bg-white border-slate-200 hover:border-cyan-300 shadow-sm'
+                    : 'bg-slate-900/65 border-white/10 hover:border-cyan-500/40'
                 }`}
               >
                 <div>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded-lg bg-white/5 border border-white/10">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`p-1.5 rounded-lg border shrink-0 ${
+                        isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/5 border-white/10'
+                      }`}>
                         {policy.subjectType === 'ad_group' ? (
                           <Users className="w-4 h-4 text-cyan-400" />
                         ) : policy.subjectType === 'ad_user' ? (
@@ -1859,62 +2233,115 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                           <ShieldCheck className="w-4 h-4 text-indigo-400" />
                         )}
                       </div>
-                      <div>
-                        <h4 className={`font-bold text-xs ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                      <div className="min-w-0">
+                        <h4 className={`font-bold text-xs truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>
                           {policy.name}
                         </h4>
-                        <span className="text-[10px] text-cyan-400 font-mono">
-                          {policy.subjectName}
-                        </span>
+                        <div className="mt-0.5">{renderSubjectSummary(policy)}</div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       {renderPriorityBadge(policy)}
-                      {isCurrent && (
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/30 text-indigo-200 border border-indigo-500/40 font-bold">
-                          ACTIVE
-                        </span>
-                      )}
                     </div>
                   </div>
 
-                  <p className="text-[11px] text-slate-400 mt-2 line-clamp-2">{policy.description}</p>
+                  <p className={`text-[11px] mt-2 line-clamp-2 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                    {policy.description}
+                  </p>
 
-                  {/* Target Scope Pill */}
-                  <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-slate-300">
-                    <div className="flex items-center gap-1.5">
-                      <FolderTree className="w-3.5 h-3.5 text-amber-400" />
-                      <span>{isEn ? 'Target:' : 'محدوده:'}</span>
-                      {renderScopeBadge(policy)}
-                    </div>
+                  {/* Target Infrastructure Scope & Views */}
+                  <div className={`mt-2.5 p-2 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-[10px] ${
+                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-white/10'
+                  }`}>
+                    {renderScopeBadge(policy)}
                     {renderViewsBadge(policy)}
                   </div>
 
-                  {/* Vendor Badges */}
-                  <div className="space-y-1.5 mt-2.5 pt-2 border-t border-white/5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[9px] font-mono text-slate-400 w-12 shrink-0">Cisco:</span>
-                      {renderCiscoBadge(policy)}
+                  {/* All Remaining Access Policy Tabs Breakdown */}
+                  <div className={`space-y-1.5 mt-2.5 pt-2.5 border-t ${isLight ? 'border-slate-200' : 'border-white/10'}`}>
+                    <div
+                      onClick={() => handleStartEdit(policy, 'contracts_licenses')}
+                      className="flex items-start gap-2 cursor-pointer group"
+                    >
+                      <span className="text-[9.5px] font-mono text-slate-400 w-16 shrink-0 pt-0.5 group-hover:text-emerald-400 transition">
+                        {isEn ? 'Cnt/SSL:' : 'قرارداد:'}
+                      </span>
+                      <div className="flex-1 min-w-0">{renderContractsSslBadge(policy)}</div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[9px] font-mono text-slate-400 w-12 shrink-0">MikroTik:</span>
-                      {renderMikrotikBadge(policy)}
+                    <div
+                      onClick={() => handleStartEdit(policy, 'helpdesk')}
+                      className="flex items-start gap-2 cursor-pointer group"
+                    >
+                      <span className="text-[9.5px] font-mono text-slate-400 w-16 shrink-0 pt-0.5 group-hover:text-teal-400 transition">
+                        {isEn ? 'HelpDesk:' : 'هلپ‌دسک:'}
+                      </span>
+                      <div className="flex-1 min-w-0">{renderHelpdeskBadge(policy)}</div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[9px] font-mono text-slate-400 w-12 shrink-0">Servers:</span>
-                      {renderServersBadge(policy)}
+                    <div
+                      onClick={() => handleStartEdit(policy, 'servers')}
+                      className="flex items-start gap-2 cursor-pointer group"
+                    >
+                      <span className="text-[9.5px] font-mono text-slate-400 w-16 shrink-0 pt-0.5 group-hover:text-amber-400 transition">
+                        {isEn ? 'Servers:' : 'سرورها:'}
+                      </span>
+                      <div className="flex-1 min-w-0">{renderServersBadge(policy)}</div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[9px] font-mono text-slate-400 w-12 shrink-0">Backup:</span>
-                      {renderTemplatesBadge(policy)}
+                    <div
+                      onClick={() => handleStartEdit(policy, 'global')}
+                      className="flex items-start gap-2 cursor-pointer group"
+                    >
+                      <span className="text-[9.5px] font-mono text-slate-400 w-16 shrink-0 pt-0.5 group-hover:text-purple-400 transition">
+                        {isEn ? 'Global:' : 'عملیات:'}
+                      </span>
+                      <div className="flex-1 min-w-0">{renderGlobalTemplatesBadge(policy)}</div>
+                    </div>
+                    <div
+                      onClick={() => handleStartEdit(policy, 'matrix')}
+                      className="flex items-start gap-2 cursor-pointer group"
+                    >
+                      <span className="text-[9.5px] font-mono text-slate-400 w-16 shrink-0 pt-0.5 group-hover:text-cyan-400 transition">
+                        Cisco:
+                      </span>
+                      <div className="flex-1 min-w-0">{renderCiscoBadge(policy)}</div>
+                    </div>
+                    <div
+                      onClick={() => handleStartEdit(policy, 'matrix')}
+                      className="flex items-start gap-2 cursor-pointer group"
+                    >
+                      <span className="text-[9.5px] font-mono text-slate-400 w-16 shrink-0 pt-0.5 group-hover:text-rose-400 transition">
+                        MikroTik:
+                      </span>
+                      <div className="flex-1 min-w-0">{renderMikrotikBadge(policy)}</div>
+                    </div>
+                    <div
+                      onClick={() => handleStartEdit(policy, 'approvals')}
+                      className="flex items-start gap-2 cursor-pointer group"
+                    >
+                      <span className="text-[9.5px] font-mono text-slate-400 w-16 shrink-0 pt-0.5 group-hover:text-amber-400 transition">
+                        {isEn ? 'Approval:' : 'تاییدیه:'}
+                      </span>
+                      <div className="flex-1 min-w-0">{renderApprovalsBadge(policy)}</div>
                     </div>
                   </div>
                 </div>
 
                 {/* Footer Actions */}
-                <div className="pt-2 mt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
-                  {renderSimulationButton(policy)}
+                <div className={`pt-2.5 mt-3 border-t flex flex-wrap items-center justify-between gap-2 ${
+                  isLight ? 'border-slate-200' : 'border-white/10'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={() => handleStartEdit(policy, 'identity')}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1.5 border ${
+                      isLight
+                        ? 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700'
+                        : 'bg-indigo-500/15 hover:bg-indigo-500/25 border-indigo-500/30 text-indigo-300'
+                    }`}
+                  >
+                    <Edit className="w-3 h-3" />
+                    <span>{isEn ? 'Configure Policy' : 'پیکربندی پالیسی'}</span>
+                  </button>
                   {renderActionButtons(policy)}
                 </div>
               </div>
@@ -2084,6 +2511,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           }}
           isCreating={isCreating}
           editingPolicy={editingPolicy}
+          initialTab={editingInitialTab}
           onSavePolicy={async (policy) => {
             await handleSavePolicy(undefined, policy);
             undockModal(`access-policy-${policy.id || 'new'}`);

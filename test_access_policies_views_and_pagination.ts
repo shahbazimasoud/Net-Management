@@ -28,11 +28,12 @@ async function runTests() {
 
   // 1. Column definitions test
   console.log('🔹 Step 1: Validating column definitions...');
-  assert(POLICY_COLUMN_ITEMS.length === 11, 'All 11 columns are defined');
+  assert(POLICY_COLUMN_ITEMS.length === 13, 'All 13 redesigned columns are defined');
   const expectedKeys: (keyof PolicyVisibleColumns)[] = [
-    'policy', 'subject', 'priority', 'scope', 'views', 'cisco',
-    'mikrotik', 'servers', 'templates', 'simulation', 'actions'
+    'policy', 'subject', 'priority', 'scope', 'views', 'contracts_ssl',
+    'helpdesk', 'servers', 'global', 'cisco', 'mikrotik', 'approvals', 'actions'
   ];
+  assert(!('simulation' in DEFAULT_POLICY_COLUMNS), 'Test Role (simulation) column has been removed');
   expectedKeys.forEach((key) => {
     assert(DEFAULT_POLICY_COLUMNS[key] === true, `Default column ${key} is true`);
     const item = POLICY_COLUMN_ITEMS.find((c) => c.key === key);

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.495.1';
+export const APP_VERSION = '1.496.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.496.0',
+    releaseDate: '2026-11-26',
+    type: 'minor',
+    title: 'بازطراحی کامل جدول Configured Access Policies پوشش‌دهنده تمام ۸ تب Access Policy و حذف ستون Test Role',
+    title_en: 'Redesign Configured Access Policies Table Across All 8 Access Policy Tabs & Remove Test Role Column',
+    changes: [
+      'حذف کامل ستون `Test Role` (`شبیه‌سازی`) و دکمه‌های `Simulate / Active Test` از جدول، نمای فشرده، کارت‌ها و انتخابگر ستون‌های لیست `Configured Access Policies` در صفحه `Granular Multi-Vendor Access Control (RBAC)`.',
+      'بازطراحی جدول `Configured Access Policies` در هر ۳ نمای لیستی، جدولی و کارتی برای پوشش کامل تمام ۸ تب `Access Policy` شامل ستون‌های جدید و ارتقایافته: هویت چندگانه (`Identity & Members`)، محدوده تجهیزات و ناوگان سرورها (`Infrastructure Scope`)، صفحات و ابزارها (`19 Views` + لاگ و آپدیت)، قراردادها/لایسنس/SSL (`Contracts, Licenses & SSL`)، محدوده و قوانین هلپ‌دسک (`HelpDesk & Target Rules`)، ناوگان سرورها همراه با استثنائات و ضبط نشست (`Servers` + `Ovrd` + `Rec`)، عملیات سراسری/الگوها/بکاپ (`Global, Templates & DR`)، سیسکو و استثنائات تجهیزات (`Cisco & Overrides`)، میکروتیک همراه با VPN (`MikroTik ROS`) و ستون مستقل زنجیره تایید مراحل (`Approval Chain`).',
+      'امکان کلیک مستقیم روی هر ستون یا بخش در جدول و کارت‌ها برای باز کردن پنجره `Access Policy` مستقیماً روی همان تب مربوطه.'
+    ],
+    changes_en: [
+      'Completely removed the `Test Role` (`simulation`) column, `Simulate / Active Test` buttons, and simulated-row badges from the List, Compact Table, Grid Cards, and Column Picker of `Configured Access Policies` in `Granular Multi-Vendor Access Control (RBAC)`.',
+      'Redesigned `Configured Access Policies` across all 3 views to accurately reflect all 8 `Access Policy` tabs: multi-subject identity (`Identity & Members`), combined device + server target scopes (`Infrastructure Scope`), accurate 19-module navigation & governance badges (`Navigation & Views`), dedicated `Contracts, Licenses & SSL` column, dedicated `HelpDesk & Target Rules` column, upgraded `Linux & Servers` (`12` actions, per-server overrides, session recordings), `Global, Templates & DR`, `Cisco & Overrides` (with per-device overrides count), `MikroTik ROS` (with VPN Suite), and a dedicated `Approval Chain` column.',
+      'Made policy table cells and grid breakdown rows jump directly to their corresponding `AccessPolicyModal` tab (`initialTab`) on click.'
+    ]
+  },
   {
     version: '1.495.1',
     releaseDate: '2026-11-26',
