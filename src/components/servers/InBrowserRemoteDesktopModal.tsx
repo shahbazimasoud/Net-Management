@@ -30,7 +30,10 @@ import {
 } from 'lucide-react';
 import { RemoteServer } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
-import { installGuacamoleRenderFixes } from '../../utils/guacamoleRenderFix';
+import {
+  installGuacamoleRenderFixes,
+  setGuacamoleDisplayBackgroundMode,
+} from '../../utils/guacamoleRenderFix';
 
 installGuacamoleRenderFixes(Guacamole);
 
@@ -412,6 +415,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     }
     if (guacClientRef.current) {
       try {
+        guacClientRef.current.getDisplay?.()?.__nettopoDispose?.();
+      } catch {}
+      try {
         guacClientRef.current.disconnect();
       } catch {}
       guacClientRef.current = null;
@@ -519,6 +525,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
   useEffect(() => {
     updateDisplayScaleRef.current = updateDisplayScale;
+    if (isOpen) {
+      cachedDisplayMetricsRef.current.dirty = true;
+    }
     updateDisplayScale();
     const rafId = requestAnimationFrame(() => updateDisplayScale());
     const t = setTimeout(updateDisplayScale, 60);
@@ -526,7 +535,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       cancelAnimationFrame(rafId);
       clearTimeout(t);
     };
-  }, [updateDisplayScale, isMaximized, isMonitorFullscreen, showDiagnostics, connectionStatus]);
+  }, [updateDisplayScale, isOpen, isMaximized, isMonitorFullscreen, showDiagnostics, connectionStatus]);
 
   // Window resize & ResizeObserver listener to auto-scale display
   useEffect(() => {
@@ -579,8 +588,10 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       // Ensure Guacamole Layer/Display rendering fixes are installed before constructing client
       installGuacamoleRenderFixes(Guacamole);
 
-      // Initialize native Guacamole WebSocket Tunnel
+      // Initialize native Guacamole WebSocket Tunnel with resilient background timeouts
       const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
+      tunnel.receiveTimeout = 60000;
+      tunnel.unstableThreshold = 5000;
       guacTunnelRef.current = tunnel;
 
       const client = new Guacamole.Client(tunnel);
@@ -588,6 +599,10 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
       // Attach client display element to the DOM container
       const display = client.getDisplay();
+      setGuacamoleDisplayBackgroundMode(
+        display,
+        !isOpenRef.current || (typeof document !== 'undefined' && document.hidden)
+      );
       display.statisticWindow = 2500;
       display.onstatistics = (stats: any) => {
         if (stats && Number.isFinite(stats.processingLag)) {
@@ -709,7 +724,12 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             connectTimeoutRef.current = null;
           }
           setConnectionStatus((prev) => {
-            if (prev === 'connected') return 'disconnected';
+            if (prev === 'connected') {
+              console.warn(
+                `[RemoteDesktop] Guacamole client transitioned to DISCONNECTED while session was active (isOpen=${isOpenRef.current}, hidden=${typeof document !== 'undefined' ? document.hidden : false})`
+              );
+              return 'disconnected';
+            }
             return 'error';
           });
           setErrorMessage((prev) => {
@@ -756,6 +776,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
               return 'error';
             }
             if (prev === 'connected') {
+              console.warn(
+                `[RemoteDesktop] Guacamole WebSocket tunnel closed while session was active (isOpen=${isOpenRef.current}, hidden=${typeof document !== 'undefined' ? document.hidden : false})`
+              );
               return 'disconnected';
             }
             return prev;
@@ -1180,6 +1203,40 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     }
   }, [isOpen, server?.id, isRdp, initiateConnection, cleanupConnection]);
 
+  // Keep Guacamole Display flushing synchronously while minimized or tab-hidden so `sync` acks
+  // never stall behind paused browser requestAnimationFrame callbacks and drop the RDP session.
+  useEffect(() => {
+    const syncDisplayVisibility = () => {
+      const hiddenNow = !isOpenRef.current || (typeof document !== 'undefined' && document.hidden);
+      const client = guacClientRef.current;
+      if (client) {
+        setGuacamoleDisplayBackgroundMode(client.getDisplay?.(), hiddenNow);
+      }
+      if (!hiddenNow && connectionStatus === 'connected') {
+        cachedDisplayMetricsRef.current.dirty = true;
+        try {
+          if (guacTunnelRef.current?.isConnected?.()) {
+            guacTunnelRef.current.sendMessage('nop');
+          }
+        } catch {}
+        requestAnimationFrame(() => {
+          updateDisplayScaleRef.current();
+          if (isOpenRef.current) {
+            displayContainerRef.current?.focus();
+          }
+        });
+      }
+    };
+
+    syncDisplayVisibility();
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', syncDisplayVisibility);
+      return () => {
+        document.removeEventListener('visibilitychange', syncDisplayVisibility);
+      };
+    }
+  }, [isOpen, connectionStatus]);
+
   // Teardown connection ONLY when component truly unmounts
   useEffect(() => {
     return () => {
@@ -1398,6 +1455,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const handleMinimize = () => {
     if (isMonitorFullscreen) {
       exitMonitorFullscreen();
+    }
+    if (guacClientRef.current) {
+      setGuacamoleDisplayBackgroundMode(guacClientRef.current.getDisplay?.(), true);
     }
     if (displayContainerRef.current) {
       try {
@@ -2229,10 +2289,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
                       <button
                         type="button"
-                        onClick={() => {
-                          exitMonitorFullscreen();
-                          handleMinimize();
-                        }}
+                        onClick={handleMinimize}
                         className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white cursor-pointer"
                         title={isEn ? 'Minimize to Dock' : 'مینیمایز به نوار پایین'}
                       >

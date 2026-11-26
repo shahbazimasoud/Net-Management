@@ -26,6 +26,25 @@ const LAYER_PATCHED_FLAG = '__nettopoLayerPatched';
 const DISPLAY_PATCHED_FLAG = '__nettopoDisplayPatched';
 const GUAC_INSTALLED_FLAG = '__nettopoRenderFixesInstalled';
 
+const IMAGE_DECODE_TIMEOUT_MS = 4000;
+const STREAM_END_TIMEOUT_MS = 8000;
+const RAF_STALL_WATCHDOG_MS = 150;
+
+/**
+ * Toggles synchronous background flush mode on a patched `Guacamole.Display`.
+ * When enabled (e.g., modal minimized or browser tab hidden), frames flush
+ * synchronously without waiting on `requestAnimationFrame` so `Guacamole.Client`
+ * immediately sends `sync` acknowledgments back to `guacd` and prevents
+ * `GUAC_USER_TIMEOUT` session disconnects.
+ */
+export function setGuacamoleDisplayBackgroundMode(display: any, enabled: boolean): void {
+  if (display && typeof display.__nettopoSetBackgroundMode === 'function') {
+    try {
+      display.__nettopoSetBackgroundMode(Boolean(enabled));
+    } catch {}
+  }
+}
+
 type DrawableSource = ImageBitmap | HTMLImageElement;
 
 interface DecodedAsset {
@@ -98,18 +117,36 @@ function decodeBlobViaHtmlImage(blob: Blob): Promise<DecodedAsset> {
       }
     };
 
+    let settled = false;
+    const finish = (result: DecodedAsset) => {
+      if (settled) {
+        result.release();
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve(result);
+    };
+
     const img = new Image();
+    const timeoutId = setTimeout(() => {
+      img.onload = null;
+      img.onerror = null;
+      release();
+      finish({ image: null, release: () => {} });
+    }, IMAGE_DECODE_TIMEOUT_MS);
+
     img.onload = () => {
       if (img.width > 0 && img.height > 0) {
-        resolve({ image: img, release });
+        finish({ image: img, release });
       } else {
         release();
-        resolve({ image: null, release: () => {} });
+        finish({ image: null, release: () => {} });
       }
     };
     img.onerror = () => {
       release();
-      resolve({ image: null, release: () => {} });
+      finish({ image: null, release: () => {} });
     };
     img.src = url;
   });
@@ -127,18 +164,46 @@ async function decodeBlobSafely(blob: Blob): Promise<DecodedAsset> {
 
   if (createBitmapFn) {
     try {
-      const bitmap: ImageBitmap = await createBitmapFn(blob);
-      let closed = false;
-      const release = () => {
-        if (closed) return;
-        closed = true;
-        try {
-          if (typeof bitmap.close === 'function') {
-            bitmap.close();
-          }
-        } catch {}
-      };
-      return { image: bitmap, release };
+      let timedOut = false;
+      const bitmap: ImageBitmap | null = await new Promise<ImageBitmap | null>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          timedOut = true;
+          resolve(null);
+        }, IMAGE_DECODE_TIMEOUT_MS);
+
+        Promise.resolve(createBitmapFn(blob))
+          .then((bm: ImageBitmap) => {
+            clearTimeout(timer);
+            if (timedOut) {
+              try {
+                bm?.close?.();
+              } catch {}
+              return;
+            }
+            resolve(bm);
+          })
+          .catch((err: unknown) => {
+            clearTimeout(timer);
+            if (!timedOut) {
+              reject(err);
+            }
+          });
+      });
+
+      if (bitmap) {
+        let closed = false;
+        const release = () => {
+          if (closed) return;
+          closed = true;
+          try {
+            if (typeof bitmap.close === 'function') {
+              bitmap.close();
+            }
+          } catch {}
+        };
+        return { image: bitmap, release };
+      }
+      return { image: null, release: () => {} };
     } catch {
       // Fallback to HTMLImageElement if createImageBitmap rejects a chunk/codec;
       // never leave the display frame queue permanently deadlocked.
@@ -453,6 +518,105 @@ export function patchGuacamoleDisplay(display: any, GuacamoleRef: any): any {
   let pendingOps: QueuedOp[] = [];
   let pendingFrames: QueuedFrame[] = [];
   const inFlightCleanups = new Set<() => void>();
+  let backgroundMode = false;
+  let inFlightOrigFlushes = 0;
+  let rafWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
+  let disposed = false;
+
+  const clearRafWatchdog = () => {
+    if (rafWatchdogTimer !== null) {
+      clearTimeout(rafWatchdogTimer);
+      rafWatchdogTimer = null;
+    }
+  };
+
+  /**
+   * Executes `orig.flush(...)` synchronously without waiting on `requestAnimationFrame`.
+   * Guacamole.Display.__flush_frames() chooses `syncFlush()` whenever `document.hasFocus()`
+   * is false; temporarily shadowing `document.hasFocus` strictly across the synchronous
+   * `orig.flush` call forces Guacamole.Display to drain ALL queued frames and run every
+   * `displaySyncComplete` callback immediately so `4.sync,<timestamp>;` is sent to `guacd`.
+   */
+  const flushOrigSynchronously = (
+    callback?: () => void,
+    timestamp?: number,
+    logicalFrames?: number
+  ) => {
+    if (typeof document !== 'undefined' && typeof document.hasFocus === 'function') {
+      const hadOwn = Object.prototype.hasOwnProperty.call(document, 'hasFocus');
+      const prevDescriptor = hadOwn ? Object.getOwnPropertyDescriptor(document, 'hasFocus') : undefined;
+      let overridden = false;
+      try {
+        Object.defineProperty(document, 'hasFocus', {
+          configurable: true,
+          writable: true,
+          value: () => false,
+        });
+        overridden = true;
+      } catch {
+        overridden = false;
+      }
+      try {
+        orig.flush(callback, timestamp, logicalFrames);
+      } finally {
+        if (overridden) {
+          try {
+            if (hadOwn && prevDescriptor) {
+              Object.defineProperty(document, 'hasFocus', prevDescriptor);
+            } else {
+              delete (document as any).hasFocus;
+            }
+          } catch {}
+        }
+      }
+      return;
+    }
+    orig.flush(callback, timestamp, logicalFrames);
+  };
+
+  const drainStalledOrigFlushes = () => {
+    clearRafWatchdog();
+    if (disposed || inFlightOrigFlushes <= 0) return;
+    // Pushing an empty synchronous flush drains every previously queued frame inside
+    // Guacamole.Display's internal `frames[]` array immediately (including stalled rAF frames).
+    flushOrigSynchronously(undefined);
+  };
+
+  const scheduleRafWatchdog = () => {
+    if (rafWatchdogTimer !== null || inFlightOrigFlushes <= 0 || disposed) return;
+    rafWatchdogTimer = setTimeout(() => {
+      rafWatchdogTimer = null;
+      if (!disposed && inFlightOrigFlushes > 0) {
+        drainStalledOrigFlushes();
+      }
+    }, RAF_STALL_WATCHDOG_MS);
+  };
+
+  const handleVisibilityChange = () => {
+    if (disposed) return;
+    if (typeof document !== 'undefined' && document.hidden && inFlightOrigFlushes > 0) {
+      drainStalledOrigFlushes();
+    }
+  };
+
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+  }
+
+  display.__nettopoSetBackgroundMode = (enabled: boolean) => {
+    backgroundMode = Boolean(enabled);
+    if (backgroundMode && inFlightOrigFlushes > 0) {
+      drainStalledOrigFlushes();
+    }
+  };
+
+  display.__nettopoDispose = () => {
+    disposed = true;
+    clearRafWatchdog();
+    if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }
+  };
 
   const isFrameReady = (frame: QueuedFrame): boolean => {
     for (let i = 0; i < frame.ops.length; i++) {
@@ -497,24 +661,41 @@ export function patchGuacamoleDisplay(display: any, GuacamoleRef: any): any {
       }
     }
 
-    orig.flush(
-      () => {
-        for (let i = 0; i < frameCleanups.length; i++) {
-          const fn = frameCleanups[i];
-          inFlightCleanups.delete(fn);
-          try {
-            fn();
-          } catch {}
-        }
-        for (let i = 0; i < frameCallbacks.length; i++) {
-          try {
-            frameCallbacks[i]();
-          } catch {}
-        }
-      },
-      lastTimestamp,
-      totalLogicalFrames
-    );
+    let flushed = false;
+    inFlightOrigFlushes++;
+
+    const onOrigFlushed = () => {
+      if (flushed) return;
+      flushed = true;
+      inFlightOrigFlushes = Math.max(0, inFlightOrigFlushes - 1);
+      if (inFlightOrigFlushes === 0) {
+        clearRafWatchdog();
+      }
+      for (let i = 0; i < frameCleanups.length; i++) {
+        const fn = frameCleanups[i];
+        inFlightCleanups.delete(fn);
+        try {
+          fn();
+        } catch {}
+      }
+      for (let i = 0; i < frameCallbacks.length; i++) {
+        try {
+          frameCallbacks[i]();
+        } catch {}
+      }
+    };
+
+    const shouldFlushSync =
+      backgroundMode || (typeof document !== 'undefined' && Boolean(document.hidden));
+
+    if (shouldFlushSync) {
+      flushOrigSynchronously(onOrigFlushed, lastTimestamp, totalLogicalFrames);
+    } else {
+      orig.flush(onOrigFlushed, lastTimestamp, totalLogicalFrames);
+      if (!flushed) {
+        scheduleRafWatchdog();
+      }
+    }
   };
 
   const enqueueSync = (replay: () => void) => {
@@ -679,17 +860,29 @@ export function patchGuacamoleDisplay(display: any, GuacamoleRef: any): any {
 
   display.drawStream = (layer: any, x: number, y: number, stream: any, mimetype: string) => {
     const blobPromise = new Promise<Blob | null>((resolve) => {
+      let settled = false;
+      const finish = (val: Blob | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(streamTimer);
+        resolve(val);
+      };
+
+      const streamTimer = setTimeout(() => {
+        finish(null);
+      }, STREAM_END_TIMEOUT_MS);
+
       try {
         const reader = new GuacamoleRef.BlobReader(stream, mimetype);
         reader.onend = () => {
           try {
-            resolve(reader.getBlob());
+            finish(reader.getBlob());
           } catch {
-            resolve(null);
+            finish(null);
           }
         };
       } catch {
-        resolve(null);
+        finish(null);
       }
     });
     enqueueDecodedBlob(layer, x, y, blobPromise);
@@ -716,19 +909,26 @@ export function patchGuacamoleDisplay(display: any, GuacamoleRef: any): any {
       return;
     }
 
+    let settled = false;
+    const settleDraw = (img: HTMLImageElement | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(drawTimer);
+      if (op.cancelled) return;
+      loadedImg = img;
+      op.blocked = false;
+      tryDrainFrames();
+    };
+
     const image = new Image();
-    image.onload = () => {
-      if (op.cancelled) return;
-      loadedImg = image;
-      op.blocked = false;
-      tryDrainFrames();
-    };
-    image.onerror = () => {
-      if (op.cancelled) return;
-      loadedImg = null;
-      op.blocked = false;
-      tryDrainFrames();
-    };
+    const drawTimer = setTimeout(() => {
+      image.onload = null;
+      image.onerror = null;
+      settleDraw(null);
+    }, IMAGE_DECODE_TIMEOUT_MS);
+
+    image.onload = () => settleDraw(image);
+    image.onerror = () => settleDraw(null);
     image.src = url;
   };
 
@@ -774,6 +974,8 @@ export function patchGuacamoleDisplay(display: any, GuacamoleRef: any): any {
       } catch {}
     });
     inFlightCleanups.clear();
+    inFlightOrigFlushes = 0;
+    clearRafWatchdog();
 
     orig.cancel();
   };

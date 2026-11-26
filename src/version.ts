@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.496.5';
+export const APP_VERSION = '1.496.6';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.496.6',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'رفع ریشه‌ای قطع شدن نشست Windows RDP Suite هنگام مینیمایز و بازیابی از داک',
+    title_en: 'Fix Windows RDP Suite Session Disconnecting While Minimized & Restored from ToolsDock',
+    changes: [
+      'رفع ریشه‌ای قفل شدن تاییدیه `sync` در موتور `Guacamole.Display` هنگام مینیمایز شدن مودال یا غیرفعال شدن تب مرورگر (`src/utils/guacamoleRenderFix.ts` و `InBrowserRemoteDesktopModal.tsx`): افزودن حالت فلاش همگام پس‌زمینه (`setGuacamoleDisplayBackgroundMode`)، نگهبان ۱۵۰ میلی‌ثانیه‌ای توقف `requestAnimationFrame`، شنونده `visibilitychange` و تایم‌اوت محافظتی برای `drawStream`/`createImageBitmap`/`draw` تا پاسخ `sync` به `guacd` هرگز متوقف نشود و سشن با `GUAC_USER_TIMEOUT` قطع نگردد.',
+      'افزایش مقاومت تونل وب‌سوکت Guacamole در فرانت‌اند (`receiveTimeout: 60000ms` و `unstableThreshold: 5000ms`)، ارسال پالس `nop` و بازکالیبراسیون خودکار مقیاس و فوکوس بوم هنگام بازیابی (Restore)، پاک‌سازی کامل شنونده‌ها در `cleanupConnection` و حذف فراخوانی تکراری خروج از تمام‌صفحه در دکمه مینیمایز نوار شناور.',
+      'بهبود و ایمن‌سازی گیت‌وی ریموت دسکتاپ سرور (`server/remoteDesktopGateway.ts`): تبدیل هوشمند طول کاراکترهای غیر-BMP (نظیر ایموجی در عنوان پنجره یا کلیپ‌بورد ویندوز) بین UTF-16 مرورگر و Unicode code points سرویس `guacd` جهت جلوگیری از خطای `Incomplete instruction`، حذف تایمر تکراری ۱۵ ثانیه‌ای پاک‌سازی نشست، ارسال دستور استاندارد `error` گوآکامولی به جای JSON خام، فعال‌سازی `TCP KeepAlive` و ارسال پینگ استاندارد RFC 6455 وب‌سوکت هر ۱۵ ثانیه، و افزودن سقف ۳ ثانیه‌ای به توقف Backpressure جهت جلوگیری از قطع نشست در حالت مینیمایز.'
+    ],
+    changes_en: [
+      'Fixed `Guacamole.Display` `sync` acknowledgment stalls when minimizing Windows RDP Suite or switching tabs (`src/utils/guacamoleRenderFix.ts` & `InBrowserRemoteDesktopModal.tsx`): added synchronous background flush mode (`setGuacamoleDisplayBackgroundMode`), a 150ms `requestAnimationFrame` stall watchdog, `document.visibilitychange` draining, and bounded timeouts on `drawStream`/`createImageBitmap`/`draw` so `sync` replies to `guacd` never stall and trigger `GUAC_USER_TIMEOUT` disconnects.',
+      'Hardened frontend `Guacamole.WebSocketTunnel` resilience (`receiveTimeout: 60000ms`, `unstableThreshold: 5000ms`), added restore-time `nop` heartbeat, display metric invalidation, auto-rescale and focus restoration, proper watchdog disposal in `cleanupConnection()`, and removed duplicate `exitMonitorFullscreen()` invocation on floating-toolbar minimize.',
+      'Hardened `server/remoteDesktopGateway.ts`: re-encoded instructions containing non-BMP surrogate pairs between `guacd` Unicode code-point lengths and `guacamole-common-js` UTF-16 lengths to prevent `"Incomplete instruction."` drops, removed duplicate 15s idle cleanup interval, replaced raw JSON termination messages with valid Guacamole `error` instructions, enabled TCP keepalive plus 15s RFC 6455 WebSocket pings, capped backpressure pauses at 3s, and logged WebSocket close codes.'
+    ]
+  },
   {
     version: '1.496.5',
     releaseDate: '2026-11-26',

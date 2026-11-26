@@ -130,14 +130,43 @@ const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes inactivity timeout
 const TOKEN_TTL_MS = 60 * 1000; // 60 seconds single-use token lifetime
 
 /**
- * Format string as a Guacamole protocol element: "<length>.<value>"
- * In Guacamole protocol (and guacamole-common-js), length is the number of characters (Unicode code points),
- * which corresponds to JavaScript string character length (str.length).
+ * Format string as a Guacamole protocol element for browser `guacamole-common-js`
+ * (which slices incoming instructions by UTF-16 code units `str.length`).
  */
 function encodeGuacElement(val: string | number): string {
   const str = String(val);
   return `${str.length}.${str}`;
 }
+
+/**
+ * Count Unicode code points in a JavaScript string (matches guacd's UTF-8 code-point length).
+ */
+function countUnicodeCodePoints(str: string): number {
+  let count = 0;
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (
+      code >= 0xd800 &&
+      code <= 0xdbff &&
+      i + 1 < str.length &&
+      (str.charCodeAt(i + 1) & 0xfc00) === 0xdc00
+    ) {
+      i++;
+    }
+    count++;
+  }
+  return count;
+}
+
+/**
+ * Format string as a Guacamole protocol element for `guacd` (Unicode code-point length).
+ */
+function encodeGuacElementCodePoints(val: string | number): string {
+  const str = String(val);
+  return `${countUnicodeCodePoints(str)}.${str}`;
+}
+
+const SURROGATE_PAIR_RE = /[\uD800-\uDBFF][\uDC00-\uDFFF]/;
 
 /**
  * Extract the next complete Guacamole instruction from an incoming stream buffer.
@@ -298,10 +327,17 @@ function parseGuacInstruction(raw: string): string[] {
 }
 
 /**
- * Format complete Guacamole protocol instruction: "<len>.<val>,<len>.<val>,...;"
+ * Format complete Guacamole protocol instruction for browser client (UTF-16 lengths).
  */
 function encodeGuacInstruction(...args: (string | number)[]): string {
   return args.map(encodeGuacElement).join(',') + ';';
+}
+
+/**
+ * Format complete Guacamole protocol instruction for `guacd` (Unicode code-point lengths).
+ */
+function encodeGuacInstructionCodePoints(...args: (string | number)[]): string {
+  return args.map(encodeGuacElementCodePoints).join(',') + ';';
 }
 
 /**
@@ -745,47 +781,8 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
   const guacdHost = process.env.GUACD_HOST || '127.0.0.1';
   const guacdPort = parseInt(process.env.GUACD_PORT || '4822', 10);
 
-  // Periodic cleanup of expired tokens and idle sessions
-  setInterval(() => {
-    const now = Date.now();
-    for (const [token, conf] of pendingTokens.entries()) {
-      if (now > conf.expiresAt) {
-        pendingTokens.delete(token);
-      }
-    }
-
-    for (const [id, session] of activeSessions.entries()) {
-      if (now - session.lastActivity > IDLE_TIMEOUT_MS) {
-        console.log(`[RemoteDesktop] Session ${id} timed out due to 15m inactivity.`);
-        addAuditLog({
-          userName: session.userName,
-          action: 'REMOTE_DESKTOP_IDLE_TIMEOUT',
-          category: 'remote_access',
-          target: `${session.serverName} (${session.serverIp})`,
-          status: 'warning',
-          details: { durationSec: Math.round((now - session.startTime) / 1000), reason: 'Inactivity idle timeout' },
-          ipAddress: session.clientIp,
-        }).catch(() => {});
-
-        try {
-          if (session.clientWs && session.clientWs.readyState === WebSocket.OPEN) {
-            const idlePayload = {
-              category: 'IDLE_TIMEOUT',
-              message_en: 'Session disconnected due to 15 minutes of inactivity.',
-              message_fa: 'ارتباط به دلیل ۱۵ دقیقه بی‌کاری قطع شد.',
-              code: '516',
-            };
-            session.clientWs.send(encodeGuacInstruction('error', JSON.stringify(idlePayload), '516'));
-            session.clientWs.close(1000, 'Idle timeout');
-          }
-          if (session.socket) {
-            session.socket.destroy();
-          }
-        } catch {}
-        activeSessions.delete(id);
-      }
-    }
-  }, 15000);
+  // Note: Expired token & idle/JIT session cleanup runs in a single authoritative interval
+  // inside setupRemoteDesktopWebSocket to avoid duplicate close/audit events.
 
   // REST API: Check Gateway Health, Binary Presence & Active Sessions
   app.get('/api/remote-desktop/status', async (req: Request, res: Response) => {
@@ -1218,14 +1215,14 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
 
     try {
       if (session.clientWs && session.clientWs.readyState === WebSocket.OPEN) {
-        session.clientWs.send(
-          JSON.stringify({
-            type: 'session_terminated',
-            reason: 'USER_DISCONNECTED',
-            message: 'Session closed by administrator.',
-          })
-        );
-        session.clientWs.close();
+        const termPayload = {
+          category: 'USER_DISCONNECTED',
+          message_en: 'Remote desktop session was terminated by an administrator.',
+          message_fa: 'نشست ریموت دسکتاپ توسط مدیر سیستم قطع شد.',
+          code: '516',
+        };
+        session.clientWs.send(encodeGuacInstruction('error', JSON.stringify(termPayload), '516'));
+        session.clientWs.close(1000, 'Terminated by administrator');
       }
       if (session.socket) {
         session.socket.destroy();
@@ -1361,15 +1358,20 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
         try {
           if (session.clientWs && session.clientWs.readyState === WebSocket.OPEN) {
-            session.clientWs.send(
-              JSON.stringify({
-                type: 'session_terminated',
-                reason: reasonTag,
-                message: jitExpired
-                  ? 'JIT Pass window expired. Remote desktop session has been closed.'
-                  : 'Session disconnected due to 15 minutes of inactivity.',
-              })
-            );
+            const closePayload = jitExpired
+              ? {
+                  category: 'JIT_PASS_EXPIRED',
+                  message_en: 'JIT Pass window expired. Remote desktop session has been closed.',
+                  message_fa: 'زمان گذرنامه موقت JIT به پایان رسید و نشست ریموت دسکتاپ بسته شد.',
+                  code: '516',
+                }
+              : {
+                  category: 'IDLE_TIMEOUT',
+                  message_en: 'Session disconnected due to 15 minutes of inactivity.',
+                  message_fa: 'ارتباط به دلیل ۱۵ دقیقه بی‌کاری قطع شد.',
+                  code: '516',
+                };
+            session.clientWs.send(encodeGuacInstruction('error', JSON.stringify(closePayload), '516'));
             session.clientWs.close(jitExpired ? 4003 : 1000, jitExpired ? 'JIT Pass expired' : 'Idle timeout');
           }
           if (session.socket) {
@@ -1735,9 +1737,11 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     let lastGuacdNopAt = Date.now();
     let errorSent = false;
 
-    const WS_BACKPRESSURE_HIGH_WATER = 768 * 1024;
-    const WS_BACKPRESSURE_LOW_WATER = 192 * 1024;
+    const WS_BACKPRESSURE_HIGH_WATER = 2 * 1024 * 1024;
+    const WS_BACKPRESSURE_LOW_WATER = 512 * 1024;
+    const WS_BACKPRESSURE_MAX_PAUSE_MS = 3000;
     let guacdPausedForBackpressure = false;
+    let guacdPausedAt = 0;
     let backpressureTimer: NodeJS.Timeout | null = null;
 
     const clearBackpressureState = () => {
@@ -1747,6 +1751,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       }
       if (guacdPausedForBackpressure && !guacdSocket.destroyed) {
         guacdPausedForBackpressure = false;
+        guacdPausedAt = 0;
         try {
           guacdSocket.resume();
         } catch {}
@@ -1760,6 +1765,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       }
       if (!guacdPausedForBackpressure && clientWs.bufferedAmount > WS_BACKPRESSURE_HIGH_WATER) {
         guacdPausedForBackpressure = true;
+        guacdPausedAt = Date.now();
         try {
           guacdSocket.pause();
         } catch {}
@@ -1768,7 +1774,8 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             if (
               clientWs.readyState !== WebSocket.OPEN ||
               guacdSocket.destroyed ||
-              clientWs.bufferedAmount <= WS_BACKPRESSURE_LOW_WATER
+              clientWs.bufferedAmount <= WS_BACKPRESSURE_LOW_WATER ||
+              Date.now() - guacdPausedAt >= WS_BACKPRESSURE_MAX_PAUSE_MS
             ) {
               clearBackpressureState();
             }
@@ -1777,9 +1784,12 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       }
     };
 
-    // Periodic keepalive so minimized / backgrounded RDP sessions never drop
+    // Periodic keepalive so minimized / backgrounded RDP sessions never drop across
+    // reverse proxies, NATs, or guacd's 15s GUAC_USER_TIMEOUT.
+    let keepaliveTicks = 0;
     const keepaliveInterval = setInterval(() => {
       if (handshakeState === 'READY') {
+        keepaliveTicks++;
         activeSession.lastActivity = Date.now();
         try {
           if (guacdSocket.writable) {
@@ -1788,6 +1798,10 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
           }
           if (clientWs.readyState === WebSocket.OPEN) {
             clientWs.send(encodeGuacInstruction('nop'));
+            // Send RFC 6455 WebSocket ping every 15s so intermediate proxies/firewalls keep the tunnel open
+            if (keepaliveTicks % 3 === 0) {
+              clientWs.ping();
+            }
           }
         } catch {}
       }
@@ -1796,6 +1810,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     guacdSocket.connect(guacdPort, guacdHost, () => {
       try {
         guacdSocket.setNoDelay(true);
+        guacdSocket.setKeepAlive(true, 10000);
       } catch {}
       activeSession.guacdConnected = true;
       console.log(`[RemoteDesktop] Connected to guacd for session ${config.id} (${config.protocol})`);
@@ -2030,10 +2045,17 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
         }
 
         // handshakeState === 'READY'
+        // Re-encode instructions containing non-BMP surrogate pairs (e.g. emoji in Windows
+        // window titles or clipboard) using UTF-16 lengths expected by guacamole-common-js
+        // so WebSocketTunnel.onmessage never aborts with "Incomplete instruction."
+        const clientWireInstr = SURROGATE_PAIR_RE.test(rawWithSemi)
+          ? encodeGuacInstruction(...parsed)
+          : rawWithSemi;
+
         // Batch all instructions within a chunk/frame into combined WebSocket frames
         // and flush immediately at frame boundaries ("sync") or 128KB ceiling.
-        readyBatch.push(rawWithSemi);
-        readyBatchChars += rawWithSemi.length;
+        readyBatch.push(clientWireInstr);
+        readyBatchChars += clientWireInstr.length;
         if (opcode === 'sync' || readyBatchChars >= READY_BATCH_MAX_CHARS) {
           flushReadyBatch();
         }
@@ -2069,7 +2091,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
       clientBuffer = consumeGuacInstructions(clientBuffer, (rawWithSemi, parsed, opcode) => {
         // Guacamole.WebSocketTunnel sends internal ping: 0.,4.ping,<len>.<timestamp>;
-        // We MUST echo it back to clientWs to prevent client-side 15s receiveTimeout,
+        // We MUST echo it back to clientWs to prevent client-side receiveTimeout,
         // and send a standard "nop" to guacd rather than an invalid empty opcode.
         if (opcode === '') {
           if (parsed[1] === 'ping' && clientWs.readyState === WebSocket.OPEN) {
@@ -2082,7 +2104,11 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
           return;
         }
 
-        forwardBatch.push(rawWithSemi);
+        // Convert UTF-16 lengths from browser to Unicode code-point lengths expected by guacd
+        const guacdWireInstr = SURROGATE_PAIR_RE.test(rawWithSemi)
+          ? encodeGuacInstructionCodePoints(...parsed)
+          : rawWithSemi;
+        forwardBatch.push(guacdWireInstr);
       });
 
       if (forwardBatch.length > 0 && guacdSocket.writable) {
@@ -2161,7 +2187,11 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       console.warn(`[RemoteDesktop] clientWs error for session ${config.id}:`, err.message);
     });
 
-    clientWs.on('close', () => {
+    clientWs.on('close', (code: number, reasonBuf: Buffer) => {
+      const reasonStr = reasonBuf ? reasonBuf.toString('utf8') : '';
+      console.log(
+        `[RemoteDesktop] clientWs closed for session ${config.id} (code=${code}${reasonStr ? `, reason=${reasonStr}` : ''})`
+      );
       clearInterval(keepaliveInterval);
       clearBackpressureState();
       if (activeSession.unregisterJitSession) {
@@ -2175,7 +2205,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
           guacdSocket.end();
         }
       } catch {}
-      logSessionClosed('USER_DISCONNECTED', 'Client browser disconnected or closed modal');
+      logSessionClosed('USER_DISCONNECTED', `Client browser disconnected (ws code=${code})`);
       const recOnClientClose: GuacRecorderHandle | undefined = (activeSession as any)._sessionRecorder;
       if (recOnClientClose) {
         (activeSession as any)._sessionRecorder = undefined;
