@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.489.0';
+export const APP_VERSION = '1.489.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.489.1',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'حذف دکمه و امکان حذف عضو (Remove) از جدول Group Membership Directory در صفحه پشتیبانی گروه‌های دامین',
+    title_en: 'Remove Member Removal Button & Enforce Read/Add-Only Policy in Group Membership Directory',
+    changes: [
+      'حذف کامل دکمه `Remove` و تاییدیه حذف عضو از جدول `Group Membership Directory` در صفحه `Active Directory & Group Support HelpDesk` تا کاربر امکان حذف اعضای گروه را نداشته باشد.',
+      'مسدودسازی سمت کلاینت (`helpdeskGroupRamSession`) و سمت سرور (`POST /api/helpdesk/group/member-action`) برای عملیات `remove_member` با حفظ سوابق تاریخی قبلی در تب `Check History`.'
+    ],
+    changes_en: [
+      'Completely removed the `Remove` button and inline removal confirmation controls from the `Group Membership Directory` table in `Active Directory & Group Support HelpDesk`.',
+      'Enforced removal prohibition at both the RAM session layer (`helpdeskGroupRamSession`) and backend API (`POST /api/helpdesk/group/member-action` returning 403 for `remove_member`) while preserving existing `Check History` display.'
+    ]
+  },
   {
     version: '1.489.0',
     releaseDate: '2026-11-26',

@@ -11823,8 +11823,14 @@ apiRouter.post('/helpdesk/group/member-action', async (req: Request, res: Respon
   }
 
   const input = extractHelpdeskGroupInputFromBody(req.body);
-  const action: 'add_member' | 'remove_member' =
-    req.body?.action === 'remove_member' ? 'remove_member' : 'add_member';
+  if (req.body?.action === 'remove_member') {
+    return res.status(403).json({
+      success: false,
+      error: 'Member removal is disabled in Group Membership Directory by policy.',
+      errorFa: 'امکان حذف عضو از گروه در بخش Group Membership Directory غیرفعال است.',
+    });
+  }
+  const action = 'add_member' as const;
   const memberIdentifier = String(req.body?.memberIdentifier || '').trim();
 
   if (!input.targetGroup || !memberIdentifier || !input.adminUsername || !input.adminPassword) {
@@ -11835,8 +11841,7 @@ apiRouter.post('/helpdesk/group/member-action', async (req: Request, res: Respon
     });
   }
 
-  const rlAction: HelpdeskWriteAction =
-    action === 'remove_member' ? 'ad_group_member_remove' : 'ad_group_member_add';
+  const rlAction: HelpdeskWriteAction = 'ad_group_member_add';
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, input.targetGroup, rlAction);
   if (!rl.allowed) {
     await logHelpdeskRateLimitAudit({
@@ -11894,15 +11899,9 @@ apiRouter.post('/helpdesk/group/member-action', async (req: Request, res: Respon
 
     await addPortalAuditLog({
       category: 'helpdesk',
-      action: action === 'add_member' ? 'helpdesk_group_member_add' : 'helpdesk_group_member_remove',
-      title:
-        action === 'add_member'
-          ? `افزودن عضو (${data.memberSamAccountName}) به گروه (${data.groupCn})`
-          : `حذف عضو (${data.memberSamAccountName}) از گروه (${data.groupCn})`,
-      title_en:
-        action === 'add_member'
-          ? `HelpDesk AD Group Add Member (${data.memberSamAccountName} -> ${data.groupCn})`
-          : `HelpDesk AD Group Remove Member (${data.memberSamAccountName} <- ${data.groupCn})`,
+      action: 'helpdesk_group_member_add',
+      title: `افزودن عضو (${data.memberSamAccountName}) به گروه (${data.groupCn})`,
+      title_en: `HelpDesk AD Group Add Member (${data.memberSamAccountName} -> ${data.groupCn})`,
       description: data.messageFa,
       description_en: data.message,
       userName: auth.actorName,

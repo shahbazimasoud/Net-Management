@@ -10,7 +10,6 @@ import {
   Clock,
   UserCheck,
   UserPlus,
-  UserMinus,
   Building2,
   Mail,
   Server,
@@ -147,7 +146,6 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
   >('all');
   const [memberSearch, setMemberSearch] = useState('');
   const [newMemberInput, setNewMemberInput] = useState('');
-  const [confirmRemoveDn, setConfirmRemoveDn] = useState<string | null>(null);
 
   // ACL filter
   const [aclSearch, setAclSearch] = useState('');
@@ -224,10 +222,6 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
       }, 60);
     }
   }, [ram.pendingCredentialPromptGroup, canUseCurrentCreds]);
-
-  useEffect(() => {
-    setConfirmRemoveDn(null);
-  }, [ram.groupData?.identity.distinguishedName]);
 
   const loadGroupCheckHistory = async (overrides?: {
     page?: number;
@@ -1961,42 +1955,8 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                               <span>{isEn ? 'Inspect Group' : 'بررسی زیرگروه'}</span>
                               <ArrowUpRight className="w-3 h-3" />
                             </button>
-                          ) : null}
-
-                          {canModifyMembers && !m.isPrimaryGroupMember && !m.isInherited && (
-                            confirmRemoveDn === m.dn ? (
-                              <span className="inline-flex items-center gap-1 ms-1.5">
-                                <button
-                                  type="button"
-                                  disabled={ram.memberActionLoading}
-                                  onClick={() =>
-                                    runHelpdeskGroupMemberAction({
-                                      action: 'remove_member',
-                                      memberIdentifier: m.dn,
-                                    })
-                                  }
-                                  className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-semibold cursor-pointer"
-                                >
-                                  {isEn ? 'Confirm' : 'تایید حذف'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setConfirmRemoveDn(null)}
-                                  className={`px-2 py-1 rounded text-[10px] cursor-pointer ${subCardBg} ${textMuted}`}
-                                >
-                                  {isEn ? 'Cancel' : 'لغو'}
-                                </button>
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => setConfirmRemoveDn(m.dn)}
-                                className="inline-flex items-center gap-1 ms-1.5 px-2 py-1 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-[11px] cursor-pointer"
-                              >
-                                <UserMinus className="w-3 h-3" />
-                                <span>{isEn ? 'Remove' : 'حذف'}</span>
-                              </button>
-                            )
+                          ) : (
+                            <span className={textMuted}>—</span>
                           )}
                         </td>
                       </tr>

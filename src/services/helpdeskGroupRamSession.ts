@@ -421,9 +421,12 @@ export async function runHelpdeskGroupInspect(overrideTargetGroup?: string): Pro
 }
 
 export async function runHelpdeskGroupMemberAction(params: {
-  action: 'add_member' | 'remove_member';
+  action: 'add_member';
   memberIdentifier: string;
 }): Promise<boolean> {
+  if (params.action !== 'add_member') {
+    return false;
+  }
   const snap = ramState;
   const target = (snap.groupData?.identity.distinguishedName || snap.targetGroup).trim();
   const creds = resolveEffectiveGroupCredentials();
