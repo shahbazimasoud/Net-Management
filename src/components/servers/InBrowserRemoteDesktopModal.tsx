@@ -30,6 +30,9 @@ import {
 } from 'lucide-react';
 import { RemoteServer } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { installGuacamoleRenderFixes } from '../../utils/guacamoleRenderFix';
+
+installGuacamoleRenderFixes(Guacamole);
 
 interface InBrowserRemoteDesktopModalProps {
   isOpen: boolean;
@@ -463,7 +466,6 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       innerDisplay.style.margin = '0';
       innerDisplay.style.transformOrigin = '0 0';
       (innerDisplay.style as any).webkitTransformOrigin = '0 0';
-      innerDisplay.style.backfaceVisibility = 'hidden';
       innerDisplay.style.imageRendering = 'auto';
     }
 
@@ -574,6 +576,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         connectTimeoutRef.current = null;
       }
 
+      // Ensure Guacamole Layer/Display rendering fixes are installed before constructing client
+      installGuacamoleRenderFixes(Guacamole);
+
       // Initialize native Guacamole WebSocket Tunnel
       const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
       guacTunnelRef.current = tunnel;
@@ -612,7 +617,6 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         innerDisplay.style.margin = '0';
         innerDisplay.style.transformOrigin = '0 0';
         (innerDisplay.style as any).webkitTransformOrigin = '0 0';
-        innerDisplay.style.backfaceVisibility = 'hidden';
         innerDisplay.style.imageRendering = 'auto';
       }
 
@@ -1201,6 +1205,28 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       }
     }
   }, [displayResolution, connectionStatus]);
+
+  // Force a full remote desktop repaint without tearing down the active RDP/VNC session
+  const handleRefreshDisplay = useCallback(() => {
+    registerActivity();
+    const client = guacClientRef.current;
+    if (!client || connectionStatus !== 'connected') return;
+    const display = client.getDisplay();
+    const [resW, resH] = displayResolutionRef.current.split('x').map(Number);
+    const w = (display && display.getWidth() > 0 ? display.getWidth() : resW) || 1920;
+    const h = (display && display.getHeight() > 0 ? display.getHeight() : resH) || 1080;
+    try {
+      // A 2px nudge followed immediately by the target resolution triggers a clean
+      // display-update full keyframe repaint from Windows RDP / guacd.
+      client.sendSize(Math.max(320, w - 2), h);
+      setTimeout(() => {
+        try {
+          guacClientRef.current?.sendSize(w, h);
+          updateDisplayScaleRef.current();
+        } catch {}
+      }, 120);
+    } catch {}
+  }, [connectionStatus, registerActivity]);
 
   // Special key macros senders
   const sendSpecialKey = (keyCombo: string) => {
@@ -1822,6 +1848,19 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
               <span>{isEn ? 'Gateway Diagnostics' : 'دیاگنوستیک'}</span>
             </button>
 
+            {/* Force Full Display Repaint (without disconnecting) */}
+            {connectionStatus === 'connected' && (
+              <button
+                type="button"
+                onClick={handleRefreshDisplay}
+                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 flex items-center gap-1 transition-colors cursor-pointer"
+                title={isEn ? 'Force full remote screen repaint without disconnecting' : 'رفرش و بازترسیم کامل صفحه ریموت بدون قطع اتصال'}
+              >
+                <Monitor className="w-3 h-3" />
+                <span>{isEn ? 'Repaint' : 'رفرش تصویر'}</span>
+              </button>
+            )}
+
             {/* Reconnect */}
             <button
               type="button"
@@ -2149,6 +2188,19 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                       >
                         <Copy className="w-3.5 h-3.5 text-cyan-400" />
                         <span>{isEn ? 'Clipboard' : 'کلیپ‌بورد'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFloatingToolbarExpanded(false);
+                          handleRefreshDisplay();
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-xs flex items-center gap-1 cursor-pointer"
+                        title={isEn ? 'Force full remote screen repaint' : 'بازترسیم کامل صفحه ریموت'}
+                      >
+                        <Monitor className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>{isEn ? 'Repaint' : 'رفرش تصویر'}</span>
                       </button>
 
                       <button

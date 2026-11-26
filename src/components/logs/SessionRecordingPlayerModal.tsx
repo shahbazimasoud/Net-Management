@@ -37,6 +37,9 @@ import {
   formatDurationSeconds,
 } from '../../services/sessionRecordingApi';
 import type { SessionRecordingRecord, SessionRecordingMarker } from '../../types';
+import { installGuacamoleRenderFixes } from '../../utils/guacamoleRenderFix';
+
+installGuacamoleRenderFixes(Guacamole);
 
 interface CastEvent {
   time: number; // seconds

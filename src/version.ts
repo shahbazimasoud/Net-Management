@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.496.2';
+export const APP_VERSION = '1.496.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.496.3',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'رفع ریشه‌ای پاک‌شدن بوم ریموت دسکتاپ، باقی‌ماندن آثار پنجره‌ها و نشت بافت GPU در موتور Guacamole',
+    title_en: 'Fix Guacamole Canvas-Wipe Corruption, Window-Switch Remnants, Out-of-Order Image Streams & GPU Bitmap Leaks',
+    changes: [
+      'رفع ریشه‌ای باگ `guacamole-common-js@1.5.0` در `Guacamole.Layer` (`src/utils/guacamoleRenderFix.ts`): جایگزینی عملیات ناایمن `globalCompositeOperation = "copy"` برای ماسک کانال `0xC` (`GUAC_COMP_SRC`) با پاک‌سازی محدود به مستطیل/مسیر هدف (`clearRect` / `clip + destination-out` + `source-over`) تا دستورات `cfill`، `copy` و `img` هرگز کل بوم ۱۹۲۰×۱۰۸۰ دسکتاپ را شفاف/پاک نکنند، به همراه محافظت از کپی هم‌پوشان روی خود لایه (`self-copy`) با بوم کمکی جهت جلوگیری از لکه‌دار شدن جابجایی و اسکرول پنجره‌ها.',
+      'رفع ریشه‌ای باگ صف فریم و ترتیب رندر `Guacamole.Display.drawStream` و `drawBlob`: رزرو همزمان جایگاه FIFO در صف تسک‌ها در لحظه دریافت دستور `img` (جلوگیری از رندر خارج از نوبت استریم‌های چندتکه‌ای و تغییر ناخواسته `channelMask` حین جابجایی پنجره‌ها)، افزودن `.catch()` و فالبک ایمن به `Image` روی `createImageBitmap` جهت حذف قفل دائمی صف فریم، آزادسازی فوری حافظه بافت GPU با فراخوانی `ImageBitmap.close()` پس از رندر و تجمیع فریم‌های آماده متوالی بدون تاخیر اضافی.',
+      'غیرفعال‌سازی کش بیت‌مپ FreeRDP2 در `server/remoteDesktopGateway.ts` (`disable-bitmap-caching=true`) همراه با `enable-theming=true` جهت حذف تایل‌های کهنه پنجره‌های بسته/تعویض‌شده روی ویندوز سرور، حذف `backfaceVisibility=hidden` از لایه داخلی نمایشگر، اعمال پچ رندرینگ در پخش‌کننده ضبط نشست (`SessionRecordingPlayerModal.tsx`) و افزودن دکمه دو‌زبانه «رفرش تصویر / Repaint» در نوار ابزار و حالت تمام‌صفحه برای بازترسیم کامل صفحه بدون قطع اتصال.'
+    ],
+    changes_en: [
+      'Fixed the upstream `guacamole-common-js@1.5.0` `Guacamole.Layer` canvas-wipe bug (`src/utils/guacamoleRenderFix.ts`): replaced unclipped HTML5 Canvas `globalCompositeOperation = "copy"` for channel mask `0xC` (`GUAC_COMP_SRC`) with bounded `clearRect` / clipped `destination-out` + `source-over` compositing so `cfill`, `copy`, and `img` updates never erase the surrounding 1920x1080 desktop, and added scratch-canvas snapshotting for overlapping same-layer `copy` operations.',
+      'Fixed `Guacamole.Display.drawStream` and `drawBlob` ordering & lifecycle defects: synchronously reserved each `"img"` stream\'s exact FIFO task slot before `"end"` arrives (preventing out-of-order window paints and channel-mask clobbering across interleaved streams), added `.catch()` + `HTMLImageElement` fallback on `createImageBitmap` to prevent permanent frame-queue deadlocks, immediately called `ImageBitmap.close()` after paint to stop Chromium GPU texture exhaustion, and coalesced consecutive ready frames.',
+      'Disabled FreeRDP2 client-side bitmap caching (`disable-bitmap-caching=true`) alongside `enable-theming=true` in `server/remoteDesktopGateway.ts` to eliminate stale window tiles on Windows Server, removed `backfaceVisibility=hidden` from the scaled display container, enabled the render fixes in `SessionRecordingPlayerModal.tsx`, and added a bilingual `Repaint` action in both main and fullscreen toolbars to trigger a full remote redraw without disconnecting.'
+    ]
+  },
   {
     version: '1.496.2',
     releaseDate: '2026-11-26',
