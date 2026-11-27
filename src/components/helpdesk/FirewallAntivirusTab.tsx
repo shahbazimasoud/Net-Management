@@ -26,6 +26,7 @@ import {
   X,
   Info,
   KeyRound,
+  Clock,
 } from 'lucide-react';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { DeleteConfirmModal, DeleteGenericTarget } from '../DeleteConfirmModal';
@@ -707,12 +708,26 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                   const wasDisabledInSession = disabledInSessionIds.includes(bKey);
                   const isDisabledAlert = !av.enabled && (!av.isPassiveMode || wasDisabledInSession);
                   const isPassive = !av.enabled && av.isPassiveMode && !wasDisabledInSession;
+                  const sigAgeDays =
+                    typeof av.details?.antivirusSignatureAge === 'number' &&
+                    Number.isFinite(av.details.antivirusSignatureAge)
+                      ? Math.floor(av.details.antivirusSignatureAge)
+                      : null;
+                  const isOutdatedAlert =
+                    !isDisabledAlert &&
+                    !isPassive &&
+                    Boolean(av.enabled) &&
+                    (av.definitionsUpToDate === false || (sigAgeDays !== null && sigAgeDays >= 7));
 
-                  // Prominent visual color transition when disabled vs active vs passive!
+                  // Prominent visual color transition when disabled (red) vs outdated (orange) vs active (green) vs passive!
                   const cardClasses = isDisabledAlert
                     ? isLightMode
                       ? 'bg-rose-50 border-2 border-rose-500 text-rose-950'
                       : 'bg-rose-950/60 border-2 border-rose-500 text-rose-50'
+                    : isOutdatedAlert
+                    ? isLightMode
+                      ? 'bg-orange-50/90 border-2 border-orange-400 text-orange-950'
+                      : 'bg-orange-950/35 border-2 border-orange-500/70 text-orange-50'
                     : isPassive
                     ? isLightMode
                       ? 'bg-slate-50 border border-slate-300 text-slate-800'
@@ -739,6 +754,10 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                                 ? isLightMode
                                   ? 'bg-rose-100 border-rose-300 text-rose-600'
                                   : 'bg-rose-500/20 border-rose-500/50 text-rose-300'
+                                : isOutdatedAlert
+                                ? isLightMode
+                                  ? 'bg-orange-100 border-orange-300 text-orange-600'
+                                  : 'bg-orange-500/20 border-orange-500/50 text-orange-300'
                                 : isPassive
                                 ? isLightMode
                                   ? 'bg-slate-200 border-slate-300 text-slate-600'
@@ -750,6 +769,8 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                           >
                             {isDisabledAlert ? (
                               <ShieldOff className="w-5 h-5" />
+                            ) : isOutdatedAlert ? (
+                              <ShieldAlert className="w-5 h-5" />
                             ) : isPassive ? (
                               <Shield className="w-5 h-5" />
                             ) : (
@@ -783,6 +804,10 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                               ? isLightMode
                                 ? 'bg-rose-600 border-rose-600 text-white'
                                 : 'bg-rose-600 border-rose-500 text-white'
+                              : isOutdatedAlert
+                              ? isLightMode
+                                ? 'bg-orange-600 border-orange-600 text-white'
+                                : 'bg-orange-600 border-orange-500 text-white'
                               : isPassive
                               ? isLightMode
                                 ? 'bg-slate-200 border-slate-300 text-slate-700'
@@ -796,6 +821,19 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                             <>
                               <AlertTriangle className="w-3.5 h-3.5" />
                               <span>{isEn ? 'DISABLED — RE-ENABLE!' : 'غیرفعال — دوباره فعال کنید!'}</span>
+                            </>
+                          ) : isOutdatedAlert ? (
+                            <>
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>
+                                {sigAgeDays !== null
+                                  ? isEn
+                                    ? `Active · Outdated (${sigAgeDays}d)`
+                                    : `فعال · آپدیت قدیمی (${sigAgeDays} روز)`
+                                  : isEn
+                                  ? 'Active · Update Overdue'
+                                  : 'فعال · نیاز به آپدیت'}
+                              </span>
                             </>
                           ) : isPassive ? (
                             <span>{isEn ? 'Passive (3rd-Party Active)' : 'غیرفعال خودکار (آنتی‌ویروس جایگزین)'}</span>

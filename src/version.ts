@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.499.0';
+export const APP_VERSION = '1.499.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.499.1',
+    releaseDate: '2026-11-27',
+    type: 'patch',
+    title: 'رنگ‌بندی سه‌حالته (سبز، قرمز و نارنجی) وضعیت آنتی‌ویروس‌های نصب‌شده در بخش Health & Safe Process Control',
+    title_en: 'Add Green/Red/Orange Visual Status Highlighting for Installed Antivirus & Overdue Updates in Health & Safe Process Control',
+    changes: [
+      'رنگ‌بندی کارت و نشانگر وضعیت آنتی‌ویروس‌های نصب‌شده در تب `Health & Safe Process Control` (`HelpDeskView.tsx`) و تب `Firewall & Antivirus` (`FirewallAntivirusTab.tsx`): رنگ سبز برای آنتی‌ویروس فعال و به‌روز، رنگ قرمز برای آنتی‌ویروس غیرفعال، و رنگ نارنجی در صورت گذشت زمان زیاد (۷ روز یا بیشتر یا پرچم Outdated) از آخرین آپدیت امضاها.',
+      'افزودن استخراج دقیق سن آخرین آپدیت امضاهای آنتی‌ویروس (`signatureAgeDays`) برای Windows Defender در اسکریپت پاورشل و پایگاه‌داده ClamAV در لینوکس در `server/helpdeskService.ts` و نمایش تعداد روز گذشته از آخرین آپدیت.'
+    ],
+    changes_en: [
+      'Added full card and badge color coding for installed antivirus products in `Health & Safe Process Control` (`HelpDeskView.tsx`) and `Firewall & Antivirus` (`FirewallAntivirusTab.tsx`): green when active and up-to-date, red when inactive/disabled, and orange when signature updates are long overdue (>= 7 days or flagged out-of-date).',
+      'Enhanced `server/helpdeskService.ts` to report authentic `signatureAgeDays` from `Get-MpComputerStatus` on Windows and ClamAV signature database timestamps on Linux, displaying exact update age in days.'
+    ]
+  },
   {
     version: '1.499.0',
     releaseDate: '2026-11-27',

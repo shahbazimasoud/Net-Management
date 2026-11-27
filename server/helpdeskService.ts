@@ -179,6 +179,7 @@ export interface HelpdeskHealthResult {
     antivirusEnabled: boolean | null;
     realTimeProtection: boolean | null;
     signatureUpdated: string;
+    signatureAgeDays?: number | null;
     firewallDomain: boolean | null;
     firewallPrivate: boolean | null;
     firewallPublic: boolean | null;
@@ -192,6 +193,7 @@ export interface HelpdeskHealthResult {
       realTimeProtection: boolean | null;
       definitionsUpToDate: boolean | null;
       signatureUpdated: string;
+      signatureAgeDays?: number | null;
       isPassiveMode: boolean;
     }>;
   };
@@ -1585,7 +1587,7 @@ $nic = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "IPEnabled=True
 $primaryIp = if ($nic -and $nic.IPAddress) { ($nic.IPAddress | Where-Object { $_ -match '^\\d+\\.\\d+\\.\\d+\\.\\d+$' } | Select-Object -First 1) } else { '' }
 $macAddr = if ($nic) { [string]$nic.MACAddress } else { '' }
 
-$avName = 'Windows Defender'; $avEnabled = $null; $rtp = $null; $sigDate = ''
+$avName = 'Windows Defender'; $avEnabled = $null; $rtp = $null; $sigDate = ''; $sigAgeDays = $null
 $defMpObj = $null
 try {
   $mp = Get-MpComputerStatus
@@ -1594,6 +1596,13 @@ try {
     $avEnabled = [bool]$mp.AntivirusEnabled
     $rtp = [bool]$mp.RealTimeProtectionEnabled
     if ($mp.AntivirusSignatureLastUpdated) { $sigDate = $mp.AntivirusSignatureLastUpdated.ToString('yyyy-MM-dd HH:mm') }
+    if ($null -ne $mp.AntivirusSignatureAge -and "$($mp.AntivirusSignatureAge)" -match '^\\d+$') {
+      $sigAgeDays = [int]$mp.AntivirusSignatureAge
+    } elseif ($mp.AntivirusSignatureLastUpdated) {
+      try {
+        $sigAgeDays = [int][math]::Max(0, [math]::Floor(((Get-Date) - [datetime]$mp.AntivirusSignatureLastUpdated).TotalDays))
+      } catch {}
+    }
   }
 } catch {}
 
@@ -1673,6 +1682,7 @@ foreach ($kv in $avCatalogLite) {
     realTimeProtection = [bool]$isEn3
     definitionsUpToDate = if ($mSc) { [bool]$mSc.upToDate } else { $null }
     signatureUpdated = ''
+    signatureAgeDays = $null
     isPassiveMode = $false
   }
 }
@@ -1692,6 +1702,7 @@ foreach ($sc in $scAvItems) {
     realTimeProtection = [bool]$sc.enabled
     definitionsUpToDate = [bool]$sc.upToDate
     signatureUpdated = ''
+    signatureAgeDays = $null
     isPassiveMode = $false
   }
 }
@@ -1712,8 +1723,9 @@ if ($defMpObj -or $defSvcLite -or $defScLite) {
     enabled = [bool]$defEnabledBool
     serviceRunning = [bool]$defSvcRunning
     realTimeProtection = if ($null -ne $rtp) { [bool]$rtp } else { [bool]$defEnabledBool }
-    definitionsUpToDate = if ($defScLite) { [bool]$defScLite.upToDate } else { $null }
+    definitionsUpToDate = if ($defScLite) { [bool]$defScLite.upToDate } elseif ($null -ne $sigAgeDays) { $sigAgeDays -le 7 } else { $null }
     signatureUpdated = $sigDate
+    signatureAgeDays = $sigAgeDays
     isPassiveMode = [bool]$defPassive
   }
 }
@@ -1944,6 +1956,7 @@ $out = [PSCustomObject]@{
     antivirusEnabled = $avEnabled
     realTimeProtection = $rtp
     signatureUpdated = $sigDate
+    signatureAgeDays = $sigAgeDays
     firewallDomain = $fwDom
     firewallPrivate = $fwPriv
     firewallPublic = $fwPub
@@ -2168,6 +2181,25 @@ for av_id, av_vendor, av_pname, units in av_catalog_linux:
     for u in units:
         if run(f"systemctl show {u} --property=LoadState --value 2>/dev/null") == "loaded":
             act = run(f"systemctl is-active {u} 2>/dev/null") == "active"
+            sig_updated = ""
+            sig_age_days = None
+            defs_up_to_date = None
+            if av_id == "clamav":
+                for db_path in (
+                    "/var/lib/clamav/daily.cld",
+                    "/var/lib/clamav/daily.cvd",
+                    "/var/lib/clamav/main.cld",
+                    "/var/lib/clamav/main.cvd",
+                ):
+                    if os.path.isfile(db_path):
+                        try:
+                            mtime = os.path.getmtime(db_path)
+                            sig_updated = time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime))
+                            sig_age_days = max(0, int((time.time() - mtime) // 86400))
+                            defs_up_to_date = sig_age_days <= 7
+                            break
+                        except Exception:
+                            pass
             linux_av_products.append({
                 "id": av_id,
                 "name": av_pname,
@@ -2176,8 +2208,9 @@ for av_id, av_vendor, av_pname, units in av_catalog_linux:
                 "enabled": act,
                 "serviceRunning": act,
                 "realTimeProtection": act,
-                "definitionsUpToDate": None,
-                "signatureUpdated": "",
+                "definitionsUpToDate": defs_up_to_date,
+                "signatureUpdated": sig_updated,
+                "signatureAgeDays": sig_age_days,
                 "isPassiveMode": False,
             })
             break
@@ -2197,10 +2230,11 @@ print(json.dumps({
     "memory": {"usedPercent": mem_pct, "usedGb": used_gb, "totalGb": total_gb, "freeGb": free_gb},
     "disks": disks,
     "security": {
-        "antivirusName": primary_linux_av["name"] if primary_linux_av else "Linux Security / ClamAV",
+        "antivirusName": primary_linux_av["name"] if primary_linux_av else "",
         "antivirusEnabled": primary_linux_av["enabled"] if primary_linux_av else None,
         "realTimeProtection": primary_linux_av["realTimeProtection"] if primary_linux_av else None,
-        "signatureUpdated": "",
+        "signatureUpdated": primary_linux_av["signatureUpdated"] if primary_linux_av else "",
+        "signatureAgeDays": primary_linux_av["signatureAgeDays"] if primary_linux_av else None,
         "firewallDomain": ufw_active,
         "firewallPrivate": ufw_active,
         "firewallPublic": ufw_active,
@@ -2310,12 +2344,16 @@ export async function collectEndpointHealth(input: HelpdeskTargetInput): Promise
       usedPercent: Math.max(0, Math.min(100, Number(d.usedPercent) || 0)),
     })),
     security: {
-      antivirusName: String(parsed.security?.antivirusName || 'Windows Defender'),
+      antivirusName: String(parsed.security?.antivirusName || (execRes.osFamily === 'windows' ? 'Windows Defender' : '')),
       antivirusEnabled:
         typeof parsed.security?.antivirusEnabled === 'boolean' ? parsed.security.antivirusEnabled : null,
       realTimeProtection:
         typeof parsed.security?.realTimeProtection === 'boolean' ? parsed.security.realTimeProtection : null,
       signatureUpdated: String(parsed.security?.signatureUpdated || ''),
+      signatureAgeDays:
+        typeof parsed.security?.signatureAgeDays === 'number' && Number.isFinite(parsed.security.signatureAgeDays)
+          ? parsed.security.signatureAgeDays
+          : null,
       firewallDomain:
         typeof parsed.security?.firewallDomain === 'boolean' ? parsed.security.firewallDomain : null,
       firewallPrivate:
@@ -2338,6 +2376,10 @@ export async function collectEndpointHealth(input: HelpdeskTargetInput): Promise
         realTimeProtection: typeof item?.realTimeProtection === 'boolean' ? item.realTimeProtection : null,
         definitionsUpToDate: typeof item?.definitionsUpToDate === 'boolean' ? item.definitionsUpToDate : null,
         signatureUpdated: String(item?.signatureUpdated || ''),
+        signatureAgeDays:
+          typeof item?.signatureAgeDays === 'number' && Number.isFinite(item.signatureAgeDays)
+            ? item.signatureAgeDays
+            : null,
         isPassiveMode: Boolean(item?.isPassiveMode),
       })),
     },
@@ -20215,6 +20257,26 @@ for av_id, vendor, pname, units in av_catalog:
             running = (rc_act == 0 and act_st.strip() == 'active')
             break
     if found_unit:
+        defs_up_to_date = None
+        sig_last_updated = None
+        sig_age_days = None
+        if av_id == 'clamav':
+            import time as _t
+            for db_path in (
+                '/var/lib/clamav/daily.cld',
+                '/var/lib/clamav/daily.cvd',
+                '/var/lib/clamav/main.cld',
+                '/var/lib/clamav/main.cvd',
+            ):
+                if os.path.isfile(db_path):
+                    try:
+                        mtime = os.path.getmtime(db_path)
+                        sig_last_updated = _t.strftime('%Y-%m-%dT%H:%M:%SZ', _t.gmtime(mtime))
+                        sig_age_days = max(0, int((_t.time() - mtime) // 86400))
+                        defs_up_to_date = sig_age_days <= 7
+                        break
+                    except Exception:
+                        pass
         third_party_avs.append({
             'id': av_id,
             'vendor': vendor,
@@ -20223,13 +20285,17 @@ for av_id, vendor, pname, units in av_catalog:
             'installed': True,
             'enabled': running,
             'serviceRunning': running,
-            'definitionsUpToDate': None,
+            'definitionsUpToDate': defs_up_to_date,
             'serviceName': found_unit,
             'allServices': [found_unit],
             'version': '',
             'tamperProtected': None,
             'supportsPasswordStop': False,
             'canControl': True,
+            'details': {
+                'antivirusSignatureLastUpdated': sig_last_updated,
+                'antivirusSignatureAge': sig_age_days,
+            } if sig_last_updated is not None else None,
         })
 
 print(json.dumps({
@@ -20293,6 +20359,15 @@ PY`;
       tamperProtected: typeof av.tamperProtected === 'boolean' ? av.tamperProtected : null,
       supportsPasswordStop: Boolean(av.supportsPasswordStop),
       canControl: Boolean(av.canControl),
+      ...(av.details
+        ? {
+            details: {
+              antivirusSignatureLastUpdated: av.details.antivirusSignatureLastUpdated || null,
+              antivirusSignatureAge:
+                typeof av.details.antivirusSignatureAge === 'number' ? av.details.antivirusSignatureAge : null,
+            },
+          }
+        : {}),
     };
   });
 

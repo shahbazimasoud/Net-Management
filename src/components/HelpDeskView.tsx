@@ -5836,6 +5836,20 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
                 {/* Endpoint Security Posture */}
                 {(() => {
+                  const AV_STALE_UPDATE_DAYS = 7;
+                  const parseSigAgeDays = (sigUpdated: string, explicitAge?: number | null): number | null => {
+                    if (typeof explicitAge === 'number' && Number.isFinite(explicitAge) && explicitAge >= 0) {
+                      return Math.floor(explicitAge);
+                    }
+                    const raw = (sigUpdated || '').trim();
+                    if (!raw) return null;
+                    const normalized = /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(raw) ? raw.replace(' ', 'T') : raw;
+                    const ts = Date.parse(normalized);
+                    if (!Number.isFinite(ts)) return null;
+                    const diffDays = Math.floor((Date.now() - ts) / (1000 * 60 * 60 * 24));
+                    return diffDays >= 0 ? diffDays : 0;
+                  };
+
                   const detailedProducts = Array.isArray(securityAvData?.antivirus?.products)
                     ? securityAvData.antivirus.products
                     : [];
@@ -5852,26 +5866,58 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     serviceRunning: boolean | null;
                     definitionsUpToDate: boolean | null;
                     signatureUpdated: string;
+                    signatureAgeDays: number | null;
                     isPassiveMode: boolean;
                   }> =
                     detailedProducts.length > 0
-                      ? detailedProducts.map((p: any) => ({
-                          id: String(p.id || p.productName || 'av'),
-                          name: String(p.productName || p.vendor || 'Antivirus'),
-                          vendor: String(p.vendor || p.productName || ''),
-                          isDefender: Boolean(p.isMicrosoftDefender),
-                          enabled: typeof p.enabled === 'boolean' ? p.enabled : null,
-                          serviceRunning: typeof p.serviceRunning === 'boolean' ? p.serviceRunning : null,
-                          definitionsUpToDate:
-                            typeof p.definitionsUpToDate === 'boolean' ? p.definitionsUpToDate : null,
-                          signatureUpdated:
+                      ? detailedProducts.map((p: any) => {
+                          const sigUpdated =
                             String(p.details?.antivirusSignatureLastUpdated || '') ||
-                            (p.isMicrosoftDefender ? String(healthData.security?.signatureUpdated || '') : ''),
-                          isPassiveMode: Boolean(p.isPassiveMode),
-                        }))
+                            (p.isMicrosoftDefender ? String(healthData.security?.signatureUpdated || '') : '');
+                          const rawExplicitAge =
+                            typeof p.details?.antivirusSignatureAge === 'number'
+                              ? p.details.antivirusSignatureAge
+                              : p.isMicrosoftDefender && typeof healthData.security?.signatureAgeDays === 'number'
+                              ? healthData.security.signatureAgeDays
+                              : null;
+                          return {
+                            id: String(p.id || p.productName || 'av'),
+                            name: String(p.productName || p.vendor || 'Antivirus'),
+                            vendor: String(p.vendor || p.productName || ''),
+                            isDefender: Boolean(p.isMicrosoftDefender),
+                            enabled: typeof p.enabled === 'boolean' ? p.enabled : null,
+                            serviceRunning: typeof p.serviceRunning === 'boolean' ? p.serviceRunning : null,
+                            definitionsUpToDate:
+                              typeof p.definitionsUpToDate === 'boolean' ? p.definitionsUpToDate : null,
+                            signatureUpdated: sigUpdated,
+                            signatureAgeDays: parseSigAgeDays(sigUpdated, rawExplicitAge),
+                            isPassiveMode: Boolean(p.isPassiveMode),
+                          };
+                        })
                       : healthProducts.length > 0
-                      ? healthProducts
-                      : [
+                      ? healthProducts.map((p: any) => {
+                          const sigUpdated = String(p.signatureUpdated || '');
+                          return {
+                            id: String(p.id || p.name || 'av'),
+                            name: String(p.name || p.vendor || 'Antivirus'),
+                            vendor: String(p.vendor || p.name || ''),
+                            isDefender: Boolean(p.isDefender),
+                            enabled: typeof p.enabled === 'boolean' ? p.enabled : null,
+                            serviceRunning: typeof p.serviceRunning === 'boolean' ? p.serviceRunning : null,
+                            definitionsUpToDate:
+                              typeof p.definitionsUpToDate === 'boolean' ? p.definitionsUpToDate : null,
+                            signatureUpdated: sigUpdated,
+                            signatureAgeDays: parseSigAgeDays(
+                              sigUpdated,
+                              typeof p.signatureAgeDays === 'number' ? p.signatureAgeDays : null
+                            ),
+                            isPassiveMode: Boolean(p.isPassiveMode),
+                          };
+                        })
+                      : healthData.osFamily === 'windows' &&
+                        (healthData.security?.antivirusEnabled !== null ||
+                          Boolean(healthData.security?.signatureUpdated))
+                      ? [
                           {
                             id: 'primary_av',
                             name: healthData.security?.antivirusName || 'Windows Defender',
@@ -5886,19 +5932,229 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                             serviceRunning: null,
                             definitionsUpToDate: null,
                             signatureUpdated: String(healthData.security?.signatureUpdated || ''),
+                            signatureAgeDays: parseSigAgeDays(
+                              String(healthData.security?.signatureUpdated || ''),
+                              typeof healthData.security?.signatureAgeDays === 'number'
+                                ? healthData.security.signatureAgeDays
+                                : null
+                            ),
                             isPassiveMode: false,
                           },
-                        ];
+                        ]
+                      : [];
+
+                  type AvVisualState = 'active' | 'inactive' | 'outdated' | 'passive' | 'unknown';
+                  const getAvVisualState = (av: (typeof unifiedAvList)[number]): AvVisualState => {
+                    if (av.isPassiveMode) return 'passive';
+                    if (av.enabled === false) return 'inactive';
+                    const isStaleByDate =
+                      av.signatureAgeDays !== null && av.signatureAgeDays >= AV_STALE_UPDATE_DAYS;
+                    const isOutdated = av.definitionsUpToDate === false || isStaleByDate;
+                    if (av.enabled === true) {
+                      return isOutdated ? 'outdated' : 'active';
+                    }
+                    if (isOutdated) return 'outdated';
+                    return 'unknown';
+                  };
+
+                  const avStates = unifiedAvList.map((av) => ({ av, state: getAvVisualState(av) }));
+                  const hasInactiveAv = avStates.some((x) => x.state === 'inactive');
+                  const hasOutdatedAv = avStates.some((x) => x.state === 'outdated');
+                  const hasActiveAv = avStates.some((x) => x.state === 'active');
 
                   const defenderAv = unifiedAvList.find((a) => a.isDefender) || null;
                   const thirdPartyAvs = unifiedAvList.filter((a) => !a.isDefender);
+
+                  const renderAvItemCard = (av: (typeof unifiedAvList)[number], isThirdParty: boolean) => {
+                    const vState = getAvVisualState(av);
+                    const isStaleByDate =
+                      av.signatureAgeDays !== null && av.signatureAgeDays >= AV_STALE_UPDATE_DAYS;
+                    const showOutdatedNote =
+                      av.definitionsUpToDate === false || isStaleByDate;
+
+                    const cardColorCls =
+                      vState === 'active'
+                        ? isLightMode
+                          ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950'
+                          : 'bg-emerald-950/30 border-emerald-500/45 text-emerald-50'
+                        : vState === 'inactive'
+                        ? isLightMode
+                          ? 'bg-rose-50/95 border-rose-400 text-rose-950'
+                          : 'bg-rose-950/35 border-rose-500/55 text-rose-50'
+                        : vState === 'outdated'
+                        ? isLightMode
+                          ? 'bg-orange-50/95 border-orange-400 text-orange-950'
+                          : 'bg-orange-950/35 border-orange-500/55 text-orange-50'
+                        : isLightMode
+                        ? 'bg-white border-slate-200'
+                        : 'bg-slate-900/80 border-slate-800';
+
+                    const badgeColorCls =
+                      vState === 'active'
+                        ? isLightMode
+                          ? 'bg-emerald-100 border-emerald-300 text-emerald-800'
+                          : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                        : vState === 'inactive'
+                        ? isLightMode
+                          ? 'bg-rose-100 border-rose-300 text-rose-800'
+                          : 'bg-rose-500/20 border-rose-500/50 text-rose-300'
+                        : vState === 'outdated'
+                        ? isLightMode
+                          ? 'bg-orange-100 border-orange-300 text-orange-800'
+                          : 'bg-orange-500/20 border-orange-500/50 text-orange-300'
+                        : vState === 'passive'
+                        ? isLightMode
+                          ? 'bg-slate-100 border-slate-300 text-slate-700'
+                          : 'bg-slate-800 border-slate-700 text-slate-300'
+                        : isLightMode
+                        ? 'bg-slate-100 border-slate-200 text-slate-600'
+                        : 'bg-slate-800 border-slate-700 text-slate-400';
+
+                    return (
+                      <div
+                        key={av.id}
+                        className={`p-2.5 rounded-lg border flex flex-wrap items-center justify-between gap-2 transition-colors ${cardColorCls}`}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className={`font-semibold ${textPrimary}`}>{av.name}</span>
+                            {isThirdParty && (
+                              <span
+                                className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${
+                                  isLightMode
+                                    ? 'bg-sky-50 border-sky-200 text-sky-700'
+                                    : 'bg-sky-950/50 border-sky-500/30 text-sky-300'
+                                }`}
+                              >
+                                {isEn ? 'Installed AV' : 'نصب‌شده'}
+                              </span>
+                            )}
+                          </div>
+                          <div className={`text-[11px] mt-0.5 flex flex-wrap items-center gap-2 ${textMuted}`}>
+                            {isThirdParty && av.vendor && av.vendor !== av.name && <span>{av.vendor}</span>}
+                            {isThirdParty && av.serviceRunning !== null && (
+                              <span className="font-mono">
+                                {isEn
+                                  ? `Service: ${av.serviceRunning ? 'Running' : 'Stopped'}`
+                                  : `سرویس: ${av.serviceRunning ? 'در حال اجرا' : 'متوقف'}`}
+                              </span>
+                            )}
+                            {av.signatureUpdated && (
+                              <span
+                                className={`font-mono ${
+                                  showOutdatedNote
+                                    ? isLightMode
+                                      ? 'text-orange-700 font-semibold'
+                                      : 'text-orange-300 font-semibold'
+                                    : ''
+                                }`}
+                              >
+                                {isEn ? 'Last Update' : 'آخرین آپدیت'}: {av.signatureUpdated}
+                                {av.signatureAgeDays !== null && (
+                                  <>
+                                    {' '}
+                                    ({isEn ? `${av.signatureAgeDays}d ago` : `${av.signatureAgeDays} روز پیش`})
+                                  </>
+                                )}
+                              </span>
+                            )}
+                            {!av.signatureUpdated && av.signatureAgeDays !== null && (
+                              <span
+                                className={`font-mono ${
+                                  showOutdatedNote
+                                    ? isLightMode
+                                      ? 'text-orange-700 font-semibold'
+                                      : 'text-orange-300 font-semibold'
+                                    : ''
+                                }`}
+                              >
+                                {isEn
+                                  ? `Last Update: ${av.signatureAgeDays}d ago`
+                                  : `آخرین آپدیت: ${av.signatureAgeDays} روز پیش`}
+                              </span>
+                            )}
+                            {av.definitionsUpToDate !== null && (
+                              <span
+                                className={`font-mono font-semibold ${
+                                  av.definitionsUpToDate && !isStaleByDate
+                                    ? isLightMode
+                                      ? 'text-emerald-700'
+                                      : 'text-emerald-400'
+                                    : isLightMode
+                                    ? 'text-orange-700'
+                                    : 'text-orange-300'
+                                }`}
+                              >
+                                {av.definitionsUpToDate && !isStaleByDate
+                                  ? isEn
+                                    ? 'Defs: Up to Date'
+                                    : 'امضا: به‌روز'
+                                  : isEn
+                                  ? 'Defs: Outdated'
+                                  : 'امضا: قدیمی / نیازمند آپدیت'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 font-bold whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-bold ${badgeColorCls}`}
+                          >
+                            {vState === 'active' ? (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                <span>{isEn ? 'Active' : 'فعال'}</span>
+                              </>
+                            ) : vState === 'inactive' ? (
+                              <>
+                                <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                                <span>{isEn ? 'Inactive' : 'غیرفعال'}</span>
+                              </>
+                            ) : vState === 'outdated' ? (
+                              <>
+                                <Clock className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                                <span>
+                                  {av.signatureAgeDays !== null
+                                    ? isEn
+                                      ? `Outdated (${av.signatureAgeDays}d)`
+                                      : `آپدیت قدیمی (${av.signatureAgeDays} روز)`
+                                    : isEn
+                                    ? 'Update Overdue'
+                                    : 'آپدیت قدیمی'}
+                                </span>
+                              </>
+                            ) : vState === 'passive' ? (
+                              <>
+                                <Shield className="w-3.5 h-3.5 shrink-0" />
+                                <span>
+                                  {isEn
+                                    ? 'Passive (3rd-Party Active)'
+                                    : 'غیرفعالِ خودکار (تحت آنتی‌ویروس جانبی)'}
+                                </span>
+                              </>
+                            ) : (
+                              <span>{isEn ? 'N/A' : 'نامشخص'}</span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  };
 
                   return (
                     <div className={`pt-4 border-t ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
                       <div className="space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className={`text-xs font-bold flex items-center gap-2 ${textPrimary}`}>
-                            <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                            {hasInactiveAv ? (
+                              <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0" />
+                            ) : hasOutdatedAv ? (
+                              <ShieldAlert className="w-4 h-4 text-orange-500 shrink-0" />
+                            ) : hasActiveAv ? (
+                              <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                            ) : (
+                              <Shield className="w-4 h-4 text-slate-400 shrink-0" />
+                            )}
                             <span>{isEn ? 'Antivirus & Firewall Posture' : 'وضعیت آنتی‌ویروس و فایروال سیستم'}</span>
                           </div>
                           <button
@@ -5938,110 +6194,17 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                             </div>
 
                             <div className="space-y-2">
-                              {defenderAv && (
-                                <div
-                                  className={`p-2.5 rounded-lg border flex flex-wrap items-center justify-between gap-2 ${
-                                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
-                                  }`}
-                                >
-                                  <div className="min-w-0">
-                                    <div className={`font-semibold ${textPrimary}`}>{defenderAv.name}</div>
-                                    {defenderAv.signatureUpdated && (
-                                      <div className={`text-[11px] font-mono mt-0.5 ${textMuted}`}>
-                                        {isEn ? 'Sig' : 'آپدیت'}: {defenderAv.signatureUpdated}
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-1.5 font-bold whitespace-nowrap">
-                                    {defenderAv.isPassiveMode ? (
-                                      <span className="inline-flex items-center gap-1 text-amber-500">
-                                        <Shield className="w-3.5 h-3.5 shrink-0" />
-                                        <span>{isEn ? 'Passive (3rd-Party Active)' : 'غیرفعالِ خودکار (تحت آنتی‌ویروس جانبی)'}</span>
-                                      </span>
-                                    ) : defenderAv.enabled === true ? (
-                                      <span className="inline-flex items-center gap-1 text-emerald-500">
-                                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                                        <span>{isEn ? 'Enabled' : 'فعال'}</span>
-                                      </span>
-                                    ) : defenderAv.enabled === false ? (
-                                      <span className="inline-flex items-center gap-1 text-rose-500">
-                                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                                        <span>{isEn ? 'Disabled' : 'غیرفعال'}</span>
-                                      </span>
-                                    ) : (
-                                      <span className={textMuted}>{isEn ? 'N/A' : 'نامشخص'}</span>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
+                              {defenderAv && renderAvItemCard(defenderAv, false)}
 
                               {thirdPartyAvs.length > 0 ? (
-                                thirdPartyAvs.map((av) => (
-                                  <div
-                                    key={av.id}
-                                    className={`p-2.5 rounded-lg border flex flex-wrap items-center justify-between gap-2 ${
-                                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
-                                    }`}
-                                  >
-                                    <div className="min-w-0">
-                                      <div className="flex flex-wrap items-center gap-1.5">
-                                        <span className={`font-semibold ${textPrimary}`}>{av.name}</span>
-                                        <span
-                                          className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${
-                                            isLightMode
-                                              ? 'bg-sky-50 border-sky-200 text-sky-700'
-                                              : 'bg-sky-950/50 border-sky-500/30 text-sky-300'
-                                          }`}
-                                        >
-                                          {isEn ? 'Installed AV' : 'نصب‌شده'}
-                                        </span>
-                                      </div>
-                                      <div className={`text-[11px] mt-0.5 flex flex-wrap items-center gap-2 ${textMuted}`}>
-                                        {av.vendor && av.vendor !== av.name && <span>{av.vendor}</span>}
-                                        {av.serviceRunning !== null && (
-                                          <span className="font-mono">
-                                            {isEn
-                                              ? `Service: ${av.serviceRunning ? 'Running' : 'Stopped'}`
-                                              : `سرویس: ${av.serviceRunning ? 'در حال اجرا' : 'متوقف'}`}
-                                          </span>
-                                        )}
-                                        {av.definitionsUpToDate !== null && (
-                                          <span
-                                            className={`font-mono ${
-                                              av.definitionsUpToDate ? 'text-emerald-500' : 'text-amber-500'
-                                            }`}
-                                          >
-                                            {av.definitionsUpToDate
-                                              ? isEn
-                                                ? 'Defs: Up to Date'
-                                                : 'امضا: بروز'
-                                              : isEn
-                                              ? 'Defs: Outdated'
-                                              : 'امضا: نیازمند آپدیت'}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 font-bold whitespace-nowrap">
-                                      {av.enabled === true ? (
-                                        <span className="inline-flex items-center gap-1 text-emerald-500">
-                                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                                          <span>{isEn ? 'Enabled' : 'فعال'}</span>
-                                        </span>
-                                      ) : av.enabled === false ? (
-                                        <span className="inline-flex items-center gap-1 text-rose-500">
-                                          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                                          <span>{isEn ? 'Disabled' : 'غیرفعال'}</span>
-                                        </span>
-                                      ) : (
-                                        <span className={textMuted}>{isEn ? 'N/A' : 'نامشخص'}</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))
+                                thirdPartyAvs.map((av) => renderAvItemCard(av, true))
                               ) : (
                                 <div className={`text-[11px] px-1 ${textMuted}`}>
-                                  {isEn
+                                  {unifiedAvList.length === 0
+                                    ? isEn
+                                      ? 'No installed antivirus or EDR engine detected on this endpoint.'
+                                      : 'هیچ آنتی‌ویروس یا عامل امنیتی فعالی روی این سیستم شناسایی نشد.'
+                                    : isEn
                                     ? 'No third-party antivirus product detected on this endpoint.'
                                     : 'آنتی‌ویروس جانبی دیگری روی این سیستم نصب نشده است.'}
                                 </div>
