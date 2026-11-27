@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.497.1';
+export const APP_VERSION = '1.497.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.497.2',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'درج بازه زمانی و محدوده دقیق گزارش در ابتدای فایل‌های خروجی Session Time Breakdown',
+    title_en: 'Include Selected Report Timeframe & Observation Period Header in Session Time Breakdown Exports',
+    changes: [
+      'افزودن ردیف‌های مشخصات گزارش در بالای فایل خروجی CSV، بنر برجسته بازه زمانی در بالای گزارش HTML و فیلدهای `reportTimeframeLabel` و `reportPeriodSummary` در ابتدای خروجی JSON بخش `Session Time Breakdown — Logged In, Locked & Logged Off` (`src/components/HelpDeskView.tsx`).',
+      'نمایش خودکار عنوان بازه انتخاب‌شده در `Workstation User Login History, Last Login & Active Session Report` (۲۴ ساعت، ۴۸ ساعت، ۷ روز، ۱۴ روز یا ۳۰ روز اخیر) همراه با زمان دقیق شروع و پایان (`از ... تا ...`) و زمان تهیه گزارش.'
+    ],
+    changes_en: [
+      'Added a clear report scope header at the top of CSV, HTML, and JSON exports from `Session Time Breakdown — Logged In, Locked & Logged Off` (`src/components/HelpDeskView.tsx`).',
+      'Displays the selected `History Timeframe` label from `Workstation User Login History, Last Login & Active Session Report` (e.g., Last 24 Hours, Last 48 Hours, Last 7/14/30 Days) together with exact `From ... to ...` window timestamps and export timestamp.'
+    ]
+  },
   {
     version: '1.497.1',
     releaseDate: '2026-11-26',

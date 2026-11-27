@@ -4171,6 +4171,45 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       .replace(/[^a-zA-Z0-9._-]+/g, '_');
     const userLabel = String(targetProfile?.userKey || 'all').replace(/[^a-zA-Z0-9._-]+/g, '_');
     const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    const windowHours = userDurationAnalytics.windowHours;
+    const timeframeLabelEn =
+      windowHours === 24
+        ? 'Last 24 Hours (24h)'
+        : windowHours === 48
+        ? 'Last 48 Hours (48h)'
+        : windowHours === 168
+        ? 'Last 7 Days (168h)'
+        : windowHours === 336
+        ? 'Last 14 Days (336h)'
+        : windowHours === 720
+        ? 'Last 30 Days (720h)'
+        : windowHours >= 24 && windowHours % 24 === 0
+        ? `Last ${windowHours / 24} Days (${windowHours}h)`
+        : `Last ${windowHours} Hours`;
+    const timeframeLabelFa =
+      windowHours === 24
+        ? '۲۴ ساعت اخیر (۲۴ ساعت)'
+        : windowHours === 48
+        ? '۴۸ ساعت اخیر (۴۸ ساعت)'
+        : windowHours === 168
+        ? '۷ روز اخیر (۱۶۸ ساعت)'
+        : windowHours === 336
+        ? '۱۴ روز اخیر (۳۳۶ ساعت)'
+        : windowHours === 720
+        ? '۳۰ روز اخیر (۷۲۰ ساعت)'
+        : windowHours >= 24 && windowHours % 24 === 0
+        ? `${windowHours / 24} روز اخیر (${windowHours} ساعت)`
+        : `${windowHours} ساعت اخیر`;
+    const timeframeLabel = isEn ? timeframeLabelEn : timeframeLabelFa;
+    const windowStartIso = new Date(userDurationAnalytics.windowStartMs).toISOString();
+    const windowEndIso = new Date(userDurationAnalytics.windowEndMs).toISOString();
+    const windowStartFormatted = formatLogonTimestamp(windowStartIso);
+    const windowEndFormatted = formatLogonTimestamp(windowEndIso);
+    const exportedAtIso = new Date().toISOString();
+    const exportedAtFormatted = formatLogonTimestamp(exportedAtIso);
+    const periodSummaryText = isEn
+      ? `${timeframeLabelEn} — From ${windowStartFormatted} to ${windowEndFormatted}`
+      : `${timeframeLabelFa} — از ${windowStartFormatted} تا ${windowEndFormatted}`;
 
     const stateLabel = (state: 'logged_in' | 'locked' | 'logged_off', sub?: string) => {
       if (state === 'logged_in') return isEn ? 'Logged In (Active)' : 'لاگین (فعال)';
@@ -4188,12 +4227,20 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
     if (format === 'json') {
       const payload = {
-        exportedAt: new Date().toISOString(),
+        reportTitle: isEn
+          ? 'Session Time Breakdown — Logged In, Locked & Logged Off'
+          : 'گزارش تفکیکی زمان حضور، قفل و لاگ‌اوت کاربر',
+        reportTimeframeLabel: timeframeLabel,
+        reportPeriodSummary: periodSummaryText,
+        exportedAt: exportedAtIso,
+        exportedAtFormatted,
         hostname: logonsData.hostname || logonsData.targetIp,
         targetIp: logonsData.targetIp,
-        windowHours: userDurationAnalytics.windowHours,
-        windowStart: new Date(userDurationAnalytics.windowStartMs).toISOString(),
-        windowEnd: new Date(userDurationAnalytics.windowEndMs).toISOString(),
+        windowHours,
+        windowStart: windowStartIso,
+        windowEnd: windowEndIso,
+        windowStartFormatted,
+        windowEndFormatted,
         selectedUser: targetProfile?.userKey || null,
         userSummaries: userDurationAnalytics.profiles.map((p) => ({
           username: p.displayName,
@@ -4237,6 +4284,51 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     if (format === 'csv') {
       const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
       const lines: string[] = [];
+      lines.push(
+        [
+          isEn ? 'Report Title' : 'عنوان گزارش',
+          isEn
+            ? 'Session Time Breakdown — Logged In, Locked & Logged Off'
+            : 'گزارش تفکیکی زمان حضور، قفل و لاگ‌اوت کاربر',
+        ]
+          .map(esc)
+          .join(',')
+      );
+      lines.push(
+        [
+          isEn ? 'Selected Report Timeframe' : 'بازه زمانی انتخاب‌شده گزارش',
+          timeframeLabel,
+        ]
+          .map(esc)
+          .join(',')
+      );
+      lines.push(
+        [
+          isEn ? 'Observation Period' : 'محدوده دقیق زمانی گزارش',
+          isEn
+            ? `From ${windowStartFormatted} to ${windowEndFormatted}`
+            : `از ${windowStartFormatted} تا ${windowEndFormatted}`,
+        ]
+          .map(esc)
+          .join(',')
+      );
+      lines.push(
+        [
+          isEn ? 'Workstation' : 'سیستم هدف',
+          `${logonsData.hostname || logonsData.targetIp} (${logonsData.targetIp})`,
+        ]
+          .map(esc)
+          .join(',')
+      );
+      lines.push(
+        [
+          isEn ? 'Exported At' : 'تاریخ و زمان خروجی',
+          exportedAtFormatted,
+        ]
+          .map(esc)
+          .join(',')
+      );
+      lines.push('');
       lines.push(
         [
           isEn ? 'Section' : 'بخش',
@@ -4362,7 +4454,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   .card { background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 18px; margin-bottom: 18px; }
   h1 { font-size: 18px; margin: 0 0 6px; }
   h2 { font-size: 14px; margin: 0 0 12px; color: #1e293b; }
-  .meta { font-size: 12px; color: #475569; }
+  .meta { font-size: 12px; color: #475569; line-height: 1.7; }
+  .period-banner { margin-top: 10px; padding: 10px 14px; border-radius: 8px; background: #f0f9ff; border: 1px solid #bae6fd; color: #0369a1; font-size: 12px; font-weight: 600; }
   .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
   .kpi { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; background: #f8fafc; }
   .kpi-val { font-size: 18px; font-weight: 800; font-family: monospace; margin-top: 4px; }
@@ -4379,7 +4472,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 <body>
   <div class="card">
     <h1>${escapeHtmlSafe(isEn ? 'Workstation User Login, Lock & Logoff Duration Report' : 'گزارش زمان‌بندی حضور (لاگین، قفل و لاگ‌اوت) کاربران سیستم')}</h1>
-    <div class="meta">${escapeHtmlSafe(isEn ? 'Workstation' : 'سیستم')}: <strong>${escapeHtmlSafe(logonsData.hostname || logonsData.targetIp)}</strong> (${escapeHtmlSafe(logonsData.targetIp)}) · ${escapeHtmlSafe(isEn ? 'Timeframe' : 'بازه')}: ${userDurationAnalytics.windowHours}h · ${escapeHtmlSafe(isEn ? 'Selected User' : 'کاربر منتخب')}: <strong>${escapeHtmlSafe(targetProfile?.displayName || '—')}</strong></div>
+    <div class="period-banner">${escapeHtmlSafe(isEn ? 'Report Timeframe' : 'بازه زمانی انتخاب‌شده گزارش')}: ${escapeHtmlSafe(timeframeLabel)} · ${escapeHtmlSafe(isEn ? `From ${windowStartFormatted} to ${windowEndFormatted}` : `از ${windowStartFormatted} تا ${windowEndFormatted}`)}</div>
+    <div class="meta" style="margin-top:8px">${escapeHtmlSafe(isEn ? 'Workstation' : 'سیستم')}: <strong>${escapeHtmlSafe(logonsData.hostname || logonsData.targetIp)}</strong> (${escapeHtmlSafe(logonsData.targetIp)}) · ${escapeHtmlSafe(isEn ? 'Selected User' : 'کاربر منتخب')}: <strong>${escapeHtmlSafe(targetProfile?.displayName || '—')}</strong> · ${escapeHtmlSafe(isEn ? 'Exported At' : 'تاریخ تهیه گزارش')}: <span dir="ltr">${escapeHtmlSafe(exportedAtFormatted)}</span></div>
     ${
       targetProfile
         ? `<div class="kpis">
