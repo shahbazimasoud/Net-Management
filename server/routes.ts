@@ -130,6 +130,7 @@ import {
   collectEndpointVirtualMemory,
   manageEndpointVirtualMemory,
   HelpdeskVirtualMemoryAction,
+  collectEndpointMacIdentity,
 } from './helpdeskService';
 import {
   inspectTargetDomainUser,
@@ -7943,7 +7944,7 @@ async function resolveHelpdeskAuth(
     | 'manage_exceptions'
     | 'send_message'
 ) {
-  const { user, effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
+  const { user, effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
   if (!user) {
     return {
       ok: false as const,
@@ -8264,6 +8265,8 @@ async function resolveHelpdeskAuth(
     actorRole,
     clientIp,
     hasFullHelpdeskAccess,
+    isSuperAdmin,
+    allowedDeviceIds,
     effectivePolicy: effectivePolicy || null,
     permissions: {
       canViewHelpdesk: canView,
@@ -8999,6 +9002,211 @@ apiRouter.post('/helpdesk/network/snapshot', async (req: Request, res: Response)
       action: 'helpdesk_network_snapshot_failed',
       title: `خطا در خواندن وضعیت شبکه ${target.targetIp || 'Unknown'}`,
       title_en: `HelpDesk Network Snapshot Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/switch-port - Locate physical switch port & uplink path for endpoint IP/MAC via SSH-managed switches in Devices
+apiRouter.post('/helpdesk/switch-port', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rawEndpointMac = String(req.body?.endpointMac || '').trim();
+  const forceRefresh = Boolean(req.body?.forceRefresh);
+  const rawTraceMode = String(req.body?.traceMode || 'fast_hop').trim().toLowerCase();
+  const traceMode: 'fast_hop' | 'full_parallel' =
+    rawTraceMode === 'full_parallel' ? 'full_parallel' : 'fast_hop';
+
+  // Validate explicit endpointMac if supplied
+  let validatedEndpointMac: string | undefined;
+  if (rawEndpointMac) {
+    const norm = normalizeMac(rawEndpointMac);
+    if (!norm) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid endpoint MAC address format.',
+        errorFa: 'فرمت آدرس MAC واردشده معتبر نیست.',
+      });
+    }
+    validatedEndpointMac = norm.standardUpper;
+  }
+
+  const queryCandidate = target.targetIp || validatedEndpointMac || '';
+  if (!queryCandidate) {
+    return res.status(400).json({
+      success: false,
+      error: 'Target workstation IP or MAC address is required.',
+      errorFa: 'وارد کردن آدرس IP یا MAC سیستم کاربر الزامی است.',
+    });
+  }
+
+  const qType = detectQueryType(queryCandidate);
+  if (qType === 'invalid') {
+    return res.status(400).json({
+      success: false,
+      error: 'Target IP or MAC address has an invalid format.',
+      errorFa: 'فرمت آدرس IP یا MAC سیستم مقصد نامعتبر است.',
+    });
+  }
+
+  try {
+    // 1. Resolve endpoint NIC MACs cleanly via lightweight WinRM/SSH if not already supplied & creds provided
+    let endpointMacSource: 'client_cached' | 'endpoint_live' | 'switch_arp_fallback' =
+      validatedEndpointMac ? 'client_cached' : 'switch_arp_fallback';
+    let endpointHostname: string | null = null;
+    let endpointAdapters: Array<{
+      name: string;
+      description: string;
+      status: string;
+      macAddress: string;
+      ipv4Addresses: string[];
+    }> = [];
+    let endpointProbeWarning: string | null = null;
+
+    if (!validatedEndpointMac && target.targetIp && target.username && target.password) {
+      try {
+        const macIdentity = await collectEndpointMacIdentity(target);
+        endpointHostname = macIdentity.hostname || null;
+        endpointAdapters = macIdentity.adapters || [];
+        if (macIdentity.primaryMac) {
+          const normPrimary = normalizeMac(macIdentity.primaryMac);
+          if (normPrimary) {
+            validatedEndpointMac = normPrimary.standardUpper;
+            endpointMacSource = 'endpoint_live';
+          }
+        }
+      } catch (probeErr: any) {
+        endpointProbeWarning = String(probeErr?.message || 'Endpoint MAC probe unavailable').slice(0, 220);
+      }
+    }
+
+    // 2. Authoritative PostgreSQL RBAC Device & Port Scoping for Switches/Routers
+    let allowedSwitchIds: string[] | null = null;
+    const canOpenDevicesModule = Boolean(
+      auth.isSuperAdmin || auth.effectivePolicy?.canViewDevices !== false
+    );
+    const canViewSwitchPortsGlobally = Boolean(
+      auth.isSuperAdmin ||
+        (!auth.effectivePolicy ||
+          (auth.effectivePolicy.canViewDevices !== false && auth.effectivePolicy.canViewPorts !== false))
+    );
+
+    if (!auth.isSuperAdmin && auth.effectivePolicy) {
+      if (!canViewSwitchPortsGlobally) {
+        allowedSwitchIds = [];
+      } else {
+        const policyScopeSet = Array.isArray(auth.allowedDeviceIds)
+          ? new Set(auth.allowedDeviceIds.map((id) => String(id || '').trim().toLowerCase()))
+          : null;
+        const allDevs = await getAllDevices();
+        allowedSwitchIds = (allDevs || [])
+          .filter((d: any) => {
+            if (!d?.id) return false;
+            if (policyScopeSet !== null && !policyScopeSet.has(String(d.id).trim().toLowerCase())) {
+              return false;
+            }
+            return isDeviceActionPermitted(auth.effectivePolicy, d.id, 'inspect_ports');
+          })
+          .map((d: any) => String(d.id));
+      }
+    }
+
+    // 3. Locate switch edge port & path (No SNMP — SSH CLI via Devices + Hop-by-Hop or parallel)
+    const tracker = await searchMacOrIp({
+      query: queryCandidate,
+      endpointMac: validatedEndpointMac,
+      forceRefresh,
+      traceMode,
+      operatorUsername: auth.actorName,
+      clientIp: auth.clientIp,
+      allowedDeviceIds: allowedSwitchIds,
+    });
+
+    const matchedSwitchId = tracker.finalEdgePort?.switchId || null;
+    const canInspectMatchedSwitchPorts = Boolean(
+      matchedSwitchId &&
+        (auth.isSuperAdmin ||
+          !auth.effectivePolicy ||
+          (auth.effectivePolicy.canViewDevices !== false &&
+            auth.effectivePolicy.canViewPorts !== false &&
+            isDeviceActionPermitted(auth.effectivePolicy, matchedSwitchId, 'inspect_ports')))
+    );
+    const canOpenMatchedSwitchTerminal = Boolean(
+      matchedSwitchId &&
+        (auth.isSuperAdmin ||
+          !auth.effectivePolicy ||
+          (auth.effectivePolicy.canViewDevices !== false &&
+            isDeviceActionPermitted(auth.effectivePolicy, matchedSwitchId, 'terminal')))
+    );
+
+    await addPortalAuditLog({
+      category: 'system',
+      action: 'helpdesk_switch_port_lookup',
+      title: `ردیابی پورت سوئیچ برای سیستم کاربر: ${target.targetIp || validatedEndpointMac}`,
+      title_en: `HelpDesk Switch Port Lookup: ${target.targetIp || validatedEndpointMac}`,
+      description: tracker.finalEdgePort
+        ? `پورت متصل کشف شد: ${tracker.finalEdgePort.switchName} (${tracker.finalEdgePort.port}) برای MAC ${tracker.resolvedMac || '-'}.`
+        : `نتیجه ردیابی پورت سوئیچ برای ${target.targetIp || validatedEndpointMac}: ${tracker.reasonCode || 'not_found'}.`,
+      description_en: tracker.finalEdgePort
+        ? `Located switch port ${tracker.finalEdgePort.switchName} [${tracker.finalEdgePort.port}] for MAC ${tracker.resolvedMac || '-'}.`
+        : `Switch port lookup status for ${target.targetIp || validatedEndpointMac}: ${tracker.reasonCode || 'not_found'}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: tracker.finalEdgePort ? 'success' : 'warning',
+      severity: 'info',
+      targetName: endpointHostname || target.targetIp || validatedEndpointMac || 'Endpoint',
+      clientIp: auth.clientIp,
+      metadata: {
+        targetIp: target.targetIp || null,
+        endpointMac: tracker.resolvedMac || validatedEndpointMac || null,
+        endpointMacSource,
+        reasonCode: tracker.reasonCode,
+        switchesConfiguredCount: tracker.switchesConfiguredCount,
+        switchesInScopeCount: tracker.switchesInScopeCount,
+        switchesScannedCount: tracker.switchesScannedCount,
+        switchesActiveCount: tracker.switchesActiveCount,
+        traceStrategyUsed: tracker.traceStrategyUsed,
+        finalSwitchId: matchedSwitchId,
+        finalPort: tracker.finalEdgePort?.port || null,
+      },
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      data: {
+        targetIp: target.targetIp || tracker.resolvedIp || '',
+        endpointHostname,
+        endpointMacSource,
+        endpointAdapters,
+        endpointProbeWarning,
+        rbac: {
+          canOpenDevicesModule,
+          canInspectMatchedSwitchPorts,
+          canOpenMatchedSwitchTerminal,
+        },
+        tracker,
+      },
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to trace endpoint switch port');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_switch_port_lookup_failed',
+      title: `خطا در ردیابی پورت سوئیچ ${target.targetIp || validatedEndpointMac || 'Unknown'}`,
+      title_en: `HelpDesk Switch Port Lookup Failed: ${target.targetIp || validatedEndpointMac || 'Unknown'}`,
       targetIp: target.targetIp,
       errorMsg: msg,
     });

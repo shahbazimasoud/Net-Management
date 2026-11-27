@@ -24205,6 +24205,112 @@ PYEOF`;
   };
 }
 
+export interface HelpdeskEndpointMacIdentity {
+  targetIp: string;
+  hostname: string;
+  osFamily: 'windows' | 'linux';
+  primaryMac: string | null;
+  adapters: Array<{
+    name: string;
+    description: string;
+    status: string;
+    macAddress: string;
+    ipv4Addresses: string[];
+  }>;
+}
+
+const PS_ENDPOINT_MAC_ONLY = `
+$ErrorActionPreference = 'SilentlyContinue'
+$adapters = @()
+$cfgs = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "IPEnabled=True"
+foreach ($c in $cfgs) {
+  $mac = [string]$c.MACAddress
+  if (-not $mac) { continue }
+  $na = Get-CimInstance Win32_NetworkAdapter -Filter "Index=$($c.Index)"
+  $ips = @()
+  if ($c.IPAddress) {
+    foreach ($ipVal in $c.IPAddress) {
+      if ([string]$ipVal -match '^\\d+\\.\\d+\\.\\d+\\.\\d+$') { $ips += [string]$ipVal }
+    }
+  }
+  $adapters += [PSCustomObject]@{
+    name = if ($na.NetConnectionID) { [string]$na.NetConnectionID } else { [string]$c.Description }
+    description = [string]$c.Description
+    status = if ($na.NetEnabled) { 'Up' } else { 'Down' }
+    macAddress = $mac
+    ipv4Addresses = $ips
+  }
+}
+[PSCustomObject]@{
+  hostname = [string]$env:COMPUTERNAME
+  adapters = $adapters
+} | ConvertTo-Json -Depth 4 -Compress
+`;
+
+const LINUX_ENDPOINT_MAC_ONLY = `
+python3 - <<'PY'
+import json, os, socket, subprocess
+def run(cmd):
+    try: return subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL).strip()
+    except Exception: return ""
+adapters = []
+for iface in run("ls /sys/class/net").splitlines():
+    if iface == "lo": continue
+    state = run(f"cat /sys/class/net/{iface}/operstate") or "unknown"
+    mac = run(f"cat /sys/class/net/{iface}/address")
+    if not mac or mac == "00:00:00:00:00:00": continue
+    ips = [c.split('/')[0] for c in run(f"ip -4 -o addr show dev {iface} | awk '{{print $4}}'").splitlines() if c]
+    adapters.append({
+        "name": iface,
+        "description": iface,
+        "status": "Up" if state.lower() == "up" else state,
+        "macAddress": mac,
+        "ipv4Addresses": ips
+    })
+print(json.dumps({"hostname": socket.gethostname(), "adapters": adapters}))
+PY
+`;
+
+export async function collectEndpointMacIdentity(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskEndpointMacIdentity> {
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.min(12000, Number(input.timeoutMs) || 10000) },
+    PS_ENDPOINT_MAC_ONLY,
+    LINUX_ENDPOINT_MAC_ONLY
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint MAC identity');
+  const rawAdapters = Array.isArray(parsed?.adapters)
+    ? parsed.adapters
+    : parsed?.adapters
+    ? [parsed.adapters]
+    : [];
+
+  const adapters = rawAdapters
+    .map((a: any) => ({
+      name: String(a.name || '-'),
+      description: String(a.description || ''),
+      status: String(a.status || 'Unknown'),
+      macAddress: String(a.macAddress || '').trim(),
+      ipv4Addresses: Array.isArray(a.ipv4Addresses) ? a.ipv4Addresses.map(String) : [],
+    }))
+    .filter((a) => Boolean(a.macAddress));
+
+  const matchedIpAdapter =
+    adapters.find((a) => a.ipv4Addresses.includes(execRes.host)) ||
+    adapters.find((a) => a.status.toLowerCase() === 'up') ||
+    adapters[0];
+
+  return {
+    targetIp: execRes.host,
+    hostname: String(parsed?.hostname || execRes.host),
+    osFamily: execRes.osFamily,
+    primaryMac: matchedIpAdapter ? matchedIpAdapter.macAddress : null,
+    adapters,
+  };
+}
+
+
 
 
 

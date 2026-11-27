@@ -113,6 +113,22 @@ export interface EdgeCorrelationSummary {
   explanationEn: string;
 }
 
+export type MacIpTrackerReasonCode =
+  | 'found'
+  | 'uplink_only'
+  | 'no_switches_in_inventory'
+  | 'no_switches_in_rbac_scope'
+  | 'all_switches_unreachable'
+  | 'mac_not_found'
+  | 'arp_unresolved';
+
+export interface UnreachableSwitchSummary {
+  switchId: string;
+  switchName: string;
+  switchIp: string;
+  error: string;
+}
+
 export interface MacIpTrackerResult {
   query: string;
   queryType: QueryType;
@@ -130,6 +146,11 @@ export interface MacIpTrackerResult {
   graphEdges: PathGraphEdge[];
   switchesScannedCount: number;
   switchesActiveCount: number;
+  switchesConfiguredCount?: number;
+  switchesInScopeCount?: number;
+  traceStrategyUsed?: 'fast_hop' | 'full_parallel';
+  reasonCode?: MacIpTrackerReasonCode;
+  unreachableSwitches?: UnreachableSwitchSummary[];
   durationMs: number;
   cached: boolean;
   timestamp: string;
@@ -1825,19 +1846,58 @@ export function correlateEdgeAndUplinkPorts(
 
 export interface SearchOptions {
   query: string;
+  endpointMac?: string;
   forceRefresh?: boolean;
+  traceMode?: 'fast_hop' | 'full_parallel';
   operatorUsername?: string;
   clientIp?: string;
   allowedDeviceIds?: string[] | null;
 }
 
+function isSwitchOrRouterDevice(d: any): boolean {
+  if (!d?.id) return false;
+  const t = (d.type || '').toLowerCase();
+  const r = (d.role || '').toLowerCase();
+  return t === 'switch' || t === 'router' || r.includes('switch') || r.includes('router') || t.includes('switch');
+}
+
+function sanitizeCliErrorForUi(err?: string): string {
+  const s = String(err || 'Unreachable or connection timed out').trim();
+  return s.slice(0, 180);
+}
+
+async function runWithBoundedConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const concurrency = Math.max(1, Math.min(limit, items.length));
+  const results: R[] = new Array(items.length);
+  let nextIdx = 0;
+
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (true) {
+      const idx = nextIdx++;
+      if (idx >= items.length) break;
+      results[idx] = await worker(items[idx]);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
 /**
- * Searches across all switches and routers in the network for a given IP or MAC address.
+ * Searches across switches and routers in the network for a given IP or MAC address.
+ * Supports optional direct endpointMac (skips slow L3 ARP sweeps) and Hop-by-Hop topology-guided trace.
  */
 export async function searchMacOrIp(options: SearchOptions): Promise<MacIpTrackerResult> {
   const startTime = Date.now();
   const rawQuery = (options.query || '').trim();
   const forceRefresh = Boolean(options.forceRefresh);
+  const traceMode: 'fast_hop' | 'full_parallel' =
+    options.traceMode === 'fast_hop' ? 'fast_hop' : 'full_parallel';
   const operatorUsername = options.operatorUsername || 'admin';
   const clientIp = options.clientIp || '127.0.0.1';
   const allowedDeviceSet = Array.isArray(options.allowedDeviceIds)
@@ -1861,6 +1921,12 @@ export async function searchMacOrIp(options: SearchOptions): Promise<MacIpTracke
     normalizedMac = normalizeMac(rawQuery);
   } else if (queryType === 'ipv4') {
     targetIp = rawQuery;
+    if (options.endpointMac && typeof options.endpointMac === 'string' && options.endpointMac.trim()) {
+      const epNorm = normalizeMac(options.endpointMac.trim());
+      if (epNorm) {
+        normalizedMac = epNorm;
+      }
+    }
   }
 
   const scopeTag = allowedDeviceSet
@@ -1870,7 +1936,8 @@ export async function searchMacOrIp(options: SearchOptions): Promise<MacIpTracke
         .digest('hex')
         .slice(0, 12)}:`
     : 'scope:all:';
-  const cacheKey = `${scopeTag}${normalizedMac ? `mac:${normalizedMac.clean}` : `ip:${targetIp}`}`;
+  const epTag = normalizedMac && targetIp ? `:epmac:${normalizedMac.clean}` : '';
+  const cacheKey = `${scopeTag}${traceMode}:${normalizedMac && !targetIp ? `mac:${normalizedMac.clean}` : `ip:${targetIp}`}${epTag}`;
 
   // Check cache first if not force refresh
   if (!forceRefresh) {
@@ -1884,104 +1951,297 @@ export async function searchMacOrIp(options: SearchOptions): Promise<MacIpTracke
     }
   }
 
-  // Load all registered devices (filtered strictly by caller RBAC scope if provided)
+  // Load all registered devices and separate global vs RBAC-permitted switches/routers
   const allDevices = await getAllDevices();
-  const switchesAndRouters = allDevices.filter((d: any) => {
-    if (!d?.id) return false;
+  const allSwitchesAndRouters = allDevices.filter(isSwitchOrRouterDevice);
+  const switchesAndRouters = allSwitchesAndRouters.filter((d: any) => {
     if (allowedDeviceSet !== null && !allowedDeviceSet.has(String(d.id).trim().toLowerCase())) {
       return false;
     }
-    const t = (d.type || '').toLowerCase();
-    const r = (d.role || '').toLowerCase();
-    return t === 'switch' || t === 'router' || r.includes('switch') || r.includes('router') || t.includes('switch');
+    return true;
   });
+
+  // Inventory / RBAC empty short-circuit (zero SSH attempts, immediate clear explanation)
+  if (allSwitchesAndRouters.length === 0 || switchesAndRouters.length === 0) {
+    const reasonCode: MacIpTrackerReasonCode =
+      allSwitchesAndRouters.length === 0 ? 'no_switches_in_inventory' : 'no_switches_in_rbac_scope';
+    const vendorInfo = lookupOuiVendor(normalizedMac);
+    const explanationFa =
+      reasonCode === 'no_switches_in_inventory'
+        ? 'هیچ سوئیچ یا روتر شبکه در بخش «تجهیزات شبکه (Devices)» ثبت نشده است؛ به همین دلیل امکان استعلام جدول MAC/ARP وجود ندارد.'
+        : 'هیچ‌یک از سوئیچ‌های ثبت‌شده در سیستم در محدوده دسترسی (RBAC) حساب کاربری شما قرار ندارد.';
+    const explanationEn =
+      reasonCode === 'no_switches_in_inventory'
+        ? 'No switches or routers are registered in Network Devices inventory, so switch port CAM/ARP lookup cannot run.'
+        : 'None of the registered network switches are within your account RBAC device scope.';
+
+    const emptyResult: MacIpTrackerResult = {
+      query: rawQuery,
+      queryType,
+      normalizedMac,
+      resolvedIp: targetIp,
+      resolvedMac: normalizedMac ? normalizedMac.standardUpper : null,
+      vendor: vendorInfo,
+      camEntries: [],
+      arpEntries: [],
+      finalEdgePort: null,
+      edgeSummary: {
+        finalEdgeFound: false,
+        uplinksFilteredCount: 0,
+        totalSwitchesWithMac: 0,
+        confidence: 'low',
+        explanationFa,
+        explanationEn,
+      },
+      pathHops: [],
+      pathDiagram: 'No switches available',
+      graphNodes: [],
+      graphEdges: [],
+      switchesScannedCount: 0,
+      switchesActiveCount: 0,
+      switchesConfiguredCount: allSwitchesAndRouters.length,
+      switchesInScopeCount: 0,
+      traceStrategyUsed: traceMode,
+      reasonCode,
+      unreachableSwitches: [],
+      durationMs: Date.now() - startTime,
+      cached: false,
+      timestamp: new Date().toISOString(),
+    };
+    return emptyResult;
+  }
 
   const arpEntries: ArpTableEntry[] = [];
   const camEntries: CamTableEntry[] = [];
-  let switchesActiveCount = 0;
+  const activeSwitchIdSet = new Set<string>();
+  const scannedSwitchIdSet = new Set<string>();
+  const unreachableMap = new Map<string, UnreachableSwitchSummary>();
+
+  const queryCamForSwitch = async (device: any): Promise<CamTableEntry[]> => {
+    if (!normalizedMac || !device?.id) return [];
+    const devIdLower = String(device.id).toLowerCase();
+    scannedSwitchIdSet.add(devIdLower);
+    const isMikrotik = (device.platform || '').toLowerCase().includes('mikrotik');
+    const cmds = isMikrotik
+      ? [`/interface bridge host print detail where mac-address="${normalizedMac.standardUpper}"`]
+      : [
+          `show mac address-table address ${normalizedMac.cisco}`,
+          `show mac-address-table address ${normalizedMac.cisco}`,
+        ];
+
+    const res = await executeDeviceCliQuery(device, cmds, operatorUsername, 9000);
+    if (res.success && res.output) {
+      activeSwitchIdSet.add(devIdLower);
+      unreachableMap.delete(devIdLower);
+      const parsedCam = isMikrotik
+        ? parseMikrotikCamOutput(res.output, normalizedMac, device)
+        : parseCiscoCamOutput(res.output, normalizedMac, device);
+      camEntries.push(...parsedCam);
+      return parsedCam;
+    } else {
+      unreachableMap.set(devIdLower, {
+        switchId: String(device.id),
+        switchName: String(device.name || device.ip || device.id),
+        switchIp: String(device.ip || ''),
+        error: sanitizeCliErrorForUi(res.error),
+      });
+      return [];
+    }
+  };
 
   // --------------------------------------------------------------------------
-  // Step 1: If input is IP, first resolve MAC address via ARP tables of L3 switches
+  // Step 1: If input is IP and we don't yet have MAC, resolve MAC via L3 ARP tables
   // --------------------------------------------------------------------------
   if (targetIp && !normalizedMac) {
-    const arpQueries = switchesAndRouters.map(async (device: any) => {
-      const isMikrotik = (device.platform || '').toLowerCase().includes('mikrotik');
-      const cmds = isMikrotik
-        ? [`/ip arp print detail where address="${targetIp}"`]
-        : [`show ip arp ${targetIp}`];
+    // Prioritize L3 routers / core / distro switches first when fast_hop is active
+    const sortedForArp = [...switchesAndRouters].sort(
+      (a, b) => getSwitchHierarchyRank(a) - getSwitchHierarchyRank(b)
+    );
+    const l3Candidates =
+      traceMode === 'fast_hop'
+        ? sortedForArp.filter((d) => getSwitchHierarchyRank(d) <= 3)
+        : sortedForArp;
+    const initialArpBatch = l3Candidates.length > 0 ? l3Candidates : sortedForArp;
 
-      const res = await executeDeviceCliQuery(device, cmds, operatorUsername, 8000);
-      if (res.success && res.output) {
-        switchesActiveCount++;
-        const parsedArp = isMikrotik
-          ? parseMikrotikArpOutput(res.output, device)
-          : parseCiscoArpOutput(res.output, device);
+    const runArpWave = async (devicesBatch: any[]) => {
+      await runWithBoundedConcurrency(devicesBatch, 8, async (device: any) => {
+        const devIdLower = String(device.id).toLowerCase();
+        scannedSwitchIdSet.add(devIdLower);
+        const isMikrotik = (device.platform || '').toLowerCase().includes('mikrotik');
+        const cmds = isMikrotik
+          ? [`/ip arp print detail where address="${targetIp}"`]
+          : [`show ip arp ${targetIp}`];
 
-        for (const entry of parsedArp) {
-          if (entry.ip === targetIp) {
-            arpEntries.push(entry);
-            if (!normalizedMac) {
-              normalizedMac = normalizeMac(entry.mac);
+        const res = await executeDeviceCliQuery(device, cmds, operatorUsername, 8000);
+        if (res.success && res.output) {
+          activeSwitchIdSet.add(devIdLower);
+          unreachableMap.delete(devIdLower);
+          const parsedArp = isMikrotik
+            ? parseMikrotikArpOutput(res.output, device)
+            : parseCiscoArpOutput(res.output, device);
+
+          for (const entry of parsedArp) {
+            if (entry.ip === targetIp) {
+              arpEntries.push(entry);
+              if (!normalizedMac) {
+                normalizedMac = normalizeMac(entry.mac);
+              }
             }
           }
+        } else {
+          unreachableMap.set(devIdLower, {
+            switchId: String(device.id),
+            switchName: String(device.name || device.ip || device.id),
+            switchIp: String(device.ip || ''),
+            error: sanitizeCliErrorForUi(res.error),
+          });
         }
-      }
-    });
+      });
+    };
 
-    await Promise.allSettled(arpQueries);
+    await runArpWave(initialArpBatch);
+    if (!normalizedMac && traceMode === 'fast_hop') {
+      const remainingArp = sortedForArp.filter(
+        (d) => !scannedSwitchIdSet.has(String(d.id).toLowerCase())
+      );
+      if (remainingArp.length > 0) {
+        await runArpWave(remainingArp);
+      }
+    }
   }
 
   // --------------------------------------------------------------------------
-  // Step 2: If we now have a MAC address (either direct or resolved via ARP),
-  // query CAM tables across all switches to locate physical ports
+  // Step 2: Locate CAM table entries (Hop-by-Hop topology-guided when enabled, with parallel fallback)
   // --------------------------------------------------------------------------
+  let strategyUsed: 'fast_hop' | 'full_parallel' = traceMode;
+
   if (normalizedMac) {
-    const camQueries = switchesAndRouters.map(async (device: any) => {
-      const isMikrotik = (device.platform || '').toLowerCase().includes('mikrotik');
-      const cmds = isMikrotik
-        ? [`/interface bridge host print detail where mac-address="${normalizedMac!.standardUpper}"`]
-        : [
-            `show mac address-table address ${normalizedMac!.cisco}`,
-            `show mac-address-table address ${normalizedMac!.cisco}`,
-          ];
+    const queriedCamIds = new Set<string>();
+    const allConnections = traceMode === 'fast_hop' ? loadAllTopologyConnections() : [];
 
-      const res = await executeDeviceCliQuery(device, cmds, operatorUsername, 9000);
-      if (res.success && res.output) {
-        switchesActiveCount++;
-        const parsedCam = isMikrotik
-          ? parseMikrotikCamOutput(res.output, normalizedMac!, device)
-          : parseCiscoCamOutput(res.output, normalizedMac!, device);
-
-        camEntries.push(...parsedCam);
+    if (traceMode === 'fast_hop' && allConnections.length > 0 && switchesAndRouters.length > 3) {
+      const devById = new Map<string, any>();
+      const devByIp = new Map<string, any>();
+      const devByName = new Map<string, any>();
+      for (const d of switchesAndRouters) {
+        if (d.id) devById.set(String(d.id).toLowerCase(), d);
+        if (d.ip) devByIp.set(String(d.ip).toLowerCase(), d);
+        if (d.name) devByName.set(String(d.name).toLowerCase(), d);
       }
-    });
 
-    // Also if query was MAC directly, query ARP tables to discover associated IP
-    const arpResolveQueries = switchesAndRouters.map(async (device: any) => {
-      const isMikrotik = (device.platform || '').toLowerCase().includes('mikrotik');
-      const cmds = isMikrotik
-        ? [`/ip arp print detail where mac-address="${normalizedMac!.standardUpper}"`]
-        : [`show ip arp | include ${normalizedMac!.cisco}`];
+      const resolvePeerDevice = (entry: CamTableEntry): any | null => {
+        for (const conn of allConnections) {
+          const matchSrc =
+            (conn.sourceId && conn.sourceId === entry.switchId) ||
+            (conn.sourceIp && conn.sourceIp === entry.switchIp) ||
+            (conn.sourceName && conn.sourceName.toLowerCase() === entry.switchName.toLowerCase());
+          const matchTgt =
+            (conn.targetId && conn.targetId === entry.switchId) ||
+            (conn.targetIp && conn.targetIp === entry.switchIp) ||
+            (conn.targetName && conn.targetName.toLowerCase() === entry.switchName.toLowerCase());
 
-      const res = await executeDeviceCliQuery(device, cmds, operatorUsername, 8000);
-      if (res.success && res.output) {
-        const parsedArp = isMikrotik
-          ? parseMikrotikArpOutput(res.output, device)
-          : parseCiscoArpOutput(res.output, device);
+          if (matchSrc && isSamePort(conn.sourcePort, entry.port)) {
+            return (
+              (conn.targetId && devById.get(String(conn.targetId).toLowerCase())) ||
+              (conn.targetIp && devByIp.get(String(conn.targetIp).toLowerCase())) ||
+              (conn.targetName && devByName.get(String(conn.targetName).toLowerCase())) ||
+              null
+            );
+          }
+          if (matchTgt && isSamePort(conn.targetPort, entry.port)) {
+            return (
+              (conn.sourceId && devById.get(String(conn.sourceId).toLowerCase())) ||
+              (conn.sourceIp && devByIp.get(String(conn.sourceIp).toLowerCase())) ||
+              (conn.sourceName && devByName.get(String(conn.sourceName).toLowerCase())) ||
+              null
+            );
+          }
+        }
+        return null;
+      };
 
-        for (const entry of parsedArp) {
-          const normEntryMac = normalizeMac(entry.mac);
-          if (normEntryMac && normEntryMac.clean === normalizedMac!.clean) {
-            arpEntries.push(entry);
-            if (!targetIp) {
-              targetIp = entry.ip;
+      const sortedByRank = [...switchesAndRouters].sort(
+        (a, b) => getSwitchHierarchyRank(a) - getSwitchHierarchyRank(b)
+      );
+      const coreDistSeeds = sortedByRank.filter((d) => getSwitchHierarchyRank(d) <= 3).slice(0, 4);
+      let currentWave = coreDistSeeds.length > 0 ? coreDistSeeds : sortedByRank.slice(0, 4);
+      let isolatedAccessEdge = false;
+
+      for (let hop = 0; hop < 4 && currentWave.length > 0; hop++) {
+        const waveBatch = currentWave.filter((d) => {
+          const lid = String(d.id).toLowerCase();
+          if (queriedCamIds.has(lid)) return false;
+          queriedCamIds.add(lid);
+          return true;
+        });
+        if (waveBatch.length === 0) break;
+
+        const waveHitsNested = await runWithBoundedConcurrency(waveBatch, 6, queryCamForSwitch);
+        const waveHits = waveHitsNested.flat();
+
+        const nextWaveMap = new Map<string, any>();
+        for (const hit of waveHits) {
+          const peer = resolvePeerDevice(hit);
+          if (peer && !queriedCamIds.has(String(peer.id).toLowerCase())) {
+            nextWaveMap.set(String(peer.id).toLowerCase(), peer);
+          } else if (!peer && !/^(po\d+|port-channel|bundle-ether|bonding)/i.test(hit.port)) {
+            isolatedAccessEdge = true;
+          }
+        }
+
+        if (isolatedAccessEdge && nextWaveMap.size === 0) {
+          break;
+        }
+        currentWave = Array.from(nextWaveMap.values());
+      }
+
+      // Fallback to remaining switches if Hop-by-Hop was inconclusive
+      if (!isolatedAccessEdge) {
+        const remaining = switchesAndRouters.filter(
+          (d) => !queriedCamIds.has(String(d.id).toLowerCase())
+        );
+        if (remaining.length > 0) {
+          strategyUsed = 'full_parallel';
+          await runWithBoundedConcurrency(remaining, 8, async (d) => {
+            queriedCamIds.add(String(d.id).toLowerCase());
+            return queryCamForSwitch(d);
+          });
+        }
+      }
+    } else {
+      strategyUsed = 'full_parallel';
+      await runWithBoundedConcurrency(switchesAndRouters, 8, async (d) => {
+        queriedCamIds.add(String(d.id).toLowerCase());
+        return queryCamForSwitch(d);
+      });
+    }
+
+    // Only query ARP to resolve IP when caller searched purely by MAC without IP
+    if (!targetIp) {
+      await runWithBoundedConcurrency(switchesAndRouters, 8, async (device: any) => {
+        const isMikrotik = (device.platform || '').toLowerCase().includes('mikrotik');
+        const cmds = isMikrotik
+          ? [`/ip arp print detail where mac-address="${normalizedMac!.standardUpper}"`]
+          : [`show ip arp | include ${normalizedMac!.cisco}`];
+
+        const res = await executeDeviceCliQuery(device, cmds, operatorUsername, 8000);
+        if (res.success && res.output) {
+          const parsedArp = isMikrotik
+            ? parseMikrotikArpOutput(res.output, device)
+            : parseCiscoArpOutput(res.output, device);
+
+          for (const entry of parsedArp) {
+            const normEntryMac = normalizeMac(entry.mac);
+            if (normEntryMac && normEntryMac.clean === normalizedMac!.clean) {
+              arpEntries.push(entry);
+              if (!targetIp) {
+                targetIp = entry.ip;
+              }
             }
           }
         }
-      }
-    });
-
-    await Promise.allSettled([...camQueries, ...arpResolveQueries]);
+      });
+    }
   }
 
   // Step 3: OUI Vendor Identification
@@ -1997,6 +2257,18 @@ export async function searchMacOrIp(options: SearchOptions): Promise<MacIpTracke
     graphNodes,
     graphEdges,
   } = correlateEdgeAndUplinkPorts(camEntries, allDevices, normalizedMac ? normalizedMac.standardUpper : undefined);
+
+  const switchesActiveCount = activeSwitchIdSet.size;
+  let reasonCode: MacIpTrackerReasonCode = 'found';
+  if (switchesActiveCount === 0) {
+    reasonCode = 'all_switches_unreachable';
+  } else if (!normalizedMac && targetIp) {
+    reasonCode = 'arp_unresolved';
+  } else if (correlatedEntries.length === 0) {
+    reasonCode = 'mac_not_found';
+  } else if (finalEdgePort && finalEdgePort.isUplink) {
+    reasonCode = 'uplink_only';
+  }
 
   const durationMs = Date.now() - startTime;
   const isFound = correlatedEntries.length > 0 || arpEntries.length > 0;
@@ -2016,15 +2288,22 @@ export async function searchMacOrIp(options: SearchOptions): Promise<MacIpTracke
     pathDiagram,
     graphNodes,
     graphEdges,
-    switchesScannedCount: switchesAndRouters.length,
+    switchesScannedCount: scannedSwitchIdSet.size || switchesAndRouters.length,
     switchesActiveCount,
+    switchesConfiguredCount: allSwitchesAndRouters.length,
+    switchesInScopeCount: switchesAndRouters.length,
+    traceStrategyUsed: strategyUsed,
+    reasonCode,
+    unreachableSwitches: Array.from(unreachableMap.values()),
     durationMs,
     cached: false,
     timestamp: new Date().toISOString(),
   };
 
-  // Cache results
-  setCachedResult(cacheKey, result);
+  // Cache results when at least one switch was reachable
+  if (switchesActiveCount > 0) {
+    setCachedResult(cacheKey, result);
+  }
 
   // --------------------------------------------------------------------------
   // Step 5: Audit Logging in PostgreSQL (topology_network / MAC_IP_TRACKER_LOOKUP)
@@ -2043,8 +2322,10 @@ export async function searchMacOrIp(options: SearchOptions): Promise<MacIpTracke
         normalizedMac: normalizedMac ? normalizedMac.standardUpper : null,
         resolvedIp: targetIp,
         vendor: vendorInfo.vendor,
-        switchesScanned: switchesAndRouters.length,
+        switchesScanned: scannedSwitchIdSet.size || switchesAndRouters.length,
         finalPort: finalEdgePort ? `${finalEdgePort.switchName} [${finalEdgePort.port}]` : null,
+        traceStrategyUsed: strategyUsed,
+        reasonCode,
         durationMs,
         cached: false,
       },

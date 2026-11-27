@@ -1157,6 +1157,151 @@ export async function fetchHelpdeskNetworkSnapshot(payload: HelpdeskConnectionPa
   return res.json();
 }
 
+export type HelpdeskSwitchPortReasonCode =
+  | 'found'
+  | 'uplink_only'
+  | 'no_switches_in_inventory'
+  | 'no_switches_in_rbac_scope'
+  | 'all_switches_unreachable'
+  | 'mac_not_found'
+  | 'arp_unresolved';
+
+export interface HelpdeskSwitchPortResult {
+  targetIp: string;
+  endpointHostname: string | null;
+  endpointMacSource: 'client_cached' | 'endpoint_live' | 'switch_arp_fallback';
+  endpointAdapters: Array<{
+    name: string;
+    description: string;
+    status: string;
+    macAddress: string;
+    ipv4Addresses: string[];
+  }>;
+  endpointProbeWarning: string | null;
+  rbac: {
+    canOpenDevicesModule: boolean;
+    canInspectMatchedSwitchPorts: boolean;
+    canOpenMatchedSwitchTerminal: boolean;
+  };
+  tracker: {
+    query: string;
+    queryType: string;
+    resolvedIp: string | null;
+    resolvedMac: string | null;
+    vendor: { vendor: string; prefix: string; isKnown: boolean };
+    camEntries: Array<{
+      switchId: string;
+      switchName: string;
+      switchIp: string;
+      switchVendor: string;
+      switchRole?: string;
+      switchModel?: string;
+      vlan: string;
+      mac: string;
+      type: string;
+      port: string;
+      isUplink?: boolean;
+      uplinkReason?: string;
+      isFinalEdgePort?: boolean;
+      peerDeviceName?: string;
+      peerDeviceId?: string;
+      peerDeviceIp?: string;
+      peerPort?: string;
+      confidence?: 'high' | 'medium' | 'low';
+    }>;
+    arpEntries: Array<{
+      switchId: string;
+      switchName: string;
+      switchIp: string;
+      ip: string;
+      mac: string;
+      interface: string;
+      vlan?: string;
+      type?: string;
+    }>;
+    finalEdgePort: {
+      switchId: string;
+      switchName: string;
+      switchIp: string;
+      switchVendor: string;
+      switchRole?: string;
+      switchModel?: string;
+      vlan: string;
+      mac: string;
+      type: string;
+      port: string;
+      isUplink?: boolean;
+      uplinkReason?: string;
+      isFinalEdgePort?: boolean;
+      peerDeviceName?: string;
+      confidence?: 'high' | 'medium' | 'low';
+    } | null;
+    edgeSummary: {
+      finalEdgeFound: boolean;
+      finalSwitchName?: string;
+      finalPort?: string;
+      vlan?: string;
+      uplinksFilteredCount: number;
+      totalSwitchesWithMac: number;
+      confidence: 'high' | 'medium' | 'low';
+      explanationFa: string;
+      explanationEn: string;
+    };
+    pathHops: Array<{
+      hopNumber: number;
+      switchId: string;
+      switchName: string;
+      switchIp: string;
+      switchRole?: string;
+      switchVendor: string;
+      port: string;
+      vlan: string;
+      isEdge: boolean;
+      isUplink: boolean;
+      peerDeviceName?: string;
+      peerPort?: string;
+      nextHopName?: string;
+    }>;
+    pathDiagram: string;
+    switchesScannedCount: number;
+    switchesActiveCount: number;
+    switchesConfiguredCount?: number;
+    switchesInScopeCount?: number;
+    traceStrategyUsed?: 'fast_hop' | 'full_parallel';
+    reasonCode?: HelpdeskSwitchPortReasonCode;
+    unreachableSwitches?: Array<{
+      switchId: string;
+      switchName: string;
+      switchIp: string;
+      error: string;
+    }>;
+    durationMs: number;
+    cached: boolean;
+    timestamp: string;
+  };
+}
+
+export async function fetchHelpdeskSwitchPort(
+  payload: HelpdeskConnectionPayload & {
+    endpointMac?: string;
+    forceRefresh?: boolean;
+    traceMode?: 'fast_hop' | 'full_parallel';
+  }
+): Promise<{
+  success: boolean;
+  data: HelpdeskSwitchPortResult;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/switch-port`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to locate connected switch port');
+  return res.json();
+}
+
 export async function runHelpdeskNetworkProbe(
   payload: HelpdeskConnectionPayload & {
     probeType: 'ping' | 'port' | 'dns' | 'nslookup' | 'tracert' | 'http' | 'arp';

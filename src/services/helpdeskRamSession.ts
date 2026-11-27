@@ -22,6 +22,7 @@ import {
   HelpdeskUserProfilesResult,
   fetchHelpdeskVirtualMemory,
   HelpdeskVirtualMemoryResult,
+  HelpdeskSwitchPortResult,
   HelpdeskConnectionPayload,
   HelpdeskDiagnosticCheckId,
   ALL_HELPDESK_DIAGNOSTIC_CHECKS,
@@ -34,6 +35,7 @@ export type HelpdeskSubTab =
   | 'diagnostics'
   | 'hardware'
   | 'network'
+  | 'switch_port'
   | 'printers'
   | 'events'
   | 'logins'
@@ -129,6 +131,11 @@ export interface HelpdeskRamState {
   probeResult: any | null;
   probeError: string | null;
   netActionResult: any | null;
+
+  // Tab 2C: Switch Port & Physical Network Path Locator (on-demand only)
+  switchPortData: HelpdeskSwitchPortResult | null;
+  loadingSwitchPort: boolean;
+  switchPortError: string | null;
 
   // Tab 3: Printers & Spooler
   printerData: any | null;
@@ -280,6 +287,10 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     probeError: null,
     netActionResult: null,
 
+    switchPortData: null,
+    loadingSwitchPort: false,
+    switchPortError: null,
+
     printerData: null,
     loadingPrinters: false,
     printerError: null,
@@ -425,6 +436,7 @@ export function stopHelpdeskPrefetch(): void {
       loadingUserProfiles: false,
       loadingHardware: false,
       loadingNetwork: false,
+      loadingSwitchPort: false,
       loadingPrinters: false,
       loadingEvents: false,
       loadingLogons: false,
@@ -515,6 +527,9 @@ export async function runHelpdeskSequentialConnect(options: {
     probeResult: null,
     probeError: null,
     netActionResult: null,
+    switchPortData: null,
+    loadingSwitchPort: false,
+    switchPortError: null,
     printerData: null,
     printerError: null,
     loadingPrinters: false,

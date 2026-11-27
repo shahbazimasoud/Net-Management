@@ -2161,6 +2161,29 @@ export default function App() {
                 isEn={isEn}
                 effectivePolicy={effectivePolicy}
                 currentUser={user}
+                onNavigateToDevices={
+                  isTabAllowed('devices', effectivePolicy, user)
+                    ? () => setActiveTab('devices')
+                    : undefined
+                }
+                onInspectSwitchPorts={(switchId) => {
+                  const targetDev = authorizedDevices.find(
+                    (d) => d.id.toLowerCase() === switchId.trim().toLowerCase()
+                  );
+                  if (targetDev) {
+                    handleInspectPorts(targetDev);
+                  } else if (isTabAllowed('devices', effectivePolicy, user)) {
+                    setActiveTab('devices');
+                  }
+                }}
+                onConnectSwitchTerminal={(switchId, port) => {
+                  const targetDev = authorizedDevices.find(
+                    (d) => d.id.toLowerCase() === switchId.trim().toLowerCase()
+                  );
+                  if (targetDev) {
+                    void openTerminal(targetDev, port);
+                  }
+                }}
               />
             </div>
           )}

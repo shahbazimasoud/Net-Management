@@ -100,6 +100,7 @@ import {
   deleteHelpdeskConnectionHistoryItem,
   clearHelpdeskConnectionHistory,
   fetchHelpdeskNetworkSnapshot,
+  fetchHelpdeskSwitchPort,
   runHelpdeskNetworkProbe,
   executeHelpdeskNetworkAction,
   updateHelpdeskAdapterNetworkConfig,
@@ -195,12 +196,16 @@ import { DiagnosticsConfigModal } from './helpdesk/DiagnosticsConfigModal';
 import { TimeoutAntivirusHint } from './helpdesk/TimeoutAntivirusHint';
 import { UserProfilesTab } from './helpdesk/UserProfilesTab';
 import { VirtualMemorySection } from './helpdesk/VirtualMemorySection';
+import { SwitchPortTab } from './helpdesk/SwitchPortTab';
 
 interface HelpDeskViewProps {
   isLightMode: boolean;
   isEn: boolean;
   effectivePolicy?: AccessPolicy | null;
   currentUser?: AuthUser | null;
+  onNavigateToDevices?: () => void;
+  onInspectSwitchPorts?: (switchId: string) => void;
+  onConnectSwitchTerminal?: (switchId: string, port?: string) => void;
 }
 
 const PROCESS_PAGE_SIZE = 20;
@@ -302,11 +307,15 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   isEn,
   effectivePolicy,
   currentUser,
+  onNavigateToDevices,
+  onInspectSwitchPorts,
+  onConnectSwitchTerminal,
 }) => {
   const { dockModal, undockModal } = useModalDock();
   const isSuper = isUserSuperAdmin(currentUser, effectivePolicy);
   const isDomainAdmin = isUserDomainAdmin(currentUser);
   const hasElevatedHelpdesk = isSuper || isDomainAdmin;
+  const canViewDevicesModule = Boolean(isSuper || !effectivePolicy || effectivePolicy?.canViewDevices !== false);
 
   // RBAC permissions (also double-checked by backend on every request)
   const canRunDiagnostics = Boolean(
@@ -442,6 +451,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const setLoadingNetwork = setRamField('loadingNetwork');
   const networkError = ram.networkError;
   const setNetworkError = setRamField('networkError');
+
+  // Module 2C: Switch Port & Physical Path Locator (on-demand)
+  const switchPortData = ram.switchPortData;
+  const setSwitchPortData = setRamField('switchPortData');
+  const loadingSwitchPort = ram.loadingSwitchPort;
+  const setLoadingSwitchPort = setRamField('loadingSwitchPort');
+  const switchPortError = ram.switchPortError;
+  const setSwitchPortError = setRamField('switchPortError');
   const [probeType, setProbeType] = useState<'ping' | 'port' | 'dns' | 'nslookup' | 'tracert' | 'http' | 'arp'>('ping');
   const [probeTarget, setProbeTarget] = useState('8.8.8.8');
   const [probePort, setProbePort] = useState('443');
@@ -1261,6 +1278,50 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       setNetworkError(err?.message || (isEn ? 'Failed to inspect endpoint network.' : 'خطا در دریافت اطلاعات شبکه سیستم کاربر.'));
     } finally {
       setLoadingNetwork(false);
+    }
+  };
+
+  const handleTraceSwitchPort = async (options?: {
+    endpointMac?: string;
+    forceRefresh?: boolean;
+    traceMode?: 'fast_hop' | 'full_parallel';
+  }) => {
+    const cleanTargetIp = targetIp.trim();
+    if (!cleanTargetIp) {
+      setSwitchPortError(
+        isEn
+          ? 'Please enter the Target Workstation IP first.'
+          : 'لطفاً ابتدا آدرس IP سیستم کاربر را وارد کنید.'
+      );
+      return;
+    }
+    setLoadingSwitchPort(true);
+    setSwitchPortError(null);
+    try {
+      const parsedPort = customPort.trim() ? Number(customPort.trim()) : undefined;
+      const res = await fetchHelpdeskSwitchPort({
+        targetIp: cleanTargetIp,
+        protocol,
+        port: parsedPort && Number.isInteger(parsedPort) ? parsedPort : undefined,
+        username: username.trim(),
+        password,
+        jeaConfigName: jeaConfigName.trim() || undefined,
+        endpointMac: options?.endpointMac,
+        forceRefresh: options?.forceRefresh,
+        traceMode: options?.traceMode,
+      });
+      setSwitchPortData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setSwitchPortError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? 'Failed to trace connected switch port.'
+            : 'ردیابی پورت سوئیچ متصل با خطا مواجه شد.')
+      );
+    } finally {
+      setLoadingSwitchPort(false);
+      notifyHelpdeskAuditUpdated();
     }
   };
 
@@ -5270,6 +5331,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelFa: 'عیب‌یابی شبکه و ریست امن',
           },
           {
+            id: 'switch_port' as HelpdeskSubTab,
+            icon: Waypoints,
+            labelEn: 'Switch Port & Path',
+            labelFa: 'پورت سوئیچ و مسیر شبکه',
+          },
+          {
             id: 'printers' as HelpdeskSubTab,
             icon: Printer,
             labelEn: 'Printers & Spooler',
@@ -5346,6 +5413,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'diagnostics' && loadingDiagnostics) ||
             (tab.id === 'hardware' && loadingHardware) ||
             (tab.id === 'network' && loadingNetwork) ||
+            (tab.id === 'switch_port' && loadingSwitchPort) ||
             (tab.id === 'printers' && loadingPrinters) ||
             (tab.id === 'events' && loadingEvents) ||
             (tab.id === 'logins' && loadingLogons) ||
@@ -5364,6 +5432,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'diagnostics' && Boolean(diagnosticsData)) ||
             (tab.id === 'hardware' && Boolean(hardwareData)) ||
             (tab.id === 'network' && Boolean(networkData)) ||
+            (tab.id === 'switch_port' && Boolean(switchPortData)) ||
             (tab.id === 'printers' && Boolean(printerData)) ||
             (tab.id === 'events' && Boolean(eventData)) ||
             (tab.id === 'logins' && Boolean(logonsData)) ||
@@ -10588,6 +10657,29 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 2C: SWITCH PORT & PHYSICAL NETWORK PATH (ON-DEMAND ONLY)         */}
+      {/* =================================================================== */}
+      {activeSubTab === 'switch_port' && (
+        <SwitchPortTab
+          isLightMode={isLightMode}
+          isEn={isEn}
+          targetIp={targetIp}
+          hasCredentials={Boolean(username.trim() && password)}
+          canRunDiagnostics={canRunDiagnostics}
+          canViewDevicesModule={canViewDevicesModule}
+          networkData={networkData}
+          healthData={healthData}
+          data={switchPortData}
+          loading={loadingSwitchPort}
+          error={switchPortError}
+          onTraceSwitchPort={handleTraceSwitchPort}
+          onNavigateToDevices={onNavigateToDevices}
+          onInspectSwitchPorts={onInspectSwitchPorts}
+          onConnectSwitchTerminal={onConnectSwitchTerminal}
+        />
       )}
 
       {/* =================================================================== */}

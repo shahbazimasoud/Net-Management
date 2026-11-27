@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.498.0';
+export const APP_VERSION = '1.499.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.499.0',
+    releaseDate: '2026-11-27',
+    type: 'minor',
+    title: 'افزودن تب اختصاصی ردیاب پورت سوئیچ و مسیر شبکه (Switch Port & Path) در هلپ‌دسک سیستم‌ها',
+    title_en: 'Add On-Demand Switch Port & Physical Network Path Locator Tab in Endpoint HelpDesk',
+    changes: [
+      'افزودن تب اختصاصی «پورت سوئیچ و مسیر شبکه» (`SwitchPortTab.tsx`) در صفحه `Agentless Endpoint HelpDesk` با اجرای کاملاً درخواستی (On-Demand) و دکمه رفرش/کشف مستقل، بدون هیچ‌گونه معطلی یا مسدودسازی در فرآیند اتصال و سایر تب‌ها.',
+      'ایجاد مسیر امن `POST /api/helpdesk/switch-port` و تابع سبک `collectEndpointMacIdentity` برای خواندن مک‌آدرس کارت شبکه سیستم (یا استعلام از جدول ARP سوئیچ/روتر در صورت نبود مشخصات ورود) و ردیابی پورت فیزیکی متصل از طریق SSH روی سوئیچ‌های ثبت‌شده در بخش تجهیزات (بدون نیاز به SNMP).',
+      'افزودن حالت ردیابی هوشمند گام‌به‌گام (`Fast Hop-by-Hop`) با اولویت‌سنجی مسیر توپولوژی و فالبک خودکار به اسکن موازی سوئیچ‌ها در `server/macIpTrackerService.ts` همراه با کدهای تشخیصی دقیق و حذف استعلام‌های تکراری ARP هنگام مشخص بودن IP.',
+      'نمایش پیام‌ها و راهنماهای شفاف در وسط صفحه برای تمامی سناریوهای نبود دیتا (عدم تعریف سوئیچ در بخش تجهیزات، محدودیت دسترسی RBAC، عدم پاسخگویی SSH سوئیچ‌ها، یا نبود MAC در جدول CAM) به همراه لینک‌های مجاز RBAC به صفحه تجهیزات، مدیریت پورت و ترمینال سوئیچ.'
+    ],
+    changes_en: [
+      'Added dedicated on-demand `Switch Port & Path` tab (`SwitchPortTab.tsx`) inside `Agentless Endpoint HelpDesk` with explicit Discover/Refresh controls so sequential connection workflows and other tabs are never blocked or delayed.',
+      'Added `POST /api/helpdesk/switch-port` and lightweight `collectEndpointMacIdentity` helper to extract live endpoint NIC MAC addresses (with L3 router/switch ARP fallback) and trace connected physical switch ports via SSH across registered switches in Devices (without SNMP).',
+      'Enhanced `server/macIpTrackerService.ts` with topology-guided `Fast Hop-by-Hop` tracing (with bounded parallel fallback), skipped redundant ARP queries when target IP is already known, and added structured diagnostic reason codes (`no_switches_in_inventory`, `no_switches_in_rbac_scope`, `all_switches_unreachable`, `mac_not_found`, `arp_unresolved`).',
+      'Designed centered bilingual empty/diagnostic states explaining exact root causes when no switches are configured or matched, plus RBAC-gated actions to jump directly to Devices, Switch Port Inspector, or Switch SSH Terminal.'
+    ]
+  },
   {
     version: '1.498.0',
     releaseDate: '2026-11-26',
