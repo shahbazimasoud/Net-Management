@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.500.1';
+export const APP_VERSION = '1.500.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.500.2',
+    releaseDate: '2026-11-27',
+    type: 'patch',
+    title: 'رفع خطای آپدیت Symantec (کد -۲) با پشتیبانی از سرور داخلی سازمانی (SEPM) و رفع مشکل عدم نمایش شماره موبایل و داخلی کاربر از AD',
+    title_en: 'Fix Symantec Enterprise Update (Exit Code -2) & Active Directory Mobile/Extension Double-Hop Lookup',
+    changes: [
+      'رفع ریشه‌ای خطای `Symantec LiveUpdate command exited with code -2`: جایگزینی سوئیچ نامعتبر `Smc.exe -update` با بررسی تنظیمات سازمانی `SyLink`، اجرای `Smc.exe -updateconfig` (همگام‌سازی سیاست و محتوای سرور داخلی SEPM/GUP)، و اجرای `SepLiveUpdate.exe` (با فالبک `LUALL.EXE -s`) و افزودن تشخیص سرور داخلی سازمانی برای Defender (WSUS/GPO)، Kaspersky (KSC)، ESET (ESET PROTECT) و McAfee/Trellix (ePO).',
+      'رفع ریشه‌ای مشکل `Ext / Mobile: Not registered` در نشست‌های WinRM (محدودیت Kerberos Double-Hop در `[adsisearcher]`): استفاده از احراز هویت صریح `DirectoryEntry` در پاورشل و افزودن استعلام مستقیم سمت سرور از طریق LDAP/LDAPS (`lookupLoggedInUserAdContact` در `server/helpdeskUserService.ts`) برای دریافت قطعی شماره‌های موبایل و داخلی ثبت‌شده کاربر در اکتیو دایرکتوری.'
+    ],
+    changes_en: [
+      'Fixed `Symantec LiveUpdate command exited with code -2` at root cause: replaced the invalid `Smc.exe -update` flag with enterprise SEPM detection via `SyLink`, `Smc.exe -updateconfig` for SEPM/GUP policy & content sync, and `SepLiveUpdate.exe` (with `LUALL.EXE -s` fallback), alongside enterprise management detection for Defender (WSUS/GPO), Kaspersky (KSC), ESET (ESET PROTECT), and McAfee/Trellix (ePO).',
+      'Fixed `Ext / Mobile: Not registered` caused by WinRM Kerberos Double-Hop blocking ambient `[adsisearcher]` queries on workstations: added explicit-credential `DirectoryEntry` LDAP binding in `PS_HEALTH_TELEMETRY` plus direct backend LDAP/LDAPS fallback (`lookupLoggedInUserAdContact` in `server/helpdeskUserService.ts`).'
+    ]
+  },
   {
     version: '1.500.1',
     releaseDate: '2026-11-27',

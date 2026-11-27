@@ -4130,3 +4130,109 @@ $comp = if ($de.Properties['msDS-User-Account-Control-Computed'].Count -gt 0) { 
     );
   }
 }
+
+export async function lookupLoggedInUserAdContact(params: {
+  targetUsername: string;
+  endpointDomain?: string;
+  adminUsername: string;
+  adminPassword: string;
+}): Promise<{
+  found: boolean;
+  displayName: string;
+  mobileNumbers: string[];
+  internalPhones: string[];
+} | null> {
+  const rawTarget = String(params.targetUsername || '').trim();
+  if (!rawTarget) return null;
+
+  const targetParts = splitUsernameParts(rawTarget);
+  if (!targetParts.sam || targetParts.sam.endsWith('$')) return null;
+
+  const adminParts = splitUsernameParts(params.adminUsername || '');
+  const adConfig = await getActiveDirectoryConfig().catch(() => null);
+
+  const domainHints = dedupeStrings([
+    params.endpointDomain,
+    targetParts.domain,
+    adminParts.domain,
+    adConfig?.domain,
+  ]);
+
+  const { candidates: dcCandidates } = await discoverDcHostsWithPdc({
+    adConfig,
+    domainHints,
+  });
+  if (dcCandidates.length === 0) return null;
+
+  const credPairs: Array<{ username: string; password: string }> = [];
+  if (params.adminUsername && params.adminPassword) {
+    credPairs.push({ username: params.adminUsername, password: params.adminPassword });
+  }
+  const cfgBindUser = String((adConfig as any)?.bindUser || '').trim();
+  const cfgBindPass = String((adConfig as any)?.bindPassword || '');
+  if (cfgBindUser && cfgBindPass && cfgBindPass !== '••••••••••••') {
+    if (!credPairs.some((c) => c.username.toLowerCase() === cfgBindUser.toLowerCase())) {
+      credPairs.push({ username: cfgBindUser, password: cfgBindPass });
+    }
+  }
+
+  for (const cred of credPairs) {
+    const { session } = await openAuthenticatedLdapSession({
+      input: {
+        targetUsername: rawTarget,
+        adminUsername: cred.username,
+        adminPassword: cred.password,
+      },
+      adConfig,
+      dcCandidates,
+      domainHints,
+    });
+    if (!session) continue;
+
+    try {
+      const searchBase = session.defaultNamingContext || String(adConfig?.baseDn || '').trim();
+      if (!searchBase) continue;
+
+      const safeSam = escapeLdapFilterValue(targetParts.sam);
+      const safeFull = escapeLdapFilterValue(rawTarget);
+      const rows = await ldapSearchEntries(session.client, searchBase, {
+        scope: 'sub',
+        filter: `(&(objectCategory=person)(objectClass=user)(|(sAMAccountName=${safeSam})(userPrincipalName=${safeFull})(mail=${safeFull})))`,
+        attributes: [
+          'displayName',
+          'telephoneNumber',
+          'otherTelephone',
+          'ipPhone',
+          'otherIpPhone',
+          'mobile',
+          'otherMobile',
+        ],
+        sizeLimit: 2,
+      });
+
+      if (rows.length > 0) {
+        const attrs = rows[0].attrs;
+        return {
+          found: true,
+          displayName: getFirstAttr(attrs, 'displayName'),
+          internalPhones: dedupeStrings([
+            ...getAllAttrs(attrs, 'telephoneNumber'),
+            ...getAllAttrs(attrs, 'otherTelephone'),
+            ...getAllAttrs(attrs, 'ipPhone'),
+            ...getAllAttrs(attrs, 'otherIpPhone'),
+          ]),
+          mobileNumbers: dedupeStrings([
+            ...getAllAttrs(attrs, 'mobile'),
+            ...getAllAttrs(attrs, 'otherMobile'),
+          ]),
+        };
+      }
+      return { found: false, displayName: '', mobileNumbers: [], internalPhones: [] };
+    } finally {
+      session.close();
+    }
+  }
+
+  return null;
+}
+

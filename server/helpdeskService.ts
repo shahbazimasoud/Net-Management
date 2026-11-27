@@ -1960,6 +1960,19 @@ if (-not $detectedUser) {
   } catch {}
 }
 
+$adBindUser = ''
+$adBindPass = ''
+try {
+  $uB64Val = '__AD_BIND_USER_B64__'
+  $pB64Val = '__AD_BIND_PASS_B64__'
+  if ($uB64Val -and -not $uB64Val.StartsWith('__AD_BIND')) {
+    $adBindUser = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($uB64Val))
+  }
+  if ($pB64Val -and -not $pB64Val.StartsWith('__AD_BIND')) {
+    $adBindPass = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($pB64Val))
+  }
+} catch {}
+
 $userDisplayName = ''
 $userMobileNumbers = @()
 $userInternalPhones = @()
@@ -1978,11 +1991,52 @@ try {
     $isLocalAcc = ($uDomPrefix -and $uDomPrefix.Equals([string]$env:COMPUTERNAME, [System.StringComparison]::OrdinalIgnoreCase))
     if ($uSam -and -not $isLocalAcc -and -not $uSam.EndsWith('$')) {
       $safeSam = $uSam.Replace('\\', '\\5c').Replace('*', '\\2a').Replace('(', '\\28').Replace(')', '\\29').Replace([char]0, '')
-      $adSearch = [adsisearcher]"(&(objectCategory=person)(objectClass=user)(sAMAccountName=$safeSam))"
-      foreach ($pn in @('displayname','mobile','othermobile','telephonenumber','othertelephone','ipphone','otheripphone')) {
-        [void]$adSearch.PropertiesToLoad.Add($pn)
+      $safeFull = $detectedUser.Replace('\\', '\\5c').Replace('*', '\\2a').Replace('(', '\\28').Replace(')', '\\29').Replace([char]0, '')
+      $ldapFilter = "(&(objectCategory=person)(objectClass=user)(|(sAMAccountName=$safeSam)(userPrincipalName=$safeFull)))"
+      $adAttrs = @('displayname','mobile','othermobile','telephonenumber','othertelephone','ipphone','otheripphone')
+      $domName = ([string]$cs.Domain).Trim()
+      $adFound = $null
+
+      # 1. Explicit-credential DirectoryEntry bind (eliminates WinRM Double-Hop 0x80072020)
+      if ($adBindUser -and $adBindPass) {
+        $bindCandidates = @($adBindUser)
+        if ($domName -and ($adBindUser -notmatch '[\\\\@]')) {
+          $shortDom = $domName.Split('.')[0]
+          $bindCandidates += "$shortDom\\$adBindUser"
+          $bindCandidates += "$adBindUser@$domName"
+        }
+        foreach ($bu in $bindCandidates) {
+          if ($adFound) { break }
+          $rootPaths = @()
+          if ($domName) { $rootPaths += "LDAP://$domName/RootDSE" }
+          $rootPaths += 'LDAP://RootDSE'
+          foreach ($rPath in $rootPaths) {
+            try {
+              $rDse = New-Object System.DirectoryServices.DirectoryEntry($rPath, $bu, $adBindPass)
+              $defNc = [string]$rDse.Properties['defaultNamingContext'][0]
+              if ($defNc) {
+                $srPath = if ($domName) { "LDAP://$domName/$defNc" } else { "LDAP://$defNc" }
+                $sr = New-Object System.DirectoryServices.DirectoryEntry($srPath, $bu, $adBindPass)
+                $ds = New-Object System.DirectoryServices.DirectorySearcher($sr)
+                $ds.Filter = $ldapFilter
+                foreach ($pn in $adAttrs) { [void]$ds.PropertiesToLoad.Add($pn) }
+                $adFound = $ds.FindOne()
+                if ($adFound) { break }
+              }
+            } catch {}
+          }
+        }
       }
-      $adFound = $adSearch.FindOne()
+
+      # 2. Ambient token fallback (works under SMB/RPC SYSTEM or delegated Kerberos)
+      if (-not $adFound) {
+        try {
+          $ds2 = [adsisearcher]$ldapFilter
+          foreach ($pn in $adAttrs) { [void]$ds2.PropertiesToLoad.Add($pn) }
+          $adFound = $ds2.FindOne()
+        } catch {}
+      }
+
       if ($adFound) {
         $adProps = $adFound.Properties
         if ($adProps['displayname'] -and $adProps['displayname'].Count -gt 0) {
@@ -2340,7 +2394,13 @@ PY
 `;
 
 export async function collectEndpointHealth(input: HelpdeskTargetInput): Promise<HelpdeskHealthResult> {
-  const execRes = await executeHardcodedScripts(input, PS_HEALTH_TELEMETRY, LINUX_HEALTH_TELEMETRY);
+  const adUserB64 = Buffer.from(String(input.username || ''), 'utf8').toString('base64');
+  const adPassB64 = Buffer.from(String(input.password || ''), 'utf8').toString('base64');
+  const psHealthWithAdCreds = PS_HEALTH_TELEMETRY
+    .replace('__AD_BIND_USER_B64__', adUserB64)
+    .replace('__AD_BIND_PASS_B64__', adPassB64);
+
+  const execRes = await executeHardcodedScripts(input, psHealthWithAdCreds, LINUX_HEALTH_TELEMETRY);
   const parsed = parseJsonFromStdout<any>(execRes.stdout, 'endpoint health telemetry');
 
   const uptimeSeconds = Number(parsed.uptimeSeconds) || 0;
@@ -2411,22 +2471,61 @@ export async function collectEndpointHealth(input: HelpdeskTargetInput): Promise
     return out;
   };
 
+  const hostnameStr = String(parsed.hostname || execRes.host).trim();
+  const domainStr = String(parsed.domain || '').trim();
+  const loggedInUserStr = String(parsed.loggedInUser || '').trim();
+  let loggedInUserDisplayName = String(parsed.loggedInUserDisplayName || '').trim();
+  let loggedInUserMobiles = toCleanStringList(parsed.loggedInUserMobiles);
+  let loggedInUserExtensions = toCleanStringList(parsed.loggedInUserExtensions);
+
+  // Direct backend LDAP/LDAPS fallback if workstation DirectorySearcher did not return AD contact info
+  if (
+    execRes.osFamily === 'windows' &&
+    loggedInUserStr &&
+    loggedInUserMobiles.length === 0 &&
+    loggedInUserExtensions.length === 0
+  ) {
+    const prefix = loggedInUserStr.includes('\\') ? loggedInUserStr.split('\\')[0].trim() : '';
+    const isLocal = Boolean(prefix && hostnameStr && prefix.toLowerCase() === hostnameStr.toLowerCase());
+    if (!isLocal) {
+      try {
+        const { lookupLoggedInUserAdContact } = await import('./helpdeskUserService');
+        const adContact = await Promise.race([
+          lookupLoggedInUserAdContact({
+            targetUsername: loggedInUserStr,
+            endpointDomain: domainStr,
+            adminUsername: input.username,
+            adminPassword: input.password,
+          }),
+          new Promise<null>((r) => setTimeout(() => r(null), 4500)),
+        ]);
+        if (adContact) {
+          if (!loggedInUserDisplayName && adContact.displayName) {
+            loggedInUserDisplayName = adContact.displayName;
+          }
+          loggedInUserMobiles = toCleanStringList(adContact.mobileNumbers);
+          loggedInUserExtensions = toCleanStringList(adContact.internalPhones);
+        }
+      } catch {}
+    }
+  }
+
   return {
     targetIp: execRes.host,
     protocolUsed: execRes.protocolUsed,
     portUsed: execRes.portUsed,
     osFamily: execRes.osFamily,
     collectedAt: new Date().toISOString(),
-    hostname: String(parsed.hostname || execRes.host),
+    hostname: hostnameStr,
     osName: String(parsed.osName || (execRes.osFamily === 'windows' ? 'Windows' : 'Linux')),
     osVersion: String(parsed.osVersion || ''),
     osBuild: String(parsed.osBuild || ''),
     osDisplayVersion: String(parsed.osDisplayVersion || ''),
-    domain: String(parsed.domain || ''),
-    loggedInUser: String(parsed.loggedInUser || ''),
-    loggedInUserDisplayName: String(parsed.loggedInUserDisplayName || ''),
-    loggedInUserMobiles: toCleanStringList(parsed.loggedInUserMobiles),
-    loggedInUserExtensions: toCleanStringList(parsed.loggedInUserExtensions),
+    domain: domainStr,
+    loggedInUser: loggedInUserStr,
+    loggedInUserDisplayName,
+    loggedInUserMobiles,
+    loggedInUserExtensions,
     uptimeSeconds,
     uptimeText: formatUptime(uptimeSeconds),
     primaryIp: String(parsed.primaryIp || execRes.host),
@@ -20659,8 +20758,21 @@ $newState = 'unknown'
 
 if ($action -eq 'update_definitions') {
   if ($prodId -eq 'microsoft_defender') {
+    $wsusServer = ''
+    $fallbackOrder = ''
+    try {
+      $wuReg = Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate' -ErrorAction SilentlyContinue
+      if ($wuReg -and $wuReg.WUServer) { $wsusServer = ([string]$wuReg.WUServer).Trim() }
+    } catch {}
+    try {
+      $mpPref = Get-MpPreference -ErrorAction SilentlyContinue
+      if ($mpPref -and $mpPref.SignatureFallbackOrder) {
+        $fallbackOrder = ([string]($mpPref.SignatureFallbackOrder -join ' -> '))
+      }
+    } catch {}
     $updated = $false
     try {
+      # Update-MpSignature honors enterprise GPO SignatureFallbackOrder (InternalDefinitionUpdateServer / WSUS / MMPC)
       Update-MpSignature -ErrorAction Stop
       $updated = $true
     } catch {
@@ -20690,22 +20802,28 @@ if ($action -eq 'update_definitions') {
     try { $after = Get-MpComputerStatus -ErrorAction SilentlyContinue } catch {}
     $sigVer = if ($after -and $after.AntivirusSignatureVersion) { [string]$after.AntivirusSignatureVersion } else { 'unknown' }
     $sigTime = if ($after -and $after.AntivirusSignatureLastUpdated) { $after.AntivirusSignatureLastUpdated.ToString('yyyy-MM-dd HH:mm') } else { 'now' }
+    $srcNote = if ($wsusServer) { " | Enterprise WSUS: $wsusServer" } elseif ($fallbackOrder) { " | Source Order: $fallbackOrder" } else { '' }
     $ok = $updated
     $newState = 'updated'
-    $msg = "Microsoft Defender definitions updated (Signature: $sigVer, Last Updated: $sigTime)."
+    $msg = "Microsoft Defender definitions updated (Signature: $sigVer, Last Updated: $sigTime$srcNote)."
   } elseif ($prodId -eq 'eset') {
+    $eraSvc = Get-Service -Name 'ERAAgent','ESET Management Agent' -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' } | Select-Object -First 1
     $ecmd = Get-ChildItem -Path "$env:ProgramFiles\\ESET","$env:ProgramFiles (x86)\\ESET" -Filter 'ecmd.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
     if (-not $ecmd) {
-      throw 'ESET CLI updater (ecmd.exe) was not found on this endpoint. Enable ESET command-line control or update from ESET GUI/PROTECT Console.'
+      $entHint = if ($eraSvc) { ' Managed by ESET PROTECT Agent (ERAAgent); trigger module update from ESET PROTECT Console or enable ecmd.exe in policy.' } else { '' }
+      throw ("ESET CLI updater (ecmd.exe) was not found on this endpoint.$entHint")
     }
     $out = & $ecmd /update 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
-      throw ("ESET update failed (exit $LASTEXITCODE): " + $out.Trim())
+      $polNote = if ($eraSvc) { ' (Note: Enterprise ESET PROTECT policy may restrict ecmd.exe unless allowed in Advanced Setup -> Tools -> ESET CMD).' } else { '' }
+      throw ("ESET update failed (exit $LASTEXITCODE): " + $out.Trim() + $polNote)
     }
     $ok = $true
     $newState = 'updated'
-    $msg = if ($out.Trim()) { "ESET definitions update completed: " + $out.Trim() } else { 'ESET definitions update completed via ecmd.exe.' }
+    $modeTag = if ($eraSvc) { ' [Enterprise ESET PROTECT / Mirror]' } else { '' }
+    $msg = if ($out.Trim()) { "ESET definitions update completed$modeTag: " + $out.Trim() } else { "ESET definitions update completed via ecmd.exe$modeTag." }
   } elseif ($prodId -eq 'kaspersky') {
+    $kscSvc = Get-Service -Name 'klnagent' -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' } | Select-Object -First 1
     $avpExe = Get-ChildItem -Path "$env:ProgramFiles\\Kaspersky Lab","$env:ProgramFiles (x86)\\Kaspersky Lab" -Filter 'avp.com' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
     if (-not $avpExe) {
       throw 'Kaspersky CLI (avp.com) was not found on this endpoint.'
@@ -20717,42 +20835,132 @@ if ($action -eq 'update_definitions') {
     }
     $ok = $true
     $newState = 'updated'
-    $msg = if ($out.Trim()) { "Kaspersky database update completed: " + $out.Trim() } else { 'Kaspersky virus database update completed via avp.com.' }
+    $modeTag = if ($kscSvc) { ' [Enterprise KSC Agent]' } else { '' }
+    $msg = if ($out.Trim()) { "Kaspersky database update completed$modeTag: " + $out.Trim() } else { "Kaspersky virus database update completed via avp.com$modeTag." }
   } elseif ($prodId -eq 'symantec') {
-    $smcCandidates = @(
-      "$env:ProgramFiles\\Symantec\\Symantec Endpoint Protection\\Smc.exe",
-      "$env:ProgramFiles (x86)\\Symantec\\Symantec Endpoint Protection\\Smc.exe"
-    )
-    try {
-      $smcDir = Get-ChildItem -Path "$env:ProgramFiles\\Symantec\\Symantec Endpoint Protection" -Filter 'Smc.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-      if ($smcDir) { $smcCandidates += $smcDir.FullName }
-    } catch {}
-    $smc = $smcCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
-    if (-not $smc) {
-      throw 'Symantec Smc.exe updater was not found on this endpoint.'
+    # Detect Enterprise SEPM / GUP / Internal LiveUpdate configuration from SyLink registry
+    $sepmServer = ''
+    foreach ($syPath in @(
+      'HKLM:\\SOFTWARE\\Symantec\\Symantec Endpoint Protection\\SMC\\SYLINK\\SyLink',
+      'HKLM:\\SOFTWARE\\WOW6432Node\\Symantec\\Symantec Endpoint Protection\\SMC\\SYLINK\\SyLink'
+    )) {
+      try {
+        $syReg = Get-ItemProperty -Path $syPath -ErrorAction SilentlyContinue
+        if ($syReg) {
+          foreach ($prop in @('LastConnectedIPAddr','HostName','ServerList')) {
+            $val = ([string]$syReg.$prop).Trim()
+            if ($val) { $sepmServer = $val; break }
+          }
+          if ($sepmServer) { break }
+        }
+      } catch {}
     }
-    $p = Start-Process -FilePath $smc -ArgumentList @('-update') -Wait -NoNewWindow -PassThru
-    if ($p.ExitCode -ne 0) {
-      throw "Symantec LiveUpdate command exited with code $($p.ExitCode)."
+    $isEnterpriseSepm = [bool]$sepmServer
+
+    $symRoots = @("$env:ProgramFiles\\Symantec", "$env:ProgramFiles (x86)\\Symantec") | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+    $smc = $null
+    $sepLu = $null
+    $luAll = $null
+    foreach ($sr in $symRoots) {
+      if (-not $smc) {
+        $smc = Get-ChildItem -Path $sr -Filter 'Smc.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+      }
+      if (-not $sepLu) {
+        $sepLu = Get-ChildItem -Path $sr -Filter 'SepLiveUpdate.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+      }
+      if (-not $luAll) {
+        $luAll = Get-ChildItem -Path $sr -Filter 'LUALL.EXE' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+      }
     }
-    $ok = $true
-    $newState = 'updated'
-    $msg = 'Symantec Endpoint Protection LiveUpdate triggered successfully via Smc.exe -update.'
+
+    if (-not $smc -and -not $sepLu -and -not $luAll) {
+      throw 'No Symantec update CLI (SepLiveUpdate.exe / Smc.exe / LuAll.exe) was found on this endpoint.'
+    }
+
+    $notes = @()
+    $sepmSyncOk = $false
+    # 1. If managed by SEPM (or Smc.exe exists), run 'Smc.exe -updateconfig' (NOT -update which returns -2 Invalid Parameter)
+    if ($smc) {
+      $smcArgs = @('-updateconfig')
+      if ($pw) { $smcArgs = @('-p', $pw, '-updateconfig') }
+      $pSmc = Start-Process -FilePath $smc -ArgumentList $smcArgs -Wait -NoNewWindow -PassThru
+      if ($pw -and $pSmc.ExitCode -eq -2) {
+        $pSmc = Start-Process -FilePath $smc -ArgumentList @('-updateconfig') -Wait -NoNewWindow -PassThru
+      }
+      if ($pSmc.ExitCode -eq 0) {
+        $sepmSyncOk = $true
+        $notes += if ($sepmServer) { "SEPM check-in OK ($sepmServer via Smc.exe -updateconfig)" } else { "SEPM config/content sync triggered via Smc.exe -updateconfig" }
+      } else {
+        $notes += "Smc.exe -updateconfig exited with code $($pSmc.ExitCode)"
+      }
+    }
+
+    # 2. Run SepLiveUpdate.exe (SEP 12.1/14.x native CLI updater, obeys internal SEPM/GUP/LUA server policy) or fallback to LuAll.exe -s
+    $luRan = $false
+    $luSuccess = $false
+    $luOut = ''
+    $luCode = $null
+    if ($sepLu) {
+      $luRan = $true
+      $luOut = (& $sepLu 2>&1 | Out-String).Trim()
+      $luCode = $LASTEXITCODE
+      if ($luCode -eq -2) {
+        $luOut = (& $sepLu -s 2>&1 | Out-String).Trim()
+        $luCode = $LASTEXITCODE
+      }
+      $luSuccess = ($luCode -eq 0)
+    } elseif ($luAll) {
+      $luRan = $true
+      $pLu = Start-Process -FilePath $luAll -ArgumentList @('-s') -Wait -NoNewWindow -PassThru
+      $luCode = $pLu.ExitCode
+      $luSuccess = ($luCode -eq 0)
+    }
+
+    if ($luSuccess) {
+      $notes += if ($sepLu) { "SepLiveUpdate.exe completed (exit 0)" } else { "LuAll.exe -s completed (exit 0)" }
+      if ($luOut) { $notes += ($luOut -replace '\\r?\\n', ' ') }
+      $ok = $true
+      $newState = 'updated'
+      $entPrefix = if ($isEnterpriseSepm) { "Enterprise SEPM ($sepmServer)" } else { "Symantec Endpoint Protection" }
+      $msg = "$entPrefix definitions update completed. " + ($notes -join ' | ')
+    } elseif ($isEnterpriseSepm -and $sepmSyncOk -and -not $luRan) {
+      $ok = $true
+      $newState = 'updated'
+      $msg = "Enterprise SEPM policy & content sync triggered ($sepmServer). " + ($notes -join ' | ')
+    } else {
+      $luErrPart = if ($luRan) {
+        if ($sepLu) { "SepLiveUpdate.exe exited with code $luCode" + $(if ($luOut) { ": " + ($luOut -replace '\\r?\\n', ' ') } else { '' }) }
+        else { "LuAll.exe -s exited with code $luCode" }
+      } else { 'SepLiveUpdate.exe / LuAll.exe not found' }
+      $fullErr = (@($luErrPart) + $notes) -join ' | '
+      if ($isEnterpriseSepm -and $sepmSyncOk) {
+        throw "SEPM check-in succeeded ($sepmServer), but LiveUpdate failed ($luErrPart). If SEPM disables client LiveUpdate by policy, update definitions directly from the SEPM Console."
+      }
+      throw $fullErr
+    }
   } elseif ($prodId -eq 'mcafee') {
+    $epoSvc = Get-Service -Name 'masvc','macmnsvc' -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' } | Select-Object -First 1
     $amcfg = Get-ChildItem -Path "$env:ProgramFiles\\McAfee","$env:ProgramFiles\\Trellix","$env:ProgramFiles (x86)\\McAfee","$env:ProgramFiles (x86)\\Trellix" -Filter 'amcfg.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
     $cmdAgent = Get-ChildItem -Path "$env:ProgramFiles\\McAfee","$env:ProgramFiles\\Trellix","$env:ProgramFiles (x86)\\McAfee","$env:ProgramFiles (x86)\\Trellix" -Filter 'cmdagent.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
-    if ($amcfg) {
+    if ($epoSvc -and $cmdAgent) {
+      $out = & $cmdAgent /p /e /c 2>&1 | Out-String
+      if ($LASTEXITCODE -ne 0) { throw ("McAfee/Trellix ePO Agent check-in failed (exit $LASTEXITCODE): " + $out.Trim()) }
+      if ($amcfg) { try { & $amcfg /update 2>&1 | Out-Null } catch {} }
+      $ok = $true
+      $newState = 'updated'
+      $msg = 'McAfee/Trellix Enterprise ePO policy & signature repository sync triggered via cmdagent.exe /p /e /c.'
+    } elseif ($amcfg) {
       $out = & $amcfg /update 2>&1 | Out-String
       if ($LASTEXITCODE -ne 0) { throw ("McAfee/Trellix amcfg update failed (exit $LASTEXITCODE): " + $out.Trim()) }
       $ok = $true
       $newState = 'updated'
       $msg = 'McAfee/Trellix signature update completed via amcfg.exe /update.'
     } elseif ($cmdAgent) {
-      $out = & $cmdAgent /p /c 2>&1 | Out-String
+      $out = & $cmdAgent /p /e /c 2>&1 | Out-String
       if ($LASTEXITCODE -ne 0) { throw ("McAfee/Trellix agent update check failed (exit $LASTEXITCODE): " + $out.Trim()) }
       $ok = $true
       $newState = 'updated'
-      $msg = 'McAfee/Trellix Agent policy & signature update triggered via cmdagent.exe /p /c.'
+      $msg = 'McAfee/Trellix Agent policy & signature update triggered via cmdagent.exe /p /e /c.'
     } else {
       throw 'McAfee/Trellix CLI updater (amcfg.exe / cmdagent.exe) was not found on this endpoint.'
     }
