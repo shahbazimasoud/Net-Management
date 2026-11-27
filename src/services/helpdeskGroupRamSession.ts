@@ -17,6 +17,15 @@ export type HelpdeskGroupSubTab =
   | 'reports'
   | 'history';
 
+export interface HelpdeskGroupPrefetchProgress {
+  active: boolean;
+  step: number;
+  total: number;
+  currentTab: HelpdeskGroupSubTab | null;
+  labelEn: string;
+  labelFa: string;
+}
+
 export interface DelegatedAuthMetadata {
   active: boolean;
   source: 'helpdesk-users';
@@ -48,10 +57,17 @@ export interface HelpdeskGroupRamState {
   winrmProtocol: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
   showAdvancedConn: boolean;
   activeSubTab: HelpdeskGroupSubTab;
+  prefetchProgress: HelpdeskGroupPrefetchProgress | null;
   rateLimit: any | null;
 
   groupData: HelpdeskGroupInspectionData | null;
   loading: boolean;
+  loadingOverview: boolean;
+  loadingMembers: boolean;
+  loadingPermissions: boolean;
+  overviewLoaded: boolean;
+  membersLoaded: boolean;
+  permissionsLoaded: boolean;
   error: string | null;
   errorFa: string | null;
   blockedByException: boolean;
@@ -90,10 +106,17 @@ const createInitialState = (ownerUserId: string | null = null): HelpdeskGroupRam
   winrmProtocol: 'auto',
   showAdvancedConn: false,
   activeSubTab: 'overview',
+  prefetchProgress: null,
   rateLimit: null,
 
   groupData: null,
   loading: false,
+  loadingOverview: false,
+  loadingMembers: false,
+  loadingPermissions: false,
+  overviewLoaded: false,
+  membersLoaded: false,
+  permissionsLoaded: false,
   error: null,
   errorFa: null,
   blockedByException: false,
@@ -113,6 +136,7 @@ const createInitialState = (ownerUserId: string | null = null): HelpdeskGroupRam
 });
 
 let ramState: HelpdeskGroupRamState = createInitialState(null);
+let activeRunToken = 0;
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -225,8 +249,20 @@ export function patchHelpdeskGroupRamSnapshot(
   notify();
 }
 
+export function stopHelpdeskGroupPrefetch(): void {
+  activeRunToken += 1;
+  patchHelpdeskGroupRamSnapshot({
+    loading: false,
+    loadingOverview: false,
+    loadingMembers: false,
+    loadingPermissions: false,
+    prefetchProgress: null,
+  });
+}
+
 export function bindHelpdeskGroupRamOwner(userId: string | null) {
   if (ramState.ownerUserId !== null && ramState.ownerUserId !== userId) {
+    activeRunToken += 1;
     delegatedVault = null;
     revokeDelegatedUserCredential();
     ramState = createInitialState(userId);
@@ -238,6 +274,7 @@ export function bindHelpdeskGroupRamOwner(userId: string | null) {
 }
 
 export function wipeHelpdeskGroupRamSession() {
+  activeRunToken += 1;
   delegatedVault = null;
   revokeDelegatedUserCredential();
   const currentOwner = ramState.ownerUserId;
@@ -246,6 +283,7 @@ export function wipeHelpdeskGroupRamSession() {
 }
 
 export function wipeHelpdeskGroupRamOnLogout() {
+  activeRunToken += 1;
   delegatedVault = null;
   revokeDelegatedUserCredential();
   ramState = createInitialState(null);
@@ -269,6 +307,8 @@ export function handoffGroupInspectionFromUserSession(params: {
   if (params.ownerUserId !== undefined) {
     bindHelpdeskGroupRamOwner(params.ownerUserId);
   }
+
+  activeRunToken += 1;
 
   if (hasSecret && cleanOwner) {
     const now = Date.now();
@@ -298,6 +338,14 @@ export function handoffGroupInspectionFromUserSession(params: {
       winrmProtocol: params.winrmProtocol || 'auto',
       activeSubTab: 'overview',
       groupData: null,
+      loading: false,
+      loadingOverview: false,
+      loadingMembers: false,
+      loadingPermissions: false,
+      overviewLoaded: false,
+      membersLoaded: false,
+      permissionsLoaded: false,
+      prefetchProgress: null,
       error: null,
       memberActionError: null,
       memberActionResult: null,
@@ -319,6 +367,14 @@ export function handoffGroupInspectionFromUserSession(params: {
     winrmProtocol: params.winrmProtocol || ramState.winrmProtocol,
     activeSubTab: 'overview',
     groupData: null,
+    loading: false,
+    loadingOverview: false,
+    loadingMembers: false,
+    loadingPermissions: false,
+    overviewLoaded: false,
+    membersLoaded: false,
+    permissionsLoaded: false,
+    prefetchProgress: null,
     error: null,
   };
   notify();
@@ -395,62 +451,279 @@ export async function runHelpdeskGroupInspect(overrideTargetGroup?: string): Pro
     return;
   }
 
+  activeRunToken += 1;
+  const myToken = activeRunToken;
+  const isCancelled = () => myToken !== activeRunToken;
+
+  const dcOverride = snap.domainController.trim() || undefined;
+  const ldapProtocol = snap.ldapProtocol;
+  const winrmProtocol = snap.winrmProtocol;
+
+  // Step 1/3: Tab 1 — Overview, Creator & OU Path
   patchHelpdeskGroupRamSnapshot({
     targetGroup: target,
     pendingCredentialPromptGroup: null,
     loading: true,
+    loadingOverview: true,
+    loadingMembers: false,
+    loadingPermissions: false,
+    overviewLoaded: false,
+    membersLoaded: false,
+    permissionsLoaded: false,
     error: null,
     errorFa: null,
     blockedByException: false,
     memberActionResult: null,
     memberActionError: null,
+    prefetchProgress: {
+      active: true,
+      step: 1,
+      total: 3,
+      currentTab: 'overview',
+      labelEn: 'Overview, Creator & OU Path',
+      labelFa: 'هویت، سازنده و مسیر OU',
+    },
   });
 
+  let step1Data: HelpdeskGroupInspectionData;
+  let inspectHistoryId: string | undefined;
   try {
     const res = await inspectHelpdeskTargetGroup({
       targetGroup: target,
       adminUsername: creds.adminUsername,
       adminPassword: creds.adminPassword,
-      domainController: snap.domainController.trim() || undefined,
-      ldapProtocol: snap.ldapProtocol,
-      winrmProtocol: snap.winrmProtocol,
+      domainController: dcOverride,
+      ldapProtocol,
+      winrmProtocol,
+      stage: 'overview',
     });
+    if (isCancelled()) return;
 
-    const data = res.data;
-    const totalMem =
-      data.membershipSummary.totalDirectMembers + data.membershipSummary.totalPrimaryGroupMembers;
+    step1Data = res.data;
+    inspectHistoryId = res.historyId;
+    const totalMemEst =
+      step1Data.membershipSummary.totalDirectMembers +
+      step1Data.membershipSummary.totalPrimaryGroupMembers;
 
     patchHelpdeskGroupRamSnapshot((prev) => {
       const nextRecent = [
         {
-          cn: data.identity.cn,
-          samAccountName: data.identity.samAccountName,
-          ou: data.identity.organizationalUnit,
-          groupScope: data.identity.groupScope,
-          groupCategory: data.identity.groupCategory,
-          isPrivileged: data.identity.isPrivileged,
-          memberTotal: totalMem,
+          cn: step1Data.identity.cn,
+          samAccountName: step1Data.identity.samAccountName,
+          ou: step1Data.identity.organizationalUnit,
+          groupScope: step1Data.identity.groupScope,
+          groupCategory: step1Data.identity.groupCategory,
+          isPrivileged: step1Data.identity.isPrivileged,
+          memberTotal: totalMemEst,
         },
         ...prev.recentGroups.filter(
-          (r) => r.samAccountName.toLowerCase() !== data.identity.samAccountName.toLowerCase()
+          (r) => r.samAccountName.toLowerCase() !== step1Data.identity.samAccountName.toLowerCase()
         ),
       ].slice(0, 8);
 
       return {
         loading: false,
-        groupData: data,
-        lastHistoryId: res.historyId || null,
+        loadingOverview: false,
+        overviewLoaded: true,
+        groupData: step1Data,
+        lastHistoryId: inspectHistoryId || null,
         rateLimit: res.rateLimit ?? prev.rateLimit,
         recentGroups: nextRecent,
       };
     });
   } catch (err: any) {
+    if (isCancelled()) return;
     patchHelpdeskGroupRamSnapshot({
       loading: false,
+      loadingOverview: false,
+      prefetchProgress: null,
       error: err?.message || 'Active Directory group inspection failed',
       errorFa: err?.errorFa || err?.message || 'استعلام گروه اکتیو دایرکتوری ناموفق بود',
       blockedByException: Boolean(err?.blockedByException),
     });
+    return;
+  }
+
+  const canonicalGroupTarget = step1Data.identity.distinguishedName || target;
+  const pinnedDc = step1Data.connectionInfo.domainController || dcOverride;
+
+  // Step 2/3: Tab 2 — Members, Primary RID & Nested Groups
+  if (isCancelled()) return;
+  patchHelpdeskGroupRamSnapshot({
+    loadingMembers: true,
+    prefetchProgress: {
+      active: true,
+      step: 2,
+      total: 3,
+      currentTab: 'members',
+      labelEn: 'Members & Nested Groups',
+      labelFa: 'اعضا و زیرگروه‌ها',
+    },
+  });
+
+  try {
+    const step2Creds = resolveEffectiveGroupCredentials();
+    if (step2Creds.ok) {
+      const memRes = await inspectHelpdeskTargetGroup({
+        targetGroup: canonicalGroupTarget,
+        adminUsername: step2Creds.adminUsername,
+        adminPassword: step2Creds.adminPassword,
+        domainController: pinnedDc,
+        ldapProtocol,
+        winrmProtocol,
+        stage: 'members',
+        skipHistory: true,
+        ...(inspectHistoryId ? { historyId: inspectHistoryId } : {}),
+      });
+      if (isCancelled()) return;
+
+      const memData = memRes.data;
+      const resolvedTotalMem =
+        memData.membershipSummary.totalDirectMembers +
+        memData.membershipSummary.totalPrimaryGroupMembers;
+
+      patchHelpdeskGroupRamSnapshot((prev) => ({
+        loadingMembers: false,
+        membersLoaded: true,
+        rateLimit: memRes.rateLimit ?? prev.rateLimit,
+        recentGroups: prev.recentGroups.map((rg) =>
+          rg.samAccountName.toLowerCase() === memData.identity.samAccountName.toLowerCase()
+            ? { ...rg, memberTotal: resolvedTotalMem }
+            : rg
+        ),
+        groupData: prev.groupData
+          ? {
+              ...prev.groupData,
+              membershipSummary: memData.membershipSummary,
+              directMembers: memData.directMembers,
+              primaryGroupMembers: memData.primaryGroupMembers,
+              nestedChildGroups: memData.nestedChildGroups,
+              effectiveInheritedMembers: memData.effectiveInheritedMembers,
+              parentGroups: memData.parentGroups,
+            }
+          : memData,
+      }));
+    } else if (!isCancelled()) {
+      patchHelpdeskGroupRamSnapshot({
+        loadingMembers: false,
+        membersLoaded: true,
+      });
+    }
+  } catch {
+    if (!isCancelled()) {
+      patchHelpdeskGroupRamSnapshot({
+        loadingMembers: false,
+        membersLoaded: true,
+      });
+    }
+  }
+
+  // Step 3/3: Tab 3 — Plain-Language Permissions, ACLs, GPOs & DC Event Log
+  if (isCancelled()) return;
+  patchHelpdeskGroupRamSnapshot({
+    loadingPermissions: true,
+    prefetchProgress: {
+      active: true,
+      step: 3,
+      total: 3,
+      currentTab: 'permissions',
+      labelEn: 'Permissions, ACLs & Security Audit Events',
+      labelFa: 'پرمیژن‌ها، ACL و لاگ امنیتی',
+    },
+  });
+
+  try {
+    const step3Creds = resolveEffectiveGroupCredentials();
+    if (step3Creds.ok) {
+      const permRes = await inspectHelpdeskTargetGroup({
+        targetGroup: canonicalGroupTarget,
+        adminUsername: step3Creds.adminUsername,
+        adminPassword: step3Creds.adminPassword,
+        domainController: pinnedDc,
+        ldapProtocol,
+        winrmProtocol,
+        stage: 'permissions',
+        skipHistory: true,
+        ...(inspectHistoryId ? { historyId: inspectHistoryId } : {}),
+      });
+      if (isCancelled()) return;
+
+      const permData = permRes.data;
+      patchHelpdeskGroupRamSnapshot((prev) => ({
+        loadingPermissions: false,
+        permissionsLoaded: true,
+        prefetchProgress: null,
+        rateLimit: permRes.rateLimit ?? prev.rateLimit,
+        recentGroups: prev.recentGroups.map((rg) =>
+          rg.samAccountName.toLowerCase() === permData.identity.samAccountName.toLowerCase()
+            ? { ...rg, isPrivileged: permData.identity.isPrivileged }
+            : rg
+        ),
+        groupData: prev.groupData
+          ? {
+              ...prev.groupData,
+              identity: {
+                ...prev.groupData.identity,
+                isBuiltinCritical: permData.identity.isBuiltinCritical,
+                isPrivileged: permData.identity.isPrivileged,
+                privilegeLevel: permData.identity.privilegeLevel,
+              },
+              lifecycleAndOwnership: {
+                ...prev.groupData.lifecycleAndOwnership,
+                objectOwner:
+                  permData.lifecycleAndOwnership.objectOwner ||
+                  prev.groupData.lifecycleAndOwnership.objectOwner,
+                objectOwnerSid:
+                  permData.lifecycleAndOwnership.objectOwnerSid ||
+                  prev.groupData.lifecycleAndOwnership.objectOwnerSid,
+                creatorAccount:
+                  permData.lifecycleAndOwnership.creatorAccount ||
+                  prev.groupData.lifecycleAndOwnership.creatorAccount,
+                creatorTimestamp:
+                  permData.lifecycleAndOwnership.creatorTimestamp ??
+                  prev.groupData.lifecycleAndOwnership.creatorTimestamp,
+                creatorDc:
+                  permData.lifecycleAndOwnership.creatorDc ||
+                  prev.groupData.lifecycleAndOwnership.creatorDc,
+                creatorSource:
+                  permData.lifecycleAndOwnership.creatorSource !== 'unavailable'
+                    ? permData.lifecycleAndOwnership.creatorSource
+                    : prev.groupData.lifecycleAndOwnership.creatorSource,
+                creatorNoteEn: permData.lifecycleAndOwnership.creatorNoteEn,
+                creatorNoteFa: permData.lifecycleAndOwnership.creatorNoteFa,
+                managedBy:
+                  permData.lifecycleAndOwnership.managedBy ??
+                  prev.groupData.lifecycleAndOwnership.managedBy,
+                managerCanUpdateMembershipList:
+                  permData.lifecycleAndOwnership.managerCanUpdateMembershipList,
+              },
+              parentGroups:
+                prev.groupData.parentGroups.length > 0
+                  ? prev.groupData.parentGroups
+                  : permData.parentGroups,
+              permissions: permData.permissions,
+              auditEventsStatus: permData.auditEventsStatus,
+              auditEventsNoteEn: permData.auditEventsNoteEn,
+              auditEventsNoteFa: permData.auditEventsNoteFa,
+              auditEvents: permData.auditEvents,
+            }
+          : permData,
+      }));
+    } else if (!isCancelled()) {
+      patchHelpdeskGroupRamSnapshot({
+        loadingPermissions: false,
+        permissionsLoaded: true,
+        prefetchProgress: null,
+      });
+    }
+  } catch {
+    if (!isCancelled()) {
+      patchHelpdeskGroupRamSnapshot({
+        loadingPermissions: false,
+        permissionsLoaded: true,
+        prefetchProgress: null,
+      });
+    }
   }
 }
 

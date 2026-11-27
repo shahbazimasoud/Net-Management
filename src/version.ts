@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.497.4';
+export const APP_VERSION = '1.498.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.498.0',
+    releaseDate: '2026-11-26',
+    type: 'minor',
+    title: 'دریافت مرحله‌به‌مرحله و نوبتی (تب به تب) اطلاعات در هر دو صفحه پشتیبانی کاربران و گروه‌های اکتیو دایرکتوری',
+    title_en: 'Sequential Tab-by-Tab AD & Exchange Data Fetching for AD User & Group HelpDesk',
+    changes: [
+      'افزودن اجرای مرحله‌ای (Staged Execution) در سرویس پشتیبانی کاربران دامین (`server/helpdeskUserService.ts`) در ۴ مرحله واقعی و مستقل: مرحله ۱ (`overview` — هویت، تصویر پروفایل، مدیر و شماره‌های تماس)، مرحله ۲ (`security` — بررسی قفل اکانت روی تمام دامین کنترلرها، FGPP، رویدادهای WinRM و پالیسی لاگان روی DC)، مرحله ۳ (`groups` — لیست کامل عضویت گروه‌ها و Primary RID) و مرحله ۴ (`mailbox` — استعلام Exchange Server) همراه با به‌روزرسانی `src/services/helpdeskUserRamSession.ts` و نشانگرهای پیشرفت در `HelpDeskUsersView.tsx`.',
+      'افزودن اجرای مرحله‌ای ۳ بخشی در سرویس پشتیبانی گروه‌های دامین (`server/helpdeskGroupService.ts` و `server/db.ts`) شامل: مرحله ۱ (`overview` — هویت، OU و تاریخچه ساخت)، مرحله ۲ (`members` — استعلام کامل اعضای مستقیم، Primary و زیرگروه‌های تو در تو) و مرحله ۳ (`permissions` — ترجمه ACL، پالیسی‌های GPO/FGPP و رویدادهای امنیتی WinRM) به همراه به‌روزرسانی خودکار آمار تاریخچه، نوار توقف/پیشرفت، نشانگرهای وضعیت هر تب و بنرهای بارگذاری در `helpdeskGroupRamSession.ts` و `HelpDeskGroupsView.tsx`.',
+      'ایمن‌سازی پارامتر `stage` با Allowlist سمت سرور، حفظ یکپارچگی RBAC و فیلترهای Exception در تمامی مراحل و جلوگیری از ثبت لاگ تکراری برای مراحل پس‌زمینه.'
+    ],
+    changes_en: [
+      'Implemented true 4-stage sequential backend fetching in `server/helpdeskUserService.ts` and `src/services/helpdeskUserRamSession.ts`: Stage 1 (`overview`), Stage 2 (`security` — multi-DC lockout checks, FGPP, WinRM events, DC logon rights), Stage 3 (`groups` — full AD group memberships & Primary RID), and Stage 4 (`mailbox`), eliminating upfront blocking stalls while keeping Stage 1 profile & contact data immediately responsive in `HelpDeskUsersView.tsx`.',
+      'Implemented true 3-stage sequential backend fetching in `server/helpdeskGroupService.ts`, `server/db.ts`, `src/services/helpdeskGroupRamSession.ts`, and `HelpDeskGroupsView.tsx`: Stage 1 (`overview`), Stage 2 (`members` — direct, primary RID, nested & inherited directory hydration), and Stage 3 (`permissions` — nTSecurityDescriptor ACL translation, GPO/FGPP & DC security audit events) with live progress bar, Stop button, per-tab loading/ready indicators, and incremental DB history metric updates.',
+      'Enforced strict server-side `stage` allowlisting, consistent RBAC and exception-policy checks across every stage, and deduplicated inspect audit/history logging.'
+    ]
+  },
   {
     version: '1.497.4',
     releaseDate: '2026-11-26',

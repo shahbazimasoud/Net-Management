@@ -3103,6 +3103,11 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
                                   ? 'Not Granted on DC'
                                   : 'بدون مجوز روی DC'}
                               </span>
+                            ) : ram.loadingSecurity && !ram.securityLoaded ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-500 font-medium">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                <span>{isEn ? 'Checking (Step 2/4)...' : 'در حال بررسی (مرحله ۲)...'}</span>
+                              </span>
                             ) : (
                               <span className="px-1.5 py-0.5 rounded bg-slate-500/15 text-slate-400 font-medium">
                                 {isEn ? 'WinRM Unavailable' : 'WinRM در دسترس نبود'}
@@ -3322,6 +3327,22 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
               ================================================================ */}
           {ram.activeSubTab === 'security' && (
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+              {ram.loadingSecurity && !ram.securityLoaded && (
+                <div
+                  className={`xl:col-span-12 rounded-xl border px-4 py-3 flex items-center gap-2.5 text-xs ${
+                    isLightMode
+                      ? 'bg-sky-50 border-sky-200 text-sky-900'
+                      : 'bg-sky-950/30 border-sky-500/35 text-sky-200'
+                  }`}
+                >
+                  <Loader2 className="w-4 h-4 text-sky-500 animate-spin shrink-0" />
+                  <span className="font-medium">
+                    {isEn
+                      ? 'Step 2/4: Querying multi-DC account lockout counters, Fine-Grained Password Policies & WinRM security audit events...'
+                      : 'مرحله ۲ از ۴: در حال بررسی قفل اکانت روی تمام دامین کنترلرها، پالیسی FGPP و رویدادهای امنیتی WinRM...'}
+                  </span>
+                </div>
+              )}
               {/* Account Lockout + Unlock Control */}
               <div className="xl:col-span-6 space-y-4">
                 <div
@@ -4062,6 +4083,22 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
               ================================================================ */}
           {ram.activeSubTab === 'mailbox' && (
             <div className="space-y-4">
+              {ram.mailboxLoading && (
+                <div
+                  className={`rounded-xl border px-4 py-3 flex items-center gap-2.5 text-xs ${
+                    isLightMode
+                      ? 'bg-indigo-50 border-indigo-200 text-indigo-900'
+                      : 'bg-indigo-950/30 border-indigo-500/35 text-indigo-200'
+                  }`}
+                >
+                  <Loader2 className="w-4 h-4 text-indigo-500 animate-spin shrink-0" />
+                  <span className="font-medium">
+                    {isEn
+                      ? 'Step 4/4: Querying Exchange Server for live mailbox storage usage & quota statistics...'
+                      : 'مرحله ۴ از ۴: در حال اتصال به سرور Exchange و دریافت آمار لحظه‌ای حجم میل‌باکس و سهمیه‌ها...'}
+                  </span>
+                </div>
+              )}
               {/* Inline Exchange Host Retry / Refresh Toolbar */}
               <div className={`rounded-xl border p-4 flex flex-wrap items-end justify-between gap-3 ${surfaceBg}`}>
                 <div className="flex-1 min-w-[220px] max-w-md">
@@ -4408,6 +4445,22 @@ export const HelpDeskUsersView: React.FC<HelpDeskUsersViewProps> = ({
               ================================================================ */}
           {ram.activeSubTab === 'groups' && (
             <div className={`rounded-xl border p-5 space-y-4 ${surfaceBg}`}>
+              {ram.loadingGroups && !ram.groupsLoaded && (
+                <div
+                  className={`rounded-lg border px-4 py-3 flex items-center gap-2.5 text-xs ${
+                    isLightMode
+                      ? 'bg-sky-50 border-sky-200 text-sky-900'
+                      : 'bg-sky-950/30 border-sky-500/35 text-sky-200'
+                  }`}
+                >
+                  <Loader2 className="w-4 h-4 text-sky-500 animate-spin shrink-0" />
+                  <span className="font-medium">
+                    {isEn
+                      ? 'Step 3/4: Fetching complete Active Directory group memberships & Primary Group RID...'
+                      : 'مرحله ۳ از ۴: در حال دریافت لیست کامل عضویت گروه‌های اکتیو دایرکتوری و گروه اصلی کاربر...'}
+                  </span>
+                </div>
+              )}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-sm font-semibold">
                   <FolderTree className="w-4 h-4 text-teal-500" />

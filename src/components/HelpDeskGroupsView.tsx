@@ -61,6 +61,7 @@ import {
   exportGroupCredentialForUserHandoff,
   runHelpdeskGroupSearch,
   runHelpdeskGroupInspect,
+  stopHelpdeskGroupPrefetch,
 } from '../services/helpdeskGroupRamSession';
 import {
   handoffUserInspectionFromGroupSession,
@@ -991,10 +992,10 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
           <div className="md:col-span-2 lg:col-span-2 min-w-0 flex items-center gap-2">
             <button
               type="submit"
-              disabled={!canInspectGroups || ram.loading}
+              disabled={!canInspectGroups || ram.loading || Boolean(ram.prefetchProgress?.active)}
               className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition whitespace-nowrap cursor-pointer"
             >
-              {ram.loading ? (
+              {ram.loading || ram.prefetchProgress?.active ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
               ) : (
                 <Search className="w-3.5 h-3.5 shrink-0" />
@@ -1157,6 +1158,32 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {ram.prefetchProgress?.active && (
+          <div
+            className={`px-3 py-2 rounded-lg border flex flex-wrap items-center justify-between gap-2 text-xs ${
+              isLightMode
+                ? 'bg-sky-50 border-sky-200 text-sky-900'
+                : 'bg-sky-950/30 border-sky-500/30 text-sky-200'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 text-sky-500 animate-spin shrink-0" />
+              <span>
+                {isEn
+                  ? `Fetching all tabs sequentially (${ram.prefetchProgress.step}/${ram.prefetchProgress.total}): ${ram.prefetchProgress.labelEn}...`
+                  : `در حال دریافت خودکار اطلاعات تب‌ها به ترتیب (${ram.prefetchProgress.step} از ${ram.prefetchProgress.total}): ${ram.prefetchProgress.labelFa}...`}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => stopHelpdeskGroupPrefetch()}
+              className="px-2 py-0.5 rounded border border-sky-500/40 hover:bg-sky-500/15 text-[11px] font-semibold cursor-pointer"
+            >
+              {isEn ? 'Stop' : 'توقف'}
+            </button>
           </div>
         )}
 
@@ -1381,14 +1408,18 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
               <button
                 type="button"
                 onClick={() => runHelpdeskGroupInspect()}
-                disabled={ram.loading}
-                className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                disabled={ram.loading || Boolean(ram.prefetchProgress?.active)}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
                   isLightMode
                     ? 'bg-slate-50 hover:bg-slate-100 border-slate-300 text-slate-700'
                     : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
                 }`}
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${ram.loading ? 'animate-spin' : ''}`} />
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${
+                    ram.loading || ram.prefetchProgress?.active ? 'animate-spin' : ''
+                  }`}
+                />
                 <span>{isEn ? 'Refresh' : 'بروزرسانی'}</span>
               </button>
             </div>
@@ -1405,6 +1436,16 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = ram.activeSubTab === tab.id;
+          const isFetchingThisTab =
+            (ram.prefetchProgress?.active && ram.prefetchProgress.currentTab === tab.id) ||
+            (tab.id === 'overview' && ram.loadingOverview) ||
+            (tab.id === 'members' && ram.loadingMembers) ||
+            (tab.id === 'permissions' && ram.loadingPermissions);
+          const hasTabData =
+            (tab.id === 'overview' && Boolean(data && ram.overviewLoaded)) ||
+            (tab.id === 'members' && Boolean(data && ram.membersLoaded)) ||
+            (tab.id === 'permissions' && Boolean(data && ram.permissionsLoaded)) ||
+            (tab.id === 'reports' && Boolean(data && ram.membersLoaded && ram.permissionsLoaded));
           return (
             <button
               key={tab.id}
@@ -1418,8 +1459,19 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                   : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
               }`}
             >
-              <Icon className="w-3.5 h-3.5 shrink-0" />
+              {isFetchingThisTab ? (
+                <Loader2 className={`w-3.5 h-3.5 animate-spin shrink-0 ${active ? 'text-white' : 'text-teal-500'}`} />
+              ) : (
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+              )}
               <span>{isEn ? tab.labelEn : tab.labelFa}</span>
+              {!isFetchingThisTab && hasTabData && (
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    active ? 'bg-emerald-300 ring-1 ring-white/40' : 'bg-emerald-500'
+                  }`}
+                />
+              )}
               {tab.badge !== undefined && tab.badge !== null && (
                 <span
                   className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
@@ -1439,7 +1491,7 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
       </div>
 
       {/* Empty Prompt State when no group loaded and not on history tab */}
-      {!data && ram.activeSubTab !== 'history' && (
+      {!data && ram.activeSubTab !== 'history' && !ram.loading && (
         <div className={`rounded-xl border p-8 sm:p-10 text-center space-y-3 ${surfaceBg}`}>
           <div className="w-12 h-12 mx-auto rounded-2xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-500">
             <Users className="w-6 h-6" />
@@ -1451,9 +1503,21 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
           </h3>
           <p className={`text-xs max-w-2xl mx-auto leading-relaxed ${textMuted}`}>
             {isEn
-              ? 'Enter the target AD group name (or click "Browse / Find AD Groups") along with temporary domain credentials above to view creation time, creator/owner, OU hierarchy, all direct/primary/nested members, and a plain-language explanation of permissions.'
-              : 'نام گروه دامین را وارد کنید (یا از «جستجو در لیست گروه‌های دامین» انتخاب نمایید) تا تاریخ و زمان دقیق ساخت، نام سازنده/مالک، مسیر OU، لیست کامل اعضا (مستقیم، Primary و زیرگروه‌ها) و توضیح ساده و قابل فهم تمام پرمیژن‌ها نمایش داده شود.'}
+              ? 'Enter the target AD group name (or click "Browse / Find AD Groups") along with temporary domain credentials above to load Overview, Members & Nested Groups, and Permissions sequentially tab by tab.'
+              : 'نام گروه دامین را وارد کنید (یا از «جستجو در لیست گروه‌های دامین» انتخاب نمایید) تا اطلاعات تب‌های هویت و OU، اعضا و زیرگروه‌ها، و پرمیژن‌ها به‌صورت مرحله‌به‌مرحله و نوبتی دریافت شوند.'}
           </p>
+        </div>
+      )}
+
+      {/* Initial Step 1/3 Loading Card */}
+      {!data && ram.activeSubTab !== 'history' && ram.loading && (
+        <div className={`rounded-xl border p-8 flex items-center justify-center gap-3 text-xs ${surfaceBg}`}>
+          <Loader2 className="w-5 h-5 animate-spin text-sky-500" />
+          <span className={`font-medium ${textPrimary}`}>
+            {isEn
+              ? 'Step 1/3: Connecting to Active Directory to inspect group identity & OU...'
+              : 'مرحله ۱ از ۳: در حال اتصال به اکتیو دایرکتوری و دریافت هویت و مسیر OU گروه...'}
+          </span>
         </div>
       )}
 
@@ -1561,13 +1625,24 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                 </span>
               </div>
               <div className={`text-[11px] ${textMuted}`}>
-                {data.nestedChildGroups.length > 0
-                  ? isEn
-                    ? `${data.nestedChildGroups.length} nested group(s) · +${data.membershipSummary.totalInheritedUsers} inherited`
-                    : `${data.nestedChildGroups.length} زیرگروه · +${data.membershipSummary.totalInheritedUsers} عضو غیرمستقیم`
-                  : isEn
-                  ? `${data.parentGroups.length} parent group(s) (memberOf)`
-                  : `عضو در ${data.parentGroups.length} گروه والد`}
+                {ram.loadingMembers && !ram.membersLoaded ? (
+                  <span className="inline-flex items-center gap-1 text-sky-500 font-medium">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>
+                      {isEn ? 'Fetching full members (Step 2/3)...' : 'در حال دریافت اعضا (مرحله ۲)...'}
+                    </span>
+                  </span>
+                ) : data.nestedChildGroups.length > 0 ? (
+                  isEn ? (
+                    `${data.nestedChildGroups.length} nested group(s) · +${data.membershipSummary.totalInheritedUsers} inherited`
+                  ) : (
+                    `${data.nestedChildGroups.length} زیرگروه · +${data.membershipSummary.totalInheritedUsers} عضو غیرمستقیم`
+                  )
+                ) : isEn ? (
+                  `${data.parentGroups.length} parent group(s) (memberOf)`
+                ) : (
+                  `عضو در ${data.parentGroups.length} گروه والد`
+                )}
               </div>
             </button>
           </div>
@@ -1829,18 +1904,31 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                   {isEn ? 'Recent Domain Controller Security Audit Events (14 Days)' : 'تاریخچه رویدادهای امنیتی تغییر اعضای گروه (۱۴ روز اخیر)'}
                 </span>
               </div>
-              <span className={`text-[11px] px-2 py-0.5 rounded border ${subCardBg} ${textMuted}`}>
-                {data.auditEventsStatus === 'available'
-                  ? isEn
-                    ? `${data.auditEvents.length} Events`
-                    : `${data.auditEvents.length} رویداد`
-                  : data.auditEventsStatus === 'empty'
-                  ? isEn
-                    ? 'No Recent Events'
-                    : 'رویداد جدیدی ثبت نشده'
-                  : isEn
-                  ? 'Event Log Unavailable'
-                  : 'Event Log در دسترس نبود'}
+              <span className={`text-[11px] px-2 py-0.5 rounded border inline-flex items-center gap-1.5 ${subCardBg} ${textMuted}`}>
+                {ram.loadingPermissions && !ram.permissionsLoaded ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin text-sky-500" />
+                    <span className="text-sky-500 font-medium">
+                      {isEn ? 'Checking (Step 3/3)...' : 'در حال بررسی (مرحله ۳)...'}
+                    </span>
+                  </>
+                ) : data.auditEventsStatus === 'available' ? (
+                  isEn ? (
+                    `${data.auditEvents.length} Events`
+                  ) : (
+                    `${data.auditEvents.length} رویداد`
+                  )
+                ) : data.auditEventsStatus === 'empty' ? (
+                  isEn ? (
+                    'No Recent Events'
+                  ) : (
+                    'رویداد جدیدی ثبت نشده'
+                  )
+                ) : isEn ? (
+                  'Event Log Unavailable'
+                ) : (
+                  'Event Log در دسترس نبود'
+                )}
               </span>
             </div>
 
@@ -1891,6 +1979,22 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
       {/* =================================================================== */}
       {data && ram.activeSubTab === 'members' && (
         <div className="space-y-6">
+          {ram.loadingMembers && !ram.membersLoaded && (
+            <div
+              className={`rounded-xl border px-4 py-3 flex items-center gap-2.5 text-xs ${
+                isLightMode
+                  ? 'bg-sky-50 border-sky-200 text-sky-900'
+                  : 'bg-sky-950/30 border-sky-500/35 text-sky-200'
+              }`}
+            >
+              <Loader2 className="w-4 h-4 text-sky-500 animate-spin shrink-0" />
+              <span className="font-medium">
+                {isEn
+                  ? 'Step 2/3: Loading complete AD group members, primary RID accounts & nested subgroups...'
+                  : 'مرحله ۲ از ۳: در حال دریافت لیست کامل اعضای گروه، اعضای Primary و زیرگروه‌های تو در تو...'}
+              </span>
+            </div>
+          )}
           {/* Member Stats */}
           <div className={`rounded-xl border p-5 space-y-4 ${surfaceBg}`}>
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -2216,6 +2320,22 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
       {/* =================================================================== */}
       {data && ram.activeSubTab === 'permissions' && (
         <div className="space-y-6">
+          {ram.loadingPermissions && !ram.permissionsLoaded && (
+            <div
+              className={`rounded-xl border px-4 py-3 flex items-center gap-2.5 text-xs ${
+                isLightMode
+                  ? 'bg-sky-50 border-sky-200 text-sky-900'
+                  : 'bg-sky-950/30 border-sky-500/35 text-sky-200'
+              }`}
+            >
+              <Loader2 className="w-4 h-4 text-sky-500 animate-spin shrink-0" />
+              <span className="font-medium">
+                {isEn
+                  ? 'Step 3/3: Analyzing AD delegation ACLs, linked GPOs, FGPP & DC security audit events...'
+                  : 'مرحله ۳ از ۳: در حال تحلیل پرمیژن‌ها، جدول دسترسی ACL، GPOها و لاگ‌های امنیتی دامین...'}
+              </span>
+            </div>
+          )}
           {/* Top Plain-Language Executive Guide */}
           <div
             className={`rounded-xl border p-5 space-y-2 ${
@@ -2436,6 +2556,23 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
       {/* =================================================================== */}
       {data && ram.activeSubTab === 'reports' && (
         <div className={`rounded-xl border p-5 space-y-4 ${surfaceBg}`}>
+          {((ram.loadingMembers && !ram.membersLoaded) ||
+            (ram.loadingPermissions && !ram.permissionsLoaded)) && (
+            <div
+              className={`rounded-lg border px-3.5 py-2.5 flex items-center gap-2 text-xs ${
+                isLightMode
+                  ? 'bg-sky-50 border-sky-200 text-sky-900'
+                  : 'bg-sky-950/30 border-sky-500/35 text-sky-200'
+              }`}
+            >
+              <Loader2 className="w-3.5 h-3.5 text-sky-500 animate-spin shrink-0" />
+              <span>
+                {isEn
+                  ? 'Background tab stages are still completing; member totals and permission summary will refresh automatically.'
+                  : 'مراحل دریافت سایر تب‌ها هنوز در جریان است؛ آمار اعضا و خلاصه پرمیژن‌ها پس از تکمیل به‌طور خودکار بروزرسانی می‌شوند.'}
+              </span>
+            </div>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className={`text-sm font-bold flex items-center gap-2 ${textPrimary}`}>

@@ -566,8 +566,6 @@ function buildUserRequestPayload(
   };
 }
 
-const sleepMs = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 export async function runHelpdeskUserSearch(queryOverride?: string): Promise<void> {
   const snap = ramState;
   const creds = resolveEffectiveUserCredentials();
@@ -624,7 +622,7 @@ export async function runHelpdeskUserInspect(
   if (overrideTarget !== undefined) {
     patchHelpdeskUserRamSnapshot({ targetUsername: overrideTarget });
   }
-  const built = buildUserRequestPayload(overrideTarget, false);
+  const built = buildUserRequestPayload(overrideTarget, false, { stage: 'overview' });
   const initialPayload = built.payload;
   if (!initialPayload.targetUsername || !built.hasAuth) {
     if (initialPayload.targetUsername && !built.hasAuth) {
@@ -732,7 +730,7 @@ export async function runHelpdeskUserInspect(
     return null;
   }
 
-  // Step 2/4: Tab 2 — Password, Lockout & Security
+  // Step 2/4: Tab 2 — Password, Lockout & Security (Multi-DC Lockout & WinRM Security Events)
   if (isCancelled()) return data;
   patchHelpdeskUserRamSnapshot({
     loadingSecurity: true,
@@ -745,12 +743,58 @@ export async function runHelpdeskUserInspect(
       labelFa: 'رمز عبور، قفل اکانت و امنیت',
     },
   });
-  await sleepMs(160);
-  if (isCancelled()) return data;
-  patchHelpdeskUserRamSnapshot({
-    loadingSecurity: false,
-    securityLoaded: true,
-  });
+  try {
+    const secBuilt = buildUserRequestPayload(data.profile.samAccountName, false, {
+      stage: 'security',
+      skipHistory: true,
+    });
+    if (secBuilt.hasAuth) {
+      const secRes = await inspectHelpdeskTargetUser(secBuilt.payload);
+      if (isCancelled()) return data;
+      const secData = secRes.data;
+      patchHelpdeskUserRamSnapshot((prev) => ({
+        loadingSecurity: false,
+        securityLoaded: true,
+        rateLimit: secRes.rateLimit || prev.rateLimit,
+        recentUsers: prev.recentUsers.map((u) =>
+          u.samAccountName.toLowerCase() === data.profile.samAccountName.toLowerCase()
+            ? { ...u, accountLocked: Boolean(secData.security.accountLocked) }
+            : u
+        ),
+        userData: prev.userData
+          ? {
+              ...prev.userData,
+              connectionInfo: {
+                ...prev.userData.connectionInfo,
+                pdcEmulator:
+                  secData.connectionInfo.pdcEmulator || prev.userData.connectionInfo.pdcEmulator,
+              },
+              security: secData.security,
+              logonAndProfile: prev.userData.logonAndProfile
+                ? {
+                    ...prev.userData.logonAndProfile,
+                    dcInteractiveRights:
+                      secData.logonAndProfile?.dcInteractiveRights ??
+                      prev.userData.logonAndProfile.dcInteractiveRights,
+                  }
+                : secData.logonAndProfile,
+            }
+          : prev.userData,
+      }));
+    } else if (!isCancelled()) {
+      patchHelpdeskUserRamSnapshot({
+        loadingSecurity: false,
+        securityLoaded: true,
+      });
+    }
+  } catch {
+    if (!isCancelled()) {
+      patchHelpdeskUserRamSnapshot({
+        loadingSecurity: false,
+        securityLoaded: true,
+      });
+    }
+  }
 
   // Step 3/4: Tab 3 — AD Groups & OU Directory
   if (isCancelled()) return data;
@@ -765,12 +809,45 @@ export async function runHelpdeskUserInspect(
       labelFa: 'گروه‌های اکتیو دایرکتوری و ساختار OU',
     },
   });
-  await sleepMs(140);
-  if (isCancelled()) return data;
-  patchHelpdeskUserRamSnapshot({
-    loadingGroups: false,
-    groupsLoaded: true,
-  });
+  try {
+    const grpBuilt = buildUserRequestPayload(data.profile.samAccountName, false, {
+      stage: 'groups',
+      skipHistory: true,
+    });
+    if (grpBuilt.hasAuth) {
+      const grpRes = await inspectHelpdeskTargetUser(grpBuilt.payload);
+      if (isCancelled()) return data;
+      const grpData = grpRes.data;
+      patchHelpdeskUserRamSnapshot((prev) => ({
+        loadingGroups: false,
+        groupsLoaded: true,
+        rateLimit: grpRes.rateLimit || prev.rateLimit,
+        userData: prev.userData
+          ? {
+              ...prev.userData,
+              groups: grpData.groups,
+              profile: {
+                ...prev.userData.profile,
+                distinguishedName:
+                  grpData.profile.distinguishedName || prev.userData.profile.distinguishedName,
+              },
+            }
+          : prev.userData,
+      }));
+    } else if (!isCancelled()) {
+      patchHelpdeskUserRamSnapshot({
+        loadingGroups: false,
+        groupsLoaded: true,
+      });
+    }
+  } catch {
+    if (!isCancelled()) {
+      patchHelpdeskUserRamSnapshot({
+        loadingGroups: false,
+        groupsLoaded: true,
+      });
+    }
+  }
 
   // Step 4/4: Tab 4 — Live Exchange Mailbox Size & Quota (using mail.<domain> by default)
   if (isCancelled()) return data;

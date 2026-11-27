@@ -40,6 +40,8 @@ export interface HelpdeskGroupSearchInput {
   limit?: number;
 }
 
+export type HelpdeskGroupInspectStage = 'full' | 'overview' | 'members' | 'permissions';
+
 export interface HelpdeskGroupInspectInput {
   targetGroup: string;
   adminUsername: string;
@@ -47,6 +49,7 @@ export interface HelpdeskGroupInspectInput {
   domainController?: string;
   ldapProtocol?: LdapTransportProtocol;
   winrmProtocol?: HelpdeskProtocol;
+  stage?: HelpdeskGroupInspectStage;
 }
 
 export interface HelpdeskGroupMemberActionInput extends HelpdeskGroupInspectInput {
@@ -1792,6 +1795,14 @@ export async function inspectTargetDomainGroup(
   input: HelpdeskGroupInspectInput,
   policyContext?: HelpdeskAdPolicyContext
 ): Promise<HelpdeskGroupInspectionResult> {
+  const stage: HelpdeskGroupInspectStage =
+    input.stage === 'overview' || input.stage === 'members' || input.stage === 'permissions'
+      ? input.stage
+      : 'full';
+  const runOverviewStage = stage === 'full' || stage === 'overview';
+  const runMembersStage = stage === 'full' || stage === 'members';
+  const runPermissionsStage = stage === 'full' || stage === 'permissions';
+
   const cleanTarget = sanitizeAndValidateTargetGroup(input.targetGroup);
   const adminUsername = String(input.adminUsername || '').trim();
   const adminPassword = String(input.adminPassword || '');
@@ -1876,8 +1887,9 @@ export async function inspectTargetDomainGroup(
 
     // Optional LDAP_SERVER_SD_FLAGS_OID (1.2.840.113556.1.4.801) control requesting Owner (1) + Group (2) + DACL (4) = 7
     const ControlsCtor: any = (ldap as any).Control;
+    const needSecurityDescriptor = runOverviewStage || runPermissionsStage;
     const sdControl =
-      typeof ControlsCtor === 'function'
+      needSecurityDescriptor && typeof ControlsCtor === 'function'
         ? new ControlsCtor({
             type: '1.2.840.113556.1.4.801',
             criticality: false,
@@ -1984,18 +1996,31 @@ export async function inspectTargetDomainGroup(
       throw err;
     }
 
-    // 1) Collect all Direct Member DNs (including range retrieval if >1500)
-    const directRes = await collectAllDirectMemberDns(session, groupDn, entry, 1000);
-    const directMemberMap = await batchHydrateDnsViaLdap(session, directRes.dns);
-    const directMembers: HelpdeskGroupMemberEntry[] = directRes.dns
-      .map((dn) => directMemberMap.get(dn.toLowerCase())!)
-      .filter(Boolean);
+    // 1) Collect all Direct Member DNs (including range retrieval if >1500) — full/members stage only
+    let directRes: { dns: string[]; totalEstimate: number; truncated: boolean };
+    let directMembers: HelpdeskGroupMemberEntry[] = [];
+    if (runMembersStage) {
+      directRes = await collectAllDirectMemberDns(session, groupDn, entry, 1000);
+      const directMemberMap = await batchHydrateDnsViaLdap(session, directRes.dns);
+      directMembers = directRes.dns
+        .map((dn) => directMemberMap.get(dn.toLowerCase())!)
+        .filter(Boolean);
+    } else {
+      const baseMembers = getAllAttrs(entry.attrs, 'member');
+      const rangeKey = Object.keys(entry.attrs).find((k) => /^member;range=/i.test(k));
+      const rangeLen = rangeKey ? (entry.attrs[rangeKey] || []).length : 0;
+      directRes = {
+        dns: [],
+        totalEstimate: baseMembers.length || rangeLen,
+        truncated: false,
+      };
+    }
 
     // 2) Primary Group Members (crucial for Domain Users 513, Domain Computers 515, Domain Controllers 516, etc.)
     const groupRid = primaryGroupToken || Number(getSidRid(objectSid) || 0) || null;
     const primaryGroupMembers: HelpdeskGroupMemberEntry[] = [];
     let primaryMembersTruncated = false;
-    if (groupRid && (groupRid >= 512 || directRes.totalEstimate === 0)) {
+    if (runMembersStage && groupRid && (groupRid >= 512 || directRes.totalEstimate === 0)) {
       try {
         const primaryRows = await ldapSearchEntries(session.client, session.defaultNamingContext, {
           scope: 'sub',
@@ -2047,7 +2072,7 @@ export async function inspectTargetDomainGroup(
     const directDnSet = new Set(directMembers.map((m) => m.dn.toLowerCase()));
     const effectiveInheritedMembers: HelpdeskGroupMemberEntry[] = [];
     let inheritedTruncated = false;
-    if (directChildGroups.length > 0) {
+    if (runMembersStage && directChildGroups.length > 0) {
       try {
         const transRows = await ldapSearchEntries(session.client, session.defaultNamingContext, {
           scope: 'sub',
@@ -2105,62 +2130,64 @@ export async function inspectTargetDomainGroup(
     const directParentDns = getAllAttrs(entry.attrs, 'memberOf');
     const directParentSet = new Set(directParentDns.map((d) => d.toLowerCase()));
     const parentGroups: HelpdeskGroupParentEntry[] = [];
-    try {
-      const parentRows = await ldapSearchEntries(session.client, session.defaultNamingContext, {
-        scope: 'sub',
-        filter: `(member:1.2.840.113556.1.4.1941:=${escapeLdapFilterValue(groupDn)})`,
-        attributes: ['cn', 'sAMAccountName', 'groupType', 'description', 'adminCount', 'objectSid', 'distinguishedName'],
-        sizeLimit: 100,
-      });
-      for (const r of parentRows) {
-        const pDn = r.dn || getFirstAttr(r.attrs, 'distinguishedName');
-        const pCn = getFirstAttr(r.attrs, 'cn') || extractCnFromDn(pDn);
-        const pSam = getFirstAttr(r.attrs, 'sAMAccountName') || pCn;
-        const dec = decodeGroupType(getFirstAttr(r.attrs, 'groupType'));
-        const pSid = parseBinarySid(r.buffers.objectsid?.[0]);
-        const pRid = getSidRid(pSid);
-        const pAdmin = Number(getFirstAttr(r.attrs, 'adminCount') || 0) === 1;
-        const pPriv =
-          pAdmin ||
-          (Boolean(WELL_KNOWN_PRIVILEGED_ROLES[pRid]) && pRid !== '513' && pRid !== '515') ||
-          Boolean(KNOWN_PRIV_GROUP_NAMES[pSam.toLowerCase()]);
-        parentGroups.push({
-          cn: pCn,
-          samAccountName: pSam,
-          dn: pDn,
-          ou: extractOuBreadcrumb(pDn),
-          groupScope: dec.groupScope,
-          groupCategory: dec.groupCategory,
-          isPrivileged: pPriv,
-          isDirect: directParentSet.has(pDn.toLowerCase()),
-          description: getFirstAttr(r.attrs, 'description'),
+    if (runMembersStage || runPermissionsStage) {
+      try {
+        const parentRows = await ldapSearchEntries(session.client, session.defaultNamingContext, {
+          scope: 'sub',
+          filter: `(member:1.2.840.113556.1.4.1941:=${escapeLdapFilterValue(groupDn)})`,
+          attributes: ['cn', 'sAMAccountName', 'groupType', 'description', 'adminCount', 'objectSid', 'distinguishedName'],
+          sizeLimit: 100,
         });
-      }
-    } catch {
-      // Fallback to direct parent DNs if matching rule chain fails on legacy LDAP
-      const pMap = await batchHydrateDnsViaLdap(session, directParentDns);
-      for (const pDn of directParentDns) {
-        const hit = pMap.get(pDn.toLowerCase());
-        const pCn = hit?.cn || extractCnFromDn(pDn);
-        const pSam = hit?.samAccountName || pCn;
-        parentGroups.push({
-          cn: pCn,
-          samAccountName: pSam,
-          dn: pDn,
-          ou: extractOuBreadcrumb(pDn),
-          groupScope: hit?.nestedScope || 'Unknown',
-          groupCategory: hit?.nestedCategory || 'Security',
-          isPrivileged: Boolean(KNOWN_PRIV_GROUP_NAMES[pSam.toLowerCase()]),
-          isDirect: true,
-          description: '',
-        });
+        for (const r of parentRows) {
+          const pDn = r.dn || getFirstAttr(r.attrs, 'distinguishedName');
+          const pCn = getFirstAttr(r.attrs, 'cn') || extractCnFromDn(pDn);
+          const pSam = getFirstAttr(r.attrs, 'sAMAccountName') || pCn;
+          const dec = decodeGroupType(getFirstAttr(r.attrs, 'groupType'));
+          const pSid = parseBinarySid(r.buffers.objectsid?.[0]);
+          const pRid = getSidRid(pSid);
+          const pAdmin = Number(getFirstAttr(r.attrs, 'adminCount') || 0) === 1;
+          const pPriv =
+            pAdmin ||
+            (Boolean(WELL_KNOWN_PRIVILEGED_ROLES[pRid]) && pRid !== '513' && pRid !== '515') ||
+            Boolean(KNOWN_PRIV_GROUP_NAMES[pSam.toLowerCase()]);
+          parentGroups.push({
+            cn: pCn,
+            samAccountName: pSam,
+            dn: pDn,
+            ou: extractOuBreadcrumb(pDn),
+            groupScope: dec.groupScope,
+            groupCategory: dec.groupCategory,
+            isPrivileged: pPriv,
+            isDirect: directParentSet.has(pDn.toLowerCase()),
+            description: getFirstAttr(r.attrs, 'description'),
+          });
+        }
+      } catch {
+        // Fallback to direct parent DNs if matching rule chain fails on legacy LDAP
+        const pMap = await batchHydrateDnsViaLdap(session, directParentDns);
+        for (const pDn of directParentDns) {
+          const hit = pMap.get(pDn.toLowerCase());
+          const pCn = hit?.cn || extractCnFromDn(pDn);
+          const pSam = hit?.samAccountName || pCn;
+          parentGroups.push({
+            cn: pCn,
+            samAccountName: pSam,
+            dn: pDn,
+            ou: extractOuBreadcrumb(pDn),
+            groupScope: hit?.nestedScope || 'Unknown',
+            groupCategory: hit?.nestedCategory || 'Security',
+            isPrivileged: Boolean(KNOWN_PRIV_GROUP_NAMES[pSam.toLowerCase()]),
+            isDirect: true,
+            description: '',
+          });
+        }
       }
     }
 
     // 5) ManagedBy Manager lookup
     const managedByDn = getFirstAttr(entry.attrs, 'managedBy');
     let managedBy: HelpdeskGroupInspectionResult['lifecycleAndOwnership']['managedBy'] = null;
-    if (managedByDn) {
+    if ((runOverviewStage || runPermissionsStage) && managedByDn) {
       const mMap = await batchHydrateDnsViaLdap(session, [managedByDn]);
       const mgr = mMap.get(managedByDn.toLowerCase());
       managedBy = {
@@ -2176,41 +2203,52 @@ export async function inspectTargetDomainGroup(
     }
 
     // 6) Parse nTSecurityDescriptor Owner & DACL Permissions directly from LDAP
-    const sdBuf = entry.buffers.ntsecuritydescriptor?.[0];
-    const parsedSd = parseBinarySecurityDescriptor(sdBuf);
-    const allSidsToResolve = [
-      ...(parsedSd.ownerSid ? [parsedSd.ownerSid] : []),
-      ...parsedSd.aces.map((a) => a.trusteeSid),
-    ];
-    const sidMap = await resolveSidsViaLdap(session, allSidsToResolve);
+    const sdBuf = needSecurityDescriptor ? entry.buffers.ntsecuritydescriptor?.[0] : undefined;
+    const parsedSd = sdBuf
+      ? parseBinarySecurityDescriptor(sdBuf)
+      : { ownerSid: '', aces: [] as any[] };
+    const allSidsToResolve = runPermissionsStage
+      ? [
+          ...(parsedSd.ownerSid ? [parsedSd.ownerSid] : []),
+          ...parsedSd.aces.map((a) => a.trusteeSid),
+        ]
+      : parsedSd.ownerSid
+      ? [parsedSd.ownerSid]
+      : [];
+    const sidMap =
+      allSidsToResolve.length > 0
+        ? await resolveSidsViaLdap(session, allSidsToResolve)
+        : new Map<string, string>();
     const objectOwnerSid = parsedSd.ownerSid;
     const objectOwner =
       (objectOwnerSid && (sidMap.get(objectOwnerSid) || objectOwnerSid)) || '';
 
     const aclEntries: HelpdeskGroupAclEntry[] = [];
-    const seenAclKey = new Set<string>();
-    for (const ace of parsedSd.aces) {
-      const trustee = sidMap.get(ace.trusteeSid) || ace.trusteeSid;
-      const desc = describeAccessMask(ace.mask, ace.objectTypeGuid);
-      const dedupeKey = `${ace.trusteeSid}|${ace.accessType}|${desc.rightsEn}|${ace.isInherited}`;
-      if (seenAclKey.has(dedupeKey)) continue;
-      seenAclKey.add(dedupeKey);
-      aclEntries.push({
-        trustee,
-        trusteeSid: ace.trusteeSid,
-        accessType: ace.accessType,
-        rightsLabelEn: desc.rightsEn,
-        rightsLabelFa: desc.rightsFa,
-        scopeNoteEn: desc.scopeEn,
-        scopeNoteFa: desc.scopeFa,
-        isInherited: ace.isInherited,
-        isPrivilegeWrite: desc.isPrivilegeWrite,
-      });
+    if (runPermissionsStage) {
+      const seenAclKey = new Set<string>();
+      for (const ace of parsedSd.aces) {
+        const trustee = sidMap.get(ace.trusteeSid) || ace.trusteeSid;
+        const desc = describeAccessMask(ace.mask, ace.objectTypeGuid);
+        const dedupeKey = `${ace.trusteeSid}|${ace.accessType}|${desc.rightsEn}|${ace.isInherited}`;
+        if (seenAclKey.has(dedupeKey)) continue;
+        seenAclKey.add(dedupeKey);
+        aclEntries.push({
+          trustee,
+          trusteeSid: ace.trusteeSid,
+          accessType: ace.accessType,
+          rightsLabelEn: desc.rightsEn,
+          rightsLabelFa: desc.rightsFa,
+          scopeNoteEn: desc.scopeEn,
+          scopeNoteFa: desc.scopeFa,
+          isInherited: ace.isInherited,
+          isPrivilegeWrite: desc.isPrivilegeWrite,
+        });
+      }
     }
 
     // Determine whether managedBy manager explicitly holds Write Members on DACL
     let managerCanUpdateMembershipList: boolean | null = null;
-    if (managedBy) {
+    if (runPermissionsStage && managedBy) {
       const mgrLower = managedBy.samAccountName.toLowerCase();
       managerCanUpdateMembershipList = aclEntries.some(
         (a) =>
@@ -2221,7 +2259,7 @@ export async function inspectTargetDomainGroup(
     }
 
     // 7) Linked Fine-Grained Password Policies (msDS-PSOAppliesTo)
-    const psoDns = getAllAttrs(entry.attrs, 'msDS-PSOAppliesTo');
+    const psoDns = runPermissionsStage ? getAllAttrs(entry.attrs, 'msDS-PSOAppliesTo') : [];
     const appliedPasswordPolicies: HelpdeskGroupInspectionResult['permissions']['appliedPasswordPolicies'] = [];
     for (const psoDn of psoDns.slice(0, 10)) {
       try {
@@ -2294,18 +2332,35 @@ export async function inspectTargetDomainGroup(
       ? 'دریافت ایمیل از اینترنت (خارج سازمان) و کاربران داخلی باز است.'
       : 'فقط کاربران احراز هویت‌شده داخل سازمان مجاز به ارسال ایمیل به این گروه هستند.';
 
-    // 9) Optional WinRM DC query for Event Log Creator, recent Membership Events & GPO Security Filtering
+    // 9) Optional WinRM DC query for Event Log Creator, recent Membership Events & GPO Security Filtering (permissions/full stage only)
     const winrmHosts = dedupeStrings([pdcHost, session.host]);
-    const winrmEnrich = await collectGroupAuditEventsAndGposViaWinrm({
-      dcHosts: winrmHosts,
-      adminUsername,
-      adminPassword,
-      winrmProtocol: input.winrmProtocol || 'auto',
-      groupSam: sam,
-      groupCn: cn,
-      groupSid: objectSid,
-      groupDn,
-    });
+    const winrmEnrich = runPermissionsStage
+      ? await collectGroupAuditEventsAndGposViaWinrm({
+          dcHosts: winrmHosts,
+          adminUsername,
+          adminPassword,
+          winrmProtocol: input.winrmProtocol || 'auto',
+          groupSam: sam,
+          groupCn: cn,
+          groupSid: objectSid,
+          groupDn,
+        })
+      : {
+          status: 'unavailable' as const,
+          creatorAccount: '',
+          creatorTimestamp: null,
+          creatorDc: '',
+          gpos: [] as HelpdeskGroupGpoLink[],
+          events: [] as HelpdeskGroupAuditEvent[],
+          noteEn:
+            stage === 'overview'
+              ? 'Security Audit Events and GPO Security Filtering are loading sequentially (Step 3/3)...'
+              : 'Security Audit Events and GPOs were not requested in this stage.',
+          noteFa:
+            stage === 'overview'
+              ? 'رویدادهای امنیتی DC و پالیسی‌های GPO در مرحله ۳ از ۳ در حال بارگذاری است...'
+              : 'دریافت رویدادهای امنیتی در این مرحله درخواست نشده است.',
+        };
 
     const creatorSource: HelpdeskGroupInspectionResult['lifecycleAndOwnership']['creatorSource'] =
       winrmEnrich.creatorAccount
@@ -2318,12 +2373,16 @@ export async function inspectTargetDomainGroup(
     const creatorNoteEn = winrmEnrich.creatorAccount
       ? `Verified from DC Security Event Log creation event on ${winrmEnrich.creatorDc}.`
       : objectOwner
-      ? `AD does not store a separate "CreatedBy" attribute once Security Logs (4727/4731/4754) rotate; current AD Object Owner is "${objectOwner}" (Active Directory automatically sets the creator as Owner when a group is created).`
+      ? stage === 'overview'
+        ? `Current AD Object Owner is "${objectOwner}". Checking DC Security Event Logs for explicit creation record in Step 3...`
+        : `AD does not store a separate "CreatedBy" attribute once Security Logs (4727/4731/4754) rotate; current AD Object Owner is "${objectOwner}" (Active Directory automatically sets the creator as Owner when a group is created).`
       : 'Creator event was not found within DC Security Log retention and nTSecurityDescriptor Owner could not be read.';
     const creatorNoteFa = winrmEnrich.creatorAccount
       ? `سازنده دقیق گروه از رویداد Security Event Log در دامین کنترلر ${winrmEnrich.creatorDc} استخراج شد.`
       : objectOwner
-      ? `اکتیو دایرکتوری به صورت پیش‌فرض نام سازنده را فقط در لاگ‌های رویداد (4727/4731/4754) نگه می‌دارد؛ مالک فعلی آبجکت (Object Owner) در AD مقدار «${objectOwner}» است (در زمان ساخت گروه، خود سازنده به صورت خودکار به عنوان Owner ثبت می‌شود).`
+      ? stage === 'overview'
+        ? `مالک فعلی آبجکت (Object Owner) در AD مقدار «${objectOwner}» است؛ بررسی لاگ امنیتی ساخت گروه در مرحله ۳ در حال انجام است...`
+        : `اکتیو دایرکتوری به صورت پیش‌فرض نام سازنده را فقط در لاگ‌های رویداد (4727/4731/4754) نگه می‌دارد؛ مالک فعلی آبجکت (Object Owner) در AD مقدار «${objectOwner}» است (در زمان ساخت گروه، خود سازنده به صورت خودکار به عنوان Owner ثبت می‌شود).`
       : 'رویداد ساخت در بازه نگهداری لاگ امنیتی دامین کنترلر یافت نشد و خواندن Owner از AD نیز میسر نبود.';
 
     // 10) Build plain-language human-readable permissions insights

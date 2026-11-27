@@ -16239,6 +16239,77 @@ export async function addHelpdeskGroupHistoryInDb(
   return rec;
 }
 
+export async function updateHelpdeskGroupHistoryMetricsInDb(params: {
+  historyId: string;
+  actorAliases?: string[];
+  memberCount?: number | null;
+  nestedGroupCount?: number | null;
+  parentGroupCount?: number | null;
+  creatorDisplay?: string;
+}): Promise<boolean> {
+  const id = String(params.historyId || '').trim();
+  if (!id) return false;
+  const actorSet = normalizeActorMatchSet(params.actorAliases);
+
+  const applyPatch = (rec: HelpdeskGroupHistoryRecord): HelpdeskGroupHistoryRecord => ({
+    ...rec,
+    memberCount:
+      typeof params.memberCount === 'number' && Number.isFinite(params.memberCount)
+        ? params.memberCount
+        : rec.memberCount,
+    nestedGroupCount:
+      typeof params.nestedGroupCount === 'number' && Number.isFinite(params.nestedGroupCount)
+        ? params.nestedGroupCount
+        : rec.nestedGroupCount,
+    parentGroupCount:
+      typeof params.parentGroupCount === 'number' && Number.isFinite(params.parentGroupCount)
+        ? params.parentGroupCount
+        : rec.parentGroupCount,
+    creatorDisplay:
+      typeof params.creatorDisplay === 'string' && params.creatorDisplay.trim()
+        ? params.creatorDisplay.trim()
+        : rec.creatorDisplay,
+  });
+
+  let updated = false;
+  const store = loadFallbackStore();
+  if (Array.isArray(store.helpdesk_group_history)) {
+    const idx = store.helpdesk_group_history.findIndex((h) => h.id === id);
+    if (idx >= 0) {
+      const target = store.helpdesk_group_history[idx];
+      if (!actorSet || actorSet.has(String(target.actorName || '').trim().toLowerCase())) {
+        store.helpdesk_group_history[idx] = applyPatch(target);
+        saveFallbackStore(store);
+        updated = true;
+      }
+    }
+  }
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskGroupHistoryTable();
+      const chk = await pool.query(`SELECT data FROM helpdesk_group_history WHERE id = $1`, [id]);
+      if (chk.rows.length > 0) {
+        const rec: HelpdeskGroupHistoryRecord =
+          typeof chk.rows[0].data === 'string' ? JSON.parse(chk.rows[0].data) : chk.rows[0].data;
+        if (!actorSet || actorSet.has(String(rec.actorName || '').trim().toLowerCase())) {
+          const next = applyPatch(rec);
+          await pool.query(
+            `UPDATE helpdesk_group_history SET data = $2::jsonb WHERE id = $1`,
+            [id, JSON.stringify(next)]
+          );
+          updated = true;
+        }
+      }
+    } catch (e: any) {
+      console.warn('[DB] updateHelpdeskGroupHistoryMetricsInDb error:', e?.message || e);
+    }
+  }
+
+  return updated;
+}
+
 export async function queryHelpdeskGroupHistoryFromDb(params: {
   search?: string;
   status?: 'all' | 'success' | 'failed';

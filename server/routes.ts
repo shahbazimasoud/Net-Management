@@ -137,6 +137,7 @@ import {
   unlockTargetDomainUser,
   searchDomainUsers,
   HelpdeskUserInspectInput,
+  HelpdeskUserInspectStage,
   HelpdeskUserSearchInput,
   LdapTransportProtocol,
 } from './helpdeskUserService';
@@ -144,6 +145,7 @@ import {
   searchDomainGroups,
   inspectTargetDomainGroup,
   HelpdeskGroupInspectInput,
+  HelpdeskGroupInspectStage,
   HelpdeskGroupSearchInput,
 } from './helpdeskGroupService';
 import { ZipArchive } from 'archiver';
@@ -288,6 +290,7 @@ import {
   deleteHelpdeskUserHistoryFromDb,
   clearHelpdeskUserHistoryFromDb,
   addHelpdeskGroupHistoryInDb,
+  updateHelpdeskGroupHistoryMetricsInDb,
   queryHelpdeskGroupHistoryFromDb,
   deleteHelpdeskGroupHistoryFromDb,
   clearHelpdeskGroupHistoryFromDb,
@@ -11251,6 +11254,15 @@ function extractHelpdeskUserInputFromBody(body: any): HelpdeskUserInspectInput {
       ? rawWinrm
       : 'auto';
 
+  const rawStage = String(body?.stage || 'full').trim().toLowerCase();
+  const stage: HelpdeskUserInspectStage =
+    rawStage === 'overview' ||
+    rawStage === 'security' ||
+    rawStage === 'groups' ||
+    rawStage === 'mailbox'
+      ? rawStage
+      : 'full';
+
   return {
     targetUsername: String(body?.targetUsername || '').trim(),
     adminUsername: String(body?.adminUsername || '').trim(),
@@ -11260,6 +11272,7 @@ function extractHelpdeskUserInputFromBody(body: any): HelpdeskUserInspectInput {
     exchangeServer: body?.exchangeServer ? String(body.exchangeServer).trim() : undefined,
     winrmProtocol,
     includeMailbox: body?.includeMailbox !== false,
+    stage,
   };
 }
 
@@ -11359,30 +11372,32 @@ apiRouter.post('/helpdesk/user/inspect', async (req: Request, res: Response) => 
       }).catch(() => null);
       historyId = savedHist?.id;
     }
-    await addPortalAuditLog({
-      category: 'helpdesk',
-      action: 'helpdesk_user_inspect',
-      title: `بررسی پروفایل و وضعیت کاربر دامین (${data.profile.samAccountName})`,
-      title_en: `HelpDesk Target User Inspect (${data.profile.samAccountName})`,
-      details: `کاربر ${data.profile.displayName} (${data.profile.samAccountName}) بررسی شد — قفل: ${data.security.accountLocked ? 'بله' : 'خیر'} — ایمیل: ${data.contact.primaryEmail || '-'} — دپارتمان: ${data.profile.department || '-'}.`,
-      details_en: `Inspected AD user ${data.profile.displayName} (${data.profile.samAccountName}) — Locked: ${data.security.accountLocked ? 'Yes' : 'No'} — Email: ${data.contact.primaryEmail || '-'} — Department: ${data.profile.department || '-'}.`,
-      userName: auth.actorName,
-      userRole: auth.actorRole,
-      status: 'success',
-      severity: 'info',
-      target: {
-        type: 'user',
-        name: data.profile.samAccountName,
-        metadata: {
-          domainController: data.connectionInfo.domainController,
-          method: data.connectionInfo.method,
-          locked: data.security.accountLocked,
-          passwordExpired: data.security.passwordExpired,
-          hasMailbox: data.mailbox.hasMailbox,
+    if (!skipHistory) {
+      await addPortalAuditLog({
+        category: 'helpdesk',
+        action: 'helpdesk_user_inspect',
+        title: `بررسی پروفایل و وضعیت کاربر دامین (${data.profile.samAccountName})`,
+        title_en: `HelpDesk Target User Inspect (${data.profile.samAccountName})`,
+        details: `کاربر ${data.profile.displayName} (${data.profile.samAccountName}) بررسی شد — قفل: ${data.security.accountLocked ? 'بله' : 'خیر'} — ایمیل: ${data.contact.primaryEmail || '-'} — دپارتمان: ${data.profile.department || '-'}.`,
+        details_en: `Inspected AD user ${data.profile.displayName} (${data.profile.samAccountName}) — Locked: ${data.security.accountLocked ? 'Yes' : 'No'} — Email: ${data.contact.primaryEmail || '-'} — Department: ${data.profile.department || '-'}.`,
+        userName: auth.actorName,
+        userRole: auth.actorRole,
+        status: 'success',
+        severity: 'info',
+        target: {
+          type: 'user',
+          name: data.profile.samAccountName,
+          metadata: {
+            domainController: data.connectionInfo.domainController,
+            method: data.connectionInfo.method,
+            locked: data.security.accountLocked,
+            passwordExpired: data.security.passwordExpired,
+            hasMailbox: data.mailbox.hasMailbox,
+          },
         },
-      },
-      clientIp: auth.clientIp,
-    }).catch(() => {});
+        clientIp: auth.clientIp,
+      }).catch(() => {});
+    }
     return res.json({
       success: true,
       data,
@@ -11761,6 +11776,12 @@ function extractHelpdeskGroupInputFromBody(body: any): HelpdeskGroupInspectInput
       ? rawWinrm
       : 'auto';
 
+  const rawStage = String(body?.stage || 'full').trim().toLowerCase();
+  const stage: HelpdeskGroupInspectStage =
+    rawStage === 'overview' || rawStage === 'members' || rawStage === 'permissions'
+      ? rawStage
+      : 'full';
+
   return {
     targetGroup: String(body?.targetGroup || '').trim(),
     adminUsername: String(body?.adminUsername || '').trim(),
@@ -11768,6 +11789,7 @@ function extractHelpdeskGroupInputFromBody(body: any): HelpdeskGroupInspectInput
     domainController: body?.domainController ? String(body.domainController).trim() : undefined,
     ldapProtocol,
     winrmProtocol,
+    stage,
   };
 }
 
@@ -11861,30 +11883,68 @@ apiRouter.post('/helpdesk/group/inspect', async (req: Request, res: Response) =>
         actorRole: auth.actorRole,
       }).catch(() => null);
       historyId = savedHist?.id;
+    } else {
+      const existingHistoryId =
+        typeof req.body?.historyId === 'string' ? req.body.historyId.trim() : '';
+      if (existingHistoryId && (input.stage === 'members' || input.stage === 'permissions')) {
+        const canViewAll = Boolean(
+          auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory
+        );
+        const actorAliases = canViewAll
+          ? undefined
+          : Array.from(
+              new Set(
+                [auth.actorName, auth.user?.username, auth.user?.fullName]
+                  .map((s) => String(s || '').trim())
+                  .filter(Boolean)
+              )
+            );
+        if (input.stage === 'members') {
+          await updateHelpdeskGroupHistoryMetricsInDb({
+            historyId: existingHistoryId,
+            actorAliases,
+            memberCount:
+              data.membershipSummary.totalDirectMembers +
+              data.membershipSummary.totalPrimaryGroupMembers,
+            nestedGroupCount: data.nestedChildGroups.length,
+            parentGroupCount: data.parentGroups.length,
+          }).catch(() => {});
+        } else {
+          await updateHelpdeskGroupHistoryMetricsInDb({
+            historyId: existingHistoryId,
+            actorAliases,
+            parentGroupCount: data.parentGroups.length,
+            creatorDisplay:
+              data.lifecycleAndOwnership.creatorAccount || data.lifecycleAndOwnership.objectOwner,
+          }).catch(() => {});
+        }
+      }
     }
 
-    await addPortalAuditLog({
-      category: 'helpdesk',
-      action: 'helpdesk_group_inspect',
-      title: `بررسی گروه دامین (${data.identity.cn})`,
-      title_en: `HelpDesk Target AD Group Inspect (${data.identity.cn})`,
-      description: `گروه ${data.identity.cn} در مسیر ${data.identity.organizationalUnit} بررسی شد — تعداد عضو مستقیم: ${data.membershipSummary.totalDirectMembers} — سازنده/مالک: ${data.lifecycleAndOwnership.creatorAccount || '-'}.`,
-      description_en: `Inspected AD group ${data.identity.cn} in OU ${data.identity.organizationalUnit} — Direct members: ${data.membershipSummary.totalDirectMembers} — Creator/Owner: ${data.lifecycleAndOwnership.creatorAccount || '-'}.`,
-      userName: auth.actorName,
-      userRole: auth.actorRole,
-      status: 'success',
-      severity: 'info',
-      targetName: data.identity.samAccountName,
-      clientIp: auth.clientIp,
-      metadata: {
-        domainController: data.connectionInfo.domainController,
-        method: data.connectionInfo.method,
-        ou: data.identity.organizationalUnit,
-        groupScope: data.identity.groupScope,
-        groupCategory: data.identity.groupCategory,
-        isPrivileged: data.identity.isPrivileged,
-      },
-    }).catch(() => {});
+    if (!skipHistory) {
+      await addPortalAuditLog({
+        category: 'helpdesk',
+        action: 'helpdesk_group_inspect',
+        title: `بررسی گروه دامین (${data.identity.cn})`,
+        title_en: `HelpDesk Target AD Group Inspect (${data.identity.cn})`,
+        description: `گروه ${data.identity.cn} در مسیر ${data.identity.organizationalUnit} بررسی شد — تعداد عضو مستقیم: ${data.membershipSummary.totalDirectMembers} — سازنده/مالک: ${data.lifecycleAndOwnership.creatorAccount || '-'}.`,
+        description_en: `Inspected AD group ${data.identity.cn} in OU ${data.identity.organizationalUnit} — Direct members: ${data.membershipSummary.totalDirectMembers} — Creator/Owner: ${data.lifecycleAndOwnership.creatorAccount || '-'}.`,
+        userName: auth.actorName,
+        userRole: auth.actorRole,
+        status: 'success',
+        severity: 'info',
+        targetName: data.identity.samAccountName,
+        clientIp: auth.clientIp,
+        metadata: {
+          domainController: data.connectionInfo.domainController,
+          method: data.connectionInfo.method,
+          ou: data.identity.organizationalUnit,
+          groupScope: data.identity.groupScope,
+          groupCategory: data.identity.groupCategory,
+          isPrivileged: data.identity.isPrivileged,
+        },
+      }).catch(() => {});
+    }
 
     return res.json({
       success: true,

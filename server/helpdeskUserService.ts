@@ -22,6 +22,8 @@ export interface HelpdeskAdPolicyContext {
 
 export type LdapTransportProtocol = 'auto' | 'ldaps' | 'ldap';
 
+export type HelpdeskUserInspectStage = 'full' | 'overview' | 'security' | 'groups' | 'mailbox';
+
 export interface HelpdeskUserInspectInput {
   targetUsername: string;
   adminUsername: string;
@@ -31,6 +33,7 @@ export interface HelpdeskUserInspectInput {
   exchangeServer?: string;
   winrmProtocol?: HelpdeskProtocol;
   includeMailbox?: boolean;
+  stage?: HelpdeskUserInspectStage;
 }
 
 export interface HelpdeskUserMailboxInput extends HelpdeskUserInspectInput {}
@@ -2871,6 +2874,18 @@ export async function inspectTargetDomainUser(
   input: HelpdeskUserInspectInput,
   policyContext?: HelpdeskAdPolicyContext
 ): Promise<HelpdeskUserInspectionResult> {
+  const stage: HelpdeskUserInspectStage =
+    input.stage === 'overview' ||
+    input.stage === 'security' ||
+    input.stage === 'groups' ||
+    input.stage === 'mailbox'
+      ? input.stage
+      : 'full';
+  const runOverviewStage = stage === 'full' || stage === 'overview';
+  const runSecurityStage = stage === 'full' || stage === 'security';
+  const runGroupsStage = stage === 'full' || stage === 'groups';
+  const runMailboxStage = stage === 'mailbox' || (stage === 'full' && input.includeMailbox !== false);
+
   const cleanTarget = sanitizeAndValidateTargetUsername(input.targetUsername);
   const adminUsername = String(input.adminUsername || '').trim();
   const adminPassword = String(input.adminPassword || '');
@@ -2955,22 +2970,24 @@ export async function inspectTargetDomainUser(
           err.blockedByException = true;
           throw err;
         }
-        const [evRes, dcRightsRes] = await Promise.all([
-          collectUserLockoutSecurityEvents({
-            dcHosts: pdcHost ? [pdcHost, fallbackHost] : [fallbackHost],
-            samAccountName: winrmRes.profile.samAccountName,
-            adminUsername,
-            adminPassword,
-            winrmProtocol: input.winrmProtocol,
-          }).catch(() => null),
-          collectDcUserLogonRights({
-            dcHosts: pdcHost ? [pdcHost, fallbackHost] : [fallbackHost],
-            targetSids: winrmSids,
-            adminUsername,
-            adminPassword,
-            winrmProtocol: input.winrmProtocol,
-          }).catch(() => null),
-        ]);
+        const [evRes, dcRightsRes] = runSecurityStage
+          ? await Promise.all([
+              collectUserLockoutSecurityEvents({
+                dcHosts: pdcHost ? [pdcHost, fallbackHost] : [fallbackHost],
+                samAccountName: winrmRes.profile.samAccountName,
+                adminUsername,
+                adminPassword,
+                winrmProtocol: input.winrmProtocol,
+              }).catch(() => null),
+              collectDcUserLogonRights({
+                dcHosts: pdcHost ? [pdcHost, fallbackHost] : [fallbackHost],
+                targetSids: winrmSids,
+                adminUsername,
+                adminPassword,
+                winrmProtocol: input.winrmProtocol,
+              }).catch(() => null),
+            ])
+          : [null, null];
         if (evRes) {
           winrmRes.security.lockoutEventsStatus = evRes.status;
           winrmRes.security.lockoutEventsNote = evRes.note;
@@ -2980,7 +2997,7 @@ export async function inspectTargetDomainUser(
         if (dcRightsRes && winrmRes.logonAndProfile) {
           winrmRes.logonAndProfile.dcInteractiveRights = dcRightsRes;
         }
-        if (input.includeMailbox !== false && winrmRes.mailbox.hasMailbox) {
+        if (runMailboxStage && winrmRes.mailbox.hasMailbox) {
           const { defaultMailHost, candidates } = buildPrioritizedExchangeCandidates({
             explicitExch,
             primaryEmail: winrmRes.contact.primaryEmail,
@@ -3034,10 +3051,14 @@ export async function inspectTargetDomainUser(
     const escSam = escapeLdapFilterValue(targetParts.sam || cleanTarget);
     const filter = `(&(objectCategory=person)(objectClass=user)(|(sAMAccountName=${escSam})(userPrincipalName=${escFull})(mail=${escFull})(proxyAddresses=smtp:${escFull})(proxyAddresses=SMTP:${escFull})))`;
 
+    const ldapAttrsForStage = runOverviewStage
+      ? USER_LDAP_ATTRIBUTES
+      : USER_LDAP_ATTRIBUTES.filter((a) => a !== 'thumbnailPhoto');
+
     let entries = await ldapSearchEntries(session.client, searchBase, {
       scope: 'sub',
       filter,
-      attributes: USER_LDAP_ATTRIBUTES,
+      attributes: ldapAttrsForStage,
       sizeLimit: 5,
     });
 
@@ -3046,7 +3067,7 @@ export async function inspectTargetDomainUser(
       entries = await ldapSearchEntries(session.client, session.defaultNamingContext, {
         scope: 'sub',
         filter,
-        attributes: USER_LDAP_ATTRIBUTES,
+        attributes: ldapAttrsForStage,
         sizeLimit: 5,
       });
     }
@@ -3115,17 +3136,19 @@ export async function inspectTargetDomainUser(
       }
     };
 
-    const managerDn = getFirstAttr(attrs, 'manager');
-    const directReportDns = getAllAttrs(attrs, 'directReports').slice(0, 25);
+    const managerDn = runOverviewStage ? getFirstAttr(attrs, 'manager') : '';
+    const directReportDns = runOverviewStage ? getAllAttrs(attrs, 'directReports').slice(0, 25) : [];
 
     const [managerResolved, directReportsResolved, tokenGroupsRows] = await Promise.all([
-      resolvePersonByDn(managerDn),
-      Promise.all(directReportDns.map((d) => resolvePersonByDn(d))),
-      ldapSearchEntries(session.client, userDn, {
-        scope: 'base',
-        filter: '(objectClass=*)',
-        attributes: ['tokenGroups'],
-      }).catch(() => []),
+      runOverviewStage ? resolvePersonByDn(managerDn) : Promise.resolve(null),
+      runOverviewStage ? Promise.all(directReportDns.map((d) => resolvePersonByDn(d))) : Promise.resolve([]),
+      runSecurityStage
+        ? ldapSearchEntries(session.client, userDn, {
+            scope: 'base',
+            filter: '(objectClass=*)',
+            attributes: ['tokenGroups'],
+          }).catch(() => [])
+        : Promise.resolve([]),
     ]);
 
     const userObjectSid = parseBinarySid(bufs['objectsid']?.[0]);
@@ -3146,7 +3169,7 @@ export async function inspectTargetDomainUser(
       lockoutObservationWindowMinutes: null,
     };
 
-    const psoDn = getFirstAttr(attrs, 'msDS-ResultantPSO');
+    const psoDn = runSecurityStage ? getFirstAttr(attrs, 'msDS-ResultantPSO') : '';
     if (psoDn) {
       try {
         const psoRows = await ldapSearchEntries(session.client, psoDn, {
@@ -3187,7 +3210,7 @@ export async function inspectTargetDomainUser(
       } catch {}
     }
 
-    if (domainPolicy.source === 'unknown' && session.defaultNamingContext) {
+    if (runSecurityStage && domainPolicy.source === 'unknown' && session.defaultNamingContext) {
       try {
         const domRows = await ldapSearchEntries(session.client, session.defaultNamingContext, {
           scope: 'base',
@@ -3263,44 +3286,82 @@ export async function inspectTargetDomainUser(
       lastLogon: lastLogonDirectFt.iso,
     };
 
-    // Multi-DC non-replicated telemetry + Security Event Log in parallel (non-blocking)
-    const otherDcs = dcCandidates
-      .filter((h) => h.toLowerCase() !== session.host.toLowerCase() && h.toLowerCase() !== session.domainName.toLowerCase())
-      .slice(0, 4);
+    // Multi-DC non-replicated telemetry + Security Event Log in parallel (only during security/full stage)
+    const otherDcs = runSecurityStage
+      ? dcCandidates
+          .filter((h) => h.toLowerCase() !== session.host.toLowerCase() && h.toLowerCase() !== session.domainName.toLowerCase())
+          .slice(0, 4)
+      : [];
 
-    const [otherDcResults, secEventsResult, dcRightsResult] = await Promise.all([
-      Promise.all(
-        otherDcs.map((h) =>
-          querySingleDcLockoutAttributes({
-            dcHost: h,
-            isPdc:
-              Boolean(pdcHost) &&
-              (h.toLowerCase() === pdcHost.toLowerCase() ||
-                h.split('.')[0].toLowerCase() === pdcHost.split('.')[0].toLowerCase()),
-            userDn,
+    const [otherDcResults, secEventsResult, dcRightsResult] = runSecurityStage
+      ? await Promise.all([
+          Promise.all(
+            otherDcs.map((h) =>
+              querySingleDcLockoutAttributes({
+                dcHost: h,
+                isPdc:
+                  Boolean(pdcHost) &&
+                  (h.toLowerCase() === pdcHost.toLowerCase() ||
+                    h.split('.')[0].toLowerCase() === pdcHost.split('.')[0].toLowerCase()),
+                userDn,
+                adminUsername,
+                adminPassword,
+                domainHints,
+                adConfig,
+                ldapProtocol: input.ldapProtocol,
+              })
+            )
+          ),
+          collectUserLockoutSecurityEvents({
+            dcHosts: pdcHost ? [pdcHost, session.host] : [session.host],
+            samAccountName: sam,
             adminUsername,
             adminPassword,
-            domainHints,
-            adConfig,
-            ldapProtocol: input.ldapProtocol,
-          })
-        )
-      ),
-      collectUserLockoutSecurityEvents({
-        dcHosts: pdcHost ? [pdcHost, session.host] : [session.host],
-        samAccountName: sam,
-        adminUsername,
-        adminPassword,
-        winrmProtocol: input.winrmProtocol,
-      }),
-      collectDcUserLogonRights({
-        dcHosts: pdcHost ? [pdcHost, session.host] : [session.host],
-        targetSids: effectiveUserSids,
-        adminUsername,
-        adminPassword,
-        winrmProtocol: input.winrmProtocol,
-      }),
-    ]);
+            winrmProtocol: input.winrmProtocol,
+          }),
+          collectDcUserLogonRights({
+            dcHosts: pdcHost ? [pdcHost, session.host] : [session.host],
+            targetSids: effectiveUserSids,
+            adminUsername,
+            adminPassword,
+            winrmProtocol: input.winrmProtocol,
+          }),
+        ])
+      : [
+          [],
+          {
+            status: 'unavailable' as const,
+            note:
+              stage === 'overview'
+                ? 'Security Event Log telemetry is loading sequentially (Step 2/4)...'
+                : 'Security Event Log telemetry not requested in this stage.',
+            noteFa:
+              stage === 'overview'
+                ? 'در حال بررسی رویدادهای امنیتی قفل اکانت در مرحله ۲ از ۴...'
+                : 'دریافت رویدادهای امنیتی در این مرحله درخواست نشده است.',
+            events: [] as HelpdeskUserLockoutEventEntry[],
+          },
+          {
+            status: 'unavailable' as const,
+            dcHost: pdcHost || session.host,
+            allowLocalOnDc: null,
+            denyLocalOnDc: null,
+            allowRdpOnDc: null,
+            denyRdpOnDc: null,
+            matchedAllowLocalTrustees: [],
+            matchedDenyLocalTrustees: [],
+            matchedAllowRdpTrustees: [],
+            matchedDenyRdpTrustees: [],
+            noteEn:
+              stage === 'overview'
+                ? 'DC User Rights Assignment telemetry is loading sequentially (Step 2/4)...'
+                : 'DC User Rights Assignment telemetry not requested in this stage.',
+            noteFa:
+              stage === 'overview'
+                ? 'در حال بررسی سیاست ورود محلی دامین کنترلر در مرحله ۲ از ۴...'
+                : 'بررسی سیاست ورود محلی دامین کنترلر در این مرحله درخواست نشده است.',
+          },
+        ];
 
     const dcLockoutBreakdown = [primaryDcEntry, ...otherDcResults.filter((d) => d.reachable)];
     const totalBadPwdCount = dcLockoutBreakdown.reduce((sum, d) => sum + (Number(d.badPwdCount) || 0), 0);
@@ -3363,9 +3424,26 @@ export async function inspectTargetDomainUser(
         isPrimary: true,
       });
     } else if (primaryGroupId) {
+      let pgCn = `Primary Group (RID ${primaryGroupId})`;
+      let pgDn = `RID:${primaryGroupId}`;
+      const pgNum = Number(primaryGroupId);
+      if (runGroupsStage && Number.isInteger(pgNum) && pgNum > 0 && session.defaultNamingContext) {
+        try {
+          const pgRows = await ldapSearchEntries(session.client, session.defaultNamingContext, {
+            scope: 'sub',
+            filter: `(&(objectCategory=group)(primaryGroupToken=${pgNum}))`,
+            attributes: ['cn', 'sAMAccountName', 'distinguishedName'],
+            sizeLimit: 2,
+          });
+          if (pgRows[0]) {
+            pgCn = getFirstAttr(pgRows[0].attrs, 'cn') || getFirstAttr(pgRows[0].attrs, 'sAMAccountName') || pgCn;
+            pgDn = pgRows[0].dn || getFirstAttr(pgRows[0].attrs, 'distinguishedName') || pgDn;
+          }
+        } catch {}
+      }
       groups.unshift({
-        cn: `Primary Group (RID ${primaryGroupId})`,
-        dn: `RID:${primaryGroupId}`,
+        cn: pgCn,
+        dn: pgDn,
         isPrimary: true,
       });
     }
@@ -3403,7 +3481,7 @@ export async function inspectTargetDomainUser(
     let dbSendRaw = '';
     let dbRecvRaw = '';
 
-    if (homeMdbDn) {
+    if (runMailboxStage && homeMdbDn) {
       try {
         const dbRows = await ldapSearchEntries(session.client, homeMdbDn, {
           scope: 'base',
@@ -3496,7 +3574,7 @@ export async function inspectTargetDomainUser(
       archiveQuotaBytes: archQuotaQ.bytes,
     };
 
-    if (input.includeMailbox !== false && hasMailbox) {
+    if (runMailboxStage && hasMailbox) {
       mailbox = await enrichLiveMailboxStats({
         mailbox,
         identity: primaryEmail || upn || sam,
@@ -3508,6 +3586,9 @@ export async function inspectTargetDomainUser(
     } else if (!hasMailbox) {
       mailbox.exchangeStatusMessage = 'No Exchange mailbox attributes (homeMDB / msExchMailboxGuid) detected on this AD account.';
       mailbox.exchangeStatusMessageFa = 'هیچ ویژگی میل‌باکس Exchange (مانند homeMDB یا msExchMailboxGuid) روی این اکانت اکتیو دایرکتوری ثبت نشده است.';
+    } else if (stage === 'overview') {
+      mailbox.exchangeStatusMessage = 'Live Exchange mailbox usage stats are loading sequentially (Step 4/4)...';
+      mailbox.exchangeStatusMessageFa = 'در حال دریافت حجم مصرفی لحظه‌ای میل‌باکس از سرور Exchange (مرحله ۴ از ۴)...';
     }
 
     return {
@@ -3620,7 +3701,10 @@ export async function inspectTargetDomainMailbox(
   input: HelpdeskUserMailboxInput,
   policyContext?: HelpdeskAdPolicyContext
 ): Promise<HelpdeskUserMailboxInfo> {
-  const full = await inspectTargetDomainUser({ ...input, includeMailbox: true }, policyContext);
+  const full = await inspectTargetDomainUser(
+    { ...input, includeMailbox: true, stage: 'mailbox' },
+    policyContext
+  );
   return full.mailbox;
 }
 

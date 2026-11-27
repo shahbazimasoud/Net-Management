@@ -2869,6 +2869,7 @@ export interface HelpdeskTargetUserRequestPayload {
   exchangeServer?: string;
   winrmProtocol?: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
   includeMailbox?: boolean;
+  stage?: 'full' | 'overview' | 'security' | 'groups' | 'mailbox';
   historyId?: string;
   skipHistory?: boolean;
 }
@@ -3274,6 +3275,8 @@ export interface HelpdeskTargetGroupRequestPayload {
   domainController?: string;
   ldapProtocol?: 'auto' | 'ldaps' | 'ldap';
   winrmProtocol?: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
+  stage?: 'full' | 'overview' | 'members' | 'permissions';
+  historyId?: string;
   skipHistory?: boolean;
 }
 
