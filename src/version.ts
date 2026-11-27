@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.497.3';
+export const APP_VERSION = '1.497.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.497.4',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'افزودن ستون Description و مرتب‌سازی کلیکی ستون‌ها در جدول Group Membership Directory',
+    title_en: 'Add AD Description Column & Clickable Column Sorting in Group Membership Directory',
+    changes: [
+      'استخراج صفت واقعی `description` از اکتیو دایرکتوری برای اعضای مستقیم، Primary و ارث‌بری‌شده در `server/helpdeskGroupService.ts` و `src/services/api.ts`.',
+      'افزودن ستون `توضیحات (Description)` دقیقاً پس از ستون `دپارتمان / سمت` در جدول `Group Membership Directory` (`src/components/HelpDeskGroupsView.tsx`) همراه با پشتیبانی در جستجوی جدول.',
+      'تجهیز تمامی ستون‌های جدولی (`نام عضو`، `نوع و وضعیت`، `دپارتمان / سمت`، `توضیحات (Description)` و `مسیر OU / منبع`) به مرتب‌سازی کلیکی صعودی/نزولی با آیکون وضعیت مرتب‌سازی.'
+    ],
+    changes_en: [
+      'Fetched authentic Active Directory `description` attributes for direct, primary-group, and inherited group members in `server/helpdeskGroupService.ts` and `src/services/api.ts`.',
+      'Added the `Description` column immediately after `Department / Title` in the `Group Membership Directory` table (`src/components/HelpDeskGroupsView.tsx`) and included member descriptions in table search filtering.',
+      'Enabled clickable ascending/descending column sorting with sort direction indicators across `Member`, `Type / Status`, `Department / Title`, `Description`, and `OU / Source`.'
+    ]
+  },
   {
     version: '1.497.3',
     releaseDate: '2026-11-26',

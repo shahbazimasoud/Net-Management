@@ -81,6 +81,7 @@ export interface HelpdeskGroupMemberEntry {
   objectType: 'user' | 'group' | 'computer' | 'contact' | 'foreign_principal' | 'unknown';
   department: string;
   jobTitle: string;
+  description: string;
   email: string;
   organizationalUnit: string;
   accountEnabled: boolean | null;
@@ -955,6 +956,7 @@ async function batchHydrateDnsViaLdap(
           'displayName',
           'department',
           'title',
+          'description',
           'mail',
           'userAccountControl',
           'lockoutTime',
@@ -981,6 +983,7 @@ async function batchHydrateDnsViaLdap(
           objectType,
           department: getFirstAttr(r.attrs, 'department'),
           jobTitle: getFirstAttr(r.attrs, 'title'),
+          description: getFirstAttr(r.attrs, 'description'),
           email: getFirstAttr(r.attrs, 'mail'),
           organizationalUnit: extractOuBreadcrumb(dn),
           accountEnabled:
@@ -1006,6 +1009,7 @@ async function batchHydrateDnsViaLdap(
         objectType: isFsp ? 'foreign_principal' : 'unknown',
         department: '',
         jobTitle: '',
+        description: '',
         email: '',
         organizationalUnit: extractOuBreadcrumb(dn),
         accountEnabled: null,
@@ -2003,6 +2007,7 @@ export async function inspectTargetDomainGroup(
             'displayName',
             'department',
             'title',
+            'description',
             'mail',
             'userAccountControl',
             'lockoutTime',
@@ -2025,6 +2030,7 @@ export async function inspectTargetDomainGroup(
             objectType,
             department: getFirstAttr(r.attrs, 'department'),
             jobTitle: getFirstAttr(r.attrs, 'title'),
+            description: getFirstAttr(r.attrs, 'description'),
             email: getFirstAttr(r.attrs, 'mail'),
             organizationalUnit: extractOuBreadcrumb(dn),
             accountEnabled:
@@ -2053,6 +2059,7 @@ export async function inspectTargetDomainGroup(
             'displayName',
             'department',
             'title',
+            'description',
             'mail',
             'userAccountControl',
             'lockoutTime',
@@ -2080,6 +2087,7 @@ export async function inspectTargetDomainGroup(
             objectType,
             department: getFirstAttr(r.attrs, 'department'),
             jobTitle: getFirstAttr(r.attrs, 'title'),
+            description: getFirstAttr(r.attrs, 'description'),
             email: getFirstAttr(r.attrs, 'mail'),
             organizationalUnit: extractOuBreadcrumb(dn),
             accountEnabled:

@@ -39,6 +39,9 @@ import {
   GitBranch,
   FileCode2,
   X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -146,11 +149,26 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
   const [showGroupBrowser, setShowGroupBrowser] = useState(false);
   const [browserQuery, setBrowserQuery] = useState('');
 
-  // Members sub-tab filters & add/remove UI
+  // Members sub-tab filters & sorting
   const [memberViewMode, setMemberViewMode] = useState<
     'all' | 'users' | 'groups' | 'computers' | 'primary' | 'inherited'
   >('all');
   const [memberSearch, setMemberSearch] = useState('');
+  const [memberSortKey, setMemberSortKey] = useState<
+    'member' | 'type' | 'department' | 'description' | 'ou'
+  >('member');
+  const [memberSortDir, setMemberSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const handleToggleMemberSort = (
+    key: 'member' | 'type' | 'department' | 'description' | 'ou'
+  ) => {
+    if (memberSortKey === key) {
+      setMemberSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setMemberSortKey(key);
+      setMemberSortDir('asc');
+    }
+  };
 
   // ACL filter
   const [aclSearch, setAclSearch] = useState('');
@@ -417,18 +435,55 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
     }
 
     const q = memberSearch.trim().toLowerCase();
-    if (!q) return pool;
-    return pool.filter(
-      (m) =>
-        m.samAccountName.toLowerCase().includes(q) ||
-        m.displayName.toLowerCase().includes(q) ||
-        m.cn.toLowerCase().includes(q) ||
-        m.department.toLowerCase().includes(q) ||
-        m.email.toLowerCase().includes(q) ||
-        m.organizationalUnit.toLowerCase().includes(q) ||
-        (m.viaGroupCn || '').toLowerCase().includes(q)
-    );
-  }, [data, memberViewMode, memberSearch]);
+    const filtered = !q
+      ? pool
+      : pool.filter(
+          (m) =>
+            m.samAccountName.toLowerCase().includes(q) ||
+            m.displayName.toLowerCase().includes(q) ||
+            m.cn.toLowerCase().includes(q) ||
+            m.department.toLowerCase().includes(q) ||
+            (m.description || '').toLowerCase().includes(q) ||
+            m.email.toLowerCase().includes(q) ||
+            m.organizationalUnit.toLowerCase().includes(q) ||
+            (m.viaGroupCn || '').toLowerCase().includes(q)
+        );
+
+    const getSortValue = (m: HelpdeskGroupMemberEntry): string => {
+      switch (memberSortKey) {
+        case 'member':
+          return (m.displayName || m.samAccountName || m.cn || '').trim().toLowerCase();
+        case 'type':
+          return [
+            m.objectType || '',
+            m.accountEnabled === false ? 'disabled' : m.accountLocked ? 'locked' : 'active',
+            m.isPrimaryGroupMember ? 'primary' : 'direct',
+          ].join('|');
+        case 'department':
+          return [m.jobTitle, m.department].filter(Boolean).join(' · ').trim().toLowerCase();
+        case 'description':
+          return (m.description || '').trim().toLowerCase();
+        case 'ou':
+          return (m.organizationalUnit || '').trim().toLowerCase();
+      }
+    };
+
+    return [...filtered].sort((a, b) => {
+      const va = getSortValue(a);
+      const vb = getSortValue(b);
+      // Place empty cells after populated entries for clearer browsing
+      if (!va && vb) return 1;
+      if (va && !vb) return -1;
+      const cmp = va.localeCompare(vb, undefined, { numeric: true, sensitivity: 'base' });
+      if (cmp !== 0) {
+        return memberSortDir === 'asc' ? cmp : -cmp;
+      }
+      return (a.samAccountName || '').localeCompare(b.samAccountName || '', undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+    });
+  }, [data, memberViewMode, memberSearch, memberSortKey, memberSortDir]);
 
   const displayedAcls = useMemo(() => {
     if (!data) return [];
@@ -1906,8 +1961,12 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                 type="text"
                 value={memberSearch}
                 onChange={(e) => setMemberSearch(e.target.value)}
-                placeholder={isEn ? 'Filter members by name, SAM, dept, OU...' : 'فیلتر اعضا بر اساس نام، دپارتمان، OU...'}
-                className={`w-full sm:w-64 px-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
+                placeholder={
+                  isEn
+                    ? 'Filter members by name, SAM, dept, description, OU...'
+                    : 'فیلتر اعضا بر اساس نام، دپارتمان، توضیحات، OU...'
+                }
+                className={`w-full sm:w-72 px-3 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
               />
             </div>
 
@@ -1934,10 +1993,46 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                 <table className="w-full text-xs">
                   <thead>
                     <tr className={`border-b text-[11px] ${isLightMode ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>
-                      <th className="py-2 px-2 text-start">{isEn ? 'Member' : 'نام عضو'}</th>
-                      <th className="py-2 px-2 text-start">{isEn ? 'Type / Status' : 'نوع و وضعیت'}</th>
-                      <th className="py-2 px-2 text-start">{isEn ? 'Department / Title' : 'دپارتمان / سمت'}</th>
-                      <th className="py-2 px-2 text-start">{isEn ? 'OU / Source' : 'مسیر OU / منبع'}</th>
+                      {[
+                        { key: 'member' as const, en: 'Member', fa: 'نام عضو' },
+                        { key: 'type' as const, en: 'Type / Status', fa: 'نوع و وضعیت' },
+                        { key: 'department' as const, en: 'Department / Title', fa: 'دپارتمان / سمت' },
+                        { key: 'description' as const, en: 'Description', fa: 'توضیحات (Description)' },
+                        { key: 'ou' as const, en: 'OU / Source', fa: 'مسیر OU / منبع' },
+                      ].map((col) => {
+                        const isSorted = memberSortKey === col.key;
+                        return (
+                          <th key={col.key} className="py-2 px-2 text-start">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleMemberSort(col.key)}
+                              title={
+                                isEn
+                                  ? `Sort by ${col.en}`
+                                  : `مرتب‌سازی بر اساس ${col.fa}`
+                              }
+                              className={`inline-flex items-center gap-1 font-semibold transition cursor-pointer select-none ${
+                                isSorted
+                                  ? 'text-teal-500'
+                                  : isLightMode
+                                  ? 'hover:text-slate-900'
+                                  : 'hover:text-slate-100'
+                              }`}
+                            >
+                              <span>{isEn ? col.en : col.fa}</span>
+                              {isSorted ? (
+                                memberSortDir === 'asc' ? (
+                                  <ArrowUp className="w-3 h-3 text-teal-500 shrink-0" />
+                                ) : (
+                                  <ArrowDown className="w-3 h-3 text-teal-500 shrink-0" />
+                                )
+                              ) : (
+                                <ArrowUpDown className="w-3 h-3 opacity-45 shrink-0" />
+                              )}
+                            </button>
+                          </th>
+                        );
+                      })}
                       <th className="py-2 px-2 text-end">{isEn ? 'Action' : 'عملیات'}</th>
                     </tr>
                   </thead>
@@ -1993,6 +2088,12 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                         </td>
                         <td className={`py-2.5 px-2 ${textMuted}`}>
                           {[m.jobTitle, m.department].filter(Boolean).join(' · ') || '-'}
+                        </td>
+                        <td
+                          className={`py-2.5 px-2 max-w-[260px] break-words ${textMuted}`}
+                          title={m.description || undefined}
+                        >
+                          {(m.description || '').trim() || '-'}
                         </td>
                         <td className={`py-2.5 px-2 text-[11px] ${textMuted}`}>
                           <div dir="ltr" className="truncate max-w-xs">

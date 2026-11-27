@@ -3301,6 +3301,7 @@ export interface HelpdeskGroupMemberEntry {
   objectType: 'user' | 'group' | 'computer' | 'contact' | 'foreign_principal' | 'unknown';
   department: string;
   jobTitle: string;
+  description?: string;
   email: string;
   organizationalUnit: string;
   accountEnabled: boolean | null;
