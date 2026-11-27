@@ -2523,7 +2523,7 @@ export async function controlHelpdeskAntivirus(
   payload: HelpdeskConnectionPayload & {
     productId: string;
     serviceName?: string;
-    action: 'start' | 'stop' | 'restart' | 'enable_realtime' | 'disable_realtime';
+    action: 'start' | 'stop' | 'restart' | 'enable_realtime' | 'disable_realtime' | 'update_definitions';
     unlockPassword?: string;
   }
 ): Promise<{

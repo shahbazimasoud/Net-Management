@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.499.1';
+export const APP_VERSION = '1.500.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.500.0',
+    releaseDate: '2026-11-27',
+    type: 'minor',
+    title: 'افزودن دکمه دریافت آخرین آپدیت آنتی‌ویروس متناسب با نوع آنتی‌ویروس نصب‌شده در تب Firewall & Antivirus',
+    title_en: 'Add Vendor-Aware Antivirus Signature Update Action in HelpDesk Firewall & Antivirus Tab',
+    changes: [
+      'افزودن اکشن `update_definitions` در سرویس کنترل آنتی‌ویروس (`server/helpdeskService.ts`) و مسیر `POST /api/helpdesk/security-av/antivirus/control` برای دریافت واقعی آخرین امضاها و آپدیت‌های آنتی‌ویروس بر اساس محصول نصب‌شده در ویندوز (`Update-MpSignature` / `MpCmdRun.exe` برای Windows Defender، و ابزارهای رسمی ESET، Kaspersky، Symantec، McAfee، Bitdefender، Sophos، Trend Micro، Avast و AVG) و در لینوکس (`freshclam` برای ClamAV، و ابزارهای ESET، Kaspersky، Sophos و Trend Micro).',
+      'افزودن دکمه اختصاصی آپدیت متناسب با نام آنتی‌ویروس نصب‌شده در کارت هر آنتی‌ویروس در تب `Firewall & Antivirus` صفحه `Agentless Endpoint HelpDesk` (`FirewallAntivirusTab.tsx`) با رنگ نارنجی هشدار هنگام قدیمی بودن امضاها، نمایش وضعیت در حال اجرا و رفرش خودکار وضعیت آنتی‌ویروس پس از پایان آپدیت.'
+    ],
+    changes_en: [
+      'Added vendor-specific `update_definitions` action in `server/helpdeskService.ts` and `POST /api/helpdesk/security-av/antivirus/control` to trigger real antivirus definition/signature updates tailored to the installed vendor on Windows (Microsoft Defender via `Update-MpSignature`/`MpCmdRun.exe`, ESET `ecmd.exe`, Kaspersky `avp.com`, Symantec `Smc.exe`, McAfee, Bitdefender, Sophos, Trend Micro, Avast/AVG) and Linux (ClamAV `freshclam`, ESET, Kaspersky, Sophos, Trend Micro).',
+      'Added a vendor-labeled Update button on each supported antivirus card in the `Firewall & Antivirus` tab (`FirewallAntivirusTab.tsx`) of `Agentless Endpoint HelpDesk`, highlighted in orange when signature updates are overdue, with live busy state and automatic security telemetry refresh.'
+    ]
+  },
   {
     version: '1.499.1',
     releaseDate: '2026-11-27',

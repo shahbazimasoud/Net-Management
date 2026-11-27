@@ -27,6 +27,7 @@ import {
   Info,
   KeyRound,
   Clock,
+  Download,
 } from 'lucide-react';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { DeleteConfirmModal, DeleteGenericTarget } from '../DeleteConfirmModal';
@@ -50,7 +51,7 @@ export interface FirewallAntivirusTabProps {
     productId: string;
     productName: string;
     serviceName?: string;
-    action: 'start' | 'stop' | 'restart' | 'enable_realtime' | 'disable_realtime';
+    action: 'start' | 'stop' | 'restart' | 'enable_realtime' | 'disable_realtime' | 'update_definitions';
     unlockPassword?: string;
   }) => Promise<void>;
   onToggleFirewallProfile: (params: {
@@ -292,6 +293,11 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
       const prodId = parts.slice(1, -1).join(':');
       const matchedAv = avProducts.find((a) => String(a.id) === prodId);
       const name = matchedAv?.productName || (isEn ? 'Antivirus' : 'آنتی‌ویروس');
+      if (action === 'update_definitions') {
+        return isEn
+          ? `Downloading and applying latest definitions for ${name} on ${targetIp || 'endpoint'}... Please wait.`
+          : `در حال دریافت و اعمال آخرین آپدیت‌های ${name} روی سیستم کاربر... لطفاً شکیبا باشید.`;
+      }
       if (action === 'stop' || action === 'disable_realtime') {
         return isEn
           ? `Stopping / disabling ${name} on ${targetIp || 'endpoint'}... Please wait.`
@@ -737,6 +743,33 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                     : 'bg-emerald-950/20 border border-emerald-500/40 text-slate-100';
 
                   const showStopFormHere = stopPromptAv?.id === av.id;
+                  const avIdLower = String(av.id || '').toLowerCase();
+                  const supportsDefinitionUpdate =
+                    Boolean(av.isMicrosoftDefender) ||
+                    [
+                      'microsoft_defender',
+                      'clamav',
+                      'eset',
+                      'kaspersky',
+                      'symantec',
+                      'mcafee',
+                      'bitdefender',
+                      'sophos',
+                      'trendmicro',
+                      'avast',
+                      'avg',
+                    ].includes(avIdLower);
+                  const updateButtonLabel = av.isMicrosoftDefender
+                    ? isEn
+                      ? 'Update Defender'
+                      : 'آپدیت Defender'
+                    : avIdLower === 'clamav'
+                    ? isEn
+                      ? 'Update ClamAV'
+                      : 'آپدیت ClamAV'
+                    : isEn
+                    ? `Update ${av.vendor || av.productName}`
+                    : `آپدیت ${av.vendor || av.productName}`;
 
                   return (
                     <div
@@ -952,7 +985,7 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                       )}
 
                       {/* Action Buttons */}
-                      {canExecuteActions && av.canControl && (
+                      {canExecuteActions && (av.canControl || supportsDefinitionUpdate) && (
                         <div className="space-y-3 pt-1">
                           {isBusy && (
                             <div
@@ -964,7 +997,11 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                             >
                               <Loader2 className="w-3.5 h-3.5 text-sky-500 animate-spin shrink-0" />
                               <span>
-                                {busyAction === 'stop' || busyAction === 'disable_realtime'
+                                {busyAction === 'update_definitions'
+                                  ? isEn
+                                    ? 'Downloading and applying latest antivirus definitions... Please wait.'
+                                    : 'در حال دریافت و اعمال آخرین آپدیت‌های آنتی‌ویروس... لطفاً صبر کنید.'
+                                  : busyAction === 'stop' || busyAction === 'disable_realtime'
                                   ? isEn
                                     ? 'Stopping / pausing Antivirus protection... Please wait.'
                                     : 'در حال توقف آنتی‌ویروس... لطفاً صبر کنید.'
@@ -980,7 +1017,7 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                           )}
 
                           <div className="flex flex-wrap items-center gap-2">
-                            {!av.enabled ? (
+                            {av.canControl && !av.enabled ? (
                               <button
                                 type="button"
                                 disabled={isBusy || Boolean(busyKey)}
@@ -1013,7 +1050,7 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                                     : 'راه‌اندازی آنتی‌ویروس (Start)'}
                                 </span>
                               </button>
-                            ) : (
+                            ) : av.canControl ? (
                               <button
                                 type="button"
                                 disabled={isBusy || Boolean(busyKey)}
@@ -1049,9 +1086,9 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                                     : 'توقف آنتی‌ویروس (Stop)'}
                                 </span>
                               </button>
-                            )}
+                            ) : null}
 
-                            {!av.isMicrosoftDefender && av.serviceName && (
+                            {av.canControl && !av.isMicrosoftDefender && av.serviceName && (
                               <button
                                 type="button"
                                 disabled={isBusy || Boolean(busyKey)}
@@ -1078,6 +1115,41 @@ export const FirewallAntivirusTab: React.FC<FirewallAntivirusTabProps> = ({
                                     : isEn
                                     ? 'Restart Service'
                                     : 'ری‌استارت'}
+                                </span>
+                              </button>
+                            )}
+
+                            {supportsDefinitionUpdate && (
+                              <button
+                                type="button"
+                                disabled={isBusy || Boolean(busyKey)}
+                                onClick={() =>
+                                  onControlAntivirus({
+                                    productId: av.id,
+                                    productName: av.productName,
+                                    serviceName: av.serviceName,
+                                    action: 'update_definitions',
+                                  })
+                                }
+                                className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-60 transition-colors ${
+                                  isOutdatedAlert
+                                    ? 'bg-orange-600 hover:bg-orange-500 text-white'
+                                    : isLightMode
+                                    ? 'bg-sky-600 hover:bg-sky-500 text-white'
+                                    : 'bg-sky-600/90 hover:bg-sky-500 text-white'
+                                }`}
+                              >
+                                {busyAction === 'update_definitions' ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Download className="w-3.5 h-3.5" />
+                                )}
+                                <span>
+                                  {busyAction === 'update_definitions'
+                                    ? isEn
+                                      ? 'Updating...'
+                                      : 'در حال آپدیت...'
+                                    : updateButtonLabel}
                                 </span>
                               </button>
                             )}

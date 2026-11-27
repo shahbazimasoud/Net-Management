@@ -20507,7 +20507,7 @@ export async function controlEndpointAntivirus(
   options: {
     productId: string;
     serviceName?: string;
-    action: 'start' | 'stop' | 'restart' | 'enable_realtime' | 'disable_realtime';
+    action: 'start' | 'stop' | 'restart' | 'enable_realtime' | 'disable_realtime' | 'update_definitions';
     unlockPassword?: string;
   }
 ): Promise<HelpdeskActionResult> {
@@ -20518,13 +20518,14 @@ export async function controlEndpointAntivirus(
     | 'stop'
     | 'restart'
     | 'enable_realtime'
-    | 'disable_realtime';
+    | 'disable_realtime'
+    | 'update_definitions';
   const unlockPassword = typeof options.unlockPassword === 'string' ? options.unlockPassword : '';
 
   if (!productId || !/^[a-z0-9_-]{1,64}$/.test(productId)) {
     throw new Error('Invalid antivirus product identifier.');
   }
-  if (!['start', 'stop', 'restart', 'enable_realtime', 'disable_realtime'].includes(action)) {
+  if (!['start', 'stop', 'restart', 'enable_realtime', 'disable_realtime', 'update_definitions'].includes(action)) {
     throw new Error('Invalid antivirus control action.');
   }
   if (serviceName && (serviceName.length > 150 || /[\x00-\x1F\x7F]/.test(serviceName))) {
@@ -20546,7 +20547,173 @@ $ok = $false
 $msg = ''
 $newState = 'unknown'
 
-if ($prodId -eq 'microsoft_defender') {
+if ($action -eq 'update_definitions') {
+  if ($prodId -eq 'microsoft_defender') {
+    $updated = $false
+    try {
+      Update-MpSignature -ErrorAction Stop
+      $updated = $true
+    } catch {
+      $cmdErr = $_.Exception.Message
+      $mpCmd = $null
+      $mpCandidates = @(
+        "$env:ProgramFiles\\Windows Defender\\MpCmdRun.exe"
+      )
+      try {
+        $platMp = Get-ChildItem -Path "$env:ProgramData\\Microsoft\\Windows Defender\\Platform" -Filter 'MpCmdRun.exe' -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($platMp) { $mpCandidates = @($platMp.FullName) + $mpCandidates }
+      } catch {}
+      $mpCmd = $mpCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+      if ($mpCmd) {
+        $out = & $mpCmd -SignatureUpdate 2>&1 | Out-String
+        if ($LASTEXITCODE -eq 0) {
+          $updated = $true
+        } else {
+          throw ("Microsoft Defender signature update failed: " + ($out.Trim() -replace '\\r?\\n', ' '))
+        }
+      } else {
+        throw ("Microsoft Defender Update-MpSignature failed: " + $cmdErr)
+      }
+    }
+    Start-Sleep -Milliseconds 700
+    $after = $null
+    try { $after = Get-MpComputerStatus -ErrorAction SilentlyContinue } catch {}
+    $sigVer = if ($after -and $after.AntivirusSignatureVersion) { [string]$after.AntivirusSignatureVersion } else { 'unknown' }
+    $sigTime = if ($after -and $after.AntivirusSignatureLastUpdated) { $after.AntivirusSignatureLastUpdated.ToString('yyyy-MM-dd HH:mm') } else { 'now' }
+    $ok = $updated
+    $newState = 'updated'
+    $msg = "Microsoft Defender definitions updated (Signature: $sigVer, Last Updated: $sigTime)."
+  } elseif ($prodId -eq 'eset') {
+    $ecmd = Get-ChildItem -Path "$env:ProgramFiles\\ESET","$env:ProgramFiles (x86)\\ESET" -Filter 'ecmd.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $ecmd) {
+      throw 'ESET CLI updater (ecmd.exe) was not found on this endpoint. Enable ESET command-line control or update from ESET GUI/PROTECT Console.'
+    }
+    $out = & $ecmd /update 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+      throw ("ESET update failed (exit $LASTEXITCODE): " + $out.Trim())
+    }
+    $ok = $true
+    $newState = 'updated'
+    $msg = if ($out.Trim()) { "ESET definitions update completed: " + $out.Trim() } else { 'ESET definitions update completed via ecmd.exe.' }
+  } elseif ($prodId -eq 'kaspersky') {
+    $avpExe = Get-ChildItem -Path "$env:ProgramFiles\\Kaspersky Lab","$env:ProgramFiles (x86)\\Kaspersky Lab" -Filter 'avp.com' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $avpExe) {
+      throw 'Kaspersky CLI (avp.com) was not found on this endpoint.'
+    }
+    $args = if ($pw) { @('UPDATE', "/password=$pw") } else { @('UPDATE') }
+    $out = & $avpExe @args 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+      throw ("Kaspersky update failed (exit $LASTEXITCODE): " + $out.Trim())
+    }
+    $ok = $true
+    $newState = 'updated'
+    $msg = if ($out.Trim()) { "Kaspersky database update completed: " + $out.Trim() } else { 'Kaspersky virus database update completed via avp.com.' }
+  } elseif ($prodId -eq 'symantec') {
+    $smcCandidates = @(
+      "$env:ProgramFiles\\Symantec\\Symantec Endpoint Protection\\Smc.exe",
+      "$env:ProgramFiles (x86)\\Symantec\\Symantec Endpoint Protection\\Smc.exe"
+    )
+    try {
+      $smcDir = Get-ChildItem -Path "$env:ProgramFiles\\Symantec\\Symantec Endpoint Protection" -Filter 'Smc.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($smcDir) { $smcCandidates += $smcDir.FullName }
+    } catch {}
+    $smc = $smcCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+    if (-not $smc) {
+      throw 'Symantec Smc.exe updater was not found on this endpoint.'
+    }
+    $p = Start-Process -FilePath $smc -ArgumentList @('-update') -Wait -NoNewWindow -PassThru
+    if ($p.ExitCode -ne 0) {
+      throw "Symantec LiveUpdate command exited with code $($p.ExitCode)."
+    }
+    $ok = $true
+    $newState = 'updated'
+    $msg = 'Symantec Endpoint Protection LiveUpdate triggered successfully via Smc.exe -update.'
+  } elseif ($prodId -eq 'mcafee') {
+    $amcfg = Get-ChildItem -Path "$env:ProgramFiles\\McAfee","$env:ProgramFiles\\Trellix","$env:ProgramFiles (x86)\\McAfee","$env:ProgramFiles (x86)\\Trellix" -Filter 'amcfg.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    $cmdAgent = Get-ChildItem -Path "$env:ProgramFiles\\McAfee","$env:ProgramFiles\\Trellix","$env:ProgramFiles (x86)\\McAfee","$env:ProgramFiles (x86)\\Trellix" -Filter 'cmdagent.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    if ($amcfg) {
+      $out = & $amcfg /update 2>&1 | Out-String
+      if ($LASTEXITCODE -ne 0) { throw ("McAfee/Trellix amcfg update failed (exit $LASTEXITCODE): " + $out.Trim()) }
+      $ok = $true
+      $newState = 'updated'
+      $msg = 'McAfee/Trellix signature update completed via amcfg.exe /update.'
+    } elseif ($cmdAgent) {
+      $out = & $cmdAgent /p /c 2>&1 | Out-String
+      if ($LASTEXITCODE -ne 0) { throw ("McAfee/Trellix agent update check failed (exit $LASTEXITCODE): " + $out.Trim()) }
+      $ok = $true
+      $newState = 'updated'
+      $msg = 'McAfee/Trellix Agent policy & signature update triggered via cmdagent.exe /p /c.'
+    } else {
+      throw 'McAfee/Trellix CLI updater (amcfg.exe / cmdagent.exe) was not found on this endpoint.'
+    }
+  } elseif ($prodId -eq 'bitdefender') {
+    $bdCli = Get-ChildItem -Path "$env:ProgramFiles\\Bitdefender","$env:ProgramFiles (x86)\\Bitdefender" -Filter 'product.console.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    $bdUpd = Get-ChildItem -Path "$env:ProgramFiles\\Bitdefender","$env:ProgramFiles (x86)\\Bitdefender" -Filter 'bdupdate.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    if ($bdCli) {
+      $out = & $bdCli /c Update.Run 2>&1 | Out-String
+      if ($LASTEXITCODE -ne 0) { throw ("Bitdefender update failed (exit $LASTEXITCODE): " + $out.Trim()) }
+      $ok = $true
+      $newState = 'updated'
+      $msg = 'Bitdefender signature update triggered via product.console.exe.'
+    } elseif ($bdUpd) {
+      $p = Start-Process -FilePath $bdUpd -Wait -NoNewWindow -PassThru
+      if ($p.ExitCode -ne 0) { throw "Bitdefender bdupdate.exe exited with code $($p.ExitCode)." }
+      $ok = $true
+      $newState = 'updated'
+      $msg = 'Bitdefender signature update completed via bdupdate.exe.'
+    } else {
+      throw 'Bitdefender CLI updater was not found on this endpoint.'
+    }
+  } elseif ($prodId -eq 'sophos') {
+    $sophosUpd = Get-ChildItem -Path "$env:ProgramFiles\\Sophos","$env:ProgramFiles (x86)\\Sophos" -Filter 'SophosUpdate.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $sophosUpd) {
+      $sophosUpd = Get-ChildItem -Path "$env:ProgramFiles\\Sophos","$env:ProgramFiles (x86)\\Sophos" -Filter 'ALUpdate.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    }
+    if (-not $sophosUpd) {
+      throw 'Sophos AutoUpdate CLI (SophosUpdate.exe / ALUpdate.exe) was not found on this endpoint.'
+    }
+    $p = Start-Process -FilePath $sophosUpd -Wait -NoNewWindow -PassThru
+    if ($p.ExitCode -ne 0) {
+      throw "Sophos update exited with code $($p.ExitCode)."
+    }
+    $ok = $true
+    $newState = 'updated'
+    $msg = 'Sophos Endpoint AutoUpdate completed successfully.'
+  } elseif ($prodId -eq 'trendmicro') {
+    $tmUpd = Get-ChildItem -Path "$env:ProgramFiles\\Trend Micro","$env:ProgramFiles (x86)\\Trend Micro" -Filter 'pccntupd.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    $dsaCtl = Get-ChildItem -Path "$env:ProgramFiles\\Trend Micro" -Filter 'dsa_control.cmd' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    if ($tmUpd) {
+      $p = Start-Process -FilePath $tmUpd -Wait -NoNewWindow -PassThru
+      if ($p.ExitCode -ne 0) { throw "Trend Micro pccntupd.exe exited with code $($p.ExitCode)." }
+      $ok = $true
+      $newState = 'updated'
+      $msg = 'Trend Micro pattern update completed via pccntupd.exe.'
+    } elseif ($dsaCtl) {
+      $out = & $dsaCtl -m 2>&1 | Out-String
+      if ($LASTEXITCODE -ne 0) { throw ("Trend Micro Deep Security check-in failed (exit $LASTEXITCODE): " + $out.Trim()) }
+      $ok = $true
+      $newState = 'updated'
+      $msg = 'Trend Micro Deep Security Agent heartbeat & update sync completed.'
+    } else {
+      throw 'Trend Micro CLI updater was not found on this endpoint.'
+    }
+  } elseif ($prodId -eq 'avast' -or $prodId -eq 'avg') {
+    $ashPaths = if ($prodId -eq 'avast') { @("$env:ProgramFiles\\Avast Software", "$env:ProgramFiles (x86)\\Avast Software") } else { @("$env:ProgramFiles\\AVG", "$env:ProgramFiles (x86)\\AVG") }
+    $ashUpd = Get-ChildItem -Path $ashPaths -Filter 'ashUpd.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $ashUpd) {
+      throw "Vendor updater (ashUpd.exe) was not found for '$prodId'."
+    }
+    $p = Start-Process -FilePath $ashUpd -ArgumentList @('vps', '/silent') -Wait -NoNewWindow -PassThru
+    if ($p.ExitCode -ne 0) {
+      throw "ashUpd.exe exited with code $($p.ExitCode)."
+    }
+    $ok = $true
+    $newState = 'updated'
+    $msg = "Virus definitions updated via ashUpd.exe for $prodId."
+  } else {
+    throw "On-demand CLI signature update is not supported for '$prodId' on this endpoint (managed automatically via vendor cloud/console)."
+  }
+} elseif ($prodId -eq 'microsoft_defender') {
   if ($action -eq 'start' -or $action -eq 'enable_realtime') {
     try {
       $svc = Get-Service -Name 'WinDefend' -ErrorAction SilentlyContinue
@@ -20718,11 +20885,86 @@ if ($prodId -eq 'microsoft_defender') {
 `;
 
   const linuxSh = `python3 - <<'PY'
-import base64, json, re, subprocess
+import base64, json, os, re, shutil, subprocess, time
 
 svc = base64.b64decode('${svcB64}').decode('utf-8', errors='ignore').strip()
 prod = base64.b64decode('${pidB64}').decode('utf-8', errors='ignore').strip()
 action = '${action}'
+
+if action == 'update_definitions':
+    if prod == 'clamav':
+        freshclam = shutil.which('freshclam')
+        if not freshclam:
+            print(json.dumps({"ok": False, "productId": prod, "newState": "unknown", "output": "freshclam binary not found on this Linux host."}))
+            raise SystemExit(0)
+        p = subprocess.run([freshclam, '--stdout'], capture_output=True, text=True, timeout=90)
+        combined = ((p.stdout or '') + '\\n' + (p.stderr or '')).strip()
+        if p.returncode != 0 and 'locked' in combined.lower():
+            # clamav-freshclam daemon holds lock; restart daemon to trigger immediate update
+            subprocess.run(['systemctl', 'restart', 'clamav-freshclam'], capture_output=True, text=True, timeout=20)
+            time.sleep(3)
+            sig_ts = ''
+            for db_path in ('/var/lib/clamav/daily.cld', '/var/lib/clamav/daily.cvd'):
+                if os.path.isfile(db_path):
+                    sig_ts = time.strftime('%Y-%m-%d %H:%M', time.localtime(os.path.getmtime(db_path)))
+                    break
+            print(json.dumps({
+                "ok": True,
+                "productId": prod,
+                "newState": "updated",
+                "output": f"Triggered clamav-freshclam update daemon (Latest DB: {sig_ts or 'refreshed'})."
+            }))
+            raise SystemExit(0)
+        ok = (p.returncode == 0)
+        msg = combined.splitlines()[-1] if combined else ("ClamAV definitions updated via freshclam." if ok else "freshclam update failed.")
+        print(json.dumps({"ok": ok, "productId": prod, "newState": "updated" if ok else "unknown", "output": msg}))
+        raise SystemExit(0)
+    elif prod == 'eset':
+        upd = '/opt/eset/efs/bin/upd' if os.path.isfile('/opt/eset/efs/bin/upd') else ('/opt/eset/esets/sbin/esets_update' if os.path.isfile('/opt/eset/esets/sbin/esets_update') else '')
+        if not upd:
+            print(json.dumps({"ok": False, "productId": prod, "newState": "unknown", "output": "ESET Linux updater binary not found."}))
+            raise SystemExit(0)
+        cmd = [upd, '-u'] if upd.endswith('/upd') else [upd]
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        ok = (p.returncode == 0)
+        msg = (p.stdout or p.stderr or ("ESET Linux definitions updated." if ok else "ESET update failed.")).strip()
+        print(json.dumps({"ok": ok, "productId": prod, "newState": "updated" if ok else "unknown", "output": msg}))
+        raise SystemExit(0)
+    elif prod == 'kaspersky':
+        kctl = '/opt/kaspersky/kesl/bin/kesl-control'
+        if not os.path.isfile(kctl):
+            print(json.dumps({"ok": False, "productId": prod, "newState": "unknown", "output": "Kaspersky kesl-control binary not found."}))
+            raise SystemExit(0)
+        p = subprocess.run([kctl, '--start-task', 'Update'], capture_output=True, text=True, timeout=90)
+        if p.returncode != 0:
+            p = subprocess.run([kctl, '--start-task', '6'], capture_output=True, text=True, timeout=90)
+        ok = (p.returncode == 0)
+        msg = (p.stdout or p.stderr or ("Kaspersky KESL update task started." if ok else "Kaspersky KESL update failed.")).strip()
+        print(json.dumps({"ok": ok, "productId": prod, "newState": "updated" if ok else "unknown", "output": msg}))
+        raise SystemExit(0)
+    elif prod == 'sophos':
+        supd = '/opt/sophos-av/bin/savupdate' if os.path.isfile('/opt/sophos-av/bin/savupdate') else ''
+        if not supd:
+            print(json.dumps({"ok": False, "productId": prod, "newState": "unknown", "output": "Sophos savupdate CLI not found (Sophos Central updates automatically via cloud)."}))
+            raise SystemExit(0)
+        p = subprocess.run([supd], capture_output=True, text=True, timeout=90)
+        ok = (p.returncode == 0)
+        msg = (p.stdout or p.stderr or ("Sophos definitions updated." if ok else "Sophos update failed.")).strip()
+        print(json.dumps({"ok": ok, "productId": prod, "newState": "updated" if ok else "unknown", "output": msg}))
+        raise SystemExit(0)
+    elif prod == 'trendmicro':
+        dsa = '/opt/ds_agent/dsa_control'
+        if not os.path.isfile(dsa):
+            print(json.dumps({"ok": False, "productId": prod, "newState": "unknown", "output": "Trend Micro dsa_control not found."}))
+            raise SystemExit(0)
+        p = subprocess.run([dsa, '-m'], capture_output=True, text=True, timeout=60)
+        ok = (p.returncode == 0)
+        msg = (p.stdout or p.stderr or ("Trend Micro Deep Security check-in triggered." if ok else "Trend Micro update failed.")).strip()
+        print(json.dumps({"ok": ok, "productId": prod, "newState": "updated" if ok else "unknown", "output": msg}))
+        raise SystemExit(0)
+    else:
+        print(json.dumps({"ok": False, "productId": prod, "newState": "unknown", "output": f"On-demand CLI definition update is not supported for '{prod}' on Linux."}))
+        raise SystemExit(0)
 
 if not svc or not re.match(r'^[a-zA-Z0-9._@$-]{1,128}$', svc):
     print(json.dumps({"ok": False, "newState": "unknown", "output": "Invalid antivirus unit name"}))
@@ -20743,7 +20985,13 @@ print(json.dumps({
 PY`;
 
   const execRes = await executeHardcodedScripts(
-    { ...input, timeoutMs: Math.max(35000, input.timeoutMs || 35000) },
+    {
+      ...input,
+      timeoutMs:
+        action === 'update_definitions'
+          ? Math.max(120000, input.timeoutMs || 120000)
+          : Math.max(35000, input.timeoutMs || 35000),
+    },
     winPs,
     linuxSh
   );
@@ -20763,6 +21011,8 @@ PY`;
     messageFa: ok
       ? action === 'stop' || action === 'disable_realtime'
         ? `آنتی‌ویروس (${productId}) با موفقیت غیرفعال/متوقف شد. حتماً پس از اتمام کار مجدداً آن را فعال کنید!`
+        : action === 'update_definitions'
+        ? `به‌روزرسانی امضاها و دیتابیس آنتی‌ویروس (${productId}) با موفقیت انجام شد.`
         : `آنتی‌ویروس (${productId}) با موفقیت فعال/راه‌اندازی شد.`
       : outMsg || `عملیات روی آنتی‌ویروس (${productId}) ناموفق بود.`,
     details: {

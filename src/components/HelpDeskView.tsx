@@ -2844,7 +2844,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     productId: string;
     productName: string;
     serviceName?: string;
-    action: 'start' | 'stop' | 'restart' | 'enable_realtime' | 'disable_realtime';
+    action: 'start' | 'stop' | 'restart' | 'enable_realtime' | 'disable_realtime' | 'update_definitions';
     unlockPassword?: string;
   }) => {
     const payload = buildPayload();

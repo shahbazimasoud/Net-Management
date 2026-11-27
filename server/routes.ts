@@ -14032,7 +14032,8 @@ apiRouter.post('/helpdesk/security-av/antivirus/control', async (req: Request, r
     | 'stop'
     | 'restart'
     | 'enable_realtime'
-    | 'disable_realtime';
+    | 'disable_realtime'
+    | 'update_definitions';
   const unlockPassword = typeof req.body?.unlockPassword === 'string' ? req.body.unlockPassword : '';
 
   const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, 'antivirus_control');
