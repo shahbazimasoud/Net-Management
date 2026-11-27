@@ -89,6 +89,9 @@ import {
   MessageSquare,
   Send,
   Bug,
+  Phone,
+  Smartphone,
+  Terminal,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -3263,9 +3266,51 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     const osName = String(
       healthData?.osName ||
         sysInfoData?.os?.caption ||
+        sysInfoData?.osName ||
         hardwareData?.osName ||
         ''
     ).trim();
+
+    const rawOsFamily = String(
+      healthData?.osFamily ||
+        sysInfoData?.osFamily ||
+        anyEndpoint?.osFamily ||
+        ''
+    )
+      .trim()
+      .toLowerCase();
+    const osFamily: 'windows' | 'linux' =
+      rawOsFamily === 'linux'
+        ? 'linux'
+        : rawOsFamily === 'windows' || /windows/i.test(osName)
+        ? 'windows'
+        : 'linux';
+
+    const osBuild = String(
+      sysInfoData?.osBuild ||
+        healthData?.osBuild ||
+        sysInfoData?.osVersion ||
+        healthData?.osVersion ||
+        ''
+    ).trim();
+
+    const osDisplayVersion = String(
+      sysInfoData?.osDisplayVersion ||
+        healthData?.osDisplayVersion ||
+        ''
+    ).trim();
+
+    const loggedInUserDisplayName = String(
+      healthData?.loggedInUserDisplayName || ''
+    ).trim();
+
+    const loggedInUserMobiles: string[] = Array.isArray(healthData?.loggedInUserMobiles)
+      ? healthData.loggedInUserMobiles.map((x: any) => String(x || '').trim()).filter(Boolean)
+      : [];
+
+    const loggedInUserExtensions: string[] = Array.isArray(healthData?.loggedInUserExtensions)
+      ? healthData.loggedInUserExtensions.map((x: any) => String(x || '').trim()).filter(Boolean)
+      : [];
 
     const endpointIp = String(
       healthData?.targetIp ||
@@ -3283,6 +3328,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     const portUsed = healthData?.portUsed || anyEndpoint?.portUsed || null;
     const domain = String(
       sysInfoData?.computer?.domain ||
+        sysInfoData?.domain ||
+        healthData?.domain ||
         gpoData?.domain ||
         userProfilesData?.domain ||
         ''
@@ -3300,8 +3347,14 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     return {
       hostname,
       loggedInUser,
+      loggedInUserDisplayName,
+      loggedInUserMobiles,
+      loggedInUserExtensions,
       uptimeText,
+      osFamily,
       osName,
+      osBuild,
+      osDisplayVersion,
       endpointIp,
       protocolUsed,
       portUsed,
@@ -5162,127 +5215,245 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         {/* Persistent Active Workstation Summary Strip (always visible across all sub-tabs once connected) */}
         {activeSessionSummary && (
           <div
-            className={`pt-3 border-t flex flex-wrap items-center justify-between gap-2.5 text-xs ${
+            className={`pt-3.5 border-t space-y-2.5 text-xs ${
               isLightMode ? 'border-slate-200' : 'border-slate-800'
             }`}
           >
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
-              <div
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-semibold ${
-                  isLightMode
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                <span>{isEn ? 'Connected' : 'متصل'}</span>
-              </div>
+            {/* Row 1: Connection status, domain, uptime, live telemetry & security alert */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                <div
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-semibold ${
+                    isLightMode
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                  <span>{isEn ? 'Connected' : 'متصل'}</span>
+                </div>
 
-              <div
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border min-w-0 ${subSurfaceBg}`}
-                title={isEn ? 'Computer Name & IP' : 'نام کامپیوتر و آدرس IP'}
-              >
-                <Monitor className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                <span className={`font-bold truncate ${textPrimary}`} dir="ltr">
-                  {activeSessionSummary.hostname || activeSessionSummary.endpointIp}
-                </span>
-                {activeSessionSummary.hostname && activeSessionSummary.endpointIp && (
-                  <span className={`font-mono text-[11px] shrink-0 ${textMuted}`} dir="ltr">
-                    ({activeSessionSummary.endpointIp})
-                  </span>
+                {activeSessionSummary.domain && (
+                  <div
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${subSurfaceBg}`}
+                    title={isEn ? 'Domain / Workgroup' : 'دامین / ورک‌گروپ'}
+                  >
+                    <Globe className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                    <span className={`font-mono text-[11px] font-medium ${textPrimary}`} dir="ltr">
+                      {activeSessionSummary.domain}
+                    </span>
+                  </div>
+                )}
+
+                {activeSessionSummary.uptimeText && (
+                  <div
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${subSurfaceBg}`}
+                    title={isEn ? 'System Uptime' : 'مدت روشن بودن سیستم (Uptime)'}
+                  >
+                    <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span className={textMuted}>{isEn ? 'Uptime:' : 'آپتایم:'}</span>
+                    <span className={`font-mono font-semibold tabular-nums ${textPrimary}`} dir="ltr">
+                      {activeSessionSummary.uptimeText}
+                    </span>
+                  </div>
+                )}
+
+                {activeSessionSummary.protocolUsed && (
+                  <div
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-mono text-[11px] ${subSurfaceBg} ${textMuted}`}
+                    dir="ltr"
+                  >
+                    <span className="font-semibold">
+                      {activeSessionSummary.protocolUsed.toUpperCase()}
+                      {activeSessionSummary.portUsed ? `:${activeSessionSummary.portUsed}` : ''}
+                    </span>
+                    {activeSessionSummary.cpuPct !== null && activeSessionSummary.ramPct !== null && (
+                      <>
+                        <span className="opacity-50">·</span>
+                        <span className={`tabular-nums font-medium ${textPrimary}`}>
+                          CPU {activeSessionSummary.cpuPct}% · RAM {activeSessionSummary.ramPct}%
+                        </span>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
 
-              <div
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border min-w-0 ${subSurfaceBg}`}
-                title={isEn ? 'Current Logged-In Desktop User' : 'کاربر جاری لاگین‌شده روی سیستم'}
-              >
-                <User className="w-3.5 h-3.5 text-teal-500 shrink-0" />
-                <span className={textMuted}>{isEn ? 'User:' : 'کاربر جاری:'}</span>
-                <span className={`font-mono font-semibold truncate ${textPrimary}`} dir="ltr">
-                  {activeSessionSummary.loggedInUser || '—'}
-                </span>
-              </div>
-
-              {activeSessionSummary.uptimeText && (
-                <div
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${subSurfaceBg}`}
-                  title={isEn ? 'System Uptime' : 'مدت روشن بودن سیستم (Uptime)'}
+              {securityAvDisabledInSession.length > 0 && canRunDiagnostics && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveSubTab('security_av');
+                    if (!securityAvData && !loadingSecurityAv && targetIp.trim() && username.trim() && password) {
+                      handleInspectSecurityAv();
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer shrink-0 ${
+                    isLightMode
+                      ? 'bg-rose-50 border-rose-300 text-rose-700 hover:bg-rose-100'
+                      : 'bg-rose-950/60 border-rose-500/45 text-rose-300 hover:bg-rose-900/50'
+                  }`}
                 >
-                  <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                  <span className={textMuted}>{isEn ? 'Uptime:' : 'آپتایم:'}</span>
-                  <span className={`font-mono font-semibold tabular-nums ${textPrimary}`} dir="ltr">
-                    {activeSessionSummary.uptimeText}
-                  </span>
-                </div>
-              )}
-
-              {activeSessionSummary.osName && (
-                <div
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border min-w-0 max-w-xs ${subSurfaceBg}`}
-                  title={activeSessionSummary.osName}
-                >
-                  <Laptop className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                  <span className={`truncate ${textMuted}`} dir="ltr">
-                    {activeSessionSummary.osName}
-                  </span>
-                </div>
-              )}
-
-              {activeSessionSummary.domain && (
-                <div
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${subSurfaceBg}`}
-                  title={isEn ? 'Domain / Workgroup' : 'دامین / ورک‌گروپ'}
-                >
-                  <Globe className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                  <span className={`font-mono text-[11px] ${textPrimary}`} dir="ltr">
-                    {activeSessionSummary.domain}
-                  </span>
-                </div>
-              )}
-
-              {activeSessionSummary.protocolUsed && (
-                <div
-                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border font-mono text-[11px] ${subSurfaceBg} ${textMuted}`}
-                  dir="ltr"
-                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-500 shrink-0" />
                   <span>
-                    {activeSessionSummary.protocolUsed.toUpperCase()}
-                    {activeSessionSummary.portUsed ? `:${activeSessionSummary.portUsed}` : ''}
+                    {isEn ? 'AV/Firewall Disabled — Re-Enable' : 'آنتی‌ویروس/فایروال خاموش است'}
                   </span>
-                  {activeSessionSummary.cpuPct !== null && activeSessionSummary.ramPct !== null && (
-                    <>
-                      <span>·</span>
-                      <span className="tabular-nums">
-                        CPU {activeSessionSummary.cpuPct}% · RAM {activeSessionSummary.ramPct}%
-                      </span>
-                    </>
-                  )}
-                </div>
+                </button>
               )}
             </div>
 
-            {securityAvDisabledInSession.length > 0 && canRunDiagnostics && (
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveSubTab('security_av');
-                  if (!securityAvData && !loadingSecurityAv && targetIp.trim() && username.trim() && password) {
-                    handleInspectSecurityAv();
-                  }
-                }}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer shrink-0 ${
-                  isLightMode
-                    ? 'bg-rose-50 border-rose-300 text-rose-700 hover:bg-rose-100'
-                    : 'bg-rose-950/60 border-rose-500/45 text-rose-300 hover:bg-rose-900/50'
-                }`}
+            {/* Row 2: Organized 2-card grid — Workstation & OS | Logged-in User & Contact Numbers */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5">
+              {/* Card 1: Workstation Identity & OS with Build Number */}
+              <div
+                className={`lg:col-span-5 rounded-lg border px-3 py-2.5 flex flex-col justify-center gap-1.5 min-w-0 ${subSurfaceBg}`}
               >
-                <ShieldAlert className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                <span>
-                  {isEn ? 'AV/Firewall Disabled — Re-Enable' : 'آنتی‌ویروس/فایروال خاموش است'}
-                </span>
-              </button>
-            )}
+                <div className="flex items-center gap-2 min-w-0" title={isEn ? 'Computer Name & IP' : 'نام کامپیوتر و آدرس IP'}>
+                  <Monitor className="w-4 h-4 text-sky-500 shrink-0" />
+                  <span className={`font-bold truncate ${textPrimary}`} dir="ltr">
+                    {activeSessionSummary.hostname || activeSessionSummary.endpointIp}
+                  </span>
+                  {activeSessionSummary.hostname && activeSessionSummary.endpointIp && (
+                    <span className={`font-mono text-[11px] shrink-0 ${textMuted}`} dir="ltr">
+                      ({activeSessionSummary.endpointIp})
+                    </span>
+                  )}
+                </div>
+
+                {activeSessionSummary.osName && (
+                  <div
+                    className="flex items-center gap-2 min-w-0"
+                    title={
+                      activeSessionSummary.osBuild
+                        ? `${activeSessionSummary.osName} (Build ${activeSessionSummary.osBuild})`
+                        : activeSessionSummary.osName
+                    }
+                  >
+                    {activeSessionSummary.osFamily === 'windows' ? (
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="w-3.5 h-3.5 text-sky-500 shrink-0"
+                        fill="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path d="M3 4.5L11.2 3.3V11.2H3V4.5ZM12.3 3.15L21 2V11.2H12.3V3.15ZM3 12.3H11.2V20.7L3 19.5V12.3ZM12.3 12.3H21V22L12.3 20.85V12.3Z" />
+                      </svg>
+                    ) : (
+                      <Terminal className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    )}
+                    <span className={`truncate text-[11px] font-medium ${textMuted}`} dir="ltr">
+                      {activeSessionSummary.osName}
+                      {activeSessionSummary.osBuild && (
+                        <span className={`font-mono ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                          {` (${activeSessionSummary.osFamily === 'windows' && !/^build\b/i.test(activeSessionSummary.osBuild) ? `Build ${activeSessionSummary.osBuild}` : activeSessionSummary.osBuild})`}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Card 2: Current Logged-In User + Registered Internal Extensions & Mobile Numbers */}
+              <div
+                className={`lg:col-span-7 rounded-lg border px-3 py-2.5 flex flex-wrap items-center justify-between gap-2.5 min-w-0 ${subSurfaceBg}`}
+              >
+                <div
+                  className="flex items-center gap-2 min-w-0"
+                  title={isEn ? 'Current Logged-In Desktop User' : 'کاربر جاری لاگین‌شده روی سیستم'}
+                >
+                  <User className="w-4 h-4 text-teal-500 shrink-0" />
+                  <span className={`shrink-0 ${textMuted}`}>
+                    {isEn ? 'User:' : 'کاربر جاری:'}
+                  </span>
+                  <span className={`font-mono font-bold truncate ${textPrimary}`} dir="ltr">
+                    {activeSessionSummary.loggedInUser || '—'}
+                  </span>
+                  {activeSessionSummary.loggedInUserDisplayName && (
+                    <span className={`text-[11px] truncate ${textMuted}`}>
+                      ({activeSessionSummary.loggedInUserDisplayName})
+                    </span>
+                  )}
+                </div>
+
+                {/* Registered Internal Extensions & Mobile Numbers beside User */}
+                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                  {activeSessionSummary.loggedInUserExtensions.map((ext, idx) => {
+                    const copyKey = `summary-ext-${idx}-${ext}`;
+                    const copied = copiedJeaKey === copyKey;
+                    return (
+                      <button
+                        key={copyKey}
+                        type="button"
+                        onClick={() => handleCopyText(copyKey, ext)}
+                        title={isEn ? 'Internal extension (click to copy)' : 'شماره داخلی ثبت‌شده در AD (کلیک برای کپی)'}
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-medium transition cursor-pointer ${
+                          isLightMode
+                            ? 'bg-sky-50 border-sky-200 text-sky-800 hover:bg-sky-100'
+                            : 'bg-sky-500/10 border-sky-500/30 text-sky-200 hover:bg-sky-500/20'
+                        }`}
+                      >
+                        <Phone className="w-3 h-3 text-sky-500 shrink-0" />
+                        <span>{isEn ? 'Ext:' : 'داخلی:'}</span>
+                        <span className="font-mono font-bold tabular-nums" dir="ltr">
+                          {ext}
+                        </span>
+                        {copied ? (
+                          <Check className="w-3 h-3 text-emerald-500 shrink-0" />
+                        ) : (
+                          <Copy className="w-2.5 h-2.5 opacity-60 shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+
+                  {activeSessionSummary.loggedInUserMobiles.map((mob, idx) => {
+                    const copyKey = `summary-mob-${idx}-${mob}`;
+                    const copied = copiedJeaKey === copyKey;
+                    return (
+                      <button
+                        key={copyKey}
+                        type="button"
+                        onClick={() => handleCopyText(copyKey, mob)}
+                        title={isEn ? 'Registered mobile number (click to copy)' : 'شماره موبایل ثبت‌شده در AD (کلیک برای کپی)'}
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-medium transition cursor-pointer ${
+                          isLightMode
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/20'
+                        }`}
+                      >
+                        <Smartphone className="w-3 h-3 text-emerald-500 shrink-0" />
+                        <span>{isEn ? 'Mobile:' : 'موبایل:'}</span>
+                        <span className="font-mono font-bold tabular-nums" dir="ltr">
+                          {mob}
+                        </span>
+                        {copied ? (
+                          <Check className="w-3 h-3 text-emerald-500 shrink-0" />
+                        ) : (
+                          <Copy className="w-2.5 h-2.5 opacity-60 shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+
+                  {activeSessionSummary.loggedInUser &&
+                    activeSessionSummary.loggedInUserExtensions.length === 0 &&
+                    activeSessionSummary.loggedInUserMobiles.length === 0 && (
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] ${
+                          isLightMode
+                            ? 'bg-white border-slate-200 text-slate-500'
+                            : 'bg-slate-900/60 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        <Phone className="w-3 h-3 opacity-60 shrink-0" />
+                        <span>
+                          {isEn ? 'Ext / Mobile: Not registered' : 'داخلی / موبایل: ثبت نشده'}
+                        </span>
+                      </span>
+                    )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

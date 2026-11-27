@@ -154,8 +154,13 @@ export interface HelpdeskHealthResult {
   hostname: string;
   osName: string;
   osVersion: string;
+  osBuild?: string;
+  osDisplayVersion?: string;
   domain: string;
   loggedInUser: string;
+  loggedInUserDisplayName?: string;
+  loggedInUserMobiles?: string[];
+  loggedInUserExtensions?: string[];
   uptimeSeconds: number;
   uptimeText: string;
   primaryIp: string;
@@ -1928,12 +1933,93 @@ try {
   }
 } catch {}
 
+$osDispVer = ''
+$osBuildNum = [string]$os.BuildNumber
+try {
+  $osReg = Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'
+  if ($osReg) {
+    if ($osReg.DisplayVersion) { $osDispVer = [string]$osReg.DisplayVersion }
+    elseif ($osReg.ReleaseId) { $osDispVer = [string]$osReg.ReleaseId }
+    if ($null -ne $osReg.UBR -and "$($osReg.UBR)" -ne '' -and $os.BuildNumber) {
+      $osBuildNum = "$($os.BuildNumber).$($osReg.UBR)"
+    }
+  }
+} catch {}
+if (-not $osBuildNum -and $os.Version) { $osBuildNum = [string]$os.Version }
+
+$detectedUser = if ($cs -and $cs.UserName) { ([string]$cs.UserName).Trim() } else { '' }
+if (-not $detectedUser) {
+  try {
+    $expProc = Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | Select-Object -First 1
+    if ($expProc) {
+      $own = Invoke-CimMethod -InputObject $expProc -MethodName GetOwner
+      if ($own -and $own.User) {
+        $detectedUser = if ($own.Domain) { "$($own.Domain)\\$($own.User)" } else { [string]$own.User }
+      }
+    }
+  } catch {}
+}
+
+$userDisplayName = ''
+$userMobileNumbers = @()
+$userInternalPhones = @()
+try {
+  if ($cs -and $cs.PartOfDomain -and $detectedUser) {
+    $uSam = $detectedUser
+    $uDomPrefix = ''
+    $sepIdx = $detectedUser.IndexOf('\\')
+    if ($sepIdx -ge 0) {
+      $uDomPrefix = $detectedUser.Substring(0, $sepIdx)
+      $uSam = $detectedUser.Substring($sepIdx + 1)
+    } else {
+      $atIdx = $detectedUser.IndexOf('@')
+      if ($atIdx -gt 0) { $uSam = $detectedUser.Substring(0, $atIdx) }
+    }
+    $isLocalAcc = ($uDomPrefix -and $uDomPrefix.Equals([string]$env:COMPUTERNAME, [System.StringComparison]::OrdinalIgnoreCase))
+    if ($uSam -and -not $isLocalAcc -and -not $uSam.EndsWith('$')) {
+      $safeSam = $uSam.Replace('\\', '\\5c').Replace('*', '\\2a').Replace('(', '\\28').Replace(')', '\\29').Replace([char]0, '')
+      $adSearch = [adsisearcher]"(&(objectCategory=person)(objectClass=user)(sAMAccountName=$safeSam))"
+      foreach ($pn in @('displayname','mobile','othermobile','telephonenumber','othertelephone','ipphone','otheripphone')) {
+        [void]$adSearch.PropertiesToLoad.Add($pn)
+      }
+      $adFound = $adSearch.FindOne()
+      if ($adFound) {
+        $adProps = $adFound.Properties
+        if ($adProps['displayname'] -and $adProps['displayname'].Count -gt 0) {
+          $userDisplayName = ([string]$adProps['displayname'][0]).Trim()
+        }
+        foreach ($pn in @('mobile','othermobile')) {
+          if ($adProps[$pn]) {
+            foreach ($pv in $adProps[$pn]) {
+              $sv = ([string]$pv).Trim()
+              if ($sv -and ($userMobileNumbers -notcontains $sv)) { $userMobileNumbers += $sv }
+            }
+          }
+        }
+        foreach ($pn in @('telephonenumber','othertelephone','ipphone','otheripphone')) {
+          if ($adProps[$pn]) {
+            foreach ($pv in $adProps[$pn]) {
+              $sv = ([string]$pv).Trim()
+              if ($sv -and ($userInternalPhones -notcontains $sv)) { $userInternalPhones += $sv }
+            }
+          }
+        }
+      }
+    }
+  }
+} catch {}
+
 $out = [PSCustomObject]@{
   hostname = [string]$env:COMPUTERNAME
   osName = [string]$os.Caption
   osVersion = [string]$os.Version
+  osBuild = $osBuildNum
+  osDisplayVersion = $osDispVer
   domain = [string]$cs.Domain
-  loggedInUser = [string]$cs.UserName
+  loggedInUser = $detectedUser
+  loggedInUserDisplayName = $userDisplayName
+  loggedInUserMobiles = @($userMobileNumbers)
+  loggedInUserExtensions = @($userInternalPhones)
   uptimeSeconds = $uptimeSec
   primaryIp = [string]$primaryIp
   macAddress = [string]$macAddr
@@ -2221,8 +2307,13 @@ print(json.dumps({
     "hostname": hostname,
     "osName": os_name,
     "osVersion": os_ver,
+    "osBuild": os_ver,
+    "osDisplayVersion": platform.machine(),
     "domain": "",
     "loggedInUser": logged_user,
+    "loggedInUserDisplayName": "",
+    "loggedInUserMobiles": [],
+    "loggedInUserExtensions": [],
     "uptimeSeconds": uptime_sec,
     "primaryIp": primary_ip,
     "macAddress": mac_addr,
@@ -2306,6 +2397,20 @@ export async function collectEndpointHealth(input: HelpdeskTargetInput): Promise
     gpus.find((g) => g.hardwareType === 'onboard') ||
     gpus[0];
 
+  const toCleanStringList = (val: unknown): string[] => {
+    const arr = Array.isArray(val) ? val : typeof val === 'string' && val.trim() ? [val] : [];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const item of arr) {
+      const s = String(item || '').trim();
+      if (s && !seen.has(s.toLowerCase())) {
+        seen.add(s.toLowerCase());
+        out.push(s);
+      }
+    }
+    return out;
+  };
+
   return {
     targetIp: execRes.host,
     protocolUsed: execRes.protocolUsed,
@@ -2315,8 +2420,13 @@ export async function collectEndpointHealth(input: HelpdeskTargetInput): Promise
     hostname: String(parsed.hostname || execRes.host),
     osName: String(parsed.osName || (execRes.osFamily === 'windows' ? 'Windows' : 'Linux')),
     osVersion: String(parsed.osVersion || ''),
+    osBuild: String(parsed.osBuild || ''),
+    osDisplayVersion: String(parsed.osDisplayVersion || ''),
     domain: String(parsed.domain || ''),
     loggedInUser: String(parsed.loggedInUser || ''),
+    loggedInUserDisplayName: String(parsed.loggedInUserDisplayName || ''),
+    loggedInUserMobiles: toCleanStringList(parsed.loggedInUserMobiles),
+    loggedInUserExtensions: toCleanStringList(parsed.loggedInUserExtensions),
     uptimeSeconds,
     uptimeText: formatUptime(uptimeSeconds),
     primaryIp: String(parsed.primaryIp || execRes.host),

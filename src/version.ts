@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.500.0';
+export const APP_VERSION = '1.500.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.500.1',
+    releaseDate: '2026-11-27',
+    type: 'patch',
+    title: 'بهبود چیدمان کادر نشست سیستم هدف در هلپ‌دسک با نمایش بیلد سیستم‌عامل، آیکون ویندوز، شماره موبایل‌ها و داخلی کاربر',
+    title_en: 'Refine HelpDesk Target Workstation Session Banner with OS Build, Windows Icon & User Phone/Extension Badges',
+    changes: [
+      'افزودن استخراج شماره بیلد سیستم‌عامل (`osBuild` به همراه `UBR` در ویندوز) و استعلام خودکار نام نمایشی، تمامی شماره‌های موبایل (`mobile`, `otherMobile`) و شماره‌های داخلی (`telephoneNumber`, `otherTelephone`, `ipPhone`, `otherIpPhone`) کاربر فعال لاگین‌شده از اکتیو دایرکتوری در `collectEndpointHealth` (`server/helpdeskService.ts`).',
+      'نمایش شماره بیلد سیستم‌عامل داخل پرانتز در کنار نام سیستم‌عامل و تغییر آیکون سیستم‌عامل ویندوز به آیکون پنجره (Window) در بخش خلاصه کادر `On-Demand Target Workstation Session` (`src/components/HelpDeskView.tsx`).',
+      'بازطراحی و منظم‌سازی چیدمان کادر خلاصه نشست متصل‌شده در قالب دو ردیف ساختاریافته (نوار وضعیت/پروتکل/آپتایم و شبکه دوکارتی سیستم + کاربر جاری و شماره‌های موبایل/داخلی قابل کپی با کلیک).'
+    ],
+    changes_en: [
+      'Extended `collectEndpointHealth` in `server/helpdeskService.ts` to capture exact OS build (`osBuild` with Windows `UBR`), fallback active desktop user detection, and Active Directory user contact details (`displayName`, `mobile`/`otherMobile`, and `telephoneNumber`/`otherTelephone`/`ipPhone`/`otherIpPhone`).',
+      'Displayed OS build number inside parentheses next to the OS caption and replaced the generic computer icon with a 4-pane Windows window icon for Windows endpoints in `On-Demand Target Workstation Session` (`src/components/HelpDeskView.tsx`).',
+      'Reorganized the active workstation summary strip into a clean two-tier structured layout with dedicated cards for workstation/OS identity and active user details with clickable copyable internal extension and mobile badges.'
+    ]
+  },
   {
     version: '1.500.0',
     releaseDate: '2026-11-27',
