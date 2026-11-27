@@ -836,7 +836,13 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const powerError = ram.powerError;
   const setPowerError = setRamField('powerError');
   const [sessionActionBusy, setSessionActionBusy] = useState<string | null>(null);
-  const [confirmLogoffKey, setConfirmLogoffKey] = useState<string | null>(null);
+  const [pendingSessionConfirm, setPendingSessionConfirm] = useState<{
+    action: 'lock' | 'logoff';
+    sessionId?: string;
+    targetUser?: string;
+    rowKey: string;
+    isAlreadyLocked?: boolean;
+  } | null>(null);
   const sessionActionResult = ram.sessionActionResult;
   const setSessionActionResult = setRamField('sessionActionResult');
   const sessionActionError = ram.sessionActionError;
@@ -990,6 +996,15 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   }, [activeSubTab, loadConnectionHistory]);
 
+  useEffect(() => {
+    if (!pendingSessionConfirm) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPendingSessionConfirm(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [pendingSessionConfirm]);
+
   const buildPayload = (): HelpdeskConnectionPayload | null => {
     const cleanIp = targetIp.trim();
     const cleanUser = username.trim();
@@ -1075,7 +1090,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setConfirmRepairKey(null);
     setConfirmPowerAction(false);
     setSessionActionBusy(null);
-    setConfirmLogoffKey(null);
+    setPendingSessionConfirm(null);
     setSecurityAvBusyKey(null);
     setIsRenamingComputer(false);
     setRenameInputValue('');
@@ -3151,7 +3166,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     if (!payload) return;
     const busyKey = rowKey || `quick:${action}`;
     setSessionActionBusy(busyKey);
-    setConfirmLogoffKey(null);
+    setPendingSessionConfirm(null);
     setSessionActionError(null);
     setSessionActionResult(null);
     try {
@@ -13675,12 +13690,13 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                         type="button"
                         disabled={!canExecuteActions || sessionActionBusy !== null || !logonsData.isAnyoneLoggedIn}
                         onClick={() =>
-                          handleUserSessionAction(
-                            'lock',
-                            logonsData?.activeSessions?.[0]?.sessionId,
-                            logonsData?.activeLoggedInUser || logonsData?.activeSessions?.[0]?.username,
-                            'quick:lock'
-                          )
+                          setPendingSessionConfirm({
+                            action: 'lock',
+                            sessionId: logonsData?.activeSessions?.[0]?.sessionId,
+                            targetUser: logonsData?.activeLoggedInUser || logonsData?.activeSessions?.[0]?.username,
+                            rowKey: 'quick:lock',
+                            isAlreadyLocked: Boolean(logonsData?.isScreenLocked),
+                          })
                         }
                         className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/50 text-xs font-semibold transition cursor-pointer disabled:opacity-45 ${
                           isLightMode
@@ -13696,53 +13712,31 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                         <span>{isEn ? 'Lock Screen' : 'قفل صفحه'}</span>
                       </button>
 
-                      {confirmLogoffKey === 'quick:logoff' ? (
-                        <div className="inline-flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            disabled={!canExecuteActions || sessionActionBusy !== null}
-                            onClick={() =>
-                              handleUserSessionAction(
-                                'logoff',
-                                logonsData?.activeSessions?.[0]?.sessionId,
-                                logonsData?.activeLoggedInUser || logonsData?.activeSessions?.[0]?.username,
-                                'quick:logoff'
-                              )
-                            }
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition cursor-pointer"
-                          >
-                            {sessionActionBusy === 'quick:logoff' ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <LogOut className="w-3.5 h-3.5" />
-                            )}
-                            <span>{isEn ? 'Confirm Logoff' : 'تأیید خروج'}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setConfirmLogoffKey(null)}
-                            className={`px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer ${
-                              isLightMode ? 'bg-white border-slate-300 text-slate-700' : 'bg-slate-900 border-slate-700 text-slate-300'
-                            }`}
-                          >
-                            {isEn ? 'Cancel' : 'انصراف'}
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={!canExecuteActions || sessionActionBusy !== null || !logonsData.isAnyoneLoggedIn}
-                          onClick={() => setConfirmLogoffKey('quick:logoff')}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-500/50 text-xs font-semibold transition cursor-pointer disabled:opacity-45 ${
-                            isLightMode
-                              ? 'bg-white/90 hover:bg-rose-100 text-rose-700'
-                              : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300'
-                          }`}
-                        >
+                      <button
+                        type="button"
+                        disabled={!canExecuteActions || sessionActionBusy !== null || !logonsData.isAnyoneLoggedIn}
+                        onClick={() =>
+                          setPendingSessionConfirm({
+                            action: 'logoff',
+                            sessionId: logonsData?.activeSessions?.[0]?.sessionId,
+                            targetUser: logonsData?.activeLoggedInUser || logonsData?.activeSessions?.[0]?.username,
+                            rowKey: 'quick:logoff',
+                            isAlreadyLocked: Boolean(logonsData?.isScreenLocked),
+                          })
+                        }
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-500/50 text-xs font-semibold transition cursor-pointer disabled:opacity-45 ${
+                          isLightMode
+                            ? 'bg-white/90 hover:bg-rose-100 text-rose-700'
+                            : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300'
+                        }`}
+                      >
+                        {sessionActionBusy === 'quick:logoff' ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
                           <LogOut className="w-3.5 h-3.5" />
-                          <span>{isEn ? 'Sign Out (Logoff)' : 'خروج کاربر (Logoff)'}</span>
-                        </button>
-                      )}
+                        )}
+                        <span>{isEn ? 'Sign Out (Logoff)' : 'خروج کاربر (Logoff)'}</span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -14303,7 +14297,15 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                                   <button
                                     type="button"
                                     disabled={!canExecuteActions || sessionActionBusy !== null || isSystemZero}
-                                    onClick={() => handleUserSessionAction('lock', sess.sessionId, fullUser, `${rowKey}:lock`)}
+                                    onClick={() =>
+                                      setPendingSessionConfirm({
+                                        action: 'lock',
+                                        sessionId: sess.sessionId,
+                                        targetUser: fullUser,
+                                        rowKey: `${rowKey}:lock`,
+                                        isAlreadyLocked: Boolean(logonsData?.isScreenLocked),
+                                      })
+                                    }
                                     title={isEn ? 'Lock this session screen' : 'قفل کردن صفحه این نشست'}
                                     className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer"
                                   >
@@ -14315,44 +14317,28 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                                     <span>{isEn ? 'Lock' : 'قفل'}</span>
                                   </button>
 
-                                  {confirmLogoffKey === rowKey ? (
-                                    <div className="inline-flex items-center gap-1">
-                                      <button
-                                        type="button"
-                                        disabled={!canExecuteActions || sessionActionBusy !== null}
-                                        onClick={() => handleUserSessionAction('logoff', sess.sessionId, fullUser, `${rowKey}:logoff`)}
-                                        className="px-2 py-1 rounded-md bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-semibold cursor-pointer"
-                                      >
-                                        {sessionActionBusy === `${rowKey}:logoff` ? (
-                                          <Loader2 className="w-3 h-3 animate-spin" />
-                                        ) : isEn ? (
-                                          'Confirm'
-                                        ) : (
-                                          'تأیید'
-                                        )}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setConfirmLogoffKey(null)}
-                                        className={`px-1.5 py-1 rounded-md border text-[11px] cursor-pointer ${
-                                          isLightMode ? 'border-slate-300 text-slate-700' : 'border-slate-700 text-slate-300'
-                                        }`}
-                                      >
-                                        ×
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      disabled={!canExecuteActions || sessionActionBusy !== null || isSystemZero}
-                                      onClick={() => setConfirmLogoffKey(rowKey)}
-                                      title={isEn ? 'Sign out / logoff this user session' : 'خارج کردن (Logoff) این نشست'}
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer"
-                                    >
+                                  <button
+                                    type="button"
+                                    disabled={!canExecuteActions || sessionActionBusy !== null || isSystemZero}
+                                    onClick={() =>
+                                      setPendingSessionConfirm({
+                                        action: 'logoff',
+                                        sessionId: sess.sessionId,
+                                        targetUser: fullUser,
+                                        rowKey: `${rowKey}:logoff`,
+                                        isAlreadyLocked: Boolean(logonsData?.isScreenLocked),
+                                      })
+                                    }
+                                    title={isEn ? 'Sign out / logoff this user session' : 'خارج کردن (Logoff) این نشست'}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-rose-500/40 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer"
+                                  >
+                                    {sessionActionBusy === `${rowKey}:logoff` ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
                                       <LogOut className="w-3 h-3" />
-                                      <span>{isEn ? 'Logoff' : 'خروج'}</span>
-                                    </button>
-                                  )}
+                                    )}
+                                    <span>{isEn ? 'Logoff' : 'خروج'}</span>
+                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -17283,6 +17269,208 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         onStartRun={(checks) => handleRunDiagnosticsSuite(checks)}
         running={loadingDiagnostics}
       />
+
+      {/* User Session Lock Screen / Sign Out (Logoff) Confirmation Modal */}
+      {pendingSessionConfirm &&
+        createPortal(
+          <div
+            dir={isEn ? 'ltr' : 'rtl'}
+            className="fixed top-0 left-0 right-0 bottom-8 z-[99999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setPendingSessionConfirm(null);
+            }}
+          >
+            <div
+              className={`relative w-full max-w-md rounded-2xl border shadow-2xl overflow-hidden animate-scale-up ${
+                isLightMode
+                  ? 'bg-white border-slate-200 text-slate-900'
+                  : 'bg-slate-900 border-slate-700/80 text-slate-100'
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div
+                className={`flex items-center justify-between gap-3 px-5 py-4 border-b ${
+                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`p-2 rounded-xl border shrink-0 ${
+                      pendingSessionConfirm.action === 'lock'
+                        ? 'bg-amber-500/15 border-amber-500/35 text-amber-500'
+                        : 'bg-rose-500/15 border-rose-500/35 text-rose-500'
+                    }`}
+                  >
+                    {pendingSessionConfirm.action === 'lock' ? (
+                      <Lock className="w-5 h-5" />
+                    ) : (
+                      <LogOut className="w-5 h-5" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className={`text-sm font-bold truncate ${textPrimary}`}>
+                      {pendingSessionConfirm.action === 'lock'
+                        ? isEn
+                          ? 'Confirm Lock Workstation Screen'
+                          : 'تأیید قفل صفحه سیستم کاربر'
+                        : isEn
+                        ? 'Confirm User Sign Out (Logoff)'
+                        : 'تأیید خروج اجباری کاربر (Sign Out / Logoff)'}
+                    </h3>
+                    <p className={`text-[11px] truncate ${textMuted}`} dir="ltr">
+                      {logonsData?.hostname || targetIp.trim()} •{' '}
+                      {pendingSessionConfirm.targetUser || (isEn ? 'Active Session' : 'نشست فعال')}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPendingSessionConfirm(null)}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    isLightMode
+                      ? 'text-slate-500 hover:text-slate-800 hover:bg-slate-200'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={isEn ? 'Close' : 'بستن'}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-3.5 text-xs">
+                <div
+                  className={`p-3.5 rounded-xl border space-y-2 ${
+                    pendingSessionConfirm.action === 'lock'
+                      ? isLightMode
+                        ? 'bg-amber-50 border-amber-200 text-amber-950'
+                        : 'bg-amber-950/30 border-amber-500/40 text-amber-100'
+                      : isLightMode
+                      ? 'bg-rose-50 border-rose-200 text-rose-950'
+                      : 'bg-rose-950/30 border-rose-500/40 text-rose-100'
+                  }`}
+                >
+                  <div className="flex items-start gap-2 leading-relaxed font-medium">
+                    <AlertTriangle
+                      className={`w-4 h-4 shrink-0 mt-0.5 ${
+                        pendingSessionConfirm.action === 'lock' ? 'text-amber-500' : 'text-rose-500'
+                      }`}
+                    />
+                    <span>
+                      {pendingSessionConfirm.action === 'lock'
+                        ? isEn
+                          ? `Are you sure you want to lock the screen for "${pendingSessionConfirm.targetUser || 'active user'}" on "${logonsData?.hostname || targetIp.trim()}"? Running applications will stay open, and the user must enter their password to unlock.`
+                          : `آیا از قفل کردن صفحه نمایش کاربر «${pendingSessionConfirm.targetUser || 'کاربر فعال'}» روی سیستم «${logonsData?.hostname || targetIp.trim()}» اطمینان دارید؟ برنامه‌های باز باقی می‌مانند و کاربر برای ورود مجدد باید رمز عبور خود را وارد کند.`
+                        : isEn
+                        ? `Are you sure you want to forcibly sign out (Logoff) "${pendingSessionConfirm.targetUser || 'active user'}" on "${logonsData?.hostname || targetIp.trim()}"? All open programs in this session will be closed immediately and unsaved work may be lost.`
+                        : `آیا از خروج اجباری (Sign Out / Logoff) کاربر «${pendingSessionConfirm.targetUser || 'کاربر فعال'}» از سیستم «${logonsData?.hostname || targetIp.trim()}» اطمینان دارید؟ تمام برنامه‌های باز در این نشست فوراً بسته می‌شوند و ممکن است اطلاعات ذخیره‌نشده از دست برود.`}
+                    </span>
+                  </div>
+
+                  {pendingSessionConfirm.action === 'lock' && pendingSessionConfirm.isAlreadyLocked && (
+                    <div
+                      className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold flex items-center gap-1.5 ${
+                        isLightMode
+                          ? 'bg-white/80 border-amber-300 text-amber-800'
+                          : 'bg-slate-950/60 border-amber-500/40 text-amber-300'
+                      }`}
+                    >
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        {isEn
+                          ? 'Notice: This screen already appears to be locked. Confirming will re-issue the lock command.'
+                          : 'توجه: به نظر می‌رسد صفحه این سیستم در حال حاضر قفل است؛ با تأیید، دستور قفل مجدداً ارسال خواهد شد.'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  className={`flex flex-wrap items-center gap-2 text-[11px] font-mono ${
+                    isLightMode ? 'text-slate-600' : 'text-slate-300'
+                  }`}
+                  dir="ltr"
+                >
+                  <span
+                    className={`px-2 py-0.5 rounded border ${
+                      isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-800 border-slate-700'
+                    }`}
+                  >
+                    Host: <strong>{logonsData?.hostname || targetIp.trim()}</strong>
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded border ${
+                      isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-800 border-slate-700'
+                    }`}
+                  >
+                    User: <strong>{pendingSessionConfirm.targetUser || '—'}</strong>
+                  </span>
+                  {pendingSessionConfirm.sessionId && (
+                    <span
+                      className={`px-2 py-0.5 rounded border ${
+                        isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-800 border-slate-700'
+                      }`}
+                    >
+                      Session ID: <strong>{pendingSessionConfirm.sessionId}</strong>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer Buttons */}
+              <div
+                className={`flex items-center justify-end gap-2 px-5 py-3.5 border-t ${
+                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setPendingSessionConfirm(null)}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                  }`}
+                >
+                  {isEn ? 'Cancel' : 'انصراف'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!canExecuteActions || sessionActionBusy !== null}
+                  onClick={() => {
+                    const pending = pendingSessionConfirm;
+                    if (!pending) return;
+                    handleUserSessionAction(
+                      pending.action,
+                      pending.sessionId,
+                      pending.targetUser,
+                      pending.rowKey
+                    );
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-lg transition cursor-pointer disabled:opacity-50 ${
+                    pendingSessionConfirm.action === 'lock'
+                      ? 'bg-amber-600 hover:bg-amber-500 border border-amber-400/40'
+                      : 'bg-rose-600 hover:bg-rose-500 border border-rose-400/40'
+                  }`}
+                >
+                  {pendingSessionConfirm.action === 'lock' ? (
+                    <>
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Confirm Lock Screen' : 'تأیید و قفل صفحه'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Confirm Sign Out (Logoff)' : 'تأیید و خروج کاربر'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

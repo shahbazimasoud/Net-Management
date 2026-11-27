@@ -10,9 +10,22 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.501.0';
+export const APP_VERSION = '1.501.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.501.1',
+    releaseDate: '2026-11-27',
+    type: 'patch',
+    title: 'افزودن پنجره تأییدیه دو‌مرحله‌ای برای دکمه‌های Lock Screen و Sign Out (Logoff) در تب User Logins, Sessions & Power',
+    title_en: 'Add Confirmation Modal for Lock Screen & Sign Out (Logoff) Actions in User Logins, Sessions & Power Tab',
+    changes: [
+      'افزودن مدال تأییدیه صریح (دوزبانه و منطبق با تم تیره و روشن به همراه کلید میانبر Esc) پیش از اجرای عملیات‌های `Lock Screen` (`قفل صفحه`) و `Sign Out (Logoff)` (`خروج کاربر`) در کادر وضعیت حضور (`User Session Present`) و جدول نشست‌های فعال تب `User Logins, Sessions & Power` در `src/components/HelpDeskView.tsx` تا از اجرای تصادفی قفل یا خروج کاربر جلوگیری شود.'
+    ],
+    changes_en: [
+      'Added a bilingual, theme-adaptive confirmation modal (with Escape key dismissal, host/user/session metadata, and already-locked screen notice) for both `Lock Screen` and `Sign Out (Logoff)` controls inside the `User Session Present` banner and active sessions table of `User Logins, Sessions & Power` (`src/components/HelpDeskView.tsx`).'
+    ]
+  },
   {
     version: '1.501.0',
     releaseDate: '2026-11-27',
