@@ -1472,11 +1472,32 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
               </div>
             </div>
 
-            {/* Members KPI */}
-            <div className={`rounded-xl border p-4 space-y-1.5 ${surfaceBg}`}>
+            {/* Members KPI — Clickable shortcut to Members & Nested Groups tab */}
+            <button
+              type="button"
+              onClick={() => {
+                setMemberViewMode('all');
+                patchHelpdeskGroupRamSnapshot({ activeSubTab: 'members' });
+              }}
+              title={
+                isEn
+                  ? 'Click to view all members in Members & Nested Groups'
+                  : 'برای مشاهده لیست کامل اعضا در تب اعضا و زیرگروه‌ها کلیک کنید'
+              }
+              className={`group rounded-xl border p-4 space-y-1.5 text-start w-full transition cursor-pointer ${surfaceBg} ${
+                isLightMode
+                  ? 'hover:border-emerald-400 hover:bg-emerald-50/40'
+                  : 'hover:border-emerald-500/50 hover:bg-emerald-500/5'
+              }`}
+            >
               <div className="flex items-center justify-between text-xs">
-                <span className={textMuted}>{isEn ? 'Total Members' : 'مجموع اعضای گروه'}</span>
-                <Users className="w-4 h-4 text-emerald-500" />
+                <span className={`${textMuted} group-hover:text-emerald-500 transition`}>
+                  {isEn ? 'Total Members' : 'مجموع اعضای گروه'}
+                </span>
+                <div className="flex items-center gap-1">
+                  <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500/70 group-hover:text-emerald-500 transition" />
+                  <Users className="w-4 h-4 text-emerald-500" />
+                </div>
               </div>
               <div className={`text-sm font-bold font-mono ${textPrimary}`}>
                 {totalMembersDisplay}{' '}
@@ -1493,7 +1514,7 @@ export const HelpDeskGroupsView: React.FC<HelpDeskGroupsViewProps> = ({
                   ? `${data.parentGroups.length} parent group(s) (memberOf)`
                   : `عضو در ${data.parentGroups.length} گروه والد`}
               </div>
-            </div>
+            </button>
           </div>
 
           {/* Creator, Lifecycle & Management Details + OU Path Breakdown */}

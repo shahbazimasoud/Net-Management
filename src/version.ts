@@ -10,9 +10,22 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.497.2';
+export const APP_VERSION = '1.497.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.497.3',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'انتقال مستقیم به تب Members & Nested Groups با کلیک روی کارت Total Members',
+    title_en: 'Navigate to Members & Nested Groups Tab on Total Members Card Click',
+    changes: [
+      'تبدیل کارت `Total Members` (مجموع اعضای گروه) در تب `Overview, Creator & OU` صفحه `Active Directory & Group Support HelpDesk` (`src/components/HelpDeskGroupsView.tsx`) به دکمه تعاملی جهت انتقال فوری به تب `Members & Nested Groups` همراه با بازنشانی فیلتر به نمایش همه اعضا.'
+    ],
+    changes_en: [
+      'Made the `Total Members` KPI card inside the `Overview, Creator & OU` tab of `Active Directory & Group Support HelpDesk` (`src/components/HelpDeskGroupsView.tsx`) interactive so clicking it navigates directly to the `Members & Nested Groups` tab and resets the member filter to All.'
+    ]
+  },
   {
     version: '1.497.2',
     releaseDate: '2026-11-26',
