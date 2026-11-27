@@ -89,7 +89,6 @@ import {
   MessageSquare,
   Send,
   Bug,
-  Megaphone,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -810,13 +809,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [endpointMsgResult, setEndpointMsgResult] = useState<any | null>(null);
   const [endpointMsgError, setEndpointMsgError] = useState<string | null>(null);
 
-  // Quick Announcement Bar inside On-Demand Target Workstation Session card (targets current user, strict RBAC)
-  const [announcementTitle, setAnnouncementTitle] = useState<string>('IT HelpDesk Announcement');
-  const [announcementBody, setAnnouncementBody] = useState<string>('');
-  const [announcementSending, setAnnouncementSending] = useState<boolean>(false);
-  const [announcementResult, setAnnouncementResult] = useState<any | null>(null);
-  const [announcementError, setAnnouncementError] = useState<string | null>(null);
-
   // Laptop Battery Health & Cycle Count Report
   const batteryData = ram.batteryData;
   const setBatteryData = setRamField('batteryData');
@@ -1025,9 +1017,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setEndpointMsgBody('');
     setEndpointMsgResult(null);
     setEndpointMsgError(null);
-    setAnnouncementBody('');
-    setAnnouncementResult(null);
-    setAnnouncementError(null);
     setEventDiagnosticFocus('all');
     setBsodReasonFilter('all');
     setShowVpnCustomPass(false);
@@ -3112,77 +3101,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     }
   };
 
-  const handleSendQuickAnnouncement = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canSendEndpointMessage) {
-      setAnnouncementError(
-        isEn
-          ? 'Access denied: Sending workstation announcements requires explicit RBAC permission (canSendHelpdeskMessage) or Super Admin role.'
-          : 'عدم دسترسی: ارسال پیام انانسمنت به کاربر جاری نیازمند مجوز صریح RBAC (ارسال پیام روی سیستم کاربر) یا نقش سوپرادمین است.'
-      );
-      return;
-    }
-    const payload = buildPayload();
-    if (!payload) {
-      setAnnouncementError(
-        isEn
-          ? 'Enter Target IP, Session Username, and Ephemeral Password above before sending an announcement.'
-          : 'ابتدا آدرس IP، نام کاربری نشست و رمز عبور موقت را در کادر بالا وارد کنید.'
-      );
-      return;
-    }
-    const cleanBody = announcementBody.trim();
-    if (!cleanBody) {
-      setAnnouncementError(
-        isEn ? 'Enter an announcement message to send.' : 'متن پیام انانسمنت را برای ارسال وارد کنید.'
-      );
-      return;
-    }
-
-    // Auto-target current active logged-in user (falling back to * if not yet detected)
-    const activeRowUser = Array.isArray(logonsData?.activeSessions)
-      ? logonsData.activeSessions.find(
-          (s: any) => String(s?.state || '').toLowerCase() === 'active' && String(s?.sessionId) !== '0' && s?.username
-        )?.username
-      : '';
-    const currentTargetUser = String(
-      activeSessionSummary?.loggedInUser ||
-        healthData?.loggedInUser ||
-        gpoData?.loggedInUser ||
-        logonsData?.loggedInUser ||
-        activeRowUser ||
-        '*'
-    ).trim();
-
-    setAnnouncementSending(true);
-    setAnnouncementError(null);
-    setAnnouncementResult(null);
-    try {
-      const res = await sendHelpdeskEndpointMessage({
-        ...payload,
-        message: cleanBody,
-        title: announcementTitle.trim() || (isEn ? 'IT HelpDesk Announcement' : 'اطلاعیه واحد پشتیبانی IT'),
-        recipient: currentTargetUser || '*',
-        displaySeconds: 45,
-      });
-      setAnnouncementResult(res.data);
-      if (res.rateLimit) setRateLimit(res.rateLimit);
-      if (res.data?.success) {
-        setAnnouncementBody('');
-      }
-    } catch (err: any) {
-      setAnnouncementError(
-        (isEn ? err?.message : err?.errorFa || err?.message) ||
-          (isEn
-            ? 'Failed to deliver announcement to the current workstation user.'
-            : 'ارسال پیام انانسمنت به کاربر جاری سیستم ناموفق بود.')
-      );
-    } finally {
-      setAnnouncementSending(false);
-      notifyHelpdeskAuditUpdated();
-    }
-  };
-
   const handleInspectBattery = async () => {
     const payload = buildPayload();
     if (!payload) return;
@@ -5212,190 +5130,6 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             )}
           </div>
         )}
-
-        {/* Quick Workstation Announcement Sender to Current Logged-In User (Strict RBAC: canSendHelpdeskMessage or Super Admin) */}
-        {(() => {
-          const activeSessionRow = Array.isArray(logonsData?.activeSessions)
-            ? logonsData.activeSessions.find(
-                (s: any) =>
-                  String(s?.state || '').toLowerCase() === 'active' &&
-                  String(s?.sessionId) !== '0' &&
-                  s?.username
-              )
-            : null;
-          const resolvedCurrentUser = String(
-            activeSessionSummary?.loggedInUser ||
-              healthData?.loggedInUser ||
-              gpoData?.loggedInUser ||
-              logonsData?.loggedInUser ||
-              activeSessionRow?.username ||
-              ''
-          ).trim();
-          const hasCredentialsReady = Boolean(targetIp.trim() && username.trim() && password);
-
-          return (
-            <div
-              className={`pt-3.5 border-t space-y-2.5 ${
-                isLightMode ? 'border-slate-200' : 'border-slate-800'
-              }`}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2 min-w-0">
-                  <Megaphone className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                  <span className={`text-xs font-bold ${textPrimary}`}>
-                    {isEn
-                      ? 'Send Announcement to Current Workstation User'
-                      : 'ارسال پیام فوری (Announcement) به کاربر جاری سیستم'}
-                  </span>
-                  <FieldInfoTooltip
-                    isEn={isEn}
-                    isLightMode={isLightMode}
-                    fieldName={isEn ? 'Workstation Announcement' : 'ارسال پیام فوری به کاربر'}
-                    whatIsIt={
-                      isEn
-                        ? 'Pushes an instant on-screen announcement popup directly to the currently logged-in desktop user on this workstation.'
-                        : 'یک پنجره اعلان فوری (Announcement) را مستقیماً روی صفحه نمایش کاربر جاری لاگین‌شده در همین سیستم ارسال و نمایش می‌دهد.'
-                    }
-                    whyNeeded={
-                      isEn
-                        ? 'Lets helpdesk engineers warn or notify the active user right from the session header before maintenance or support actions. Strictly governed by RBAC.'
-                        : 'به کارشناس پشتیبانی امکان می‌دهد پیش از اقدامات تعمیراتی یا پشتیبانی بدون خروج از تب فعلی، سریع به کاربر جاری پیام بدهد؛ این دسترسی کاملاً توسط RBAC کنترل می‌شود.'
-                    }
-                    example={
-                      isEn
-                        ? 'Recipient: CORP\\ali · Message: "IT Support: Please save open files before scheduled update."'
-                        : 'مخاطب: کاربر جاری · پیام: «پشتیبانی IT: لطفاً فایل‌های باز را ذخیره کنید.»'
-                    }
-                  />
-                  <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-mono ${subSurfaceBg}`}
-                    dir="ltr"
-                  >
-                    <User className="w-3 h-3 text-teal-500 shrink-0" />
-                    <span className={textMuted}>{isEn ? 'Target:' : 'مخاطب:'}</span>
-                    <span className={`font-semibold ${textPrimary}`}>
-                      {resolvedCurrentUser || (isEn ? 'Active Session (*)' : 'نشست فعال (*)')}
-                    </span>
-                  </span>
-                </div>
-
-                {!canSendEndpointMessage ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 text-[11px] font-semibold text-amber-500 whitespace-nowrap">
-                    <Lock className="w-3 h-3 shrink-0" />
-                    <span>
-                      {isEn
-                        ? 'RBAC Locked (canSendHelpdeskMessage)'
-                        : 'قفل RBAC (نیازمند مجوز ارسال پیام)'}
-                    </span>
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-[11px] font-semibold text-emerald-500 whitespace-nowrap">
-                    <CheckCircle2 className="w-3 h-3 shrink-0" />
-                    <span>{isEn ? 'RBAC Authorized' : 'مجاز (RBAC)'}</span>
-                  </span>
-                )}
-              </div>
-
-              <form onSubmit={handleSendQuickAnnouncement} className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
-                <div className="md:col-span-3 min-w-0">
-                  <input
-                    type="text"
-                    maxLength={80}
-                    disabled={!canSendEndpointMessage || announcementSending}
-                    value={announcementTitle}
-                    onChange={(e) => setAnnouncementTitle(e.target.value)}
-                    placeholder={isEn ? 'Announcement Title' : 'عنوان پیام'}
-                    aria-label={isEn ? 'Announcement Title' : 'عنوان پیام انانسمنت'}
-                    className={`w-full min-w-0 px-3 py-1.5 rounded-lg border text-xs outline-none transition disabled:opacity-50 ${inputCls}`}
-                  />
-                </div>
-                <div className="md:col-span-7 min-w-0">
-                  <input
-                    type="text"
-                    maxLength={500}
-                    disabled={!canSendEndpointMessage || announcementSending}
-                    value={announcementBody}
-                    onChange={(e) => setAnnouncementBody(e.target.value)}
-                    placeholder={
-                      !canSendEndpointMessage
-                        ? isEn
-                          ? 'Locked: Grant "HelpDesk & Servers: Send Interactive Message" in Access Policy or sign in as Super Admin.'
-                          : 'غیرفعال: برای ارسال پیام باید مجوز RBAC مربوطه در Access Policy فعال باشد یا سوپرادمین باشید.'
-                        : isEn
-                        ? 'Write a quick announcement message to display on the current user screen...'
-                        : 'متن پیام انانسمنت را برای نمایش فوری روی صفحه کاربر جاری بنویسید...'
-                    }
-                    aria-label={isEn ? 'Announcement message' : 'متن پیام انانسمنت'}
-                    className={`w-full min-w-0 px-3 py-1.5 rounded-lg border text-xs outline-none transition disabled:opacity-50 ${inputCls}`}
-                  />
-                </div>
-                <div className="md:col-span-2 min-w-0">
-                  <button
-                    type="submit"
-                    disabled={
-                      !canSendEndpointMessage ||
-                      !hasCredentialsReady ||
-                      announcementSending ||
-                      !announcementBody.trim()
-                    }
-                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-45 text-white text-xs font-semibold transition whitespace-nowrap cursor-pointer"
-                  >
-                    {announcementSending ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                    ) : !canSendEndpointMessage ? (
-                      <Lock className="w-3.5 h-3.5 shrink-0" />
-                    ) : (
-                      <Send className="w-3.5 h-3.5 shrink-0" />
-                    )}
-                    <span>{isEn ? 'Send' : 'ارسال پیام'}</span>
-                  </button>
-                </div>
-              </form>
-
-              {announcementError && (
-                <div className="px-3 py-2 rounded-lg border border-rose-500/40 bg-rose-500/10 text-xs text-rose-500 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span className="break-words">{announcementError}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setAnnouncementError(null)}
-                    className="opacity-70 hover:opacity-100 cursor-pointer shrink-0"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
-
-              {announcementResult && (
-                <div
-                  className={`px-3 py-2 rounded-lg border text-xs flex items-center justify-between gap-2 font-semibold ${
-                    announcementResult.success
-                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
-                      : 'border-rose-500/40 bg-rose-500/10 text-rose-500'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    {announcementResult.success ? (
-                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    )}
-                    <span>{isEn ? announcementResult.message : announcementResult.messageFa}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setAnnouncementResult(null)}
-                    className="opacity-70 hover:opacity-100 cursor-pointer shrink-0"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })()}
       </div>
 
       {/* Segmented Workspace Navigation Tabs (Unified Teal Active Theme) */}

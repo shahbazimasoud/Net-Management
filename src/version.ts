@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.497.0';
+export const APP_VERSION = '1.497.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.497.1',
+    releaseDate: '2026-11-26',
+    type: 'patch',
+    title: 'حذف نوار ارسال پیام فوری (Send Announcement) از کادر On-Demand Target Workstation Session',
+    title_en: 'Remove Send Announcement Bar from On-Demand Target Workstation Session Card',
+    changes: [
+      'حذف کامل بخش `Send Announcement to Current Workstation User`، استیت‌ها و هندلر آن از کادر `On-Demand Target Workstation Session` در صفحه Agentless Endpoint HelpDesk (`src/components/HelpDeskView.tsx`).',
+      'حفظ مجوز اشتراکی `canSendHelpdeskMessage` برای بخش‌های قبلی خود (`ارسال پیام تعاملی روی صفحه سیستم کاربر` در تب نشست‌ها و `ارسال پیام ترمینال لینوکس` در سرورهای لینوکس) بدون ایجاد رگرسیون و بدون باقی‌ماندن هیچ مجوز RBAC اختصاصی بلااستفاده.'
+    ],
+    changes_en: [
+      'Removed the `Send Announcement to Current Workstation User` bar, state hooks, and submit handler from the `On-Demand Target Workstation Session` card in `HelpDeskView.tsx`.',
+      'Preserved the pre-existing shared `canSendHelpdeskMessage` RBAC permission strictly for `Send Interactive Message to Endpoint Screen` (User Logins tab) and Linux terminal user messaging (`LinuxUsersTab.tsx`), with no orphaned RBAC rules left behind.'
+    ]
+  },
   {
     version: '1.497.0',
     releaseDate: '2026-11-26',
