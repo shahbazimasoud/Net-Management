@@ -1059,6 +1059,7 @@ export async function fetchHelpdeskStatus(): Promise<{
     canManageHelpdeskExceptions: boolean;
     canSendHelpdeskMessage: boolean;
     canViewAllHelpdeskHistory: boolean;
+    canViewHelpdeskBrowserHistory?: boolean;
   };
   rateLimit: {
     windowMinutes: number;
@@ -1299,6 +1300,116 @@ export async function fetchHelpdeskSwitchPort(
     body: JSON.stringify(payload),
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Failed to locate connected switch port');
+  return res.json();
+}
+
+export type HelpdeskBrowserVendor =
+  | 'chrome'
+  | 'edge'
+  | 'firefox'
+  | 'brave'
+  | 'opera'
+  | 'vivaldi'
+  | 'yandex'
+  | 'chromium';
+
+export type HelpdeskBrowserTransitionType =
+  | 'link'
+  | 'typed'
+  | 'bookmark'
+  | 'reload'
+  | 'redirect'
+  | 'generated'
+  | 'form_submit'
+  | 'other';
+
+export interface HelpdeskBrowserHistoryEntry {
+  id: string;
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  osUser: string;
+  profileName: string;
+  profileDir: string;
+  url: string;
+  domain: string;
+  title: string;
+  visitedAt: string;
+  visitCount: number;
+  typedCount: number;
+  transitionType: HelpdeskBrowserTransitionType;
+  scheme: string;
+}
+
+export interface HelpdeskBrowserProfileInfo {
+  osUser: string;
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  profileName: string;
+  profileDir: string;
+  dbPath: string;
+  entryCount: number;
+  lastVisitAt: string | null;
+  engineStatus: 'ok' | 'empty' | 'error';
+  errorMessage?: string;
+}
+
+export interface HelpdeskBrowserTopDomain {
+  domain: string;
+  visits: number;
+  entries: number;
+  browsers: string[];
+  osUsers: string[];
+  lastVisitedAt: string;
+}
+
+export interface HelpdeskBrowserBreakdownItem {
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  entries: number;
+  uniqueDomains: number;
+  profilesCount: number;
+}
+
+export interface HelpdeskBrowserHistoryResult {
+  targetIp: string;
+  protocolUsed: string;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  loggedInUser: string;
+  collectedAt: string;
+  hoursBack: number;
+  maxEntries: number;
+  sqliteEngine: string;
+  totalEntries: number;
+  uniqueDomains: number;
+  profilesScanned: number;
+  profiles: HelpdeskBrowserProfileInfo[];
+  topDomains: HelpdeskBrowserTopDomain[];
+  browserBreakdown: HelpdeskBrowserBreakdownItem[];
+  entries: HelpdeskBrowserHistoryEntry[];
+  warnings: string[];
+}
+
+export async function fetchHelpdeskBrowserHistory(
+  payload: HelpdeskConnectionPayload & {
+    hoursBack?: number;
+    maxEntries?: number;
+    perProfileLimit?: number;
+    osUser?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: HelpdeskBrowserHistoryResult;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/browser-history`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to collect endpoint web browser history');
   return res.json();
 }
 

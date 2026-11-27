@@ -24953,6 +24953,1046 @@ export async function collectEndpointMacIdentity(
   };
 }
 
+// ============================================================================
+// WEB BROWSER HISTORY COLLECTOR (LIVE SQLITE EXTRACTION, ZERO MOCK DATA)
+// ============================================================================
+
+export type HelpdeskBrowserVendor =
+  | 'chrome'
+  | 'edge'
+  | 'firefox'
+  | 'brave'
+  | 'opera'
+  | 'vivaldi'
+  | 'yandex'
+  | 'chromium';
+
+export type HelpdeskBrowserTransitionType =
+  | 'link'
+  | 'typed'
+  | 'bookmark'
+  | 'reload'
+  | 'redirect'
+  | 'generated'
+  | 'form_submit'
+  | 'other';
+
+export interface HelpdeskBrowserHistoryEntry {
+  id: string;
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  osUser: string;
+  profileName: string;
+  profileDir: string;
+  url: string;
+  domain: string;
+  title: string;
+  visitedAt: string;
+  visitCount: number;
+  typedCount: number;
+  transitionType: HelpdeskBrowserTransitionType;
+  scheme: string;
+}
+
+export interface HelpdeskBrowserProfileInfo {
+  osUser: string;
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  profileName: string;
+  profileDir: string;
+  dbPath: string;
+  entryCount: number;
+  lastVisitAt: string | null;
+  engineStatus: 'ok' | 'empty' | 'error';
+  errorMessage?: string;
+}
+
+export interface HelpdeskBrowserTopDomain {
+  domain: string;
+  visits: number;
+  entries: number;
+  browsers: string[];
+  osUsers: string[];
+  lastVisitedAt: string;
+}
+
+export interface HelpdeskBrowserBreakdownItem {
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  entries: number;
+  uniqueDomains: number;
+  profilesCount: number;
+}
+
+export interface HelpdeskBrowserHistoryResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  loggedInUser: string;
+  collectedAt: string;
+  hoursBack: number;
+  maxEntries: number;
+  sqliteEngine: string;
+  totalEntries: number;
+  uniqueDomains: number;
+  profilesScanned: number;
+  profiles: HelpdeskBrowserProfileInfo[];
+  topDomains: HelpdeskBrowserTopDomain[];
+  browserBreakdown: HelpdeskBrowserBreakdownItem[];
+  entries: HelpdeskBrowserHistoryEntry[];
+  warnings: string[];
+}
+
+function mapChromiumTransition(rawTransition: number): HelpdeskBrowserTransitionType {
+  const core = Number(rawTransition || 0) & 0xff;
+  switch (core) {
+    case 0:
+      return 'link';
+    case 1:
+      return 'typed';
+    case 2:
+      return 'bookmark';
+    case 5:
+      return 'generated';
+    case 7:
+      return 'form_submit';
+    case 8:
+      return 'reload';
+    default:
+      return 'other';
+  }
+}
+
+function mapFirefoxTransition(rawType: number): HelpdeskBrowserTransitionType {
+  switch (Number(rawType || 0)) {
+    case 1:
+      return 'link';
+    case 2:
+      return 'typed';
+    case 3:
+      return 'bookmark';
+    case 5:
+    case 6:
+      return 'redirect';
+    case 8:
+    case 9:
+      return 'reload';
+    default:
+      return 'other';
+  }
+}
+
+function extractDomainAndScheme(rawUrl: string): { domain: string; scheme: string } {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) return { domain: '(unknown)', scheme: '' };
+  try {
+    const parsed = new URL(trimmed);
+    const scheme = parsed.protocol.replace(/:$/, '').toLowerCase();
+    if (scheme === 'file') {
+      return { domain: 'local-file', scheme };
+    }
+    if (parsed.hostname) {
+      return { domain: parsed.hostname.toLowerCase(), scheme };
+    }
+    return { domain: `${scheme || 'internal'}`, scheme };
+  } catch {
+    const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/([^/?#:]+)/.exec(trimmed);
+    if (m) {
+      return { scheme: m[1].toLowerCase(), domain: m[2].toLowerCase() };
+    }
+    const colon = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(trimmed);
+    return { scheme: colon ? colon[1].toLowerCase() : '', domain: colon ? colon[1].toLowerCase() : '(other)' };
+  }
+}
+
+function normalizeBrowserVendor(raw: string): { vendor: HelpdeskBrowserVendor; label: string } {
+  const v = String(raw || '').trim().toLowerCase();
+  if (v === 'chrome') return { vendor: 'chrome', label: 'Google Chrome' };
+  if (v === 'edge') return { vendor: 'edge', label: 'Microsoft Edge' };
+  if (v === 'firefox') return { vendor: 'firefox', label: 'Mozilla Firefox' };
+  if (v === 'brave') return { vendor: 'brave', label: 'Brave' };
+  if (v === 'opera') return { vendor: 'opera', label: 'Opera' };
+  if (v === 'vivaldi') return { vendor: 'vivaldi', label: 'Vivaldi' };
+  if (v === 'yandex') return { vendor: 'yandex', label: 'Yandex Browser' };
+  return { vendor: 'chromium', label: 'Chromium' };
+}
+
+export async function collectEndpointBrowserHistory(
+  input: HelpdeskTargetInput,
+  options?: {
+    hoursBack?: number;
+    maxEntries?: number;
+    perProfileLimit?: number;
+    osUser?: string;
+  }
+): Promise<HelpdeskBrowserHistoryResult> {
+  const rawHours = options?.hoursBack !== undefined ? Number(options.hoursBack) : 168;
+  const hoursBack = Number.isFinite(rawHours) && rawHours >= 0 ? Math.min(8760, Math.round(rawHours)) : 168;
+  const rawMaxEntries = options?.maxEntries !== undefined ? Number(options.maxEntries) : 1500;
+  const maxEntries = Number.isFinite(rawMaxEntries)
+    ? Math.max(50, Math.min(4000, Math.round(rawMaxEntries)))
+    : 1500;
+  const rawPerProfile = options?.perProfileLimit !== undefined ? Number(options.perProfileLimit) : 600;
+  const perProfileLimit = Number.isFinite(rawPerProfile)
+    ? Math.max(50, Math.min(1500, Math.round(rawPerProfile)))
+    : 600;
+  const osUserFilter = String(options?.osUser || 'all').trim();
+
+  const osUserFilterB64 = Buffer.from(osUserFilter, 'utf8').toString('base64');
+
+  const winPs = `
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$ErrorActionPreference = 'SilentlyContinue'
+$hoursBack = ${hoursBack}
+$perProfLimit = ${perProfileLimit}
+$maxEntries = ${maxEntries}
+$osUserFilter = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${osUserFilterB64}')).Trim()
+
+$hostname = [string]$env:COMPUTERNAME
+$loggedInUser = ''
+try {
+  $cs = Get-CimInstance Win32_ComputerSystem
+  if ($cs -and $cs.UserName) { $loggedInUser = [string]$cs.UserName }
+} catch {}
+if (-not $loggedInUser) {
+  try {
+    $qOut = & query user 2>$null
+    foreach ($ln in $qOut) {
+      if ($ln -match '^\\s*>?(\\S+)\\s+.*\\s+(Active|Disc)\\s+') {
+        $loggedInUser = $matches[1]
+        break
+      }
+    }
+  } catch {}
+}
+
+$warnings = New-Object System.Collections.Generic.List[string]
+$profilesOut = New-Object System.Collections.Generic.List[object]
+$entriesOut = New-Object System.Collections.Generic.List[object]
+
+$cutoffUnixSec = if ($hoursBack -gt 0) { [int64][DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - ([int64]$hoursBack * 3600) } else { [int64]0 }
+$minWebkitUs = if ($cutoffUnixSec -gt 0) { ($cutoffUnixSec + [int64]11644473600) * [int64]1000000 } else { [int64]0 }
+$minPrTimeUs = if ($cutoffUnixSec -gt 0) { $cutoffUnixSec * [int64]1000000 } else { [int64]0 }
+
+# Check SQLite reader capability on target Windows host (native winsqlite3.dll first, Python sqlite3 fallback)
+$winSqliteDll = Join-Path $env:SystemRoot 'System32\\winsqlite3.dll'
+$sqliteEngine = ''
+$pyExe = $null
+
+if (Test-Path -LiteralPath $winSqliteDll) {
+  try {
+    if (-not ([System.Management.Automation.PSTypeName]'NetTopoWinSqlite').Type) {
+      Add-Type -TypeDefinition @"
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class NetTopoWinSqlite {
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_open_v2", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int OpenV2(byte[] filenameUtf8, out IntPtr ppDb, int flags, IntPtr zVfs);
+
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_close", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int Close(IntPtr db);
+
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_busy_timeout", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int BusyTimeout(IntPtr db, int ms);
+
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_prepare_v2", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int PrepareV2(IntPtr db, byte[] sqlUtf8, int nByte, out IntPtr ppStmt, out IntPtr pzTail);
+
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_step", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int Step(IntPtr stmt);
+
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_finalize", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int Finalize(IntPtr stmt);
+
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_column_text", CallingConvention = CallingConvention.Cdecl)]
+  public static extern IntPtr ColumnTextPtr(IntPtr stmt, int iCol);
+
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_column_bytes", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int ColumnBytes(IntPtr stmt, int iCol);
+
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_column_int64", CallingConvention = CallingConvention.Cdecl)]
+  public static extern long ColumnInt64(IntPtr stmt, int iCol);
+
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_errmsg", CallingConvention = CallingConvention.Cdecl)]
+  public static extern IntPtr ErrMsgPtr(IntPtr db);
+
+  public static string GetErrMsg(IntPtr db) {
+    IntPtr p = ErrMsgPtr(db);
+    if (p == IntPtr.Zero) return "unknown sqlite error";
+    var list = new List<byte>();
+    int i = 0;
+    while (i < 1024) {
+      byte b = Marshal.ReadByte(p, i);
+      if (b == 0) break;
+      list.Add(b);
+      i++;
+    }
+    return Encoding.UTF8.GetString(list.ToArray());
+  }
+
+  public static string GetText(IntPtr stmt, int iCol) {
+    IntPtr ptr = ColumnTextPtr(stmt, iCol);
+    if (ptr == IntPtr.Zero) return "";
+    int len = ColumnBytes(stmt, iCol);
+    if (len <= 0) return "";
+    byte[] buf = new byte[len];
+    Marshal.Copy(ptr, buf, 0, len);
+    return Encoding.UTF8.GetString(buf);
+  }
+}
+"@
+    }
+    $sqliteEngine = 'winsqlite3.dll'
+  } catch {
+    $warnings.Add("winsqlite3.dll P/Invoke init failed: $($_.Exception.Message)")
+  }
+}
+
+if (-not $sqliteEngine) {
+  foreach ($cmdName in @('python', 'python3', 'py')) {
+    $cmd = Get-Command $cmdName -ErrorAction SilentlyContinue
+    if ($cmd) {
+      $pyExe = $cmd.Source
+      $sqliteEngine = "python:$cmdName"
+      break
+    }
+  }
+}
+
+if (-not $sqliteEngine) {
+  $warnings.Add('No SQLite reader engine found on target Windows host (missing C:\\Windows\\System32\\winsqlite3.dll and Python).')
+  [PSCustomObject]@{
+    hostname = $hostname
+    loggedInUser = $loggedInUser
+    sqliteEngine = 'unavailable'
+    profiles = @()
+    entries = @()
+    warnings = $warnings
+  } | ConvertTo-Json -Depth 6 -Compress
+  return
+}
+
+function Copy-LockedDbBundle {
+  param([string]$SrcDbPath, [string]$DestDir)
+  $baseName = [System.IO.Path]::GetFileName($SrcDbPath)
+  $destDb = Join-Path $DestDir $baseName
+  foreach ($suffix in @('', '-wal', '-shm')) {
+    $srcFile = "$SrcDbPath$suffix"
+    $dstFile = "$destDb$suffix"
+    if (Test-Path -LiteralPath $srcFile) {
+      $fsIn = $null
+      $fsOut = $null
+      try {
+        $fsIn = [System.IO.File]::Open($srcFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+        $fsOut = [System.IO.File]::Create($dstFile)
+        $fsIn.CopyTo($fsOut)
+      } finally {
+        if ($fsOut) { $fsOut.Dispose() }
+        if ($fsIn) { $fsIn.Dispose() }
+      }
+    }
+  }
+  return $destDb
+}
+
+function Read-ChromiumProfileName {
+  param([string]$ProfilePath, [string]$FallbackName)
+  $prefPath = Join-Path $ProfilePath 'Preferences'
+  if (-not (Test-Path -LiteralPath $prefPath)) { return $FallbackName }
+  $fs = $null
+  $sr = $null
+  try {
+    $fs = [System.IO.File]::Open($prefPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+    $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
+    $raw = $sr.ReadToEnd()
+    if ($raw -and $raw.Length -lt 2097152) {
+      $obj = $raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+      if ($obj -and $obj.profile -and $obj.profile.name) {
+        $pName = [string]$obj.profile.name
+        if ($obj.account_info -and $obj.account_info.Count -gt 0 -and $obj.account_info[0].email) {
+          return "$pName ($($obj.account_info[0].email))"
+        }
+        return $pName
+      }
+    }
+  } catch {} finally {
+    if ($sr) { $sr.Dispose() }
+    if ($fs) { $fs.Dispose() }
+  }
+  return $FallbackName
+}
+
+function Query-SqliteWin {
+  param([string]$DbFilePath, [string]$Sql)
+  $rows = New-Object System.Collections.Generic.List[object]
+  $dbPtr = [IntPtr]::Zero
+  $pathBytes = [System.Text.Encoding]::UTF8.GetBytes($DbFilePath + "\`0")
+  $rc = [NetTopoWinSqlite]::OpenV2($pathBytes, [ref]$dbPtr, 2, [IntPtr]::Zero)
+  if ($rc -ne 0) {
+    if ($dbPtr -ne [IntPtr]::Zero) { [NetTopoWinSqlite]::Close($dbPtr) | Out-Null; $dbPtr = [IntPtr]::Zero }
+    $rc = [NetTopoWinSqlite]::OpenV2($pathBytes, [ref]$dbPtr, 1, [IntPtr]::Zero)
+  }
+  if ($rc -ne 0 -or $dbPtr -eq [IntPtr]::Zero) {
+    $err = if ($dbPtr -ne [IntPtr]::Zero) { [NetTopoWinSqlite]::GetErrMsg($dbPtr) } else { "sqlite3_open_v2 rc=$rc" }
+    if ($dbPtr -ne [IntPtr]::Zero) { [NetTopoWinSqlite]::Close($dbPtr) | Out-Null }
+    throw $err
+  }
+  $stmtPtr = [IntPtr]::Zero
+  try {
+    [NetTopoWinSqlite]::BusyTimeout($dbPtr, 3000) | Out-Null
+    $sqlBytes = [System.Text.Encoding]::UTF8.GetBytes($Sql + "\`0")
+    $tail = [IntPtr]::Zero
+    $prepRc = [NetTopoWinSqlite]::PrepareV2($dbPtr, $sqlBytes, -1, [ref]$stmtPtr, [ref]$tail)
+    if ($prepRc -ne 0 -or $stmtPtr -eq [IntPtr]::Zero) {
+      throw ([NetTopoWinSqlite]::GetErrMsg($dbPtr))
+    }
+    while ($true) {
+      $stepRc = [NetTopoWinSqlite]::Step($stmtPtr)
+      if ($stepRc -eq 100) {
+        $rows.Add([PSCustomObject]@{
+          url = [NetTopoWinSqlite]::GetText($stmtPtr, 0)
+          title = [NetTopoWinSqlite]::GetText($stmtPtr, 1)
+          visitCount = [NetTopoWinSqlite]::ColumnInt64($stmtPtr, 2)
+          typedCount = [NetTopoWinSqlite]::ColumnInt64($stmtPtr, 3)
+          tsUs = [NetTopoWinSqlite]::ColumnInt64($stmtPtr, 4)
+          transition = [NetTopoWinSqlite]::ColumnInt64($stmtPtr, 5)
+        })
+      } elseif ($stepRc -eq 101) {
+        break
+      } else {
+        throw ([NetTopoWinSqlite]::GetErrMsg($dbPtr))
+      }
+    }
+  } finally {
+    if ($stmtPtr -ne [IntPtr]::Zero) { [NetTopoWinSqlite]::Finalize($stmtPtr) | Out-Null }
+    if ($dbPtr -ne [IntPtr]::Zero) { [NetTopoWinSqlite]::Close($dbPtr) | Out-Null }
+  }
+  return $rows
+}
+
+function Query-SqlitePython {
+  param([string]$PythonExe, [string]$DbFilePath, [string]$Sql)
+  $pyCode = @"
+import json, sqlite3, sys
+con = sqlite3.connect(sys.argv[1], timeout=3.0)
+cur = con.cursor()
+cur.execute(sys.argv[2])
+out = [{"url": r[0] or "", "title": r[1] or "", "visitCount": int(r[2] or 0), "typedCount": int(r[3] or 0), "tsUs": int(r[4] or 0), "transition": int(r[5] or 0)} for r in cur.fetchall()]
+con.close()
+print(json.dumps(out, ensure_ascii=True))
+"@
+  $tmpPy = Join-Path ([System.IO.Path]::GetDirectoryName($DbFilePath)) 'q.py'
+  [System.IO.File]::WriteAllText($tmpPy, $pyCode, [System.Text.Encoding]::UTF8)
+  $rawJson = & $PythonExe $tmpPy $DbFilePath $Sql 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    throw ($rawJson -join ' ')
+  }
+  $parsed = ($rawJson -join '') | ConvertFrom-Json
+  return @($parsed)
+}
+
+function Convert-TimestampIso {
+  param([int64]$TsUs, [string]$Format)
+  try {
+    if ($TsUs -le 0) { return '' }
+    if ($Format -eq 'webkit') {
+      if ($TsUs -gt 265000000000000000) { return '' }
+      return ([DateTime]::FromFileTimeUtc($TsUs * 10)).ToString('o')
+    } else {
+      $ms = [int64]($TsUs / 1000)
+      if ($ms -le 0 -or $ms -gt 4102444800000) { return '' }
+      return ([DateTimeOffset]::FromUnixTimeMilliseconds($ms)).UtcDateTime.ToString('o')
+    }
+  } catch {
+    return ''
+  }
+}
+
+$usersRoot = Join-Path $env:SystemDrive 'Users'
+if (-not (Test-Path -LiteralPath $usersRoot)) { $usersRoot = 'C:\\Users' }
+$skipUsers = @('Public', 'Default', 'Default User', 'All Users', 'defaultuser0', 'WDAGUtilityAccount')
+$userDirs = Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $skipUsers -notcontains $_.Name }
+
+$targets = New-Object System.Collections.Generic.List[object]
+
+foreach ($uDir in $userDirs) {
+  $uName = $uDir.Name
+  if ($osUserFilter -and $osUserFilter.ToLower() -ne 'all') {
+    $shortFilter = ($osUserFilter -replace '^.*\\\\', '').Split('@')[0].ToLower()
+    if ($uName.ToLower() -ne $shortFilter -and $uName.ToLower() -ne $osUserFilter.ToLower()) {
+      continue
+    }
+  }
+
+  $localApp = Join-Path $uDir.FullName 'AppData\\Local'
+  $roamApp = Join-Path $uDir.FullName 'AppData\\Roaming'
+
+  $chromiumRoots = @(
+    @{ browser = 'chrome'; label = 'Google Chrome'; path = (Join-Path $localApp 'Google\\Chrome\\User Data') },
+    @{ browser = 'edge'; label = 'Microsoft Edge'; path = (Join-Path $localApp 'Microsoft\\Edge\\User Data') },
+    @{ browser = 'brave'; label = 'Brave'; path = (Join-Path $localApp 'BraveSoftware\\Brave-Browser\\User Data') },
+    @{ browser = 'vivaldi'; label = 'Vivaldi'; path = (Join-Path $localApp 'Vivaldi\\User Data') },
+    @{ browser = 'chromium'; label = 'Chromium'; path = (Join-Path $localApp 'Chromium\\User Data') },
+    @{ browser = 'yandex'; label = 'Yandex Browser'; path = (Join-Path $localApp 'Yandex\\YandexBrowser\\User Data') }
+  )
+
+  foreach ($cr in $chromiumRoots) {
+    if (-not (Test-Path -LiteralPath $cr.path)) { continue }
+    $subProfiles = Get-ChildItem -LiteralPath $cr.path -Directory -ErrorAction SilentlyContinue | Where-Object {
+      $_.Name -eq 'Default' -or $_.Name -like 'Profile *' -or $_.Name -eq 'Guest Profile'
+    }
+    foreach ($sp in $subProfiles) {
+      $dbFile = Join-Path $sp.FullName 'History'
+      if (Test-Path -LiteralPath $dbFile) {
+        $targets.Add([PSCustomObject]@{
+          osUser = $uName
+          browser = $cr.browser
+          browserLabel = $cr.label
+          kind = 'chromium'
+          profileDir = $sp.Name
+          profileName = (Read-ChromiumProfileName -ProfilePath $sp.FullName -FallbackName $sp.Name)
+          dbPath = $dbFile
+        })
+      }
+    }
+  }
+
+  $operaRoots = @(
+    @{ browser = 'opera'; label = 'Opera'; dir = 'Opera Stable'; path = (Join-Path $roamApp 'Opera Software\\Opera Stable') },
+    @{ browser = 'opera'; label = 'Opera GX'; dir = 'Opera GX Stable'; path = (Join-Path $roamApp 'Opera Software\\Opera GX Stable') }
+  )
+  foreach ($op in $operaRoots) {
+    $dbFile = Join-Path $op.path 'History'
+    if (Test-Path -LiteralPath $dbFile) {
+      $targets.Add([PSCustomObject]@{
+        osUser = $uName
+        browser = $op.browser
+        browserLabel = $op.label
+        kind = 'chromium'
+        profileDir = $op.dir
+        profileName = (Read-ChromiumProfileName -ProfilePath $op.path -FallbackName $op.dir)
+        dbPath = $dbFile
+      })
+    }
+  }
+
+  $ffRoot = Join-Path $roamApp 'Mozilla\\Firefox\\Profiles'
+  if (Test-Path -LiteralPath $ffRoot) {
+    $ffProfs = Get-ChildItem -LiteralPath $ffRoot -Directory -ErrorAction SilentlyContinue
+    foreach ($fp in $ffProfs) {
+      $dbFile = Join-Path $fp.FullName 'places.sqlite'
+      if (Test-Path -LiteralPath $dbFile) {
+        $cleanName = ($fp.Name -replace '^[a-z0-9]+\\.', '')
+        if (-not $cleanName) { $cleanName = $fp.Name }
+        $targets.Add([PSCustomObject]@{
+          osUser = $uName
+          browser = 'firefox'
+          browserLabel = 'Mozilla Firefox'
+          kind = 'firefox'
+          profileDir = $fp.Name
+          profileName = $cleanName
+          dbPath = $dbFile
+        })
+      }
+    }
+  }
+}
+
+$tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("nettopo_bh_" + [System.Guid]::NewGuid().ToString('N').Substring(0, 10))
+New-Item -ItemType Directory -Path $tmpRoot -Force | Out-Null
+
+try {
+  $idx = 0
+  foreach ($t in $targets) {
+    $idx++
+    $profTmp = Join-Path $tmpRoot "p$idx"
+    New-Item -ItemType Directory -Path $profTmp -Force | Out-Null
+    $profCount = 0
+    $profLastIso = $null
+    $profStatus = 'empty'
+    $profErr = ''
+
+    try {
+      $copiedDb = Copy-LockedDbBundle -SrcDbPath $t.dbPath -DestDir $profTmp
+      $rows = @()
+
+      if ($t.kind -eq 'chromium') {
+        $sqlMain = "SELECT u.url, COALESCE(u.title,''), COALESCE(u.visit_count,1), COALESCE(u.typed_count,0), v.visit_time, COALESCE(v.transition,0) FROM visits v JOIN urls u ON v.url = u.id WHERE v.visit_time >= $minWebkitUs ORDER BY v.visit_time DESC LIMIT $perProfLimit"
+        if ($sqliteEngine -eq 'winsqlite3.dll') {
+          $rows = @(Query-SqliteWin -DbFilePath $copiedDb -Sql $sqlMain)
+        } else {
+          $rows = @(Query-SqlitePython -PythonExe $pyExe -DbFilePath $copiedDb -Sql $sqlMain)
+        }
+        if ($rows.Count -eq 0) {
+          $sqlFallback = "SELECT url, COALESCE(title,''), COALESCE(visit_count,1), COALESCE(typed_count,0), last_visit_time, 0 FROM urls WHERE last_visit_time >= $minWebkitUs ORDER BY last_visit_time DESC LIMIT $perProfLimit"
+          if ($sqliteEngine -eq 'winsqlite3.dll') {
+            $rows = @(Query-SqliteWin -DbFilePath $copiedDb -Sql $sqlFallback)
+          } else {
+            $rows = @(Query-SqlitePython -PythonExe $pyExe -DbFilePath $copiedDb -Sql $sqlFallback)
+          }
+        }
+      } else {
+        $sqlFf = "SELECT p.url, COALESCE(p.title,''), COALESCE(p.visit_count,1), COALESCE(p.typed,0), v.visit_date, COALESCE(v.visit_type,1) FROM moz_historyvisits v JOIN moz_places p ON v.place_id = p.id WHERE v.visit_date >= $minPrTimeUs ORDER BY v.visit_date DESC LIMIT $perProfLimit"
+        if ($sqliteEngine -eq 'winsqlite3.dll') {
+          $rows = @(Query-SqliteWin -DbFilePath $copiedDb -Sql $sqlFf)
+        } else {
+          $rows = @(Query-SqlitePython -PythonExe $pyExe -DbFilePath $copiedDb -Sql $sqlFf)
+        }
+        if ($rows.Count -eq 0) {
+          $sqlFfFallback = "SELECT url, COALESCE(title,''), COALESCE(visit_count,1), COALESCE(typed,0), COALESCE(last_visit_date,0), 1 FROM moz_places WHERE COALESCE(last_visit_date,0) >= $minPrTimeUs ORDER BY last_visit_date DESC LIMIT $perProfLimit"
+          if ($sqliteEngine -eq 'winsqlite3.dll') {
+            $rows = @(Query-SqliteWin -DbFilePath $copiedDb -Sql $sqlFfFallback)
+          } else {
+            $rows = @(Query-SqlitePython -PythonExe $pyExe -DbFilePath $copiedDb -Sql $sqlFfFallback)
+          }
+        }
+      }
+
+      foreach ($r in $rows) {
+        $u = [string]$r.url
+        if (-not $u) { continue }
+        if ($u.Length -gt 1400) { $u = $u.Substring(0, 1400) }
+        $ttl = [string]$r.title
+        if ($ttl.Length -gt 280) { $ttl = $ttl.Substring(0, 280) }
+        $iso = Convert-TimestampIso -TsUs ([int64]$r.tsUs) -Format ($(if ($t.kind -eq 'chromium') { 'webkit' } else { 'prtime' }))
+        if (-not $iso) { continue }
+        $profCount++
+        if (-not $profLastIso -or $iso -gt $profLastIso) { $profLastIso = $iso }
+        if ($entriesOut.Count -lt ($maxEntries * 2)) {
+          $entriesOut.Add([PSCustomObject]@{
+            browser = $t.browser
+            browserLabel = $t.browserLabel
+            kind = $t.kind
+            osUser = $t.osUser
+            profileName = $t.profileName
+            profileDir = $t.profileDir
+            url = $u
+            title = $ttl
+            visitedAt = $iso
+            visitCount = [int]$r.visitCount
+            typedCount = [int]$r.typedCount
+            transitionRaw = [int]$r.transition
+          })
+        }
+      }
+      $profStatus = if ($profCount -gt 0) { 'ok' } else { 'empty' }
+    } catch {
+      $profStatus = 'error'
+      $profErr = [string]$_.Exception.Message
+      $warnings.Add("$($t.osUser) / $($t.browserLabel) ($($t.profileDir)): $profErr")
+    }
+
+    $profilesOut.Add([PSCustomObject]@{
+      osUser = $t.osUser
+      browser = $t.browser
+      browserLabel = $t.browserLabel
+      profileName = $t.profileName
+      profileDir = $t.profileDir
+      dbPath = $t.dbPath
+      entryCount = $profCount
+      lastVisitAt = $profLastIso
+      engineStatus = $profStatus
+      errorMessage = $profErr
+    })
+  }
+} finally {
+  if (Test-Path -LiteralPath $tmpRoot) {
+    Remove-Item -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+[PSCustomObject]@{
+  hostname = $hostname
+  loggedInUser = $loggedInUser
+  sqliteEngine = $sqliteEngine
+  profiles = $profilesOut
+  entries = $entriesOut
+  warnings = $warnings
+} | ConvertTo-Json -Depth 6 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PYEOF'
+import base64, datetime, glob, json, os, shutil, socket, sqlite3, tempfile
+
+hours_back = ${hoursBack}
+per_prof_limit = ${perProfileLimit}
+max_entries = ${maxEntries}
+os_user_filter = base64.b64decode("${osUserFilterB64}").decode("utf-8", "ignore").strip().lower()
+
+hostname = socket.gethostname()
+logged_in_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or ""
+try:
+    import subprocess
+    who_out = subprocess.check_output(["who"], text=True, stderr=subprocess.DEVNULL).strip().splitlines()
+    if who_out:
+        logged_in_user = who_out[0].split()[0]
+except Exception:
+    pass
+
+now_sec = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+cutoff_sec = (now_sec - hours_back * 3600) if hours_back > 0 else 0
+min_webkit_us = (cutoff_sec + 11644473600) * 1000000 if cutoff_sec > 0 else 0
+min_pr_us = cutoff_sec * 1000000 if cutoff_sec > 0 else 0
+
+user_homes = []
+if os.path.isdir("/home"):
+    for d in sorted(os.listdir("/home")):
+        full = os.path.join("/home", d)
+        if os.path.isdir(full):
+            user_homes.append((d, full))
+if os.path.isdir("/root"):
+    user_homes.append(("root", "/root"))
+
+targets = []
+for u_name, u_home in user_homes:
+    if os_user_filter and os_user_filter != "all" and u_name.lower() != os_user_filter:
+        continue
+    chromium_roots = [
+        ("chrome", "Google Chrome", os.path.join(u_home, ".config/google-chrome")),
+        ("chromium", "Chromium", os.path.join(u_home, ".config/chromium")),
+        ("chromium", "Chromium (Snap)", os.path.join(u_home, "snap/chromium/common/chromium")),
+        ("edge", "Microsoft Edge", os.path.join(u_home, ".config/microsoft-edge")),
+        ("brave", "Brave", os.path.join(u_home, ".config/BraveSoftware/Brave-Browser")),
+        ("vivaldi", "Vivaldi", os.path.join(u_home, ".config/vivaldi")),
+    ]
+    for b_id, b_lbl, root_dir in chromium_roots:
+        if not os.path.isdir(root_dir):
+            continue
+        for sub in sorted(os.listdir(root_dir)):
+            if sub == "Default" or sub.startswith("Profile ") or sub == "Guest Profile":
+                sp = os.path.join(root_dir, sub)
+                db = os.path.join(sp, "History")
+                if os.path.isfile(db):
+                    p_name = sub
+                    pref = os.path.join(sp, "Preferences")
+                    if os.path.isfile(pref):
+                        try:
+                            with open(pref, "r", encoding="utf-8", errors="ignore") as pf:
+                                pj = json.load(pf)
+                            p_name = str((pj.get("profile") or {}).get("name") or sub)
+                        except Exception:
+                            pass
+                    targets.append((u_name, b_id, b_lbl, "chromium", sub, p_name, db))
+
+    opera_db = os.path.join(u_home, ".config/opera/History")
+    if os.path.isfile(opera_db):
+        targets.append((u_name, "opera", "Opera", "chromium", "Default", "Opera Default", opera_db))
+
+    for ff_base in [
+        os.path.join(u_home, ".mozilla/firefox"),
+        os.path.join(u_home, "snap/firefox/common/.mozilla/firefox"),
+    ]:
+        if not os.path.isdir(ff_base):
+            continue
+        for p_dir in sorted(glob.glob(os.path.join(ff_base, "*"))):
+            db = os.path.join(p_dir, "places.sqlite")
+            if os.path.isfile(db):
+                d_name = os.path.basename(p_dir)
+                clean = d_name.split(".", 1)[-1] if "." in d_name else d_name
+                targets.append((u_name, "firefox", "Mozilla Firefox", "firefox", d_name, clean or d_name, db))
+
+profiles_out = []
+entries_out = []
+warnings = []
+
+def webkit_to_iso(us):
+    try:
+        if not us or us <= 0:
+            return ""
+        sec = (us / 1000000.0) - 11644473600.0
+        if sec <= 0 or sec > 4102444800:
+            return ""
+        return datetime.datetime.fromtimestamp(sec, tz=datetime.timezone.utc).isoformat()
+    except Exception:
+        return ""
+
+def prtime_to_iso(us):
+    try:
+        if not us or us <= 0:
+            return ""
+        sec = us / 1000000.0
+        if sec <= 0 or sec > 4102444800:
+            return ""
+        return datetime.datetime.fromtimestamp(sec, tz=datetime.timezone.utc).isoformat()
+    except Exception:
+        return ""
+
+tmp_root = tempfile.mkdtemp(prefix="nettopo_bh_")
+try:
+    for idx, (u_name, b_id, b_lbl, kind, p_dir, p_name, db_path) in enumerate(targets):
+        p_tmp = os.path.join(tmp_root, f"p{idx}")
+        os.makedirs(p_tmp, exist_ok=True)
+        prof_count = 0
+        prof_last = None
+        prof_status = "empty"
+        prof_err = ""
+        try:
+            dst_db = os.path.join(p_tmp, os.path.basename(db_path))
+            for sfx in ("", "-wal", "-shm"):
+                src_f = db_path + sfx
+                if os.path.isfile(src_f):
+                    shutil.copy2(src_f, dst_db + sfx)
+            con = sqlite3.connect(dst_db, timeout=3.0)
+            cur = con.cursor()
+            if kind == "chromium":
+                cur.execute(
+                    "SELECT u.url, COALESCE(u.title,''), COALESCE(u.visit_count,1), COALESCE(u.typed_count,0), v.visit_time, COALESCE(v.transition,0) "
+                    "FROM visits v JOIN urls u ON v.url = u.id WHERE v.visit_time >= ? ORDER BY v.visit_time DESC LIMIT ?",
+                    (min_webkit_us, per_prof_limit),
+                )
+                rows = cur.fetchall()
+                if not rows:
+                    cur.execute(
+                        "SELECT url, COALESCE(title,''), COALESCE(visit_count,1), COALESCE(typed_count,0), last_visit_time, 0 "
+                        "FROM urls WHERE last_visit_time >= ? ORDER BY last_visit_time DESC LIMIT ?",
+                        (min_webkit_us, per_prof_limit),
+                    )
+                    rows = cur.fetchall()
+            else:
+                cur.execute(
+                    "SELECT p.url, COALESCE(p.title,''), COALESCE(p.visit_count,1), COALESCE(p.typed,0), v.visit_date, COALESCE(v.visit_type,1) "
+                    "FROM moz_historyvisits v JOIN moz_places p ON v.place_id = p.id WHERE v.visit_date >= ? ORDER BY v.visit_date DESC LIMIT ?",
+                    (min_pr_us, per_prof_limit),
+                )
+                rows = cur.fetchall()
+                if not rows:
+                    cur.execute(
+                        "SELECT url, COALESCE(title,''), COALESCE(visit_count,1), COALESCE(typed,0), COALESCE(last_visit_date,0), 1 "
+                        "FROM moz_places WHERE COALESCE(last_visit_date,0) >= ? ORDER BY last_visit_date DESC LIMIT ?",
+                        (min_pr_us, per_prof_limit),
+                    )
+                    rows = cur.fetchall()
+            con.close()
+            for url_val, ttl_val, vc_val, tc_val, ts_val, tr_val in rows:
+                if not url_val:
+                    continue
+                iso = webkit_to_iso(ts_val) if kind == "chromium" else prtime_to_iso(ts_val)
+                if not iso:
+                    continue
+                prof_count += 1
+                if not prof_last or iso > prof_last:
+                    prof_last = iso
+                if len(entries_out) < max_entries * 2:
+                    entries_out.append({
+                        "browser": b_id,
+                        "browserLabel": b_lbl,
+                        "kind": kind,
+                        "osUser": u_name,
+                        "profileName": p_name,
+                        "profileDir": p_dir,
+                        "url": str(url_val)[:1400],
+                        "title": str(ttl_val or "")[:280],
+                        "visitedAt": iso,
+                        "visitCount": int(vc_val or 0),
+                        "typedCount": int(tc_val or 0),
+                        "transitionRaw": int(tr_val or 0),
+                    })
+            prof_status = "ok" if prof_count > 0 else "empty"
+        except Exception as ex:
+            prof_status = "error"
+            prof_err = str(ex)
+            warnings.append(f"{u_name} / {b_lbl} ({p_dir}): {prof_err}")
+
+        profiles_out.append({
+            "osUser": u_name,
+            "browser": b_id,
+            "browserLabel": b_lbl,
+            "profileName": p_name,
+            "profileDir": p_dir,
+            "dbPath": db_path,
+            "entryCount": prof_count,
+            "lastVisitAt": prof_last,
+            "engineStatus": prof_status,
+            "errorMessage": prof_err,
+        })
+finally:
+    shutil.rmtree(tmp_root, ignore_errors=True)
+
+print(json.dumps({
+    "hostname": hostname,
+    "loggedInUser": logged_in_user,
+    "sqliteEngine": "python3:sqlite3",
+    "profiles": profiles_out,
+    "entries": entries_out,
+    "warnings": warnings,
+}, ensure_ascii=True))
+PYEOF`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(45000, Number(input.timeoutMs) || 45000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'browser history');
+  const rawProfiles = Array.isArray(parsed?.profiles)
+    ? parsed.profiles
+    : parsed?.profiles
+    ? [parsed.profiles]
+    : [];
+  const rawEntries = Array.isArray(parsed?.entries)
+    ? parsed.entries
+    : parsed?.entries
+    ? [parsed.entries]
+    : [];
+  const warnings = Array.isArray(parsed?.warnings)
+    ? parsed.warnings.map((w: any) => String(w || '').trim()).filter(Boolean)
+    : parsed?.warnings
+    ? [String(parsed.warnings)]
+    : [];
+
+  const normalizedEntries: HelpdeskBrowserHistoryEntry[] = rawEntries
+    .map((item: any, idx: number): HelpdeskBrowserHistoryEntry | null => {
+      const url = String(item?.url || '').trim();
+      const visitedAt = String(item?.visitedAt || '').trim();
+      if (!url || !visitedAt) return null;
+      const { vendor, label } = normalizeBrowserVendor(String(item?.browser || ''));
+      const { domain, scheme } = extractDomainAndScheme(url);
+      const kind = String(item?.kind || (vendor === 'firefox' ? 'firefox' : 'chromium')).toLowerCase();
+      const transitionRaw = Number(item?.transitionRaw || 0);
+      const transitionType =
+        kind === 'firefox' ? mapFirefoxTransition(transitionRaw) : mapChromiumTransition(transitionRaw);
+
+      return {
+        id: `${vendor}-${idx}-${Buffer.from(`${url}:${visitedAt}`).toString('base64').slice(0, 12)}`,
+        browser: vendor,
+        browserLabel: String(item?.browserLabel || label),
+        osUser: String(item?.osUser || ''),
+        profileName: String(item?.profileName || item?.profileDir || 'Default'),
+        profileDir: String(item?.profileDir || 'Default'),
+        url,
+        domain,
+        title: String(item?.title || '').trim() || domain,
+        visitedAt,
+        visitCount: Math.max(0, Number(item?.visitCount || 1)),
+        typedCount: Math.max(0, Number(item?.typedCount || 0)),
+        transitionType,
+        scheme,
+      };
+    })
+    .filter((x): x is HelpdeskBrowserHistoryEntry => x !== null)
+    .sort((a, b) => b.visitedAt.localeCompare(a.visitedAt))
+    .slice(0, maxEntries);
+
+  const domainMap = new Map<
+    string,
+    {
+      domain: string;
+      visits: number;
+      entries: number;
+      browsers: Set<string>;
+      osUsers: Set<string>;
+      lastVisitedAt: string;
+    }
+  >();
+
+  const browserMap = new Map<
+    HelpdeskBrowserVendor,
+    {
+      browser: HelpdeskBrowserVendor;
+      browserLabel: string;
+      entries: number;
+      domains: Set<string>;
+      profiles: Set<string>;
+    }
+  >();
+
+  for (const e of normalizedEntries) {
+    const domRec = domainMap.get(e.domain) || {
+      domain: e.domain,
+      visits: 0,
+      entries: 0,
+      browsers: new Set<string>(),
+      osUsers: new Set<string>(),
+      lastVisitedAt: e.visitedAt,
+    };
+    domRec.entries += 1;
+    domRec.visits += Math.max(1, e.visitCount);
+    domRec.browsers.add(e.browserLabel);
+    if (e.osUser) domRec.osUsers.add(e.osUser);
+    if (e.visitedAt > domRec.lastVisitedAt) domRec.lastVisitedAt = e.visitedAt;
+    domainMap.set(e.domain, domRec);
+
+    const bRec = browserMap.get(e.browser) || {
+      browser: e.browser,
+      browserLabel: e.browserLabel,
+      entries: 0,
+      domains: new Set<string>(),
+      profiles: new Set<string>(),
+    };
+    bRec.entries += 1;
+    bRec.domains.add(e.domain);
+    bRec.profiles.add(`${e.osUser}/${e.profileDir}`);
+    browserMap.set(e.browser, bRec);
+  }
+
+  const profiles: HelpdeskBrowserProfileInfo[] = rawProfiles.map((p: any) => {
+    const { vendor, label } = normalizeBrowserVendor(String(p?.browser || ''));
+    const st = String(p?.engineStatus || 'empty').toLowerCase();
+    return {
+      osUser: String(p?.osUser || ''),
+      browser: vendor,
+      browserLabel: String(p?.browserLabel || label),
+      profileName: String(p?.profileName || p?.profileDir || 'Default'),
+      profileDir: String(p?.profileDir || 'Default'),
+      dbPath: String(p?.dbPath || ''),
+      entryCount: Math.max(0, Number(p?.entryCount || 0)),
+      lastVisitAt: p?.lastVisitAt ? String(p.lastVisitAt) : null,
+      engineStatus: st === 'ok' ? 'ok' : st === 'error' ? 'error' : 'empty',
+      errorMessage: p?.errorMessage ? String(p.errorMessage) : undefined,
+    };
+  });
+
+  const topDomains: HelpdeskBrowserTopDomain[] = Array.from(domainMap.values())
+    .sort((a, b) => b.entries - a.entries || b.visits - a.visits)
+    .slice(0, 30)
+    .map((d) => ({
+      domain: d.domain,
+      visits: d.visits,
+      entries: d.entries,
+      browsers: Array.from(d.browsers),
+      osUsers: Array.from(d.osUsers),
+      lastVisitedAt: d.lastVisitedAt,
+    }));
+
+  const browserBreakdown: HelpdeskBrowserBreakdownItem[] = Array.from(browserMap.values())
+    .sort((a, b) => b.entries - a.entries)
+    .map((b) => ({
+      browser: b.browser,
+      browserLabel: b.browserLabel,
+      entries: b.entries,
+      uniqueDomains: b.domains.size,
+      profilesCount: b.profiles.size,
+    }));
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed?.hostname || execRes.host),
+    loggedInUser: String(parsed?.loggedInUser || ''),
+    collectedAt: new Date().toISOString(),
+    hoursBack,
+    maxEntries,
+    sqliteEngine: String(parsed?.sqliteEngine || 'unknown'),
+    totalEntries: normalizedEntries.length,
+    uniqueDomains: domainMap.size,
+    profilesScanned: profiles.length,
+    profiles,
+    topDomains,
+    browserBreakdown,
+    entries: normalizedEntries,
+    warnings,
+  };
+}
+
+
 
 
 

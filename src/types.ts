@@ -1080,6 +1080,7 @@ export interface AccessPolicy {
   canManageHelpdeskExceptions?: boolean;
   canSendHelpdeskMessage?: boolean;
   canViewAllHelpdeskHistory?: boolean;
+  canViewHelpdeskBrowserHistory?: boolean;
 
   // 8c. HelpDesk Target Scope & Allow/Block Rules (All 3 HelpDesk Pages; empty / 'all' = permitted)
   targetHelpdeskIpScope?: 'all' | 'selected';

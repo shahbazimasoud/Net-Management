@@ -23,6 +23,7 @@ import {
   fetchHelpdeskVirtualMemory,
   HelpdeskVirtualMemoryResult,
   HelpdeskSwitchPortResult,
+  HelpdeskBrowserHistoryResult,
   HelpdeskConnectionPayload,
   HelpdeskDiagnosticCheckId,
   ALL_HELPDESK_DIAGNOSTIC_CHECKS,
@@ -44,6 +45,7 @@ export type HelpdeskSubTab =
   | 'services_startup'
   | 'region_fonts'
   | 'security_av'
+  | 'browser_history'
   | 'maintenance'
   | 'hardware_domain'
   | 'history';
@@ -199,6 +201,12 @@ export interface HelpdeskRamState {
   securityAvActionError: string | null;
   securityAvDisabledInSession: string[];
 
+  // Tab 6F: Web Browser History (On-demand, RBAC Super Admin default only)
+  browserHistoryData: HelpdeskBrowserHistoryResult | null;
+  loadingBrowserHistory: boolean;
+  browserHistoryError: string | null;
+  browserHistoryHoursBack: number;
+
   // Tab 1B / Disk, Drives, Shared Folders, Temp & Recycle Bin
   tempScanData: any | null;
   loadingTempScan: boolean;
@@ -345,6 +353,11 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     securityAvActionError: null,
     securityAvDisabledInSession: [],
 
+    browserHistoryData: null,
+    loadingBrowserHistory: false,
+    browserHistoryError: null,
+    browserHistoryHoursBack: 168,
+
     tempScanData: null,
     loadingTempScan: false,
     tempError: null,
@@ -447,6 +460,7 @@ export function stopHelpdeskPrefetch(): void {
       loadingMsconfigEnv: false,
       loadingRegionFonts: false,
       loadingSecurityAv: false,
+      loadingBrowserHistory: false,
       loadingGpo: false,
       loadingDomainUser: false,
       loadingDiskHealth: false,
@@ -570,6 +584,9 @@ export async function runHelpdeskSequentialConnect(options: {
     regionFontsError: null,
     regionFontsActionResult: null,
     regionFontsActionError: null,
+    browserHistoryData: null,
+    loadingBrowserHistory: false,
+    browserHistoryError: null,
     tempScanData: null,
     tempError: null,
     loadingTempScan: false,

@@ -288,6 +288,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canViewAllHelpdeskHistory:
         initialPolicy.canViewAllHelpdeskHistory ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+      canViewHelpdeskBrowserHistory:
+        initialPolicy.canViewHelpdeskBrowserHistory ??
+        Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
       targetHelpdeskIpScope: initialPolicy.targetHelpdeskIpScope === 'selected' ? 'selected' : 'all',
       allowedHelpdeskIps: Array.isArray(initialPolicy.allowedHelpdeskIps) ? initialPolicy.allowedHelpdeskIps : [],
       blockedHelpdeskIps: Array.isArray(initialPolicy.blockedHelpdeskIps) ? initialPolicy.blockedHelpdeskIps : [],
@@ -761,6 +764,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
         canViewAllHelpdeskHistory:
           initialPolicy.canViewAllHelpdeskHistory ??
+          Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
+        canViewHelpdeskBrowserHistory:
+          initialPolicy.canViewHelpdeskBrowserHistory ??
           Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
         targetHelpdeskIpScope: initialPolicy.targetHelpdeskIpScope === 'selected' ? 'selected' : 'all',
         allowedHelpdeskIps: Array.isArray(initialPolicy.allowedHelpdeskIps) ? initialPolicy.allowedHelpdeskIps : [],
@@ -1842,6 +1848,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canManageHelpdeskExceptions: enabled,
         canSendHelpdeskMessage: enabled,
         canViewAllHelpdeskHistory: enabled,
+        canViewHelpdeskBrowserHistory: enabled,
         canBatchOperate: enabled,
         canViewSessionRecordings: enabled,
         canPlaybackSessionRecordings: enabled,
@@ -7160,6 +7167,17 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         whatFa: 'دامنه نمایش و مدیریت تب Connection History را از سوابق شخصی اپراتور به تاریخچه جامع همه کارشناسان گسترش می‌دهد.',
                         why: 'Preserves operator privacy and least-privilege separation while letting managers and Super Admins audit all remote support sessions.',
                         whyFa: 'حریم شخصی و اصل حداقل دسترسی میان اپراتورهای هلپ‌دسک را حفظ می‌کند و هم‌زمان امکان نظارت جامع را برای مدیران فراهم می‌سازد.',
+                      },
+                      {
+                        key: 'canViewHelpdeskBrowserHistory',
+                        labelEn: 'HelpDesk: Web Browser History & Report Export (Super Admin Default Only)',
+                        labelFa: 'هلپ‌دسک: تب مرورگر وب، تاریخچه بازدیدها و خروجی گزارش (HTML / Excel)',
+                        descEn: 'Inspect browser history across workstation user profiles (Chrome, Edge, Firefox, Brave, Opera) and export styled HTML & Excel reports. Disabled by default except for Super Admin.',
+                        descFa: 'مشاهده و تحلیل مهندسی تاریخچه مرورگرهای وب (Chrome، Edge، Firefox، Brave، Opera و ...) روی سیستم کاربر همراه با خروجی شکیل HTML و Excel (به‌صورت پیش‌فرض فقط برای سوپرادمین فعال است)',
+                        what: 'Authorizes the HelpDesk Web Browser sub-tab (POST /api/helpdesk/browser-history) to read browser history SQLite databases safely in temp copies.',
+                        whatFa: 'مجوز ورود به تب «مرورگر وب» در HelpDesk و خواندن ایمن پایگاه‌داده تاریخچه مرورگرهای کاربران سیستم هدف.',
+                        why: 'Web browsing history contains privacy-sensitive user activity and is locked by default for all non-Super-Admin roles unless explicitly granted.',
+                        whyFa: 'تاریخچه وبگردی جزو اطلاعات حساس کاربران است؛ بنابراین طبق اصل حداقل دسترسی به صورت پیش‌فرض برای همه نقش‌ها به‌جز سوپرادمین مسدود می‌باشد.',
                       },
                       {
                         key: 'canBatchOperate',

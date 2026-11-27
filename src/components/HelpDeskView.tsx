@@ -92,6 +92,7 @@ import {
   Phone,
   Smartphone,
   Terminal,
+  Compass,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -170,6 +171,7 @@ import {
   HelpdeskConnectionPayload,
   HelpdeskConnectionHistoryItem,
   HelpdeskConnectionHistoryResponse,
+  fetchHelpdeskBrowserHistory,
 } from '../services/api';
 import {
   HelpdeskSubTab,
@@ -200,6 +202,7 @@ import { TimeoutAntivirusHint } from './helpdesk/TimeoutAntivirusHint';
 import { UserProfilesTab } from './helpdesk/UserProfilesTab';
 import { VirtualMemorySection } from './helpdesk/VirtualMemorySection';
 import { SwitchPortTab } from './helpdesk/SwitchPortTab';
+import { BrowserHistoryTab } from './helpdesk/BrowserHistoryTab';
 
 interface HelpDeskViewProps {
   isLightMode: boolean;
@@ -355,6 +358,15 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       : Boolean(
           isSuper ||
             (effectivePolicy?.canViewHelpdesk !== false && effectivePolicy?.canSendHelpdeskMessage === true)
+        );
+  const [serverCanViewBrowserHistory, setServerCanViewBrowserHistory] = useState<boolean | null>(null);
+  const canViewBrowserHistory =
+    serverCanViewBrowserHistory !== null
+      ? serverCanViewBrowserHistory
+      : Boolean(
+          isSuper ||
+            (effectivePolicy?.canViewHelpdesk !== false &&
+              effectivePolicy?.canViewHelpdeskBrowserHistory === true)
         );
 
   // Volatile JS RAM-Only Session State (preserved across sidebar page navigation, NEVER stored in localStorage or DB!)
@@ -773,6 +785,16 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const setSecurityAvDisabledInSession = setRamField('securityAvDisabledInSession');
   const [securityAvBusyKey, setSecurityAvBusyKey] = useState<string | null>(null);
 
+  // Web Browser History (On-demand, RBAC Super Admin default only)
+  const browserHistoryData = ram.browserHistoryData;
+  const setBrowserHistoryData = setRamField('browserHistoryData');
+  const loadingBrowserHistory = ram.loadingBrowserHistory;
+  const setLoadingBrowserHistory = setRamField('loadingBrowserHistory');
+  const browserHistoryError = ram.browserHistoryError;
+  const setBrowserHistoryError = setRamField('browserHistoryError');
+  const browserHistoryHoursBack = ram.browserHistoryHoursBack;
+  const setBrowserHistoryHoursBack = setRamField('browserHistoryHoursBack');
+
   // Diagnostics Suite (13-Check Interactive Troubleshooter)
   const diagnosticsData = ram.diagnosticsData;
   const setDiagnosticsData = setRamField('diagnosticsData');
@@ -882,6 +904,9 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         if (typeof res.permissions?.canSendHelpdeskMessage === 'boolean') {
           setServerCanSendEndpointMessage(res.permissions.canSendHelpdeskMessage);
         }
+        if (typeof res.permissions?.canViewHelpdeskBrowserHistory === 'boolean') {
+          setServerCanViewBrowserHistory(res.permissions.canViewHelpdeskBrowserHistory);
+        }
         if (typeof res.permissions?.canViewAllHelpdeskHistory === 'boolean') {
           setHistoryScope(res.permissions.canViewAllHelpdeskHistory ? 'all' : 'own');
         }
@@ -891,6 +916,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!canViewBrowserHistory && activeSubTab === 'browser_history') {
+      setActiveSubTab('health');
+    }
+  }, [canViewBrowserHistory, activeSubTab]);
 
   // Hydrate proxy/gateway form inputs when remounting with an active network snapshot in RAM
   const syncNetworkFormDefaults = useCallback((netData: any) => {
@@ -2840,6 +2871,36 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       );
     } finally {
       setLoadingSecurityAv(false);
+    }
+  };
+
+  const handleInspectBrowserHistory = async (overrideHoursBack?: number) => {
+    if (!canViewBrowserHistory) return;
+    const payload = buildPayload();
+    if (!payload) return;
+    const hours = overrideHoursBack !== undefined ? overrideHoursBack : browserHistoryHoursBack;
+    setLoadingBrowserHistory(true);
+    setBrowserHistoryError(null);
+    try {
+      const res = await fetchHelpdeskBrowserHistory({
+        ...payload,
+        hoursBack: hours,
+        maxEntries: 1500,
+        perProfileLimit: 600,
+      });
+      setBrowserHistoryData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setBrowserHistoryData(null);
+      setBrowserHistoryError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? 'Failed to collect endpoint web browser history.'
+            : 'خطا در استخراج تاریخچه مرورگرهای وب سیستم کاربر.')
+      );
+    } finally {
+      setLoadingBrowserHistory(false);
+      notifyHelpdeskAuditUpdated();
     }
   };
 
@@ -5537,6 +5598,16 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelEn: 'Firewall & Antivirus',
             labelFa: 'فایروال و آنتی‌ویروس',
           },
+          ...(canViewBrowserHistory
+            ? [
+                {
+                  id: 'browser_history' as HelpdeskSubTab,
+                  icon: Compass,
+                  labelEn: 'Web Browser',
+                  labelFa: 'مرورگر وب',
+                },
+              ]
+            : []),
           {
             id: 'maintenance' as HelpdeskSubTab,
             icon: Wrench,
@@ -5593,6 +5664,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'services_startup' && (loadingServicesStartup || loadingMsconfigEnv)) ||
             (tab.id === 'region_fonts' && loadingRegionFonts) ||
             (tab.id === 'security_av' && loadingSecurityAv) ||
+            (tab.id === 'browser_history' && loadingBrowserHistory) ||
             (tab.id === 'maintenance' && (loadingGpo || loadingDomainUser || loadingDiskHealth)) ||
             (tab.id === 'hardware_domain' && loadingBattery) ||
             (tab.id === 'history' && loadingHistory);
@@ -5612,6 +5684,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'services_startup' && Boolean(servicesStartupData || msconfigEnvData)) ||
             (tab.id === 'region_fonts' && Boolean(regionFontsData)) ||
             (tab.id === 'security_av' && Boolean(securityAvData)) ||
+            (tab.id === 'browser_history' && Boolean(browserHistoryData)) ||
             (tab.id === 'maintenance' && Boolean(gpoData || domainUserData || diskHealthData)) ||
             (tab.id === 'hardware_domain' && Boolean(batteryData)) ||
             (tab.id === 'history' && Boolean(historyStats?.totalConnections));
@@ -5654,6 +5727,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     handleInspectRegionFonts();
                   } else if (tab.id === 'security_av' && !securityAvData && !loadingSecurityAv) {
                     handleInspectSecurityAv();
+                  } else if (tab.id === 'browser_history' && canViewBrowserHistory && !browserHistoryData && !loadingBrowserHistory) {
+                    handleInspectBrowserHistory();
                   } else if (tab.id === 'maintenance') {
                     if (!gpoData && !loadingGpo) handleInspectGpo();
                     if (canInspectDomainUsers && detectedEndpointActiveUser && !domainUserData && !loadingDomainUser) {
@@ -16281,6 +16356,25 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           onToggleFirewallProfile={handleToggleFirewallProfile}
           onCreateFirewallRule={handleCreateFirewallRule}
           onManageFirewallRule={handleManageFirewallRule}
+        />
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 6F: WEB BROWSER HISTORY & FORENSIC REPORT (RBAC PROTECTED)      */}
+      {/* =================================================================== */}
+      {activeSubTab === 'browser_history' && (
+        <BrowserHistoryTab
+          isLightMode={isLightMode}
+          isEn={isEn}
+          targetIp={targetIp}
+          hasCredentials={Boolean(username.trim() && password)}
+          canViewBrowserHistory={canViewBrowserHistory}
+          data={browserHistoryData}
+          loading={loadingBrowserHistory}
+          error={browserHistoryError}
+          hoursBack={browserHistoryHoursBack}
+          onChangeHoursBack={setBrowserHistoryHoursBack}
+          onFetchHistory={handleInspectBrowserHistory}
         />
       )}
 

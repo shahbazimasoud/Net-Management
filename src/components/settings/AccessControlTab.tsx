@@ -434,6 +434,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       canManageHelpdeskExceptions: false,
       canSendHelpdeskMessage: false,
       canViewAllHelpdeskHistory: false,
+      canViewHelpdeskBrowserHistory: false,
       targetHelpdeskIpScope: 'all',
       allowedHelpdeskIps: [],
       blockedHelpdeskIps: [],

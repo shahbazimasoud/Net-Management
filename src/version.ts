@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.500.2';
+export const APP_VERSION = '1.501.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.501.0',
+    releaseDate: '2026-11-27',
+    type: 'minor',
+    title: 'افزودن تب جدید «مرورگر وب» با تحلیل مهندسی تاریخچه مرورگرها، خروجی شیک HTML و اکسل و کنترل دسترسی سخت‌گیرانه RBAC (فقط سوپرادمین به‌صورت پیش‌فرض)',
+    title_en: 'Add RBAC-Gated HelpDesk Web Browser History Analytics Tab with Styled HTML & Excel Reports (Super Admin Default Only)',
+    changes: [
+      'افزودن تب جدید `مرورگر وب` (`browser_history`) در صفحه `Agentless Endpoint HelpDesk` برای استخراج زنده و واقعی تاریخچه مرورگرهای سیستم هدف در ویندوز و لینوکس (Google Chrome، Microsoft Edge، Mozilla Firefox، Brave، Opera / Opera GX، Vivaldi، Chromium و Yandex) بدون داده‌های ساختگی، با کپی ایمن فایل‌های قفل‌شده SQLite به همراه `-wal` و `-shm` و خوانش بومی از طریق `winsqlite3.dll` یا `python3 sqlite3`.',
+      'طراحی داشبورد مهندسی تاریخچه مرورگر در `src/components/helpdesk/BrowserHistoryTab.tsx` شامل کارت‌های شاخص کلیدی (KPI)، تفکیک سهم هر مرورگر، بازرس پروفایل‌های کاربران و وضعیت دیتابیس، جدول رتبه‌بندی دامنه‌های پربازدید با قابلیت فیلتر کلیکی، فیلترهای ترکیبی مرورگر/کاربر/نوع پیمایش، جستجوی زنده، مرتب‌سازی و صفحه‌بندی.',
+      'افزودن خروجی گزارش کاملاً مستقل و شیک HTML (دارای خلاصه مدیریتی، نمودارهای آماری مرورگرها و دامنه‌های برتر، جدول تعاملی قابل جستجو و فیلتر و استایل آماده چاپ بدون وابستگی خارجی و با ایمن‌سازی XSS) و خروجی اکسل استاندارد (CSV با UTF-8 BOM جهت نمایش صحیح متون فارسی و خنثی‌سازی تزریق فرمول اکسل).',
+      'افزودن پرمیشن اختصاصی `canViewHelpdeskBrowserHistory` در سیستم RBAC مبتنی بر PostgreSQL (`server/db.ts`, `server/routes.ts`, `AccessPolicyModal.tsx`): این دسترسی برای تمامی کاربران و نقش‌ها (از جمله HelpDesk، Observer، Domain Admin بدون مجوز صریح و پالیسی‌های جدید) به‌صورت پیش‌فرض غیرفعال (`false`) بوده و منحصراً برای `Super Admin` به‌صورت پیش‌فرض فعال (`true`) است؛ همچنین در صورت عدم مجوز، تب در رابط کاربری پنهان شده و مسیر بک‌اند `POST /api/helpdesk/browser-history` کد 403 بازمی‌گرداند و رویداد را ممیزی می‌کند.'
+    ],
+    changes_en: [
+      'Added a new `Web Browser` (`browser_history`) tab in `Agentless Endpoint HelpDesk` to perform live, authentic browser history extraction across Windows & Linux endpoints (Google Chrome, Microsoft Edge, Mozilla Firefox, Brave, Opera / Opera GX, Vivaldi, Chromium, Yandex) using safe locked-file + `-wal`/`-shm` temp copies and native `winsqlite3.dll` / `python3 sqlite3` readers.',
+      'Built an engineering analytics dashboard in `src/components/helpdesk/BrowserHistoryTab.tsx` featuring KPI summary cards, per-browser distribution bars, per-user profile DB inspector, clickable Top Domains leaderboard, multi-facet filtering (search, browser vendor, OS user, transition type), sortable columns, and pagination.',
+      'Added a self-contained sleek styled HTML report export (with KPI cards, browser/domain summary visuals, built-in live search & vendor filter, print-ready layout, and strict HTML escaping) plus an Excel-compatible UTF-8 BOM CSV export with spreadsheet formula neutralization.',
+      'Implemented strict PostgreSQL-backed RBAC permission `canViewHelpdeskBrowserHistory` (`server/db.ts`, `server/routes.ts`, `AccessPolicyModal.tsx`): disabled (`false`) by default across all non-Super-Admin roles/policies (including existing DB migrations, presets, new policies, and Domain Admins without explicit policy grant) and enabled (`true`) by default strictly for Super Admin, enforced in both UI visibility and `POST /api/helpdesk/browser-history` with audit logging.'
+    ]
+  },
   {
     version: '1.500.2',
     releaseDate: '2026-11-27',

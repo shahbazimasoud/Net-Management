@@ -669,6 +669,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canManageHelpdeskExceptions: false,
     canSendHelpdeskMessage: false,
     canViewAllHelpdeskHistory: false,
+    canViewHelpdeskBrowserHistory: false,
     targetHelpdeskIpScope: 'all',
     allowedHelpdeskIps: [],
     blockedHelpdeskIps: [],
@@ -783,6 +784,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canManageHelpdeskExceptions: false,
     canSendHelpdeskMessage: false,
     canViewAllHelpdeskHistory: false,
+    canViewHelpdeskBrowserHistory: false,
     targetHelpdeskIpScope: 'all',
     allowedHelpdeskIps: [],
     blockedHelpdeskIps: [],
@@ -897,6 +899,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canManageHelpdeskExceptions: true,
     canSendHelpdeskMessage: true,
     canViewAllHelpdeskHistory: true,
+    canViewHelpdeskBrowserHistory: true,
     targetHelpdeskIpScope: 'all',
     allowedHelpdeskIps: [],
     blockedHelpdeskIps: [],
@@ -2035,6 +2038,11 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
       if (pData.canViewAllHelpdeskHistory === undefined) {
         const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
         pData.canViewAllHelpdeskHistory = isSuper;
+        changed = true;
+      }
+      if (pData.canViewHelpdeskBrowserHistory === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        pData.canViewHelpdeskBrowserHistory = isSuper;
         changed = true;
       }
       if (pData.canViewHelpdeskUsers === undefined) {
@@ -5285,6 +5293,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canManageHelpdeskExceptions: false,
       canSendHelpdeskMessage: false,
       canViewAllHelpdeskHistory: false,
+      canViewHelpdeskBrowserHistory: false,
       targetHelpdeskIpScope: 'all',
       allowedHelpdeskIps: [],
       blockedHelpdeskIps: [],
@@ -5670,6 +5679,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canManageHelpdeskExceptions: true,
       canSendHelpdeskMessage: true,
       canViewAllHelpdeskHistory: true,
+      canViewHelpdeskBrowserHistory: true,
       targetHelpdeskIpScope: 'all',
       allowedHelpdeskIps: [],
       blockedHelpdeskIps: [],
@@ -5816,6 +5826,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canManageHelpdeskExceptions: false,
     canSendHelpdeskMessage: false,
     canViewAllHelpdeskHistory: false,
+    canViewHelpdeskBrowserHistory: false,
     targetHelpdeskIpScope: 'all',
     allowedHelpdeskIps: [],
     blockedHelpdeskIps: [],

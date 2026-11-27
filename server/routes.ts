@@ -131,6 +131,7 @@ import {
   manageEndpointVirtualMemory,
   HelpdeskVirtualMemoryAction,
   collectEndpointMacIdentity,
+  collectEndpointBrowserHistory,
 } from './helpdeskService';
 import {
   inspectTargetDomainUser,
@@ -7943,6 +7944,7 @@ async function resolveHelpdeskAuth(
     | 'power_control'
     | 'manage_exceptions'
     | 'send_message'
+    | 'browser_history'
 ) {
   const { user, effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
   if (!user) {
@@ -8008,6 +8010,8 @@ async function resolveHelpdeskAuth(
       effectivePolicy?.canViewAllHelpdeskHistory === true);
   // Strict: Interactive screen messaging strictly requires explicit RBAC grant or Super Admin
   const canSendMessage = isSuperAdmin || (canView && effectivePolicy?.canSendHelpdeskMessage === true);
+  // Strict: Web Browser History inspection is disabled by default for all roles except Super Admin unless explicitly enabled
+  const canViewBrowserHistory = isSuperAdmin || (canView && effectivePolicy?.canViewHelpdeskBrowserHistory === true);
 
   const allowed =
     requiredPerm === 'status'
@@ -8044,6 +8048,8 @@ async function resolveHelpdeskAuth(
       ? canManageExceptions
       : requiredPerm === 'send_message'
       ? canSendMessage
+      : requiredPerm === 'browser_history'
+      ? canViewBrowserHistory
       : canPowerControl;
 
   if (!allowed) {
@@ -8135,6 +8141,10 @@ async function resolveHelpdeskAuth(
       send_message: {
         en: 'Access denied: Sending interactive screen messages requires explicit RBAC permission (canSendHelpdeskMessage) or Super Admin role.',
         fa: 'عدم دسترسی: ارسال پیام روی سیستم کاربران نیازمند مجوز صریح RBAC (canSendHelpdeskMessage) یا نقش سوپرادمین است.',
+      },
+      browser_history: {
+        en: 'Access denied: Inspecting workstation web browser history is restricted by default to Super Admin unless explicit RBAC permission (canViewHelpdeskBrowserHistory) is granted.',
+        fa: 'عدم دسترسی: مشاهده تاریخچه مرورگر وب سیستم کاربران به صورت پیش‌فرض فقط برای سوپرادمین فعال است و برای سایر نقش‌ها نیازمند مجوز صریح (canViewHelpdeskBrowserHistory) در Access Policy می‌باشد.',
       },
     };
 
@@ -8285,6 +8295,7 @@ async function resolveHelpdeskAuth(
       canManageHelpdeskExceptions: canManageExceptions,
       canSendHelpdeskMessage: canSendMessage,
       canViewAllHelpdeskHistory: canViewAllHistory,
+      canViewHelpdeskBrowserHistory: canViewBrowserHistory,
     },
   };
 }
@@ -12737,6 +12748,73 @@ apiRouter.post('/helpdesk/message', async (req: Request, res: Response) => {
       targetIp: target.targetIp,
       errorMsg: msg,
       metadata: { recipient },
+    });
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/browser-history - Extract live web browser history across workstation profiles (Strict RBAC: Super Admin by default or explicit canViewHelpdeskBrowserHistory)
+apiRouter.post('/helpdesk/browser-history', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'browser_history');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const hoursBack = req.body?.hoursBack !== undefined ? Number(req.body.hoursBack) : 168;
+  const maxEntries = req.body?.maxEntries !== undefined ? Number(req.body.maxEntries) : 1500;
+  const perProfileLimit = req.body?.perProfileLimit !== undefined ? Number(req.body.perProfileLimit) : 600;
+  const osUser = req.body?.osUser !== undefined ? String(req.body.osUser).trim() : 'all';
+
+  try {
+    const data = await collectEndpointBrowserHistory(target, {
+      hoursBack,
+      maxEntries,
+      perProfileLimit,
+      osUser,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_browser_history_inspect',
+      title: `مشاهده تاریخچه مرورگر وب سیستم ${data.hostname || data.targetIp} (${data.totalEntries} رکورد)`,
+      title_en: `HelpDesk Browser History Inspected on ${data.hostname || data.targetIp} (${data.totalEntries} entries)`,
+      details: `اسکن ${data.profilesScanned} پروفایل مرورگر (${data.uniqueDomains} دامنه یکتا، موتور ${data.sqliteEngine})`,
+      details_en: `Scanned ${data.profilesScanned} browser profiles (${data.uniqueDomains} unique domains via ${data.sqliteEngine})`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      target: {
+        type: 'device',
+        name: data.targetIp,
+        ip: data.targetIp,
+        metadata: {
+          targetIp: data.targetIp,
+          hostname: data.hostname,
+          protocol: data.protocolUsed,
+          hoursBack: data.hoursBack,
+          profilesScanned: data.profilesScanned,
+          totalEntries: data.totalEntries,
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to inspect endpoint web browser history');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_browser_history_failed',
+      title: `خطا در دریافت تاریخچه مرورگر وب ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Browser History Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
     });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,
