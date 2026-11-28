@@ -10,9 +10,22 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.501.3';
+export const APP_VERSION = '1.501.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.501.4',
+    releaseDate: '2026-11-27',
+    type: 'patch',
+    title: 'افزودن مدال تأییدیه دو‌مرحله‌ای برای دکمه‌های Restart Print Spooler و Clear Stuck Queue & Restart در تب Printers & Spooler',
+    title_en: 'Add Confirmation Modal for Restart Print Spooler & Clear Stuck Queue & Restart Actions',
+    changes: [
+      'افزودن پنجره تأییدیه صریح (دوزبانه، منطبق با تم تیره و روشن، کلید میانبر Esc و نمایش تعداد اسناد در صف) پیش از اجرای دکمه‌های `Restart Print Spooler` و `Clear Stuck Queue & Restart` در تب `Printers & Spooler` (`src/components/HelpDeskView.tsx`) و بررسی اطمینان از فعال بودن مدال تأییدیه `Lock Screen` در تب `User Logins, Sessions & Power`.'
+    ],
+    changes_en: [
+      'Added a bilingual, theme-adaptive confirmation modal (with Escape key dismissal, host/spooler state, queued jobs count, and queue deletion warning) before running `Restart Print Spooler` and `Clear Stuck Queue & Restart` in `Printers & Spooler` (`src/components/HelpDeskView.tsx`), while keeping `Lock Screen` confirmation active in `User Logins, Sessions & Power`.'
+    ]
+  },
   {
     version: '1.501.3',
     releaseDate: '2026-11-27',

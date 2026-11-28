@@ -551,6 +551,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const printerError = ram.printerError;
   const setPrinterError = setRamField('printerError');
   const [runningSpoolerAction, setRunningSpoolerAction] = useState<string | null>(null);
+  const [pendingSpoolerConfirm, setPendingSpoolerConfirm] = useState<'spooler_restart' | 'spooler_clear_queue' | null>(null);
   const spoolerActionResult = ram.spoolerActionResult;
   const setSpoolerActionResult = setRamField('spoolerActionResult');
   const [printerRowActionBusy, setPrinterRowActionBusy] = useState<string | null>(null);
@@ -997,13 +998,16 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   }, [activeSubTab, loadConnectionHistory]);
 
   useEffect(() => {
-    if (!pendingSessionConfirm) return;
+    if (!pendingSessionConfirm && !pendingSpoolerConfirm) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPendingSessionConfirm(null);
+      if (e.key === 'Escape') {
+        setPendingSessionConfirm(null);
+        setPendingSpoolerConfirm(null);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [pendingSessionConfirm]);
+  }, [pendingSessionConfirm, pendingSpoolerConfirm]);
 
   const buildPayload = (): HelpdeskConnectionPayload | null => {
     const cleanIp = targetIp.trim();
@@ -1038,6 +1042,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
     setShowPassword(false);
     setReconnectBanner(null);
     setPrinterRowActionBusy(null);
+    setPendingSpoolerConfirm(null);
     setPrinterMenuAnchor(null);
     setPrinterDeleteTarget(null);
     setIsPrintServerModalOpen(false);
@@ -1760,6 +1765,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const handleSpoolerAction = async (action: 'spooler_restart' | 'spooler_clear_queue') => {
     const payload = buildPayload();
     if (!payload) return;
+    setPendingSpoolerConfirm(null);
     setRunningSpoolerAction(action);
     setPrinterError(null);
     setSpoolerActionResult(null);
@@ -11179,7 +11185,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleSpoolerAction('spooler_restart')}
+                onClick={() => setPendingSpoolerConfirm('spooler_restart')}
                 disabled={!canExecuteActions || runningSpoolerAction !== null}
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg border text-xs font-semibold transition disabled:opacity-50 cursor-pointer ${
                   isLightMode
@@ -11199,7 +11205,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleSpoolerAction('spooler_clear_queue')}
+                onClick={() => setPendingSpoolerConfirm('spooler_clear_queue')}
                 disabled={!canExecuteActions || runningSpoolerAction !== null}
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
               >
@@ -17463,6 +17469,184 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     <>
                       <LogOut className="w-3.5 h-3.5" />
                       <span>{isEn ? 'Confirm Sign Out (Logoff)' : 'تأیید و خروج کاربر'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Print Spooler Restart / Clear Stuck Queue Confirmation Modal */}
+      {pendingSpoolerConfirm &&
+        createPortal(
+          <div
+            dir={isEn ? 'ltr' : 'rtl'}
+            className="fixed top-0 left-0 right-0 bottom-8 z-[99999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setPendingSpoolerConfirm(null);
+            }}
+          >
+            <div
+              className={`relative w-full max-w-md rounded-2xl border shadow-2xl overflow-hidden animate-scale-up ${
+                isLightMode
+                  ? 'bg-white border-slate-200 text-slate-900'
+                  : 'bg-slate-900 border-slate-700/80 text-slate-100'
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div
+                className={`flex items-center justify-between gap-3 px-5 py-4 border-b ${
+                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`p-2 rounded-xl border shrink-0 ${
+                      pendingSpoolerConfirm === 'spooler_clear_queue'
+                        ? 'bg-amber-500/15 border-amber-500/35 text-amber-500'
+                        : 'bg-teal-500/15 border-teal-500/35 text-teal-500'
+                    }`}
+                  >
+                    {pendingSpoolerConfirm === 'spooler_clear_queue' ? (
+                      <Trash2 className="w-5 h-5" />
+                    ) : (
+                      <RotateCcw className="w-5 h-5" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className={`text-sm font-bold truncate ${textPrimary}`}>
+                      {pendingSpoolerConfirm === 'spooler_clear_queue'
+                        ? isEn
+                          ? 'Confirm Clear Print Queue & Restart Spooler'
+                          : 'تأیید پاک‌سازی صف پرینت و ری‌استارت Spooler'
+                        : isEn
+                        ? 'Confirm Restart Print Spooler Service'
+                        : 'تأیید ری‌استارت سرویس Print Spooler'}
+                    </h3>
+                    <p className={`text-[11px] truncate ${textMuted}`} dir="ltr">
+                      {printerData?.targetIp || targetIp.trim()} • {printerData?.spooler?.serviceName || 'Spooler'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPendingSpoolerConfirm(null)}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    isLightMode
+                      ? 'text-slate-500 hover:text-slate-800 hover:bg-slate-200'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={isEn ? 'Close' : 'بستن'}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-3.5 text-xs">
+                <div
+                  className={`p-3.5 rounded-xl border space-y-2 ${
+                    pendingSpoolerConfirm === 'spooler_clear_queue'
+                      ? isLightMode
+                        ? 'bg-amber-50 border-amber-200 text-amber-950'
+                        : 'bg-amber-950/30 border-amber-500/40 text-amber-100'
+                      : isLightMode
+                      ? 'bg-teal-50 border-teal-200 text-teal-950'
+                      : 'bg-teal-950/25 border-teal-500/35 text-teal-100'
+                  }`}
+                >
+                  <div className="flex items-start gap-2 leading-relaxed font-medium">
+                    <AlertTriangle
+                      className={`w-4 h-4 shrink-0 mt-0.5 ${
+                        pendingSpoolerConfirm === 'spooler_clear_queue' ? 'text-amber-500' : 'text-teal-500'
+                      }`}
+                    />
+                    <span>
+                      {pendingSpoolerConfirm === 'spooler_clear_queue'
+                        ? isEn
+                          ? `Are you sure you want to stop the Print Spooler, permanently delete all pending/stuck print files in System32\\spool\\PRINTERS on "${printerData?.targetIp || targetIp.trim()}", and restart the service? All queued documents will be cancelled.`
+                          : `آیا از متوقف کردن سرویس Print Spooler، حذف کامل تمام فایل‌های در انتظار/گیرکرده در مسیر System32\\spool\\PRINTERS روی سیستم «${printerData?.targetIp || targetIp.trim()}» و راه‌اندازی مجدد سرویس اطمینان دارید؟ تمام کارهای چاپی فعلی در صف لغو خواهند شد.`
+                        : isEn
+                        ? `Are you sure you want to restart the Print Spooler service on "${printerData?.targetIp || targetIp.trim()}"? Active print jobs may be briefly interrupted while the service reloads.`
+                        : `آیا از ری‌استارت کردن سرویس Print Spooler روی سیستم «${printerData?.targetIp || targetIp.trim()}» اطمینان دارید؟ ممکن است فرآیند چاپ‌های در حال انجام به‌طور موقت متوقف یا مجدداً راه‌اندازی شود.`}
+                    </span>
+                  </div>
+                </div>
+
+                <div
+                  className={`flex flex-wrap items-center gap-2 text-[11px] font-mono ${
+                    isLightMode ? 'text-slate-600' : 'text-slate-300'
+                  }`}
+                  dir="ltr"
+                >
+                  <span
+                    className={`px-2 py-0.5 rounded border ${
+                      isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-800 border-slate-700'
+                    }`}
+                  >
+                    Host: <strong>{printerData?.targetIp || targetIp.trim()}</strong>
+                  </span>
+                  {printerData?.spooler?.status && (
+                    <span
+                      className={`px-2 py-0.5 rounded border ${
+                        isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-800 border-slate-700'
+                      }`}
+                    >
+                      Spooler: <strong>{printerData.spooler.status}</strong>
+                    </span>
+                  )}
+                  <span
+                    className={`px-2 py-0.5 rounded border ${
+                      isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-800 border-slate-700'
+                    }`}
+                  >
+                    Queued Jobs: <strong>{(printerData?.jobs || []).length}</strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div
+                className={`flex items-center justify-end gap-2 px-5 py-3.5 border-t ${
+                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/70 border-slate-800'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setPendingSpoolerConfirm(null)}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                  }`}
+                >
+                  {isEn ? 'Cancel' : 'انصراف'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!canExecuteActions || runningSpoolerAction !== null}
+                  onClick={() => {
+                    const action = pendingSpoolerConfirm;
+                    if (action) handleSpoolerAction(action);
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-lg transition cursor-pointer disabled:opacity-50 ${
+                    pendingSpoolerConfirm === 'spooler_clear_queue'
+                      ? 'bg-amber-600 hover:bg-amber-500 border border-amber-400/40'
+                      : 'bg-teal-600 hover:bg-teal-500 border border-teal-400/40'
+                  }`}
+                >
+                  {pendingSpoolerConfirm === 'spooler_clear_queue' ? (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Confirm Clear & Restart' : 'تأیید پاک‌سازی و ری‌استارت'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Confirm Restart Spooler' : 'تأیید ری‌استارت Spooler'}</span>
                     </>
                   )}
                 </button>
