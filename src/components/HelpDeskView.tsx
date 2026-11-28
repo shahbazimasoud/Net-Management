@@ -93,6 +93,7 @@ import {
   Smartphone,
   Terminal,
   Compass,
+  AppWindow,
 } from 'lucide-react';
 import { AccessPolicy } from '../types';
 import { AuthUser } from '../context/AuthContext';
@@ -172,6 +173,11 @@ import {
   HelpdeskConnectionHistoryItem,
   HelpdeskConnectionHistoryResponse,
   fetchHelpdeskBrowserHistory,
+  fetchHelpdeskBrowserManageInspect,
+  backupHelpdeskBrowserBookmarks,
+  executeHelpdeskBrowserAction,
+  HelpdeskBrowserManageActionPayload,
+  HelpdeskBrowserVendor,
 } from '../services/api';
 import {
   HelpdeskSubTab,
@@ -203,6 +209,7 @@ import { UserProfilesTab } from './helpdesk/UserProfilesTab';
 import { VirtualMemorySection } from './helpdesk/VirtualMemorySection';
 import { SwitchPortTab } from './helpdesk/SwitchPortTab';
 import { BrowserHistoryTab } from './helpdesk/BrowserHistoryTab';
+import { BrowserManageTab } from './helpdesk/BrowserManageTab';
 
 interface HelpDeskViewProps {
   isLightMode: boolean;
@@ -795,6 +802,19 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const setBrowserHistoryError = setRamField('browserHistoryError');
   const browserHistoryHoursBack = ram.browserHistoryHoursBack;
   const setBrowserHistoryHoursBack = setRamField('browserHistoryHoursBack');
+
+  // Remote Browser Management (Installed browsers, Proxy, Homepage, Bookmarks backup, Cookies & Cache — NO history)
+  const browserManageData = ram.browserManageData;
+  const setBrowserManageData = setRamField('browserManageData');
+  const loadingBrowserManage = ram.loadingBrowserManage;
+  const setLoadingBrowserManage = setRamField('loadingBrowserManage');
+  const browserManageError = ram.browserManageError;
+  const setBrowserManageError = setRamField('browserManageError');
+  const browserManageActionResult = ram.browserManageActionResult;
+  const setBrowserManageActionResult = setRamField('browserManageActionResult');
+  const browserManageActionError = ram.browserManageActionError;
+  const setBrowserManageActionError = setRamField('browserManageActionError');
+  const [browserManageBusyKey, setBrowserManageBusyKey] = useState<string | null>(null);
 
   // Diagnostics Suite (13-Check Interactive Troubleshooter)
   const diagnosticsData = ram.diagnosticsData;
@@ -2921,6 +2941,75 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
       );
     } finally {
       setLoadingBrowserHistory(false);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleInspectBrowserManage = async () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setLoadingBrowserManage(true);
+    setBrowserManageError(null);
+    try {
+      const res = await fetchHelpdeskBrowserManageInspect(payload);
+      setBrowserManageData(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+    } catch (err: any) {
+      setBrowserManageData(null);
+      setBrowserManageError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? 'Failed to inspect endpoint browsers and settings.'
+            : 'خطا در بررسی مرورگرها و تنظیمات سیستم کاربر.')
+      );
+    } finally {
+      setLoadingBrowserManage(false);
+    }
+  };
+
+  const handleExecuteBrowserManageAction = async (
+    actionPayload: HelpdeskBrowserManageActionPayload,
+    busyToken: string
+  ) => {
+    const payload = buildPayload();
+    if (!payload) return;
+    setBrowserManageBusyKey(busyToken);
+    setBrowserManageActionError(null);
+    setBrowserManageActionResult(null);
+    try {
+      const res = await executeHelpdeskBrowserAction({ ...payload, ...actionPayload });
+      setBrowserManageActionResult(res.data);
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      // Refresh live browser telemetry after mutation
+      await handleInspectBrowserManage();
+    } catch (err: any) {
+      setBrowserManageActionError(
+        (isEn ? err?.message : err?.errorFa || err?.message) ||
+          (isEn
+            ? 'Browser management operation failed.'
+            : 'اجرای عملیات مدیریت مرورگر ناموفق بود.')
+      );
+    } finally {
+      setBrowserManageBusyKey(null);
+      notifyHelpdeskAuditUpdated();
+    }
+  };
+
+  const handleBackupBrowserManageBookmarks = async (options?: {
+    profilePaths?: string[];
+    browsers?: HelpdeskBrowserVendor[];
+    osUser?: string;
+  }) => {
+    const payload = buildPayload();
+    if (!payload) return null;
+    try {
+      const res = await backupHelpdeskBrowserBookmarks({
+        ...payload,
+        ...options,
+      });
+      if (res.rateLimit) setRateLimit(res.rateLimit);
+      return res.data;
+    } finally {
       notifyHelpdeskAuditUpdated();
     }
   };
@@ -5619,6 +5708,12 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             labelEn: 'Firewall & Antivirus',
             labelFa: 'فایروال و آنتی‌ویروس',
           },
+          {
+            id: 'browser_manage' as HelpdeskSubTab,
+            icon: AppWindow,
+            labelEn: 'Browser',
+            labelFa: 'مرورگر',
+          },
           ...(canViewBrowserHistory
             ? [
                 {
@@ -5685,6 +5780,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'services_startup' && (loadingServicesStartup || loadingMsconfigEnv)) ||
             (tab.id === 'region_fonts' && loadingRegionFonts) ||
             (tab.id === 'security_av' && loadingSecurityAv) ||
+            (tab.id === 'browser_manage' && loadingBrowserManage) ||
             (tab.id === 'browser_history' && loadingBrowserHistory) ||
             (tab.id === 'maintenance' && (loadingGpo || loadingDomainUser || loadingDiskHealth)) ||
             (tab.id === 'hardware_domain' && loadingBattery) ||
@@ -5705,6 +5801,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
             (tab.id === 'services_startup' && Boolean(servicesStartupData || msconfigEnvData)) ||
             (tab.id === 'region_fonts' && Boolean(regionFontsData)) ||
             (tab.id === 'security_av' && Boolean(securityAvData)) ||
+            (tab.id === 'browser_manage' && Boolean(browserManageData)) ||
             (tab.id === 'browser_history' && Boolean(browserHistoryData)) ||
             (tab.id === 'maintenance' && Boolean(gpoData || domainUserData || diskHealthData)) ||
             (tab.id === 'hardware_domain' && Boolean(batteryData)) ||
@@ -5748,6 +5845,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
                     handleInspectRegionFonts();
                   } else if (tab.id === 'security_av' && !securityAvData && !loadingSecurityAv) {
                     handleInspectSecurityAv();
+                  } else if (tab.id === 'browser_manage' && !browserManageData && !loadingBrowserManage) {
+                    handleInspectBrowserManage();
                   } else if (tab.id === 'browser_history' && canViewBrowserHistory && !browserHistoryData && !loadingBrowserHistory) {
                     handleInspectBrowserHistory();
                   } else if (tab.id === 'maintenance') {
@@ -16348,6 +16447,28 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
           onToggleFirewallProfile={handleToggleFirewallProfile}
           onCreateFirewallRule={handleCreateFirewallRule}
           onManageFirewallRule={handleManageFirewallRule}
+        />
+      )}
+
+      {/* =================================================================== */}
+      {/* TAB 6G: REMOTE BROWSER MANAGEMENT (NO HISTORY)                      */}
+      {/* =================================================================== */}
+      {activeSubTab === 'browser_manage' && (
+        <BrowserManageTab
+          isLightMode={isLightMode}
+          isEn={isEn}
+          targetIp={targetIp}
+          hasCredentials={Boolean(username.trim() && password)}
+          canExecuteActions={canExecuteActions}
+          data={browserManageData}
+          loading={loadingBrowserManage}
+          error={browserManageError}
+          actionResult={browserManageActionResult}
+          actionError={browserManageActionError}
+          busyKey={browserManageBusyKey}
+          onInspect={handleInspectBrowserManage}
+          onExecuteAction={handleExecuteBrowserManageAction}
+          onBackupBookmarks={handleBackupBrowserManageBookmarks}
         />
       )}
 

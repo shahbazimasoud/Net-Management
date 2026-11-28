@@ -1414,6 +1414,235 @@ export async function fetchHelpdeskBrowserHistory(
   return res.json();
 }
 
+export interface HelpdeskManagedBrowserInfo {
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  installed: boolean;
+  version: string | null;
+  exePath: string | null;
+  isDefaultBrowser: boolean;
+  processCount: number;
+  totalMemoryMb: number;
+  pids: number[];
+  processName: string;
+}
+
+export interface HelpdeskManagedProfileInfo {
+  id: string;
+  osUser: string;
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  kind: 'chromium' | 'firefox';
+  profileDir: string;
+  profileName: string;
+  accountEmail: string | null;
+  profilePath: string;
+  homepage: string | null;
+  homepageIsNewTab: boolean | null;
+  restoreOnStartup: number | null;
+  startupUrls: string[];
+  bookmarkCount: number;
+  hasBookmarksFile: boolean;
+  cacheSizeMb: number;
+  cookiesSizeMb: number;
+  extensionCount: number;
+  lockDetected: boolean;
+  transportSecurityPresent: boolean;
+}
+
+export interface HelpdeskBrowserExtensionItem {
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  osUser: string;
+  profileName: string;
+  profileDir: string;
+  extensionId: string;
+  name: string;
+  version: string;
+  enabled: boolean | null;
+  installType: string;
+}
+
+export interface HelpdeskBrowserPolicyState {
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  homepageLocation: string | null;
+  homepageIsNewTabPage: boolean | null;
+  restoreOnStartup: number | null;
+  restoreOnStartupUrls: string[];
+  proxyMode: string | null;
+  proxyServer: string | null;
+  proxyPacUrl: string | null;
+  proxyBypassList: string | null;
+}
+
+export interface HelpdeskFirefoxProxyProfileState {
+  osUser: string;
+  profileDir: string;
+  profileName: string;
+  profilePath: string;
+  proxyType: number;
+  httpProxy: string;
+  httpPort: number | null;
+  sslProxy: string;
+  sslPort: number | null;
+  socksHost: string;
+  socksPort: number | null;
+  autoConfigUrl: string;
+  noProxyOn: string;
+}
+
+export interface HelpdeskBrowserProxyState {
+  winInet: {
+    enabled: boolean;
+    server: string;
+    override: string;
+    autoConfigUrl: string;
+    autoDetect: boolean;
+    userSid: string;
+    loggedUser: string;
+  };
+  winHttp: {
+    enabled: boolean;
+    server: string;
+    bypassList: string;
+    rawText: string;
+  };
+  firefoxProfiles: HelpdeskFirefoxProxyProfileState[];
+  linuxEnv: {
+    httpProxy: string;
+    httpsProxy: string;
+    noProxy: string;
+  };
+}
+
+export interface HelpdeskBrowserManageInspectResult {
+  targetIp: string;
+  protocolUsed: string;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  loggedInUser: string;
+  defaultBrowserRaw: string;
+  collectedAt: string;
+  browsers: HelpdeskManagedBrowserInfo[];
+  profiles: HelpdeskManagedProfileInfo[];
+  extensions: HelpdeskBrowserExtensionItem[];
+  policies: HelpdeskBrowserPolicyState[];
+  proxy: HelpdeskBrowserProxyState;
+  warnings: string[];
+}
+
+export interface HelpdeskBookmarkEntry {
+  title: string;
+  url: string;
+  folderPath: string;
+  addedAt: string | null;
+  browser?: HelpdeskBrowserVendor;
+  browserLabel?: string;
+  osUser?: string;
+  profileName?: string;
+}
+
+export interface HelpdeskBrowserBookmarkBackupResult {
+  targetIp: string;
+  protocolUsed: string;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  collectedAt: string;
+  totalBookmarks: number;
+  profilesExported: number;
+  netscapeHtml: string;
+  bookmarks: HelpdeskBookmarkEntry[];
+  warnings: string[];
+}
+
+export type HelpdeskBrowserManageActionType =
+  | 'set_proxy'
+  | 'clear_proxy'
+  | 'set_homepage'
+  | 'clear_cookies'
+  | 'clear_cache'
+  | 'close_browser'
+  | 'repair_profile_locks'
+  | 'clear_transport_security'
+  | 'clear_policies';
+
+export interface HelpdeskBrowserManageActionPayload {
+  action: HelpdeskBrowserManageActionType;
+  browsers?: HelpdeskBrowserVendor[];
+  profilePaths?: string[];
+  closeBrowsersFirst?: boolean;
+  proxyMode?: 'direct' | 'manual' | 'pac';
+  proxyTargets?: Array<'wininet' | 'winhttp' | 'chrome_policy' | 'edge_policy' | 'firefox'>;
+  proxyServer?: string;
+  proxyBypass?: string;
+  proxyPacUrl?: string;
+  proxyAutoDetect?: boolean;
+  homepageUrl?: string;
+  homepageIsNewTab?: boolean;
+  restoreOnStartup?: 'newtab' | 'urls' | 'continue';
+  startupUrls?: string[];
+  homepageScope?: 'profile_prefs' | 'policy' | 'both';
+  clearSiteStorage?: boolean;
+}
+
+export async function fetchHelpdeskBrowserManageInspect(
+  payload: HelpdeskConnectionPayload
+): Promise<{
+  success: boolean;
+  data: HelpdeskBrowserManageInspectResult;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/browser-manage/inspect`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to inspect endpoint browsers and settings');
+  return res.json();
+}
+
+export async function backupHelpdeskBrowserBookmarks(
+  payload: HelpdeskConnectionPayload & {
+    profilePaths?: string[];
+    browsers?: HelpdeskBrowserVendor[];
+    osUser?: string;
+  }
+): Promise<{
+  success: boolean;
+  data: HelpdeskBrowserBookmarkBackupResult;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/browser-manage/bookmarks-backup`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to backup endpoint browser bookmarks');
+  return res.json();
+}
+
+export async function executeHelpdeskBrowserAction(
+  payload: HelpdeskConnectionPayload & HelpdeskBrowserManageActionPayload
+): Promise<{
+  success: boolean;
+  data: any;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/browser-manage/action`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to execute browser management action');
+  return res.json();
+}
+
 export async function runHelpdeskNetworkProbe(
   payload: HelpdeskConnectionPayload & {
     probeType: 'ping' | 'port' | 'dns' | 'nslookup' | 'tracert' | 'http' | 'arp';

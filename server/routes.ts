@@ -132,6 +132,10 @@ import {
   HelpdeskVirtualMemoryAction,
   collectEndpointMacIdentity,
   collectEndpointBrowserHistory,
+  inspectEndpointBrowsers,
+  backupEndpointBrowserBookmarks,
+  executeEndpointBrowserAction,
+  HelpdeskBrowserManageActionType,
 } from './helpdeskService';
 import {
   inspectTargetDomainUser,
@@ -12819,6 +12823,201 @@ apiRouter.post('/helpdesk/browser-history', async (req: Request, res: Response) 
       title_en: `HelpDesk Browser History Failed: ${target.targetIp || 'Unknown'}`,
       targetIp: target.targetIp,
       errorMsg: msg,
+    });
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/browser-manage/inspect - Inspect installed browsers, versions, profiles, proxy, homepage, cache/cookies & extensions (NO browsing history)
+apiRouter.post('/helpdesk/browser-manage/inspect', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  try {
+    const data = await inspectEndpointBrowsers(target);
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to inspect endpoint browsers and settings');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_browser_manage_inspect_failed',
+      title: `خطا در بررسی مرورگرهای سیستم ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Browser Management Inspect Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/browser-manage/bookmarks-backup - Backup live bookmarks (Netscape HTML + JSON) from endpoint browser profiles (NO browsing history)
+apiRouter.post('/helpdesk/browser-manage/bookmarks-backup', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'diagnostics');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const profilePaths = Array.isArray(req.body?.profilePaths) ? req.body.profilePaths : undefined;
+  const browsers = Array.isArray(req.body?.browsers) ? req.body.browsers : undefined;
+  const osUser = req.body?.osUser !== undefined ? String(req.body.osUser).trim() : undefined;
+
+  try {
+    const data = await backupEndpointBrowserBookmarks(target, { profilePaths, browsers, osUser });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_browser_bookmarks_backup',
+      title: `پشتیبان‌گیری از بوکمارک‌های مرورگر سیستم ${data.hostname || data.targetIp} (${data.totalBookmarks} بوکمارک)`,
+      title_en: `HelpDesk Browser Bookmarks Backup on ${data.hostname || data.targetIp} (${data.totalBookmarks} bookmarks)`,
+      details: `خروجی از ${data.profilesExported} پروفایل مرورگر`,
+      details_en: `Exported from ${data.profilesExported} browser profile(s)`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      target: {
+        type: 'device',
+        name: data.targetIp,
+        ip: data.targetIp,
+        metadata: {
+          targetIp: data.targetIp,
+          hostname: data.hostname,
+          profilesExported: data.profilesExported,
+          totalBookmarks: data.totalBookmarks,
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to backup endpoint browser bookmarks');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_browser_bookmarks_backup_failed',
+      title: `خطا در بکاپ بوکمارک‌های مرورگر ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Browser Bookmarks Backup Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  }
+});
+
+// POST /helpdesk/browser-manage/action - Execute remote browser management action (Proxy, Homepage, Cookies, Cache, Close Process, Repair Locks, Clear HSTS/Policies)
+apiRouter.post('/helpdesk/browser-manage/action', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'actions');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+  const target = extractHelpdeskTargetFromBody(req.body);
+  const rawAction = String(req.body?.action || '').trim() as HelpdeskBrowserManageActionType;
+  const actionRateMap: Record<HelpdeskBrowserManageActionType, HelpdeskWriteAction> = {
+    set_proxy: 'browser_set_proxy',
+    clear_proxy: 'browser_clear_proxy',
+    set_homepage: 'browser_set_homepage',
+    clear_cookies: 'browser_clear_cookies',
+    clear_cache: 'browser_clear_cache',
+    close_browser: 'browser_close_processes',
+    repair_profile_locks: 'browser_repair_locks',
+    clear_transport_security: 'browser_clear_hsts',
+    clear_policies: 'browser_clear_policies',
+  };
+  const rlAction = actionRateMap[rawAction];
+  if (!rlAction) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid browser management action.',
+      errorFa: 'عملیات درخواستی مرورگر نامعتبر است.',
+    });
+  }
+
+  const rl = checkAndRecordHelpdeskWriteRateLimit(auth.actorName, target.targetIp, rlAction);
+  if (!rl.allowed) {
+    return res.status(429).json({
+      success: false,
+      error: rl.reason,
+      errorFa: rl.reasonFa,
+      rateLimit: rl.status,
+    });
+  }
+
+  try {
+    const data = await executeEndpointBrowserAction(target, {
+      action: rawAction,
+      browsers: req.body?.browsers,
+      profilePaths: req.body?.profilePaths,
+      closeBrowsersFirst: req.body?.closeBrowsersFirst,
+      proxyMode: req.body?.proxyMode,
+      proxyTargets: req.body?.proxyTargets,
+      proxyServer: req.body?.proxyServer,
+      proxyBypass: req.body?.proxyBypass,
+      proxyPacUrl: req.body?.proxyPacUrl,
+      proxyAutoDetect: req.body?.proxyAutoDetect,
+      homepageUrl: req.body?.homepageUrl,
+      homepageIsNewTab: req.body?.homepageIsNewTab,
+      restoreOnStartup: req.body?.restoreOnStartup,
+      startupUrls: req.body?.startupUrls,
+      homepageScope: req.body?.homepageScope,
+      clearSiteStorage: req.body?.clearSiteStorage,
+    });
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: `helpdesk_${rlAction}`,
+      title: `مدیریت مرورگر (${rawAction}) روی ${data.targetIp}`,
+      title_en: `HelpDesk Browser Action (${rawAction}) on ${data.targetIp}`,
+      details: data.messageFa,
+      details_en: data.message,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: data.success ? 'success' : 'failed',
+      severity: rawAction === 'clear_cookies' || rawAction === 'close_browser' ? 'warning' : 'info',
+      target: {
+        type: 'device',
+        name: data.targetIp,
+        ip: data.targetIp,
+        metadata: {
+          targetIp: data.targetIp,
+          protocol: data.protocolUsed,
+          browserAction: rawAction,
+          itemsChanged: data.details?.itemsChanged ?? 0,
+          mbFreed: data.details?.mbFreed ?? 0,
+        },
+      },
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true, data, rateLimit: getHelpdeskRateLimitStatus(auth.actorName) });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to execute browser management operation');
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: `helpdesk_${rlAction}_failed`,
+      title: `خطا در عملیات مرورگر (${rawAction}) روی ${target.targetIp || 'Unknown'}`,
+      title_en: `HelpDesk Browser Action (${rawAction}) Failed: ${target.targetIp || 'Unknown'}`,
+      targetIp: target.targetIp,
+      errorMsg: msg,
+      metadata: { browserAction: rawAction },
     });
     return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
       success: false,

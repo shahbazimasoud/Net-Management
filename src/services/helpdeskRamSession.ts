@@ -24,6 +24,7 @@ import {
   HelpdeskVirtualMemoryResult,
   HelpdeskSwitchPortResult,
   HelpdeskBrowserHistoryResult,
+  HelpdeskBrowserManageInspectResult,
   HelpdeskConnectionPayload,
   HelpdeskDiagnosticCheckId,
   ALL_HELPDESK_DIAGNOSTIC_CHECKS,
@@ -45,6 +46,7 @@ export type HelpdeskSubTab =
   | 'services_startup'
   | 'region_fonts'
   | 'security_av'
+  | 'browser_manage'
   | 'browser_history'
   | 'maintenance'
   | 'hardware_domain'
@@ -207,6 +209,13 @@ export interface HelpdeskRamState {
   browserHistoryError: string | null;
   browserHistoryHoursBack: number;
 
+  // Tab 6G: Remote Browser Management (Installed browsers, Proxy, Homepage, Bookmarks backup, Cookies & Cache — NO history)
+  browserManageData: HelpdeskBrowserManageInspectResult | null;
+  loadingBrowserManage: boolean;
+  browserManageError: string | null;
+  browserManageActionResult: any | null;
+  browserManageActionError: string | null;
+
   // Tab 1B / Disk, Drives, Shared Folders, Temp & Recycle Bin
   tempScanData: any | null;
   loadingTempScan: boolean;
@@ -358,6 +367,12 @@ function createInitialHelpdeskRamState(ownerUserId: string | null = null): Helpd
     browserHistoryError: null,
     browserHistoryHoursBack: 168,
 
+    browserManageData: null,
+    loadingBrowserManage: false,
+    browserManageError: null,
+    browserManageActionResult: null,
+    browserManageActionError: null,
+
     tempScanData: null,
     loadingTempScan: false,
     tempError: null,
@@ -461,6 +476,7 @@ export function stopHelpdeskPrefetch(): void {
       loadingRegionFonts: false,
       loadingSecurityAv: false,
       loadingBrowserHistory: false,
+      loadingBrowserManage: false,
       loadingGpo: false,
       loadingDomainUser: false,
       loadingDiskHealth: false,
@@ -587,6 +603,11 @@ export async function runHelpdeskSequentialConnect(options: {
     browserHistoryData: null,
     loadingBrowserHistory: false,
     browserHistoryError: null,
+    browserManageData: null,
+    loadingBrowserManage: false,
+    browserManageError: null,
+    browserManageActionResult: null,
+    browserManageActionError: null,
     tempScanData: null,
     tempError: null,
     loadingTempScan: false,

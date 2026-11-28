@@ -100,7 +100,16 @@ export type HelpdeskWriteAction =
   | 'virtual_memory_set'
   | 'virtual_memory_remove'
   | 'virtual_memory_auto'
-  | 'swap_swappiness_set';
+  | 'swap_swappiness_set'
+  | 'browser_set_proxy'
+  | 'browser_clear_proxy'
+  | 'browser_set_homepage'
+  | 'browser_clear_cookies'
+  | 'browser_clear_cache'
+  | 'browser_close_processes'
+  | 'browser_repair_locks'
+  | 'browser_clear_hsts'
+  | 'browser_clear_policies';
 
 export type HelpdeskProcessCategory =
   | 'user_app'
@@ -26236,6 +26245,2847 @@ PYEOF`;
     warnings,
   };
 }
+
+// ============================================================================
+// REMOTE BROWSER MANAGEMENT (No History — Profiles, Proxy, Homepage, Bookmarks, Cookies, Cache, Extensions)
+// ============================================================================
+
+export interface HelpdeskManagedBrowserInfo {
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  installed: boolean;
+  version: string | null;
+  exePath: string | null;
+  isDefaultBrowser: boolean;
+  processCount: number;
+  totalMemoryMb: number;
+  pids: number[];
+  processName: string;
+}
+
+export interface HelpdeskManagedProfileInfo {
+  id: string;
+  osUser: string;
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  kind: 'chromium' | 'firefox';
+  profileDir: string;
+  profileName: string;
+  accountEmail: string | null;
+  profilePath: string;
+  homepage: string | null;
+  homepageIsNewTab: boolean | null;
+  restoreOnStartup: number | null;
+  startupUrls: string[];
+  bookmarkCount: number;
+  hasBookmarksFile: boolean;
+  cacheSizeMb: number;
+  cookiesSizeMb: number;
+  extensionCount: number;
+  lockDetected: boolean;
+  transportSecurityPresent: boolean;
+}
+
+export interface HelpdeskBrowserExtensionItem {
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  osUser: string;
+  profileName: string;
+  profileDir: string;
+  extensionId: string;
+  name: string;
+  version: string;
+  enabled: boolean | null;
+  installType: string;
+}
+
+export interface HelpdeskBrowserPolicyState {
+  browser: HelpdeskBrowserVendor;
+  browserLabel: string;
+  homepageLocation: string | null;
+  homepageIsNewTabPage: boolean | null;
+  restoreOnStartup: number | null;
+  restoreOnStartupUrls: string[];
+  proxyMode: string | null;
+  proxyServer: string | null;
+  proxyPacUrl: string | null;
+  proxyBypassList: string | null;
+}
+
+export interface HelpdeskFirefoxProxyProfileState {
+  osUser: string;
+  profileDir: string;
+  profileName: string;
+  profilePath: string;
+  proxyType: number;
+  httpProxy: string;
+  httpPort: number | null;
+  sslProxy: string;
+  sslPort: number | null;
+  socksHost: string;
+  socksPort: number | null;
+  autoConfigUrl: string;
+  noProxyOn: string;
+}
+
+export interface HelpdeskBrowserProxyState {
+  winInet: {
+    enabled: boolean;
+    server: string;
+    override: string;
+    autoConfigUrl: string;
+    autoDetect: boolean;
+    userSid: string;
+    loggedUser: string;
+  };
+  winHttp: {
+    enabled: boolean;
+    server: string;
+    bypassList: string;
+    rawText: string;
+  };
+  firefoxProfiles: HelpdeskFirefoxProxyProfileState[];
+  linuxEnv: {
+    httpProxy: string;
+    httpsProxy: string;
+    noProxy: string;
+  };
+}
+
+export interface HelpdeskBrowserManageInspectResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  loggedInUser: string;
+  defaultBrowserRaw: string;
+  collectedAt: string;
+  browsers: HelpdeskManagedBrowserInfo[];
+  profiles: HelpdeskManagedProfileInfo[];
+  extensions: HelpdeskBrowserExtensionItem[];
+  policies: HelpdeskBrowserPolicyState[];
+  proxy: HelpdeskBrowserProxyState;
+  warnings: string[];
+}
+
+export interface HelpdeskBookmarkEntry {
+  title: string;
+  url: string;
+  folderPath: string;
+  addedAt: string | null;
+  browser?: HelpdeskBrowserVendor;
+  browserLabel?: string;
+  osUser?: string;
+  profileName?: string;
+}
+
+export interface HelpdeskBrowserBookmarkBackupResult {
+  targetIp: string;
+  protocolUsed: HelpdeskResolvedProtocol;
+  portUsed: number;
+  osFamily: 'windows' | 'linux';
+  hostname: string;
+  collectedAt: string;
+  totalBookmarks: number;
+  profilesExported: number;
+  netscapeHtml: string;
+  bookmarks: HelpdeskBookmarkEntry[];
+  warnings: string[];
+}
+
+export type HelpdeskBrowserManageActionType =
+  | 'set_proxy'
+  | 'clear_proxy'
+  | 'set_homepage'
+  | 'clear_cookies'
+  | 'clear_cache'
+  | 'close_browser'
+  | 'repair_profile_locks'
+  | 'clear_transport_security'
+  | 'clear_policies';
+
+export interface HelpdeskBrowserManageActionPayload {
+  action: HelpdeskBrowserManageActionType;
+  browsers?: HelpdeskBrowserVendor[];
+  profilePaths?: string[];
+  closeBrowsersFirst?: boolean;
+  // Proxy fields
+  proxyMode?: 'direct' | 'manual' | 'pac';
+  proxyTargets?: Array<'wininet' | 'winhttp' | 'chrome_policy' | 'edge_policy' | 'firefox'>;
+  proxyServer?: string;
+  proxyBypass?: string;
+  proxyPacUrl?: string;
+  proxyAutoDetect?: boolean;
+  // Homepage fields
+  homepageUrl?: string;
+  homepageIsNewTab?: boolean;
+  restoreOnStartup?: 'newtab' | 'urls' | 'continue';
+  startupUrls?: string[];
+  homepageScope?: 'profile_prefs' | 'policy' | 'both';
+  // Cookie cleanup option
+  clearSiteStorage?: boolean;
+}
+
+const VALID_BROWSER_VENDORS: HelpdeskBrowserVendor[] = [
+  'chrome',
+  'edge',
+  'firefox',
+  'brave',
+  'opera',
+  'vivaldi',
+  'yandex',
+  'chromium',
+];
+
+function escapeHtmlAttr(val: string): string {
+  return String(val || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function validateSafeHttpUrl(raw: string, fieldName: string): string {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) throw new Error(`${fieldName} is required.`);
+  if (trimmed.length > 1000) throw new Error(`${fieldName} exceeds maximum length.`);
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(`Invalid ${fieldName}: must be a valid http:// or https:// URL.`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Invalid ${fieldName}: only http:// and https:// URLs are permitted.`);
+  }
+  return parsed.toString();
+}
+
+function sanitizeBrowserList(raw?: any): HelpdeskBrowserVendor[] {
+  if (!Array.isArray(raw)) return [];
+  const out: HelpdeskBrowserVendor[] = [];
+  for (const item of raw) {
+    const v = String(item || '').trim().toLowerCase() as HelpdeskBrowserVendor;
+    if (VALID_BROWSER_VENDORS.includes(v) && !out.includes(v)) {
+      out.push(v);
+    }
+  }
+  return out;
+}
+
+function sanitizeProfilePathsList(raw?: any): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw) {
+    const p = String(item || '').trim();
+    if (!p || p.length > 600) continue;
+    if (p.includes('..') || /[\r\n\0]/.test(p)) continue;
+    if (!out.includes(p)) out.push(p);
+  }
+  return out.slice(0, 64);
+}
+
+function mapProgIdToBrowserVendor(progIdRaw: string): HelpdeskBrowserVendor | null {
+  const s = String(progIdRaw || '').trim().toLowerCase();
+  if (!s) return null;
+  if (s.includes('msedge') || s.includes('edge')) return 'edge';
+  if (s.includes('chrome')) return 'chrome';
+  if (s.includes('firefox')) return 'firefox';
+  if (s.includes('brave')) return 'brave';
+  if (s.includes('opera')) return 'opera';
+  if (s.includes('vivaldi')) return 'vivaldi';
+  if (s.includes('yandex')) return 'yandex';
+  if (s.includes('chromium')) return 'chromium';
+  return null;
+}
+
+function buildNetscapeBookmarksHtml(bookmarks: HelpdeskBookmarkEntry[], hostLabel: string): string {
+  const folderMap = new Map<string, HelpdeskBookmarkEntry[]>();
+  for (const bm of bookmarks) {
+    const prefix = bm.browserLabel
+      ? `${bm.browserLabel}${bm.osUser ? ` (${bm.osUser} / ${bm.profileName || 'Default'})` : ''}`
+      : 'Bookmarks';
+    const fullFolder = bm.folderPath ? `${prefix} / ${bm.folderPath}` : prefix;
+    const arr = folderMap.get(fullFolder) || [];
+    arr.push(bm);
+    folderMap.set(fullFolder, arr);
+  }
+
+  const lines: string[] = [
+    '<!DOCTYPE NETSCAPE-Bookmark-file-1>',
+    '<!-- Exported via NetTopology Agentless Endpoint HelpDesk -->',
+    '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+    `<TITLE>Bookmarks Backup - ${escapeHtmlAttr(hostLabel)}</TITLE>`,
+    `<H1>Bookmarks Backup (${escapeHtmlAttr(hostLabel)})</H1>`,
+    '<DL><p>',
+  ];
+
+  const nowUnix = Math.floor(Date.now() / 1000);
+  for (const [folderName, items] of folderMap.entries()) {
+    lines.push(`    <DT><H3 ADD_DATE="${nowUnix}" LAST_MODIFIED="${nowUnix}">${escapeHtmlAttr(folderName)}</H3>`);
+    lines.push('    <DL><p>');
+    for (const item of items) {
+      let addUnix = nowUnix;
+      if (item.addedAt) {
+        const ms = Date.parse(item.addedAt);
+        if (Number.isFinite(ms) && ms > 0) addUnix = Math.floor(ms / 1000);
+      }
+      lines.push(
+        `        <DT><A HREF="${escapeHtmlAttr(item.url)}" ADD_DATE="${addUnix}">${escapeHtmlAttr(item.title || item.url)}</A>`
+      );
+    }
+    lines.push('    </DL><p>');
+  }
+
+  lines.push('</DL><p>');
+  return lines.join('\n');
+}
+
+export async function inspectEndpointBrowsers(
+  input: HelpdeskTargetInput
+): Promise<HelpdeskBrowserManageInspectResult> {
+  const winPs = `
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$ErrorActionPreference = 'SilentlyContinue'
+${PS_HELPDESK_DETECT_LOGGED_USER}
+$hostname = [string]$env:COMPUTERNAME
+$warnings = New-Object System.Collections.Generic.List[string]
+
+$defaultProgId = ''
+try {
+  $ucPath = if ($userSid -and (Test-Path "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice")) {
+    "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice"
+  } else {
+    'HKCU:\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice'
+  }
+  $uc = Get-ItemProperty -Path $ucPath -ErrorAction SilentlyContinue
+  if ($uc -and $uc.ProgId) { $defaultProgId = [string]$uc.ProgId }
+} catch {}
+
+function Get-DirBytesSafe {
+  param([string]$DirPath)
+  if (-not $DirPath -or -not (Test-Path -LiteralPath $DirPath)) { return [int64]0 }
+  $sum = [int64]0
+  try {
+    $di = New-Object System.IO.DirectoryInfo($DirPath)
+    foreach ($f in $di.EnumerateFiles('*', [System.IO.SearchOption]::AllDirectories)) {
+      $sum += $f.Length
+    }
+  } catch {
+    try {
+      foreach ($f in [System.IO.Directory]::GetFiles($DirPath)) {
+        $sum += (New-Object System.IO.FileInfo($f)).Length
+      }
+    } catch {}
+  }
+  return $sum
+}
+
+function Read-TextFileShared {
+  param([string]$FilePath, [int]$MaxBytes = 4194304)
+  if (-not $FilePath -or -not (Test-Path -LiteralPath $FilePath)) { return $null }
+  $fs = $null
+  $sr = $null
+  try {
+    $fi = New-Object System.IO.FileInfo($FilePath)
+    if ($fi.Length -gt $MaxBytes) { return $null }
+    $fs = [System.IO.File]::Open($FilePath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+    $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
+    return $sr.ReadToEnd()
+  } catch {
+    return $null
+  } finally {
+    if ($sr) { $sr.Dispose() }
+    if ($fs) { $fs.Dispose() }
+  }
+}
+
+function Count-ChromiumBookmarksNode {
+  param($Node)
+  if (-not $Node) { return 0 }
+  $c = 0
+  if ($Node.type -eq 'url') { return 1 }
+  if ($Node.children) {
+    foreach ($ch in $Node.children) {
+      $c += Count-ChromiumBookmarksNode $ch
+    }
+  }
+  return $c
+}
+
+function Resolve-ExtName {
+  param([string]$VerDir, [string]$RawName)
+  if (-not $RawName) { return '' }
+  if ($RawName -match '^__MSG_(.+)__$') {
+    $msgKey = $matches[1]
+    foreach ($loc in @('en', 'en_US', 'en_GB')) {
+      $locFile = Join-Path $VerDir "_locales\\$loc\\messages.json"
+      $txt = Read-TextFileShared -FilePath $locFile -MaxBytes 524288
+      if ($txt) {
+        $obj = $txt | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if ($obj) {
+          $prop = $obj.PSObject.Properties | Where-Object { $_.Name -ieq $msgKey } | Select-Object -First 1
+          if ($prop -and $prop.Value -and $prop.Value.message) {
+            return [string]$prop.Value.message
+          }
+        }
+      }
+    }
+  }
+  return $RawName
+}
+
+$pf = $env:ProgramFiles
+$pf86 = \${env:ProgramFiles(x86)}
+$localAppCurrent = $env:LOCALAPPDATA
+
+$browserDefs = @(
+  @{
+    browser = 'chrome'; label = 'Google Chrome'; proc = 'chrome'; exeName = 'chrome.exe'
+    paths = @(
+      "$pf\\Google\\Chrome\\Application\\chrome.exe",
+      "$pf86\\Google\\Chrome\\Application\\chrome.exe",
+      "$localAppCurrent\\Google\\Chrome\\Application\\chrome.exe"
+    )
+  },
+  @{
+    browser = 'edge'; label = 'Microsoft Edge'; proc = 'msedge'; exeName = 'msedge.exe'
+    paths = @(
+      "$pf86\\Microsoft\\Edge\\Application\\msedge.exe",
+      "$pf\\Microsoft\\Edge\\Application\\msedge.exe",
+      "$localAppCurrent\\Microsoft\\Edge\\Application\\msedge.exe"
+    )
+  },
+  @{
+    browser = 'firefox'; label = 'Mozilla Firefox'; proc = 'firefox'; exeName = 'firefox.exe'
+    paths = @(
+      "$pf\\Mozilla Firefox\\firefox.exe",
+      "$pf86\\Mozilla Firefox\\firefox.exe",
+      "$localAppCurrent\\Mozilla Firefox\\firefox.exe"
+    )
+  },
+  @{
+    browser = 'brave'; label = 'Brave'; proc = 'brave'; exeName = 'brave.exe'
+    paths = @(
+      "$pf\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+      "$pf86\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+      "$localAppCurrent\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
+    )
+  },
+  @{
+    browser = 'opera'; label = 'Opera'; proc = 'opera'; exeName = 'opera.exe'
+    paths = @(
+      "$localAppCurrent\\Programs\\Opera\\opera.exe",
+      "$localAppCurrent\\Programs\\Opera GX\\opera.exe",
+      "$pf\\Opera\\launcher.exe",
+      "$pf86\\Opera\\launcher.exe"
+    )
+  },
+  @{
+    browser = 'vivaldi'; label = 'Vivaldi'; proc = 'vivaldi'; exeName = 'vivaldi.exe'
+    paths = @(
+      "$localAppCurrent\\Vivaldi\\Application\\vivaldi.exe",
+      "$pf\\Vivaldi\\Application\\vivaldi.exe"
+    )
+  },
+  @{
+    browser = 'yandex'; label = 'Yandex Browser'; proc = 'browser'; exeName = 'browser.exe'
+    paths = @(
+      "$localAppCurrent\\Yandex\\YandexBrowser\\Application\\browser.exe",
+      "$pf86\\Yandex\\YandexBrowser\\Application\\browser.exe"
+    )
+  },
+  @{
+    browser = 'chromium'; label = 'Chromium'; proc = 'chromium'; exeName = 'chrome.exe'
+    paths = @(
+      "$localAppCurrent\\Chromium\\Application\\chrome.exe",
+      "$pf\\Chromium\\Application\\chrome.exe"
+    )
+  }
+)
+
+$allProcs = Get-Process -ErrorAction SilentlyContinue
+$browsersOut = New-Object System.Collections.Generic.List[object]
+
+foreach ($bd in $browserDefs) {
+  $foundExe = $null
+  foreach ($cand in $bd.paths) {
+    if ($cand -and (Test-Path -LiteralPath $cand)) {
+      $foundExe = $cand
+      break
+    }
+  }
+  if (-not $foundExe -and $bd.browser -ne 'chromium') {
+    foreach ($rk in @(
+      "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\$($bd.exeName)",
+      "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\$($bd.exeName)"
+    )) {
+      $ap = Get-ItemProperty -Path $rk -ErrorAction SilentlyContinue
+      if ($ap -and $ap.'(default)') {
+        $val = [string]$ap.'(default)' -replace '"',''
+        if (Test-Path -LiteralPath $val) { $foundExe = $val; break }
+      }
+    }
+  }
+  $ver = $null
+  if ($foundExe) {
+    try {
+      $vi = (Get-Item -LiteralPath $foundExe).VersionInfo
+      $ver = if ($vi.ProductVersion) { [string]$vi.ProductVersion } elseif ($vi.FileVersion) { [string]$vi.FileVersion } else { $null }
+    } catch {}
+  }
+
+  $matchingProcs = @($allProcs | Where-Object {
+    if ($bd.browser -eq 'chromium') {
+      $_.ProcessName -ieq 'chromium'
+    } else {
+      $_.ProcessName -ieq $bd.proc
+    }
+  })
+  $pids = @($matchingProcs | ForEach-Object { [int]$_.Id })
+  $memBytes = [int64]0
+  foreach ($mp in $matchingProcs) { $memBytes += [int64]$mp.WorkingSet64 }
+
+  $browsersOut.Add([PSCustomObject]@{
+    browser = $bd.browser
+    browserLabel = $bd.label
+    installed = [bool]($null -ne $foundExe)
+    version = $ver
+    exePath = $foundExe
+    processCount = $matchingProcs.Count
+    totalMemoryMb = [math]::Round(($memBytes / 1048576.0), 1)
+    pids = $pids
+    processName = $bd.proc
+  })
+}
+
+# WinINET Proxy for active user
+$winInet = [PSCustomObject]@{
+  enabled = $false
+  server = ''
+  override = ''
+  autoConfigUrl = ''
+  autoDetect = $false
+  userSid = $userSid
+  loggedUser = $loggedUser
+}
+try {
+  $inetPath = if ($userSid -and (Test-Path "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")) {
+    "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
+  } else {
+    'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
+  }
+  $pReg = Get-ItemProperty -Path $inetPath -ErrorAction SilentlyContinue
+  if ($pReg) {
+    $winInet.enabled = ([int]($pReg.ProxyEnable) -eq 1)
+    $winInet.server = if ($pReg.ProxyServer) { [string]$pReg.ProxyServer } else { '' }
+    $winInet.override = if ($pReg.ProxyOverride) { [string]$pReg.ProxyOverride } else { '' }
+    $winInet.autoConfigUrl = if ($pReg.AutoConfigURL) { [string]$pReg.AutoConfigURL } else { '' }
+    $winInet.autoDetect = ([int]($pReg.AutoDetect) -eq 1)
+  }
+} catch {}
+
+# WinHTTP
+$winHttpRaw = (& netsh.exe winhttp show proxy 2>&1 | Out-String).Trim()
+$winHttpServer = ''
+$winHttpBypass = ''
+$winHttpEnabled = $false
+if ($winHttpRaw -and $winHttpRaw -notmatch 'Direct access') {
+  if ($winHttpRaw -match 'Proxy Server\\(s\\)\\s*:\\s*(.+)') {
+    $winHttpServer = $matches[1].Trim()
+    if ($winHttpServer) { $winHttpEnabled = $true }
+  }
+  if ($winHttpRaw -match 'Bypass List\\s*:\\s*(.+)') {
+    $winHttpBypass = $matches[1].Trim()
+    if ($winHttpBypass -eq '(none)') { $winHttpBypass = '' }
+  }
+}
+
+# Enterprise Policies
+$policiesOut = New-Object System.Collections.Generic.List[object]
+$policySpecs = @(
+  @{ browser = 'chrome'; label = 'Google Chrome'; path = 'HKLM:\\SOFTWARE\\Policies\\Google\\Chrome' },
+  @{ browser = 'edge'; label = 'Microsoft Edge'; path = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Edge' },
+  @{ browser = 'brave'; label = 'Brave'; path = 'HKLM:\\SOFTWARE\\Policies\\BraveSoftware\\Brave' }
+)
+foreach ($pspec in $policySpecs) {
+  $pol = Get-ItemProperty -Path $pspec.path -ErrorAction SilentlyContinue
+  $urlsPath = Join-Path $pspec.path 'RestoreOnStartupURLs'
+  $startupUrlsPol = @()
+  if (Test-Path $urlsPath) {
+    $uObj = Get-ItemProperty -Path $urlsPath -ErrorAction SilentlyContinue
+    if ($uObj) {
+      foreach ($prop in $uObj.PSObject.Properties) {
+        if ($prop.Name -notmatch '^PS') {
+          $val = [string]$prop.Value
+          if ($val) { $startupUrlsPol += $val }
+        }
+      }
+    }
+  }
+  if ($pol -or $startupUrlsPol.Count -gt 0) {
+    $policiesOut.Add([PSCustomObject]@{
+      browser = $pspec.browser
+      browserLabel = $pspec.label
+      homepageLocation = if ($pol -and $pol.HomepageLocation) { [string]$pol.HomepageLocation } else { $null }
+      homepageIsNewTabPage = if ($pol -and $null -ne $pol.HomepageIsNewTabPage) { [bool]([int]$pol.HomepageIsNewTabPage -eq 1) } else { $null }
+      restoreOnStartup = if ($pol -and $null -ne $pol.RestoreOnStartup) { [int]$pol.RestoreOnStartup } else { $null }
+      restoreOnStartupUrls = $startupUrlsPol
+      proxyMode = if ($pol -and $pol.ProxyMode) { [string]$pol.ProxyMode } else { $null }
+      proxyServer = if ($pol -and $pol.ProxyServer) { [string]$pol.ProxyServer } else { $null }
+      proxyPacUrl = if ($pol -and $pol.ProxyPacUrl) { [string]$pol.ProxyPacUrl } else { $null }
+      proxyBypassList = if ($pol -and $pol.ProxyBypassList) { [string]$pol.ProxyBypassList } else { $null }
+    })
+  }
+}
+
+# SQLite reader for Firefox moz_bookmarks COUNT only (NEVER reads moz_historyvisits)
+$winSqliteDll = Join-Path $env:SystemRoot 'System32\\winsqlite3.dll'
+$canWinSqlite = $false
+if (Test-Path -LiteralPath $winSqliteDll) {
+  try {
+    if (-not ([System.Management.Automation.PSTypeName]'NetTopoWinSqlite').Type) {
+      Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class NetTopoWinSqlite {
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_open_v2", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int OpenV2(byte[] filenameUtf8, out IntPtr ppDb, int flags, IntPtr zVfs);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_close", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int Close(IntPtr db);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_busy_timeout", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int BusyTimeout(IntPtr db, int ms);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_prepare_v2", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int PrepareV2(IntPtr db, byte[] sqlUtf8, int nByte, out IntPtr ppStmt, out IntPtr pzTail);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_step", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int Step(IntPtr stmt);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_finalize", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int Finalize(IntPtr stmt);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_column_int64", CallingConvention = CallingConvention.Cdecl)]
+  public static extern long ColumnInt64(IntPtr stmt, int iCol);
+}
+"@
+    }
+    $canWinSqlite = $true
+  } catch {}
+}
+
+function Count-FirefoxBookmarksOnly {
+  param([string]$PlacesDb)
+  if (-not $canWinSqlite -or -not (Test-Path -LiteralPath $PlacesDb)) { return 0 }
+  $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ntbm_" + [System.Guid]::NewGuid().ToString('N').Substring(0, 8))
+  New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+  $dbPtr = [IntPtr]::Zero
+  $stmtPtr = [IntPtr]::Zero
+  try {
+    $destDb = Join-Path $tmpDir 'places.sqlite'
+    foreach ($sfx in @('', '-wal', '-shm')) {
+      $sf = "$PlacesDb$sfx"
+      if (Test-Path -LiteralPath $sf) {
+        $fi = [System.IO.File]::Open($sf, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+        $fo = [System.IO.File]::Create("$destDb$sfx")
+        try { $fi.CopyTo($fo) } finally { $fo.Dispose(); $fi.Dispose() }
+      }
+    }
+    $pb = [System.Text.Encoding]::UTF8.GetBytes($destDb + "\`0")
+    $rc = [NetTopoWinSqlite]::OpenV2($pb, [ref]$dbPtr, 2, [IntPtr]::Zero)
+    if ($rc -ne 0) {
+      if ($dbPtr -ne [IntPtr]::Zero) { [NetTopoWinSqlite]::Close($dbPtr) | Out-Null; $dbPtr = [IntPtr]::Zero }
+      $rc = [NetTopoWinSqlite]::OpenV2($pb, [ref]$dbPtr, 1, [IntPtr]::Zero)
+    }
+    if ($rc -ne 0 -or $dbPtr -eq [IntPtr]::Zero) { return 0 }
+    [NetTopoWinSqlite]::BusyTimeout($dbPtr, 2000) | Out-Null
+    $sql = "SELECT COUNT(*) FROM moz_bookmarks WHERE type = 1"
+    $sb = [System.Text.Encoding]::UTF8.GetBytes($sql + "\`0")
+    $tail = [IntPtr]::Zero
+    if ([NetTopoWinSqlite]::PrepareV2($dbPtr, $sb, -1, [ref]$stmtPtr, [ref]$tail) -ne 0) { return 0 }
+    if ([NetTopoWinSqlite]::Step($stmtPtr) -eq 100) {
+      return [int][NetTopoWinSqlite]::ColumnInt64($stmtPtr, 0)
+    }
+    return 0
+  } catch {
+    return 0
+  } finally {
+    if ($stmtPtr -ne [IntPtr]::Zero) { [NetTopoWinSqlite]::Finalize($stmtPtr) | Out-Null }
+    if ($dbPtr -ne [IntPtr]::Zero) { [NetTopoWinSqlite]::Close($dbPtr) | Out-Null }
+    Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+$profilesOut = New-Object System.Collections.Generic.List[object]
+$extensionsOut = New-Object System.Collections.Generic.List[object]
+$ffProxiesOut = New-Object System.Collections.Generic.List[object]
+
+$usersRoot = Join-Path $env:SystemDrive 'Users'
+if (-not (Test-Path -LiteralPath $usersRoot)) { $usersRoot = 'C:\\Users' }
+$skipUsers = @('Public', 'Default', 'Default User', 'All Users', 'defaultuser0', 'WDAGUtilityAccount')
+$userDirs = Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $skipUsers -notcontains $_.Name }
+
+foreach ($uDir in $userDirs) {
+  $uName = $uDir.Name
+  $localApp = Join-Path $uDir.FullName 'AppData\\Local'
+  $roamApp = Join-Path $uDir.FullName 'AppData\\Roaming'
+
+  $chromiumRoots = @(
+    @{ browser = 'chrome'; label = 'Google Chrome'; path = (Join-Path $localApp 'Google\\Chrome\\User Data') },
+    @{ browser = 'edge'; label = 'Microsoft Edge'; path = (Join-Path $localApp 'Microsoft\\Edge\\User Data') },
+    @{ browser = 'brave'; label = 'Brave'; path = (Join-Path $localApp 'BraveSoftware\\Brave-Browser\\User Data') },
+    @{ browser = 'vivaldi'; label = 'Vivaldi'; path = (Join-Path $localApp 'Vivaldi\\User Data') },
+    @{ browser = 'chromium'; label = 'Chromium'; path = (Join-Path $localApp 'Chromium\\User Data') },
+    @{ browser = 'yandex'; label = 'Yandex Browser'; path = (Join-Path $localApp 'Yandex\\YandexBrowser\\User Data') }
+  )
+
+  $chromiumProfileList = New-Object System.Collections.Generic.List[object]
+  foreach ($cr in $chromiumRoots) {
+    if (-not (Test-Path -LiteralPath $cr.path)) { continue }
+    $subProfiles = Get-ChildItem -LiteralPath $cr.path -Directory -ErrorAction SilentlyContinue | Where-Object {
+      $_.Name -eq 'Default' -or $_.Name -like 'Profile *' -or $_.Name -eq 'Guest Profile'
+    }
+    foreach ($sp in $subProfiles) {
+      $chromiumProfileList.Add([PSCustomObject]@{
+        browser = $cr.browser; label = $cr.label; dirName = $sp.Name; fullPath = $sp.FullName
+      })
+    }
+  }
+  foreach ($op in @(
+    @{ browser = 'opera'; label = 'Opera'; dirName = 'Opera Stable'; path = (Join-Path $roamApp 'Opera Software\\Opera Stable') },
+    @{ browser = 'opera'; label = 'Opera GX'; dirName = 'Opera GX Stable'; path = (Join-Path $roamApp 'Opera Software\\Opera GX Stable') }
+  )) {
+    if (Test-Path -LiteralPath $op.path) {
+      $chromiumProfileList.Add([PSCustomObject]@{
+        browser = $op.browser; label = $op.label; dirName = $op.dirName; fullPath = $op.path
+      })
+    }
+  }
+
+  foreach ($cp in $chromiumProfileList) {
+    $prefTxt = Read-TextFileShared -FilePath (Join-Path $cp.fullPath 'Preferences')
+    $prefObj = if ($prefTxt) { $prefTxt | ConvertFrom-Json -ErrorAction SilentlyContinue } else { $null }
+    $profName = if ($prefObj -and $prefObj.profile -and $prefObj.profile.name) { [string]$prefObj.profile.name } else { $cp.dirName }
+    $acctEmail = if ($prefObj -and $prefObj.account_info -and $prefObj.account_info.Count -gt 0 -and $prefObj.account_info[0].email) { [string]$prefObj.account_info[0].email } else { $null }
+    $hp = if ($prefObj -and $prefObj.homepage) { [string]$prefObj.homepage } else { $null }
+    $hpNewTab = if ($prefObj -and $null -ne $prefObj.homepage_is_newtabpage) { [bool]$prefObj.homepage_is_newtabpage } else { $null }
+    $restoreStartup = if ($prefObj -and $prefObj.session -and $null -ne $prefObj.session.restore_on_startup) { [int]$prefObj.session.restore_on_startup } else { $null }
+    $startupUrls = @()
+    if ($prefObj -and $prefObj.session -and $prefObj.session.startup_urls) {
+      $startupUrls = @($prefObj.session.startup_urls | ForEach-Object { [string]$_ } | Where-Object { $_ })
+    }
+
+    $bmPath = Join-Path $cp.fullPath 'Bookmarks'
+    $hasBm = Test-Path -LiteralPath $bmPath
+    $bmCount = 0
+    if ($hasBm) {
+      $bmTxt = Read-TextFileShared -FilePath $bmPath -MaxBytes 10485760
+      if ($bmTxt) {
+        $bmObj = $bmTxt | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if ($bmObj -and $bmObj.roots) {
+          foreach ($rk in $bmObj.roots.PSObject.Properties) {
+            $bmCount += Count-ChromiumBookmarksNode $rk.Value
+          }
+        }
+      }
+    }
+
+    $cacheBytes = [int64]0
+    foreach ($cSub in @('Cache\\Cache_Data', 'Cache', 'Code Cache', 'GPUCache', 'DawnCache', 'GrShaderCache', 'Service Worker\\CacheStorage')) {
+      $cDir = Join-Path $cp.fullPath $cSub
+      if (Test-Path -LiteralPath $cDir) {
+        if ($cSub -eq 'Cache' -and (Test-Path -LiteralPath (Join-Path $cDir 'Cache_Data'))) { continue }
+        $cacheBytes += Get-DirBytesSafe $cDir
+      }
+    }
+
+    $cookieBytes = [int64]0
+    foreach ($ckFile in @('Network\\Cookies', 'Network\\Cookies-journal', 'Cookies', 'Cookies-journal', 'Network\\Trust Tokens', 'Network\\Trust Tokens-journal')) {
+      $cf = Join-Path $cp.fullPath $ckFile
+      if (Test-Path -LiteralPath $cf) {
+        try { $cookieBytes += (Get-Item -LiteralPath $cf).Length } catch {}
+      }
+    }
+
+    $extDir = Join-Path $cp.fullPath 'Extensions'
+    $extSettings = if ($prefObj -and $prefObj.extensions -and $prefObj.extensions.settings) { $prefObj.extensions.settings } else { $null }
+    $extCountForProf = 0
+    if (Test-Path -LiteralPath $extDir) {
+      $extFolders = Get-ChildItem -LiteralPath $extDir -Directory -ErrorAction SilentlyContinue
+      foreach ($ef in $extFolders) {
+        $verDirs = Get-ChildItem -LiteralPath $ef.FullName -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+        $latestVer = $verDirs | Select-Object -First 1
+        if (-not $latestVer) { continue }
+        $manTxt = Read-TextFileShared -FilePath (Join-Path $latestVer.FullName 'manifest.json') -MaxBytes 524288
+        if (-not $manTxt) { continue }
+        $man = $manTxt | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if (-not $man) { continue }
+        $extName = Resolve-ExtName -VerDir $latestVer.FullName -RawName ([string]$man.name)
+        if (-not $extName) { $extName = $ef.Name }
+        $extVer = if ($man.version) { [string]$man.version } else { $latestVer.Name }
+        $isEnabled = $null
+        $instType = 'store'
+        if ($extSettings) {
+          $esProp = $extSettings.PSObject.Properties | Where-Object { $_.Name -eq $ef.Name } | Select-Object -First 1
+          if ($esProp -and $esProp.Value) {
+            if ($null -ne $esProp.Value.state) { $isEnabled = ([int]$esProp.Value.state -eq 1) }
+            if ($null -ne $esProp.Value.location) {
+              $locVal = [int]$esProp.Value.location
+              $instType = if ($locVal -eq 1) { 'store' } elseif ($locVal -eq 5 -or $locVal -eq 10) { 'internal' } else { 'sideload' }
+            }
+          }
+        }
+        $extCountForProf++
+        if ($extensionsOut.Count -lt 400) {
+          $extensionsOut.Add([PSCustomObject]@{
+            browser = $cp.browser
+            browserLabel = $cp.label
+            osUser = $uName
+            profileName = $profName
+            profileDir = $cp.dirName
+            extensionId = $ef.Name
+            name = $extName
+            version = $extVer
+            enabled = $isEnabled
+            installType = $instType
+          })
+        }
+      }
+    }
+
+    $parentRoot = [System.IO.Path]::GetDirectoryName($cp.fullPath)
+    $hasLock = (Test-Path -LiteralPath (Join-Path $cp.fullPath 'SingletonLock')) -or (Test-Path -LiteralPath (Join-Path $parentRoot 'SingletonLock'))
+    $hasTs = Test-Path -LiteralPath (Join-Path $cp.fullPath 'TransportSecurity')
+
+    $profilesOut.Add([PSCustomObject]@{
+      osUser = $uName
+      browser = $cp.browser
+      browserLabel = $cp.label
+      kind = 'chromium'
+      profileDir = $cp.dirName
+      profileName = $profName
+      accountEmail = $acctEmail
+      profilePath = $cp.fullPath
+      homepage = $hp
+      homepageIsNewTab = $hpNewTab
+      restoreOnStartup = $restoreStartup
+      startupUrls = $startupUrls
+      bookmarkCount = $bmCount
+      hasBookmarksFile = $hasBm
+      cacheSizeMb = [math]::Round(($cacheBytes / 1048576.0), 2)
+      cookiesSizeMb = [math]::Round(($cookieBytes / 1048576.0), 2)
+      extensionCount = $extCountForProf
+      lockDetected = $hasLock
+      transportSecurityPresent = $hasTs
+    })
+  }
+
+  # Firefox Profiles
+  $ffRoamRoot = Join-Path $roamApp 'Mozilla\\Firefox\\Profiles'
+  $ffLocalRoot = Join-Path $localApp 'Mozilla\\Firefox\\Profiles'
+  if (Test-Path -LiteralPath $ffRoamRoot) {
+    $ffProfs = Get-ChildItem -LiteralPath $ffRoamRoot -Directory -ErrorAction SilentlyContinue
+    foreach ($fp in $ffProfs) {
+      $cleanName = ($fp.Name -replace '^[a-z0-9]+\\.', '')
+      if (-not $cleanName) { $cleanName = $fp.Name }
+
+      $prefsTxt = Read-TextFileShared -FilePath (Join-Path $fp.FullName 'prefs.js') -MaxBytes 2097152
+      $ffHp = $null
+      $ffPage = $null
+      $ffPType = 5
+      $ffHttp = ''; $ffHttpPort = $null
+      $ffSsl = ''; $ffSslPort = $null
+      $ffSocks = ''; $ffSocksPort = $null
+      $ffPac = ''; $ffNoProxy = ''
+      if ($prefsTxt) {
+        if ($prefsTxt -match 'user_pref\\("browser\\.startup\\.homepage"\\s*,\\s*"([^"]*)"\\)') { $ffHp = $matches[1] }
+        if ($prefsTxt -match 'user_pref\\("browser\\.startup\\.page"\\s*,\\s*(\\d+)\\)') { $ffPage = [int]$matches[1] }
+        if ($prefsTxt -match 'user_pref\\("network\\.proxy\\.type"\\s*,\\s*(\\d+)\\)') { $ffPType = [int]$matches[1] }
+        if ($prefsTxt -match 'user_pref\\("network\\.proxy\\.http"\\s*,\\s*"([^"]*)"\\)') { $ffHttp = $matches[1] }
+        if ($prefsTxt -match 'user_pref\\("network\\.proxy\\.http_port"\\s*,\\s*(\\d+)\\)') { $ffHttpPort = [int]$matches[1] }
+        if ($prefsTxt -match 'user_pref\\("network\\.proxy\\.ssl"\\s*,\\s*"([^"]*)"\\)') { $ffSsl = $matches[1] }
+        if ($prefsTxt -match 'user_pref\\("network\\.proxy\\.ssl_port"\\s*,\\s*(\\d+)\\)') { $ffSslPort = [int]$matches[1] }
+        if ($prefsTxt -match 'user_pref\\("network\\.proxy\\.socks"\\s*,\\s*"([^"]*)"\\)') { $ffSocks = $matches[1] }
+        if ($prefsTxt -match 'user_pref\\("network\\.proxy\\.socks_port"\\s*,\\s*(\\d+)\\)') { $ffSocksPort = [int]$matches[1] }
+        if ($prefsTxt -match 'user_pref\\("network\\.proxy\\.autoconfig_url"\\s*,\\s*"([^"]*)"\\)') { $ffPac = $matches[1] }
+        if ($prefsTxt -match 'user_pref\\("network\\.proxy\\.no_proxies_on"\\s*,\\s*"([^"]*)"\\)') { $ffNoProxy = $matches[1] }
+      }
+
+      $ffProxiesOut.Add([PSCustomObject]@{
+        osUser = $uName
+        profileDir = $fp.Name
+        profileName = $cleanName
+        profilePath = $fp.FullName
+        proxyType = $ffPType
+        httpProxy = $ffHttp
+        httpPort = $ffHttpPort
+        sslProxy = $ffSsl
+        sslPort = $ffSslPort
+        socksHost = $ffSocks
+        socksPort = $ffSocksPort
+        autoConfigUrl = $ffPac
+        noProxyOn = $ffNoProxy
+      })
+
+      $placesFile = Join-Path $fp.FullName 'places.sqlite'
+      $hasBm = Test-Path -LiteralPath $placesFile
+      $bmCount = if ($hasBm) { Count-FirefoxBookmarksOnly $placesFile } else { 0 }
+
+      $ffCacheBytes = Get-DirBytesSafe (Join-Path (Join-Path $ffLocalRoot $fp.Name) 'cache2')
+      $ffCookieBytes = [int64]0
+      foreach ($cf in @('cookies.sqlite', 'cookies.sqlite-wal', 'cookies.sqlite-shm', 'webappsstore.sqlite')) {
+        $p = Join-Path $fp.FullName $cf
+        if (Test-Path -LiteralPath $p) {
+          try { $ffCookieBytes += (Get-Item -LiteralPath $p).Length } catch {}
+        }
+      }
+
+      $ffExtCount = 0
+      $extJsonTxt = Read-TextFileShared -FilePath (Join-Path $fp.FullName 'extensions.json') -MaxBytes 2097152
+      if ($extJsonTxt) {
+        $ej = $extJsonTxt | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if ($ej -and $ej.addons) {
+          foreach ($ad in $ej.addons) {
+            if ($ad.type -ne 'extension' -or $ad.location -eq 'app-builtin') { continue }
+            $ffExtCount++
+            if ($extensionsOut.Count -lt 400) {
+              $adName = if ($ad.defaultLocale -and $ad.defaultLocale.name) { [string]$ad.defaultLocale.name } else { [string]$ad.id }
+              $extensionsOut.Add([PSCustomObject]@{
+                browser = 'firefox'
+                browserLabel = 'Mozilla Firefox'
+                osUser = $uName
+                profileName = $cleanName
+                profileDir = $fp.Name
+                extensionId = [string]$ad.id
+                name = $adName
+                version = [string]($ad.version)
+                enabled = [bool]$ad.active
+                installType = [string]($ad.location)
+              })
+            }
+          }
+        }
+      }
+
+      $hasFfLock = (Test-Path -LiteralPath (Join-Path $fp.FullName 'parent.lock')) -or (Test-Path -LiteralPath (Join-Path $fp.FullName '.parentlock'))
+      $hasFfTs = Test-Path -LiteralPath (Join-Path $fp.FullName 'SiteSecurityServiceState.txt')
+
+      $profilesOut.Add([PSCustomObject]@{
+        osUser = $uName
+        browser = 'firefox'
+        browserLabel = 'Mozilla Firefox'
+        kind = 'firefox'
+        profileDir = $fp.Name
+        profileName = $cleanName
+        accountEmail = $null
+        profilePath = $fp.FullName
+        homepage = $ffHp
+        homepageIsNewTab = if ($null -ne $ffPage) { ($ffPage -eq 0) } else { $null }
+        restoreOnStartup = $ffPage
+        startupUrls = if ($ffHp) { @($ffHp -split '\\|' | Where-Object { $_ }) } else { @() }
+        bookmarkCount = $bmCount
+        hasBookmarksFile = $hasBm
+        cacheSizeMb = [math]::Round(($ffCacheBytes / 1048576.0), 2)
+        cookiesSizeMb = [math]::Round(($ffCookieBytes / 1048576.0), 2)
+        extensionCount = $ffExtCount
+        lockDetected = $hasFfLock
+        transportSecurityPresent = $hasFfTs
+      })
+    }
+  }
+}
+
+[PSCustomObject]@{
+  hostname = $hostname
+  loggedInUser = $loggedUser
+  defaultBrowserRaw = $defaultProgId
+  browsers = $browsersOut
+  profiles = $profilesOut
+  extensions = $extensionsOut
+  policies = $policiesOut
+  proxy = [PSCustomObject]@{
+    winInet = $winInet
+    winHttp = [PSCustomObject]@{
+      enabled = $winHttpEnabled
+      server = $winHttpServer
+      bypassList = $winHttpBypass
+      rawText = $winHttpRaw
+    }
+    firefoxProfiles = $ffProxiesOut
+    linuxEnv = [PSCustomObject]@{ httpProxy = ''; httpsProxy = ''; noProxy = '' }
+  }
+  warnings = $warnings
+} | ConvertTo-Json -Depth 7 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PYEOF'
+import glob, json, os, re, shutil, socket, sqlite3, subprocess, tempfile
+
+hostname = socket.gethostname()
+logged_in_user = os.environ.get("SUDO_USER") or os.environ.get("USER") or ""
+try:
+    who_out = subprocess.check_output(["who"], text=True, stderr=subprocess.DEVNULL).strip().splitlines()
+    if who_out:
+        logged_in_user = who_out[0].split()[0]
+except Exception:
+    pass
+
+default_raw = ""
+try:
+    default_raw = subprocess.check_output(["xdg-settings", "get", "default-web-browser"], text=True, stderr=subprocess.DEVNULL, timeout=2).strip()
+except Exception:
+    pass
+
+def dir_bytes_safe(path):
+    total = 0
+    if not os.path.isdir(path):
+        return 0
+    for root, _, files in os.walk(path):
+        for fn in files:
+            try:
+                total += os.path.getsize(os.path.join(root, fn))
+            except Exception:
+                pass
+    return total
+
+def count_bm_node(node):
+    if not isinstance(node, dict):
+        return 0
+    if node.get("type") == "url":
+        return 1
+    total = 0
+    for ch in node.get("children") or []:
+        total += count_bm_node(ch)
+    return total
+
+proc_rows = []
+try:
+    ps_out = subprocess.check_output(["ps", "-eo", "pid,comm,rss"], text=True, stderr=subprocess.DEVNULL)
+    for ln in ps_out.splitlines()[1:]:
+        parts = ln.split()
+        if len(parts) >= 3 and parts[0].isdigit():
+            proc_rows.append((int(parts[0]), parts[1].lower(), int(parts[2]) * 1024))
+except Exception:
+    pass
+
+browser_specs = [
+    ("chrome", "Google Chrome", ["google-chrome", "google-chrome-stable"], ["chrome"]),
+    ("edge", "Microsoft Edge", ["microsoft-edge", "microsoft-edge-stable"], ["msedge"]),
+    ("firefox", "Mozilla Firefox", ["firefox", "firefox-esr"], ["firefox", "firefox-esr"]),
+    ("brave", "Brave", ["brave-browser", "brave"], ["brave"]),
+    ("opera", "Opera", ["opera"], ["opera"]),
+    ("vivaldi", "Vivaldi", ["vivaldi", "vivaldi-stable"], ["vivaldi"]),
+    ("yandex", "Yandex Browser", ["yandex-browser"], ["yandex_browser"]),
+    ("chromium", "Chromium", ["chromium", "chromium-browser"], ["chromium", "chromium-browse"]),
+]
+
+browsers_out = []
+for b_id, b_lbl, bins, pnames in browser_specs:
+    exe = None
+    ver = None
+    for bn in bins:
+        exe = shutil.which(bn)
+        if exe:
+            break
+    if exe:
+        try:
+            ver = subprocess.check_output([exe, "--version"], text=True, stderr=subprocess.DEVNULL, timeout=2).strip()
+        except Exception:
+            pass
+    pids = []
+    mem_bytes = 0
+    for pid, comm, rss in proc_rows:
+        if any(comm.startswith(pn) for pn in pnames):
+            pids.append(pid)
+            mem_bytes += rss
+    browsers_out.append({
+        "browser": b_id,
+        "browserLabel": b_lbl,
+        "installed": bool(exe),
+        "version": ver,
+        "exePath": exe,
+        "processCount": len(pids),
+        "totalMemoryMb": round(mem_bytes / 1048576.0, 1),
+        "pids": pids,
+        "processName": bins[0],
+    })
+
+user_homes = []
+if os.path.isdir("/home"):
+    for d in sorted(os.listdir("/home")):
+        full = os.path.join("/home", d)
+        if os.path.isdir(full):
+            user_homes.append((d, full))
+if os.path.isdir("/root"):
+    user_homes.append(("root", "/root"))
+
+profiles_out = []
+extensions_out = []
+ff_proxies_out = []
+warnings = []
+
+for u_name, u_home in user_homes:
+    c_roots = [
+        ("chrome", "Google Chrome", os.path.join(u_home, ".config/google-chrome")),
+        ("chromium", "Chromium", os.path.join(u_home, ".config/chromium")),
+        ("chromium", "Chromium (Snap)", os.path.join(u_home, "snap/chromium/common/chromium")),
+        ("edge", "Microsoft Edge", os.path.join(u_home, ".config/microsoft-edge")),
+        ("brave", "Brave", os.path.join(u_home, ".config/BraveSoftware/Brave-Browser")),
+        ("vivaldi", "Vivaldi", os.path.join(u_home, ".config/vivaldi")),
+    ]
+    for b_id, b_lbl, rdir in c_roots:
+        if not os.path.isdir(rdir):
+            continue
+        for sub in sorted(os.listdir(rdir)):
+            if sub == "Default" or sub.startswith("Profile ") or sub == "Guest Profile":
+                sp = os.path.join(rdir, sub)
+                if not os.path.isdir(sp):
+                    continue
+                pref_path = os.path.join(sp, "Preferences")
+                pj = {}
+                if os.path.isfile(pref_path):
+                    try:
+                        with open(pref_path, "r", encoding="utf-8", errors="ignore") as f:
+                            pj = json.load(f)
+                    except Exception:
+                        pj = {}
+                p_name = str((pj.get("profile") or {}).get("name") or sub)
+                acct_list = pj.get("account_info") or []
+                email = str(acct_list[0].get("email")) if acct_list and isinstance(acct_list[0], dict) and acct_list[0].get("email") else None
+                sess = pj.get("session") or {}
+                bm_path = os.path.join(sp, "Bookmarks")
+                bm_count = 0
+                if os.path.isfile(bm_path):
+                    try:
+                        with open(bm_path, "r", encoding="utf-8", errors="ignore") as bf:
+                            bj = json.load(bf)
+                        for rk in (bj.get("roots") or {}).values():
+                            bm_count += count_bm_node(rk)
+                    except Exception:
+                        pass
+                cache_b = sum(dir_bytes_safe(os.path.join(sp, s)) for s in ("Cache", "Code Cache", "GPUCache", "Service Worker/CacheStorage"))
+                cookie_b = sum(os.path.getsize(os.path.join(sp, f)) for f in ("Cookies", "Cookies-journal", "Network/Cookies") if os.path.isfile(os.path.join(sp, f)))
+
+                ext_dir = os.path.join(sp, "Extensions")
+                ext_settings = (pj.get("extensions") or {}).get("settings") or {}
+                ext_cnt = 0
+                if os.path.isdir(ext_dir):
+                    for eid in sorted(os.listdir(ext_dir)):
+                        ep = os.path.join(ext_dir, eid)
+                        if not os.path.isdir(ep):
+                            continue
+                        vers = sorted([v for v in os.listdir(ep) if os.path.isdir(os.path.join(ep, v))], reverse=True)
+                        if not vers:
+                            continue
+                        mpath = os.path.join(ep, vers[0], "manifest.json")
+                        if os.path.isfile(mpath):
+                            try:
+                                with open(mpath, "r", encoding="utf-8", errors="ignore") as mf:
+                                    mj = json.load(mf)
+                                ename = str(mj.get("name") or eid)
+                                es = ext_settings.get(eid) or {}
+                                est = es.get("state")
+                                ext_cnt += 1
+                                if len(extensions_out) < 400:
+                                    extensions_out.append({
+                                        "browser": b_id,
+                                        "browserLabel": b_lbl,
+                                        "osUser": u_name,
+                                        "profileName": p_name,
+                                        "profileDir": sub,
+                                        "extensionId": eid,
+                                        "name": ename,
+                                        "version": str(mj.get("version") or vers[0]),
+                                        "enabled": (est == 1) if est is not None else None,
+                                        "installType": "store",
+                                    })
+                            except Exception:
+                                pass
+
+                profiles_out.append({
+                    "osUser": u_name,
+                    "browser": b_id,
+                    "browserLabel": b_lbl,
+                    "kind": "chromium",
+                    "profileDir": sub,
+                    "profileName": p_name,
+                    "accountEmail": email,
+                    "profilePath": sp,
+                    "homepage": pj.get("homepage"),
+                    "homepageIsNewTab": pj.get("homepage_is_newtabpage"),
+                    "restoreOnStartup": sess.get("restore_on_startup"),
+                    "startupUrls": sess.get("startup_urls") or [],
+                    "bookmarkCount": bm_count,
+                    "hasBookmarksFile": os.path.isfile(bm_path),
+                    "cacheSizeMb": round(cache_b / 1048576.0, 2),
+                    "cookiesSizeMb": round(cookie_b / 1048576.0, 2),
+                    "extensionCount": ext_cnt,
+                    "lockDetected": os.path.exists(os.path.join(rdir, "SingletonLock")),
+                    "transportSecurityPresent": os.path.isfile(os.path.join(sp, "TransportSecurity")),
+                })
+
+    for ff_base in [os.path.join(u_home, ".mozilla/firefox"), os.path.join(u_home, "snap/firefox/common/.mozilla/firefox")]:
+        if not os.path.isdir(ff_base):
+            continue
+        for pdir in sorted(glob.glob(os.path.join(ff_base, "*"))):
+            if not os.path.isdir(pdir):
+                continue
+            places = os.path.join(pdir, "places.sqlite")
+            prefs_f = os.path.join(pdir, "prefs.js")
+            if not os.path.isfile(places) and not os.path.isfile(prefs_f):
+                continue
+            dname = os.path.basename(pdir)
+            clean = dname.split(".", 1)[-1] if "." in dname else dname
+            prefs_txt = ""
+            if os.path.isfile(prefs_f):
+                try:
+                    with open(prefs_f, "r", encoding="utf-8", errors="ignore") as pf:
+                        prefs_txt = pf.read()
+                except Exception:
+                    pass
+            def p_str(key):
+                m = re.search(r'user_pref\("' + re.escape(key) + r'"\s*,\s*"([^"]*)"\)', prefs_txt)
+                return m.group(1) if m else ""
+            def p_int(key, default=None):
+                m = re.search(r'user_pref\("' + re.escape(key) + r'"\s*,\s*(\d+)\)', prefs_txt)
+                return int(m.group(1)) if m else default
+
+            ff_hp = p_str("browser.startup.homepage") or None
+            ff_page = p_int("browser.startup.page")
+            ff_proxies_out.append({
+                "osUser": u_name,
+                "profileDir": dname,
+                "profileName": clean,
+                "profilePath": pdir,
+                "proxyType": p_int("network.proxy.type", 5),
+                "httpProxy": p_str("network.proxy.http"),
+                "httpPort": p_int("network.proxy.http_port"),
+                "sslProxy": p_str("network.proxy.ssl"),
+                "sslPort": p_int("network.proxy.ssl_port"),
+                "socksHost": p_str("network.proxy.socks"),
+                "socksPort": p_int("network.proxy.socks_port"),
+                "autoConfigUrl": p_str("network.proxy.autoconfig_url"),
+                "noProxyOn": p_str("network.proxy.no_proxies_on"),
+            })
+            bm_cnt = 0
+            if os.path.isfile(places):
+                td = tempfile.mkdtemp(prefix="ntbm_")
+                try:
+                    dp = os.path.join(td, "places.sqlite")
+                    for sfx in ("", "-wal", "-shm"):
+                        if os.path.isfile(places + sfx):
+                            shutil.copy2(places + sfx, dp + sfx)
+                    con = sqlite3.connect(dp, timeout=2.0)
+                    bm_cnt = int(con.execute("SELECT COUNT(*) FROM moz_bookmarks WHERE type = 1").fetchone()[0])
+                    con.close()
+                except Exception:
+                    pass
+                finally:
+                    shutil.rmtree(td, ignore_errors=True)
+            cache_b = dir_bytes_safe(os.path.join(u_home, ".cache/mozilla/firefox", dname, "cache2"))
+            cookie_b = sum(os.path.getsize(os.path.join(pdir, f)) for f in ("cookies.sqlite", "cookies.sqlite-wal", "cookies.sqlite-shm", "webappsstore.sqlite") if os.path.isfile(os.path.join(pdir, f)))
+            ext_cnt = 0
+            ej_path = os.path.join(pdir, "extensions.json")
+            if os.path.isfile(ej_path):
+                try:
+                    with open(ej_path, "r", encoding="utf-8", errors="ignore") as ef:
+                        ej = json.load(ef)
+                    for ad in (ej.get("addons") or []):
+                        if ad.get("type") != "extension" or ad.get("location") == "app-builtin":
+                            continue
+                        ext_cnt += 1
+                        if len(extensions_out) < 400:
+                            dl = ad.get("defaultLocale") or {}
+                            extensions_out.append({
+                                "browser": "firefox",
+                                "browserLabel": "Mozilla Firefox",
+                                "osUser": u_name,
+                                "profileName": clean,
+                                "profileDir": dname,
+                                "extensionId": str(ad.get("id") or ""),
+                                "name": str(dl.get("name") or ad.get("id") or ""),
+                                "version": str(ad.get("version") or ""),
+                                "enabled": bool(ad.get("active")),
+                                "installType": str(ad.get("location") or ""),
+                            })
+                except Exception:
+                    pass
+
+            profiles_out.append({
+                "osUser": u_name,
+                "browser": "firefox",
+                "browserLabel": "Mozilla Firefox",
+                "kind": "firefox",
+                "profileDir": dname,
+                "profileName": clean,
+                "accountEmail": None,
+                "profilePath": pdir,
+                "homepage": ff_hp,
+                "homepageIsNewTab": (ff_page == 0) if ff_page is not None else None,
+                "restoreOnStartup": ff_page,
+                "startupUrls": [u for u in (ff_hp or "").split("|") if u],
+                "bookmarkCount": bm_cnt,
+                "hasBookmarksFile": os.path.isfile(places),
+                "cacheSizeMb": round(cache_b / 1048576.0, 2),
+                "cookiesSizeMb": round(cookie_b / 1048576.0, 2),
+                "extensionCount": ext_cnt,
+                "lockDetected": os.path.exists(os.path.join(pdir, ".parentlock")) or os.path.exists(os.path.join(pdir, "parent.lock")),
+                "transportSecurityPresent": os.path.isfile(os.path.join(pdir, "SiteSecurityServiceState.txt")),
+            })
+
+env_proxy = {"httpProxy": os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY") or "", "httpsProxy": os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY") or "", "noProxy": os.environ.get("no_proxy") or os.environ.get("NO_PROXY") or ""}
+if os.path.isfile("/etc/environment"):
+    try:
+        with open("/etc/environment", "r", encoding="utf-8", errors="ignore") as f:
+            for ln in f:
+                ln = ln.strip()
+                if "=" in ln and not ln.startswith("#"):
+                    k, v = ln.split("=", 1)
+                    kl = k.strip().lower()
+                    vv = v.strip().strip('"').strip("'")
+                    if kl == "http_proxy" and not env_proxy["httpProxy"]:
+                        env_proxy["httpProxy"] = vv
+                    elif kl == "https_proxy" and not env_proxy["httpsProxy"]:
+                        env_proxy["httpsProxy"] = vv
+                    elif kl == "no_proxy" and not env_proxy["noProxy"]:
+                        env_proxy["noProxy"] = vv
+    except Exception:
+        pass
+
+print(json.dumps({
+    "hostname": hostname,
+    "loggedInUser": logged_in_user,
+    "defaultBrowserRaw": default_raw,
+    "browsers": browsers_out,
+    "profiles": profiles_out,
+    "extensions": extensions_out,
+    "policies": [],
+    "proxy": {
+        "winInet": {"enabled": False, "server": "", "override": "", "autoConfigUrl": "", "autoDetect": False, "userSid": "", "loggedUser": logged_in_user},
+        "winHttp": {"enabled": False, "server": "", "bypassList": "", "rawText": ""},
+        "firefoxProfiles": ff_proxies_out,
+        "linuxEnv": env_proxy,
+    },
+    "warnings": warnings,
+}, ensure_ascii=True))
+PYEOF`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(45000, Number(input.timeoutMs) || 45000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'browser management inspect');
+  const defaultBrowserRaw = String(parsed?.defaultBrowserRaw || '').trim();
+  const defaultVendor = mapProgIdToBrowserVendor(defaultBrowserRaw);
+
+  const rawBrowsers = Array.isArray(parsed?.browsers)
+    ? parsed.browsers
+    : parsed?.browsers
+    ? [parsed.browsers]
+    : [];
+  const browsers: HelpdeskManagedBrowserInfo[] = rawBrowsers.map((b: any) => {
+    const { vendor, label } = normalizeBrowserVendor(String(b?.browser || ''));
+    return {
+      browser: vendor,
+      browserLabel: String(b?.browserLabel || label),
+      installed: Boolean(b?.installed),
+      version: b?.version ? String(b.version) : null,
+      exePath: b?.exePath ? String(b.exePath) : null,
+      isDefaultBrowser: Boolean(defaultVendor && vendor === defaultVendor),
+      processCount: Math.max(0, Number(b?.processCount || 0)),
+      totalMemoryMb: Math.max(0, Number(b?.totalMemoryMb || 0)),
+      pids: Array.isArray(b?.pids) ? b.pids.map((p: any) => Number(p)).filter((n: number) => Number.isFinite(n) && n > 0) : [],
+      processName: String(b?.processName || vendor),
+    };
+  });
+
+  const rawProfiles = Array.isArray(parsed?.profiles)
+    ? parsed.profiles
+    : parsed?.profiles
+    ? [parsed.profiles]
+    : [];
+  const profiles: HelpdeskManagedProfileInfo[] = rawProfiles.map((p: any, idx: number) => {
+    const { vendor, label } = normalizeBrowserVendor(String(p?.browser || ''));
+    const profilePath = String(p?.profilePath || '');
+    return {
+      id: `${vendor}-${idx}-${Buffer.from(profilePath || `${p?.osUser}:${p?.profileDir}`).toString('base64').slice(0, 14)}`,
+      osUser: String(p?.osUser || ''),
+      browser: vendor,
+      browserLabel: String(p?.browserLabel || label),
+      kind: String(p?.kind || '') === 'firefox' ? 'firefox' : 'chromium',
+      profileDir: String(p?.profileDir || 'Default'),
+      profileName: String(p?.profileName || p?.profileDir || 'Default'),
+      accountEmail: p?.accountEmail ? String(p.accountEmail) : null,
+      profilePath,
+      homepage: p?.homepage ? String(p.homepage) : null,
+      homepageIsNewTab: typeof p?.homepageIsNewTab === 'boolean' ? p.homepageIsNewTab : null,
+      restoreOnStartup: typeof p?.restoreOnStartup === 'number' ? p.restoreOnStartup : null,
+      startupUrls: Array.isArray(p?.startupUrls) ? p.startupUrls.map((u: any) => String(u)).filter(Boolean) : [],
+      bookmarkCount: Math.max(0, Number(p?.bookmarkCount || 0)),
+      hasBookmarksFile: Boolean(p?.hasBookmarksFile),
+      cacheSizeMb: Math.max(0, Number(p?.cacheSizeMb || 0)),
+      cookiesSizeMb: Math.max(0, Number(p?.cookiesSizeMb || 0)),
+      extensionCount: Math.max(0, Number(p?.extensionCount || 0)),
+      lockDetected: Boolean(p?.lockDetected),
+      transportSecurityPresent: Boolean(p?.transportSecurityPresent),
+    };
+  });
+
+  const rawExtensions = Array.isArray(parsed?.extensions)
+    ? parsed.extensions
+    : parsed?.extensions
+    ? [parsed.extensions]
+    : [];
+  const extensions: HelpdeskBrowserExtensionItem[] = rawExtensions.map((ex: any) => {
+    const { vendor, label } = normalizeBrowserVendor(String(ex?.browser || ''));
+    return {
+      browser: vendor,
+      browserLabel: String(ex?.browserLabel || label),
+      osUser: String(ex?.osUser || ''),
+      profileName: String(ex?.profileName || ex?.profileDir || 'Default'),
+      profileDir: String(ex?.profileDir || 'Default'),
+      extensionId: String(ex?.extensionId || ''),
+      name: String(ex?.name || ex?.extensionId || 'Extension'),
+      version: String(ex?.version || ''),
+      enabled: typeof ex?.enabled === 'boolean' ? ex.enabled : null,
+      installType: String(ex?.installType || 'store'),
+    };
+  });
+
+  const rawPolicies = Array.isArray(parsed?.policies)
+    ? parsed.policies
+    : parsed?.policies
+    ? [parsed.policies]
+    : [];
+  const policies: HelpdeskBrowserPolicyState[] = rawPolicies.map((pol: any) => {
+    const { vendor, label } = normalizeBrowserVendor(String(pol?.browser || ''));
+    return {
+      browser: vendor,
+      browserLabel: String(pol?.browserLabel || label),
+      homepageLocation: pol?.homepageLocation ? String(pol.homepageLocation) : null,
+      homepageIsNewTabPage: typeof pol?.homepageIsNewTabPage === 'boolean' ? pol.homepageIsNewTabPage : null,
+      restoreOnStartup: typeof pol?.restoreOnStartup === 'number' ? pol.restoreOnStartup : null,
+      restoreOnStartupUrls: Array.isArray(pol?.restoreOnStartupUrls)
+        ? pol.restoreOnStartupUrls.map((u: any) => String(u)).filter(Boolean)
+        : [],
+      proxyMode: pol?.proxyMode ? String(pol.proxyMode) : null,
+      proxyServer: pol?.proxyServer ? String(pol.proxyServer) : null,
+      proxyPacUrl: pol?.proxyPacUrl ? String(pol.proxyPacUrl) : null,
+      proxyBypassList: pol?.proxyBypassList ? String(pol.proxyBypassList) : null,
+    };
+  });
+
+  const rawProxy = parsed?.proxy || {};
+  const rawWinInet = rawProxy?.winInet || {};
+  const rawWinHttp = rawProxy?.winHttp || {};
+  const rawFfProxies = Array.isArray(rawProxy?.firefoxProfiles)
+    ? rawProxy.firefoxProfiles
+    : rawProxy?.firefoxProfiles
+    ? [rawProxy.firefoxProfiles]
+    : [];
+  const rawLinuxEnv = rawProxy?.linuxEnv || {};
+
+  const warnings = Array.isArray(parsed?.warnings)
+    ? parsed.warnings.map((w: any) => String(w || '').trim()).filter(Boolean)
+    : [];
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname: String(parsed?.hostname || execRes.host),
+    loggedInUser: String(parsed?.loggedInUser || ''),
+    defaultBrowserRaw,
+    collectedAt: new Date().toISOString(),
+    browsers,
+    profiles,
+    extensions,
+    policies,
+    proxy: {
+      winInet: {
+        enabled: Boolean(rawWinInet.enabled),
+        server: String(rawWinInet.server || ''),
+        override: String(rawWinInet.override || ''),
+        autoConfigUrl: String(rawWinInet.autoConfigUrl || ''),
+        autoDetect: Boolean(rawWinInet.autoDetect),
+        userSid: String(rawWinInet.userSid || ''),
+        loggedUser: String(rawWinInet.loggedUser || ''),
+      },
+      winHttp: {
+        enabled: Boolean(rawWinHttp.enabled),
+        server: String(rawWinHttp.server || ''),
+        bypassList: String(rawWinHttp.bypassList || ''),
+        rawText: String(rawWinHttp.rawText || ''),
+      },
+      firefoxProfiles: rawFfProxies.map((fp: any) => ({
+        osUser: String(fp?.osUser || ''),
+        profileDir: String(fp?.profileDir || ''),
+        profileName: String(fp?.profileName || fp?.profileDir || ''),
+        profilePath: String(fp?.profilePath || ''),
+        proxyType: Number(fp?.proxyType ?? 5),
+        httpProxy: String(fp?.httpProxy || ''),
+        httpPort: typeof fp?.httpPort === 'number' ? fp.httpPort : null,
+        sslProxy: String(fp?.sslProxy || ''),
+        sslPort: typeof fp?.sslPort === 'number' ? fp.sslPort : null,
+        socksHost: String(fp?.socksHost || ''),
+        socksPort: typeof fp?.socksPort === 'number' ? fp.socksPort : null,
+        autoConfigUrl: String(fp?.autoConfigUrl || ''),
+        noProxyOn: String(fp?.noProxyOn || ''),
+      })),
+      linuxEnv: {
+        httpProxy: String(rawLinuxEnv.httpProxy || ''),
+        httpsProxy: String(rawLinuxEnv.httpsProxy || ''),
+        noProxy: String(rawLinuxEnv.noProxy || ''),
+      },
+    },
+    warnings,
+  };
+}
+
+export async function backupEndpointBrowserBookmarks(
+  input: HelpdeskTargetInput,
+  options?: {
+    profilePaths?: string[];
+    browsers?: HelpdeskBrowserVendor[];
+    osUser?: string;
+  }
+): Promise<HelpdeskBrowserBookmarkBackupResult> {
+  const filterPaths = sanitizeProfilePathsList(options?.profilePaths);
+  const filterBrowsers = sanitizeBrowserList(options?.browsers);
+  const filterOsUser = String(options?.osUser || '').trim();
+
+  const filterB64 = Buffer.from(
+    JSON.stringify({ profilePaths: filterPaths, browsers: filterBrowsers, osUser: filterOsUser }),
+    'utf8'
+  ).toString('base64');
+
+  const winPs = `
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$ErrorActionPreference = 'SilentlyContinue'
+$flt = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${filterB64}')) | ConvertFrom-Json
+$hostname = [string]$env:COMPUTERNAME
+$warnings = New-Object System.Collections.Generic.List[string]
+$bookmarksOut = New-Object System.Collections.Generic.List[object]
+$profCount = 0
+
+function Read-TextSharedBm {
+  param([string]$FilePath)
+  if (-not (Test-Path -LiteralPath $FilePath)) { return $null }
+  $fs = $null; $sr = $null
+  try {
+    $fs = [System.IO.File]::Open($FilePath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+    $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
+    return $sr.ReadToEnd()
+  } catch { return $null } finally {
+    if ($sr) { $sr.Dispose() }
+    if ($fs) { $fs.Dispose() }
+  }
+}
+
+function Convert-WebKitUsIso {
+  param([string]$RawTs)
+  try {
+    $v = [int64]$RawTs
+    if ($v -le 0) { return $null }
+    return ([DateTime]::FromFileTimeUtc($v * 10)).ToString('o')
+  } catch { return $null }
+}
+
+function Convert-PrUsIso {
+  param([int64]$TsUs)
+  try {
+    if ($TsUs -le 0) { return $null }
+    return ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]($TsUs / 1000))).UtcDateTime.ToString('o')
+  } catch { return $null }
+}
+
+function Walk-ChromiumBookmarks {
+  param($Node, [string]$FolderPath, [string]$BrowserId, [string]$BrowserLbl, [string]$OsUser, [string]$ProfName)
+  if (-not $Node) { return }
+  if ($Node.type -eq 'url' -and $Node.url) {
+    $bookmarksOut.Add([PSCustomObject]@{
+      title = [string]$Node.name
+      url = [string]$Node.url
+      folderPath = $FolderPath
+      addedAt = Convert-WebKitUsIso ([string]$Node.date_added)
+      browser = $BrowserId
+      browserLabel = $BrowserLbl
+      osUser = $OsUser
+      profileName = $ProfName
+    })
+    return
+  }
+  if ($Node.children) {
+    $nextPath = if ($Node.name) {
+      if ($FolderPath) { "$FolderPath / $($Node.name)" } else { [string]$Node.name }
+    } else { $FolderPath }
+    foreach ($ch in $Node.children) {
+      Walk-ChromiumBookmarks -Node $ch -FolderPath $nextPath -BrowserId $BrowserId -BrowserLbl $BrowserLbl -OsUser $OsUser -ProfName $ProfName
+    }
+  }
+}
+
+# SQLite P/Invoke for Firefox moz_bookmarks ONLY (no history queries)
+$winSqliteDll = Join-Path $env:SystemRoot 'System32\\winsqlite3.dll'
+$canWinSqlite = $false
+if (Test-Path -LiteralPath $winSqliteDll) {
+  try {
+    if (-not ([System.Management.Automation.PSTypeName]'NetTopoWinSqliteBm').Type) {
+      Add-Type -TypeDefinition @"
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class NetTopoWinSqliteBm {
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_open_v2", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int OpenV2(byte[] filenameUtf8, out IntPtr ppDb, int flags, IntPtr zVfs);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_close", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int Close(IntPtr db);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_busy_timeout", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int BusyTimeout(IntPtr db, int ms);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_prepare_v2", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int PrepareV2(IntPtr db, byte[] sqlUtf8, int nByte, out IntPtr ppStmt, out IntPtr pzTail);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_step", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int Step(IntPtr stmt);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_finalize", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int Finalize(IntPtr stmt);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_column_text", CallingConvention = CallingConvention.Cdecl)]
+  public static extern IntPtr ColumnTextPtr(IntPtr stmt, int iCol);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_column_bytes", CallingConvention = CallingConvention.Cdecl)]
+  public static extern int ColumnBytes(IntPtr stmt, int iCol);
+  [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_column_int64", CallingConvention = CallingConvention.Cdecl)]
+  public static extern long ColumnInt64(IntPtr stmt, int iCol);
+  public static string GetText(IntPtr stmt, int iCol) {
+    IntPtr ptr = ColumnTextPtr(stmt, iCol);
+    if (ptr == IntPtr.Zero) return "";
+    int len = ColumnBytes(stmt, iCol);
+    if (len <= 0) return "";
+    byte[] buf = new byte[len];
+    Marshal.Copy(ptr, buf, 0, len);
+    return Encoding.UTF8.GetString(buf);
+  }
+}
+"@
+    }
+    $canWinSqlite = $true
+  } catch {}
+}
+
+$usersRoot = Join-Path $env:SystemDrive 'Users'
+if (-not (Test-Path -LiteralPath $usersRoot)) { $usersRoot = 'C:\\Users' }
+$skipUsers = @('Public', 'Default', 'Default User', 'All Users', 'defaultuser0', 'WDAGUtilityAccount')
+$userDirs = Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $skipUsers -notcontains $_.Name }
+
+function Matches-Filter {
+  param([string]$BrowserId, [string]$ProfPath, [string]$OsUser)
+  if ($flt.osUser -and $flt.osUser -ne 'all' -and $OsUser.ToLower() -ne $flt.osUser.ToLower()) { return $false }
+  if ($flt.browsers -and $flt.browsers.Count -gt 0 -and ($flt.browsers -notcontains $BrowserId)) { return $false }
+  if ($flt.profilePaths -and $flt.profilePaths.Count -gt 0) {
+    $norm = $ProfPath.TrimEnd('\\').ToLower()
+    $hit = $false
+    foreach ($fp in $flt.profilePaths) {
+      if ($fp.TrimEnd('\\').ToLower() -eq $norm) { $hit = $true; break }
+    }
+    if (-not $hit) { return $false }
+  }
+  return $true
+}
+
+foreach ($uDir in $userDirs) {
+  $uName = $uDir.Name
+  $localApp = Join-Path $uDir.FullName 'AppData\\Local'
+  $roamApp = Join-Path $uDir.FullName 'AppData\\Roaming'
+
+  $cProfs = New-Object System.Collections.Generic.List[object]
+  foreach ($cr in @(
+    @{ browser = 'chrome'; label = 'Google Chrome'; path = (Join-Path $localApp 'Google\\Chrome\\User Data') },
+    @{ browser = 'edge'; label = 'Microsoft Edge'; path = (Join-Path $localApp 'Microsoft\\Edge\\User Data') },
+    @{ browser = 'brave'; label = 'Brave'; path = (Join-Path $localApp 'BraveSoftware\\Brave-Browser\\User Data') },
+    @{ browser = 'vivaldi'; label = 'Vivaldi'; path = (Join-Path $localApp 'Vivaldi\\User Data') },
+    @{ browser = 'chromium'; label = 'Chromium'; path = (Join-Path $localApp 'Chromium\\User Data') },
+    @{ browser = 'yandex'; label = 'Yandex Browser'; path = (Join-Path $localApp 'Yandex\\YandexBrowser\\User Data') }
+  )) {
+    if (-not (Test-Path -LiteralPath $cr.path)) { continue }
+    Get-ChildItem -LiteralPath $cr.path -Directory -ErrorAction SilentlyContinue | Where-Object {
+      $_.Name -eq 'Default' -or $_.Name -like 'Profile *' -or $_.Name -eq 'Guest Profile'
+    } | ForEach-Object {
+      $cProfs.Add([PSCustomObject]@{ browser = $cr.browser; label = $cr.label; dirName = $_.Name; fullPath = $_.FullName })
+    }
+  }
+  foreach ($op in @(
+    @{ browser = 'opera'; label = 'Opera'; dirName = 'Opera Stable'; path = (Join-Path $roamApp 'Opera Software\\Opera Stable') },
+    @{ browser = 'opera'; label = 'Opera GX'; dirName = 'Opera GX Stable'; path = (Join-Path $roamApp 'Opera Software\\Opera GX Stable') }
+  )) {
+    if (Test-Path -LiteralPath $op.path) {
+      $cProfs.Add([PSCustomObject]@{ browser = $op.browser; label = $op.label; dirName = $op.dirName; fullPath = $op.path })
+    }
+  }
+
+  foreach ($cp in $cProfs) {
+    if (-not (Matches-Filter -BrowserId $cp.browser -ProfPath $cp.fullPath -OsUser $uName)) { continue }
+    $bmFile = Join-Path $cp.fullPath 'Bookmarks'
+    if (-not (Test-Path -LiteralPath $bmFile)) { continue }
+    $prefTxt = Read-TextSharedBm (Join-Path $cp.fullPath 'Preferences')
+    $prefObj = if ($prefTxt) { $prefTxt | ConvertFrom-Json -ErrorAction SilentlyContinue } else { $null }
+    $pName = if ($prefObj -and $prefObj.profile -and $prefObj.profile.name) { [string]$prefObj.profile.name } else { $cp.dirName }
+    $bmTxt = Read-TextSharedBm $bmFile
+    if ($bmTxt) {
+      $bmObj = $bmTxt | ConvertFrom-Json -ErrorAction SilentlyContinue
+      if ($bmObj -and $bmObj.roots) {
+        $profCount++
+        foreach ($rk in $bmObj.roots.PSObject.Properties) {
+          Walk-ChromiumBookmarks -Node $rk.Value -FolderPath '' -BrowserId $cp.browser -BrowserLbl $cp.label -OsUser $uName -ProfName $pName
+        }
+      }
+    }
+  }
+
+  $ffRoot = Join-Path $roamApp 'Mozilla\\Firefox\\Profiles'
+  if (Test-Path -LiteralPath $ffRoot) {
+    foreach ($fp in (Get-ChildItem -LiteralPath $ffRoot -Directory -ErrorAction SilentlyContinue)) {
+      if (-not (Matches-Filter -BrowserId 'firefox' -ProfPath $fp.FullName -OsUser $uName)) { continue }
+      $places = Join-Path $fp.FullName 'places.sqlite'
+      if (-not (Test-Path -LiteralPath $places) -or -not $canWinSqlite) { continue }
+      $cleanName = ($fp.Name -replace '^[a-z0-9]+\\.', '')
+      if (-not $cleanName) { $cleanName = $fp.Name }
+
+      $td = Join-Path ([System.IO.Path]::GetTempPath()) ("ntbm_exp_" + [System.Guid]::NewGuid().ToString('N').Substring(0, 8))
+      New-Item -ItemType Directory -Path $td -Force | Out-Null
+      $dbPtr = [IntPtr]::Zero; $stmtPtr = [IntPtr]::Zero
+      try {
+        $destDb = Join-Path $td 'places.sqlite'
+        foreach ($sfx in @('', '-wal', '-shm')) {
+          $sf = "$places$sfx"
+          if (Test-Path -LiteralPath $sf) {
+            $fi = [System.IO.File]::Open($sf, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+            $fo = [System.IO.File]::Create("$destDb$sfx")
+            try { $fi.CopyTo($fo) } finally { $fo.Dispose(); $fi.Dispose() }
+          }
+        }
+        $pb = [System.Text.Encoding]::UTF8.GetBytes($destDb + "\`0")
+        $rc = [NetTopoWinSqliteBm]::OpenV2($pb, [ref]$dbPtr, 2, [IntPtr]::Zero)
+        if ($rc -ne 0) {
+          if ($dbPtr -ne [IntPtr]::Zero) { [NetTopoWinSqliteBm]::Close($dbPtr) | Out-Null; $dbPtr = [IntPtr]::Zero }
+          $rc = [NetTopoWinSqliteBm]::OpenV2($pb, [ref]$dbPtr, 1, [IntPtr]::Zero)
+        }
+        if ($rc -eq 0 -and $dbPtr -ne [IntPtr]::Zero) {
+          [NetTopoWinSqliteBm]::BusyTimeout($dbPtr, 2500) | Out-Null
+          $sql = "SELECT b.id, b.parent, b.type, COALESCE(b.title,''), COALESCE(p.url,''), COALESCE(b.dateAdded,0) FROM moz_bookmarks b LEFT JOIN moz_places p ON b.fk = p.id"
+          $sb = [System.Text.Encoding]::UTF8.GetBytes($sql + "\`0")
+          $tail = [IntPtr]::Zero
+          if ([NetTopoWinSqliteBm]::PrepareV2($dbPtr, $sb, -1, [ref]$stmtPtr, [ref]$tail) -eq 0) {
+            $profCount++
+            $nodes = @{}
+            $rawItems = New-Object System.Collections.Generic.List[object]
+            while ([NetTopoWinSqliteBm]::Step($stmtPtr) -eq 100) {
+              $bid = [NetTopoWinSqliteBm]::ColumnInt64($stmtPtr, 0)
+              $bpar = [NetTopoWinSqliteBm]::ColumnInt64($stmtPtr, 1)
+              $btype = [NetTopoWinSqliteBm]::ColumnInt64($stmtPtr, 2)
+              $btit = [NetTopoWinSqliteBm]::GetText($stmtPtr, 3)
+              $burl = [NetTopoWinSqliteBm]::GetText($stmtPtr, 4)
+              $bts = [NetTopoWinSqliteBm]::ColumnInt64($stmtPtr, 5)
+              $nodes[$bid] = @{ parent = $bpar; title = $btit }
+              if ($btype -eq 1 -and $burl -and $burl -notmatch '^place:') {
+                $rawItems.Add([PSCustomObject]@{ parent = $bpar; title = $btit; url = $burl; ts = $bts })
+              }
+            }
+            foreach ($ri in $rawItems) {
+              $segs = New-Object System.Collections.Generic.List[string]
+              $cur = $ri.parent
+              $hops = 0
+              while ($cur -and $cur -gt 1 -and $nodes.ContainsKey($cur) -and $hops -lt 12) {
+                $nd = $nodes[$cur]
+                if ($nd.title) { $segs.Insert(0, $nd.title) }
+                $cur = $nd.parent
+                $hops++
+              }
+              $bookmarksOut.Add([PSCustomObject]@{
+                title = $ri.title
+                url = $ri.url
+                folderPath = ($segs -join ' / ')
+                addedAt = Convert-PrUsIso $ri.ts
+                browser = 'firefox'
+                browserLabel = 'Mozilla Firefox'
+                osUser = $uName
+                profileName = $cleanName
+              })
+            }
+          }
+        }
+      } catch {
+        $warnings.Add("Firefox ($cleanName): $($_.Exception.Message)")
+      } finally {
+        if ($stmtPtr -ne [IntPtr]::Zero) { [NetTopoWinSqliteBm]::Finalize($stmtPtr) | Out-Null }
+        if ($dbPtr -ne [IntPtr]::Zero) { [NetTopoWinSqliteBm]::Close($dbPtr) | Out-Null }
+        Remove-Item -LiteralPath $td -Recurse -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
+}
+
+[PSCustomObject]@{
+  hostname = $hostname
+  profilesExported = $profCount
+  bookmarks = $bookmarksOut
+  warnings = $warnings
+} | ConvertTo-Json -Depth 6 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PYEOF'
+import base64, datetime, glob, json, os, shutil, socket, sqlite3, tempfile
+
+flt = json.loads(base64.b64decode("${filterB64}").decode("utf-8", "ignore"))
+f_paths = set(os.path.normpath(p) for p in (flt.get("profilePaths") or []))
+f_browsers = set(flt.get("browsers") or [])
+f_user = (flt.get("osUser") or "").strip().lower()
+
+hostname = socket.gethostname()
+bookmarks_out = []
+warnings = []
+prof_count = 0
+
+def matches(b_id, p_path, u_name):
+    if f_user and f_user != "all" and u_name.lower() != f_user:
+        return False
+    if f_browsers and b_id not in f_browsers:
+        return False
+    if f_paths and os.path.normpath(p_path) not in f_paths:
+        return False
+    return True
+
+def webkit_iso(raw_ts):
+    try:
+        v = int(raw_ts or 0)
+        if v <= 0: return None
+        sec = (v / 1000000.0) - 11644473600.0
+        return datetime.datetime.fromtimestamp(sec, tz=datetime.timezone.utc).isoformat()
+    except Exception:
+        return None
+
+def pr_iso(ts):
+    try:
+        v = int(ts or 0)
+        if v <= 0: return None
+        return datetime.datetime.fromtimestamp(v / 1000000.0, tz=datetime.timezone.utc).isoformat()
+    except Exception:
+        return None
+
+def walk_bm(node, folder, b_id, b_lbl, u_name, p_name):
+    if not isinstance(node, dict):
+        return
+    if node.get("type") == "url" and node.get("url"):
+        bookmarks_out.append({
+            "title": str(node.get("name") or ""),
+            "url": str(node.get("url")),
+            "folderPath": folder,
+            "addedAt": webkit_iso(node.get("date_added")),
+            "browser": b_id,
+            "browserLabel": b_lbl,
+            "osUser": u_name,
+            "profileName": p_name,
+        })
+        return
+    nname = str(node.get("name") or "").strip()
+    next_f = f"{folder} / {nname}" if (folder and nname) else (nname or folder)
+    for ch in node.get("children") or []:
+        walk_bm(ch, next_f, b_id, b_lbl, u_name, p_name)
+
+user_homes = []
+if os.path.isdir("/home"):
+    for d in sorted(os.listdir("/home")):
+        full = os.path.join("/home", d)
+        if os.path.isdir(full):
+            user_homes.append((d, full))
+if os.path.isdir("/root"):
+    user_homes.append(("root", "/root"))
+
+for u_name, u_home in user_homes:
+    for b_id, b_lbl, rdir in [
+        ("chrome", "Google Chrome", os.path.join(u_home, ".config/google-chrome")),
+        ("chromium", "Chromium", os.path.join(u_home, ".config/chromium")),
+        ("edge", "Microsoft Edge", os.path.join(u_home, ".config/microsoft-edge")),
+        ("brave", "Brave", os.path.join(u_home, ".config/BraveSoftware/Brave-Browser")),
+        ("vivaldi", "Vivaldi", os.path.join(u_home, ".config/vivaldi")),
+    ]:
+        if not os.path.isdir(rdir): continue
+        for sub in sorted(os.listdir(rdir)):
+            if sub == "Default" or sub.startswith("Profile ") or sub == "Guest Profile":
+                sp = os.path.join(rdir, sub)
+                bm = os.path.join(sp, "Bookmarks")
+                if os.path.isfile(bm) and matches(b_id, sp, u_name):
+                    try:
+                        with open(bm, "r", encoding="utf-8", errors="ignore") as f:
+                            bj = json.load(f)
+                        prof_count += 1
+                        for rk in (bj.get("roots") or {}).values():
+                            walk_bm(rk, "", b_id, b_lbl, u_name, sub)
+                    except Exception as ex:
+                        warnings.append(str(ex))
+
+    for ff_base in [os.path.join(u_home, ".mozilla/firefox"), os.path.join(u_home, "snap/firefox/common/.mozilla/firefox")]:
+        if not os.path.isdir(ff_base): continue
+        for pdir in sorted(glob.glob(os.path.join(ff_base, "*"))):
+            places = os.path.join(pdir, "places.sqlite")
+            if os.path.isfile(places) and matches("firefox", pdir, u_name):
+                clean = os.path.basename(pdir).split(".", 1)[-1]
+                td = tempfile.mkdtemp(prefix="ntbm_exp_")
+                try:
+                    dp = os.path.join(td, "places.sqlite")
+                    for sfx in ("", "-wal", "-shm"):
+                        if os.path.isfile(places + sfx):
+                            shutil.copy2(places + sfx, dp + sfx)
+                    con = sqlite3.connect(dp, timeout=2.5)
+                    rows = con.execute("SELECT b.id, b.parent, b.type, COALESCE(b.title,''), COALESCE(p.url,''), COALESCE(b.dateAdded,0) FROM moz_bookmarks b LEFT JOIN moz_places p ON b.fk = p.id").fetchall()
+                    con.close()
+                    prof_count += 1
+                    nodes = {r[0]: (r[1], r[3]) for r in rows}
+                    for bid, bpar, btype, btit, burl, bts in rows:
+                        if btype == 1 and burl and not str(burl).startswith("place:"):
+                            segs = []
+                            cur = bpar
+                            hops = 0
+                            while cur and cur > 1 and cur in nodes and hops < 12:
+                                np, nt = nodes[cur]
+                                if nt: segs.insert(0, nt)
+                                cur = np
+                                hops += 1
+                            bookmarks_out.append({
+                                "title": btit,
+                                "url": burl,
+                                "folderPath": " / ".join(segs),
+                                "addedAt": pr_iso(bts),
+                                "browser": "firefox",
+                                "browserLabel": "Mozilla Firefox",
+                                "osUser": u_name,
+                                "profileName": clean,
+                            })
+                except Exception as ex:
+                    warnings.append(str(ex))
+                finally:
+                    shutil.rmtree(td, ignore_errors=True)
+
+print(json.dumps({
+    "hostname": hostname,
+    "profilesExported": prof_count,
+    "bookmarks": bookmarks_out,
+    "warnings": warnings,
+}, ensure_ascii=True))
+PYEOF`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(45000, Number(input.timeoutMs) || 45000) },
+    winPs,
+    linuxSh
+  );
+
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, 'browser bookmarks backup');
+  const hostname = String(parsed?.hostname || execRes.host);
+  const rawList = Array.isArray(parsed?.bookmarks)
+    ? parsed.bookmarks
+    : parsed?.bookmarks
+    ? [parsed.bookmarks]
+    : [];
+
+  const bookmarks: HelpdeskBookmarkEntry[] = rawList
+    .filter((b: any) => b && b.url)
+    .map((b: any) => {
+      const { vendor, label } = normalizeBrowserVendor(String(b.browser || ''));
+      return {
+        title: String(b.title || b.url || '').slice(0, 300),
+        url: String(b.url).slice(0, 1500),
+        folderPath: String(b.folderPath || ''),
+        addedAt: b.addedAt ? String(b.addedAt) : null,
+        browser: vendor,
+        browserLabel: String(b.browserLabel || label),
+        osUser: b.osUser ? String(b.osUser) : undefined,
+        profileName: b.profileName ? String(b.profileName) : undefined,
+      };
+    });
+
+  const netscapeHtml = buildNetscapeBookmarksHtml(bookmarks, hostname);
+  const warnings = Array.isArray(parsed?.warnings)
+    ? parsed.warnings.map((w: any) => String(w || '').trim()).filter(Boolean)
+    : [];
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    portUsed: execRes.portUsed,
+    osFamily: execRes.osFamily,
+    hostname,
+    collectedAt: new Date().toISOString(),
+    totalBookmarks: bookmarks.length,
+    profilesExported: Math.max(0, Number(parsed?.profilesExported || 0)),
+    netscapeHtml,
+    bookmarks,
+    warnings,
+  };
+}
+
+export async function executeEndpointBrowserAction(
+  input: HelpdeskTargetInput,
+  params: HelpdeskBrowserManageActionPayload
+): Promise<HelpdeskActionResult> {
+  const action = params?.action;
+  const validActions: HelpdeskBrowserManageActionType[] = [
+    'set_proxy',
+    'clear_proxy',
+    'set_homepage',
+    'clear_cookies',
+    'clear_cache',
+    'close_browser',
+    'repair_profile_locks',
+    'clear_transport_security',
+    'clear_policies',
+  ];
+  if (!validActions.includes(action)) {
+    throw new Error('Invalid browser management action.');
+  }
+
+  const browsers = sanitizeBrowserList(params.browsers);
+  const profilePaths = sanitizeProfilePathsList(params.profilePaths);
+  const closeBrowsersFirst = Boolean(params.closeBrowsersFirst);
+  const clearSiteStorage = Boolean(params.clearSiteStorage);
+
+  let proxyMode: 'direct' | 'manual' | 'pac' = 'direct';
+  let proxyTargets: Array<'wininet' | 'winhttp' | 'chrome_policy' | 'edge_policy' | 'firefox'> = ['wininet'];
+  let proxyServer = '';
+  let proxyBypass = '';
+  let proxyPacUrl = '';
+  let proxyAutoDetect = false;
+
+  if (action === 'set_proxy' || action === 'clear_proxy') {
+    if (Array.isArray(params.proxyTargets) && params.proxyTargets.length > 0) {
+      const allowed = ['wininet', 'winhttp', 'chrome_policy', 'edge_policy', 'firefox'] as const;
+      proxyTargets = params.proxyTargets.filter((t): t is typeof allowed[number] =>
+        (allowed as readonly string[]).includes(t)
+      );
+      if (proxyTargets.length === 0) proxyTargets = ['wininet'];
+    }
+    if (action === 'set_proxy') {
+      const m = String(params.proxyMode || 'manual').trim().toLowerCase();
+      if (m !== 'direct' && m !== 'manual' && m !== 'pac') {
+        throw new Error('Invalid proxy mode (expected direct, manual, or pac).');
+      }
+      proxyMode = m;
+      proxyServer = String(params.proxyServer || '').trim();
+      proxyBypass = String(params.proxyBypass || '').trim();
+      proxyPacUrl = String(params.proxyPacUrl || '').trim();
+      proxyAutoDetect = Boolean(params.proxyAutoDetect);
+
+      if (proxyMode === 'manual') {
+        if (!proxyServer || !/^[a-zA-Z0-9.:;=_-]{3,255}$/.test(proxyServer)) {
+          throw new Error('Valid proxy server host:port (e.g. 192.168.10.5:8080) is required.');
+        }
+      } else if (proxyMode === 'pac') {
+        proxyPacUrl = validateSafeHttpUrl(proxyPacUrl, 'PAC AutoConfig URL');
+      }
+      if (proxyBypass && !/^[a-zA-Z0-9.*_;<>,\s-]{1,500}$/.test(proxyBypass)) {
+        throw new Error('Invalid proxy bypass list format.');
+      }
+    }
+  }
+
+  let homepageUrl = '';
+  let homepageIsNewTab = false;
+  let restoreOnStartup: 'newtab' | 'urls' | 'continue' = 'urls';
+  let startupUrls: string[] = [];
+  let homepageScope: 'profile_prefs' | 'policy' | 'both' = 'both';
+
+  if (action === 'set_homepage') {
+    homepageIsNewTab = Boolean(params.homepageIsNewTab);
+    if (!homepageIsNewTab) {
+      homepageUrl = validateSafeHttpUrl(String(params.homepageUrl || ''), 'Homepage URL');
+    }
+    const r = String(params.restoreOnStartup || (homepageIsNewTab ? 'newtab' : 'urls')).trim().toLowerCase();
+    restoreOnStartup = r === 'newtab' ? 'newtab' : r === 'continue' ? 'continue' : 'urls';
+
+    if (Array.isArray(params.startupUrls) && params.startupUrls.length > 0) {
+      startupUrls = params.startupUrls
+        .map((u) => String(u || '').trim())
+        .filter(Boolean)
+        .slice(0, 8)
+        .map((u) => validateSafeHttpUrl(u, 'Startup URL'));
+    } else if (homepageUrl && restoreOnStartup === 'urls') {
+      startupUrls = [homepageUrl];
+    }
+
+    const sc = String(params.homepageScope || 'both').trim().toLowerCase();
+    homepageScope = sc === 'profile_prefs' ? 'profile_prefs' : sc === 'policy' ? 'policy' : 'both';
+  }
+
+  const payloadObj = {
+    action,
+    browsers,
+    profilePaths,
+    closeBrowsersFirst,
+    clearSiteStorage,
+    proxyMode,
+    proxyTargets,
+    proxyServer,
+    proxyBypass,
+    proxyPacUrl,
+    proxyAutoDetect,
+    homepageUrl,
+    homepageIsNewTab,
+    restoreOnStartup,
+    startupUrls,
+    homepageScope,
+  };
+  const pB64 = Buffer.from(JSON.stringify(payloadObj), 'utf8').toString('base64');
+
+  const winPs = `
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$ErrorActionPreference = 'Stop'
+${PS_HELPDESK_DETECT_LOGGED_USER}
+$p = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${pB64}')) | ConvertFrom-Json
+$logs = New-Object System.Collections.Generic.List[string]
+$warnings = New-Object System.Collections.Generic.List[string]
+$bytesFreed = [int64]0
+$itemsChanged = 0
+
+$procMap = @{
+  chrome = 'chrome'
+  edge = 'msedge'
+  firefox = 'firefox'
+  brave = 'brave'
+  opera = 'opera'
+  vivaldi = 'vivaldi'
+  yandex = 'browser'
+  chromium = 'chromium'
+}
+
+function Close-TargetBrowsers {
+  param([string[]]$Browsers)
+  $closed = 0
+  $list = if ($Browsers -and $Browsers.Count -gt 0) { $Browsers } else { @($procMap.Keys) }
+  foreach ($b in $list) {
+    $pn = $procMap[$b]
+    if (-not $pn) { continue }
+    $psList = Get-Process -Name $pn -ErrorAction SilentlyContinue
+    foreach ($pr in $psList) {
+      try {
+        $pr | Stop-Process -Force -ErrorAction Stop
+        $closed++
+      } catch {
+        $warnings.Add("Could not close $pn (PID $($pr.Id)): $($_.Exception.Message)")
+      }
+    }
+  }
+  if ($closed -gt 0) { Start-Sleep -Milliseconds 700 }
+  return $closed
+}
+
+# Enumerate verified browser profiles only (strict anti-traversal confinement)
+function Get-VerifiedProfiles {
+  $out = New-Object System.Collections.Generic.List[object]
+  $usersRoot = Join-Path $env:SystemDrive 'Users'
+  if (-not (Test-Path -LiteralPath $usersRoot)) { $usersRoot = 'C:\\Users' }
+  $skip = @('Public', 'Default', 'Default User', 'All Users', 'defaultuser0', 'WDAGUtilityAccount')
+  foreach ($uDir in (Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $skip -notcontains $_.Name })) {
+    $localApp = Join-Path $uDir.FullName 'AppData\\Local'
+    $roamApp = Join-Path $uDir.FullName 'AppData\\Roaming'
+    foreach ($cr in @(
+      @{ browser = 'chrome'; root = (Join-Path $localApp 'Google\\Chrome\\User Data') },
+      @{ browser = 'edge'; root = (Join-Path $localApp 'Microsoft\\Edge\\User Data') },
+      @{ browser = 'brave'; root = (Join-Path $localApp 'BraveSoftware\\Brave-Browser\\User Data') },
+      @{ browser = 'vivaldi'; root = (Join-Path $localApp 'Vivaldi\\User Data') },
+      @{ browser = 'chromium'; root = (Join-Path $localApp 'Chromium\\User Data') },
+      @{ browser = 'yandex'; root = (Join-Path $localApp 'Yandex\\YandexBrowser\\User Data') }
+    )) {
+      if (-not (Test-Path -LiteralPath $cr.root)) { continue }
+      foreach ($sp in (Get-ChildItem -LiteralPath $cr.root -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'Default' -or $_.Name -like 'Profile *' -or $_.Name -eq 'Guest Profile' })) {
+        $out.Add([PSCustomObject]@{ osUser = $uDir.Name; browser = $cr.browser; kind = 'chromium'; path = $sp.FullName; root = $cr.root; localApp = $localApp; dirName = $sp.Name })
+      }
+    }
+    foreach ($op in @(
+      @{ browser = 'opera'; path = (Join-Path $roamApp 'Opera Software\\Opera Stable'); dirName = 'Opera Stable' },
+      @{ browser = 'opera'; path = (Join-Path $roamApp 'Opera Software\\Opera GX Stable'); dirName = 'Opera GX Stable' }
+    )) {
+      if (Test-Path -LiteralPath $op.path) {
+        $out.Add([PSCustomObject]@{ osUser = $uDir.Name; browser = $op.browser; kind = 'chromium'; path = $op.path; root = $op.path; localApp = $localApp; dirName = $op.dirName })
+      }
+    }
+    $ffRoot = Join-Path $roamApp 'Mozilla\\Firefox\\Profiles'
+    if (Test-Path -LiteralPath $ffRoot) {
+      foreach ($fp in (Get-ChildItem -LiteralPath $ffRoot -Directory -ErrorAction SilentlyContinue)) {
+        $out.Add([PSCustomObject]@{ osUser = $uDir.Name; browser = 'firefox'; kind = 'firefox'; path = $fp.FullName; root = $ffRoot; localApp = $localApp; dirName = $fp.Name })
+      }
+    }
+  }
+  return $out
+}
+
+function Filter-VerifiedProfiles {
+  param($AllProfiles)
+  $sel = New-Object System.Collections.Generic.List[object]
+  foreach ($pr in $AllProfiles) {
+    if ($p.browsers -and $p.browsers.Count -gt 0 -and ($p.browsers -notcontains $pr.browser)) { continue }
+    if ($p.profilePaths -and $p.profilePaths.Count -gt 0) {
+      $norm = $pr.path.TrimEnd('\\').ToLower()
+      $match = $false
+      foreach ($pp in $p.profilePaths) {
+        if ($pp.TrimEnd('\\').ToLower() -eq $norm) { $match = $true; break }
+      }
+      if (-not $match) { continue }
+    }
+    $sel.Add($pr)
+  }
+  return $sel
+}
+
+function Update-FirefoxPrefLine {
+  param([string]$Text, [string]$Key, [string]$JsValueLiteral)
+  $escapedKey = [regex]::Escape($Key)
+  $pattern = "(?m)^user_pref\\(\`"$escapedKey\`",.*\\);\\r?$"
+  $replacement = "user_pref(\`"$Key\`", $JsValueLiteral);"
+  if ([regex]::IsMatch($Text, $pattern)) {
+    return [regex]::Replace($Text, $pattern, $replacement)
+  }
+  if ($Text -and -not $Text.EndsWith("\`n")) { $Text += "\`r\`n" }
+  return ($Text + $replacement + "\`r\`n")
+}
+
+function Ensure-RegKey {
+  param([string]$RegPath)
+  if (-not (Test-Path $RegPath)) { New-Item -Path $RegPath -Force | Out-Null }
+}
+
+if ($p.closeBrowsersFirst -and $p.action -ne 'close_browser') {
+  $targetBrowsers = @($p.browsers)
+  if ($targetBrowsers.Count -eq 0 -and $p.profilePaths -and $p.profilePaths.Count -gt 0) {
+    $verifiedForClose = Filter-VerifiedProfiles (Get-VerifiedProfiles)
+    $targetBrowsers = @($verifiedForClose | ForEach-Object { $_.browser } | Select-Object -Unique)
+  }
+  $cCount = Close-TargetBrowsers -Browsers $targetBrowsers
+  if ($cCount -gt 0) { $logs.Add("Closed $cCount running browser process(es)") }
+}
+
+switch ($p.action) {
+  'close_browser' {
+    $c = Close-TargetBrowsers -Browsers @($p.browsers)
+    $itemsChanged = $c
+    $logs.Add("Terminated $c browser process(es)")
+  }
+  'set_proxy' {
+    $mode = [string]$p.proxyMode
+    foreach ($tgt in $p.proxyTargets) {
+      if ($tgt -eq 'wininet') {
+        $regPath = if ($userSid -and (Test-Path "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")) {
+          "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
+        } else {
+          'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
+        }
+        if ($mode -eq 'direct') {
+          Set-ItemProperty -Path $regPath -Name 'ProxyEnable' -Value 0 -Type DWord
+          Remove-ItemProperty -Path $regPath -Name 'AutoConfigURL' -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path $regPath -Name 'AutoDetect' -Value $(if ($p.proxyAutoDetect) { 1 } else { 0 }) -Type DWord
+          $logs.Add('WinINet: Direct (No Proxy)')
+        } elseif ($mode -eq 'manual') {
+          Set-ItemProperty -Path $regPath -Name 'ProxyEnable' -Value 1 -Type DWord
+          Set-ItemProperty -Path $regPath -Name 'ProxyServer' -Value ([string]$p.proxyServer) -Type String
+          Remove-ItemProperty -Path $regPath -Name 'AutoConfigURL' -ErrorAction SilentlyContinue
+          if ($p.proxyBypass) {
+            Set-ItemProperty -Path $regPath -Name 'ProxyOverride' -Value ([string]$p.proxyBypass) -Type String
+          }
+          Set-ItemProperty -Path $regPath -Name 'AutoDetect' -Value 0 -Type DWord
+          $logs.Add("WinINet: Manual ($($p.proxyServer))")
+        } elseif ($mode -eq 'pac') {
+          Set-ItemProperty -Path $regPath -Name 'ProxyEnable' -Value 0 -Type DWord
+          Set-ItemProperty -Path $regPath -Name 'AutoConfigURL' -Value ([string]$p.proxyPacUrl) -Type String
+          Set-ItemProperty -Path $regPath -Name 'AutoDetect' -Value $(if ($p.proxyAutoDetect) { 1 } else { 0 }) -Type DWord
+          $logs.Add("WinINet: PAC ($($p.proxyPacUrl))")
+        }
+        try {
+          Add-Type -TypeDefinition "using System; using System.Runtime.InteropServices; public class NtWinInet { [DllImport(\`"wininet.dll\`")] public static extern bool InternetSetOption(IntPtr h, int o, IntPtr b, int l); }" -ErrorAction SilentlyContinue
+          [NtWinInet]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0) | Out-Null
+          [NtWinInet]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0) | Out-Null
+        } catch {}
+        $itemsChanged++
+      }
+      elseif ($tgt -eq 'winhttp') {
+        if ($mode -eq 'manual' -and $p.proxyServer) {
+          if ($p.proxyBypass) { & netsh.exe winhttp set proxy "proxy-server=$($p.proxyServer)" "bypass-list=$($p.proxyBypass)" 2>&1 | Out-Null }
+          else { & netsh.exe winhttp set proxy "proxy-server=$($p.proxyServer)" 2>&1 | Out-Null }
+          $logs.Add("WinHTTP: $($p.proxyServer)")
+        } else {
+          & netsh.exe winhttp reset proxy 2>&1 | Out-Null
+          $logs.Add('WinHTTP: Reset Direct')
+        }
+        $itemsChanged++
+      }
+      elseif ($tgt -eq 'chrome_policy' -or $tgt -eq 'edge_policy') {
+        $polPath = if ($tgt -eq 'chrome_policy') { 'HKLM:\\SOFTWARE\\Policies\\Google\\Chrome' } else { 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Edge' }
+        Ensure-RegKey $polPath
+        Remove-ItemProperty -Path $polPath -Name 'ProxyServer','ProxyPacUrl','ProxyBypassList' -ErrorAction SilentlyContinue
+        if ($mode -eq 'direct') {
+          Set-ItemProperty -Path $polPath -Name 'ProxyMode' -Value 'direct' -Type String
+        } elseif ($mode -eq 'manual') {
+          Set-ItemProperty -Path $polPath -Name 'ProxyMode' -Value 'fixed_servers' -Type String
+          Set-ItemProperty -Path $polPath -Name 'ProxyServer' -Value ([string]$p.proxyServer) -Type String
+          if ($p.proxyBypass) { Set-ItemProperty -Path $polPath -Name 'ProxyBypassList' -Value ([string]$p.proxyBypass) -Type String }
+        } elseif ($mode -eq 'pac') {
+          Set-ItemProperty -Path $polPath -Name 'ProxyMode' -Value 'pac_script' -Type String
+          Set-ItemProperty -Path $polPath -Name 'ProxyPacUrl' -Value ([string]$p.proxyPacUrl) -Type String
+        }
+        $logs.Add("$tgt updated ($mode)")
+        $itemsChanged++
+      }
+      elseif ($tgt -eq 'firefox') {
+        $ffProfs = @(Get-VerifiedProfiles | Where-Object { $_.kind -eq 'firefox' })
+        foreach ($fp in $ffProfs) {
+          $pf = Join-Path $fp.path 'prefs.js'
+          $txt = if (Test-Path -LiteralPath $pf) { [System.IO.File]::ReadAllText($pf, [System.Text.Encoding]::UTF8) } else { '' }
+          if ($mode -eq 'direct') {
+            $txt = Update-FirefoxPrefLine $txt 'network.proxy.type' '0'
+          } elseif ($mode -eq 'manual') {
+            $hostPart = $p.proxyServer
+            $portPart = 8080
+            if ($p.proxyServer -match '^([^:]+):(\\d+)$') { $hostPart = $matches[1]; $portPart = [int]$matches[2] }
+            elseif ($p.proxyServer -match 'https?=([^:;]+):(\\d+)') { $hostPart = $matches[1]; $portPart = [int]$matches[2] }
+            $hostEsc = $hostPart.Replace('\\', '\\\\').Replace('"', '\\"')
+            $txt = Update-FirefoxPrefLine $txt 'network.proxy.type' '1'
+            $txt = Update-FirefoxPrefLine $txt 'network.proxy.http' "\`"$hostEsc\`""
+            $txt = Update-FirefoxPrefLine $txt 'network.proxy.http_port' "$portPart"
+            $txt = Update-FirefoxPrefLine $txt 'network.proxy.ssl' "\`"$hostEsc\`""
+            $txt = Update-FirefoxPrefLine $txt 'network.proxy.ssl_port' "$portPart"
+            $txt = Update-FirefoxPrefLine $txt 'network.proxy.share_proxy_settings' 'true'
+            if ($p.proxyBypass) {
+              $bpEsc = ($p.proxyBypass -replace ';', ',').Replace('\\', '\\\\').Replace('"', '\\"')
+              $txt = Update-FirefoxPrefLine $txt 'network.proxy.no_proxies_on' "\`"$bpEsc\`""
+            }
+          } elseif ($mode -eq 'pac') {
+            $pacEsc = $p.proxyPacUrl.Replace('\\', '\\\\').Replace('"', '\\"')
+            $txt = Update-FirefoxPrefLine $txt 'network.proxy.type' '2'
+            $txt = Update-FirefoxPrefLine $txt 'network.proxy.autoconfig_url' "\`"$pacEsc\`""
+          }
+          [System.IO.File]::WriteAllText($pf, $txt, (New-Object System.Text.UTF8Encoding($false)))
+          $itemsChanged++
+        }
+        $logs.Add("Firefox prefs.js updated for $($ffProfs.Count) profile(s)")
+      }
+    }
+  }
+  'clear_proxy' {
+    foreach ($tgt in $p.proxyTargets) {
+      if ($tgt -eq 'wininet') {
+        $regPath = if ($userSid -and (Test-Path "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")) {
+          "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
+        } else {
+          'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
+        }
+        Set-ItemProperty -Path $regPath -Name 'ProxyEnable' -Value 0 -Type DWord
+        Remove-ItemProperty -Path $regPath -Name 'AutoConfigURL' -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $regPath -Name 'AutoDetect' -Value 0 -Type DWord
+        $logs.Add('WinINet Proxy Cleared')
+        $itemsChanged++
+      } elseif ($tgt -eq 'winhttp') {
+        & netsh.exe winhttp reset proxy 2>&1 | Out-Null
+        $logs.Add('WinHTTP Reset Direct')
+        $itemsChanged++
+      } elseif ($tgt -eq 'chrome_policy' -or $tgt -eq 'edge_policy') {
+        $polPath = if ($tgt -eq 'chrome_policy') { 'HKLM:\\SOFTWARE\\Policies\\Google\\Chrome' } else { 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Edge' }
+        if (Test-Path $polPath) {
+          Remove-ItemProperty -Path $polPath -Name 'ProxyMode','ProxyServer','ProxyPacUrl','ProxyBypassList' -ErrorAction SilentlyContinue
+        }
+        $logs.Add("$tgt Proxy Policies Removed")
+        $itemsChanged++
+      } elseif ($tgt -eq 'firefox') {
+        $ffProfs = @(Get-VerifiedProfiles | Where-Object { $_.kind -eq 'firefox' })
+        foreach ($fp in $ffProfs) {
+          $pf = Join-Path $fp.path 'prefs.js'
+          if (Test-Path -LiteralPath $pf) {
+            $txt = [System.IO.File]::ReadAllText($pf, [System.Text.Encoding]::UTF8)
+            $txt = Update-FirefoxPrefLine $txt 'network.proxy.type' '0'
+            $txt = Update-FirefoxPrefLine $txt 'network.proxy.autoconfig_url' '""'
+            [System.IO.File]::WriteAllText($pf, $txt, (New-Object System.Text.UTF8Encoding($false)))
+            $itemsChanged++
+          }
+        }
+        $logs.Add('Firefox Proxy Reset to Direct')
+      }
+    }
+  }
+  'set_homepage' {
+    if ($p.homepageScope -eq 'policy' -or $p.homepageScope -eq 'both') {
+      $targetB = if ($p.browsers -and $p.browsers.Count -gt 0) { @($p.browsers) } else { @('chrome', 'edge') }
+      foreach ($b in $targetB) {
+        if ($b -eq 'chrome' -or $b -eq 'edge' -or $b -eq 'brave') {
+          $polPath = switch ($b) {
+            'chrome' { 'HKLM:\\SOFTWARE\\Policies\\Google\\Chrome' }
+            'edge'   { 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Edge' }
+            'brave'  { 'HKLM:\\SOFTWARE\\Policies\\BraveSoftware\\Brave' }
+          }
+          Ensure-RegKey $polPath
+          Set-ItemProperty -Path $polPath -Name 'HomepageIsNewTabPage' -Value $(if ($p.homepageIsNewTab) { 1 } else { 0 }) -Type DWord
+          if ($p.homepageUrl) { Set-ItemProperty -Path $polPath -Name 'HomepageLocation' -Value ([string]$p.homepageUrl) -Type String }
+          else { Remove-ItemProperty -Path $polPath -Name 'HomepageLocation' -ErrorAction SilentlyContinue }
+          Set-ItemProperty -Path $polPath -Name 'ShowHomeButton' -Value 1 -Type DWord
+          $rosVal = if ($p.restoreOnStartup -eq 'newtab') { 5 } elseif ($p.restoreOnStartup -eq 'continue') { 1 } else { 4 }
+          Set-ItemProperty -Path $polPath -Name 'RestoreOnStartup' -Value $rosVal -Type DWord
+          $urlsReg = Join-Path $polPath 'RestoreOnStartupURLs'
+          if (Test-Path $urlsReg) { Remove-Item -Path $urlsReg -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($rosVal -eq 4 -and $p.startupUrls -and $p.startupUrls.Count -gt 0) {
+            New-Item -Path $urlsReg -Force | Out-Null
+            $idx = 1
+            foreach ($su in $p.startupUrls) {
+              Set-ItemProperty -Path $urlsReg -Name ([string]$idx) -Value ([string]$su) -Type String
+              $idx++
+            }
+          }
+          $logs.Add("$b Policy Homepage updated")
+          $itemsChanged++
+        }
+      }
+    }
+    if ($p.homepageScope -eq 'profile_prefs' -or $p.homepageScope -eq 'both') {
+      $selProfs = Filter-VerifiedProfiles (Get-VerifiedProfiles)
+      foreach ($pr in $selProfs) {
+        if ($pr.kind -eq 'chromium') {
+          $prefFile = Join-Path $pr.path 'Preferences'
+          $obj = if (Test-Path -LiteralPath $prefFile) { ([System.IO.File]::ReadAllText($prefFile, [System.Text.Encoding]::UTF8) | ConvertFrom-Json -ErrorAction SilentlyContinue) } else { [PSCustomObject]@{} }
+          if (-not $obj) { $obj = [PSCustomObject]@{} }
+          $obj | Add-Member -NotePropertyName 'homepage_is_newtabpage' -NotePropertyValue ([bool]$p.homepageIsNewTab) -Force
+          if ($p.homepageUrl) { $obj | Add-Member -NotePropertyName 'homepage' -NotePropertyValue ([string]$p.homepageUrl) -Force }
+          if (-not $obj.session) { $obj | Add-Member -NotePropertyName 'session' -NotePropertyValue ([PSCustomObject]@{}) -Force }
+          $rosVal = if ($p.restoreOnStartup -eq 'newtab') { 5 } elseif ($p.restoreOnStartup -eq 'continue') { 1 } else { 4 }
+          $obj.session | Add-Member -NotePropertyName 'restore_on_startup' -NotePropertyValue $rosVal -Force
+          if ($rosVal -eq 4 -and $p.startupUrls) {
+            $obj.session | Add-Member -NotePropertyName 'startup_urls' -NotePropertyValue @($p.startupUrls) -Force
+          }
+          if (-not $obj.browser) { $obj | Add-Member -NotePropertyName 'browser' -NotePropertyValue ([PSCustomObject]@{}) -Force }
+          $obj.browser | Add-Member -NotePropertyName 'show_home_button' -NotePropertyValue $true -Force
+          $jsonOut = $obj | ConvertTo-Json -Depth 30 -Compress
+          [System.IO.File]::WriteAllText($prefFile, $jsonOut, (New-Object System.Text.UTF8Encoding($false)))
+          $itemsChanged++
+        } elseif ($pr.kind -eq 'firefox') {
+          $pf = Join-Path $pr.path 'prefs.js'
+          $txt = if (Test-Path -LiteralPath $pf) { [System.IO.File]::ReadAllText($pf, [System.Text.Encoding]::UTF8) } else { '' }
+          $pageVal = if ($p.restoreOnStartup -eq 'newtab') { 0 } elseif ($p.restoreOnStartup -eq 'continue') { 3 } else { 1 }
+          $txt = Update-FirefoxPrefLine $txt 'browser.startup.page' "$pageVal"
+          if ($p.homepageIsNewTab) {
+            $txt = Update-FirefoxPrefLine $txt 'browser.startup.homepage' '"about:home"'
+          } elseif ($p.homepageUrl) {
+            $joined = if ($p.startupUrls -and $p.startupUrls.Count -gt 0) { ($p.startupUrls -join '|') } else { $p.homepageUrl }
+            $hpEsc = $joined.Replace('\\', '\\\\').Replace('"', '\\"')
+            $txt = Update-FirefoxPrefLine $txt 'browser.startup.homepage' "\`"$hpEsc\`""
+          }
+          [System.IO.File]::WriteAllText($pf, $txt, (New-Object System.Text.UTF8Encoding($false)))
+          $itemsChanged++
+        }
+      }
+      $logs.Add("Updated $($selProfs.Count) profile preference file(s)")
+    }
+  }
+  'clear_cookies' {
+    $selProfs = Filter-VerifiedProfiles (Get-VerifiedProfiles)
+    foreach ($pr in $selProfs) {
+      if ($pr.kind -eq 'chromium') {
+        $files = @('Network\\Cookies', 'Network\\Cookies-journal', 'Cookies', 'Cookies-journal', 'Network\\Trust Tokens', 'Network\\Trust Tokens-journal')
+        foreach ($rf in $files) {
+          $fp = Join-Path $pr.path $rf
+          if (Test-Path -LiteralPath $fp) {
+            try {
+              $len = (Get-Item -LiteralPath $fp).Length
+              Remove-Item -LiteralPath $fp -Force -ErrorAction Stop
+              $bytesFreed += $len
+              $itemsChanged++
+            } catch {
+              $warnings.Add("Locked cookie file ($($pr.browser)/$($pr.dirName)): close browser first.")
+            }
+          }
+        }
+        if ($p.clearSiteStorage) {
+          foreach ($sd in @('Local Storage', 'Session Storage', 'IndexedDB')) {
+            $sp = Join-Path $pr.path $sd
+            if (Test-Path -LiteralPath $sp) {
+              try { Remove-Item -LiteralPath $sp -Recurse -Force -ErrorAction Stop; $itemsChanged++ } catch { $warnings.Add("Locked $sd ($($pr.browser))") }
+            }
+          }
+        }
+      } else {
+        foreach ($rf in @('cookies.sqlite', 'cookies.sqlite-wal', 'cookies.sqlite-shm', 'webappsstore.sqlite', 'webappsstore.sqlite-wal')) {
+          $fp = Join-Path $pr.path $rf
+          if (Test-Path -LiteralPath $fp) {
+            try {
+              $len = (Get-Item -LiteralPath $fp).Length
+              Remove-Item -LiteralPath $fp -Force -ErrorAction Stop
+              $bytesFreed += $len
+              $itemsChanged++
+            } catch {
+              $warnings.Add("Locked Firefox cookies ($($pr.dirName)): close Firefox first.")
+            }
+          }
+        }
+      }
+    }
+    $logs.Add("Cleared cookies across $($selProfs.Count) profile(s) ($([math]::Round($bytesFreed / 1048576.0, 2)) MB)")
+  }
+  'clear_cache' {
+    $selProfs = Filter-VerifiedProfiles (Get-VerifiedProfiles)
+    foreach ($pr in $selProfs) {
+      if ($pr.kind -eq 'chromium') {
+        foreach ($cSub in @('Cache\\Cache_Data', 'Cache', 'Code Cache', 'GPUCache', 'DawnCache', 'GrShaderCache', 'Service Worker\\CacheStorage')) {
+          $cDir = Join-Path $pr.path $cSub
+          if (Test-Path -LiteralPath $cDir) {
+            foreach ($fi in (Get-ChildItem -LiteralPath $cDir -File -Recurse -ErrorAction SilentlyContinue)) {
+              try {
+                $len = $fi.Length
+                Remove-Item -LiteralPath $fi.FullName -Force -ErrorAction Stop
+                $bytesFreed += $len
+                $itemsChanged++
+              } catch {}
+            }
+          }
+        }
+      } else {
+        $ffCache = Join-Path $pr.localApp ("Mozilla\\Firefox\\Profiles\\$($pr.dirName)\\cache2")
+        if (Test-Path -LiteralPath $ffCache) {
+          foreach ($fi in (Get-ChildItem -LiteralPath $ffCache -File -Recurse -ErrorAction SilentlyContinue)) {
+            try {
+              $len = $fi.Length
+              Remove-Item -LiteralPath $fi.FullName -Force -ErrorAction Stop
+              $bytesFreed += $len
+              $itemsChanged++
+            } catch {}
+          }
+        }
+      }
+    }
+    $logs.Add("Cleared browser cache ($([math]::Round($bytesFreed / 1048576.0, 2)) MB freed)")
+  }
+  'repair_profile_locks' {
+    $selProfs = Filter-VerifiedProfiles (Get-VerifiedProfiles)
+    foreach ($pr in $selProfs) {
+      $pn = $procMap[$pr.browser]
+      $running = if ($pn) { @(Get-Process -Name $pn -ErrorAction SilentlyContinue).Count -gt 0 } else { $false }
+      if ($running) {
+        $warnings.Add("Skipped $($pr.browser)/$($pr.dirName): browser is currently running.")
+        continue
+      }
+      foreach ($lk in @('SingletonLock', 'SingletonCookie', 'SingletonSocket', 'parent.lock', '.parentlock', 'lock')) {
+        foreach ($cand in @((Join-Path $pr.path $lk), (Join-Path $pr.root $lk))) {
+          if (Test-Path -LiteralPath $cand) {
+            try { Remove-Item -LiteralPath $cand -Force -ErrorAction Stop; $itemsChanged++ } catch {}
+          }
+        }
+      }
+    }
+    $logs.Add("Removed $itemsChanged stale lock file(s)")
+  }
+  'clear_transport_security' {
+    $selProfs = Filter-VerifiedProfiles (Get-VerifiedProfiles)
+    foreach ($pr in $selProfs) {
+      $f = if ($pr.kind -eq 'chromium') { Join-Path $pr.path 'TransportSecurity' } else { Join-Path $pr.path 'SiteSecurityServiceState.txt' }
+      if (Test-Path -LiteralPath $f) {
+        try { Remove-Item -LiteralPath $f -Force -ErrorAction Stop; $itemsChanged++ } catch { $warnings.Add("Could not remove HSTS file in $($pr.dirName)") }
+      }
+    }
+    $logs.Add("Cleared HSTS / TransportSecurity state in $itemsChanged profile(s)")
+  }
+  'clear_policies' {
+    $targetB = if ($p.browsers -and $p.browsers.Count -gt 0) { @($p.browsers) } else { @('chrome', 'edge', 'brave') }
+    foreach ($b in $targetB) {
+      $polPath = switch ($b) {
+        'chrome' { 'HKLM:\\SOFTWARE\\Policies\\Google\\Chrome' }
+        'edge'   { 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Edge' }
+        'brave'  { 'HKLM:\\SOFTWARE\\Policies\\BraveSoftware\\Brave' }
+        default  { $null }
+      }
+      if ($polPath -and (Test-Path $polPath)) {
+        Remove-ItemProperty -Path $polPath -Name 'HomepageLocation','HomepageIsNewTabPage','ShowHomeButton','RestoreOnStartup','ProxyMode','ProxyServer','ProxyPacUrl','ProxyBypassList' -ErrorAction SilentlyContinue
+        $urlsReg = Join-Path $polPath 'RestoreOnStartupURLs'
+        if (Test-Path $urlsReg) { Remove-Item -Path $urlsReg -Recurse -Force -ErrorAction SilentlyContinue }
+        $itemsChanged++
+        $logs.Add("Cleared managed GPO/browser overrides for $b")
+      }
+    }
+  }
+}
+
+[PSCustomObject]@{
+  ok = $true
+  itemsChanged = $itemsChanged
+  bytesFreed = $bytesFreed
+  mbFreed = [math]::Round($bytesFreed / 1048576.0, 2)
+  output = ($logs -join '; ')
+  warnings = $warnings
+} | ConvertTo-Json -Depth 5 -Compress
+`;
+
+  const linuxSh = `python3 - <<'PYEOF'
+import base64, glob, json, os, re, shutil, subprocess, time
+
+p = json.loads(base64.b64decode("${pB64}").decode("utf-8", "ignore"))
+action = p.get("action")
+browsers_filter = set(p.get("browsers") or [])
+paths_filter = set(os.path.normpath(x) for x in (p.get("profilePaths") or []))
+logs = []
+warnings = []
+bytes_freed = 0
+items_changed = 0
+
+proc_names = {
+    "chrome": ["chrome", "google-chrome"],
+    "edge": ["msedge", "microsoft-edge"],
+    "firefox": ["firefox", "firefox-esr"],
+    "brave": ["brave"],
+    "opera": ["opera"],
+    "vivaldi": ["vivaldi"],
+    "yandex": ["yandex_browser"],
+    "chromium": ["chromium", "chromium-browse"],
+}
+
+def close_browsers(blist):
+    cnt = 0
+    targets = blist if blist else list(proc_names.keys())
+    for b in targets:
+        for pn in proc_names.get(b, []):
+            try:
+                res = subprocess.run(["pkill", "-x", pn], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if res.returncode == 0:
+                    cnt += 1
+            except Exception:
+                pass
+    if cnt > 0:
+        time.sleep(0.6)
+    return cnt
+
+def discover_profiles():
+    out = []
+    homes = []
+    if os.path.isdir("/home"):
+        for d in sorted(os.listdir("/home")):
+            f = os.path.join("/home", d)
+            if os.path.isdir(f): homes.append((d, f))
+    if os.path.isdir("/root"): homes.append(("root", "/root"))
+    for uname, uhome in homes:
+        for bid, rdir in [
+            ("chrome", os.path.join(uhome, ".config/google-chrome")),
+            ("chromium", os.path.join(uhome, ".config/chromium")),
+            ("chromium", os.path.join(uhome, "snap/chromium/common/chromium")),
+            ("edge", os.path.join(uhome, ".config/microsoft-edge")),
+            ("brave", os.path.join(uhome, ".config/BraveSoftware/Brave-Browser")),
+            ("vivaldi", os.path.join(uhome, ".config/vivaldi")),
+        ]:
+            if not os.path.isdir(rdir): continue
+            for sub in sorted(os.listdir(rdir)):
+                if sub == "Default" or sub.startswith("Profile ") or sub == "Guest Profile":
+                    sp = os.path.join(rdir, sub)
+                    if os.path.isdir(sp):
+                        out.append({"user": uname, "home": uhome, "browser": bid, "kind": "chromium", "path": sp, "root": rdir, "dir": sub})
+        for ff_base in [os.path.join(uhome, ".mozilla/firefox"), os.path.join(uhome, "snap/firefox/common/.mozilla/firefox")]:
+            if not os.path.isdir(ff_base): continue
+            for pdir in sorted(glob.glob(os.path.join(ff_base, "*"))):
+                if os.path.isdir(pdir):
+                    out.append({"user": uname, "home": uhome, "browser": "firefox", "kind": "firefox", "path": pdir, "root": ff_base, "dir": os.path.basename(pdir)})
+    return out
+
+def filtered_profiles():
+    all_p = discover_profiles()
+    res = []
+    for pr in all_p:
+        if browsers_filter and pr["browser"] not in browsers_filter: continue
+        if paths_filter and os.path.normpath(pr["path"]) not in paths_filter: continue
+        res.append(pr)
+    return res
+
+def update_ff_pref(txt, key, val_lit):
+    pat = re.compile(r'^user_pref\("' + re.escape(key) + r'",.*\);\s*$', re.M)
+    rep = f'user_pref("{key}", {val_lit});'
+    if pat.search(txt):
+        return pat.sub(rep, txt)
+    if txt and not txt.endswith("\\n"): txt += "\\n"
+    return txt + rep + "\\n"
+
+if p.get("closeBrowsersFirst") and action != "close_browser":
+    c = close_browsers(list(browsers_filter))
+    if c > 0: logs.append(f"Closed {c} browser process group(s)")
+
+if action == "close_browser":
+    items_changed = close_browsers(list(browsers_filter))
+    logs.append(f"Signaled {items_changed} browser process group(s)")
+elif action in ("set_proxy", "clear_proxy"):
+    mode = p.get("proxyMode", "direct") if action == "set_proxy" else "direct"
+    targets = p.get("proxyTargets") or ["firefox"]
+    if "firefox" in targets:
+        for pr in [x for x in discover_profiles() if x["kind"] == "firefox"]:
+            pf = os.path.join(pr["path"], "prefs.js")
+            txt = open(pf, "r", encoding="utf-8", errors="ignore").read() if os.path.isfile(pf) else ""
+            if mode == "direct":
+                txt = update_ff_pref(txt, "network.proxy.type", "0")
+            elif mode == "manual":
+                srv = p.get("proxyServer", "")
+                hp, pt = (srv.split(":", 1)[0], int(srv.split(":", 1)[1])) if ":" in srv else (srv, 8080)
+                txt = update_ff_pref(txt, "network.proxy.type", "1")
+                txt = update_ff_pref(txt, "network.proxy.http", json.dumps(hp))
+                txt = update_ff_pref(txt, "network.proxy.http_port", str(pt))
+                txt = update_ff_pref(txt, "network.proxy.ssl", json.dumps(hp))
+                txt = update_ff_pref(txt, "network.proxy.ssl_port", str(pt))
+                txt = update_ff_pref(txt, "network.proxy.share_proxy_settings", "true")
+            elif mode == "pac":
+                txt = update_ff_pref(txt, "network.proxy.type", "2")
+                txt = update_ff_pref(txt, "network.proxy.autoconfig_url", json.dumps(p.get("proxyPacUrl", "")))
+            with open(pf, "w", encoding="utf-8") as f:
+                f.write(txt)
+            items_changed += 1
+        logs.append("Updated Firefox proxy prefs.js")
+    if "chrome_policy" in targets or "edge_policy" in targets:
+        for tgt, pol_dir in [("chrome_policy", "/etc/opt/chrome/policies/managed"), ("edge_policy", "/etc/opt/edge/policies/managed")]:
+            if tgt in targets:
+                os.makedirs(pol_dir, exist_ok=True)
+                pfile = os.path.join(pol_dir, "nettopo_proxy.json")
+                if action == "clear_proxy":
+                    if os.path.isfile(pfile): os.remove(pfile)
+                else:
+                    pol_data = {"ProxyMode": "direct" if mode == "direct" else ("fixed_servers" if mode == "manual" else "pac_script")}
+                    if mode == "manual": pol_data["ProxyServer"] = p.get("proxyServer", "")
+                    if mode == "manual" and p.get("proxyBypass"): pol_data["ProxyBypassList"] = p.get("proxyBypass", "")
+                    if mode == "pac": pol_data["ProxyPacUrl"] = p.get("proxyPacUrl", "")
+                    with open(pfile, "w", encoding="utf-8") as f: json.dump(pol_data, f, indent=2)
+                items_changed += 1
+                logs.append(f"Updated Linux policy {pfile}")
+elif action == "set_homepage":
+    for pr in filtered_profiles():
+        if pr["kind"] == "chromium":
+            pf = os.path.join(pr["path"], "Preferences")
+            pj = {}
+            if os.path.isfile(pf):
+                try: pj = json.load(open(pf, "r", encoding="utf-8", errors="ignore"))
+                except Exception: pj = {}
+            pj["homepage_is_newtabpage"] = bool(p.get("homepageIsNewTab"))
+            if p.get("homepageUrl"): pj["homepage"] = p["homepageUrl"]
+            sess = pj.setdefault("session", {})
+            ros = p.get("restoreOnStartup")
+            sess["restore_on_startup"] = 5 if ros == "newtab" else (1 if ros == "continue" else 4)
+            if sess["restore_on_startup"] == 4 and p.get("startupUrls"):
+                sess["startup_urls"] = p["startupUrls"]
+            with open(pf, "w", encoding="utf-8") as f: json.dump(pj, f)
+            items_changed += 1
+        else:
+            pf = os.path.join(pr["path"], "prefs.js")
+            txt = open(pf, "r", encoding="utf-8", errors="ignore").read() if os.path.isfile(pf) else ""
+            ros = p.get("restoreOnStartup")
+            pg = 0 if ros == "newtab" else (3 if ros == "continue" else 1)
+            txt = update_ff_pref(txt, "browser.startup.page", str(pg))
+            hp = "about:home" if p.get("homepageIsNewTab") else "|".join(p.get("startupUrls") or ([p.get("homepageUrl")] if p.get("homepageUrl") else []))
+            if hp: txt = update_ff_pref(txt, "browser.startup.homepage", json.dumps(hp))
+            with open(pf, "w", encoding="utf-8") as f: f.write(txt)
+            items_changed += 1
+    logs.append(f"Updated homepage on {items_changed} profile(s)")
+elif action == "clear_cookies":
+    for pr in filtered_profiles():
+        flist = ["Cookies", "Cookies-journal", "Network/Cookies", "Network/Cookies-journal"] if pr["kind"] == "chromium" else ["cookies.sqlite", "cookies.sqlite-wal", "cookies.sqlite-shm", "webappsstore.sqlite"]
+        for rf in flist:
+            fp = os.path.join(pr["path"], rf)
+            if os.path.isfile(fp):
+                try:
+                    bytes_freed += os.path.getsize(fp)
+                    os.remove(fp)
+                    items_changed += 1
+                except Exception as ex:
+                    warnings.append(str(ex))
+    logs.append(f"Cleared cookies ({round(bytes_freed / 1048576.0, 2)} MB)")
+elif action == "clear_cache":
+    for pr in filtered_profiles():
+        dirs = [os.path.join(pr["path"], s) for s in ("Cache", "Code Cache", "GPUCache", "Service Worker/CacheStorage")] if pr["kind"] == "chromium" else [os.path.join(pr["home"], ".cache/mozilla/firefox", pr["dir"], "cache2")]
+        for d in dirs:
+            if os.path.isdir(d):
+                for r, _, fs in os.walk(d):
+                    for fn in fs:
+                        fp = os.path.join(r, fn)
+                        try:
+                            bytes_freed += os.path.getsize(fp)
+                            os.remove(fp)
+                            items_changed += 1
+                        except Exception:
+                            pass
+    logs.append(f"Cleared cache ({round(bytes_freed / 1048576.0, 2)} MB freed)")
+elif action == "repair_profile_locks":
+    for pr in filtered_profiles():
+        for lk in ("SingletonLock", "SingletonCookie", "SingletonSocket", "parent.lock", ".parentlock"):
+            for cand in (os.path.join(pr["path"], lk), os.path.join(pr["root"], lk)):
+                if os.path.lexists(cand):
+                    try: os.remove(cand); items_changed += 1
+                    except Exception: pass
+    logs.append(f"Removed {items_changed} lock file(s)")
+elif action == "clear_transport_security":
+    for pr in filtered_profiles():
+        fp = os.path.join(pr["path"], "TransportSecurity" if pr["kind"] == "chromium" else "SiteSecurityServiceState.txt")
+        if os.path.isfile(fp):
+            try: os.remove(fp); items_changed += 1
+            except Exception: pass
+    logs.append(f"Cleared HSTS state in {items_changed} profile(s)")
+elif action == "clear_policies":
+    for pfile in ("/etc/opt/chrome/policies/managed/nettopo_proxy.json", "/etc/opt/edge/policies/managed/nettopo_proxy.json"):
+        if os.path.isfile(pfile):
+            os.remove(pfile)
+            items_changed += 1
+    logs.append(f"Cleared {items_changed} managed policy file(s)")
+
+print(json.dumps({
+    "ok": True,
+    "itemsChanged": items_changed,
+    "bytesFreed": bytes_freed,
+    "mbFreed": round(bytes_freed / 1048576.0, 2),
+    "output": "; ".join(logs) or action,
+    "warnings": warnings,
+}, ensure_ascii=True))
+PYEOF`;
+
+  const execRes = await executeHardcodedScripts(
+    { ...input, timeoutMs: Math.max(45000, Number(input.timeoutMs) || 45000) },
+    winPs,
+    linuxSh
+  );
+  const parsed = parseJsonFromStdout<any>(execRes.stdout, `browser action (${action})`);
+  const ok = Boolean(parsed?.ok);
+  const warns: string[] = Array.isArray(parsed?.warnings)
+    ? parsed.warnings.map((w: any) => String(w || '').trim()).filter(Boolean)
+    : [];
+  const mbFreed = Number(parsed?.mbFreed || 0);
+  const itemsChanged = Number(parsed?.itemsChanged || 0);
+  const outStr = String(parsed?.output || action);
+
+  const actionMapToWrite: Record<HelpdeskBrowserManageActionType, HelpdeskWriteAction> = {
+    set_proxy: 'browser_set_proxy',
+    clear_proxy: 'browser_clear_proxy',
+    set_homepage: 'browser_set_homepage',
+    clear_cookies: 'browser_clear_cookies',
+    clear_cache: 'browser_clear_cache',
+    close_browser: 'browser_close_processes',
+    repair_profile_locks: 'browser_repair_locks',
+    clear_transport_security: 'browser_clear_hsts',
+    clear_policies: 'browser_clear_policies',
+  };
+
+  return {
+    targetIp: execRes.host,
+    protocolUsed: execRes.protocolUsed,
+    osFamily: execRes.osFamily,
+    action: actionMapToWrite[action],
+    success: ok,
+    message: ok
+      ? `Browser operation (${action}) completed on ${execRes.host}: ${outStr}${warns.length ? ` [Warnings: ${warns.join(' | ')}]` : ''}`
+      : `Browser operation (${action}) failed on ${execRes.host}: ${outStr}`,
+    messageFa: ok
+      ? `عملیات مرورگر (${action}) روی سیستم ${execRes.host} انجام شد: ${outStr}${warns.length ? ` [هشدار: ${warns.join(' | ')}]` : ''}`
+      : `عملیات مرورگر (${action}) روی سیستم ${execRes.host} ناموفق بود: ${outStr}`,
+    details: {
+      action,
+      itemsChanged,
+      mbFreed,
+      warningsCount: warns.length,
+      warnings: warns.join(' | '),
+      output: outStr,
+    },
+    rawOutput: outStr,
+    executedAt: new Date().toISOString(),
+  };
+}
+
 
 
 

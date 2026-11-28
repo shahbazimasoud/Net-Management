@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.501.4';
+export const APP_VERSION = '1.502.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.502.0',
+    releaseDate: '2026-11-28',
+    type: 'minor',
+    title: 'افزودن تب جدید «مرورگر» در هلپ‌دسک با امکانات مهندسی تنظیم پروکسی، صفحه خانه، بکاپ بوکمارک، پاک‌سازی کوکی و کش و بازرسی افزونه‌ها (بدون هستوری)',
+    title_en: 'Add New HelpDesk "Browser" Management Tab with Remote Proxy, Homepage, Bookmarks Backup, Cookies/Cache Cleanup & Extensions Audit (No History)',
+    changes: [
+      'افزودن تب جدید و مستقل `مرورگر` (`browser_manage`) در صفحه `Agentless Endpoint HelpDesk` برای شناسایی زنده مرورگرهای نصب‌شده (Chrome، Edge، Firefox، Brave، Opera، Vivaldi، Yandex، Chromium)، نسخه، مرورگر پیش‌فرض سیستم، پروسس‌های در حال اجرا و مصرف حافظه — کاملاً بدون خواندن یا نمایش تاریخچه وب‌گردی کاربر.',
+      'افزودن ابزارهای مهندسی از راه دور هلپ‌دسک در `BrowserManageTab.tsx` و بک‌اند `server/helpdeskService.ts`: تنظیم یا ریست پروکسی (دستی، اسکریپت PAC یا اتصال مستقیم) روی لایه‌های WinINet، WinHTTP، پالیسی Chrome/Edge و فایل `prefs.js` فایرفاکس، تنظیم صفحه خانه (Homepage) و صفحات شروع (Startup URLs) در پالیسی و پروفایل‌ها.',
+      'افزودن قابلیت بکاپ‌گیری مستقیم از بوکمارک‌های هر پروفایل یا کل مرورگرها با خروجی استاندارد Netscape HTML (قابل ایمپورت مستقیم در تمام مرورگرها) و JSON، پاک‌سازی انتخابی کش و کوکی‌ها (با گزینه بستن خودکار مرورگر و حذف LocalStorage/IndexedDB)، حذف کش HSTS (`TransportSecurity`) برای رفع خطاهای گواهی داخلی، رفع فایل‌های قفل مانده پروفایل (`SingletonLock` / `parent.lock`)، بستن اجباری پروسس‌های مرورگر و فهرست بازرسی افزونه‌های نصب‌شده همراه با مدال تأییدیه دو‌مرحله‌ای و ثبت کامل ممیزی.'
+    ],
+    changes_en: [
+      'Added a dedicated `Browser` (`browser_manage`) tab to `Agentless Endpoint HelpDesk` that performs live discovery of installed browsers (Chrome, Edge, Firefox, Brave, Opera, Vivaldi, Yandex, Chromium), exact versions, OS default browser, running process PIDs & RAM usage, and user profiles — strictly excluding browsing history.',
+      'Implemented remote browser engineering controls in `server/helpdeskService.ts`, `server/routes.ts`, and `src/components/helpdesk/BrowserManageTab.tsx`: manual/PAC/direct proxy configuration across Windows WinINet, WinHTTP, Chrome/Edge HKLM Policies, and Firefox `prefs.js`; plus remote Homepage & Startup URLs management via profile preferences and system policies.',
+      'Added one-click Bookmarks Backup export (standard importable Netscape HTML and structured JSON from Chromium `Bookmarks` and Firefox `moz_bookmarks`), selective Cache & Cookies cleanup (with optional browser auto-close and site storage purge), HSTS (`TransportSecurity`) flush, stale profile lock repair (`SingletonLock`/`parent.lock`), force-close browser processes, and installed Extensions audit — protected with confirmation modals, RBAC action enforcement, rate limiting, and audit logging.'
+    ]
+  },
   {
     version: '1.501.4',
     releaseDate: '2026-11-27',
