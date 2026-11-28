@@ -10,9 +10,22 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.501.2';
+export const APP_VERSION = '1.501.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.501.3',
+    releaseDate: '2026-11-27',
+    type: 'patch',
+    title: 'رفع خطای «was not found on this workstation» هنگام ارسال Test Print پرینترها با اجرای تست چاپ از جانب کاربر فعال لاگین‌شده سیستم',
+    title_en: 'Fix Printer Test Print "was not found on this workstation" by Dispatching Inside Active User Interactive Session',
+    changes: [
+      'رفع ریشه‌ای خطای `Printer ... was not found on this workstation` هنگام ارسال صفحه تست پرینت (Test Print) برای پرینترهای پروفایل کاربر/شبکه‌ای در تب `Printers & Spooler` (`sendEndpointTestPrintPage` در `server/helpdeskService.ts`): جایگزینی استعلام صرف Win32_Printer سمت سشن ادمین با شناسایی کاربر فعال سیستم (`Win32_ComputerSystem` / `explorer.exe` / `query user`) و اجرای دستور چاپ آزمایشی (`PrintTestPage` و `rundll32 printui.dll,PrintUIEntry /k`) مستقیم درون نشست تعاملی کاربر جاری از طریق `ScheduledTask` موقت (با دسترسی پوشه موقت بر اساس SID و پاک‌سازی کامل پس از اتمام) همراه با فالبک خودکار برای پرینترهای سیستمی.'
+    ],
+    changes_en: [
+      'Fixed root cause of `Printer ... was not found on this workstation` when sending a Test Print page for per-user / network-shared printers in `Printers & Spooler` (`sendEndpointTestPrintPage` in `server/helpdeskService.ts`): detects the active logged-in desktop user (`Win32_ComputerSystem` / `explorer.exe` / `query user`) and dispatches `PrintTestPage` / `rundll32 printui.dll,PrintUIEntry /k` directly inside the active user interactive logon session via a temporary `ScheduledTask` (so HKU/HKCU per-user printers resolve cleanly and the job prints as the logged-in user), with clean fallback to machine printers when no interactive session exists.'
+    ]
+  },
   {
     version: '1.501.2',
     releaseDate: '2026-11-27',

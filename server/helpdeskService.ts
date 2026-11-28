@@ -21947,65 +21947,309 @@ export async function sendEndpointTestPrintPage(
 
   const ps = `
 $ErrorActionPreference = 'Stop'
-$targetPrinter = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${nameB64}'))
-$wmiMatch = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq $targetPrinter } | Select-Object -First 1
-if (-not $wmiMatch) {
-  throw "Printer '$targetPrinter' was not found on this workstation."
+$targetPrinter = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${nameB64}')).Trim()
+${PS_HELPDESK_DETECT_LOGGED_USER}
+
+if (-not $loggedUser) {
+  try {
+    $qLines = & query user 2>$null
+    foreach ($ql in $qLines) {
+      if ($ql -match '^\\s*>?(\\S+)\\s+(\\S*)\\s+(\\d+)\\s+(Active|Disc)\\s+') {
+        $qUser = $matches[1].Trim()
+        if ($qUser -and $qUser -notmatch '^(USERNAME|SESSIONNAME)$') {
+          $loggedUser = $qUser
+          break
+        }
+      }
+    }
+    if ($loggedUser -and -not $userSid) {
+      try {
+        $nt2 = New-Object System.Security.Principal.NTAccount($loggedUser)
+        $userSid = $nt2.Translate([System.Security.Principal.SecurityIdentifier]).Value
+      } catch {}
+    }
+  } catch {}
 }
 
-$methodUsed = ''
-$retVal = -1
+$inUserReg = $false
+if ($userSid) {
+  try {
+    $uConns = Get-ChildItem -Path "Registry::HKEY_USERS\\$userSid\\Printers\\Connections" -ErrorAction SilentlyContinue
+    foreach ($uc in $uConns) {
+      $props = Get-ItemProperty -Path $uc.PSPath -ErrorAction SilentlyContinue
+      $cand = ''
+      if ($props.Server -and $props.Printer) {
+        $srv = ([string]$props.Server).TrimStart('\\')
+        $prt = ([string]$props.Printer).TrimStart('\\')
+        $cand = if ($prt -like "$srv\\*") { "\\\\$prt" } else { "\\\\$srv\\$prt" }
+      } elseif ($uc.PSChildName -match '^,,([^,]+),(.+)$') {
+        $cand = "\\\\$($Matches[1])\\$($Matches[2])"
+      }
+      if ($cand -and $cand -ieq $targetPrinter) {
+        $inUserReg = $true
+        break
+      }
+    }
+  } catch {}
+  if (-not $inUserReg) {
+    try {
+      $devs = Get-ItemProperty -Path "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices" -ErrorAction SilentlyContinue
+      if ($devs) {
+        $dProp = $devs.PSObject.Properties | Where-Object { $_.Name -ieq $targetPrinter } | Select-Object -First 1
+        if ($dProp) { $inUserReg = $true }
+      }
+    } catch {}
+  }
+}
+
+$wmiMatch = $null
 try {
-  $res = Invoke-CimMethod -InputObject $wmiMatch -MethodName PrintTestPage -ErrorAction Stop
-  $retVal = [int]$res.ReturnValue
-  $methodUsed = "WMI PrintTestPage (ReturnValue=$retVal)"
-} catch {
-  $methodUsed = "WMI failed: $($_.Exception.Message)"
-}
-
-if ($retVal -ne 0) {
-  Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry', '/k', '/n', $targetPrinter) -NoNewWindow -ErrorAction SilentlyContinue
-  $methodUsed = "$methodUsed | Fallback rundll32 PrintUIEntry /k dispatched"
-}
-
-Start-Sleep -Milliseconds 350
-$jobsCount = 0
-try {
-  $jobsCount = @(Get-PrintJob -PrinterName $targetPrinter -ErrorAction SilentlyContinue).Count
+  $wmiMatch = Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq $targetPrinter } | Select-Object -First 1
 } catch {}
 
+$sentOk = $false
+$sentAsUser = ''
+$resolvedName = $targetPrinter
+$resolvedPort = if ($wmiMatch) { [string]$wmiMatch.PortName } else { '' }
+$resolvedDriver = if ($wmiMatch) { [string]$wmiMatch.DriverName } else { '' }
+$methodUsed = ''
+$jobsCount = 0
+$userAttemptErr = ''
+
+# 1. Preferred: Dispatch test print inside the active logged-in user's interactive session
+#    so per-user printers (HKU\\<SID>\\Printers\\Connections) are visible and print job Owner = active user.
+if ($loggedUser) {
+  $guid = [guid]::NewGuid().ToString('N').Substring(0, 10)
+  $baseTmp = if ($env:ProgramData) { $env:ProgramData } else { Join-Path $env:SystemRoot 'Temp' }
+  $tmpDir = Join-Path $baseTmp ("NetTopo_TP_" + $guid)
+  $taskName = "NetTopo_TestPrint_" + $guid
+  try {
+    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+    try {
+      $acl = Get-Acl -LiteralPath $tmpDir
+      $ident = if ($userSid) { New-Object System.Security.Principal.SecurityIdentifier($userSid) } else { New-Object System.Security.Principal.NTAccount($loggedUser) }
+      $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $ident,
+        [System.Security.AccessControl.FileSystemRights]::FullControl,
+        ([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit),
+        [System.Security.AccessControl.PropagationFlags]::None,
+        [System.Security.AccessControl.AccessControlType]::Allow
+      )
+      $acl.SetAccessRule($rule)
+      Set-Acl -LiteralPath $tmpDir -AclObject $acl
+    } catch {
+      try { & icacls $tmpDir /grant "$($loggedUser):(OI)(CI)F" /Q 2>$null | Out-Null } catch {}
+    }
+
+    $targetFile = Join-Path $tmpDir 'target.txt'
+    $outFile = Join-Path $tmpDir 'res.json'
+    $psFile = Join-Path $tmpDir 'tp.ps1'
+    [System.IO.File]::WriteAllText($targetFile, $targetPrinter, [System.Text.Encoding]::UTF8)
+
+    $innerScript = @'
+$ErrorActionPreference = 'Continue'
+$targetFile = Join-Path $PSScriptRoot 'target.txt'
+$outFile = Join-Path $PSScriptRoot 'res.json'
+$target = [System.IO.File]::ReadAllText($targetFile, [System.Text.Encoding]::UTF8).Trim()
+$resObj = [ordered]@{
+  found = $false
+  ok = $false
+  printerName = $target
+  portName = ''
+  driverName = ''
+  jobsInQueue = 0
+  method = ''
+  error = ''
+}
+
+try {
+  $allPrinters = @(Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue)
+  $m = $allPrinters | Where-Object { $_.Name -ieq $target } | Select-Object -First 1
+  if (-not $m) {
+    $normTarget = $target.TrimEnd('\\').Trim()
+    $m = $allPrinters | Where-Object { ([string]$_.Name).TrimEnd('\\').Trim() -ieq $normTarget } | Select-Object -First 1
+  }
+  if (-not $m -and $target -match '^\\\\\\\\([^\\\\]+)\\\\(.+)$') {
+    $srv = $Matches[1]
+    $shr = $Matches[2]
+    $m = $allPrinters | Where-Object {
+      ($_.ShareName -and $_.ShareName -ieq $shr -and ($_.SystemName -ieq $srv -or $_.SystemName -ieq "\\\\$srv")) -or
+      ($_.Name -like "*$shr*" -and $_.Name -like "*$srv*")
+    } | Select-Object -First 1
+  }
+
+  $inHkcu = $false
+  try {
+    $conns = Get-ChildItem -Path 'HKCU:\\Printers\\Connections' -ErrorAction SilentlyContinue
+    foreach ($c in $conns) {
+      $cp = Get-ItemProperty -Path $c.PSPath -ErrorAction SilentlyContinue
+      $cand = ''
+      if ($cp.Server -and $cp.Printer) {
+        $s1 = ([string]$cp.Server).TrimStart('\\')
+        $p1 = ([string]$cp.Printer).TrimStart('\\')
+        $cand = if ($p1 -like "$s1\\*") { "\\\\$p1" } else { "\\\\$s1\\$p1" }
+      } elseif ($c.PSChildName -match '^,,([^,]+),(.+)$') {
+        $cand = "\\\\$($Matches[1])\\$($Matches[2])"
+      }
+      if ($cand -and $cand -ieq $target) { $inHkcu = $true; break }
+    }
+  } catch {}
+
+  if ($m) {
+    $resObj.found = $true
+    $resObj.printerName = [string]$m.Name
+    $resObj.portName = [string]$m.PortName
+    $resObj.driverName = [string]$m.DriverName
+    $retVal = -1
+    try {
+      $r = Invoke-CimMethod -InputObject $m -MethodName PrintTestPage -ErrorAction Stop
+      $retVal = [int]$r.ReturnValue
+      $resObj.method = "UserSession WMI PrintTestPage (ReturnValue=$retVal)"
+      if ($retVal -eq 0) { $resObj.ok = $true }
+    } catch {
+      $resObj.method = "UserSession WMI failed: $($_.Exception.Message)"
+    }
+    if (-not $resObj.ok) {
+      try {
+        Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry', '/k', '/n', [string]$m.Name) -NoNewWindow -ErrorAction Stop
+        $resObj.ok = $true
+        $resObj.method = "$($resObj.method) | UserSession PrintUIEntry /k dispatched"
+      } catch {
+        $resObj.error = $_.Exception.Message
+      }
+    }
+    Start-Sleep -Milliseconds 400
+    try { $resObj.jobsInQueue = @(Get-PrintJob -PrinterName ([string]$m.Name) -ErrorAction SilentlyContinue).Count } catch {}
+  } elseif ($inHkcu) {
+    $resObj.found = $true
+    try {
+      Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry', '/k', '/n', $target) -Wait -NoNewWindow -ErrorAction Stop
+      $resObj.ok = $true
+      $resObj.method = 'UserSession HKCU PrintUIEntry /k dispatched'
+    } catch {
+      $resObj.error = $_.Exception.Message
+    }
+  } else {
+    $resObj.error = "Printer '$target' was not found in active user session."
+  }
+} catch {
+  $resObj.error = $_.Exception.Message
+}
+
+$json = ($resObj | ConvertTo-Json -Compress)
+[System.IO.File]::WriteAllText($outFile, $json, [System.Text.Encoding]::UTF8)
+'@
+    [System.IO.File]::WriteAllText($psFile, $innerScript, [System.Text.Encoding]::UTF8)
+
+    $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \`"$psFile\`""
+    $pri = New-ScheduledTaskPrincipal -UserId $loggedUser -LogonType Interactive -RunLevel Limited
+    $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 20)
+    Register-ScheduledTask -TaskName $taskName -Action $act -Principal $pri -Settings $st -Force | Out-Null
+    Start-ScheduledTask -TaskName $taskName
+
+    for ($i = 0; $i -lt 50; $i++) {
+      Start-Sleep -Milliseconds 300
+      $tInfo = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+      $hasOut = Test-Path -LiteralPath $outFile
+      if ($hasOut -and (-not $tInfo -or $tInfo.State -ne 'Running')) { break }
+      if ($i -gt 10 -and (-not $tInfo -or $tInfo.State -ne 'Running')) { break }
+    }
+
+    if (Test-Path -LiteralPath $outFile) {
+      $rawRes = [System.IO.File]::ReadAllText($outFile, [System.Text.Encoding]::UTF8)
+      $uRes = $rawRes | ConvertFrom-Json -ErrorAction SilentlyContinue
+      if ($uRes -and $uRes.ok) {
+        $sentOk = $true
+        $sentAsUser = $loggedUser
+        if ($uRes.printerName) { $resolvedName = [string]$uRes.printerName }
+        if ($uRes.portName) { $resolvedPort = [string]$uRes.portName }
+        if ($uRes.driverName) { $resolvedDriver = [string]$uRes.driverName }
+        $jobsCount = [int]$uRes.jobsInQueue
+        $methodUsed = [string]$uRes.method
+      } elseif ($uRes -and $uRes.error) {
+        $userAttemptErr = [string]$uRes.error
+      }
+    } else {
+      $userAttemptErr = "Interactive user session task did not produce output for user '$loggedUser'."
+    }
+  } catch {
+    $userAttemptErr = $_.Exception.Message
+  } finally {
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    if (Test-Path -LiteralPath $tmpDir) {
+      Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+# 2. Fallback to machine/WinRM WMI printer ONLY if user-session dispatch did not run/succeed
+if (-not $sentOk) {
+  if ($wmiMatch) {
+    $retVal = -1
+    try {
+      $res = Invoke-CimMethod -InputObject $wmiMatch -MethodName PrintTestPage -ErrorAction Stop
+      $retVal = [int]$res.ReturnValue
+      $methodUsed = "Machine WMI PrintTestPage (ReturnValue=$retVal)"
+      if ($retVal -eq 0) { $sentOk = $true }
+    } catch {
+      $methodUsed = "Machine WMI failed: $($_.Exception.Message)"
+    }
+    if (-not $sentOk) {
+      Start-Process -FilePath 'rundll32.exe' -ArgumentList @('printui.dll,PrintUIEntry', '/k', '/n', $wmiMatch.Name) -NoNewWindow -ErrorAction SilentlyContinue
+      $methodUsed = "$methodUsed | Fallback rundll32 PrintUIEntry /k dispatched"
+      $sentOk = $true
+    }
+    $resolvedName = [string]$wmiMatch.Name
+    $resolvedPort = [string]$wmiMatch.PortName
+    $resolvedDriver = [string]$wmiMatch.DriverName
+    Start-Sleep -Milliseconds 350
+    try { $jobsCount = @(Get-PrintJob -PrinterName $resolvedName -ErrorAction SilentlyContinue).Count } catch {}
+  } elseif ($inUserReg) {
+    throw "Printer '$targetPrinter' belongs to user '$loggedUser', but interactive test print could not complete: $userAttemptErr"
+  } else {
+    $ctxNote = if ($loggedUser) { " or active user '$loggedUser' session ($userAttemptErr)" } else { '' }
+    throw "Printer '$targetPrinter' was not found on this workstation$ctxNote."
+  }
+}
+
 [PSCustomObject]@{
-  ok = $true
-  printerName = $wmiMatch.Name
-  portName = [string]$wmiMatch.PortName
-  driverName = [string]$wmiMatch.DriverName
+  ok = $sentOk
+  printerName = $resolvedName
+  portName = $resolvedPort
+  driverName = $resolvedDriver
+  sentAsUser = $sentAsUser
   jobsInQueue = $jobsCount
-  output = "$methodUsed | Queue jobs: $jobsCount"
+  output = "$methodUsed$(if ($sentAsUser) { " | Sent as user: $sentAsUser" }) | Queue jobs: $jobsCount"
 } | ConvertTo-Json -Compress
 `;
 
   const lx = `
 python3 - <<'PY'
-import base64, json, subprocess
+import base64, json, os, subprocess
 pname = base64.b64decode("${nameB64}").decode("utf-8")
-test_file = "/usr/share/cups/data/testprint"
-import os
-if os.path.isfile(test_file):
-    p = subprocess.run(["lp", "-d", pname, test_file], capture_output=True, text=True, timeout=15)
+chk = subprocess.run(["lpstat", "-p", pname], capture_output=True, text=True, timeout=10)
+if chk.returncode != 0:
+    print(json.dumps({"ok": False, "printerName": pname, "output": (chk.stderr or chk.stdout or f"Printer '{pname}' not found").strip()}))
 else:
-    txt = f"NetTopology HelpDesk Test Print Page\\nPrinter: {pname}\\n"
-    p = subprocess.run(["lp", "-d", pname, "-t", "HelpDesk Test Page"], input=txt, capture_output=True, text=True, timeout=15)
-print(json.dumps({
-    "ok": p.returncode == 0,
-    "printerName": pname,
-    "output": (p.stdout + " " + p.stderr).strip() or f"Test print queued on {pname}"
-}))
+    test_file = "/usr/share/cups/data/testprint"
+    if os.path.isfile(test_file):
+        p = subprocess.run(["lp", "-d", pname, test_file], capture_output=True, text=True, timeout=15)
+    else:
+        txt = f"NetTopology HelpDesk Test Print Page\\nPrinter: {pname}\\n"
+        p = subprocess.run(["lp", "-d", pname, "-t", "HelpDesk Test Page"], input=txt, capture_output=True, text=True, timeout=15)
+    print(json.dumps({
+        "ok": p.returncode == 0,
+        "printerName": pname,
+        "sentAsUser": os.environ.get("USER", ""),
+        "output": (p.stdout + " " + p.stderr).strip() or f"Test print queued on {pname}"
+    }))
 PY
 `;
 
-  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 25000 }, ps, lx);
+  const execRes = await executeHardcodedScripts({ ...input, timeoutMs: 40000 }, ps, lx);
   const parsed = parseJsonFromStdout<any>(execRes.stdout, 'send printer test page');
   const ok = Boolean(parsed.ok);
+  const sentAsUser = String(parsed.sentAsUser || '');
 
   return {
     targetIp: execRes.host,
@@ -22014,15 +22258,16 @@ PY
     action: 'printer_test_page',
     success: ok,
     message: ok
-      ? `Test page sent to printer "${printerName}" on ${execRes.host}.`
+      ? `Test page sent to printer "${printerName}" on ${execRes.host}${sentAsUser ? ` (as active user ${sentAsUser})` : ''}.`
       : `Failed to send test page to "${printerName}" on ${execRes.host}: ${parsed.output}`,
     messageFa: ok
-      ? `صفحه تست پرینت (Test Page) با موفقیت برای پرینتر «${printerName}» در سیستم ${execRes.host} ارسال شد.`
+      ? `صفحه تست پرینت (Test Page) با موفقیت برای پرینتر «${printerName}» در سیستم ${execRes.host}${sentAsUser ? ` (از جانب کاربر فعال ${sentAsUser})` : ''} ارسال شد.`
       : `ارسال صفحه تست پرینت به «${printerName}» روی سیستم ${execRes.host} ناموفق بود: ${parsed.output}`,
     details: {
       printerName: String(parsed.printerName || printerName),
       portName: parsed.portName,
       driverName: parsed.driverName,
+      sentAsUser: sentAsUser || undefined,
       jobsInQueue: parsed.jobsInQueue,
     },
     rawOutput: String(parsed.output || ''),
