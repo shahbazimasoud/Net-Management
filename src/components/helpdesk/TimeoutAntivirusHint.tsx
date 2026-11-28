@@ -53,7 +53,11 @@ export const TimeoutAntivirusHint: React.FC<TimeoutAntivirusHintProps> = ({
           <ShieldAlert className="w-3.5 h-3.5 text-amber-500 shrink-0" />
         )}
         <span className="font-medium break-words">
-          {canControlAntivirus
+          {isAlreadyOnSecurityTab
+            ? isEn
+              ? "Tip: If stopping/starting Antivirus times out, enter the vendor's Uninstall/Stop Password (if password-protected), check Self-Defense / Tamper Protection policies, or try WinRM (5985/5986)."
+              : 'راهنما: اگر توقف یا راه‌اندازی آنتی‌ویروس با تایم‌اوت مواجه شد، در صورت فعال بودن رمز حفاظتی (Stop/Tamper Password) آن را وارد کنید، تنظیمات Self-Defense را بررسی نمایید یا از WinRM استفاده کنید.'
+            : canControlAntivirus
             ? isEn
               ? "Tip: Due to this timeout, it is recommended to temporarily turn off the endpoint's Antivirus and retry."
               : 'پیشنهاد: به دلیل تایم‌اوت، بهتر است موقتاً آنتی‌ویروس سیستم را خاموش کنید و دوباره تلاش نمایید.'

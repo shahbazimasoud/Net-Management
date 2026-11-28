@@ -21041,165 +21041,373 @@ if ($action -eq 'update_definitions') {
   } else {
     throw "On-demand CLI signature update is not supported for '$prodId' on this endpoint (managed automatically via vendor cloud/console)."
   }
-} elseif ($prodId -eq 'microsoft_defender') {
-  if ($action -eq 'start' -or $action -eq 'enable_realtime') {
-    try {
-      $svc = Get-Service -Name 'WinDefend' -ErrorAction SilentlyContinue
-      if ($svc -and $svc.Status -ne 'Running') {
-        Start-Service -Name 'WinDefend' -ErrorAction SilentlyContinue
-        Start-Sleep -Milliseconds 700
-      }
-    } catch {}
-    Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction Stop
-    Start-Sleep -Milliseconds 600
-    $after = Get-MpComputerStatus -ErrorAction SilentlyContinue
-    $rt = if ($after) { [bool]$after.RealTimeProtectionEnabled } else { $true }
-    $ok = $rt
-    $newState = if ($rt) { 'enabled' } else { 'disabled' }
-    $msg = if ($rt) { 'Microsoft Defender Real-Time Protection enabled.' } else { 'Microsoft Defender remained disabled (check Group Policy or 3rd-party AV Passive Mode).' }
-  } elseif ($action -eq 'stop' -or $action -eq 'disable_realtime') {
-    $mpBefore = $null
-    try { $mpBefore = Get-MpComputerStatus -ErrorAction SilentlyContinue } catch {}
-    if ($mpBefore -and $mpBefore.IsTamperProtected) {
-      throw 'Microsoft Defender Tamper Protection is enabled on this workstation and blocks disabling Real-Time Protection remotely. Disable Tamper Protection in Windows Security or Intune/GPO first.'
-    }
-    Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
-    Start-Sleep -Milliseconds 600
-    $after = Get-MpComputerStatus -ErrorAction SilentlyContinue
-    $rt = if ($after) { [bool]$after.RealTimeProtectionEnabled } else { $false }
-    if ($rt) {
-      throw 'Microsoft Defender Real-Time Protection stayed ON after Set-MpPreference (blocked by Tamper Protection or GPO).'
-    }
-    $ok = $true
-    $newState = 'disabled'
-    $msg = 'Microsoft Defender Real-Time Protection temporarily disabled. Remember to re-enable it!'
-  } else {
-    Restart-Service -Name 'WinDefend' -Force -ErrorAction Stop
-    $ok = $true
-    $newState = 'enabled'
-    $msg = 'Microsoft Defender service restarted.'
-  }
 } else {
-  # Find vendor CLI tools if available (supports stop passwords / tamper unlock passcodes)
-  $usedCli = $false
-  if ($prodId -eq 'symantec') {
-    $smcCandidates = @(
-      "$env:ProgramFiles\\Symantec\\Symantec Endpoint Protection\\Smc.exe",
-      "$env:ProgramFiles (x86)\\Symantec\\Symantec Endpoint Protection\\Smc.exe"
+  # Helper for bounded external CLI execution (never hangs indefinitely on Session-0 prompts)
+  function Invoke-BoundedAvCli {
+    param(
+      [string]$FilePath,
+      [string[]]$ArgList,
+      [int]$TimeoutMs = 18000,
+      [switch]$CaptureOutput
     )
+    $tmpOut = [System.IO.Path]::GetTempFileName()
+    $tmpErr = [System.IO.Path]::GetTempFileName()
+    $proc = $null
     try {
-      $smcDir = Get-ChildItem -Path "$env:ProgramFiles\\Symantec\\Symantec Endpoint Protection" -Filter 'Smc.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-      if ($smcDir) { $smcCandidates += $smcDir.FullName }
-    } catch {}
-    $smc = $smcCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
-    if ($smc) {
-      $usedCli = $true
-      if ($action -eq 'stop' -or $action -eq 'disable_realtime') {
-        if ($pw) {
-          $p = Start-Process -FilePath $smc -ArgumentList @('-p', $pw, '-stop') -Wait -NoNewWindow -PassThru
-        } else {
-          $p = Start-Process -FilePath $smc -ArgumentList @('-stop') -Wait -NoNewWindow -PassThru
-        }
-        Start-Sleep -Milliseconds 2200
-        $svcAfter = Get-Service -Name 'SepMasterService' -ErrorAction SilentlyContinue
-        if ($svcAfter -and $svcAfter.Status -eq 'Running') {
-          throw 'Symantec Endpoint Protection remained running (invalid unload password or Symantec Self-Defense blocked the request).'
-        }
-        $ok = $true
-        $newState = 'stopped'
-        $msg = 'Symantec Endpoint Protection stopped via Smc.exe. Remember to restart it!'
+      if ($CaptureOutput) {
+        $proc = Start-Process -FilePath $FilePath -ArgumentList $ArgList -WindowStyle Hidden -RedirectStandardOutput $tmpOut -RedirectStandardError $tmpErr -PassThru
       } else {
-        $p = Start-Process -FilePath $smc -ArgumentList @('-start') -Wait -NoNewWindow -PassThru
-        Start-Sleep -Milliseconds 1800
-        $svcAfter = Get-Service -Name 'SepMasterService' -ErrorAction SilentlyContinue
-        $ok = ($null -eq $svcAfter) -or ($svcAfter.Status -eq 'Running')
-        $newState = if ($ok) { 'running' } else { 'stopped' }
-        $msg = if ($ok) { 'Symantec Endpoint Protection started.' } else { 'Symantec Endpoint Protection failed to start.' }
+        $proc = Start-Process -FilePath $FilePath -ArgumentList $ArgList -WindowStyle Hidden -PassThru
       }
-    }
-  } elseif ($prodId -eq 'kaspersky') {
-    $avpExe = Get-ChildItem -Path "$env:ProgramFiles\\Kaspersky Lab","$env:ProgramFiles (x86)\\Kaspersky Lab" -Filter 'avp.com' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
-    if ($avpExe) {
-      $usedCli = $true
-      if ($action -eq 'stop' -or $action -eq 'disable_realtime') {
-        $args = if ($pw) { @('STOP', 'RTP', "/password=$pw") } else { @('STOP', 'RTP') }
-        $out = & $avpExe @args 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
-          throw ("Kaspersky CLI rejected stop request (exit $LASTEXITCODE): " + $out.Trim())
-        }
-        $ok = $true
-        $newState = 'stopped'
-        $msg = 'Kaspersky protection stopped. Remember to re-enable protection!'
-      } else {
-        $out = & $avpExe START RTP 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
-          throw ("Kaspersky CLI failed to start protection (exit $LASTEXITCODE): " + $out.Trim())
-        }
-        $ok = $true
-        $newState = 'running'
-        $msg = 'Kaspersky protection started.'
+      $finished = $proc.WaitForExit($TimeoutMs)
+      if (-not $finished) {
+        try { $proc.Kill() } catch {}
+        return [PSCustomObject]@{ TimedOut = $true; ExitCode = -999; Output = '' }
       }
-    }
-  } elseif ($prodId -eq 'sentinelone') {
-    $s1Ctl = Get-ChildItem -Path "$env:ProgramFiles\\SentinelOne" -Filter 'sentinelctl.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
-    if ($s1Ctl) {
-      $usedCli = $true
-      if ($action -eq 'stop' -or $action -eq 'disable_realtime') {
-        if (-not $pw) {
-          throw 'SentinelOne requires a valid site/agent passphrase (-k) to unload protection.'
-        }
-        $out = & $s1Ctl unload -a -k $pw 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
-          throw ("SentinelOne unload failed (exit $LASTEXITCODE): " + $out.Trim())
-        }
-        $ok = $true
-        $newState = 'stopped'
-        $msg = 'SentinelOne agent unloaded with passphrase. Remember to reload it!'
-      } else {
-        $out = & $s1Ctl load -a 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
-          throw ("SentinelOne load failed (exit $LASTEXITCODE): " + $out.Trim())
-        }
-        $ok = $true
-        $newState = 'running'
-        $msg = 'SentinelOne agent loaded.'
+      $outText = ''
+      if ($CaptureOutput) {
+        $s1 = if (Test-Path -LiteralPath $tmpOut) { (Get-Content -LiteralPath $tmpOut -Raw -ErrorAction SilentlyContinue) } else { '' }
+        $s2 = if (Test-Path -LiteralPath $tmpErr) { (Get-Content -LiteralPath $tmpErr -Raw -ErrorAction SilentlyContinue) } else { '' }
+        $outText = (($s1 + [Environment]::NewLine + $s2).Trim())
       }
+      return [PSCustomObject]@{ TimedOut = $false; ExitCode = $proc.ExitCode; Output = $outText }
+    } finally {
+      try { Remove-Item -LiteralPath $tmpOut -Force -ErrorAction SilentlyContinue } catch {}
+      try { Remove-Item -LiteralPath $tmpErr -Force -ErrorAction SilentlyContinue } catch {}
     }
   }
 
-  if (-not $usedCli) {
-    if (-not $svcName) {
-      throw "No controllable Windows service or vendor CLI detected for '$prodId'."
-    }
-    $targetSvc = Get-Service -Name $svcName -ErrorAction Stop
-    if ($action -eq 'stop' -or $action -eq 'disable_realtime') {
-      try {
-        Stop-Service -Name $svcName -Force -ErrorAction Stop
-      } catch {
-        throw ("Vendor self-defense or permission error prevented stopping service '$svcName': " + $_.Exception.Message)
+  function Invoke-BoundedServiceControl {
+    param(
+      [string]$TargetSvc,
+      [ValidateSet('start','stop')]
+      [string]$Mode,
+      [int]$TimeoutSec = 18
+    )
+    $sc = Get-Service -Name $TargetSvc -ErrorAction Stop
+    if ($Mode -eq 'stop') {
+      if ($sc.Status -ne 'Stopped') {
+        if ($sc.Status -ne 'StopPending') {
+          $sc.Stop()
+        }
+        $sc.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds($TimeoutSec))
       }
-      Start-Sleep -Milliseconds 1000
-      $afterSvc = Get-Service -Name $svcName -ErrorAction Stop
-      if ($afterSvc.Status -eq 'Running') {
-        throw "Antivirus service '$svcName' is still running (blocked by Self-Defense / Tamper Protection)."
-      }
-      $ok = $true
-      $newState = 'stopped'
-      $msg = "Antivirus service '$svcName' stopped. Remember to start it again!"
-    } elseif ($action -eq 'restart') {
-      Restart-Service -Name $svcName -Force -ErrorAction Stop
-      Start-Sleep -Milliseconds 900
-      $afterSvc = Get-Service -Name $svcName -ErrorAction Stop
-      $ok = ($afterSvc.Status -eq 'Running')
-      $newState = if ($ok) { 'running' } else { 'stopped' }
-      $msg = "Antivirus service '$svcName' restarted ($($afterSvc.Status))."
     } else {
-      Start-Service -Name $svcName -ErrorAction Stop
-      Start-Sleep -Milliseconds 900
-      $afterSvc = Get-Service -Name $svcName -ErrorAction Stop
-      $ok = ($afterSvc.Status -eq 'Running')
-      $newState = if ($ok) { 'running' } else { 'stopped' }
-      $msg = "Antivirus service '$svcName' started ($($afterSvc.Status))."
+      if ($sc.Status -ne 'Running') {
+        if ($sc.Status -ne 'StartPending') {
+          $sc.Start()
+        }
+        $sc.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds($TimeoutSec))
+      }
+    }
+    $sc.Refresh()
+    return $sc
+  }
+
+  if ($prodId -eq 'microsoft_defender') {
+    $mpBefore = $null
+    try { $mpBefore = Get-MpComputerStatus -ErrorAction SilentlyContinue } catch {}
+    if ($action -eq 'start' -or $action -eq 'enable_realtime') {
+      try {
+        $svc = Get-Service -Name 'WinDefend' -ErrorAction SilentlyContinue
+        if ($svc -and $svc.Status -ne 'Running') {
+          Invoke-BoundedServiceControl -TargetSvc 'WinDefend' -Mode 'start' -TimeoutSec 14 | Out-Null
+        }
+      } catch {}
+      Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction Stop
+      $rt = $false
+      for ($i = 0; $i -lt 14; $i++) {
+        Start-Sleep -Milliseconds 450
+        $after = Get-MpComputerStatus -ErrorAction SilentlyContinue
+        if ($after -and [bool]$after.RealTimeProtectionEnabled) {
+          $rt = $true
+          break
+        }
+      }
+      if (-not $rt) {
+        $afterFinal = Get-MpComputerStatus -ErrorAction SilentlyContinue
+        $rt = if ($afterFinal) { [bool]$afterFinal.RealTimeProtectionEnabled } else { $true }
+      }
+      $ok = $rt
+      $newState = if ($rt) { 'enabled' } else { 'disabled' }
+      $msg = if ($rt) { 'Microsoft Defender Real-Time Protection enabled.' } else { 'Microsoft Defender remained disabled (check Group Policy or 3rd-party AV Passive Mode).' }
+    } elseif ($action -eq 'stop' -or $action -eq 'disable_realtime') {
+      if ($mpBefore -and $mpBefore.IsTamperProtected) {
+        throw 'Microsoft Defender Tamper Protection is enabled on this workstation and blocks disabling Real-Time Protection remotely. Disable Tamper Protection in Windows Security or Intune/GPO first.'
+      }
+      if ($mpBefore -and $mpBefore.AMRunningMode -match 'Passive') {
+        $ok = $true
+        $newState = 'disabled'
+        $msg = 'Microsoft Defender is already in Passive mode (superseded by active 3rd-party Antivirus).'
+      } else {
+        Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
+        $rt = $true
+        for ($i = 0; $i -lt 14; $i++) {
+          Start-Sleep -Milliseconds 450
+          $after = Get-MpComputerStatus -ErrorAction SilentlyContinue
+          if ($after -and (-not [bool]$after.RealTimeProtectionEnabled)) {
+            $rt = $false
+            break
+          }
+        }
+        if ($rt) {
+          throw 'Microsoft Defender Real-Time Protection stayed ON after Set-MpPreference (blocked by Tamper Protection or GPO).'
+        }
+        $ok = $true
+        $newState = 'disabled'
+        $msg = 'Microsoft Defender Real-Time Protection temporarily disabled. Remember to re-enable it!'
+      }
+    } else {
+      if ($mpBefore -and $mpBefore.IsTamperProtected) {
+        throw 'Microsoft Defender Tamper Protection is enabled and prevents restarting Real-Time Protection remotely.'
+      }
+      try {
+        Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
+        Start-Sleep -Milliseconds 600
+        Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction Stop
+        $ok = $true
+        $newState = 'enabled'
+        $msg = 'Microsoft Defender Real-Time Protection cycled and re-enabled.'
+      } catch {
+        throw ('Microsoft Defender service restart blocked (Protected Process / Tamper Protection): ' + $_.Exception.Message)
+      }
+    }
+  } else {
+    # Fast vendor CLI discovery (avoid slow -Recurse over large AV definition trees)
+    $usedCli = $false
+    if ($prodId -eq 'symantec') {
+      $smcCandidates = [System.Collections.Generic.List[string]]::new()
+      try {
+        $sepWmi = Get-CimInstance Win32_Service -Filter "Name='SepMasterService'" -ErrorAction SilentlyContinue
+        if ($sepWmi -and $sepWmi.PathName) {
+          $rawExe = ([string]$sepWmi.PathName).Trim()
+          if ($rawExe -match '^"([^"]+)"') { $rawExe = $Matches[1] } else { $rawExe = ($rawExe -split '\s+')[0] }
+          if ($rawExe) {
+            $sepDir = Split-Path -Path $rawExe -Parent
+            if ($sepDir) {
+              $smcCandidates.Add((Join-Path $sepDir 'Smc.exe'))
+              $parentDir = Split-Path -Path $sepDir -Parent
+              if ($parentDir) { $smcCandidates.Add((Join-Path $parentDir 'Bin\Smc.exe')) }
+            }
+          }
+        }
+      } catch {}
+      foreach ($regPath in @(
+        'HKLM:\SOFTWARE\Symantec\Symantec Endpoint Protection\SMC',
+        'HKLM:\SOFTWARE\WOW6432Node\Symantec\Symantec Endpoint Protection\SMC',
+        'HKLM:\SOFTWARE\Symantec\Symantec Endpoint Protection\CurrentVersion\public-opstate'
+      )) {
+        try {
+          $rObj = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
+          if ($rObj) {
+            foreach ($prop in @('InstallDir','AppDir','ProductInstallDir')) {
+              $dVal = [string]$rObj.$prop
+              if ($dVal) {
+                $smcCandidates.Add((Join-Path $dVal 'Smc.exe'))
+                $smcCandidates.Add((Join-Path $dVal 'Bin\Smc.exe'))
+              }
+            }
+          }
+        } catch {}
+      }
+      foreach ($baseSep in @(
+        "$env:ProgramFiles\Symantec\Symantec Endpoint Protection",
+        "$env:ProgramFiles (x86)\Symantec\Symantec Endpoint Protection"
+      )) {
+        if ($baseSep -and (Test-Path -LiteralPath $baseSep)) {
+          $smcCandidates.Add((Join-Path $baseSep 'Smc.exe'))
+          $smcCandidates.Add((Join-Path $baseSep 'Bin\Smc.exe'))
+          try {
+            Get-ChildItem -Path $baseSep -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+              $smcCandidates.Add((Join-Path $_.FullName 'Bin\Smc.exe'))
+              $smcCandidates.Add((Join-Path $_.FullName 'Smc.exe'))
+            }
+          } catch {}
+        }
+      }
+      $smc = $smcCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+
+      if ($smc) {
+        $usedCli = $true
+        if ($action -eq 'stop' -or $action -eq 'disable_realtime') {
+          $smcArgs = if ($pw) { @('-p', $pw, '-stop') } else { @('-stop') }
+          $cliRes = Invoke-BoundedAvCli -FilePath $smc -ArgList $smcArgs -TimeoutMs 18000
+          $stopped = $false
+          for ($i = 0; $i -lt 24; $i++) {
+            $svcAfter = Get-Service -Name 'SepMasterService' -ErrorAction SilentlyContinue
+            if (-not $svcAfter -or $svcAfter.Status -eq 'Stopped') {
+              $stopped = $true
+              break
+            }
+            Start-Sleep -Milliseconds 500
+          }
+          if (-not $stopped) {
+            if ($cliRes.TimedOut -and (-not $pw)) {
+              throw 'Symantec Smc.exe timed out waiting for input (likely awaiting a Client Stop Password in Session 0 or blocked by Self-Defense). Enter the Symantec Stop/Unlock Password and retry.'
+            }
+            if ($cliRes.TimedOut) {
+              throw 'Symantec Smc.exe did not finish within 18s (blocked by invalid Stop Password or Symantec Tamper/Self-Defense policy).'
+            }
+            throw 'Symantec Endpoint Protection remained running (invalid unlock password or Symantec Self-Defense / SEPM policy blocked the stop request).'
+          }
+          $ok = $true
+          $newState = 'stopped'
+          $msg = 'Symantec Endpoint Protection stopped via Smc.exe. Remember to restart it!'
+        } elseif ($action -eq 'restart') {
+          $stopArgs = if ($pw) { @('-p', $pw, '-stop') } else { @('-stop') }
+          $stopCli = Invoke-BoundedAvCli -FilePath $smc -ArgList $stopArgs -TimeoutMs 16000
+          for ($i = 0; $i -lt 20; $i++) {
+            $sChk = Get-Service -Name 'SepMasterService' -ErrorAction SilentlyContinue
+            if (-not $sChk -or $sChk.Status -eq 'Stopped') { break }
+            Start-Sleep -Milliseconds 500
+          }
+          $sMid = Get-Service -Name 'SepMasterService' -ErrorAction SilentlyContinue
+          if ($sMid -and $sMid.Status -eq 'Running') {
+            if ($stopCli.TimedOut -and (-not $pw)) {
+              throw 'Symantec restart failed: Smc.exe -stop requires the Symantec Client Password or Self-Defense prevented stopping SepMasterService.'
+            }
+            throw 'Symantec restart failed: SepMasterService stayed Running (blocked by password or Self-Defense).'
+          }
+          Invoke-BoundedAvCli -FilePath $smc -ArgList @('-start') -TimeoutMs 16000 | Out-Null
+          $started = $false
+          for ($i = 0; $i -lt 24; $i++) {
+            $sAfter = Get-Service -Name 'SepMasterService' -ErrorAction SilentlyContinue
+            if ($null -eq $sAfter -or $sAfter.Status -eq 'Running') {
+              $started = $true
+              break
+            }
+            if ($i -eq 8 -and $sAfter.Status -eq 'Stopped') {
+              try { $sAfter.Start() } catch {}
+            }
+            Start-Sleep -Milliseconds 500
+          }
+          $ok = $started
+          $newState = if ($ok) { 'running' } else { 'stopped' }
+          $msg = if ($ok) { 'Symantec Endpoint Protection restarted successfully.' } else { 'Symantec Endpoint Protection stopped but did not return to Running within timeout.' }
+        } else {
+          $cliRes = Invoke-BoundedAvCli -FilePath $smc -ArgList @('-start') -TimeoutMs 18000
+          $started = $false
+          for ($i = 0; $i -lt 26; $i++) {
+            $svcAfter = Get-Service -Name 'SepMasterService' -ErrorAction SilentlyContinue
+            if ($null -eq $svcAfter -or $svcAfter.Status -eq 'Running') {
+              $started = $true
+              break
+            }
+            if ($i -eq 8 -and $svcAfter.Status -eq 'Stopped') {
+              try { $svcAfter.Start() } catch {}
+            }
+            Start-Sleep -Milliseconds 500
+          }
+          $ok = $started
+          $newState = if ($ok) { 'running' } else { 'stopped' }
+          $msg = if ($ok) { 'Symantec Endpoint Protection started.' } else { 'Symantec Endpoint Protection failed to start (SepMasterService remained stopped).' }
+        }
+      }
+    } elseif ($prodId -eq 'kaspersky') {
+      $avpExe = $null
+      foreach ($kBase in @("$env:ProgramFiles\Kaspersky Lab", "$env:ProgramFiles (x86)\Kaspersky Lab")) {
+        if (-not $avpExe -and (Test-Path -LiteralPath $kBase)) {
+          $avpExe = Get-ChildItem -Path $kBase -Filter 'avp.com' -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+        }
+      }
+      if ($avpExe) {
+        $usedCli = $true
+        if ($action -eq 'stop' -or $action -eq 'disable_realtime') {
+          $args = if ($pw) { @('STOP', 'RTP', "/password=$pw") } else { @('STOP', 'RTP') }
+          $cliRes = Invoke-BoundedAvCli -FilePath $avpExe -ArgList $args -TimeoutMs 20000 -CaptureOutput
+          if ($cliRes.TimedOut) {
+            throw 'Kaspersky avp.com STOP timed out after 20s (likely awaiting protection password or blocked by Self-Defense).'
+          }
+          if ($cliRes.ExitCode -ne 0) {
+            throw ("Kaspersky CLI rejected stop request (exit $($cliRes.ExitCode)): " + $cliRes.Output)
+          }
+          $ok = $true
+          $newState = 'stopped'
+          $msg = 'Kaspersky protection stopped. Remember to re-enable protection!'
+        } else {
+          $cliRes = Invoke-BoundedAvCli -FilePath $avpExe -ArgList @('START', 'RTP') -TimeoutMs 20000 -CaptureOutput
+          if ($cliRes.TimedOut) {
+            throw 'Kaspersky avp.com START timed out after 20s.'
+          }
+          if ($cliRes.ExitCode -ne 0) {
+            throw ("Kaspersky CLI failed to start protection (exit $($cliRes.ExitCode)): " + $cliRes.Output)
+          }
+          $ok = $true
+          $newState = 'running'
+          $msg = 'Kaspersky protection started.'
+        }
+      }
+    } elseif ($prodId -eq 'sentinelone') {
+      $s1Ctl = if (Test-Path -LiteralPath "$env:ProgramFiles\SentinelOne") {
+        Get-ChildItem -Path "$env:ProgramFiles\SentinelOne" -Filter 'sentinelctl.exe' -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+      } else { $null }
+      if ($s1Ctl) {
+        $usedCli = $true
+        if ($action -eq 'stop' -or $action -eq 'disable_realtime') {
+          if (-not $pw) {
+            throw 'SentinelOne requires a valid site/agent passphrase (-k) to unload protection.'
+          }
+          $cliRes = Invoke-BoundedAvCli -FilePath $s1Ctl -ArgList @('unload', '-a', '-k', $pw) -TimeoutMs 22000 -CaptureOutput
+          if ($cliRes.TimedOut) {
+            throw 'SentinelOne sentinelctl.exe unload timed out after 22s.'
+          }
+          if ($cliRes.ExitCode -ne 0) {
+            throw ("SentinelOne unload failed (exit $($cliRes.ExitCode)): " + $cliRes.Output)
+          }
+          $ok = $true
+          $newState = 'stopped'
+          $msg = 'SentinelOne agent unloaded with passphrase. Remember to reload it!'
+        } else {
+          $cliRes = Invoke-BoundedAvCli -FilePath $s1Ctl -ArgList @('load', '-a') -TimeoutMs 22000 -CaptureOutput
+          if ($cliRes.TimedOut) {
+            throw 'SentinelOne sentinelctl.exe load timed out after 22s.'
+          }
+          if ($cliRes.ExitCode -ne 0) {
+            throw ("SentinelOne load failed (exit $($cliRes.ExitCode)): " + $cliRes.Output)
+          }
+          $ok = $true
+          $newState = 'running'
+          $msg = 'SentinelOne agent loaded.'
+        }
+      }
+    }
+
+    if (-not $usedCli) {
+      if (-not $svcName) {
+        throw "No controllable Windows service or vendor CLI detected for '$prodId'."
+      }
+      if ($action -eq 'stop' -or $action -eq 'disable_realtime') {
+        try {
+          $afterSvc = Invoke-BoundedServiceControl -TargetSvc $svcName -Mode 'stop' -TimeoutSec 18
+        } catch {
+          throw ("Vendor self-defense, timeout (18s), or permission error prevented stopping service '$svcName': " + $_.Exception.Message)
+        }
+        if ($afterSvc.Status -ne 'Stopped') {
+          throw "Antivirus service '$svcName' remained $($afterSvc.Status) (blocked by Self-Defense / Tamper Protection)."
+        }
+        $ok = $true
+        $newState = 'stopped'
+        $msg = "Antivirus service '$svcName' stopped. Remember to start it again!"
+      } elseif ($action -eq 'restart') {
+        try {
+          Invoke-BoundedServiceControl -TargetSvc $svcName -Mode 'stop' -TimeoutSec 16 | Out-Null
+          $afterSvc = Invoke-BoundedServiceControl -TargetSvc $svcName -Mode 'start' -TimeoutSec 16
+        } catch {
+          throw ("Failed to restart antivirus service '$svcName' within timeout: " + $_.Exception.Message)
+        }
+        $ok = ($afterSvc.Status -eq 'Running')
+        $newState = if ($ok) { 'running' } else { 'stopped' }
+        $msg = "Antivirus service '$svcName' restarted ($($afterSvc.Status))."
+      } else {
+        try {
+          $afterSvc = Invoke-BoundedServiceControl -TargetSvc $svcName -Mode 'start' -TimeoutSec 18
+        } catch {
+          throw ("Failed to start antivirus service '$svcName' within timeout: " + $_.Exception.Message)
+        }
+        $ok = ($afterSvc.Status -eq 'Running')
+        $newState = if ($ok) { 'running' } else { 'stopped' }
+        $msg = "Antivirus service '$svcName' started ($($afterSvc.Status))."
+      }
     }
   }
 }
@@ -21318,7 +21526,7 @@ PY`;
       timeoutMs:
         action === 'update_definitions'
           ? Math.max(120000, input.timeoutMs || 120000)
-          : Math.max(35000, input.timeoutMs || 35000),
+          : Math.max(75000, input.timeoutMs || 75000),
     },
     winPs,
     linuxSh

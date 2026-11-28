@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.504.1';
+export const APP_VERSION = '1.504.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.504.2',
+    releaseDate: '2026-11-28',
+    type: 'patch',
+    title: 'رفع خطای تایم‌اوت ۳۵ ثانیه‌ای SMB/RPC هنگام فعال/غیرفعال‌سازی آنتی‌ویروس و بهینه‌سازی راهنمای خطا',
+    title_en: 'Fix 35s Domain Admin SMB/RPC Timeout When Enabling/Disabling Antivirus & Improve Security Tab Timeout Hint',
+    changes: [
+      'رفع علت اصلی قفل‌شدن و تایم‌اوت ۳۵ ثانیه‌ای دستورهای کنترل آنتی‌ویروس (`controlEndpointAntivirus` در `server/helpdeskService.ts`) روی ارتباط SMB/RPC: جایگزینی `Start-Process -Wait` بدون محدودیت زمانی و `Stop-Service -Force` / `Start-Service` معلق با اجرای زمان‌بندی‌شده (`WaitForExit(18s)`) و کنترل سرویس با `.NET ServiceController.WaitForStatus(18s)` تا در صورت باز شدن پنجره رمز Session 0 یا قفل Self-Defense به‌جای هنگ کردن، خطای دقیق برگردانده شود.',
+      'حذف جستجوی کند و بازگشتی `Get-ChildItem -Recurse` درون پوشه‌های سنگین آنتی‌ویروس و جایگزینی با کشف آنی مسیر از `Win32_Service` و رجیستری (`SepMasterService` / `SMC`)، اصلاح کامل عملیات `restart` برای Symantec، و افزایش سقف Timeout عملیات کنترل آنتی‌ویروس به ۷۵ ثانیه.',
+      'اصلاح کامپوننت `TimeoutAntivirusHint.tsx` تا هنگام خطا روی خود تب امنیت و آنتی‌ویروس، به‌جای پیام متناقض «آنتی‌ویروس را خاموش کنید»، راهنمای کاربردی وارد کردن رمز توقف یا بررسی Self-Defense نمایش داده شود.'
+    ],
+    changes_en: [
+      'Resolved the root cause of the 35s Domain Admin SMB/RPC timeout in `controlEndpointAntivirus` (`server/helpdeskService.ts`): replaced blocking `Start-Process -Wait` (which hung indefinitely if Symantec `Smc.exe -stop` opened a hidden Session-0 password prompt) and unbounded `Stop-Service`/`Start-Service` calls with bounded `WaitForExit(18s)` and `.NET ServiceController.WaitForStatus(18s)` timeouts.',
+      'Replaced slow recursive Program Files traversal with instant `Win32_Service`/`Registry` binary discovery, fixed Symantec `restart` to perform a stop-then-start cycle, and raised the AV control SMB/RPC transport deadline from 35s to 75s.',
+      'Updated `TimeoutAntivirusHint.tsx` so timeouts inside the Security & Antivirus tab show actionable Unlock Password / Self-Defense / WinRM troubleshooting advice instead of telling the operator to turn off Antivirus while failing to toggle it.'
+    ]
+  },
   {
     version: '1.504.1',
     releaseDate: '2026-11-28',
