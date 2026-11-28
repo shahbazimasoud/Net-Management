@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.501.1';
+export const APP_VERSION = '1.501.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.501.2',
+    releaseDate: '2026-11-27',
+    type: 'patch',
+    title: 'محدودسازی سخت‌گیرانه تاریخچه اتصالات هلپ‌دسک (Connection History) به اتصالات شخصی هر کاربر و دسترسی کامل منحصراً برای سوپر ادمین',
+    title_en: 'Strictly Scope HelpDesk Connection History to Own Records Except Super Admin',
+    changes: [
+      'اصلاح سطح دسترسی در مسیرهای `GET /api/helpdesk/history`، `DELETE /api/helpdesk/history/:id` و `DELETE /api/helpdesk/history` (`server/routes.ts`) و کوئری‌های پایگاه داده (`server/db.ts`) به‌طوری‌که تمامی کاربران (حتی دامین ادمین یا سایر نقش‌ها) منحصراً اتصالات ثبت‌شده توسط خودشان را مشاهده و مدیریت کنند و مشاهده تمام تاریخچه اپراتورها منحصراً در اختیار `Super Admin` (`canViewAllConnectionHistory`) باشد.',
+      'همگام‌سازی نمایش وضعیت محدوده (`scope`) در تب `Connection History` صفحه `Agentless Endpoint HelpDesk` (`src/components/HelpDeskView.tsx` و `src/services/api.ts`) و اعمال fail-closed در صورت خالی بودن شناسه کاربر.'
+    ],
+    changes_en: [
+      'Enforced strict Super-Admin-only global scope on `GET /api/helpdesk/history`, `DELETE /api/helpdesk/history/:id`, and `DELETE /api/helpdesk/history` (`server/routes.ts`) so all non-Super-Admin users (including Domain Admins and HelpDesk operators) strictly view, delete, and clear only their own initiated connections.',
+      'Added fail-closed empty-actor protection in `server/db.ts` (`queryHelpdeskConnectionHistoryFromDb`, `deleteHelpdeskConnectionHistoryFromDb`, `clearHelpdeskConnectionHistoryFromDb`) and synced `canViewAllConnectionHistory` in `src/components/HelpDeskView.tsx` and `src/services/api.ts`.'
+    ]
+  },
   {
     version: '1.501.1',
     releaseDate: '2026-11-27',

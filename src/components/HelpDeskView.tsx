@@ -894,7 +894,7 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
   const [confirmClearHistory, setConfirmClearHistory] = useState(false);
   const [copiedHistoryIpId, setCopiedHistoryIpId] = useState<string | null>(null);
   const [historyNotice, setHistoryNotice] = useState<{ ok: boolean; text: string } | null>(null);
-  const [historyScope, setHistoryScope] = useState<'all' | 'own'>(hasElevatedHelpdesk ? 'all' : 'own');
+  const [historyScope, setHistoryScope] = useState<'all' | 'own'>(isSuper ? 'all' : 'own');
 
   useEffect(() => {
     bindHelpdeskRamOwner(currentUser?.id || currentUser?.username || null);
@@ -913,8 +913,8 @@ export const HelpDeskView: React.FC<HelpDeskViewProps> = ({
         if (typeof res.permissions?.canViewHelpdeskBrowserHistory === 'boolean') {
           setServerCanViewBrowserHistory(res.permissions.canViewHelpdeskBrowserHistory);
         }
-        if (typeof res.permissions?.canViewAllHelpdeskHistory === 'boolean') {
-          setHistoryScope(res.permissions.canViewAllHelpdeskHistory ? 'all' : 'own');
+        if (typeof res.permissions?.canViewAllConnectionHistory === 'boolean') {
+          setHistoryScope(res.permissions.canViewAllConnectionHistory ? 'all' : 'own');
         }
       })
       .catch(() => {});

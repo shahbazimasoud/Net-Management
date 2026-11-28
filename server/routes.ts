@@ -8008,6 +8008,8 @@ async function resolveHelpdeskAuth(
     hasFullHelpdeskAccess ||
     ((canDiagnostics || canDomainUsers || canAdUsers || canAdGroups) &&
       effectivePolicy?.canViewAllHelpdeskHistory === true);
+  // Strict: Connection History across all operators is restricted exclusively to Super Admin
+  const canViewAllConnectionHistory = Boolean(isSuperAdmin);
   // Strict: Interactive screen messaging strictly requires explicit RBAC grant or Super Admin
   const canSendMessage = isSuperAdmin || (canView && effectivePolicy?.canSendHelpdeskMessage === true);
   // Strict: Web Browser History inspection is disabled by default for all roles except Super Admin unless explicitly enabled
@@ -8295,6 +8297,7 @@ async function resolveHelpdeskAuth(
       canManageHelpdeskExceptions: canManageExceptions,
       canSendHelpdeskMessage: canSendMessage,
       canViewAllHelpdeskHistory: canViewAllHistory,
+      canViewAllConnectionHistory,
       canViewHelpdeskBrowserHistory: canViewBrowserHistory,
     },
   };
@@ -8680,12 +8683,13 @@ apiRouter.get('/helpdesk/history', async (req: Request, res: Response) => {
     if (!auth.ok) {
       return sendHelpdeskAuthFailure(res, auth);
     }
-    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    // Only Super Admin sees all operators' connections; every other user sees strictly their own
+    const canViewAll = Boolean(auth.isSuperAdmin);
     const actorAliases = canViewAll
       ? undefined
       : Array.from(
           new Set(
-            [auth.actorName, auth.user?.username, auth.user?.fullName]
+            [auth.actorName, auth.user?.username]
               .map((s) => String(s || '').trim())
               .filter(Boolean)
           )
@@ -8721,12 +8725,12 @@ apiRouter.delete('/helpdesk/history/:id', async (req: Request, res: Response) =>
     if (!id) {
       return res.status(400).json({ success: false, error: 'History record ID is required' });
     }
-    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const canViewAll = Boolean(auth.isSuperAdmin);
     const actorAliases = canViewAll
       ? undefined
       : Array.from(
           new Set(
-            [auth.actorName, auth.user?.username, auth.user?.fullName]
+            [auth.actorName, auth.user?.username]
               .map((s) => String(s || '').trim())
               .filter(Boolean)
           )
@@ -8772,12 +8776,12 @@ apiRouter.delete('/helpdesk/history', async (req: Request, res: Response) => {
     if (!auth.ok) {
       return sendHelpdeskAuthFailure(res, auth);
     }
-    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const canViewAll = Boolean(auth.isSuperAdmin);
     const actorAliases = canViewAll
       ? undefined
       : Array.from(
           new Set(
-            [auth.actorName, auth.user?.username, auth.user?.fullName]
+            [auth.actorName, auth.user?.username]
               .map((s) => String(s || '').trim())
               .filter(Boolean)
           )

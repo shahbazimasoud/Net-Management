@@ -15646,10 +15646,13 @@ export async function queryHelpdeskConnectionHistoryFromDb(params: {
     (a, b) => new Date(b.connectedAt || 0).getTime() - new Date(a.connectedAt || 0).getTime()
   );
 
-  // Enforce per-user scoping unless operator has full HelpDesk access
+  // Enforce per-user scoping unless caller explicitly requests unscoped (Super Admin)
+  const scopedOwn = params.actorAliases !== undefined;
   const actorSet = normalizeActorMatchSet(params.actorAliases);
-  if (actorSet) {
-    allRecords = allRecords.filter((r) => actorSet.has(String(r.actorName || '').trim().toLowerCase()));
+  if (scopedOwn) {
+    allRecords = actorSet
+      ? allRecords.filter((r) => actorSet.has(String(r.actorName || '').trim().toLowerCase()))
+      : [];
   }
 
   const uniqueSet = new Set<string>();
@@ -15711,7 +15714,11 @@ export async function deleteHelpdeskConnectionHistoryFromDb(
   id: string,
   actorAliases?: string[]
 ): Promise<{ deleted: boolean; forbidden?: boolean }> {
+  const scopedOwn = actorAliases !== undefined;
   const actorSet = normalizeActorMatchSet(actorAliases);
+  if (scopedOwn && !actorSet) {
+    return { deleted: false, forbidden: true };
+  }
 
   await ensurePostgresConnection();
   if (isPostgresReady && pool && actorSet) {
@@ -15753,7 +15760,11 @@ export async function deleteHelpdeskConnectionHistoryFromDb(
 }
 
 export async function clearHelpdeskConnectionHistoryFromDb(actorAliases?: string[]): Promise<number> {
+  const scopedOwn = actorAliases !== undefined;
   const actorSet = normalizeActorMatchSet(actorAliases);
+  if (scopedOwn && !actorSet) {
+    return 0;
+  }
   const store = loadFallbackStore();
   const list: any[] = Array.isArray(store.helpdesk_connection_history) ? store.helpdesk_connection_history : [];
   let fbRemoved = 0;

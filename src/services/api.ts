@@ -1059,6 +1059,7 @@ export async function fetchHelpdeskStatus(): Promise<{
     canManageHelpdeskExceptions: boolean;
     canSendHelpdeskMessage: boolean;
     canViewAllHelpdeskHistory: boolean;
+    canViewAllConnectionHistory?: boolean;
     canViewHelpdeskBrowserHistory?: boolean;
   };
   rateLimit: {
